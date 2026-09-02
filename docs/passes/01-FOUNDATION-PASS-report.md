@@ -134,7 +134,7 @@ copyright holder (no copyright line anywhere), DP-007 hosting (no remote;
 
 For the human, wording rather than a decision: INV-10's parenthetical
 rationale describes `/usr/local` contamination as an environment-variable
-problem; R-4 finds MacPorts already sanitises its build environment and the
+problem; F-2 finds MacPorts already sanitises its build environment and the
 hazard is a filesystem search-path one. The invariant stands; its rationale
 text is Tier 1 and was not edited.
 

@@ -159,8 +159,9 @@ try, is in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## Where is the release?
 
-There is not one. The repository has no remote yet by the owner's decision, and
-release signing is an open decision. Build from source — see
+There is not one yet. The repository will be public on GitHub (DP-007, decided
+2026-09-02) but the remote does not exist yet. Release signing is decided —
+Developer ID plus notarisation (DP-004, ADR-0005). Build from source — see
 [Getting Started](Getting-Started.md).
 
 ## Is it affiliated with Homebrew or MacPorts?

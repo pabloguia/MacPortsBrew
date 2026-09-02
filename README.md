@@ -131,9 +131,10 @@ Homebrew installation is already broken or who has no package manager at all.
 `brew install` and `port install` may follow later as conveniences; neither
 will ever be the only route.
 
-**This build has no published release.** The repository has no remote yet by
-the owner's decision ([DP-007](docs/decisions-pending.md)), so the only way to
-get it today is to build from source as above.
+**This build has no published release.** The repository will be published
+publicly on GitHub ([DP-007](docs/decisions-pending.md), decided 2026-09-02) but
+the remote does not exist yet, so the only way to get it today is to build from
+source as above.
 
 ### Gatekeeper, honestly
 
@@ -152,16 +153,24 @@ run from a shell on macOS 26 is **not established**: Apple documents Gatekeeper
 around opening applications, plug-ins and installer packages, not around
 `execve`, and no quarantined Mach-O existed on the machine used to check. The
 project assumes the pessimistic case and will document the exact command you
-may need. Two further facts bound the choice: a bare binary cannot be
-notarisation-stapled, so notarisation would not produce an offline-verifiable
-artifact in the format planned; and `arm64` binaries are ad-hoc signed by the
-linker by default, so ad-hoc signing there is a property to assert in CI rather
-than a step to add. All of this is sourced and dated in
+may need. One further fact shaped the answer: a bare binary cannot be
+notarisation-stapled, so a `.pkg` and a `.dmg` are published beside it to carry
+a stapled ticket. All of this is sourced and dated in
 [`docs/research/R-9-gatekeeper-and-distribution.md`](docs/research/R-9-gatekeeper-and-distribution.md)
 (2026-09-02, citing Apple's
-<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>);
-whether releases are Developer ID signed and notarised or ad-hoc signed with
-documented instructions is [DP-004](docs/decisions-pending.md), still open.
+<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>).
+
+Releases are **Developer ID signed and notarised**
+([DP-004](docs/decisions-pending.md), decided 2026-09-02;
+[ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)). The bare binary is
+signed and notarised but not stapled, so verifying it on first run contacts
+Apple. The `.pkg` and `.dmg` carry a stapled ticket, which is *intended* to
+make them verifiable offline — whether a stapled ticket reaches a binary copied
+out of a container is R-11, still open, and the `.dmg` is provisional on that
+answer. When releases exist, each artifact will carry a build provenance
+attestation alongside its checksum; the attestation and the notarisation are the
+intended trust anchors, and the checksum file guards against transport
+corruption and nothing more. Nothing about your machine is sent to this project.
 
 MacPortsBrew will not ship a `curl | sh` installer. It would work — `curl` sets
 no quarantine — but a tool asking you to trust it with your package managers
@@ -206,6 +215,8 @@ usernames, home paths, environment variable values or tokens — which you read
 and choose to share; MacPortsBrew never uploads it.
 
 ## Licence
+
+Copyright 2026 Pablo Guia.
 
 Apache License 2.0. The full text is in [`LICENSE`](LICENSE), and every source
 file carries `SPDX-License-Identifier: Apache-2.0`. Contributions are licensed

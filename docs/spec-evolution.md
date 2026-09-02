@@ -583,7 +583,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted
-- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS; extended 2026-09-02 /
+  02-ARCHITECTURE-REVIEW-PASS
 - Original assumption: `07-quality-and-testing.md` held open that "hosted Intel
   macOS runner availability is uncertain and must be verified, not assumed",
   with cross-compilation plus Intel fixtures as the contingency; ADR-0002 and
@@ -626,6 +627,19 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: none on the product. On CI, the matrix is the source of
   the support matrix, which is generated from the job list rather than
   maintained beside it.
+- Extended 2026-09-02 (02-ARCHITECTURE-REVIEW-PASS), by owner decision on
+  DP-007: the repository will be **public** on GitHub, so "free on public
+  repositories" stops being a condition this entry assumed and becomes a
+  property of this project — the two-architecture macOS matrix, the most
+  expensive runner SKU there is, costs nothing. Two constraints come with it and
+  belong beside the runner labels rather than in a billing footnote: **larger
+  (`-large`) runners are never free on public repositories and cannot draw on
+  included minutes, so no job may request one**, and self-hosted runners are
+  inappropriate on a public repository because a fork can execute arbitrary code
+  on them. A third consequence is not about cost at all: GitHub does not
+  pass secrets to a fork-triggered runner (GitHub Docs, "Using secrets in GitHub
+  Actions", read 2026-09-02), which is what makes SE-014's signing job safe to
+  run in the open and simultaneously dictates its shape.
 - Compatibility impact: the Intel half of the project's reason to exist can be
   *tested* until at least Fall 2027; after that it can only be claimed, and the
   documentation will have to say so.
@@ -637,7 +651,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 ## SE-014 — Gatekeeper confronted as a distribution requirement
 - Status: accepted
 - Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
-  01-FOUNDATION-PASS
+  01-FOUNDATION-PASS; resolved 2026-09-02 /
+  02-ARCHITECTURE-REVIEW-PASS
 - Original assumption: ship binaries and checksums via GitHub Releases.
 - Change: signing/notarisation versus ad-hoc signing plus honest quarantine
   instructions is a required, recorded decision before the first release
@@ -668,6 +683,31 @@ change is made. Silent deviation remains the one unrecoverable error.
   wrong property. Left standing, it would have priced a recurring 99 USD/year
   subscription against a problem whose severity is still unmeasured, and bought
   a fix that does not apply to the artifact format the project ships.
+- Resolved 2026-09-02 (02-ARCHITECTURE-REVIEW-PASS), by owner decision on
+  DP-004, recorded in **ADR-0005**: Developer ID signing plus notarisation, with
+  three artifacts per architecture — the bare binary, still the leading path,
+  plus a `.pkg` and a `.dmg` that can carry a stapled ticket. What changed was
+  not the analysis but one of its premises: the owner already holds a paid Apple
+  Developer account, so the recurring cost this entry weighed does not exist, and
+  the identity it is tied to is the name DP-006 resolved as copyright holder the
+  same day. Extension point 4 above is answered by shipping containers that can
+  be stapled, not by the account; extension point 5's `strip`/`lipo` hazard now
+  invalidates a real signature rather than an ad-hoc one, which is why CI asserts
+  the authority on the final artifact. The consequences are stated once in
+  ADR-0005 and, where they bind, in `08-distribution-and-project.md` — not
+  summarised again here, per SE-032.
+- Extended again 2026-09-02 (02-ARCHITECTURE-REVIEW-PASS), by owner decision
+  after security review: **build provenance attestation is promoted from SHOULD
+  to MUST**, in the same change that created the risk it answers. Putting a
+  signing key in the release pipeline is what made the published checksums
+  insufficient as a trust anchor — they sit on the same release page as the
+  artifacts, so whatever can replace one can replace the other, and the
+  documented "verify the checksum" step would then verify a hash the attacker
+  wrote. The requirement is in `08-distribution-and-project.md`. One caveat
+  belongs here rather than there: the cost objection is *assumed* gone, not
+  established — R-10 mentions `attestations` only as a `permissions:` scope, so
+  cite GitHub's artifact-attestation documentation with a read date before the
+  release workflow relies on it.
 - Evidence: `docs/research/R-9-gatekeeper-and-distribution.md`, observations
   O-3, O-5, O-6, O-7 and O-11 on this machine, and citations C-1, C-2, C-5,
   C-6, C-7 and C-8, all 2026-09-02. Cite Gatekeeper as
@@ -678,7 +718,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-021 — Licence: Apache-2.0, with its consequences propagated
 - Status: accepted
-- Date / Pass: 2026-09-02 / owner decision (DP-003)
+- Date / Pass: 2026-09-02 / owner decision (DP-003); extended 2026-09-02 /
+  02-ARCHITECTURE-REVIEW-PASS
 - Original assumption: licence undecided; MIT and Apache-2.0 both candidates.
 - Change: Apache License 2.0. `LICENSE` committed with the canonical text.
   Propagated rather than filed: SPDX short-form headers on every source file,
@@ -694,6 +735,14 @@ change is made. Silent deviation remains the one unrecoverable error.
   independent copies and the SPDX canonical body text; sha256
   `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`, checked
   in CI.
+- Extended 2026-09-02 (02-ARCHITECTURE-REVIEW-PASS), by owner decision on
+  DP-006: the copyright holder is **Pablo Guia**, an individual rather than an
+  entity. It appears in `README.md` and release metadata, and still in no source
+  file — ADR-0001's SPDX-only rule is unchanged. The string deliberately matches
+  the name on the Apple Developer account, so that the Developer ID signature
+  required by SE-014 and the copyright line name one person rather than two
+  spellings; a `NOTICE` file remains unnecessary until something needs
+  attributing.
 - Architectural impact: constrains dependency selection.
 
 ## SE-022 — macOS floor 10.12 / 11.0, which decided the implementation language: Rust
@@ -1310,10 +1359,11 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: none on the product. `11-agentic-sdlc.md` and the
   `/spec-evolution` skill describe the convention.
 
-## SE-034 — Two Tier 1 wording corrections, made under explicit owner authorization
+## SE-034 — Tier 1 wording corrections, made under explicit owner authorization
 - Status: accepted
 - Date / Pass: 2026-09-02 / 00-REPO-READINESS-PASS (owner authorization
-  given in the session that ran the pass)
+  given in the session that ran the pass); extended 2026-09-02 /
+  02-ARCHITECTURE-REVIEW-PASS
 - Original assumption: `01-invariants.md` said "See `docs/research/`" as
   INV-10's evidence pointer and gave `TestInvariant07_...` "or the
   equivalent in the chosen language" as the test-naming example.
@@ -1327,10 +1377,47 @@ change is made. Silent deviation remains the one unrecoverable error.
   authorized exactly these two edits. Recording them here keeps the rule
   intact: a Tier 1 edit is traceable to a human decision, never to an
   agent's judgement.
-- Evidence: the owner's confirmation in the readiness-pass session,
+- Extended 2026-09-02 (02-ARCHITECTURE-REVIEW-PASS), a third correction on the
+  same terms. INV-10's parenthetical rationale justified a sanitised environment
+  by saying that build systems probe `/usr/local` for headers and libraries.
+  That is true and it is not a reason for this rule: clearing environment
+  variables does not stop a compiler from searching a path compiled into it, so
+  the stated reason described a hazard the invariant does not address. F-2 found
+  the filesystem half already covered by the providers themselves — MacPorts
+  keeps an allowlist and offers opt-in trace mode, Homebrew's compiler shim
+  always drops `-I` and `-L` flags pointing at the other prefix. The rationale
+  now gives the reason that does hold: the developer's shell may export flags
+  pointing at the other prefix, a provider invoked with those inherited behaves
+  differently than it does on its own, and MacPortsBrew must not be the source
+  of that distortion. **The invariant's requirement is untouched**; only its
+  justification changed, and the owner authorized exactly this edit.
+- Refined twice more the same day, on the same terms, and the second refinement
+  is the interesting one. First: "reports **and builds** differently" overstated
+  the claim, because F-2's E-4 records that MacPorts keeps only an allowlist of
+  environment variables during its own builds and that allowlist contains none
+  of the six INV-10 names. The word became **"behaves"**. Second, at the owner's
+  prompting: the replacement rationale had grown to eight lines summarising F-2 —
+  which provider mitigates the filesystem hazard, how, and how much — and every
+  remaining accuracy complaint sat in that summary ("rather than" where F-2 says
+  "not primarily"; "mitigates" for MacPorts' opt-in, default-off trace mode;
+  "always-on" for a shim that is always on *for source builds*). **The rationale
+  was cut to two sentences and the summary deleted rather than corrected.** An
+  invariant states the rule and points at the evidence; restating a research
+  note inside Tier 1 text creates a second copy that drifts from the sourced
+  one, and it was already drifting. F-2 carries the nuance, with its dates. The
+  result also matches the house style INV-19 already sets.
+- Recorded here, all three times, because a Tier 1 edit made to *narrow* or
+  *shorten* a claim is still a Tier 1 edit.
+- Evidence: for the third correction and its two refinements, the owner's
+  confirmation in the 02-ARCHITECTURE-REVIEW-PASS session of 2026-09-02, to be
+  indexed in that pass's report. For the first two, the owner's confirmation in
+  the readiness-pass session,
   2026-09-02, indexed in `passes/00-REPO-READINESS-PASS-report.md`; F-2 in
-  `09-research-checklist.md` (<https://trac.macports.org/wiki/FAQ>, read
-  2026-09-02); ADR-0002 for the language.
+  `09-research-checklist.md` (MacPorts Guide §3.1.12,
+  <https://guide.macports.org/chunked/using.html#using.port.install>, read
+  2026-09-02 — F-2 records that
+  `trac.macports.org` served a bot-mitigation interstitial to every URL form
+  tried that day, so the FAQ is not the citable source it was taken for); ADR-0002 for the language.
 - User impact: none.
 - Architectural impact: none.
 - Compatibility impact: none.

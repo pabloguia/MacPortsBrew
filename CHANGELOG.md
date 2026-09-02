@@ -94,6 +94,9 @@ catalogue are in place, the translations are not.
 - Branch-coverage floors are not enforced: `cargo-llvm-cov --branch` needs a
   nightly toolchain and the pinned toolchain is stable
   ([ADR-0002](docs/adr/0002-implementation-language.md)).
-- There is no published release. Release signing is
-  [DP-004](docs/decisions-pending.md) and the repository has no remote
-  ([DP-007](docs/decisions-pending.md)).
+- There is no published release yet. Release signing is decided — Developer ID
+  plus notarisation, with a bare binary, a `.pkg` and a `.dmg`
+  ([DP-004](docs/decisions-pending.md),
+  [ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)) — and the
+  repository will be public on GitHub
+  ([DP-007](docs/decisions-pending.md)), but the remote does not exist yet.

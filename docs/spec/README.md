@@ -29,6 +29,8 @@ Related:
   - [0001 — Licence: Apache-2.0](../adr/0001-licence-apache-2-0.md)
   - [0002 — Minimum macOS target and implementation language](../adr/0002-implementation-language.md)
   - [0003 — Product name and CLI alias](../adr/0003-name-and-cli-alias.md)
+  - [0004 — Dependency gate](../adr/0004-dependency-gate.md)
+  - [0005 — Release signing and distribution artifacts](../adr/0005-release-signing-and-artifacts.md)
 
 ## Authority
 

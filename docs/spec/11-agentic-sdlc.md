@@ -93,7 +93,7 @@ paths exist.
 | Writes to shell configuration files | `05-environment-and-primary-provider.md`: shell files are written only through the managed-block procedure. |
 | `launchctl`, `chsh`, and system security tools | INV-19. |
 | `rustup default|override|toolchain`, `cargo install` | ADR-0002. The pinned toolchain is what holds the macOS floor. |
-| `git push` | DP-007. The repository has no remote by the owner's decision. |
+| `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet. |
 
 **MUST.** Read-only provider subcommands are explicitly *allowed*. Observing
 the live system is how provider facts are meant to be established

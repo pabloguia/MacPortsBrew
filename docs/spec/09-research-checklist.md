@@ -172,8 +172,10 @@ packages keep their data. Enough to *detect* the classes in
 them, which is a later pass.
 
 ### R-9 · Gatekeeper and release distribution
-*Answered 2026-09-02 — `docs/research/R-9-gatekeeper-and-distribution.md`*, with
-one UNRESOLVED experiment named there and required before the first release.
+*Answered 2026-09-02 — `docs/research/R-9-gatekeeper-and-distribution.md`*.
+Its UNRESOLVED experiment and its ad-hoc-signing recommendation are both
+**superseded by ADR-0005** (2026-09-02): the experiment now documents the path
+not taken rather than gating a release.
 What happens to a downloaded, unsigned CLI binary on current macOS. Options and
 costs for signing/notarisation versus ad-hoc signing with documented
 instructions. Feeds `docs/decisions-pending.md`.
@@ -182,6 +184,30 @@ instructions. Feeds `docs/decisions-pending.md`.
 *Answered 2026-09-02 — `docs/research/R-10-ci-runners.md`.*
 Current availability of hosted Intel macOS runners on GitHub Actions, and the
 fallback if there are none.
+
+### R-11 · Apple signing and notarisation toolchain
+*Open. Blocks the implementation pass that writes the release workflow, not
+ADR-0005, which is decided.*
+Five things the signing decision assumes and this repository has not verified:
+**whether stapling a `.pkg` or `.dmg` covers a binary copied out of it or only
+the container** — if only the container, the `.dmg` buys nothing the bare binary
+does not and is dropped; whether `codesign`, `notarytool` and `stapler` are
+present on the free `macos-15-intel` standard runner image and at what Xcode
+floor, which R-10 did not establish; which certificate signs the `.pkg` —
+R-9 C-1 lists an "installer certificate" among the acceptable kinds without
+saying it signs the `.pkg`, so this was wrongly treated as answered; whether the
+hardened runtime requires any entitlement for a tool that spawns `brew` and
+`port` (expected: none, worth confirming rather than discovering at
+notarisation time); and what a quarantined, notarised,
+**unstapled** binary does on a machine with no network, which is the state of
+exactly the user this project is written for.
+
+Already answered by R-9 (2026-09-02) and **not** open, despite an earlier draft
+of ADR-0005 listing them: that a Developer ID **Application** certificate signs
+Mach-O files, disk images and command-line tools (C-3) — the `.pkg` is not in
+that list and stays open above — whether the hardened runtime is required for a command-line
+tool (C-1, C-3, C-4), and what container `notarytool` accepts for a standalone
+binary (C-2).
 
 ---
 

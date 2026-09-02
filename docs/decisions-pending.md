@@ -11,56 +11,8 @@ are recorded.
 
 ## Open
 
-### DP-004 — Release signing
-- **Options:** Developer ID signing plus notarisation (requires a paid Apple
-  Developer account) versus ad-hoc signing with documented quarantine-clearing
-  instructions. See SE-014 and research item R-9.
-- **Note:** macOS 10.12 is old enough that Gatekeeper behaviour differs across
-  the supported range; R-9 (2026-09-02) covers the whole range in four steps —
-  no notarisation regime below 10.14.5, the Developer ID requirement from
-  10.14.5 and 10.15, and the loss of the Control-click override in macOS 15 and
-  later.
-- **Recommendation (R-9, 2026-09-02):** take the reversible default — ad-hoc
-  signing plus documented quarantine handling — and do **not** enrol in the
-  Apple Developer Program for the first release. Four reasons: the 99 USD/year
-  is recurring and tied to a legal identity, which would force DP-006 by a side
-  door; adding Developer ID later invalidates no published artifact, whereas
-  dropping it would; a bare binary cannot be notarisation-stapled, so paying
-  would not even buy an offline-verifiable artifact in the format
-  `08-distribution-and-project.md` mandates; and on `arm64` the ad-hoc signature
-  is already produced by the linker, so the marginal work is a CI assertion
-  rather than a signing pipeline.
-- **Reopen if:** the UNRESOLVED experiment R-9 names — running a
-  browser-downloaded, quarantined, unsigned binary from a shell on macOS 26,
-  both architectures — shows a hard kill rather than a warning. That flips the
-  trust argument in SE-014 and makes 99 USD/year cheap. Run it before the first
-  public release, not after.
-- **Default meanwhile:** ad-hoc signing plus honest documentation — the
-  quarantine step stated beside the download link rather than buried, the
-  `xattr -d com.apple.quarantine` command given verbatim with an explanation of
-  what it does, a plain statement that the release is not notarised and that
-  this is a cost decision, and `Signature=adhoc` asserted on the `arm64`
-  artifact in CI. Do not publish a public release until decided.
-
-### DP-006 — Copyright holder
-- **Why it is the owner's call:** it is a legal identity — an individual's full
-  legal name or an entity — and it is awkward to change once contributions and
-  releases carry it.
-- **Where it appears:** README, release metadata, and any future `NOTICE` or
-  `THIRD-PARTY-NOTICES` file. **Not** in source files: per ADR-0001 those carry
-  an SPDX identifier only, so this decision blocks nothing in the code.
-- **Default meanwhile:** omit the copyright line entirely rather than guess.
-  The Apache-2.0 grant is effective without it.
-
-### DP-007 — Repository hosting and visibility
-- **Why it is the owner's call:** deciding when the work becomes public.
-- **Context:** the folder is not yet a git repository, by the owner's choice
-  (2026-09-02). A remote repository is also what would make the project
-  reachable from devices other than the linked Mac — Cowork projects themselves
-  are desktop-only and do not sync.
-- **Note:** the repository name should be `macportsbrew` (ADR-0003).
-- **Default meanwhile:** none. The foundation pass initialises git locally as
-  its first step; pushing anywhere is a separate, explicit decision.
+None. Every decision reserved for the human has been made; resolved items are
+below, each pointing at where it is recorded.
 
 ---
 
@@ -97,3 +49,45 @@ Recorded in [`adr/0003-name-and-cli-alias.md`](adr/0003-name-and-cli-alias.md)
 and SE-023. `mpb` collides with MIT Photonic-Bands (installed by other means — neither
 provider packaged it when checked, ADR-0003), so installation detects an
 existing `mpb` and declines to shadow it silently.
+
+### DP-004 — Release signing — **RESOLVED 2026-09-02: Developer ID signing and notarisation, three artifacts**
+Decided by the project owner, who already holds a paid Apple Developer account.
+Recorded in [`adr/0005-release-signing-and-artifacts.md`](adr/0005-release-signing-and-artifacts.md)
+and SE-014. Every release artifact is signed with Developer ID and notarised,
+and three are published per architecture: the bare binary — still the path the
+documentation leads with — plus a `.pkg` and a `.dmg`, which exist because they
+can carry a stapled notarisation ticket and a bare Mach-O cannot (R-9).
+
+The consequences — credential handling, why the tag-push rule needs a protected
+environment rather than a convention, where the `.pkg` may install, and what
+remains unverified — are in
+[`adr/0005-release-signing-and-artifacts.md`](adr/0005-release-signing-and-artifacts.md).
+The binding requirements are restated once, in
+[`spec/08-distribution-and-project.md`](spec/08-distribution-and-project.md);
+the specification change is SE-014. R-11 gathers what still blocks the
+implementation pass, and the R-9 quarantine experiment survives as documentation
+of the path not taken rather than as a decision gate.
+
+### DP-006 — Copyright holder — **RESOLVED 2026-09-02: Pablo Guia**
+Decided by the project owner. The string matches the name on the Apple
+Developer account, so the Developer ID signature and the copyright line name
+the same person rather than two spellings of one. Appears in `README.md`,
+release metadata and any future `NOTICE`; **not** in source files, which carry
+an SPDX identifier only (ADR-0001).
+
+### DP-007 — Repository hosting and visibility — **RESOLVED 2026-09-02: public repository on GitHub**
+Decided by the project owner: public, under a personal Pro account, named
+`macportsbrew` (ADR-0003), with GitHub Pages for the project site and possibly
+a custom domain later.
+
+Consequences that now bind the project: standard GitHub-hosted runners are free
+and unlimited on public repositories while the plan's included minutes are
+private-repository only (R-10), so the two-architecture macOS matrix costs
+nothing — but **`-large` runners are never free on public repositories and must
+not be used**, and self-hosted runners do not belong on one, because a fork can
+execute arbitrary code on them. That GitHub withholds secrets from
+fork-triggered workflows is what makes ADR-0005's signing design safe to run in
+the open, and equally what constrains its shape. Enabling Pages **is** the act of
+publishing, not a step after it; if a custom domain is registered, use the
+registrar's WHOIS privacy. `git push` stays denied by the hooks until the remote
+exists.

@@ -78,8 +78,8 @@ invented.
   fixtures, never a live install.
 - **Writes into either provider's prefix, into shell configuration, and into
   launch machinery.**
-- `git push` — the repository has no remote yet by the owner's decision
-  (DP-007).
+- `git push` — DP-007 is decided (public GitHub) but the remote does not exist
+  yet.
 
 If a hook blocks something you believe is legitimate, that is a question for
 the human, not an obstacle to route around. Rewording a command to slip past a

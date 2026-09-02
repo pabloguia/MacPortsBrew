@@ -110,6 +110,10 @@ in particular, which is incompatible with the project's Apache-2.0 licence. It
 also fails on any source file missing its `SPDX-License-Identifier` header.
 Licence compatibility is a build-breaking property, not a release-day surprise.
 
+**MUST NOT.** Larger (`-large`) runners: never free on public repositories and
+unable to draw on included minutes (R-10). Self-hosted runners are not used
+either, because a fork can execute arbitrary code on them.
+
 **MUST.** Both architectures are tested on **native hosted runners**. R-10
 answered the question this paragraph used to leave open (2026-09-02): hosted
 Intel macOS runners exist as `macos-15-intel` and `macos-26-intel` — standard

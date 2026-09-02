@@ -54,9 +54,10 @@ dependency tree. MacPortsBrew may report this; it never tries to consolidate it.
 Every `brew` and `port` invocation is made with a controlled environment that
 does not leak the other provider's prefix into `PATH`, `CPATH`,
 `LIBRARY_PATH`, `PKG_CONFIG_PATH`, `LDFLAGS`, `CPPFLAGS` or equivalents.
-(Rationale: build systems — notably the GNU autotools and gcc — probe
-`/usr/local` for headers, libraries and binaries, which is exactly where
-Homebrew lives on Intel. See F-2 in `09-research-checklist.md`.)
+*(Rationale: the developer's shell may export flags pointing at the other
+provider's prefix, and a provider that inherits them behaves differently than it
+does on its own. MacPortsBrew must not be the source of that difference. See F-2
+in `09-research-checklist.md`.)*
 
 ## Ownership and scope
 

@@ -42,9 +42,10 @@ was not established, so any workflow would need a personal access token or a
 deploy key. That is a secret in CI, which is a decision for the repository
 owner and not something a pass can take on their behalf
 ([`../docs/research/R-10-ci-runners.md`](../docs/research/R-10-ci-runners.md),
-read 2026-09-02). The repository has no remote at all yet
-([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007), so
-the question is not yet live.
+read 2026-09-02). The repository will be public on GitHub
+([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007,
+decided 2026-09-02) but the remote does not exist yet, so the question is not
+yet live.
 
 Three constraints will shape whatever is eventually written, all from the same
 note:

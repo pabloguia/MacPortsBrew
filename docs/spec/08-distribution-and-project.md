@@ -9,7 +9,15 @@ already broken, or who has no package manager at all. Therefore:
 
 **MUST.** A self-contained binary with no runtime dependencies, distributed via
 GitHub Releases for `x86_64` and `arm64`, with checksums. Installation
-documentation leads with this path. `brew install` / `port install` may exist
+documentation leads with this path. A `.pkg` and a `.dmg` are published
+alongside it per architecture (ADR-0005) because they can carry a stapled
+notarisation ticket and a bare Mach-O cannot; they are alternatives to the
+leading path, never a replacement for it. All three MUST embed byte-identical
+executables — one build produces one signed Mach-O per architecture, and CI
+asserts that the payload extracted from each container hashes to the published
+bare-binary checksum. The `.dmg` is **provisional pending R-11**: if a stapled
+`.dmg` turns out not to cover a binary copied out of it, it buys nothing the
+bare binary does not and is dropped rather than maintained. `brew install` / `port install` may exist
 later as conveniences; neither may ever be the only route.
 
 **MUST.** Confront macOS Gatekeeper explicitly, and state the mechanism
@@ -23,19 +31,55 @@ through Launch Services, so a browser sets it and `curl` does not (R-9,
 What a **quarantined, unsigned** binary does when run from a shell on macOS 26
 is **UNRESOLVED** — Apple documents Gatekeeper around opening applications,
 plug-ins and installer packages, not around `execve` — so the project assumes
-the pessimistic case until the experiment is run. Two further facts bound the
+the pessimistic case; since ADR-0005 that experiment records the path not taken
+rather than gating a release. Two further facts bound the
 choice: a bare binary **cannot be notarisation-stapled** (Apple), so
 notarisation would not yield an offline-verifiable artifact in the format this
 section mandates; and `arm64` binaries are ad-hoc signed by the linker by
-default, making ad-hoc signing there a property to assert in CI rather than a
-step to add. Decide and document one of: Developer ID signing plus notarisation
-(requires a paid Apple account — a human decision, record it in
-`docs/decisions-pending.md`); or ad-hoc signing plus explicit, honest
-instructions for clearing quarantine. Do not ship a release without having made
-this decision consciously.
+default — superseded by the decision below, which replaces the linker's ad-hoc
+signature with a Developer ID one.
 
-**SHOULD.** Publish build provenance/attestation for release artifacts and a
-verification snippet users can run.
+**Decided (DP-004, 2026-09-02): Developer ID signing plus notarisation, with a
+secure timestamp, on every published artifact.** The bare binary is signed and
+notarised but not stapled, so its first-run verification consults the network,
+and the documentation says so rather than implying an offline guarantee it does
+not have. The reasoning, the threat model and the credential handling live in
+[ADR-0005](../adr/0005-release-signing-and-artifacts.md); this chapter states
+only what binds:
+
+- **MUST.** Signing runs only on tag pushes in the base repository, never in the
+  pull-request path. Enforced structurally, not by the convention that only one
+  workflow asks: the credentials live in a protected deployment environment with
+  a `v*` tag rule, **no workflow other than the release workflow may reference
+  that environment**, and a **protected-tag ruleset** keeps a non-owner from
+  creating or moving a release tag. Ordinary CI passes with no secrets at all.
+- **MUST NOT.** `pull_request_target` and `workflow_run`, without a named ADR:
+  both run in base-repository context.
+- **MUST.** Every `uses:` in a workflow that can reach the signing environment is
+  pinned to a full 40-hex commit SHA, with the version in a trailing comment. A
+  check in `scripts/validate.sh` enforces it; CI fails on an unpinned reference.
+- **MUST.** CI asserts Developer ID authority — not merely that *a* signature
+  exists — on the *final* artifact, after every post-link step.
+- **MUST.** The `.pkg` installs to a MacPortsBrew-owned location outside every
+  provider prefix: `/usr/local` and `/opt/homebrew` for Homebrew, `/opt/local`
+  for MacPorts. It is a user-domain install requiring no administrator password,
+  with no `PATH` edit and no shell-configuration write. The directory is
+  user-owned and `0755`, not group-writable, and is not the state directory. The
+  installer does **not** create the `mpb` alias, because ADR-0003 requires
+  installation to decline to shadow an existing `mpb` and a non-interactive
+  installer cannot make that call. The same exclusion binds the `.dmg`'s copy
+  target and the documented `cp` line.
+
+**MUST.** Publish a build provenance attestation for every release artifact, and
+one `SHA256SUMS` covering all of them, itself attested, **and a verification
+snippet users can run** — naming the repository predicate, since a command
+without one confirms only that *some* identity signed the artifact. The
+documentation states
+which anchor applies where: attestation and notarisation are the trust anchors,
+while the checksum file guards against transport corruption and must not be
+described as more. Promoted from SHOULD by ADR-0005, because putting a signing
+key in the pipeline is what demoted the checksum file from anchor to
+convenience.
 
 **MUST.** Semantic versioning. Release artifacts record both the tool version
 and the policy version. Changelog maintained.
@@ -57,7 +101,9 @@ SPDX-License-Identifier: Apache-2.0
 ```
 
 No per-file copyright line — the identifier plus the root `LICENSE` is
-sufficient, keeps headers from rotting, and avoids blocking on DP-006. A lint
+sufficient and keeps headers from rotting. The copyright holder (DP-006,
+resolved 2026-09-02: Pablo Guia) appears in `README.md` and package metadata,
+not in source files. A lint
 rule enforces the identifier's presence; CI fails on a file without one.
 
 **MUST.** The SPDX identifier `Apache-2.0` appears in package metadata, release

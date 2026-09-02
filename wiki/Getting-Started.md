@@ -3,9 +3,10 @@
 ## Install
 
 MacPortsBrew builds from source. There is no published release yet — the
-repository has no remote by the owner's decision
-([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007) — so
-this is currently the only route.
+repository will be public on GitHub
+([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007,
+decided 2026-09-02) but the remote does not exist yet — so this is currently
+the only route.
 
 ```sh
 git clone <repository-url> macportsbrew

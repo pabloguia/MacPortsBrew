@@ -8,13 +8,17 @@ design property here, not a policy document.
 
 **Do not open a public issue for a security problem.**
 
-There is no security contact address yet. The repository has no remote at all
-by the owner's decision ([DP-007](docs/decisions-pending.md)), so there is
-currently no private channel to receive a report through. When the repository
-is published, the intended route is a **private GitHub security advisory** —
-the *Security* tab, *Report a vulnerability* — which is private to the
-maintainers until it is published, and this file will name it as the only
-channel.
+There is no security contact address yet, because the remote does not exist
+yet. The repository *will* be published publicly on GitHub
+([DP-007](docs/decisions-pending.md), decided 2026-09-02), and the route is
+decided with it: a **private GitHub security advisory** — the *Security* tab,
+*Report a vulnerability* — private to the maintainers until published.
+
+**Private vulnerability reporting must be enabled before the repository is made
+public, not after.** A public repository that ships Developer ID-signed binaries
+([ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)) with no private
+channel forces the first report of a signing-pipeline flaw onto a public
+tracker. This file names that channel as the only one the moment it exists.
 
 Until then, if you have found something and are reading this, raise it with the
 person who gave you the repository, privately, and describe: what you did, what
