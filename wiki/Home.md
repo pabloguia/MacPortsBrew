@@ -5,8 +5,9 @@
 MacPortsBrew looks at what you have installed under Homebrew and under
 MacPorts, works out which packages are equivalent, explains which provider is
 the better choice for each one **on your machine**, and builds a reviewable
-plan to move it — in either direction — without ever removing something before
-its replacement is installed and verified.
+plan to move it — in either direction, because the two providers are peers
+here — without ever removing something before its replacement is installed and
+verified.
 
 ## Homebrew and MacPorts are peers here
 

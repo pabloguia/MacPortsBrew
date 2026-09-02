@@ -55,8 +55,9 @@ to answer.
 - **Commands and aliases**: `macportsbrew` and `mpb` from one binary.
 - **Versioned JSON schemas** documented in
   [`docs/schemas/`](docs/schemas/README.md), all at `schemaVersion` 1.
-- **Fixture replay and the golden matrix**: `--replay <recording>` runs the
-  whole program against a captured recording; `scripts/capture-fixture.sh`
+- **Fixture replay and the golden matrix**: `--replay <recording>` (a hidden
+  testing flag, like `--today`) runs the whole program against a captured
+  recording; `scripts/capture-fixture.sh`
   produces one; `scripts/run-fixture-matrix.sh` runs the read slice over every
   recording and compares the analysis byte for byte against
   `fixtures/golden/`, with `--update` to regenerate. The shipped recordings

@@ -545,7 +545,7 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-011 — i18n architecture first, five locales later
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass (help text exemption added 2026-09-02 / 01-FOUNDATION-PASS): 2026-09-02 / pre-implementation review
 - Original assumption: en, pt-BR, es, ja and zh-CN required in scope from the start.
 - Change: the foundation pass ships the i18n layer, the canonical English
   catalogue, a pseudolocale and a CI key-parity check. Real translations land in
@@ -558,6 +558,13 @@ change is made. Silent deviation remains the one unrecoverable error.
 - User impact: non-English users wait one or two passes.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- Foundation Pass addition: the command-line `--help` text is compile-time
+  English produced by the argument parser and does not go through the
+  catalogue. Localising help is deferred with the translations; the
+  exemption is recorded here so `06-cli-and-ux.md`'s "all user-facing text
+  goes through the i18n layer" is read with this one stated exception until
+  the locale pass revisits it (evidence: `crates/cli/src/app/mod.rs`
+  doc-comments; `docs-auditor` finding, 2026-09-02).
 
 ## SE-020 — Foundation pass forbidden from shipping any mutating code path
 - Status: accepted

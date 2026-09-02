@@ -80,7 +80,7 @@ Read it back with `--from-snapshot`. The format is documented at
 | Flag | Effect |
 |---|---|
 | `--json` | Machine-readable output with a versioned schema, **on stdout only** |
-| `--language <TAG>` | Locale for human output. `en`, or `qps` for the pseudolocale |
+| `--language <TAG>` | Locale for human output. `en`, or `qps` for the pseudolocale; an unknown tag falls back to English silently |
 | `--no-color` | Plain output without colour |
 | `--verbose` | More detail on stderr |
 | `--advanced` | Include dependency-level packages, which are managed automatically by their provider (INV-13) |
@@ -135,7 +135,7 @@ Codes 3, 6 and 7 belong to execution and are not reachable in this build.
 Specified and not yet written:
 
 ```
-macportsbrew                          interactive overview (the default command)
+macportsbrew                          the interactive overview (bare `macportsbrew` runs `status` in this build)
 macportsbrew migrate ...              execute a plan
 macportsbrew restore --run <id>       plan, review, confirm, execute
 macportsbrew primary <pkg> <provider> package-level selection

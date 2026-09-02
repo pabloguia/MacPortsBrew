@@ -9,7 +9,9 @@ MacPortsBrew is an open-source package-manager orchestrator for macOS. It
 analyses what you have installed under Homebrew and MacPorts, maps equivalent
 packages between them, explains which provider is the better choice for each
 package on *your* machine, and executes migrations in either direction without
-ever removing something before its replacement is installed and verified.
+ever removing something before its replacement is installed and verified. The
+two providers are peers: neither is globally better, and neither direction is
+a special case.
 
 ## Homebrew and MacPorts are peers here
 
@@ -65,7 +67,8 @@ the binary says so in its own `--help`:
   `doctor` are all unprivileged by design.
 - **Not yet implemented:** `migrate`, `restore --run`, `primary`,
   `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
-  interactive TUI, `doctor --deep`, caching, and locales other than English.
+  interactive TUI, `doctor --deep`, caching, and translations (English ships,
+  plus the `qps` pseudolocale for layout testing).
   `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted so that
   scripts written today keep working, and are no-ops in a build that never uses
   the network, never caches, is always a dry run and never prompts.
@@ -117,7 +120,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  degraded   189 (56 top-level)
 macports  Absent    -        -           supported  0 (0 top-level)
-56 top-level packages analysed; 14 need manual review. Policy 2026.09.02-1.
+56 top-level packages analysed; 15 need manual review. Policy 2026.09.02-1.
 ```
 
 ## Install
@@ -169,10 +172,12 @@ should not open by asking you to pipe an unreviewed remote script into a shell.
 The published [support matrix](docs/support-matrix.md) distinguishes what CI
 actually exercises from what is merely believed to work, and it is generated
 from the CI configuration rather than written by hand. macOS 15 and 26 are
-**tested** natively on both architectures; macOS 10.12 through 14 are
-**best-effort** — the deployment floor is met and asserted on every artifact,
-and nothing executes there, because GitHub keeps hosted images only for the
-latest two stable macOS versions. Verification on real hardware is welcome.
+**tested** natively on both architectures; macOS 11 through 14 on both
+architectures, and 10.12 through 10.15 on Intel, are **best-effort** — the
+deployment floor is met and asserted on every artifact, and nothing executes
+there, because GitHub keeps hosted images only for the latest two stable
+macOS versions (`docs/research/R-10-ci-runners.md`, read 2026-09-02).
+Verification on real hardware is welcome.
 
 The floor is macOS 10.12 Sierra on Intel and 11.0 Big Sur on Apple Silicon.
 Below 10.12, neither MacPortsBrew nor the provider it would recommend has a
