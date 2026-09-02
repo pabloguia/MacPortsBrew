@@ -35,7 +35,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-003 — Homebrew's Intel timeline is a dated fact, and sharper than the brief assumed
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  01-FOUNDATION-PASS
 - Original assumption: "Homebrew has progressively reduced official support for
   Intel macOS", stated qualitatively.
 - Change: recorded as concrete, dated, sourced policy data: Intel x86_64 is
@@ -47,8 +48,30 @@ change is made. Silent deviation remains the one unrecoverable error.
   helper" to "migration with a clock on it", which changes recommendation
   weighting, README framing and urgency. It is also exactly the kind of fact
   that will change again — so it must be data.
-- Evidence: <https://docs.brew.sh/Support-Tiers>, read 2026-09-02.
+- Extended 2026-09-02 (01-FOUNDATION-PASS), after F-1 and R-2: the "no new
+  Intel bottles" half of the fact is now recorded **as Homebrew's stated
+  policy, attributed**, not as a description of the artifacts — because it is
+  not one. Intel bottles were still published in August 2026 (`htop` 16th,
+  `sqlite` 25th, `cmake` 26th). `09-research-checklist.md` F-1 carries the
+  attribution plus the measured census: of 8586 core formulae, 7808 (90.9%)
+  have a usable bottle on Intel macOS 26 against 8420 (98.1%) on Apple Silicon,
+  and only 79 carry an Intel `tahoe` bottle. The honest characterisation is
+  **frozen at `sonoma` and eroding**, not "stopped".
+- Rationale for the extension: the product must not tell an Intel user "no
+  bottle exists" while 90.9% of core still pours — that is a claim they can
+  falsify in one command, and the trust cost is the whole product. The real
+  argument is the *gap and its trend*, which R-2 makes computable per package
+  and re-runnable per release. Quoting a policy as an observation is also
+  exactly the failure INV-20 exists to prevent, in the one fact the project
+  cares most about.
+- Evidence: <https://docs.brew.sh/Support-Tiers>, `last_review_date`
+  2026-08-27, read 2026-09-02. Census and the commits contradicting the literal
+  reading: `docs/research/F-1-homebrew-support-tiers.md` E3/E4, cross-checked
+  against Homebrew's own API cache in
+  `docs/research/R-2-homebrew-artifact-availability.md` E5/E8, both 2026-09-02.
 - User impact: high. Compatibility impact: policy weighting on Intel machines.
+  The census numbers are a snapshot of a deteriorating situation and are
+  re-measured, never quoted forward.
 
 ## SE-012 — Casks and third-party taps explicitly out of migration scope
 - Status: accepted
@@ -116,7 +139,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-004 — Artifact availability modelled symmetrically, not as a Homebrew "bottle" concept
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  00-REPO-READINESS-PASS and 2026-09-02 / 01-FOUNDATION-PASS
 - Original assumption: detect Homebrew bottle vs source build; MacPorts
   implicitly treated as the binary-archive side.
 - Change: one symmetric `ArtifactAvailability` model applied to both providers.
@@ -138,11 +162,55 @@ change is made. Silent deviation remains the one unrecoverable error.
   on this macOS while Homebrew offers a supported equivalent), a hypothesis
   whose MacPorts states R-3 names. Evidence: the audit's counts — 58 words
   and two rules toward MacPorts against 26 and one toward Homebrew.
-- Architectural impact: the assessment type is provider-neutral.
+- Extended 2026-09-02 (01-FOUNDATION-PASS), on R-1, R-2, R-3 and R-4, in four
+  places:
+  1. `SOURCE_BUILD_REQUIRED` now carries a required **reason** from a closed set
+     — `NO_ARTIFACT_FOR_PLATFORM`, `NON_DEFAULT_OPTIONS`,
+     `LICENCE_NOT_REDISTRIBUTABLE`, `FORCED_BY_CONFIGURATION`. One state was
+     conflating causes whose user advice and durability differ: two are the
+     user's own reversible choice, one never resolves for that version, and one
+     moves with provider policy.
+  2. Two determinations are stated as **not offline-answerable**, degrading to
+     `UNKNOWN` rather than to a negative: the "no artifact anywhere" versus "not
+     for this platform" split under Homebrew's default API mode, where both are
+     represented identically as an empty `bottle` object; and
+     `BINARY_AVAILABLE` under MacPorts, which is never assertable offline at
+     all, though several `SOURCE_BUILD_REQUIRED` reasons are.
+  3. The MacPorts side of the symmetry stops being an assumption: the archive
+     filename encodes the canonical variant set, so a non-default variant names
+     a file that was never built, and only binary-distributable ports are staged
+     for upload, decided by the port's licence *and* its whole dependency tree.
+  4. The starting policy's MacPorts placeholder in
+     `03-policy-and-recommendations.md` is replaced with the named support
+     states — installer availability per macOS version (2.12.6: 10.12 upward)
+     and builder availability per `(version, architecture)` pair (`x86_64`
+     10.6–10.15, 11–15, 26; `arm64` 11 upward) — and `replaced_by` is named as
+     the deprecation signal, distinct from `obsolete`.
+  Also under this entry's symmetry topic: `03`'s outcome vocabulary now shows
+  both forms — the provider-named spelling a user reads, and the implementation
+  form `KEEP{provider}` / `MIGRATE_TO{provider}` / `KEEP_BOTH{primary}`. The
+  vocabulary was the last place where the two directions read as two things
+  rather than one value with a parameter, which is how a direction acquires a
+  rule the other lacks (INV-17). Design judgement; no external fact involved.
+- Evidence for the extension: `docs/research/R-2-...md` findings 5 and 11 and
+  `docs/research/R-1-...md` finding 6 (the (a)/(b) collapse, and 857 of 8586
+  formulae carrying no bottle for this tag);
+  `docs/research/R-4-macports-binary-archives.md` findings 2–7 and 9–12
+  (filename tuple, licence gating via `distributable_lib.tcl`, builder roster,
+  the offline asymmetry, the 10.12 installer floor);
+  `docs/research/R-3-macports-read-interfaces.md` finding 8 (`replaced_by`
+  versus `obsolete`). All read or observed 2026-09-02.
+- Architectural impact: the assessment type is provider-neutral, and the
+  reason enum is part of it rather than of the adapters — the same four causes
+  are expressible for both providers.
+- Compatibility impact: an offline `analyze` reports strictly less about
+  MacPorts availability than an online one, and says so; it never guesses
+  upward.
 
 ## SE-005 — Cross-provider contamination has a named mechanism, and an invariant to prevent it
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  01-FOUNDATION-PASS
 - Original assumption: "never intentionally create cross-provider dependencies",
   with detection deferred to a deep `doctor` scan.
 - Change: INV-10 — all provider invocations run in a sanitised environment that
@@ -153,13 +221,44 @@ change is made. Silent deviation remains the one unrecoverable error.
   Homebrew. Contamination is the default outcome of running `port` in a
   Homebrew user's shell; detecting it afterwards is much worse than not
   causing it.
-- Evidence: <https://trac.macports.org/wiki/FAQ>, read 2026-09-02 (F-2).
+- Extended 2026-09-02 (01-FOUNDATION-PASS), after F-2, which could not read the
+  FAQ this entry originally cited and re-sourced the fact:
+  1. The hazard is now cited from the **MacPorts Guide's trace-mode text**
+     (§3.1.12), which names "conflicts caused by files installed by other ports
+     or in common system locations, such as `/usr/local`" and prescribes
+     `port -t`. The narrower "autotools and gcc probe `/usr/local`" wording —
+     this entry's original phrasing — is **plausible but uncited**, and
+     `09-research-checklist.md` F-2 now says so in those words rather than
+     repeating it as fact.
+  2. The other direction is established and is **not symmetric in risk**.
+     Homebrew mitigates in its compiler shim, always on for every source build:
+     `shims/super/cc` drops any `-I`/`-L` flag under `/opt/local`. MacPorts'
+     equivalent, trace mode, is opt-in. So the residual exposure toward Homebrew
+     is `PATH`-resolved *tools*, not headers and libraries, and `doctor`'s
+     wording says which direction is worse instead of presenting a false
+     symmetry.
+  3. **`brew doctor` has no MacPorts, Fink or `/opt/local` check at any version
+     examined** — none at HEAD, none at tags 1.9.0, 2.7.0 or 3.6.0. A
+     recollection that it warns about MacPorts on `PATH` is of something that is
+     not there. `04-migration-and-safety.md` now requires MacPortsBrew's own
+     `doctor` to implement that check and forbids delegating it.
+- Evidence: MacPorts Guide §3.1.12,
+  <https://guide.macports.org/chunked/using.html#using.port.install>, read
+  2026-09-02, cross-checked against `macports/macports-guide`
+  `guide/xml/using.xml`; Homebrew `Library/Homebrew/shims/super/cc` at
+  `fd18738`, and `Library/Homebrew/diagnostic.rb` grepped at HEAD and at three
+  tags — all 2026-09-02, recorded in
+  `docs/research/F-2-usr-local-interference.md` E-3 to E-6. The FAQ itself was
+  unreachable that day (Anubis bot mitigation on `trac.macports.org`), which is
+  why the original citation is retired rather than re-confirmed.
 - Architectural impact: the process executor owns environment construction;
-  no ad-hoc invocations.
+  no ad-hoc invocations. `doctor` owns the cross-provider checks in both
+  directions and delegates neither.
 
 ## SE-006 — Package classes; stateful and service packages are never auto-migrated
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  01-FOUNDATION-PASS
 - Original assumption: packages differ by ownership (top-level vs dependency)
   and by mapping confidence.
 - Change: a package **class** dimension — `SIMPLE`, `STATEFUL`, `SERVICE`,
@@ -171,10 +270,29 @@ change is made. Silent deviation remains the one unrecoverable error.
   directory, and the two providers manage background services differently.
   Without this, the headline safety promise is false for exactly the packages
   where failure hurts most.
-- Evidence: R-8 in the research checklist, blocking and unanswered — it
-  verifies the detection facts the classes rely on.
+- Extended 2026-09-02 (01-FOUNDATION-PASS), after R-8: a package carries a
+  **set** of classes, not one, with a fixed precedence —
+  `STATEFUL` · `SERVICE` · `GUI_APP` · `THIRD_PARTY_SOURCED` >
+  `PROVIDER_INTERNAL` > `RUNTIME` > `SIMPLE`. Default handling is the strictest
+  any member class demands, and every member is displayed.
+- Rationale for the extension: the original table read as one-of, and the
+  counter-examples are ordinary packages, not corner cases. `php@8.4` is a
+  `RUNTIME` (versioned language family, keg-only for that reason) *and* a
+  `SERVICE` (php-fpm, with a plist in its keg); `postgresql@17` is `STATEFUL`
+  *and* `SERVICE`. Under a one-of model, classifying `php@8.4` as `RUNTIME`
+  suppresses the `MANUAL_REVIEW` its service block requires — the headline
+  safety promise silently failing on a package a user is likely to have. The
+  precedence is what makes INV-19 undefeatable by a later, gentler
+  classification.
+- Evidence: `docs/research/R-8-stateful-and-service-packages.md` findings 1,
+  13 and 14, observed 2026-09-02 on this machine (`service != null` in
+  `brew info --json=v2`, plist present in the keg, `keg_only_reason`
+  `:versioned_formula`); the MacPorts half of finding 12 is cited from
+  Portfiles.
 - User impact: high — prevents a class of data loss.
-- Architectural impact: classification is part of inventory, not of planning.
+- Architectural impact: classification is part of inventory, not of planning,
+  and the class field is a set with a total order over its members rather than
+  an enum.
 
 ## SE-007 — "Verify" given an operational definition
 - Status: accepted
@@ -256,7 +374,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  01-FOUNDATION-PASS
 - Original assumption: "never run entirely as root; elevate per operation".
 - Change: the design assumes MacPorts operations generally require elevation
   and Homebrew's generally do not, with R-5 verifying the per-operation facts;
@@ -265,7 +384,134 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Rationale: the asymmetry between the two providers is a real UX and safety
   issue that symmetric language hid. "Dry run never prompts for a password" is
   a testable property users can rely on.
-- Evidence: R-5 in the research checklist, blocking and unanswered.
+- Extended 2026-09-02 (01-FOUNDATION-PASS), on R-5 and R-3, in two places:
+  1. **Elevation varies per package, not only per provider.** The old sentence
+     read as though the answer followed from which provider a step used. It does
+     not: a Homebrew cask whose `pkg` artifact or `installer script:` carries
+     `sudo: true` elevates on the provider that "normally does not", and the
+     Homebrew services subcommand at system level elevates even to *list*, so an
+     unprivileged services inventory is necessarily incomplete and must say so.
+     The plan therefore asks the adapter **per step**. Also recorded, because it
+     is a hard provider-side error rather than an impoliteness: Homebrew refuses
+     to run as root outside a short exemption list, so an executor that ever
+     wraps a Homebrew invocation in elevation fails.
+  2. **Quieting a provider is not only an environment concern.**
+     `04-migration-and-safety.md`'s "Provider invocations set the environment"
+     was Homebrew-shaped. Homebrew is quieted by environment
+     (`HOMEBREW_NO_AUTO_UPDATE` does the offline work, with
+     `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS`); MacPorts is quieted
+     by argv — `-q`, which implies `-N` — plus never invoking the two
+     network-touching update actions. No `MACPORTS_*` variable serves the
+     purpose. The MUST now says "environment *and flags*" and names both
+     mechanisms, so an adapter author does not go looking for a variable that
+     does not exist.
+- Evidence: `docs/research/R-5-privilege-requirements.md` findings 1, 5, 6 and
+  14 with its per-operation table — observed for Homebrew as uid 501, with the
+  MacPorts rows cited and flagged there as citation-only;
+  `docs/research/R-3-macports-read-interfaces.md` finding 12;
+  `docs/research/R-1-homebrew-read-interfaces.md` finding 2 and
+  `docs/research/R-2-homebrew-artifact-availability.md` finding 11 for which
+  Homebrew variable actually suppresses the network. All 2026-09-02.
+- Architectural impact: elevation is a property the adapter answers per
+  operation, so the plan's elevation list is derived, never inferred from the
+  provider id.
+
+## SE-035 — The read contract returns installed rows, and ownership names its mechanism
+- Status: accepted
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Original assumption: `inventory()` returned "everything installed", read as
+  one row per package name; and the ownership MUST said to "use the provider's
+  own record of user intent" while leaving the mechanism to research.
+- Change: two corrections to the provider read contract in
+  `02-domain-model.md`.
+  1. `inventory()` returns installed **rows** — `(name, version, revision,
+     variant/option set, active?)` — with several rows per name permitted.
+  2. Ownership names its mechanism per provider, and `ORPHAN_DEPENDENCY` is
+     given one definition. Homebrew: `installed_on_request`, and nothing else —
+     `installed_as_dependency` does not exist in Homebrew 6.0.21's JSON and is a
+     legacy receipt field, casks carry no intent field at all so a cask's
+     ownership is `UNKNOWN`, and `brew leaves` answers a different question.
+     MacPorts: the registry `requested` flag through the
+     `requested`/`unrequested`/`leaves`/`rleaves` pseudo-portnames, a stored
+     flag rather than a graph inference, user-mutable and therefore recording
+     intent *as last asserted*. `ORPHAN_DEPENDENCY` means unrequested with no
+     dependents — the `leaves` definition; `rleaves` is a wider set that may be
+     reported but never silently substituted.
+- Rationale: both were modelling gaps that produce wrong answers rather than
+  ugly ones. Several versions of a port installed at once with exactly one
+  active is the *normal* state of a MacPorts machine — `port upgrade` leaves the
+  old one behind by default — so a one-row-per-name inventory is wrong about
+  what is installed and about disk usage on the provider this project exists to
+  reach; Homebrew has the same shape in a rack of kegs, where reading the first
+  entry of `installed[]` answers about the oldest one. And "use the provider's
+  record of intent" without naming it lets two implementations disagree: on one
+  machine the three candidate answers were 47 requested, 49 leaves and 44 both,
+  and one of the plausible field names is a trap that silently returns nothing
+  on current Homebrew.
+- Evidence: `docs/research/R-3-macports-read-interfaces.md` findings 3, 4 and 5;
+  `docs/research/R-1-homebrew-read-interfaces.md` findings 4, 5 and 7 —
+  `installed_as_dependency` present in 70 of 192 receipts and none written by
+  Homebrew 6.x, absent from `--json=v2` entirely; 12 formulae with more than one
+  keg on the machine observed. Both 2026-09-02.
+- User impact: inventory counts and "is this installed" answers are correct on a
+  normal MacPorts machine; a cask is never reported as user-requested on
+  evidence that does not exist.
+- Architectural impact: `InstalledPackage` is a row type, and the aggregation to
+  the per-name unit the user sees happens above the adapter, not inside it. The
+  mechanism and its confidence are recorded with each classification.
+- Compatibility impact: none — no released surface exists.
+
+## SE-036 — Package primary resolved: four layers, and the shim is the last of them
+- Status: accepted
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Original assumption: a **HYPOTHESIS** in
+  `05-environment-and-primary-provider.md` — a MacPortsBrew-owned shim
+  directory early on `PATH` — with five alternatives listed for research, and a
+  flat MUST to "prefer a provider-native mechanism … wherever the provider
+  offers one that does the job".
+- Change: the hypothesis is resolved into a layered answer, each layer used only
+  where it is the least invasive one that can express the request: **report
+  only** by default; **recommend the versioned executable name** where one
+  exists; **delegate an intra-MacPorts version choice to `port select`**,
+  proposing the command rather than running it, because the write goes into the
+  MacPorts prefix and keeping primary selection off the elevating path is what
+  keeps analysis and dry-run unprivileged as INV-06 requires; and a
+  **MacPortsBrew-owned shim directory** for a genuine cross-provider primary.
+  Three hard constraints come with the shim: it is never placed inside a
+  provider's prefix and in particular never in `/usr/local/bin`; it targets the
+  provider's stable path (`${prefix}/opt/<formula>/bin/<exe>`,
+  `${prefix}/bin/<exe>`) and never the versioned keg; and reordering
+  `/usr/local/bin` against `/opt/local/bin` is forbidden as a primary mechanism.
+  The "prefer a provider-native mechanism" MUST is qualified: the preference
+  applies where a native mechanism **can express the requirement**. The
+  implementation stays deferred.
+- Rationale: neither provider's mechanism can express a cross-provider choice,
+  by construction — `mportselect` joins both link source and target with
+  `${prefix}`, and `brew link` symlinks into Homebrew's prefix — so the MUST was
+  satisfiable only vacuously for the case that matters, while reading as an
+  instruction to reach for `brew link` or `port select` anyway. Left unqualified
+  it would have sent a future agent down a path that cannot work. The placement
+  rule is not fastidiousness: Homebrew cannot see foreign symlinks in its own
+  prefix (`--unbrewed` reports regular files only, 0 of 1048 symlinks) and
+  `brew link --overwrite` deletes files already there, so a shim in
+  `/usr/local/bin` would be invisible to the provider's checks and deletable by
+  a routine operation. Layering also keeps the default at the only option with
+  no failure mode, and puts the two zero-cost options ahead of the one that owns
+  state.
+- Evidence: `docs/research/R-6-primary-provider-mechanisms.md` findings 1–3, 5,
+  8 and 10–14, with the criteria table `05` asked for; the `opt` symlink
+  observed following an upgrade while the `Cellar` path did not; 62 of 1086
+  entries in `/usr/local/bin` not placed there by Homebrew; 1024 names moved at
+  once by a `PATH` reorder. All 2026-09-02.
+- User impact: most users are advised, not modified — the two recommended
+  layers change nothing on disk. A user who does take a cross-provider primary
+  gets one clearly named directory and one clearly named `PATH` entry.
+- Architectural impact: primary selection is a strategy with four
+  implementations behind one interface, symmetric between directions (INV-17),
+  and `doctor` validates shim targets on every run because neither provider's
+  mechanism self-heals — `port select` never checks that its target exists.
+- Compatibility impact: Tier 5 → Tier 3/4 for this section; nothing shipped
+  depends on it yet.
 
 ---
 
@@ -328,13 +574,63 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
 
+## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
+- Status: accepted
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Original assumption: `07-quality-and-testing.md` held open that "hosted Intel
+  macOS runner availability is uncertain and must be verified, not assumed",
+  with cross-compilation plus Intel fixtures as the contingency; ADR-0002 and
+  SE-022 treated the whole question as unresolved and withheld the macOS
+  build-and-test job on that basis.
+- Change: the uncertainty is replaced by the answer and its expiry.
+  `macos-15-intel` and `macos-26-intel` exist as *standard* runners, free on
+  public repositories; `macos-latest` is `arm64`, so labels are pinned
+  explicitly. Both architectures are therefore tested natively on macOS 15 and
+  26, and cross-compilation is demoted to a redundancy check. macOS 10.12–10.15
+  remains **best-effort**, now for a structural reason rather than an unknown
+  one: GitHub maintains images only for the latest two stable macOS versions.
+  Two dated policy facts are recorded as such under INV-20: GitHub's statement
+  that x86_64 macOS ends after the macOS 15 image retires in Fall 2027 — in
+  visible tension with `macos-26-intel` shipping after that statement, so Fall
+  2027 is the *earliest* credible date and is re-checked, not planned against —
+  and Apple's 2026-09-01 announcement that macOS 27 is the last release to
+  support Rosetta, which is why nothing in CI may depend on it. Finally, a fact
+  the specification did not carry at all: the runner images ship a live,
+  preinstalled **Homebrew and no MacPorts**, so every macOS job sets the
+  quieting variables and both adapters stay on captured fixtures.
+- Rationale: an open "must be verified" in a MUST is an instruction to a future
+  agent, not a property of the system, and it was blocking the one job that
+  makes the Intel support claim honest. The preinstalled-Homebrew fact is the
+  more subtle half: a runner's Homebrew will auto-update mid-job and make output
+  non-reproducible, and the asymmetry — live Homebrew present, MacPorts absent —
+  is exactly the pressure that would make one adapter tested against reality and
+  the other against fixtures. Naming it keeps INV-17 from eroding by
+  convenience: the live install is contamination to neutralise, not a resource
+  to exploit.
+- Evidence: `docs/research/R-10-ci-runners.md` findings 1–3 and 8–10, from the
+  GitHub-hosted-runners reference table, `actions/runner-images`, and the
+  `github.blog` changelogs of 2025-09-19 (macOS 13 retired, `-intel` suffix
+  introduced), 2026-02-26 (macOS 26 GA including the Intel label) and the
+  `macos-latest` migration; Apple's Rosetta announcement of 2026-09-01. All
+  read 2026-09-02.
+- User impact: the published support matrix can say **tested** for macOS 15 and
+  26 on both architectures and mean it, and **best-effort** for 10.12–10.15
+  with a reason rather than a shrug.
+- Architectural impact: none on the product. On CI, the matrix is the source of
+  the support matrix, which is generated from the job list rather than
+  maintained beside it.
+- Compatibility impact: the Intel half of the project's reason to exist can be
+  *tested* until at least Fall 2027; after that it can only be claimed, and the
+  documentation will have to say so.
+
 ---
 
 # Platform, toolchain, licence and distribution
 
 ## SE-014 — Gatekeeper confronted as a distribution requirement
 - Status: accepted
-- Date / Pass: 2026-09-02 / pre-implementation review
+- Date / Pass: 2026-09-02 / pre-implementation review; extended 2026-09-02 /
+  01-FOUNDATION-PASS
 - Original assumption: ship binaries and checksums via GitHub Releases.
 - Change: signing/notarisation versus ad-hoc signing plus honest quarantine
   instructions is a required, recorded decision before the first release
@@ -342,8 +638,36 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Rationale: the stated goal is that MacPortsBrew installs without a working
   package manager. A downloaded binary that macOS refuses to run defeats that
   goal at the first step, for a tool whose entire proposition is trustworthiness.
-- Evidence: design judgement; no external fact involved. The rationale is the
-  argument, and the entry stands or falls on it.
+- Extended 2026-09-02 (01-FOUNDATION-PASS), after R-9, which corrected the
+  mechanism `08-distribution-and-project.md` stated:
+  1. The blocker is the **quarantine attribute**, not the absence of a
+     signature. Unsigned Mach-O executables run unobstructed when unquarantined
+     — 267 of 321 in one `/usr/local/bin` are unsigned and all of them work.
+  2. Quarantine is set by the **downloading application** through Launch
+     Services, so a browser sets it and `curl` does not. "A binary downloaded
+     from the internet carries the quarantine attribute" was too broad.
+  3. What a quarantined, *unsigned* binary does when run from a shell on
+     macOS 26 is **UNRESOLVED**: Apple documents Gatekeeper around opening
+     applications, plug-ins and installer packages, not around `execve`. The
+     specification assumes the pessimistic case, and the experiment is a
+     before-first-release obligation rather than an open question.
+  4. A bare binary **cannot be notarisation-stapled**, so notarisation would not
+     deliver an offline-verifiable artifact in the format this chapter mandates.
+     That changes what "just notarise it" buys, and DP-004 now records it.
+  5. `arm64` binaries are ad-hoc signed by `ld` by default, so ad-hoc signing
+     there is a CI assertion rather than a pipeline step — and a post-link
+     `strip` or `lipo` that invalidates the signature is a real failure mode.
+- Rationale for the extension: the original sentence attributed the block to the
+  wrong property. Left standing, it would have priced a recurring 99 USD/year
+  subscription against a problem whose severity is still unmeasured, and bought
+  a fix that does not apply to the artifact format the project ships.
+- Evidence: `docs/research/R-9-gatekeeper-and-distribution.md`, observations
+  O-3, O-5, O-6, O-7 and O-11 on this machine, and citations C-1, C-2, C-5,
+  C-6, C-7 and C-8, all 2026-09-02. Cite Gatekeeper as
+  <https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>;
+  the `developer.apple.com/documentation/security/…` form returns 404.
+- User impact: the first-run instructions describe a mechanism the user can
+  verify, instead of one that would not survive contact with `curl`.
 
 ## SE-021 — Licence: Apache-2.0, with its consequences propagated
 - Status: accepted
@@ -400,12 +724,22 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: the deployment target is a binding constraint on
   every dependency. The domain, policy and adapter boundaries were written
   language-neutral and remain so.
-- Compatibility impact: 10.12–10.15 are published as **best-effort** because no
-  hosted CI runner for them is known (R-10 open; treated as absent until
-  answered). Stated honestly rather than claimed.
-- Explicitly not done: the macOS build-and-test CI job. R-10 — whether hosted
-  Intel macOS runners exist — is unresolved, and a workflow written against an
-  unverified runner would be a claim about CI that CI does not support.
+- Compatibility impact: 10.12–10.15 are published as **best-effort**, and after
+  R-10 (2026-09-02) that is a *policy consequence* rather than a gap in
+  knowledge — GitHub keeps images only for the latest two stable macOS
+  versions, so no hosted path to those releases exists or is coming. Stated
+  honestly rather than claimed. Extended 2026-09-02 (01-FOUNDATION-PASS):
+  macOS 15 and 26 are **tested** natively on both architectures, because hosted
+  Intel runners do exist (SE-037); and MacPorts' own floor is now recorded
+  beside the project's — MacPorts 2.12.6 ships package installers down to
+  macOS 10.12 (R-4), coinciding exactly with the Intel floor, so below it
+  neither this tool nor the provider it would recommend has a supported path.
+  ADR-0002's "must still verify" list carries the same answer appended to the
+  original question rather than replacing it.
+- Formerly not done, now unblocked: the macOS build-and-test CI job. It was
+  withheld because a workflow written against an unverified runner is a claim
+  about CI that CI does not support; R-10 verified the runners, and SE-037
+  records the matrix and its expiry.
 - Still open inside the decision: which TUI and terminal crates. Licence
   compatibility, deployment floor and East Asian double-width handling are
   verified together before committing to one.

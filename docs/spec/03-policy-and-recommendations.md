@@ -32,13 +32,20 @@ zero reasons is a bug.
 ## Outcomes
 
 ```
-KEEP_HOMEBREW | KEEP_MACPORTS
-MIGRATE_TO_HOMEBREW | MIGRATE_TO_MACPORTS
-KEEP_BOTH (with a primary)
+KEEP{provider}          rendered: KEEP_HOMEBREW | KEEP_MACPORTS
+MIGRATE_TO{provider}    rendered: MIGRATE_TO_HOMEBREW | MIGRATE_TO_MACPORTS
+KEEP_BOTH{primary}      rendered: KEEP_BOTH (with a primary)
 USE_RUNTIME_MANAGER
 MANUAL_REVIEW
 NO_ACTION
 ```
+
+**MUST.** The provider-named spellings on the right are the *rendered* forms,
+kept because they are what a user reads. In the implementation the outcome is
+parameterised by provider id — `KEEP{provider}`, `MIGRATE_TO{provider}`,
+`KEEP_BOTH{primary}` — so the two directions are one value with a parameter,
+not two variants that can drift apart or acquire rules the other lacks
+(INV-17).
 
 **MUST.** `MANUAL_REVIEW` is the default outcome whenever confidence,
 availability or class is uncertain. Silence is never interpreted as approval.
@@ -77,10 +84,16 @@ Stored data is the fallback and the explanation, not the primary source of truth
 ## Starting policy
 
 **HYPOTHESIS — all of the below.** These encode the situation as understood on
-2026-09-02 and are expected to be refined by research and by real use. The
-"tier" vocabulary is Homebrew's (F-1); MacPorts publishes no equivalent, and
-the support-state names the MacPorts-side rules need are R-3's and the
-non-blocking research item on MacPorts' own minimum macOS to establish.
+2026-09-02 and are expected to be refined by real use. The "tier" vocabulary is
+Homebrew's (F-1); MacPorts publishes no equivalent, so the MacPorts-side rules
+use the two support states R-3 and R-4 established (2026-09-02): whether the
+project ships an **installer** for this macOS version — MacPorts 2.12.6 offers
+one for 10.12 upward — and whether a **build-farm builder** exists for this
+`(macOS version, architecture)` pair — `x86_64` for 10.6–10.15, 11–15 and 26;
+`arm64` for 11 upward. A builder is necessary, not sufficient: an archive may
+still be absent for a given version. Per port, **deprecated** means the
+Portfile names a successor in `replaced_by`; that is a separate state from
+**obsolete**, which means installed but no longer present in any ports tree.
 
 Toward MacPorts:
 - Homebrew support for this machine is tier 3 / degraded, **and** the package
@@ -92,10 +105,9 @@ Toward MacPorts:
 Toward Homebrew:
 - Homebrew is tier 1 for this machine, offers a prebuilt artifact, and the
   MacPorts equivalent requires a source build or is unmaintained for this macOS.
-- The MacPorts port is marked replaced, obsolete or no longer buildable on
-  this macOS, and Homebrew offers a supported equivalent at `STRONG`
-  confidence or better. (The MacPorts states this relies on are R-3's to
-  name; until then the rule is a hypothesis with a placeholder.)
+- The MacPorts port names a `replaced_by` successor, or is obsolete, or has no
+  builder for this `(macOS version, architecture)` pair, and Homebrew offers a
+  supported equivalent at `STRONG` confidence or better (R-3, R-4, 2026-09-02).
 
 `KEEP_BOTH`:
 - Both providers are healthy for the package and the user has asked for

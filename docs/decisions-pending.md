@@ -16,10 +16,31 @@ are recorded.
   Developer account) versus ad-hoc signing with documented quarantine-clearing
   instructions. See SE-014 and research item R-9.
 - **Note:** macOS 10.12 is old enough that Gatekeeper behaviour differs across
-  the supported range; the research item should cover the whole range, not just
-  current macOS.
-- **Default meanwhile:** ad-hoc signing plus honest documentation; do not
-  publish a public release until decided.
+  the supported range; R-9 (2026-09-02) covers the whole range in four steps —
+  no notarisation regime below 10.14.5, the Developer ID requirement from
+  10.14.5 and 10.15, and the loss of the Control-click override in macOS 15 and
+  later.
+- **Recommendation (R-9, 2026-09-02):** take the reversible default — ad-hoc
+  signing plus documented quarantine handling — and do **not** enrol in the
+  Apple Developer Program for the first release. Four reasons: the 99 USD/year
+  is recurring and tied to a legal identity, which would force DP-006 by a side
+  door; adding Developer ID later invalidates no published artifact, whereas
+  dropping it would; a bare binary cannot be notarisation-stapled, so paying
+  would not even buy an offline-verifiable artifact in the format
+  `08-distribution-and-project.md` mandates; and on `arm64` the ad-hoc signature
+  is already produced by the linker, so the marginal work is a CI assertion
+  rather than a signing pipeline.
+- **Reopen if:** the UNRESOLVED experiment R-9 names — running a
+  browser-downloaded, quarantined, unsigned binary from a shell on macOS 26,
+  both architectures — shows a hard kill rather than a warning. That flips the
+  trust argument in SE-014 and makes 99 USD/year cheap. Run it before the first
+  public release, not after.
+- **Default meanwhile:** ad-hoc signing plus honest documentation — the
+  quarantine step stated beside the download link rather than buried, the
+  `xattr -d com.apple.quarantine` command given verbatim with an explanation of
+  what it does, a plain statement that the release is not notarised and that
+  this is a cost decision, and `Signature=adhoc` asserted on the `arm64`
+  artifact in CI. Do not publish a public release until decided.
 
 ### DP-006 — Copyright holder
 - **Why it is the owner's call:** it is a legal identity — an individual's full

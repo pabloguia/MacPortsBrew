@@ -24,7 +24,7 @@ Read:
 ```
 detect()               -> presence, version, prefix, architecture of the install
 capabilities()         -> what this provider's installed version can actually do
-inventory()            -> everything installed
+inventory()            -> every installed row (several per name where the provider allows it)
 requested()            -> what the user explicitly asked for (authoritative, not inferred)
 dependencies(pkg)
 reverseDependencies(pkg)
@@ -38,6 +38,16 @@ snapshot()             -> serialisable state for reproducibility and restore
 Write (later passes): `installPlan/install`, `uninstallPlan/uninstall`,
 `cleanupCandidates`, `verify`.
 
+**MUST.** `inventory()` returns installed **rows**, not one row per name. A row
+is `(name, version, revision, variant/option set, active?)`, and several rows
+may share a name. This is the normal state of a MacPorts machine rather than an
+edge case: several versions of a port can be installed at once, exactly one is
+active, and `port upgrade` leaves the superseded one installed but inactive by
+default (R-3, 2026-09-02). Homebrew's analogue is a rack holding several kegs
+with one `linked_keg`; there, reading the first entry of `installed[]` answers
+about the *oldest* keg and is wrong (R-1, 2026-09-02). Any "is X installed" or
+disk-usage logic written against one row per name is wrong on both providers.
+
 **MUST.** Capabilities are *detected*, not assumed from a version string where
 detection is cheap. A provider whose installed version lacks a capability
 degrades gracefully with a named reason; it never crashes and never guesses.
@@ -50,9 +60,28 @@ degrades gracefully with a named reason; it never crashes and never guesses.
 
 **MUST.** Use the provider's own record of user intent where it exists. Do not
 infer top-level status from a dependency graph when the provider can answer the
-question directly. Research the current authoritative mechanism for each
-provider (see `09-research-checklist.md`); record which mechanism was used and
-its confidence.
+question directly. The authoritative mechanism is named per provider, verified
+2026-09-02:
+
+- **Homebrew** — `installed_on_request`, and nothing else. It is present on
+  every keg in `brew info --json=v2`. `installed_as_dependency` does **not**
+  exist in Homebrew 6.0.21's JSON — it is a legacy receipt field written by
+  older majors and must not be read. Casks carry no intent field at all, so a
+  cask's ownership is `UNKNOWN`, never inferred (R-1).
+- **MacPorts** — the registry `requested` flag, read through the `requested`,
+  `unrequested`, `leaves` and `rleaves` pseudo-portnames. It is a flag stored
+  at install time, not a graph inference, and it is user-mutable, so it records
+  intent *as last asserted* (R-3).
+
+**MUST.** `ORPHAN_DEPENDENCY` means **unrequested with no dependents** — the
+`leaves` definition. Homebrew's `brew leaves` is a *different* set and is not a
+substitute for user intent: it is "has no remaining dependents", so it includes
+packages installed as dependencies and hides packages the user did request. On
+one machine the three counts were 47 requested, 49 leaves, 44 both (R-1).
+MacPorts' `rleaves` — unrequested and unreachable from any requested port — is
+a wider set again; it may be reported, never silently substituted (R-3).
+
+Record which mechanism produced each classification, and its confidence.
 
 **MUST.** Ownership is a fact about a provider, not about the machine. The same
 name may be `TOP_LEVEL` in one provider and `DEPENDENCY` in the other.
@@ -71,8 +100,21 @@ name may be `TOP_LEVEL` in one provider and `DEPENDENCY` in the other.
 | `THIRD_PARTY_SOURCED` | Installed from a non-core tap or a local Portfile | No mapping assumed; `MANUAL_REVIEW` |
 | `PROVIDER_INTERNAL` | Belongs to the provider itself | Never touched |
 
-**MUST.** MacPorts has no concept equivalent to a Homebrew cask (R-1 confirms
-the cask semantics this relies on). Casks appear in inventory and in `doctor`,
+**MUST.** A package carries a **set** of classes, not one. `php@8.4` is
+`RUNTIME` *and* `SERVICE`; `postgresql@17` is `STATEFUL` *and* `SERVICE`
+(R-8, 2026-09-02). Default handling is the strictest any member class demands,
+under a fixed precedence:
+
+`STATEFUL` · `SERVICE` · `GUI_APP` · `THIRD_PARTY_SOURCED` dominate
+`PROVIDER_INTERNAL`, which dominates `RUNTIME`, which dominates `SIMPLE`
+
+so a `RUNTIME` classification can never suppress the `MANUAL_REVIEW` that an
+INV-19 class requires of the same package. Every member class is displayed, not
+only the winning one.
+
+**MUST.** MacPorts has no concept equivalent to a Homebrew cask (R-1, 2026-09-02,
+confirms the cask semantics this relies on, and adds a safety reason: a cask may
+plant launch machinery under a vendor label that no cask metadata names). Casks appear in inventory and in `doctor`,
 are clearly labelled, and are excluded from migration planning. Do not invent
 a mapping for them.
 
@@ -82,13 +124,41 @@ a mapping for them.
 source?" **symmetrically for both providers**. The original brief modelled this
 as a Homebrew bottle question; it is not. The design assumes MacPorts binary
 archives are also unavailable in real cases — non-default variants and
-licence-restricted ports compiling locally — and R-4 verifies which cases
-those are.
+licence-restricted ports compiling locally — and R-4 (2026-09-02) confirms both
+with a mechanism: the published archive's filename encodes the canonical variant
+set, so any non-default variant names a file that was never built; and only
+binary-distributable ports are staged for upload, which the port's own licence
+and its whole dependency tree decide.
 
 ```
 BINARY_AVAILABLE | SOURCE_BUILD_REQUIRED | UNAVAILABLE
 | UNSUPPORTED_PLATFORM | DEPRECATED | DISABLED | UNKNOWN
 ```
+
+**MUST.** `SOURCE_BUILD_REQUIRED` carries a **reason** from a closed set, because
+the four causes carry different advice to the user and different durability:
+
+`NO_ARTIFACT_FOR_PLATFORM` · `NON_DEFAULT_OPTIONS` ·
+`LICENCE_NOT_REDISTRIBUTABLE` · `FORCED_BY_CONFIGURATION`
+
+`NON_DEFAULT_OPTIONS` and `FORCED_BY_CONFIGURATION` are the user's own choice
+and are reversible; `LICENCE_NOT_REDISTRIBUTABLE` never resolves for that
+version; `NO_ARTIFACT_FOR_PLATFORM` is the one that moves with provider policy
+(R-2, R-4, 2026-09-02).
+
+**MUST.** Two determinations are **not** answerable offline and degrade to
+`UNKNOWN` rather than to a negative:
+
+- "no artifact published anywhere" versus "an artifact exists but not for this
+  platform". Under Homebrew's default API mode the cached index is generated for
+  a single bottle tag, so both states are represented identically as an empty
+  `bottle` object; separating them needs the tap on disk or the network
+  (R-1, R-2, 2026-09-02).
+- `BINARY_AVAILABLE` under MacPorts, ever. Nothing in the local registry, the
+  PortIndex or `port` output records whether a published archive exists. Several
+  `SOURCE_BUILD_REQUIRED` reasons *are* decidable offline — licence, non-default
+  variant, forced configuration, platform exclusion — but the positive is not
+  (R-4, 2026-09-02).
 
 **MUST.** The assessment is per `(package, provider, machine, variant/options)`,
 carries the evidence that produced it, and degrades to `UNKNOWN` rather than

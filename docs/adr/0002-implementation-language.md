@@ -86,6 +86,16 @@ than an inspection.
   breaking change requiring an ADR.
 - No hosted CI runner for macOS 10.12–10.15 is known (R-10, open; treated as absent until answered), so publish those as
   **best-effort** and seek a real-hardware verification path.
+  **Answered 2026-09-02 by R-10** (`../research/R-10-ci-runners.md`): correct
+  for 10.12–10.15, and now a policy consequence rather than a gap in knowledge —
+  GitHub maintains images only for the latest two stable macOS versions, so no
+  hosted path to those releases exists or is coming. The best-effort publication
+  requirement stands unchanged. The broader worry does *not* hold: hosted Intel
+  runners exist as `macos-15-intel` and `macos-26-intel`, free on public
+  repositories, so both architectures are tested natively on macOS 15 and 26 and
+  the floor assertion above runs on a real Intel host rather than only on a
+  cross-compiled artifact. Those labels are dated policy data with a stated end
+  no earlier than Fall 2027.
 
 ## Consequences
 

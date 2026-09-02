@@ -110,12 +110,36 @@ in particular, which is incompatible with the project's Apache-2.0 licence. It
 also fails on any source file missing its `SPDX-License-Identifier` header.
 Licence compatibility is a build-breaking property, not a release-day surprise.
 
-**MUST.** Hosted Intel macOS runner availability is uncertain and must be
-verified, not assumed. If unavailable, cross-compile and validate behaviour
-against Intel fixtures — and say so honestly in the docs rather than claiming
-tested support. Publish a support matrix distinguishing **tested**,
-**best-effort** and **unsupported** OS/architecture combinations, and keep it
-generated from what CI actually runs.
+**MUST.** Both architectures are tested on **native hosted runners**. R-10
+answered the question this paragraph used to leave open (2026-09-02): hosted
+Intel macOS runners exist as `macos-15-intel` and `macos-26-intel` — standard
+runners, free on public repositories — introduced by the GitHub changelogs of
+2025-09-19 and 2026-02-26. Pin labels explicitly; `macos-latest` is arm64. This
+is dated policy data in the INV-20 sense and it has a stated end: GitHub said
+x86_64 macOS would not be supported after the macOS 15 image retires in Fall
+2027, a sentence in visible tension with `macos-26-intel` shipping afterwards,
+so treat Fall 2027 as the earliest credible date and re-check rather than plan
+against it.
+
+**MUST.** macOS 10.12–10.15 are **best-effort**, and the reason is structural
+rather than unknown: GitHub maintains images only for the latest two stable
+macOS versions, so no hosted path to those releases exists or is coming (R-10,
+2026-09-02). Publish a support matrix distinguishing **tested**, **best-effort**
+and **unsupported** OS/architecture combinations, keep it generated from what CI
+actually runs, and never claim tested support for a combination no job executes.
+
+**MUST.** Every macOS job sets the Homebrew quieting variables
+(`HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_NO_ANALYTICS`, `HOMEBREW_NO_ENV_HINTS`).
+The runner images ship a live, preinstalled Homebrew and no MacPorts (R-10,
+2026-09-02); an unquieted Homebrew will auto-update mid-job and make output
+non-reproducible. That asymmetry is treated as contamination to neutralise, not
+as a convenience to exploit: **both** adapters are contract-tested from captured
+fixtures, never against the runner's live install (INV-17).
+
+**SHOULD.** Cross-compilation is a redundancy check that the cross path has not
+rotted, not the Intel test strategy. Rosetta 2 is present on the arm64 images,
+but Apple announced on 2026-09-01 that macOS 27 is the last release to support
+it (R-10), so nothing in CI may depend on it.
 
 **SHOULD.** A scheduled job that re-runs adapter contract tests against the
 latest provider releases, so provider output drift is discovered by CI rather

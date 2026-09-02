@@ -178,6 +178,16 @@ prefix is `/opt/homebrew` on Apple Silicon and `/usr/local` on Intel —
 <https://docs.brew.sh/Installation>, read 2026-09-02 — so a migrated machine
 can carry both), and architecture mismatches.
 
+**MUST.** `doctor` implements the MacPorts-on-`PATH` check itself and never
+defers to the provider. `brew doctor` has no MacPorts, Fink or `/opt/local`
+check at any version examined — none in `diagnostic.rb` at HEAD or at tags
+1.9.0, 2.7.0 or 3.6.0 (F-2, 2026-09-02). The two directions are also not equally
+risky, and the wording says which: MacPorts' documented remedy for
+`/usr/local` interference is opt-in trace mode (`port -t`), whereas Homebrew's
+compiler shim already drops `-I`/`-L` flags under `/opt/local` on every source
+build by default, so the residual risk toward Homebrew is in `PATH`-resolved
+*tools*, not in headers and libraries (F-2, 2026-09-02).
+
 **SHOULD.** `doctor --deep` inspects the dynamic-library dependencies of
 installed binaries for links crossing prefixes. Expensive; opt-in; bounded;
 interruptible.
@@ -196,8 +206,13 @@ inconsistent.
 ## Privilege
 
 **MUST.** The design assumes MacPorts operations generally require elevation
-and Homebrew's normally do not; R-5 in the research checklist verifies that
-per operation, and the plan never assumes it — it asks the adapter. Therefore:
+and Homebrew's normally do not; R-5 (2026-09-02) confirms that in outline and
+sharpens it in two places, which is why the plan asks the adapter **per step**
+rather than per provider. Elevation varies by *package*, not only by provider:
+a Homebrew cask whose `pkg` artifact or `installer script:` carries `sudo: true`
+elevates on an otherwise unprivileged provider, and `brew services` at system
+level elevates even to *list*, so an unprivileged services inventory is
+necessarily incomplete and must say so. Therefore:
 the plan lists exactly which steps elevate and why; elevation
 is requested per operation at the moment it is needed; the credential is never
 cached by MacPortsBrew; analysis and dry-run never elevate; the tool is never
@@ -213,10 +228,15 @@ user input never becomes a flag.
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.
 
-**MUST.** Provider invocations set the environment that keeps them quiet and
-side-effect-free during analysis — no auto-update, no interactive prompts, no
-pager, stable locale for parsing. Research the current variables for each
-provider and keep them in one place.
+**MUST.** Provider invocations set the environment *and flags* that keep them
+quiet and side-effect-free during analysis — no auto-update, no interactive
+prompts, no pager, stable locale for parsing. The mechanism is not the same on
+both sides and the specification does not pretend otherwise: Homebrew is quieted
+by environment (`HOMEBREW_NO_AUTO_UPDATE` is the one that does the offline work,
+alongside `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS` — R-1, R-2,
+2026-09-02), while MacPorts is quieted by argv — `-q`, which implies `-N` — plus
+never invoking `selfupdate` or `sync`; no `MACPORTS_*` variable serves the
+purpose (R-3, 2026-09-02). Both live in one place.
 
 ## History
 

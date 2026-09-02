@@ -12,13 +12,24 @@ GitHub Releases for `x86_64` and `arm64`, with checksums. Installation
 documentation leads with this path. `brew install` / `port install` may exist
 later as conveniences; neither may ever be the only route.
 
-**MUST.** Confront macOS Gatekeeper explicitly. A binary downloaded from the
-internet carries the quarantine attribute, and on current macOS an unsigned,
-un-notarised executable is blocked or warned about — R-9 verifies the exact
-behaviour across the supported range — which is exactly the wrong first
-impression for a tool that asks users to trust it with their package managers.
-Decide and document one of: Developer ID signing plus notarisation (requires a
-paid Apple account — a human decision, record it in
+**MUST.** Confront macOS Gatekeeper explicitly, and state the mechanism
+accurately. The blocker is the **quarantine attribute**, not the absence of a
+signature: an unsigned Mach-O executable runs unobstructed when it is not
+quarantined — 267 of 321 executables in one `/usr/local/bin` are unsigned and
+all of them work — and quarantine is applied by the *downloading application*
+through Launch Services, so a browser sets it and `curl` does not (R-9,
+2026-09-02;
+<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>).
+What a **quarantined, unsigned** binary does when run from a shell on macOS 26
+is **UNRESOLVED** — Apple documents Gatekeeper around opening applications,
+plug-ins and installer packages, not around `execve` — so the project assumes
+the pessimistic case until the experiment is run. Two further facts bound the
+choice: a bare binary **cannot be notarisation-stapled** (Apple), so
+notarisation would not yield an offline-verifiable artifact in the format this
+section mandates; and `arm64` binaries are ad-hoc signed by the linker by
+default, making ad-hoc signing there a property to assert in CI rather than a
+step to add. Decide and document one of: Developer ID signing plus notarisation
+(requires a paid Apple account — a human decision, record it in
 `docs/decisions-pending.md`); or ad-hoc signing plus explicit, honest
 instructions for clearing quarantine. Do not ship a release without having made
 this decision consciously.
@@ -170,13 +181,20 @@ dependency, not an aspiration. A dependency that raises the deployment floor is
 rejected the same way a GPLv2-only dependency is.
 
 **MUST.** The published support matrix distinguishes what CI actually exercises
-from what is merely believed to work. No hosted runner for macOS 10.12–10.15
-is known (R-10 in `09-research-checklist.md` is the single place that fact is
-established; until it is answered the versions are treated as untested), so
-those versions are **best-effort** until someone verifies them on real
-hardware, and the documentation says so in those words. Claiming tested
-support for an untested OS is the kind of dishonesty this project cannot afford
-— its users are on exactly those machines.
+from what is merely believed to work. R-10 (answered 2026-09-02) settles which
+is which: hosted Intel runners exist for macOS 15 and 26, so those pairs are
+**tested** natively on both architectures, while macOS 10.12–10.15 has no
+hosted path and none is coming — GitHub keeps images only for the latest two
+stable macOS versions. Those versions are **best-effort** until someone
+verifies them on real hardware, and the documentation says so in those words.
+Claiming tested support for an untested OS is the kind of dishonesty this
+project cannot afford — its users are on exactly those machines.
+
+**MUST.** State MacPorts' own floor alongside the project's. MacPorts 2.12.6
+ships package installers down to **macOS 10.12 Sierra** (R-4, 2026-09-02),
+which coincides exactly with this project's Intel floor: below it, neither
+MacPortsBrew nor the provider it would recommend has a supported path, and the
+support matrix says so rather than implying the machine is merely untested.
 
 **MUST.** Prefer capability detection to macOS version comparisons. Where a
 version check is unavoidable, isolate it, name it, and test both sides.

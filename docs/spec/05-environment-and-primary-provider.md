@@ -30,27 +30,67 @@ requiring confirmation. Some system binaries are load-bearing for the OS.
 
 ## Implementing package primary
 
-**HYPOTHESIS.** A MacPortsBrew-owned shim directory early on `PATH`
-(`~/.local/share/macportsbrew/bin` or the platform-appropriate equivalent),
-containing symlinks to the chosen implementation.
+**Decided** by R-6 (2026-09-02) against the criteria this section previously
+listed: **not one mechanism, but four layers, each used only where it is the
+least invasive one that can express the request.** The implementation stays
+deferred; the shape does not.
 
-This is a hypothesis, not a decision. Research and compare against:
-MacPorts' own selection mechanism; Homebrew's linking behaviour; versioned
-executable names; per-shell aliases or functions; doing nothing and simply
-reporting the current resolution.
+1. **Report only — the default.** `analyze` and `doctor` explain the current
+   resolution for each contested executable (winner, its owner, the losers in
+   `PATH` order) and change nothing. It is the only option with no failure
+   mode, and the Homebrew reads it needs are offline-safe.
+2. **Recommend the versioned executable name where one exists** — `python3.12`,
+   `gcc-14`. Both providers already converge on this: Homebrew requires
+   suffixed binaries before a versioned formula may be linked alongside its
+   unversioned counterpart, and automating the same choice is what `port select`
+   exists for. It costs nothing and cannot drift. Offer it before offering to
+   move any symlink.
+3. **Delegate an intra-MacPorts version choice to `port select`.** This is the
+   provider-native mechanism doing the job it was built for. MacPortsBrew
+   *proposes* the exact command and shows its impact by reading the group's
+   `base` file; it does not run it. The write goes into the MacPorts prefix and
+   needs elevation, and keeping primary selection off the elevating path is what
+   keeps `analyze`, `doctor` and dry-run unprivileged as INV-06 requires. It
+   then re-reads the selection to verify.
+4. **A MacPortsBrew-owned shim directory for a genuine cross-provider primary**
+   — `~/.local/share/macportsbrew/bin` or the platform-appropriate equivalent,
+   containing symlinks to the chosen implementation, with exactly one `PATH`
+   prepend inside the managed block below. This is the only option that can
+   express a cross-provider choice at all, and the only one symmetric between
+   the two migration directions (INV-17).
 
-Evaluate each option against: does it survive a provider upgrade; does it
-survive an uninstall of the target; is it visible to a confused user six months
-later; is it reversible in one command; does it break tools that resolve
-binaries by absolute path; does it interact badly with the providers' own
-selection mechanisms.
+**MUST.** The shim directory is never placed inside a provider's prefix, and in
+particular never in `/usr/local/bin`. Homebrew cannot see foreign symlinks in
+its own prefix — `brew --prefix --unbrewed` reports regular files only — and
+`brew link --overwrite` deletes files that already exist there, so a shim put in
+that directory is both invisible to the provider's own checks and deletable by a
+routine `brew` operation (R-6, 2026-09-02).
 
-**MUST**, whichever is chosen: deterministic, inspectable, reversible,
+**MUST.** A shim targets the provider's **stable** path, never the versioned
+keg: `${prefix}/opt/<formula>/bin/<exe>` for Homebrew — the `opt` symlink
+follows an upgrade, the `Cellar` path does not — and `${prefix}/bin/<exe>` for
+MacPorts (R-6, 2026-09-02).
+
+**MUST NOT.** Never reorder `/usr/local/bin` against `/opt/local/bin` to achieve
+a package primary. That moves every contested name at once — 1024 of them from
+Homebrew alone on the machine measured — and is therefore global provider
+priority, a separate command with its own impact preview and confirmation
+(INV-12, R-6 2026-09-02).
+
+**MUST**, whichever layer is used: deterministic, inspectable, reversible,
 idempotent, self-repairing, unmistakably owned by MacPortsBrew, and validated
 against stale targets on every run (`doctor` reports broken or orphaned entries).
+Neither provider's mechanism self-heals: `port select` never checks that its
+target exists, so uninstalling a selected port leaves dangling symlinks and a
+stale recorded selection (R-6, 2026-09-02).
 
 **MUST.** Prefer a provider-native mechanism over a MacPortsBrew-owned one
-wherever the provider offers one that does the job. Owning less is better.
+wherever the provider offers one **that can express the requirement**. Owning
+less is better. For a cross-provider primary no native mechanism qualifies:
+MacPorts' `mportselect` joins both link source and target with `${prefix}`, and
+`brew link` symlinks into Homebrew's prefix, so neither can point a name at the
+other provider's binary (R-6, 2026-09-02). Layer 4 is not a preference for
+owning more; it is the absence of an alternative.
 
 ## Shell configuration
 
