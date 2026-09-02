@@ -1,0 +1,279 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! A capture writes down no home path and no user name.
+//!
+//! `06-cli-and-ux.md` ("Privacy and diagnostics") is unconditional about it,
+//! and a snapshot is precisely the file a user attaches to an issue. The
+//! adapters were already careful with the environment they *report*; what they
+//! could not be careful with is the paths a provider hands back — Homebrew's
+//! `--cache` is under `~/Library/Caches` on every machine, `HOME` is in the
+//! sanitised invocation environment INV-10 builds, and a `PATH` lookup answers
+//! with wherever the executable actually is. Those are redacted at the capture
+//! boundary (`macportsbrew_application::capture`), which is the one place every
+//! one of them passes through.
+//!
+//! The test lives in the command-line crate because it needs the real adapters
+//! *and* the application's capture, and the layering
+//! (`scripts/check-layering.sh`) lets only this crate see both.
+
+use macportsbrew_adapters::process::{
+    RecordedInvocation, Recording, RecordingProvenance, ReplayRunner,
+};
+use macportsbrew_adapters::registry::{self, RegistryContext};
+use macportsbrew_application::{capture, doctor, CaptureContext};
+use macportsbrew_domain::{
+    Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, Machine, MachineRead,
+    MacosVersion, PathFinding, PathFindingKind, ProviderId, Translation,
+};
+use macportsbrew_policy::PolicyData;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+/// The home directory every path in this fixture is under. Nothing containing
+/// it may survive into a snapshot, and `testuser` may not survive either — the
+/// specification names user names separately from home paths.
+const HOME: &str = "/Users/testuser";
+
+fn invocation(program: &str, argv: &[&str], stdout: &str) -> RecordedInvocation {
+    RecordedInvocation {
+        invocation: macportsbrew_adapters::process::Invocation {
+            program: program.to_string(),
+            argv: argv.iter().map(|a| (*a).to_string()).collect(),
+            environment: BTreeMap::new(),
+            status: macportsbrew_adapters::process::ExitStatus::Exited { code: 0 },
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+            truncated: false,
+            duration_ms: 1,
+        },
+    }
+}
+
+/// A Homebrew installed under the user's home, which is what `brew --prefix`
+/// answers on a machine where it was installed without administrator rights,
+/// and what the `--cache` answer looks like everywhere.
+fn recording() -> Recording {
+    Recording {
+        schema_version: 1,
+        provenance: RecordingProvenance {
+            macos: "26.6.2".into(),
+            architecture: "x86_64".into(),
+            provider_versions: vec!["homebrew 4.6.15".into()],
+            captured_at: "2026-09-02T00:00:00Z".into(),
+            captured_by: "capture_redaction.rs".into(),
+            origin: "synthesised".into(),
+            note: Some("hand-written for the capture redaction test".into()),
+        },
+        invocations: vec![
+            invocation("brew", &["--version"], "Homebrew 4.6.15\n"),
+            invocation("brew", &["--prefix"], &format!("{HOME}/homebrew\n")),
+            invocation("brew", &["--cellar"], &format!("{HOME}/homebrew/Cellar\n")),
+            invocation(
+                "brew",
+                &["--caskroom"],
+                &format!("{HOME}/homebrew/Caskroom\n"),
+            ),
+            invocation(
+                "brew",
+                &["--cache"],
+                &format!("{HOME}/Library/Caches/Homebrew\n"),
+            ),
+            invocation(
+                "brew",
+                &["config"],
+                &format!(
+                    "HOMEBREW_VERSION: 4.6.15\nHOMEBREW_PREFIX: {HOME}/homebrew\n\
+                     macOS: 26.6.2-x86_64\n"
+                ),
+            ),
+            invocation(
+                "brew",
+                &["info", "--json=v2", "--installed"],
+                r#"{"formulae":[],"casks":[]}"#,
+            ),
+            invocation("brew", &["list", "--pinned"], ""),
+        ],
+    }
+}
+
+/// A machine reader that answers `which` with paths under the home, which is
+/// what a user-local Homebrew or a `~/.local/bin` produces. The real
+/// [`macportsbrew_adapters::system::SystemMachine`] refuses to answer under
+/// replay, on purpose, so the fixture supplies the answers here.
+struct HomeMachine;
+
+impl MachineRead for HomeMachine {
+    fn machine(&self) -> Result<Machine, DomainError> {
+        Ok(Machine {
+            macos: MacosVersion::new(26, 6, 2),
+            architecture: Architecture::X86_64,
+            translation: Translation::Native,
+            command_line_tools: CommandLineTools::Installed {
+                path: PathBuf::from("/Library/Developer/CommandLineTools"),
+            },
+        })
+    }
+
+    fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
+        // Already redacted, as the system adapter delivers it.
+        Ok(EnvironmentSnapshot {
+            path: vec!["~/homebrew/bin".into(), "/usr/bin".into()],
+            reported: BTreeMap::from([(
+                "CPPFLAGS".to_string(),
+                "-I~/homebrew/include".to_string(),
+            )]),
+            path_findings: vec![PathFinding {
+                entry: "~/homebrew/bin".into(),
+                index: 0,
+                kind: PathFindingKind::GroupWritable,
+            }],
+        })
+    }
+
+    fn which(&self, executable: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(format!("{HOME}/homebrew/bin/{executable}")))
+    }
+}
+
+#[test]
+fn a_capture_carries_no_home_path_and_no_user_name() {
+    let runner = ReplayRunner::new(recording());
+    let providers = registry::build(&RegistryContext {
+        runner: &runner,
+        home: Some(PathBuf::from(HOME)),
+        platform_tags: Box::new(|_| vec!["tahoe".to_string()]),
+        prefix_override: Some(vec![(
+            ProviderId::new("homebrew"),
+            PathBuf::from(format!("{HOME}/homebrew")),
+        )]),
+    });
+    let refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
+        providers.iter().map(AsRef::as_ref).collect();
+    let machine = HomeMachine;
+    let snapshot = capture(&CaptureContext {
+        machine: &machine,
+        providers: refs,
+        policy_version: "test".into(),
+        captured_at: "2026-09-02T00:00:00Z".into(),
+        captured_by: "capture_redaction.rs".into(),
+        home: Some(PathBuf::from(HOME)),
+    })
+    .expect("the machine answers, so the capture succeeds");
+
+    // The fixture is only meaningful if the provider actually answered: a
+    // snapshot of an absent Homebrew would pass every assertion below while
+    // proving nothing.
+    let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
+    assert_eq!(
+        homebrew.detection.presence,
+        macportsbrew_domain::ProviderPresence::Present,
+        "the recording must make Homebrew present, or this test asserts nothing"
+    );
+    assert!(
+        homebrew.environment.contains_key("cache"),
+        "the `--cache` answer is the field this test exists for"
+    );
+    assert!(
+        matches!(
+            homebrew
+                .capabilities
+                .capabilities
+                .get(&macportsbrew_domain::Capability::OfflineMetadata),
+            Some(macportsbrew_domain::CapabilityState::Unavailable { .. })
+        ),
+        "the offline-metadata reason names a cache file under the home, which is \
+         the free-text case this test found"
+    );
+
+    let text = serde_json::to_string_pretty(&snapshot).expect("a snapshot serialises");
+    assert_no_home(&text, "the snapshot");
+
+    // `doctor --report` writes a strict subset of these two documents: the
+    // machine, each provider's presence, version and prefix, the package names,
+    // the number of `PATH` entries, and the findings. Nothing it writes comes
+    // from anywhere else, so covering both covers it.
+    let report = doctor(
+        &snapshot,
+        &PolicyData::load_embedded().unwrap(),
+        "2026-09-02",
+    );
+    let text = serde_json::to_string_pretty(&report).expect("a report serialises");
+    assert_no_home(&text, "the doctor report");
+}
+
+#[test]
+fn a_resolution_taken_from_path_is_redacted_too() {
+    // One provider rather than the registry's pair, so the assertions name the
+    // Homebrew fields directly: the detected prefix and the executable built
+    // from it are both under the home here.
+    let runner = ReplayRunner::new(recording());
+    let adapter = macportsbrew_adapters::homebrew::HomebrewAdapter::new(
+        &runner,
+        PathBuf::from(format!("{HOME}/homebrew")),
+        Some(PathBuf::from(HOME)),
+        vec!["tahoe".to_string()],
+    );
+    let machine = HomeMachine;
+    let snapshot = capture(&CaptureContext {
+        machine: &machine,
+        providers: vec![&adapter],
+        policy_version: "test".into(),
+        captured_at: "2026-09-02T00:00:00Z".into(),
+        captured_by: "capture_redaction.rs".into(),
+        home: Some(PathBuf::from(HOME)),
+    })
+    .expect("the machine answers");
+
+    let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
+    assert_eq!(
+        homebrew.detection.prefix,
+        Some(PathBuf::from("~/homebrew")),
+        "the detected prefix is stored redacted"
+    );
+    assert_no_home(
+        &serde_json::to_string(&snapshot).unwrap(),
+        "the single-provider snapshot",
+    );
+}
+
+#[test]
+fn without_a_home_nothing_is_rewritten() {
+    // Under replay the home is `None`, and redaction must then be the identity
+    // function: a recording was redacted when it was captured, and redacting it
+    // again against *this* machine's home would be a host fact reaching a
+    // replayed analysis (INV-15).
+    let runner = ReplayRunner::new(recording());
+    let adapter = macportsbrew_adapters::homebrew::HomebrewAdapter::new(
+        &runner,
+        PathBuf::from(format!("{HOME}/homebrew")),
+        Some(PathBuf::from(HOME)),
+        vec!["tahoe".to_string()],
+    );
+    let machine = HomeMachine;
+    let snapshot = capture(&CaptureContext {
+        machine: &machine,
+        providers: vec![&adapter],
+        policy_version: "test".into(),
+        captured_at: "2026-09-02T00:00:00Z".into(),
+        captured_by: "capture_redaction.rs".into(),
+        home: None,
+    })
+    .expect("the machine answers");
+    let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
+    assert_eq!(
+        homebrew.detection.prefix,
+        Some(PathBuf::from(format!("{HOME}/homebrew"))),
+        "with no home to redact against, the value is left exactly as it was"
+    );
+}
+
+fn assert_no_home(text: &str, what: &str) {
+    assert!(
+        !text.contains(HOME),
+        "{what} carries the home path {HOME}:\n{text}"
+    );
+    assert!(
+        !text.contains("testuser"),
+        "{what} carries the user name:\n{text}"
+    );
+}

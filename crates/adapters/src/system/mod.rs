@@ -20,4 +20,5 @@ pub use machine::{
     from_process_environment, is_reported, redact_home, state_dir_override, SystemMachine,
     STATE_DIR_VARIABLE,
 };
-pub use path_audit::{audit_path, PathFinding, PathFindingKind};
+pub use macportsbrew_domain::{PathFinding, PathFindingKind};
+pub use path_audit::audit_path;

@@ -25,6 +25,7 @@
 //! them into the validated types the adapter maps from, so an invalid
 //! document cannot reach the mapping code at all.
 
+use crate::process::DEFAULT_MAX_OUTPUT_BYTES;
 use macportsbrew_domain::{DomainError, ErrorId};
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,7 +35,12 @@ use std::collections::{BTreeMap, BTreeSet};
 /// under a megabyte on a full machine (876 KB for 180 formulae and 9 casks,
 /// R-1); this cap exists so a hostile or broken provider cannot exhaust
 /// memory, not as a working limit.
-pub const MAX_INPUT_BYTES: usize = 256 * 1024 * 1024;
+///
+/// It is the executor's own cap, and it has to be: the text handed here was
+/// captured by [`crate::process`], which stops reading at
+/// [`DEFAULT_MAX_OUTPUT_BYTES`] and marks the invocation truncated. A larger
+/// bound here could never be reached and so bounded nothing.
+pub const MAX_INPUT_BYTES: usize = DEFAULT_MAX_OUTPUT_BYTES;
 
 /// Longest accepted package name or version. Both are used as single path
 /// components under the Cellar and the Caskroom.

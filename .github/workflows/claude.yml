@@ -15,7 +15,19 @@ on:
 
 jobs:
   claude:
-    if: contains(github.event.comment.body, '@claude')
+    # The trigger phrase alone is not authorisation: on a public repository
+    # anyone can write `@claude` in a comment, and this job checks out the
+    # head, runs with `contents: write` and holds an API key. The association
+    # test is what makes the trigger a request from someone who already has
+    # write access. Both events this workflow listens to carry
+    # `github.event.comment.author_association`; adding an event without one
+    # means adding its own test here. GitHub's association values are
+    # documented at
+    # https://docs.github.com/en/graphql/reference/enums#commentauthorassociation
+    # (read 2026-09-02).
+    if: >-
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

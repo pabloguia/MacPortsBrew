@@ -10,7 +10,7 @@ use macportsbrew_adapters::persistence::{
     load_recording, load_snapshot, save_snapshot as persist_snapshot, snapshot_to_json,
     state_dir::StateDir, time, write_atomic,
 };
-use macportsbrew_adapters::process::{ProcessRunner, ReplayRunner, SystemRunner};
+use macportsbrew_adapters::process::{is_safe_path, ProcessRunner, ReplayRunner, SystemRunner};
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_adapters::system::machine::{
     from_process_environment, language_preference, state_dir_override, SystemMachine,
@@ -120,6 +120,7 @@ impl Context {
                     "macportsbrew {}",
                     if replay { "--replay" } else { "capture" }
                 ),
+                home: if replay { None } else { home.clone() },
             })?
         };
         Ok(Self {
@@ -144,16 +145,27 @@ impl Context {
 
 /// Under replay, the prefixes come from the recording's own `--prefix` and
 /// `dir` answers rather than from this machine's filesystem.
+///
+/// A recording is a file the user may have been handed, so its contents are
+/// untrusted input in the sense of `04-migration-and-safety.md` ("Malicious or
+/// malformed provider metadata"). A prefix taken from one becomes the
+/// directory an executable path is built from, so every candidate is put
+/// through [`is_safe_path`] — absolute, bounded, no `..`, no control
+/// characters — and one that fails is dropped rather than repaired. Dropping
+/// it means the default candidate is used, which is what a recording without
+/// the answer already does.
 fn prefix_overrides_from(
     recording: &macportsbrew_adapters::process::Recording,
 ) -> Vec<(ProviderId, PathBuf)> {
     let mut out = Vec::new();
+    let mut accept = |id: &str, path: PathBuf| {
+        if is_safe_path(&path) {
+            out.push((ProviderId::new(id), path));
+        }
+    };
     for inv in recording.invocations.iter().map(|r| &r.invocation) {
         if inv.program == "brew" && inv.argv == ["--prefix"] && inv.status.success() {
-            out.push((
-                ProviderId::new("homebrew"),
-                PathBuf::from(inv.stdout.trim()),
-            ));
+            accept("homebrew", PathBuf::from(inv.stdout.trim()));
         }
         if inv.program == "port" && inv.argv == ["dir"] && inv.status.success() {
             // `port dir` prints the port directory, not the prefix; the
@@ -161,7 +173,7 @@ fn prefix_overrides_from(
             // the default when it does not parse.
             let text = inv.stdout.trim();
             if let Some(idx) = text.find("/var/macports") {
-                out.push((ProviderId::new("macports"), PathBuf::from(&text[..idx])));
+                accept("macports", PathBuf::from(&text[..idx]));
             }
         }
     }
@@ -217,4 +229,86 @@ pub fn write_diagnostic_report(
         .map_err(|e| DomainError::new(ErrorId::Internal, e.to_string()))?;
     write_atomic(path, text.as_bytes())?;
     Ok(path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use macportsbrew_adapters::process::{
+        ExitStatus, Invocation, RecordedInvocation, Recording, RecordingProvenance,
+    };
+
+    fn recording(answers: &[(&str, &[&str], &str)]) -> Recording {
+        Recording {
+            schema_version: 1,
+            provenance: RecordingProvenance {
+                macos: "26.0.0".into(),
+                architecture: "arm64".into(),
+                provider_versions: Vec::new(),
+                captured_at: "2026-09-02T00:00:00Z".into(),
+                captured_by: "context tests".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            invocations: answers
+                .iter()
+                .map(|(program, argv, stdout)| RecordedInvocation {
+                    invocation: Invocation {
+                        program: (*program).to_string(),
+                        argv: argv.iter().map(|a| (*a).to_string()).collect(),
+                        environment: std::collections::BTreeMap::new(),
+                        status: ExitStatus::Exited { code: 0 },
+                        stdout: (*stdout).to_string(),
+                        stderr: String::new(),
+                        truncated: false,
+                        duration_ms: 1,
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_recordings_own_answers_become_the_prefixes() {
+        let overrides = prefix_overrides_from(&recording(&[
+            ("brew", &["--prefix"], "/opt/homebrew\n"),
+            ("port", &["dir"], "/opt/local/var/macports/sources/x/y\n"),
+        ]));
+        assert_eq!(
+            overrides,
+            vec![
+                (ProviderId::new("homebrew"), PathBuf::from("/opt/homebrew")),
+                (ProviderId::new("macports"), PathBuf::from("/opt/local")),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_prefix_that_is_not_a_safe_path_is_dropped_rather_than_repaired() {
+        // A recording is a file somebody may have been handed, and its
+        // contents become the directory an executable path is built from.
+        // Dropping the answer falls back to the documented candidate, which is
+        // what a recording that never answered already does.
+        for bad in [
+            "relative/homebrew",
+            "/opt/../etc",
+            "/opt/home\nbrew",
+            "", // `--prefix` answered with nothing
+        ] {
+            let overrides = prefix_overrides_from(&recording(&[("brew", &["--prefix"], bad)]));
+            assert!(
+                overrides.is_empty(),
+                "{bad:?} must not become a prefix, got {overrides:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unsuccessful_or_unrecognised_answer_yields_nothing() {
+        assert!(prefix_overrides_from(&recording(&[
+            ("brew", &["--cellar"], "/opt/homebrew/Cellar\n"),
+            ("port", &["dir"], "/opt/local/share/nothing\n"),
+        ]))
+        .is_empty());
+    }
 }

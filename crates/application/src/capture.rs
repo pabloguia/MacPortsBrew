@@ -6,10 +6,11 @@
 
 use crate::TOOL_VERSION;
 use macportsbrew_domain::{
-    DomainError, MachineRead, Provenance, ProviderRead, ProviderSnapshot, Snapshot,
+    redact_home, DomainError, MachineRead, Provenance, ProviderRead, ProviderSnapshot, Snapshot,
     SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// What a capture needs.
 pub struct CaptureContext<'a> {
@@ -23,6 +24,13 @@ pub struct CaptureContext<'a> {
     pub captured_at: String,
     /// The command that captured it.
     pub captured_by: String,
+    /// The home directory to redact out of everything the providers say.
+    ///
+    /// `None` under replay and when the home is unknown, which is also what
+    /// makes redaction a no-op there: a recording was redacted when it was
+    /// captured, and re-redacting it against *this* machine's home would be
+    /// a host fact leaking into a replayed analysis (INV-15).
+    pub home: Option<PathBuf>,
 }
 
 /// Captures a snapshot. A provider that fails to answer is recorded as
@@ -74,6 +82,15 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
             }
         }
     }
+    // Redaction happens here, at the boundary, and not inside each adapter:
+    // this is the one place every provider-derived path passes through, and a
+    // snapshot is exactly the file `06-cli-and-ux.md` ("Privacy and
+    // diagnostics") says must carry no home path and no user name. Doing it
+    // last means the real paths were still available above, where `resolution`
+    // needed to canonicalise them and compare them with a prefix.
+    for snap in providers.values_mut() {
+        redact_provider(snap, ctx.home.as_deref());
+    }
     Ok(Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         tool_version: TOOL_VERSION.to_string(),
@@ -88,6 +105,48 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
         environment,
         providers,
     })
+}
+
+/// Replaces the home directory with `~` in every path-valued field of one
+/// provider's snapshot.
+///
+/// The fields are enumerated rather than filtered by name because a provider
+/// decides what its own `environment` map is called: Homebrew's `--cache` is a
+/// home path on every machine, and `HOME` itself is in the sanitised
+/// invocation environment INV-10 builds. Anything holding a path is listed
+/// here; a new path-valued field is a line in this function.
+fn redact_provider(snap: &mut ProviderSnapshot, home: Option<&Path>) {
+    for value in snap.environment.values_mut() {
+        *value = redact_home(value, home);
+    }
+    // A capability's `reason` is free text, and free text an adapter writes
+    // about its own installation quotes paths: the offline-metadata reason
+    // names the cache file it looked for, which is under the home on every
+    // machine. Free text is exactly where a redaction rule keyed on field
+    // names would have missed it.
+    for state in snap.capabilities.capabilities.values_mut() {
+        if let macportsbrew_domain::CapabilityState::Unavailable { reason } = state {
+            *reason = redact_home(reason, home);
+        }
+    }
+    for value in snap.invocation_environment.values_mut() {
+        *value = redact_home(value, home);
+    }
+    redact_option_path(&mut snap.detection.prefix, home);
+    redact_option_path(&mut snap.detection.executable, home);
+    for package in &mut snap.inventory.installed {
+        redact_option_path(&mut package.install_path, home);
+    }
+    for resolution in snap.resolutions.values_mut() {
+        redact_option_path(&mut resolution.path, home);
+        redact_option_path(&mut resolution.canonical_path, home);
+    }
+}
+
+fn redact_option_path(path: &mut Option<PathBuf>, home: Option<&Path>) {
+    if let Some(value) = path {
+        *value = PathBuf::from(redact_home(&value.to_string_lossy(), home));
+    }
 }
 
 fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot {

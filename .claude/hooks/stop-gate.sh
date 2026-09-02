@@ -63,11 +63,25 @@ done < <(find .claude -name '*.sh' 2>/dev/null)
 # 3. The foundation pass's hard boundary, grep-checkable by design
 #    (docs/spec/10-first-pass-work-order.md: "grep finds no install/uninstall/
 #    sudo/shell-write code path in the binary").
-#    The exclusions apply to the matched line's *content*, never to the path:
-#    a hit in src/application/planner.rs is still a hit, and so is one under
-#    src/tests/ - Rust compiles any module into the binary regardless of the
-#    directory's name, and integration tests live in the top-level tests/,
-#    which is outside src/. build.rs is scanned too: `cargo build` runs it.
+#    What is scanned is a path question and what is excluded is a content
+#    question, and the two are separate.
+#
+#    Scanned: crates/*/src (and a flat src/, and every build.rs - `cargo build`
+#    runs those). A hit anywhere under one of those is a hit, including under a
+#    directory called tests/ inside src/: Rust compiles any module into the
+#    binary regardless of the directory's name, so `crates/cli/src/tests/` is
+#    shipped code and is scanned.
+#
+#    Not scanned: crates/*/tests, the integration-test directories. Cargo
+#    builds those into separate test binaries that `cargo build` does not
+#    produce and no release carries, so a mutating subcommand named there as
+#    test data is not a mutating code path in the binary. That is the exemption
+#    the message below points at, and it is why a fixture naming one belongs in
+#    crates/*/tests or in a data file rather than in src/.
+#
+#    The exclusions - a match on a comment line - apply to the matched line's
+#    *content*, never to its path: a hit in
+#    crates/application/src/planner.rs is still a hit.
 #    The foundation pass refines this against the real crate layout (step 21).
 #    The workspace keeps one crate per layer under crates/<layer>/src; a
 #    flat src/ is scanned too so the check does not depend on the layout.
@@ -81,7 +95,7 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
   if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
      | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }' \
      | head -1 | grep -q .; then
-    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs in the top-level tests/ directory.")
+    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned.")
   fi
   if grep -RInE '\b(sudo|doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null \
      | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }' \

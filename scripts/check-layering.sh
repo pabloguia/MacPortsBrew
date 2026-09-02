@@ -43,9 +43,21 @@ sys.exit(1 if bad else 0)
 '
 
 # std::process::Command may be constructed only in the executor module.
+#
+# One exception, and it is narrow: a crate's `tests/` directory. The rule this
+# enforces is about the *product* - 04-migration-and-safety.md places every
+# provider invocation behind one executor so that the environment, the argv and
+# the timeout are decided in exactly one place. An end-to-end test spawns the
+# built binary itself, which 07-quality-and-testing.md requires ("End-to-end
+# tests - the CLI over fixture machines, asserting on --json") and which no
+# executor can do, because the executor is inside the thing being spawned.
+# The exception is `crates/<crate>/tests/` only: `src/` stays guarded in full,
+# unit tests included, so a `#[cfg(test)]` module still cannot reach for a
+# subprocess instead of the ReplayRunner.
 executor='crates/adapters/src/process/'
 hits="$(grep -RIn --include='*.rs' -E '(std::process::Command|process::Command::new|Command::new\()' crates 2>/dev/null \
   | grep -v "^${executor}" \
+  | grep -vE '^crates/[^/]+/tests/' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true)"
 if [ -n "$hits" ]; then
   echo "layering: std::process::Command constructed outside ${executor}:" >&2

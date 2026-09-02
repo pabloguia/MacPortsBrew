@@ -5,7 +5,8 @@
 //! Report only; never repair.
 
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, ProviderId, ProviderPresence, Reason, Snapshot, Translation,
+    Architecture, CommandLineTools, PathFindingKind, ProviderId, ProviderPresence, Reason,
+    Snapshot, Translation,
 };
 use macportsbrew_policy::PolicyData;
 use serde::{Deserialize, Serialize};
@@ -190,16 +191,58 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
             );
         }
     }
-    let mut seen = std::collections::BTreeSet::new();
-    for entry in path {
-        if !seen.insert(entry.clone()) {
-            add(
+    // What was wrong with the `PATH` entries themselves, audited at capture
+    // and carried in the snapshot (`adapters::system::path_audit`). The audit
+    // is provider-neutral and deliberately stops at "this entry is writable";
+    // the half of the threat-model item that needs an opinion — does a
+    // writable directory come *before* the system ones, so that it decides
+    // what `git` means? — is a comparison of positions, and it is answered
+    // here (`04-migration-and-safety.md`, "Threat model": executable
+    // shadowing).
+    let first_system = path
+        .iter()
+        .position(|e| matches!(e.as_str(), "/usr/bin" | "/bin" | "/usr/sbin" | "/sbin"));
+    for finding in &snapshot.environment.path_findings {
+        let precedes_system = first_system.is_some_and(|system| finding.index < system);
+        // The message identifiers are written out as literals so that
+        // `scripts/check-i18n-parity.sh`, which greps for `Reason::new("…")`,
+        // sees every one of them.
+        let (id, severity, reason) = match finding.kind {
+            // Anyone on the machine may drop a binary here, and the shell
+            // finds it before the real one. That is the shadowing attack, not
+            // a tidiness problem.
+            PathFindingKind::WorldWritable if precedes_system => (
+                "path_world_writable_precedes_system",
+                Severity::Error,
+                Reason::new("doctor.path_world_writable_precedes_system"),
+            ),
+            PathFindingKind::WorldWritable => (
+                "path_world_writable",
+                Severity::Warning,
+                Reason::new("doctor.path_world_writable"),
+            ),
+            PathFindingKind::GroupWritable => (
+                "path_group_writable",
+                Severity::Warning,
+                Reason::new("doctor.path_group_writable"),
+            ),
+            PathFindingKind::Missing => (
+                "path_missing",
+                Severity::Warning,
+                Reason::new("doctor.path_missing"),
+            ),
+            PathFindingKind::Relative => (
+                "path_relative",
+                Severity::Warning,
+                Reason::new("doctor.path_relative"),
+            ),
+            PathFindingKind::Duplicate => (
                 "path_duplicate",
                 Severity::Warning,
-                Reason::new("doctor.path_duplicate").with("entry", entry),
-                None,
-            );
-        }
+                Reason::new("doctor.path_duplicate"),
+            ),
+        };
+        add(id, severity, reason.with("entry", &finding.entry), None);
     }
 
     // Build-flag variables leaking one prefix into the other (INV-10).

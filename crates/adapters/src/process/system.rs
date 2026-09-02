@@ -9,8 +9,10 @@ use super::{CommandSpec, ExitStatus, Invocation, ProcessRunner, RecordedInvocati
 use macportsbrew_domain::DomainError;
 use std::cell::RefCell;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -71,13 +73,36 @@ impl SystemRunner {
     }
 }
 
+/// How long the reader threads are given to finish once the child is gone.
+///
+/// The child having exited does not mean the pipe is closed: it may have left
+/// a grandchild holding the write end, and then a blocking read never returns.
+/// Waiting for a bounded time and recording a truncated stream is the right
+/// trade — the alternative is a `macportsbrew analyze` that never comes back.
+const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Reads a stream up to `cap` bytes, returning the text and whether anything
+/// was lost.
+///
+/// `Interrupted` is retried rather than treated as end of stream: a signal
+/// arriving mid-read is not the provider having finished, and stopping there
+/// would hand a parser a partial document while reporting it as complete. Any
+/// other error ends the read and marks the result truncated, for the same
+/// reason: what was captured is not what the provider said.
 fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
     let mut truncated = false;
     loop {
         match reader.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
+            // A signal arrived mid-read. Read again; this is not the end of
+            // the stream.
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => {
+                truncated = true;
+                break;
+            }
             Ok(n) => {
                 if buf.len() + n > cap {
                     let room = cap.saturating_sub(buf.len());
@@ -85,9 +110,12 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
                     truncated = true;
                     // Keep draining so the child does not block on a full
                     // pipe, but discard the excess.
-                    while let Ok(m) = reader.read(&mut chunk) {
-                        if m == 0 {
-                            break;
+                    loop {
+                        match reader.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(_) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                            Err(_) => break,
                         }
                     }
                     break;
@@ -99,20 +127,20 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
     (String::from_utf8_lossy(&buf).into_owned(), truncated)
 }
 
+/// Collects one reader thread's result, giving up after
+/// [`READER_DRAIN_TIMEOUT`].
+///
+/// A thread that has not answered by then is blocked on a pipe somebody other
+/// than the child is still holding. Its bytes are lost, which is what the
+/// `true` says.
+fn collect(rx: &Receiver<(String, bool)>) -> (String, bool) {
+    rx.recv_timeout(READER_DRAIN_TIMEOUT)
+        .unwrap_or_else(|_| (String::new(), true))
+}
+
 impl ProcessRunner for SystemRunner {
     fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
         let start = Instant::now();
-        let mut command = Command::new(&spec.program);
-        command
-            .args(&spec.argv)
-            .env_clear()
-            .envs(&spec.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(cwd) = &spec.cwd {
-            command.current_dir(cwd);
-        }
 
         let record = |status: ExitStatus, stdout: String, stderr: String, truncated: bool| {
             let inv = Invocation {
@@ -133,6 +161,54 @@ impl ProcessRunner for SystemRunner {
             inv
         };
 
+        // A relative program name is resolved by the operating system against
+        // this process's `PATH`, which is the shadowing case in
+        // `04-migration-and-safety.md`: whoever controls an early `PATH` entry
+        // would choose what runs. Every caller in this workspace resolves an
+        // absolute path from a detected prefix, so a relative one here is a
+        // programming error — refused before anything is spawned, and reported
+        // through the same channel a missing program is.
+        if !spec.program.is_absolute() {
+            return Ok(record(
+                ExitStatus::NotStarted {
+                    error: format!(
+                        "refusing to run `{}`: the program must be an absolute path",
+                        spec.program.display()
+                    ),
+                },
+                String::new(),
+                String::new(),
+                false,
+            ));
+        }
+
+        let mut command = Command::new(&spec.program);
+        command
+            .args(&spec.argv)
+            .env_clear()
+            .envs(&spec.environment)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(cwd) = &spec.cwd {
+            command.current_dir(cwd);
+        }
+        // Its own process group, so a terminal signal aimed at this process's
+        // foreground group (a Ctrl-C) does not also reach a provider read
+        // mid-flight; cancellation is what [`CancelToken`] is for, and it is
+        // the one the executor can record. Killing the whole group on timeout
+        // means signalling `-pid`, which needs `libc`; the alternative is
+        // spawning a kill utility, and that would be a second spawn path with
+        // no `CommandSpec` behind it — no sanitised environment, no timeout,
+        // no record. `04-migration-and-safety.md` ("Process execution") asks
+        // for one executor precisely so those are decided in one place, and
+        // `scripts/check-layering.sh` would not catch it here, because this
+        // module is the one place the grep exempts. So a grandchild that
+        // outlives its parent is handled by bounding the reads instead — see
+        // [`READER_DRAIN_TIMEOUT`]. Group kill needs a `libc`-free mechanism
+        // or an ADR admitting the dependency.
+        command.process_group(0);
+
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
@@ -150,10 +226,21 @@ impl ProcessRunner for SystemRunner {
         let cap = spec.max_output_bytes;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let out_thread =
-            thread::spawn(move || stdout.map_or((String::new(), false), |s| read_bounded(s, cap)));
-        let err_thread =
-            thread::spawn(move || stderr.map_or((String::new(), false), |s| read_bounded(s, cap)));
+        // The results come back over channels rather than through
+        // `JoinHandle::join`, because a join is unbounded: a grandchild
+        // holding the write end of the pipe keeps the reader blocked long
+        // after the child is dead, and joining it would hang the whole
+        // program. `collect` waits [`READER_DRAIN_TIMEOUT`] and then gives up
+        // with a truncated record. The threads are left to finish on their
+        // own; they hold nothing but their own end of a pipe.
+        let (out_tx, out_rx) = mpsc::channel();
+        let (err_tx, err_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = out_tx.send(stdout.map_or((String::new(), false), |s| read_bounded(s, cap)));
+        });
+        thread::spawn(move || {
+            let _ = err_tx.send(stderr.map_or((String::new(), false), |s| read_bounded(s, cap)));
+        });
 
         let status = loop {
             match child.try_wait() {
@@ -161,8 +248,8 @@ impl ProcessRunner for SystemRunner {
                 Ok(None) => {}
                 Err(e) => {
                     let _ = child.kill();
-                    let (o, ot) = out_thread.join().unwrap_or_default();
-                    let (r, rt) = err_thread.join().unwrap_or_default();
+                    let (o, ot) = collect(&out_rx);
+                    let (r, rt) = collect(&err_rx);
                     return Ok(record(
                         ExitStatus::NotStarted {
                             error: e.to_string(),
@@ -176,22 +263,22 @@ impl ProcessRunner for SystemRunner {
             if self.cancel.is_cancelled() {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (o, ot) = out_thread.join().unwrap_or_default();
-                let (r, rt) = err_thread.join().unwrap_or_default();
+                let (o, ot) = collect(&out_rx);
+                let (r, rt) = collect(&err_rx);
                 return Ok(record(ExitStatus::Cancelled, o, r, ot || rt));
             }
             if start.elapsed() > spec.timeout {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (o, ot) = out_thread.join().unwrap_or_default();
-                let (r, rt) = err_thread.join().unwrap_or_default();
+                let (o, ot) = collect(&out_rx);
+                let (r, rt) = collect(&err_rx);
                 return Ok(record(ExitStatus::TimedOut, o, r, ot || rt));
             }
             thread::sleep(Duration::from_millis(10));
         };
 
-        let (o, ot) = out_thread.join().unwrap_or_default();
-        let (r, rt) = err_thread.join().unwrap_or_default();
+        let (o, ot) = collect(&out_rx);
+        let (r, rt) = collect(&err_rx);
         let exit = match status.code() {
             Some(code) => ExitStatus::Exited { code },
             None => ExitStatus::Signalled {
@@ -270,7 +357,10 @@ mod tests {
         let start = Instant::now();
         let inv = runner.run(&spec).unwrap();
         assert_eq!(inv.status, ExitStatus::TimedOut);
-        assert!(start.elapsed() < Duration::from_secs(3));
+        // Generous: under a parallel workspace test run the reader drain
+        // (READER_DRAIN_TIMEOUT) and scheduling add seconds; the property is
+        // "bounded", not "fast".
+        assert!(start.elapsed() < Duration::from_secs(20));
     }
 
     #[test]
@@ -296,6 +386,55 @@ mod tests {
         let inv = runner.run(&spec).unwrap();
         assert!(inv.truncated);
         assert!(inv.stdout.len() <= 4096);
+    }
+
+    #[test]
+    fn a_program_that_is_not_an_absolute_path_is_never_spawned() {
+        // `echo` exists on every machine's `PATH`, so a runner that resolved
+        // bare names would succeed here. Succeeding is the bug: what ran would
+        // be whatever an early `PATH` entry decided (`04-migration-and-safety`,
+        // executable shadowing).
+        let runner = SystemRunner::new();
+        let inv = runner
+            .run(&CommandSpec::new("echo", vec!["hello".into()], env()))
+            .unwrap();
+        match &inv.status {
+            ExitStatus::NotStarted { error } => {
+                assert!(error.contains("absolute"), "{error}");
+            }
+            other => panic!("a relative program must not run: {other:?}"),
+        }
+        assert!(inv.stdout.is_empty(), "nothing ran, so nothing was said");
+        assert!(inv.require_success().is_err());
+    }
+
+    #[test]
+    fn a_grandchild_holding_the_pipe_does_not_hang_the_runner() {
+        // The child exits at once and leaves a background process holding the
+        // write end of the inherited pipe. Reading until end-of-file would
+        // block for the grandchild's whole lifetime, so the reads are bounded:
+        // the record comes back truncated rather than never.
+        //
+        // The shell is an argv handed to the executor like any other program,
+        // not a second way of spawning one: nothing here constructs a
+        // `Command`. It is `/bin/sh` because the point is to produce a process
+        // tree the executor did not create, and only a shell will do that.
+        let runner = SystemRunner::new();
+        let spec = CommandSpec::new("/bin/sh", vec!["-c".into(), "sleep 30 &".into()], env());
+        let start = Instant::now();
+        let inv = runner.run(&spec).unwrap();
+        assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "the runner waited on the grandchild instead of giving up: {:?}",
+            start.elapsed()
+        );
+        assert!(
+            inv.truncated,
+            "output that could not be read to the end is truncated, and \
+             `require_success` must refuse it"
+        );
+        assert!(inv.require_success().is_err());
     }
 
     #[test]

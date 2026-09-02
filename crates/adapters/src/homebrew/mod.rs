@@ -238,8 +238,20 @@ impl<'r> HomebrewAdapter<'r> {
     }
 
     /// Runs one allow-listed command, at most once per analysis.
+    ///
+    /// The allow-list is checked at run time, not with a `debug_assert!`: a
+    /// release build is exactly where the check has to hold, and an assertion
+    /// that compiles out of the shipped binary is a guarantee the shipped
+    /// binary does not make (`04-migration-and-safety.md`, "Process
+    /// execution"). Reaching this with something else is a programming error,
+    /// so it is `Internal` rather than a provider fault.
     fn run(&self, argv: &[&str]) -> Result<Invocation, DomainError> {
-        debug_assert!(ALLOWED_ARGV.contains(&argv), "argv is not allow-listed");
+        if !ALLOWED_ARGV.contains(&argv) {
+            return Err(DomainError::new(
+                ErrorId::Internal,
+                format!("homebrew: {argv:?} is not an allow-listed argument vector"),
+            ));
+        }
         let key: Vec<String> = argv.iter().map(|a| (*a).to_string()).collect();
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
@@ -893,6 +905,47 @@ impl HomebrewAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {
+        // The check used to be a `debug_assert!`, which compiles out of the
+        // shipped binary — a guarantee the release build did not make. It is
+        // a programming error, so `Internal` rather than a provider fault.
+        use crate::process::{Recording, RecordingProvenance, ReplayRunner};
+        let runner = ReplayRunner::new(Recording {
+            schema_version: 1,
+            provenance: RecordingProvenance {
+                macos: "26.0.0".into(),
+                architecture: "arm64".into(),
+                provider_versions: Vec::new(),
+                captured_at: "2026-09-02T00:00:00Z".into(),
+                captured_by: "unit test".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            invocations: Vec::new(),
+        });
+        let adapter =
+            HomebrewAdapter::new(&runner, PathBuf::from("/opt/homebrew"), None, Vec::new());
+        let error = adapter
+            .run(&["outdated"])
+            .expect_err("nothing outside the allow-list reaches the executor");
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(
+            error.detail.contains("allow-listed"),
+            "the refusal must name its reason: {}",
+            error.detail
+        );
+        // An allow-listed vector gets past the check and reaches the runner,
+        // which has no recorded answer for it. That the failure comes from
+        // somewhere else is the point.
+        let error = adapter.run(ARGV_VERSION).unwrap_err();
+        assert!(
+            !error.detail.contains("allow-listed"),
+            "an allow-listed vector must not be refused here: {}",
+            error.detail
+        );
+    }
 
     #[test]
     fn the_version_line_is_parsed_and_asserted() {

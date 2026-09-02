@@ -7,8 +7,6 @@
 //! becomes a flag or a path without passing one of these checks first, and
 //! every collection this adapter builds is bounded.
 
-use std::path::Path;
-
 /// Cap on the bytes of one captured stream this adapter will parse. The
 /// registry of a large installation is a few hundred kilobytes of text; a
 /// stream larger than this is a sign of something other than `port` output.
@@ -25,7 +23,12 @@ pub const MAX_NAME_LEN: usize = 128;
 pub const MAX_TEXT_LEN: usize = 4096;
 
 /// Cap on a path this adapter is willing to hand to `port` as an argument.
-pub const MAX_PATH_LEN: usize = 4096;
+///
+/// The check and its bound live beside the executor
+/// ([`crate::process::is_safe_path`]) because the command line needs the same
+/// rule for a prefix read out of a recording, and two copies of "safe path"
+/// is one copy too many.
+pub use crate::process::{is_safe_path, MAX_PATH_LEN};
 
 /// True when `name` is a port name this adapter will pass as an argument.
 ///
@@ -41,26 +44,6 @@ pub fn is_safe_name(name: &str) -> bool {
     }
     name.bytes()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'+' | b'-'))
-}
-
-/// True when `path` is one this adapter will pass to `port` as an argument.
-///
-/// Absolute, bounded, free of control characters and of `..` components. The
-/// executor takes argv arrays, so quoting is not the concern; a relative or
-/// traversing path reaching a provider query is.
-pub fn is_safe_path(path: &Path) -> bool {
-    let Some(text) = path.to_str() else {
-        return false;
-    };
-    if text.len() > MAX_PATH_LEN || !text.starts_with('/') {
-        return false;
-    }
-    if text.chars().any(char::is_control) {
-        return false;
-    }
-    !path
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
 }
 
 /// Trims a free-text field and bounds it, keeping whole characters.

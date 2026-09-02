@@ -116,79 +116,12 @@ pub fn is_reported(name: &str) -> bool {
 
 /// Replaces the home directory with `~`, wherever it appears.
 ///
-/// `06-cli-and-ux.md` ("Privacy and diagnostics") forbids home paths and
-/// usernames in anything the user might attach to an issue, and a captured
-/// snapshot is exactly that. Redaction happens at capture, so a home path is
-/// never written down in the first place.
-///
-/// Every occurrence is replaced, not just a leading one: a `PATH` entry is a
-/// whole path, but `CPPFLAGS` is `-I/Users/ada/.local/include` and
-/// `PKG_CONFIG_PATH` is a colon-separated list, and a leading-only rule would
-/// let the home path through in both. The match must end a path component, so
-/// `/Users/adamant` is not inside `/Users/ada`. Where the two rules disagree
-/// this errs toward redacting: over-redaction costs a reader some context,
-/// under-redaction publishes a username.
-///
-/// `06-cli-and-ux.md` names usernames separately from home paths, so the home
-/// directory's own last component is then replaced wherever it appears as a
-/// whole component — `/Volumes/build/ada/include` keeps a username that
-/// redacting the home path alone would miss. This matches what
-/// `scripts/capture-fixture.sh` does with `id -un`, so the two capture routes
-/// have the same privacy strength.
-pub fn redact_home(value: &str, home: Option<&Path>) -> String {
-    let Some(home) = home else {
-        return value.to_string();
-    };
-    let home = home.to_string_lossy();
-    let home = home.trim_end_matches('/');
-    if home.is_empty() {
-        return value.to_string();
-    }
-    let redacted = replace_component(value, home, "~");
-    match home.rsplit('/').next().filter(|u| u.len() > 1) {
-        Some(user) => replace_component(&redacted, user, "USER"),
-        None => redacted,
-    }
-}
-
-/// Replaces `needle` with `replacement` wherever `needle` is a whole path
-/// component, so a longer name that merely contains it survives:
-/// `/Users/adamant` is not `/Users/ada`, and `/opt/prada` is not the user
-/// `ada`.
-///
-/// A needle that starts with `/` carries its own leading boundary, which is
-/// what lets `-I/Users/ada/x` be redacted even though `I` precedes the match.
-/// A bare name needs a boundary on both sides.
-fn replace_component(value: &str, needle: &str, replacement: &str) -> String {
-    let needs_leading_boundary = !needle.starts_with('/');
-    let mut redacted = String::with_capacity(value.len());
-    let mut rest = value;
-    while let Some(at) = rest.find(needle) {
-        let before_ok = !needs_leading_boundary
-            || rest[..at]
-                .chars()
-                .next_back()
-                .is_none_or(is_component_break);
-        let after = &rest[at + needle.len()..];
-        let after_ok = after.chars().next().is_none_or(is_component_break);
-        if before_ok && after_ok {
-            redacted.push_str(&rest[..at]);
-            redacted.push_str(replacement);
-            rest = after;
-        } else {
-            let consumed = at + needle.len();
-            redacted.push_str(&rest[..consumed]);
-            rest = &rest[consumed..];
-        }
-    }
-    redacted.push_str(rest);
-    redacted
-}
-
-/// True for a character that cannot be part of the same path component.
-fn is_component_break(c: char) -> bool {
-    !c.is_alphanumeric() && c != '_' && c != '-' && c != '.'
-}
+/// The implementation is [`macportsbrew_domain::redact_home`]. It moved to the
+/// domain when the application layer's capture began redacting the paths a
+/// provider hands back — two layers redacting with two copies of the rule is
+/// two rules waiting to disagree, and the one that disagrees quietly is the one
+/// that publishes a username.
+pub use macportsbrew_domain::redact_home;
 
 /// Reads the process environment.
 ///
@@ -450,7 +383,18 @@ impl MachineRead for SystemMachine {
                 reported.insert(name.clone(), redact_home(value, home));
             }
         }
-        Ok(EnvironmentSnapshot { path, reported })
+        let mut snapshot = EnvironmentSnapshot {
+            path,
+            reported,
+            path_findings: Vec::new(),
+        };
+        // The audit stats real directories, so it belongs to the capture and
+        // not to the analysis: what it finds is a fact about *this* host, it is
+        // written into the snapshot here, and everything downstream reads the
+        // recording rather than the filesystem (INV-15). A replayed reader has
+        // no `PATH` and no home, so it produces no findings at all.
+        snapshot.path_findings = crate::system::path_audit::audit_path(&snapshot, home);
+        Ok(snapshot)
     }
 
     /// Resolves a name against the observed `PATH`.

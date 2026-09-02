@@ -60,6 +60,7 @@ fn snapshot(captured_at: &str) -> Snapshot {
         environment: EnvironmentSnapshot {
             path: vec!["~/bin".into(), "/usr/local/bin".into(), "/usr/bin".into()],
             reported: BTreeMap::from([("MANPATH".to_string(), "/opt/local/share/man".to_string())]),
+            path_findings: Vec::new(),
         },
         providers: BTreeMap::new(),
     }

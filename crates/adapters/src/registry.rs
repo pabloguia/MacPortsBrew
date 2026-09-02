@@ -48,6 +48,14 @@ pub struct RegistryContext<'r> {
     /// id, from the policy data.
     pub platform_tags: PlatformTags<'r>,
     /// Prefix overrides for tests and fixtures; `None` probes the defaults.
+    ///
+    /// Honoured **only** when the runner is a replay. A prefix decides which
+    /// executable is run, so on a live machine it must come from probing the
+    /// documented candidates and from nothing else — an override that a file
+    /// or a flag could reach would be a way to point the tool at an arbitrary
+    /// binary (`04-migration-and-safety.md`, "Process execution"). Against a
+    /// recording there is no executable to run and the recording is the
+    /// machine, so its own answers are the right source.
     pub prefix_override: Option<Vec<(ProviderId, PathBuf)>>,
 }
 
@@ -58,11 +66,7 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
     let mut out: Vec<Box<dyn ProviderRead + 'r>> = Vec::new();
     for id in known_provider_ids() {
         let candidates = candidate_prefixes(&id);
-        let overridden = ctx.prefix_override.as_ref().and_then(|o| {
-            o.iter()
-                .find(|(p, _)| p == &id)
-                .map(|(_, path)| path.clone())
-        });
+        let overridden = override_for(ctx, &id);
         match id.as_str() {
             "homebrew" => {
                 let prefix = overridden
@@ -98,4 +102,96 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
         }
     }
     out
+}
+
+/// The prefix override that applies to `id`, if any.
+///
+/// The replay test is the whole of it. A prefix decides which executable is
+/// run, so against the live machine it must come from probing the documented
+/// candidates and from nowhere a file or a flag can reach
+/// (`04-migration-and-safety.md`, "Process execution"). Against a recording
+/// there is no executable to run, and the recording's own `--prefix` answer is
+/// the only prefix that makes sense.
+fn override_for(ctx: &RegistryContext<'_>, id: &ProviderId) -> Option<PathBuf> {
+    if !ctx.runner.is_replay() {
+        return None;
+    }
+    ctx.prefix_override
+        .as_ref()?
+        .iter()
+        .find(|(p, _)| p == id)
+        .map(|(_, path)| path.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::{CommandSpec, Invocation, Recording, RecordingProvenance, ReplayRunner};
+    use macportsbrew_domain::DomainError;
+
+    /// A runner that claims to be live and refuses to run anything: the tests
+    /// below only ever ask it `is_replay`.
+    struct LiveRunner;
+
+    impl ProcessRunner for LiveRunner {
+        fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            panic!("these tests never spawn anything")
+        }
+    }
+
+    fn replay() -> ReplayRunner {
+        ReplayRunner::new(Recording {
+            schema_version: 1,
+            provenance: RecordingProvenance {
+                macos: "26.0.0".into(),
+                architecture: "arm64".into(),
+                provider_versions: Vec::new(),
+                captured_at: "2026-09-02T00:00:00Z".into(),
+                captured_by: "registry tests".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            invocations: Vec::new(),
+        })
+    }
+
+    fn context(runner: &dyn ProcessRunner) -> RegistryContext<'_> {
+        RegistryContext {
+            runner,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            prefix_override: Some(vec![(
+                ProviderId::new("homebrew"),
+                PathBuf::from("/tmp/anything"),
+            )]),
+        }
+    }
+
+    #[test]
+    fn an_override_applies_under_replay() {
+        let runner = replay();
+        assert_eq!(
+            override_for(&context(&runner), &ProviderId::new("homebrew")),
+            Some(PathBuf::from("/tmp/anything"))
+        );
+    }
+
+    #[test]
+    fn an_override_is_ignored_against_the_live_machine() {
+        let runner = LiveRunner;
+        assert_eq!(
+            override_for(&context(&runner), &ProviderId::new("homebrew")),
+            None,
+            "a live run resolves its prefix by probing, and by nothing else"
+        );
+    }
+
+    #[test]
+    fn an_override_for_another_provider_is_not_borrowed() {
+        let runner = replay();
+        assert_eq!(
+            override_for(&context(&runner), &ProviderId::new("macports")),
+            None
+        );
+    }
 }

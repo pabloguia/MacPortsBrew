@@ -20,64 +20,30 @@
 //! # This reads the live machine
 //!
 //! An audit is a `doctor` diagnosis of the machine it runs on. It stats real
-//! directories, so its findings are facts about *this* host and must never
-//! feed a reproducible analysis: replaying a snapshot on another machine would
-//! produce different findings from the same input, which is the INV-15 break
-//! `analyze --from-snapshot` exists to catch. Snapshot-driven code paths do
-//! not call this.
+//! directories, so its findings are facts about *this* host and must never be
+//! recomputed during a replayed analysis: running it again on another machine
+//! would produce different findings from the same snapshot, which is the
+//! INV-15 break `analyze --from-snapshot` exists to catch.
+//!
+//! It is therefore called once, from
+//! [`MachineRead::environment`](macportsbrew_domain::MachineRead::environment)
+//! at capture time, and what it finds is written into
+//! [`EnvironmentSnapshot::path_findings`]. `doctor` reads that field and never
+//! calls this; a snapshot replayed on another machine carries the findings of
+//! the machine it came from, which is the point.
 //!
 //! It takes an [`EnvironmentSnapshot`] rather than a bare list so that the
 //! entries it reports are the redacted ones by construction — a `PathFinding`
-//! is `Serialize` and headed for a diagnostic file, and a home path must not
-//! reach it (`06-cli-and-ux.md`, "Privacy and diagnostics"). `home` is what a
-//! leading `~` is expanded with before a directory is inspected; without it, a
-//! redacted entry is reported as unresolvable rather than silently skipped.
+//! is `Serialize` and headed for a snapshot and a diagnostic file, and a home
+//! path must not reach it (`06-cli-and-ux.md`, "Privacy and diagnostics").
+//! `home` is what a leading `~` is expanded with before a directory is
+//! inspected; without it, a redacted entry is reported as unresolvable rather
+//! than silently skipped.
 
-use macportsbrew_domain::EnvironmentSnapshot;
-use serde::{Deserialize, Serialize};
+use macportsbrew_domain::{EnvironmentSnapshot, PathFinding, PathFindingKind};
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-
-/// What is wrong with one `PATH` entry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PathFindingKind {
-    /// The same entry appeared earlier. Harmless in itself, but it hides which
-    /// copy actually resolves and it is what a duplicated shell block leaves
-    /// behind (INV-16).
-    Duplicate,
-    /// The entry is not an absolute path, so it could not be inspected. The
-    /// shell resolves it against the working directory, which makes what runs
-    /// depend on where the user stands — the shadowing case in the threat
-    /// model. An empty entry (`::`, or a trailing `:`) is this finding: the
-    /// shell reads it as the working directory. A `~` entry with no home to
-    /// expand it against lands here too.
-    Relative,
-    /// No directory exists at the entry, or what is there is not a directory.
-    Missing,
-    /// Every user on the machine may create files in the directory, so anybody
-    /// may decide what `git` means for this user.
-    WorldWritable,
-    /// Every member of the directory's group may create files in it. This is
-    /// the ordinary macOS case rather than the exotic one: `/usr/local` and
-    /// `/usr/local/bin` are commonly `root:admin` and group-writable, which is
-    /// where Homebrew's Intel prefix lives, so every admin account on the
-    /// machine can place a binary there.
-    GroupWritable,
-}
-
-/// One finding about one entry.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PathFinding {
-    /// The entry as it appears in `PATH`, redacted.
-    pub entry: String,
-    /// Its zero-based position, so a caller can reason about order.
-    pub index: usize,
-    /// What is wrong with it.
-    pub kind: PathFindingKind,
-}
 
 /// Audits the entries of a redacted `PATH`, in order.
 ///
@@ -166,6 +132,7 @@ mod tests {
         EnvironmentSnapshot {
             path: entries.iter().map(|e| (*e).to_string()).collect(),
             reported: BTreeMap::new(),
+            path_findings: Vec::new(),
         }
     }
 

@@ -115,6 +115,48 @@ const INFO_FIELDS_DESCRIPTION: &[&str] = &["--description"];
 const INFO_FIELDS_DEPENDS_LIB: &[&str] = &["--depends_lib"];
 const INFO_FIELDS_DEPENDS_RUN: &[&str] = &["--depends_run"];
 const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
+const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+
+/// Every complete argument vector this adapter may run.
+///
+/// The Homebrew adapter's [`crate::homebrew::ALLOWED_ARGV`] asked the same
+/// question, and it is asked here for the same reason: nothing outside this
+/// list, and nothing outside [`ALLOWED_ARGV_PREFIXES`], reaches the executor
+/// (`04-migration-and-safety.md`, "Process execution").
+pub const ALLOWED_ARGV: &[&[&str]] = &[
+    ARGV_VERSION,
+    ARGV_INSTALLED,
+    ARGV_ECHO_REQUESTED,
+    ARGV_ECHO_LEAVES,
+    ARGV_ECHO_ACTIVE,
+];
+
+/// The argument vectors this adapter appends validated values to.
+///
+/// Unlike Homebrew's, two of this adapter's reads carry data: `info` takes the
+/// port names it is asking about, and `provides` takes a path. Those cannot be
+/// enumerated, so what is fixed is their *leading* portion — the subcommand
+/// and the flags — and each appended element has already passed
+/// [`names::is_safe_name`] or [`names::is_safe_path`]. A prefix match is a
+/// weaker guarantee than an exact one, which is why it is a separate list: an
+/// argument vector matched here is one whose tail was validated elsewhere.
+pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES];
+
+/// True when `argv` is an exact allow-list entry, or extends an allow-listed
+/// prefix.
+fn is_allowed_argv(argv: &[String]) -> bool {
+    let matches_head = |allowed: &&[&str]| {
+        argv.len() >= allowed.len()
+            && allowed
+                .iter()
+                .zip(argv.iter())
+                .all(|(a, b)| *a == b.as_str())
+    };
+    ALLOWED_ARGV
+        .iter()
+        .any(|allowed| allowed.len() == argv.len() && matches_head(allowed))
+        || ALLOWED_ARGV_PREFIXES.iter().any(matches_head)
+}
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
 /// a recorded fixture.
@@ -207,9 +249,23 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )
     }
 
+    /// Runs one argument vector, refusing anything the allow-list does not
+    /// cover.
+    ///
+    /// Checked at run time rather than with a `debug_assert!`, so the shipped
+    /// binary makes the same guarantee the tests do.
+    fn run_argv(&self, argv: Vec<String>) -> Result<Invocation, DomainError> {
+        if !is_allowed_argv(&argv) {
+            return Err(DomainError::new(
+                ErrorId::Internal,
+                format!("macports: {argv:?} is not an allow-listed argument vector"),
+            ));
+        }
+        self.runner.run(&self.spec(argv))
+    }
+
     fn run(&self, argv: &[&str]) -> Result<Invocation, DomainError> {
-        self.runner
-            .run(&self.spec(argv.iter().map(|s| (*s).to_string()).collect()))
+        self.run_argv(argv.iter().map(|s| (*s).to_string()).collect())
     }
 
     /// Runs one `info` invocation over `names`, refusing any name that could
@@ -226,7 +282,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             }
             argv.push(name.clone());
         }
-        let inv = self.runner.run(&self.spec(argv))?;
+        let inv = self.run_argv(argv)?;
         Ok(inv.require_success()?.stdout.clone())
     }
 
@@ -343,15 +399,20 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         })
     }
 
-    /// Asks `port` which port owns a path. Only ever called for a path under
-    /// the prefix that passed [`names::is_safe_path`].
+    /// Asks `port` which port owns a path.
+    ///
+    /// The path is validated here rather than only at the call site. The
+    /// caller does check it, but a function that turns its argument into a
+    /// process argument is where the check has to hold: the next caller will
+    /// not read the doc comment, and a check that lives in the caller is a
+    /// check the callee does not have.
     fn provides(&self, path: &Path) -> Option<String> {
-        let argv = vec![
-            "-q".to_string(),
-            "provides".to_string(),
-            path.to_str()?.to_string(),
-        ];
-        let invocation = self.runner.run(&self.spec(argv)).ok()?;
+        if !names::is_safe_path(path) {
+            return None;
+        }
+        let mut argv: Vec<String> = ARGV_PROVIDES.iter().map(|s| (*s).to_string()).collect();
+        argv.push(path.to_str()?.to_string());
+        let invocation = self.run_argv(argv).ok()?;
         if !invocation.status.success() {
             return None;
         }
@@ -779,6 +840,61 @@ mod tests {
             },
             invocations: vec![],
         })
+    }
+
+    #[test]
+    fn the_allow_list_admits_the_fixed_vectors_and_the_two_that_carry_data() {
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        for allowed in ALLOWED_ARGV {
+            assert!(is_allowed_argv(&argv(allowed)), "{allowed:?}");
+        }
+        // `info` and `provides` carry validated data after a fixed head.
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "info",
+            "--index",
+            "--line",
+            "--name",
+            "--version",
+            "libpng"
+        ])));
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "provides",
+            "/opt/local/bin/curl"
+        ])));
+        // A prefix is a head, not a substring: an allow-listed vector must not
+        // license one that merely ends with it.
+        assert!(!is_allowed_argv(&argv(&["-q", "sync", "info"])));
+        assert!(!is_allowed_argv(&argv(&["-q"])));
+        assert!(!is_allowed_argv(&argv(&["version", "extra"])));
+        assert!(!is_allowed_argv(&argv(&[])));
+    }
+
+    #[test]
+    fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {
+        // A runtime check and not a `debug_assert!`: the release binary is
+        // where the guarantee has to hold.
+        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let error = adapter
+            .run_argv(vec!["-q".into(), "not-a-read".into()])
+            .expect_err("nothing outside the allow-list reaches the executor");
+        assert_eq!(error.id, ErrorId::Internal);
+    }
+
+    #[test]
+    fn a_path_that_is_not_safe_is_never_asked_about() {
+        // `provides` validates its own argument rather than trusting the
+        // caller to have done it.
+        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        for bad in ["relative/bin/curl", "/opt/local/../etc/passwd"] {
+            assert_eq!(
+                adapter.provides(Path::new(bad)),
+                None,
+                "{bad} must not reach the executor"
+            );
+        }
     }
 
     #[test]
