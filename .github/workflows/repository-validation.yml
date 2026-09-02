@@ -1,20 +1,19 @@
-# The validation that exists today, before there is any application code:
-# internal documentation links resolve, configuration parses, hooks are valid
-# shell, and the no-mutation boundary holds.
+# Repository validation: the authority for "valid" (docs/spec/07-quality-and-testing.md).
 #
-# This is the same script the agent's Stop gate runs
-# (docs/spec/07-quality-and-testing.md: three entry points, one implementation).
-# The foundation pass extends it to the full suite in that chapter - rustfmt,
-# clippy, layering, i18n key parity, tests, coverage floors, the dependency
-# licence and deployment-floor gates, the deployment-target assertion on the
-# built artifacts (ADR-0002), and a build for both architectures - rather than
-# adding a second, parallel definition of "valid".
+# One implementation, scripts/validate.sh, reached three ways: here, by a
+# contributor before pushing, and by the agent's Stop gate. The ubuntu job
+# runs the documentation checks, the hook tests and the quick validation;
+# the macOS matrix runs the full suite natively on both architectures and
+# asserts the deployment target on the built artifacts (ADR-0002).
 #
-# The macOS build-and-test job is deliberately NOT written here yet. R-10 in
-# docs/spec/09-research-checklist.md - the availability of hosted Intel macOS
-# runners - is unresolved, and a workflow written against an unverified runner
-# would be a claim about CI that CI does not support. That is the same
-# dishonesty the support matrix refuses. It lands with the research.
+# Runner labels come from docs/research/R-10-ci-runners.md (read 2026-09-02):
+# macos-15-intel and macos-26-intel are hosted x86_64 runners, free on public
+# repositories; macos-latest is arm64 and a moving target, so labels are
+# explicit. Every macOS job sets the Homebrew quieting variables because the
+# images ship a live Homebrew that would otherwise auto-update mid-job; the
+# adapters run on fixtures regardless. scripts/support-matrix.sh derives the
+# published support matrix from the labels below, so adding or removing a
+# job changes what the documentation may claim.
 name: Repository validation
 
 on:
@@ -25,6 +24,12 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: never
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_ENV_HINTS: "1"
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -34,13 +39,19 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck jq
 
-      - name: Shellcheck the hooks
-        run: shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh
+      - name: Shellcheck the hooks and scripts
+        run: shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
 
       - name: Hooks decide what the specification says they decide
         env:
           CLAUDE_PROJECT_DIR: ${{ github.workspace }}
         run: .claude/hooks/test-hooks.sh
+
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
 
       - name: Repository gate
         env:
@@ -54,3 +65,63 @@ jobs:
           echo "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE" \
             | sha256sum --check --status \
             || { echo "LICENSE does not match the canonical Apache-2.0 body recorded in SE-021." >&2; exit 1; }
+
+      - name: Support matrix is generated from this workflow
+        run: scripts/support-matrix.sh --check
+
+      - name: Dependency licences (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+  macos:
+    name: macos (${{ matrix.runner }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        # Tested: what these jobs execute. Everything else in the support
+        # matrix is best-effort or unsupported (docs/support-matrix.md).
+        runner: [macos-26, macos-26-intel, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+          targets: x86_64-apple-darwin, aarch64-apple-darwin
+
+      - name: Machine facts, for the record
+        run: |
+          sw_vers
+          uname -m
+          rustc --print deployment-target --target x86_64-apple-darwin
+          rustc --print deployment-target --target aarch64-apple-darwin
+
+      - name: Full validation, including the deployment-target assertion on both artifacts
+        run: scripts/validate.sh --full
+
+      - name: Hook tests on macOS (the hooks run here, not on Linux)
+        env:
+          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
+        run: .claude/hooks/test-hooks.sh
+
+      - name: Run the slice end to end against every fixture
+        run: scripts/run-fixture-matrix.sh
+
+  coverage:
+    name: coverage floors per layer
+    needs: validate
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage per layer against the floors in 07-quality-and-testing.md
+        run: scripts/check-coverage.sh
