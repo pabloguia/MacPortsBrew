@@ -30,7 +30,9 @@ pub mod version;
 pub use availability::{ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence};
 pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use error::{DomainError, ErrorId};
-pub use machine::{Architecture, CommandLineTools, Machine, MacosVersion, Translation};
+pub use machine::{
+    Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
+};
 pub use mapping::{Confidence, MappingCandidate, MappingEvidence, PackageMapping};
 pub use ownership::{Ownership, OwnershipEvidence};
 pub use package::{
@@ -46,6 +48,8 @@ pub use provider::{
 pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
 pub use resolution::{ExecutableOwner, Resolution};
-pub use snapshot::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
+pub use snapshot::{
+    EnvironmentSnapshot, Provenance, ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+};
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use version::Version;

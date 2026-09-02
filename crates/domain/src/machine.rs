@@ -3,6 +3,8 @@
 //! The machine: architecture, macOS version, translation state, developer
 //! tools. Detected by an adapter; consumed by policy as facts.
 
+use crate::error::DomainError;
+use crate::snapshot::EnvironmentSnapshot;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
@@ -140,6 +142,21 @@ pub struct Machine {
     pub translation: Translation,
     /// Command Line Tools.
     pub command_line_tools: CommandLineTools,
+}
+
+/// The machine-reading contract an adapter implements and a snapshot
+/// replays. No provider knowledge here.
+pub trait MachineRead {
+    /// Architecture, macOS version, translation, developer tools.
+    fn machine(&self) -> Result<Machine, DomainError>;
+
+    /// The shell environment as the specification says to report it,
+    /// redacted.
+    fn environment(&self) -> Result<EnvironmentSnapshot, DomainError>;
+
+    /// Resolves an executable name the way `PATH` would, without following
+    /// symbolic links. `None` when not found.
+    fn which(&self, executable: &str) -> Option<PathBuf>;
 }
 
 #[cfg(test)]

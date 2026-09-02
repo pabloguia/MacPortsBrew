@@ -25,8 +25,10 @@ allowed = {"Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC",
            "Unlicense", "Zlib", "MPL-2.0",
            # ADR-0004: Unicode-3.0 (unicode-ident), permissive, reviewed.
            "Unicode-3.0"}
-# Crates whose build.rs was reviewed; ADR-0004 holds the review.
-build_scripts_allowed = set()
+# Crates whose build.rs was reviewed; ADR-0004 holds the review. All are
+# compiler-capability probes that emit cfg flags and write only to OUT_DIR.
+build_scripts_allowed = {"proc-macro2", "quote", "serde", "serde_core", "serde_json",
+                         "zmij", "thiserror", "rustversion", "instability"}
 bad = 0
 for p in meta["packages"]:
     if p["id"] in workspace:
