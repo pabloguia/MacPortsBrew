@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Package equivalences that the name-and-evidence heuristics of
+# docs/spec/02-domain-model.md ("Mapping") do not reach on their own, held as
+# dated data (INV-20).
+#
+# Entries are written in one direction because a citation has a direction:
+# the destination name was read from that provider's own index on that date.
+# The loader builds the reverse index from the same rows, so both directions
+# are expressible and neither is a special case (INV-17). A curated entry is
+# EXACT by definition: it is a human decision with a citation, which is the
+# top of the confidence scale in 02-domain-model.md.
+#
+# One source name may appear more than once. That is not a defect: a package
+# that one provider ships whole and the other splits is a one-to-many
+# mapping, and pretending otherwise is how data gets lost.
+#
+# Fields
+#   source_provider, source_name
+#   destination_provider, destination_name
+#   confidence     EXACT for every curated row
+#   source         where both names were read
+#   read_on        when
+#   rationale      why a heuristic does not get here
+#
+# Admission rule for this file: a row exists only when the destination name
+# was read from the destination provider's own index on read_on. Candidates
+# that could not be confirmed were dropped rather than guessed.
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "postgresql@17"
+destination_provider = "macports"
+destination_name = "postgresql17-server"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/postgresql17-server/ (name postgresql17-server, portdir databases/postgresql17-server, replaced_by null) and Formula/p/postgresql@17.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+A name heuristic normalises postgresql@17 to postgresql17 and stops there, \
+which silently drops the half that carries the service and the cluster. One \
+provider ships a single package that both provides the binaries and creates a \
+data cluster; the other splits it, and only the -server port has the startup \
+item and the cluster directory (R-8 finding 12). This row and the next are \
+the two halves of one mapping.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "postgresql@17"
+destination_provider = "macports"
+destination_name = "postgresql17"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/postgresql17/ (name postgresql17, portdir databases/postgresql17, replaced_by null) and Formula/p/postgresql@17.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+The client half. Its Portfile has no startup item and creates no cluster; its \
+notes say to add the -server port for that (R-8 E-9). A consumer that takes \
+only this row gets the binaries and no data, which is why the pair must be \
+presented together and why the family is manual review regardless.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "python@3.12"
+destination_provider = "macports"
+destination_name = "python312"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/python312/ (name python312, portdir lang/python312, replaced_by null) and Formula/p/python@3.12.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+The version separator differs on both sides of the number: @3.12 against 312. \
+A normaliser that strips punctuation reaches it by accident, but it reaches \
+python3 and python31 by the same accident, so the family needs a curated \
+anchor rather than a lucky transformation. This is also a RUNTIME family, so \
+the recommendation is a version manager rather than either provider.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "openssl@3"
+destination_provider = "macports"
+destination_name = "openssl3"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/openssl3/ (name openssl3, portdir devel/openssl3, replaced_by null) and Formula/o/openssl@3.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+The pair INV-08 names explicitly. The invariant's point is that this \
+equivalence is a statement about upstream software and never about \
+dependency satisfaction: one provider's openssl3 does not satisfy the other's \
+openssl@3 requirement, in any calculation. The mapping exists so a human can \
+be shown the equivalence, not so a resolver can use it.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "pkgconf"
+destination_provider = "macports"
+destination_name = "pkgconfig"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/pkgconfig/ (name pkgconfig, portdir devel/pkgconfig, description \"pkg-config, a system for managing library compile and link flags\", replaced_by null) and Formula/p/pkgconf.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+Two different upstream projects that occupy the same slot: one provider ships \
+the pkgconf implementation under its own name, the other ships the port under \
+the historical pkgconfig name. No name-similarity score gets from pkgconf to \
+pkgconfig without also getting to a dozen unrelated pkg-prefixed packages, \
+and a homepage comparison compares two genuinely different projects.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "gnu-sed"
+destination_provider = "macports"
+destination_name = "gsed"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/gsed/ (name gsed, portdir textproc/gsed, description \"GNU version of the stream editor, sed\", replaced_by null) and Formula/g/gnu-sed.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+The two providers use different conventions for the same GNU tool: a gnu- \
+prefix against a g prefix. The shared substring is three letters, which is \
+below any usable similarity threshold, and the whole GNU coreutils-adjacent \
+set has the same problem.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "node@22"
+destination_provider = "macports"
+destination_name = "nodejs22"
+confidence = "EXACT"
+source = "https://ports.macports.org/api/v1/ports/nodejs22/ (name nodejs22, portdir lang/nodejs22, replaced_by null) and Formula/n/node@22.rb in the local homebrew-core checkout at e045d7385fd7ad8907621300224f8a860bdd7bbb"
+read_on = "2026-09-02"
+rationale = """
+node against nodejs, and the version pinned in both names. The unversioned \
+name on the first side is an alias for the current major (R-8 E-10 observed \
+node aliased node@26), so mapping the bare name to a fixed numbered port \
+would be wrong on the day the current major moves. Only the pinned pair is \
+safe to curate, which is itself the reason a heuristic must not guess here.\
+"""

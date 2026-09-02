@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The policy data manifest (docs/spec/03-policy-and-recommendations.md,
+# "Policy data"; INV-20). Everything a rule knows about a provider lives in
+# this directory as dated data, never in code, and every entry carries the
+# source it was read from and the date it was read.
+#
+# `version` is the policyVersion the build embeds and every Recommendation
+# carries. Format: <newest read_on across the data set>-<serial within that
+# day>. Bump the serial for any edit that does not move a read date.
+#
+# `stale_after_days` is the threshold behind the non-blocking staleness
+# notice: when today minus the newest read_on in this directory exceeds it,
+# the CLI says the data may be out of date. Recommendations are still
+# produced. 180 days is one half-year, chosen so that a data set survives a
+# macOS release cycle but not two.
+
+version = "2026.09.02-1"
+stale_after_days = 180

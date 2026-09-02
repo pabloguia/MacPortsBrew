@@ -24,6 +24,10 @@ path = "src/lib.rs"
 
 [dependencies]
 macportsbrew-domain = { path = "../domain" }
+# The UI renders what the policy engine emits, so it is the layer that can
+# check its own catalogue covers the engine's reason vocabulary. The layering
+# (scripts/check-layering.sh) allows the CLI to depend on every layer.
+macportsbrew-policy = { path = "../policy" }
 serde.workspace = true
 toml.workspace = true
 unicode-width.workspace = true

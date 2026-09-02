@@ -744,6 +744,151 @@ change is made. Silent deviation remains the one unrecoverable error.
   compatibility, deployment floor and East Asian double-width handling are
   verified together before committing to one.
 
+## SE-038 — "Mapping confidence below STRONG" excludes the absence of a candidate
+- Status: accepted
+- Date / Pass: 2026-09-02 / policy-layer implementation
+- Original assumption: `03-policy-and-recommendations.md`, Starting policy,
+  lists `MANUAL_REVIEW` for "mapping confidence below `STRONG`". Read
+  literally that includes `NONE`, which is below `STRONG` on the scale in
+  `02-domain-model.md`.
+- Change: `MANUAL_REVIEW_MAPPING_CONFIDENCE` fires on `AMBIGUOUS` and
+  `PROBABLE` only. `NONE` does not fire it, and neither does a candidate under
+  a provider that is not present and healthy on this machine.
+- Rationale: `NONE` is not weak evidence, it is the absence of a candidate.
+  There is nothing for a person to adjudicate, and the honest answer — keep
+  the package where it is — is what `KEEP_SOURCE_DEFAULT` already produces
+  with a reason of its own. Firing manual review on it would mark every
+  package with no counterpart as needing a human, which is most of a large
+  installation, and an alert that fires on everything is an alert nobody
+  reads. The presence half is the same argument: a shaky candidate under a
+  provider the user has not installed is not a decision anyone can take.
+- Evidence: `crates/policy/src/rules/manual_review_mapping_confidence.rs`
+  tests `no_candidate_at_all_is_not_a_review_item` and
+  `a_candidate_under_a_provider_that_is_not_here_is_not_a_review_item`; the
+  `Confidence` scale and `Confidence::is_strong` in
+  `crates/domain/src/mapping.rs`.
+- User impact: fewer `MANUAL_REVIEW` rows. A package with no equivalent is
+  reported as staying put, with a reason, rather than as needing attention.
+- Architectural impact: none. The threshold stays `Confidence::is_strong` in
+  the domain, so policy and mapping cannot drift apart on what "strong" means.
+- Compatibility impact: none shipped yet.
+
+## SE-039 — Availability `UNKNOWN` forces review only for a reachable destination
+- Status: accepted
+- Date / Pass: 2026-09-02 / policy-layer implementation
+- Original assumption: `03-policy-and-recommendations.md` lists `MANUAL_REVIEW`
+  for "availability `UNKNOWN`", unscoped.
+- Change: `MANUAL_REVIEW_AVAILABILITY_UNKNOWN` fires when a destination that
+  has a candidate and answers on this machine reports `UNKNOWN`. An `UNKNOWN`
+  on the side already holding the package does not fire it, and neither does
+  one under a provider with no candidate or one that is absent or unhealthy.
+- Rationale: the unscoped reading fires on almost every package. R-4 finding 9
+  establishes that one provider's artifact availability is not determinable
+  offline in the positive direction at all, and finding 10 that an offline
+  analysis "must say `UNKNOWN` — never `BINARY_AVAILABLE` — for everything
+  else". Every offline run would therefore mark the whole installation for
+  human review. The decision an unknown actually blocks is *moving there*, so
+  that is what it is scoped to. An unknown on the side already holding the
+  package blocks nothing: the package is already installed.
+- Evidence: `docs/research/R-4-macports-binary-archives.md` findings 9 and 10;
+  tests `an_unknown_on_the_side_holding_the_package_is_not_this_rules_business`
+  and `a_provider_that_is_not_on_this_machine_is_not_a_destination` in
+  `crates/policy/src/rules/manual_review_availability_unknown.rs`.
+- User impact: an offline `analyze` produces usable recommendations instead of
+  a wall of `MANUAL_REVIEW`. The unknown is still reported as a fact per
+  provider in `explain` and in the availability column.
+- Architectural impact: introduces `Facts::mapped_destinations` as the single
+  definition of "somewhere this package could be sent" — present, healthy, and
+  reached by a mapping — which every rule that speaks about the other side now
+  reads. That the definition sits in one place is what keeps the rules
+  consistent with each other.
+- Compatibility impact: none shipped yet.
+
+## SE-040 — Provider deadlines and equivalences are data; the horizon is code
+- Status: accepted
+- Date / Pass: 2026-09-02 / policy-layer implementation
+- Original assumption: `03-policy-and-recommendations.md` requires all provider
+  support knowledge in a versioned data file (INV-20) and describes the
+  approaching-deadline rule as using "a configurable horizon", without saying
+  where the horizon itself lives.
+- Change: every provider fact — support tier, stated end date, prebuilt-artifact
+  policy, artifact-variant naming, the curated stateful families, the runtime
+  managers and the curated equivalences — lives in `data/policy/*.toml`, each
+  entry carrying `source` and `read_on`, both validated at load time so that an
+  entry without provenance fails to load rather than failing a test. The
+  horizon is a constant in code (`SUPPORT_END_HORIZON_DAYS`, two years),
+  because it is a policy choice of this project's, not a fact about a provider.
+  The rule's weight rises linearly across it and is a reason parameter rather
+  than a priority.
+- Rationale: INV-20's line is between what a provider published and what this
+  project decided. The September 2027 date is the former and must be
+  re-checkable without a release; how far ahead this tool starts warning is the
+  latter and has no external source to cite. Making the weight a parameter
+  rather than a priority keeps a deadline from becoming a different rule as it
+  approaches, which would make two runs a month apart incomparable.
+- Evidence: `data/policy/provider-support.toml` entry
+  `hb-x86_64-tier3-with-stated-end` (source `https://docs.brew.sh/Support-Tiers`,
+  read 2026-09-02, `end_date = "2027-09-01"` encoding "in or after September
+  2027"); `docs/research/F-1-homebrew-support-tiers.md` findings 3 and 5;
+  `PolicyData::load_from` rejects an entry with an empty `source` or an
+  unparseable `read_on`; `invariant_20_no_provider_deadline_is_written_into_source`
+  greps the crate's own sources for a deadline year and finds none.
+- User impact: the staleness notice and the deadline both move by editing data.
+- Architectural impact: the policy crate performs no run-time I/O — the data is
+  `include_str!`-embedded — and no clock read: `today` is a field on `Facts`
+  and date arithmetic takes both ends as arguments.
+- Compatibility impact: `policy.toml` carries `version = "2026.09.02-1"`, which
+  every `Recommendation` and `Derivation` reports.
+- Specification edit: none owed. This is the existing MUSTs implemented, with
+  the horizon's home recorded because the text did not say.
+
+## SE-041 — Coexistence is decided inside the rule, never rescued after it
+- Status: accepted
+- Date / Pass: 2026-09-02 / policy-layer implementation
+- Original assumption: `03-policy-and-recommendations.md` requires the engine to
+  be a pure function and every recommendation to carry its reasons, and INV-18
+  makes `KEEP_BOTH` a first-class end state. The first implementation added an
+  engine-level guard that rewrote any winning outcome naming a provider whose
+  support tier is `UNSUPPORTED` into "keep it where it is".
+- Change: the guard is removed. Every rule that can name another provider
+  checks the support tier itself — including both branches of
+  `KEEP_BOTH_HEALTHY`, which previously checked it on the requested-coexistence
+  path and not on the already-installed-under-both path — and the ranking that
+  picks a primary scores an unsupported provider at zero so it can never be
+  named. The engine now only chooses among rule verdicts and never edits one.
+- Rationale: the guard was wrong twice over. It demoted a legitimate
+  `KEEP_BOTH` for a package installed under two healthy providers whenever the
+  unsupported side happened to rank highest, turning a first-class end state
+  into an intermediate one — the exact thing INV-18 forbids. And it acted
+  outside the rule set, so `explain` could not list it among the rules that
+  fired: a recommendation could be changed by something no user could see. A
+  rule with a missing condition is fixed by adding the condition, not by
+  correcting its output afterwards.
+- Evidence: `invariant_18_coexistence_is_a_first_class_outcome` in
+  `crates/policy/tests/invariants.rs` asserts that no outcome the engine
+  produces across the scenario matrix names an unsupported provider, and checks
+  the specific shape the guard used to mishandle; `KEEP_BOTH_HEALTHY`'s tests
+  `a_tie_leaves_the_side_already_holding_it_in_front` and
+  `the_same_facts_with_the_sides_exchanged_swap_the_primary`. A related
+  symmetry defect was found the same way: the primary was originally tied
+  toward the lexicographically smaller provider id, which made one provider win
+  every tie by alphabetical accident and failed
+  `invariant_17_symmetric_rules`; the tie now goes to the side already holding
+  the package, which is a fact rather than a name.
+- User impact: a package present under both providers is reported as such,
+  with a suggested primary, instead of occasionally being told to keep only
+  one.
+- Architectural impact: establishes that the engine composes rule verdicts and
+  never overrides them, so everything a recommendation says is attributable to
+  a rule that `explain` lists by id. The unattributed fallback reason the
+  engine used to synthesise when no rule fired was removed for the same
+  reason; `Recommendation::new`'s assertion plus the always-firing
+  `KEEP_SOURCE_DEFAULT` rule is what guarantees a non-empty reason list.
+- Compatibility impact: none shipped yet.
+- Specification edit: none owed. INV-18 and the existing MUSTs already require
+  this; the entry records that a first implementation got it wrong and how it
+  was caught.
+
 ---
 
 # Process: the agentic SDLC

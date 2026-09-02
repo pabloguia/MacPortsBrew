@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Provider support state per machine, as dated data (INV-20;
+# docs/spec/03-policy-and-recommendations.md, "Policy data").
+#
+# Every entry is matched against a machine by architecture and macOS range.
+# The most specific entry wins: an entry naming an architecture beats one
+# that says `any`, and bounded ranges beat unbounded ones. When nothing
+# matches, the support state is UNKNOWN and never silently a positive.
+#
+# Fields
+#   id                  stable identifier, quoted back in SupportState.entry
+#   provider            provider id, lower case
+#   architecture        x86_64 | arm64 | any
+#   macos_min/macos_max inclusive MAJOR.MINOR bounds; before macOS 11 the
+#                       release is 10.x, from 11 on it is the major
+#   tier                SUPPORTED | DEGRADED | UNSUPPORTED
+#   provider_label      the provider's own name for the state, when it has one
+#   end_date            YYYY-MM-DD, a stated date after which support ends
+#   prebuilt_artifacts  whether the provider publishes prebuilt artifacts for
+#                       this machine at all; per-package availability is a
+#                       separate, detected fact and always wins over this
+#   source, read_on     provenance; both are mandatory
+#   note                what the source actually said, in English
+#
+# Runtime detection beats this file wherever detection is possible
+# (03-policy-and-recommendations.md). This is the fallback and the
+# explanation, not the primary source of truth.
+
+# ---------------------------------------------------------------- homebrew
+
+[[entry]]
+id = "hb-any-unsupported-below-10.15"
+provider = "homebrew"
+architecture = "any"
+macos_max = "10.14"
+tier = "UNSUPPORTED"
+provider_label = "unsupported"
+source = "https://docs.brew.sh/Support-Tiers"
+read_on = "2026-09-02"
+note = """
+"Unsupported configurations include: ... macOS Mojave 10.14 and earlier."
+An unsupported configuration is one in which Homebrew will not run without \
+third-party patches, and the page names MacPorts as a migration target. \
+Recorded in docs/research/F-1-homebrew-support-tiers.md E1.\
+"""
+
+[[entry]]
+id = "hb-arm64-tier1-current"
+provider = "homebrew"
+architecture = "arm64"
+macos_min = "14"
+macos_max = "26"
+tier = "SUPPORTED"
+provider_label = "tier1"
+prebuilt_artifacts = true
+source = "https://docs.brew.sh/Support-Tiers"
+read_on = "2026-09-02"
+note = """
+Timeline, "As of September 2026", Apple Silicon: "Tier 1: macOS Tahoe 26, \
+Sequoia 15, Sonoma 14". Tier 1 additionally requires official Apple Silicon \
+hardware, the default prefix, prebuilt artifacts rather than source builds, \
+internal storage and current Command Line Tools; those are per-machine \
+conditions this table cannot encode and the adapter must detect. \
+https://docs.brew.sh/Installation (read 2026-09-02) separately states the \
+requirement "macOS Sonoma (14) (or higher) installed on officially supported \
+hardware"; F-1 finding 6 records that this is a stated requirement and not an \
+enforced floor. Page last_review_date 2026-08-27.\
+"""
+
+[[entry]]
+id = "hb-arm64-tier3-older-macos"
+provider = "homebrew"
+architecture = "arm64"
+macos_min = "11"
+macos_max = "13"
+tier = "DEGRADED"
+provider_label = "tier3"
+prebuilt_artifacts = false
+source = "https://docs.brew.sh/Support-Tiers"
+read_on = "2026-09-02"
+note = """
+Timeline, "As of September 2026", Apple Silicon: "Tier 3: macOS Big Sur 11 \
+through Ventura 13". Tier 3 is "not supported": "CI coverage is unavailable; \
+bottles will rarely be built or published", and maintainers "do not commit to \
+fixing bugs affecting these systems". F-1 E1.\
+"""
+
+[[entry]]
+id = "hb-x86_64-tier3-with-stated-end"
+provider = "homebrew"
+architecture = "x86_64"
+macos_min = "10.15"
+macos_max = "26"
+tier = "DEGRADED"
+provider_label = "tier3"
+end_date = "2027-09-01"
+prebuilt_artifacts = true
+source = "https://docs.brew.sh/Support-Tiers"
+read_on = "2026-09-02"
+note = """
+"Intel x86_64 systems running macOS" is listed verbatim under Tier 3, and the \
+timeline reads "As of September 2026 ... Intel x86_64: Tier 3: macOS Catalina \
+10.15 through Tahoe 26; Unsupported: macOS Mojave 10.14 and earlier". The \
+stated end is "will remove the ability to run Homebrew on Intel systems in or \
+after September 2027"; end_date encodes the first day of that month, and the \
+statement is a floor, not a commitment to that exact day. \
+prebuilt_artifacts is true, not false: Homebrew states it "has stopped \
+building new bottles for Intel systems", but F-1 finding 4 observed new Intel \
+artifacts published in August 2026 and F-1 finding 5 measured coverage at \
+90.9% on an Intel macOS 26 machine against 98.1% on Apple Silicon. The honest \
+characterisation is "frozen at the macOS 14 tag and eroding", not "stopped". \
+Per-package availability is detected and always wins over this flag.\
+"""
+
+# ---------------------------------------------------------------- macports
+
+[[entry]]
+id = "mp-arm64-build-farm"
+provider = "macports"
+architecture = "arm64"
+macos_min = "11"
+macos_max = "26"
+tier = "SUPPORTED"
+provider_label = "build-farm"
+prebuilt_artifacts = true
+source = "https://ports.macports.org/api/v1/builders/"
+read_on = "2026-09-02"
+note = """
+arm64 builders exist for macOS 11, 12, 13, 14, 15 and 26 (R-4 E-7, two \
+independent fetches returning an identical body). Package installers for \
+MacPorts 2.12.6 are published for the same range \
+(https://guide.macports.org/chunked/installing.macports.html, read \
+2026-09-02). A builder existing is necessary, not sufficient: whether an \
+archive is published for a given package, version, revision, variant set and \
+platform is a network question and is never assumed here (R-4 finding 9).\
+"""
+
+[[entry]]
+id = "mp-x86_64-build-farm-with-installer"
+provider = "macports"
+architecture = "x86_64"
+macos_min = "10.12"
+macos_max = "26"
+tier = "SUPPORTED"
+provider_label = "build-farm"
+prebuilt_artifacts = true
+source = "https://guide.macports.org/chunked/installing.macports.html"
+read_on = "2026-09-02"
+note = """
+Package installers for MacPorts 2.12.6 are offered for macOS 26 Tahoe, 15 \
+Sequoia, 14 Sonoma, 13 Ventura, 12 Monterey, 11 Big Sur, 10.15 Catalina, \
+10.14 Mojave, 10.13 High Sierra and 10.12 Sierra (R-4 E-10). x86_64 builders \
+exist for 26, 15, 14, 13, 12, 11, 10.15, 10.14, 10.13, 10.12, 10.11, 10.10, \
+10.9, 10.8, 10.7 and 10.6 (https://ports.macports.org/api/v1/builders/, read \
+2026-09-02, R-4 E-7). There is no builder for macOS 16 to 25; those releases \
+do not exist. The whole Intel range Homebrew classifies Tier 3 is covered by \
+MacPorts builders (R-4 finding 6). A builder existing is necessary, not \
+sufficient.\
+"""
+
+[[entry]]
+id = "mp-x86_64-below-installer-floor"
+provider = "macports"
+architecture = "x86_64"
+macos_min = "10.6"
+macos_max = "10.11"
+tier = "DEGRADED"
+provider_label = "no-published-base-installer"
+prebuilt_artifacts = true
+source = "https://guide.macports.org/chunked/installing.macports.html"
+read_on = "2026-09-02"
+note = """
+Builders exist down to macOS 10.6 (R-4 E-7) but no package installer for \
+MacPorts base is published below 10.12 (R-4 finding 12), so MacPorts base \
+must be built by the user on these systems. Archives for ports may still be \
+available.\
+"""

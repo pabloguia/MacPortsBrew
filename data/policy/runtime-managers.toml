@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Version managers to suggest for a package whose class is RUNTIME
+# (docs/spec/03-policy-and-recommendations.md: "Package class is RUNTIME.
+# Suggest, never act. Research which managers to name and keep the list as
+# data with a review date — recommendations here age fast.")
+#
+# Nothing here is a recommendation of one provider over another, and nothing
+# here is ever executed. The engine emits the ids; the UI renders them.
+#
+# Fields
+#   id             the tool's own name
+#   for_families   package families the tool manages, matched against the
+#                  family part of a package name
+#   source         the project's own site, fetched to confirm it exists
+#   read_on        when that fetch happened
+#   confirmed      true when the site answered on read_on; false when the
+#                  entry is carried on an older claim and must be re-checked
+#   note           what the site says the tool does, in its own terms
+#
+# Re-check every entry before a release. A dead version manager suggested to
+# a user is worse than no suggestion.
+
+[[entry]]
+id = "mise"
+for_families = ["python", "node", "nodejs", "ruby", "go", "rust", "java", "openjdk", "erlang", "elixir", "deno", "bun", "php", "terraform"]
+source = "https://mise.jdx.dev/"
+read_on = "2026-09-02"
+confirmed = true
+note = "Describes itself as a CLI that manages development tools, environment variables and tasks from a single configuration file."
+
+[[entry]]
+id = "asdf"
+for_families = ["python", "node", "nodejs", "ruby", "go", "rust", "java", "openjdk", "erlang", "elixir", "deno", "php"]
+source = "https://asdf-vm.com/"
+read_on = "2026-09-02"
+confirmed = true
+note = "Describes itself as a multiple runtime version manager with a plugin per language and a single configuration file."
+
+[[entry]]
+id = "pyenv"
+for_families = ["python"]
+source = "https://github.com/pyenv/pyenv"
+read_on = "2026-09-02"
+confirmed = true
+note = "Switches between multiple versions of Python."
+
+[[entry]]
+id = "nvm"
+for_families = ["node", "nodejs"]
+source = "https://github.com/nvm-sh/nvm"
+read_on = "2026-09-02"
+confirmed = true
+note = "Manages multiple active Node.js versions on one system."
+
+[[entry]]
+id = "rbenv"
+for_families = ["ruby"]
+source = "https://github.com/rbenv/rbenv"
+read_on = "2026-09-02"
+confirmed = true
+note = "Switches between multiple Ruby versions on Unix-like systems."
+
+[[entry]]
+id = "rustup"
+for_families = ["rust"]
+source = "https://rustup.rs/"
+read_on = "2026-09-02"
+confirmed = true
+note = "The Rust project's own toolchain manager; describes itself as an installer for the Rust systems programming language."
+
+[[entry]]
+id = "sdkman"
+for_families = ["java", "openjdk", "kotlin", "scala", "groovy", "gradle", "maven"]
+source = "https://sdkman.io/"
+read_on = "2026-09-02"
+confirmed = true
+note = "Manages multiple Software Development Kits on Unix systems."

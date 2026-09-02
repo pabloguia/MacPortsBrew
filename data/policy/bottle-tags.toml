@@ -1,0 +1,163 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# How each provider names the prebuilt-artifact variant that fits a machine,
+# and which older variants it will still accept (INV-20). Consumed by
+# PolicyData::artifact_tags_for, which returns the tags that would satisfy a
+# machine, most specific first.
+#
+# This file names no provider in code: the provider ids below are data. Both
+# providers are modelled with the same three fields, which is what makes the
+# lookup symmetric (INV-17).
+#
+# Fields per tagset
+#   provider                             provider id, lower case
+#   universal_tag                        the platform-independent variant, if any
+#   older_compatible_same_architecture   whether a variant built for an older
+#                                        macOS of the same architecture is
+#                                        accepted
+#   source, read_on                      provenance; both mandatory
+#
+# Fields per [[tagset.pattern]]
+#   architecture   x86_64 | arm64
+#   template       {release} is replaced by the release name below
+#
+# Fields per [[tagset.release]]
+#   macos   MAJOR.MINOR of the macOS release
+#   name    what the provider calls that release inside a variant name
+
+[[tagset]]
+provider = "homebrew"
+universal_tag = "all"
+older_compatible_same_architecture = true
+source = "/usr/local/Homebrew/Library/Homebrew/utils/bottles.rb and /usr/local/Homebrew/Library/Homebrew/extend/os/mac/utils/bottles.rb, Homebrew 6.0.21"
+read_on = "2026-09-02"
+note = """
+The naming rule is `arch_to_symbol` in utils/bottles.rb, read verbatim: the \
+tag is the bare release name when the standardised architecture is x86_64 on \
+macOS, and "<arch>_<release>" otherwise; the pair (all, all) renders as "all". \
+The older-macOS acceptance is `find_older_compatible_tag` in \
+extend/os/mac/utils/bottles.rb, which accepts any candidate whose \
+standardised architecture matches and whose macOS version is less than or \
+equal to the machine's. Recorded in \
+docs/research/R-2-homebrew-artifact-availability.md E4 and finding 1. \
+Observed consequence (R-2 finding 4): 137 of 180 formulae on an Intel macOS \
+26 machine resolve to the macOS 14 variant.\
+"""
+
+[[tagset.pattern]]
+architecture = "x86_64"
+template = "{release}"
+
+[[tagset.pattern]]
+architecture = "arm64"
+template = "arm64_{release}"
+
+# Release names read verbatim from the SYMBOLS table in
+# /usr/local/Homebrew/Library/Homebrew/macos_version.rb, Homebrew 6.0.21,
+# read 2026-09-02. That table stops at 10.15: this provider is UNSUPPORTED on
+# 10.14 and earlier (see provider-support.toml), so no name is recorded for
+# those releases rather than one being reconstructed from memory.
+[[tagset.release]]
+macos = "27"
+name = "golden_gate"
+
+[[tagset.release]]
+macos = "26"
+name = "tahoe"
+
+[[tagset.release]]
+macos = "15"
+name = "sequoia"
+
+[[tagset.release]]
+macos = "14"
+name = "sonoma"
+
+[[tagset.release]]
+macos = "13"
+name = "ventura"
+
+[[tagset.release]]
+macos = "12"
+name = "monterey"
+
+[[tagset.release]]
+macos = "11"
+name = "big_sur"
+
+[[tagset.release]]
+macos = "10.15"
+name = "catalina"
+
+[[tagset]]
+provider = "macports"
+universal_tag = "noarch"
+older_compatible_same_architecture = false
+source = "docs/research/R-4-macports-binary-archives.md E-4 and E-5"
+read_on = "2026-09-02"
+note = """
+The archive filename is an exact five-part match: \
+<subport>-<version>_<revision><variants>.<platform>_<os_major>.<arch>.<type>, \
+observed live as wget-1.25.0_1+gnutls.darwin_19.x86_64.tbz2 (R-4 E-5). A miss \
+on any component means no archive and therefore a source build (R-4 finding \
+2), so there is no older-release acceptance here: \
+older_compatible_same_architecture is false, and that asymmetry between the \
+two providers is a fact about them, not a preference. The Darwin major \
+numbers below come from `kernel_major_version` in \
+/usr/local/Homebrew/Library/Homebrew/macos_version.rb (Homebrew 6.0.21, read \
+2026-09-02), which is a statement about macOS rather than about Homebrew, and \
+the 10.15 to darwin_19 pair is independently confirmed by the live archive \
+name in R-4 E-5. universal_tag: R-4 finding 2 records `supported_archs \
+noarch` and `platforms any` as collapsing the platform and architecture \
+components to "noarch" / "any_any"; which of the two renders the whole \
+component is not verified, so a consumer must treat this tag as a hint and \
+not as a filename.\
+"""
+
+[[tagset.pattern]]
+architecture = "x86_64"
+template = "darwin_{release}.x86_64"
+
+[[tagset.pattern]]
+architecture = "arm64"
+template = "darwin_{release}.arm64"
+
+[[tagset.release]]
+macos = "26"
+name = "25"
+
+[[tagset.release]]
+macos = "15"
+name = "24"
+
+[[tagset.release]]
+macos = "14"
+name = "23"
+
+[[tagset.release]]
+macos = "13"
+name = "22"
+
+[[tagset.release]]
+macos = "12"
+name = "21"
+
+[[tagset.release]]
+macos = "11"
+name = "20"
+
+[[tagset.release]]
+macos = "10.15"
+name = "19"
+
+[[tagset.release]]
+macos = "10.14"
+name = "18"
+
+[[tagset.release]]
+macos = "10.13"
+name = "17"
+
+[[tagset.release]]
+macos = "10.12"
+name = "16"

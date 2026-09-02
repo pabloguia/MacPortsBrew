@@ -1,0 +1,304 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The curated list of package families that own persistent data outside their
+# own prefix (INV-19; docs/research/R-8-stateful-and-service-packages.md
+# finding 8, which names curated data as the primary authority and the
+# metadata heuristic as additive only).
+#
+# A hit here forces MANUAL_REVIEW. The list is deliberately conservative: a
+# family that over-matches costs a human a look, a family that under-matches
+# costs a user their database.
+#
+# Fields
+#   family       stable lower-case identifier for the upstream software
+#   names        per provider, the package names that belong to the family.
+#                A name may contain at most one `*`, matching any run of
+#                characters; a trailing `*` is the common case.
+#   data_paths   per provider, paths relative to that provider's own prefix
+#                (`brew --prefix` for one, `${prefix}`, /opt/local by
+#                default, for the other). Present only where a Portfile or a
+#                formula was read.
+#   source       where the names and paths were read
+#   read_on      when
+#   rationale    what the software keeps and why migrating it is not
+#                mechanical
+#
+# The seed is R-8 finding 9. Every row whose counterpart in the other
+# provider is marked "not verified" there carries no name list for that
+# provider here, rather than a guessed one: an unverified port name asserted
+# as data is exactly the failure the working protocol forbids. Those gaps are
+# research items, not defaults, and the family still forces manual review
+# from the side that is known.
+
+[[entry]]
+family = "postgresql"
+names = { homebrew = ["postgresql@*"], macports = ["postgresql*"] }
+data_paths = { homebrew = ["var/postgresql@NN", "var/log/postgresql@NN.log"], macports = ["var/db/postgresqlNN/defaultdb", "var/db/postgresqlNN"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6 and E-9"
+read_on = "2026-09-02"
+rationale = """
+The providers do not agree on shape. One ships a single formula that both \
+provides the binaries and creates a cluster in var/<name>; the other splits \
+it into a client port with no cluster and a -server port whose cluster at \
+var/db/<name>/defaultdb the user creates by hand from the port's notes. That \
+makes it a one-to-two mapping in which one target initialises no data at all \
+(R-8 finding 12). The macports pattern deliberately covers the client port \
+too: over-matching here costs a review, under-matching costs a cluster.\
+"""
+
+[[entry]]
+family = "mysql"
+names = { homebrew = ["mysql", "mysql@*", "percona-server*"], macports = ["mysql*"] }
+data_paths = { homebrew = ["var/mysql"], macports = ["var/db/mysqlN", "var/db/mysqlN-files", "var/db/mysqlN-keyring"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6 and E-9"
+read_on = "2026-09-02"
+rationale = """
+The data directories disagree in shape as well as in place: var/mysql against \
+var/db/mysql8, with -files and -keyring siblings on the second side that have \
+no counterpart on the first (R-8 finding 12). The Portfile's own note says \
+the databases are left untouched by an upgrade, which is a statement about \
+that provider only.\
+"""
+
+[[entry]]
+family = "mariadb"
+names = { homebrew = ["mariadb", "mariadb@*"] }
+data_paths = { homebrew = ["var/mysql"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Shares var/mysql with the mysql family on the first provider, so the two can \
+collide in one directory. The counterpart port names and their data paths are \
+recorded as not verified in R-8 finding 9 and are not asserted here.\
+"""
+
+[[entry]]
+family = "redis"
+names = { homebrew = ["redis"], macports = ["redis"] }
+data_paths = { homebrew = ["var/db/redis", "var/log/redis.log"], macports = ["var/db/redis", "var/log/redis.log"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6 and E-9"
+read_on = "2026-09-02"
+rationale = """
+The one family in the seed whose data paths agree across both providers. It \
+is still manual review: agreeing paths mean the two would write to the same \
+place under their own prefixes, and the on-disk dump format is a function of \
+the running version, not of the path.\
+"""
+
+[[entry]]
+family = "valkey"
+names = { homebrew = ["valkey"] }
+data_paths = { homebrew = ["var/db/valkey"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Same shape as redis on the first provider. R-8 finding 7 records that the \
+metadata heuristic misses this one entirely, which is precisely why it is \
+curated. The counterpart port is not verified.\
+"""
+
+[[entry]]
+family = "mongodb"
+names = { homebrew = ["mongodb-community*", "mongodb-database-tools", "mongodb-atlas-cli"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-2, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Not in the first provider's core tap at all: it arrives from a third-party \
+tap, so the package is THIRD_PARTY_SOURCED as well as stateful and is \
+unsupported by that provider by its own policy \
+(https://docs.brew.sh/Support-Tiers, read 2026-09-02). Two independent \
+reasons for manual review. Data paths and the counterpart port are not \
+verified.\
+"""
+
+[[entry]]
+family = "nginx"
+names = { homebrew = ["nginx"], macports = ["nginx"] }
+data_paths = { homebrew = ["var/www", "etc/nginx", "var/log/nginx"], macports = ["var/log/nginx", "var/run/nginx", "etc/nginx"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6 and E-9"
+read_on = "2026-09-02"
+rationale = """
+The document root and the configuration tree are user-authored content living \
+outside the package's own directory. Only one of the two providers was \
+observed to establish a docroot under var/www; the configuration directory \
+exists on both and its contents are the user's.\
+"""
+
+[[entry]]
+family = "httpd"
+names = { homebrew = ["httpd"] }
+data_paths = { homebrew = ["var/www", "etc/httpd", "var/cache/httpd"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+The only installed formula on the research machine whose caveats named a var \
+path (R-8 E-6), which is how weak the metadata signal is. Configuration under \
+etc/httpd is hand-edited and its ports were rewritten by the formula. The \
+counterpart port is not verified.\
+"""
+
+[[entry]]
+family = "couchdb"
+names = { homebrew = ["couchdb"] }
+data_paths = { homebrew = ["var/couchdb/data"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Missed entirely by the metadata heuristic (R-8 finding 7): the data directory \
+is established in the formula body, which no provider JSON exposes. \
+Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "rabbitmq"
+names = { homebrew = ["rabbitmq"] }
+data_paths = { homebrew = ["var/lib/rabbitmq", "var/log/rabbitmq"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Missed by the metadata heuristic (R-8 finding 7). The message store and the \
+node's cookie are state that a fresh package does not recreate. Counterpart \
+port not verified.\
+"""
+
+[[entry]]
+family = "influxdb"
+names = { homebrew = ["influxdb", "influxdb@*"] }
+data_paths = { homebrew = ["var/lib/influxdb"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+The data directory is passed as a service argument (--data-dir), so it is \
+visible in metadata, but the time-series data itself is version-coupled. \
+Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "grafana"
+names = { homebrew = ["grafana"] }
+data_paths = { homebrew = ["var/lib/grafana"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Dashboards, users and the plugin tree live under var/lib/grafana. Counterpart \
+port not verified.\
+"""
+
+[[entry]]
+family = "prometheus"
+names = { homebrew = ["prometheus"] }
+data_paths = { homebrew = ["var/prometheus"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+The time-series database sits under var/prometheus, set by a service \
+argument. Missed by the metadata heuristic in R-8 finding 7. Counterpart port \
+not verified.\
+"""
+
+[[entry]]
+family = "opensearch"
+names = { homebrew = ["opensearch"] }
+data_paths = { homebrew = ["var/lib/opensearch", "var/opensearch/plugins"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Indices and the plugin tree are separate directories, and a plugin set is not \
+reproduced by a fresh package. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "cassandra"
+names = { homebrew = ["cassandra"] }
+data_paths = { homebrew = ["var/lib/cassandra"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Cluster state and commit logs under var/lib/cassandra. Counterpart port not \
+verified.\
+"""
+
+[[entry]]
+family = "solr"
+names = { homebrew = ["solr", "solr@*"] }
+data_paths = { homebrew = ["var/lib/solr"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Cores and their indices live under var/lib/solr and are index-format coupled \
+to the running version. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "gitea"
+names = { homebrew = ["gitea"] }
+data_paths = { homebrew = ["var/gitea"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Hosts repositories: the data is the user's source history, and it is the \
+single least recoverable thing in this file. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "forgejo"
+names = { homebrew = ["forgejo"] }
+data_paths = { homebrew = ["var/forgejo"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Same shape and same stakes as gitea; listed separately because it is a \
+separate package with a separate directory. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "minio"
+names = { homebrew = ["minio"] }
+data_paths = { homebrew = ["var/minio"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+An object store: the directory is the buckets. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "neo4j"
+names = { homebrew = ["neo4j"] }
+data_paths = { homebrew = ["var/neo4j"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Graph store under var/neo4j, with a store format tied to the major version. \
+Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "meilisearch"
+names = { homebrew = ["meilisearch"] }
+data_paths = { homebrew = ["var/meilisearch/data.ms"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+A single data.ms directory holds every index. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "varnish"
+names = { homebrew = ["varnish"] }
+data_paths = { homebrew = ["var/varnish"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+The cache itself is discardable, but the VCL configuration under the same \
+prefix is hand-written. Counterpart port not verified.\
+"""
+
+[[entry]]
+family = "transmission"
+names = { homebrew = ["transmission-cli"] }
+data_paths = { homebrew = ["var/transmission"] }
+source = "docs/research/R-8-stateful-and-service-packages.md E-6, finding 9"
+read_on = "2026-09-02"
+rationale = """
+Torrent state and partial downloads. Counterpart port not verified.\
+"""

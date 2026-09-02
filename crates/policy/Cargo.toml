@@ -8,6 +8,34 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+macportsbrew-domain = { path = "../domain" }
+serde.workspace = true
+toml.workspace = true
+
+[features]
+# Test fixtures for this crate and the layers above it. Off by default so the
+# scaffolding stays out of a shipped build; `scripts/validate.sh` runs the test
+# suite with `--all-features`, which is what turns it on for the integration
+# tests. Unit tests inside `src/` reach the module through `cfg(test)` and do
+# not need the feature.
+testing = []
+
+[dev-dependencies]
+serde_json.workspace = true
+
+# The invariant suite needs the fixtures, so it needs the feature.
+#
+# A dev-dependency on this crate with `testing` on would let a plain
+# `cargo test` run it too, but it puts a self-edge in the crate graph and
+# scripts/check-layering.sh reads that graph to assert the layering — a real
+# boundary is not worth bending for a test convenience. So: `required-features`,
+# and the cost is that `cargo test -p macportsbrew-policy` alone skips this
+# target silently. `scripts/validate.sh` is the project's one definition of
+# valid (07-quality-and-testing.md) and runs the suite with `--all-features`,
+# as do CI and the agent's Stop gate.
+[[test]]
+name = "invariants"
+required-features = ["testing"]
 
 [lints]
 workspace = true

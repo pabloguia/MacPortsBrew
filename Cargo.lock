@@ -209,6 +209,7 @@ name = "macportsbrew"
 version = "0.1.0"
 dependencies = [
  "macportsbrew-domain",
+ "macportsbrew-policy",
  "ratatui",
  "serde",
  "toml",
@@ -228,6 +229,13 @@ dependencies = [
 [[package]]
 name = "macportsbrew-application"
 version = "0.1.0"
+dependencies = [
+ "macportsbrew-domain",
+ "macportsbrew-policy",
+ "serde",
+ "serde_json",
+ "toml",
+]
 
 [[package]]
 name = "macportsbrew-domain"

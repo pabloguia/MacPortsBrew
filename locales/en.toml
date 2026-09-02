@@ -62,6 +62,33 @@ error.internal = "An internal error occurred: {detail}. This is a defect. Please
 
 reason.unknown = "Reason {id}."
 
+# A sentence uses only parameters the emitting rule always sets. Two rules
+# attach a parameter that can legitimately be absent or empty — the successor
+# named by a withdrawn package, and the list of version managers for a runtime
+# family nobody has recorded one for — and a template that referenced those
+# would render a bare `{replacedBy}` at the user. They stay on the reason for
+# `--json` and for `explain`, where a missing value is simply a missing key,
+# and the renderer presents them alongside the sentence rather than inside it.
+#
+# Parameters carrying a stable identifier from the domain (`{class}`,
+# `{cause}`, `{confidence}`, `{state}`, `{tier}`) are rendered through the
+# matching `class.*` / `source_build.*` / `support.*` key before substitution.
+
+reason.class_requires_review = "{package} is classed as {class}, and packages in that class are never migrated automatically. A person decides this one."
+reason.package_owns_persistent_data = "{package} belongs to the {family} family, which keeps data outside the package's own directory under {provider}. Moving it would leave that data behind, so it needs a data-and-service plan first."
+reason.mapping_confidence_below_threshold = "The equivalent under {destination} is only a {confidence} match, and acting on one needs {threshold} or better. Look at the candidate before deciding."
+reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
+reason.reverse_dependencies_present = "{count, plural, one {# package} other {# packages}} under {provider} depend on this one, and removing or moving it on its own can break them."
+reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."
+reason.runtime_family_managed_elsewhere = "{family} is a language runtime, and a version manager usually handles one better than either package manager does. This is a suggestion; nothing has been changed."
+reason.source_support_ending = "{provider} has published {endDate} as the end of its support for this machine, and already reports this machine as {tier}. {destination} offers a ready-built equivalent today."
+reason.destination_offers_prebuilt = "Under {source} this would be compiled here ({cause}), while {destination} has it ready-built for this machine."
+reason.destination_unsupported_here = "{destination} states it does not support this machine, so it is not somewhere to move to. The package stays where it is."
+reason.present_under_both_providers = "It is already present under both {primary} and {other}. Keeping both is a supported end state; {primary} is suggested as the one your shell reaches first ({criterion})."
+reason.coexistence_requested = "You asked for this package under both providers. {primary} is suggested as the one your shell reaches first, with {other} alongside it."
+reason.keep_source_default = "Nothing argues for moving {package}, so it stays under {provider}."
+reason.no_alternative_provider_present = "{provider} is the only package manager on this machine carrying {package}, so there is nowhere to move it to."
+
 # --- Table headers ----------------------------------------------------------
 
 table.package = "Package"

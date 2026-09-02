@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The commands a migration plan would run, per provider, and whether each
+# needs elevation. This is data (INV-20): the binary renders these verbs
+# into a plan and has no code path that executes them (SE-020). A later pass
+# that adds the executor reads the same table.
+#
+# Elevation follows docs/research/R-5-privilege-requirements.md: MacPorts
+# writes into a root-owned prefix, so add/remove/select/service operations
+# elevate; Homebrew's prefix subdirectories are user-owned, so formula
+# operations do not - but a cask with a `sudo:` stanza does, which is why the
+# Homebrew entry marks cask operations `unknown` until the planner can read
+# the cask's own metadata (deferred with the executor).
+
+[[entry]]
+provider = "homebrew"
+executable = "bin/brew"
+source = "https://docs.brew.sh/Manpage (install, uninstall, link); docs/research/R-5-privilege-requirements.md"
+read_on = "2026-09-02"
+elevation_reason = "Homebrew refuses to run as root; its prefix subdirectories are owned by the user (docs.brew.sh/FAQ, read 2026-09-02)."
+
+[entry.verbs]
+add = ["install"]
+remove = ["uninstall"]
+verify = ["list", "--versions"]
+
+[entry.elevation]
+add = "none"
+remove = "none"
+add_gui_app = "unknown"
+remove_gui_app = "unknown"
+set_primary = "none"
+
+[[entry]]
+provider = "macports"
+executable = "bin/port"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall); docs/research/R-5-privilege-requirements.md"
+read_on = "2026-09-02"
+elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
+
+[entry.verbs]
+add = ["install"]
+remove = ["uninstall"]
+verify = ["-q", "installed"]
+
+[entry.elevation]
+add = "required"
+remove = "required"
+set_primary = "required"

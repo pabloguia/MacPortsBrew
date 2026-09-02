@@ -119,7 +119,9 @@ Toward Homebrew:
 
 `MANUAL_REVIEW`:
 - Class is `STATEFUL`, `SERVICE`, `GUI_APP` or `THIRD_PARTY_SOURCED`;
-  mapping confidence below `STRONG`; availability `UNKNOWN`; reverse-dependency
+  a candidate exists under a reachable provider and its mapping confidence is
+  below `STRONG` (SE-038); availability `UNKNOWN` for a destination the
+  package could be moved to (SE-039); reverse-dependency
   blocker present; deprecated or disabled on the destination side.
 
 **MUST NOT.** No rule may encode "provider X is better". Every rule is
