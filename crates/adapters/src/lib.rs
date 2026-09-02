@@ -9,5 +9,11 @@
 //! which is either the real system or a recorded fixture - so the same
 //! adapter code runs against a live machine and against captured output,
 //! and tests never touch a developer's real installation.
+//!
+//! The provider names appear here and nowhere above this layer.
 
+pub mod homebrew;
+pub mod macports;
+pub mod persistence;
 pub mod process;
+pub mod system;
