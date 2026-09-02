@@ -25,7 +25,8 @@ if ! command -v otool >/dev/null 2>&1; then
   exit 2
 fi
 
-declare -A floor=([x86_64-apple-darwin]=10.12 [aarch64-apple-darwin]=11.0)
+# macOS ships bash 3.2, so no associative arrays: "target:floor" pairs.
+targets="x86_64-apple-darwin:10.12 aarch64-apple-darwin:11.0"
 bad=0
 
 recorded_min() {
@@ -43,7 +44,9 @@ vernum() { # 10.12 -> 10012, 11.0 -> 11000
   awk -F. '{ printf "%d%03d\n", $1, ($2 == "" ? 0 : $2) }' <<<"$1"
 }
 
-for target in "${!floor[@]}"; do
+for pair in $targets; do
+  target="${pair%%:*}"
+  want="${pair##*:}"
   echo "deployment-target: building --release --target $target"
   # Capture the linker's own warnings; "built for newer" is a failure.
   if ! out="$(cargo build --release --locked --target "$target" 2>&1)"; then
@@ -55,7 +58,6 @@ for target in "${!floor[@]}"; do
     printf '%s\n' "$out" | grep -iE 'built for newer|was built for|deployment target' >&2
     bad=1
   fi
-  want="${floor[$target]}"
   for bin in target/"$target"/release/macportsbrew target/"$target"/release/mpb; do
     got="$(recorded_min "$bin")"
     if [ -z "$got" ]; then
