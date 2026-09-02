@@ -36,7 +36,7 @@ git-ignored.
 | `guard-provider-mutation.sh` | `PreToolUse(Bash)` | Denies elevation and every mutating `brew`/`port` subcommand, plus toolchain switching, shell-file writes and launch machinery — including absolute-path and wrapped forms. |
 | `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths. |
 | `post-edit-checks.sh` | `PostToolUse(Edit\|Write)` | Per-file: shell format and lint, JSON validity, Markdown link resolution, SPDX header. Never blocks. |
-| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures. `MPB_GATE_FULL=1` forces the test suite once a crate exists. |
+| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh` (`--quick` on every turn; the test suite too when code, tests, fixtures, data or catalogues changed; `MPB_GATE_FULL=1` forces it). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
 | `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI runs it. |
 
 Two layers, on purpose: the deny rules in `settings.json` are what Claude Code
@@ -146,6 +146,44 @@ have it reviewed, leave plan mode, work incrementally, `/preflight`,
 mode is the operator's choice per session; plan mode is the recommended start
 for non-trivial work, and auto mode is what the owner used for the
 Repository Readiness Pass.
+
+## The sandbox: evaluated, not enabled
+
+`docs/spec/11-agentic-sdlc.md` asks the Foundation Pass to evaluate Claude
+Code's OS-level sandbox against the real build. Evaluated 2026-09-02 from
+the sandboxing documentation (notes in `docs/research/tooling/`): with
+`sandbox.enabled: true`, the existing `Edit(//opt/local/**)`-style deny
+rules and the `WebFetch(domain:...)` allows are merged into the sandbox
+boundary, which would give the hooks' no-write rule for the provider
+prefixes an enforcement the hooks cannot provide. The build's needs are now
+known: writes under the repository, `~/.cargo` (registry cache) and
+`~/.rustup` (the pinned toolchain), and network to `crates.io`,
+`static.crates.io`, `index.crates.io` and `static.rust-lang.org`. The block
+that expresses that is:
+
+```json
+"sandbox": {
+  "enabled": true,
+  "filesystem": { "allowWrite": ["~/.cargo", "~/.rustup", "~/Library/Application Support/macportsbrew"] },
+  "network": { "allowedDomains": ["crates.io", "static.crates.io", "index.crates.io", "static.rust-lang.org", "docs.brew.sh", "trac.macports.org", "guide.macports.org", "ports.macports.org", "code.claude.com"] }
+}
+```
+
+It is **not** enabled in `settings.json`: the setting takes effect at session
+start, so the pass that wrote it could not exercise it against the build,
+and enabling it blind is the claim the specification tells us not to make.
+Enabling it is the first thing to try in the next session, with
+`scripts/validate.sh --full` as the test; if it passes, commit the block and
+record it in SE-025.
+
+## Testing the binary against a fixture
+
+`macportsbrew --replay fixtures/recordings/<name>.json <command>` runs the
+real binary over a recorded fixture instead of this machine, and
+`scripts/run-fixture-matrix.sh` does that for every fixture and compares
+`analyze --json` byte-for-byte with `fixtures/golden/`. That is how the
+slice is shown to run against the whole matrix without a MacPorts
+installation here.
 
 ## When a hook gets in the way
 
