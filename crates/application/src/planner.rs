@@ -14,6 +14,27 @@ use macportsbrew_domain::{
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
 
+/// Every reason identifier the planner emits, so the UI can assert its
+/// catalogue covers them (the policy engine lists its own in
+/// `macportsbrew_policy::reasons`).
+pub const REASON_IDS: &[&str] = &[
+    "reason.destination_provider_absent",
+    "reason.class_requires_review",
+    "reason.mapping_confidence_below_threshold",
+    "reason.reverse_dependencies_present",
+    "reason.destination_deprecated",
+    "reason.availability_unknown",
+    "reason.snapshot_before_mutation",
+    "reason.add_under_destination",
+    "reason.verify_destination",
+    "reason.set_primary_shim",
+    "reason.verify_resolution",
+    "reason.remove_from_source",
+    "reason.verify_removal",
+    "reason.cleanup_review",
+    "reason.record_history",
+];
+
 /// What the user asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanRequest {
@@ -237,10 +258,18 @@ pub fn build_plan(
             ],
             Reason::new("reason.verify_destination"),
         ));
+        // The primary is set through the MacPortsBrew-managed directory in
+        // the user's home (SE-036), by a command of this tool's own, so the
+        // step is enumerated with its command and its elevation: none.
         steps.push(next(
             StepKind::SetPrimary,
             Some(request.to.clone()),
-            vec![],
+            vec![PlanCommand {
+                program: "macportsbrew".into(),
+                argv: vec!["primary".into(), unit.name.clone(), request.to.to_string()],
+                environment: BTreeMap::new(),
+                elevation: Elevation::None,
+            }],
             vec![VerificationCheck::ProviderReportsActive],
             Reason::new("reason.set_primary_shim").with("provider", &request.to),
         ));
@@ -362,7 +391,7 @@ fn command(
     PlanCommand {
         program,
         argv,
-        environment: provider.environment.clone(),
+        environment: provider.invocation_environment.clone(),
         elevation,
     }
 }

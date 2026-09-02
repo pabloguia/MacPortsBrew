@@ -812,6 +812,7 @@ impl ProviderRead for HomebrewAdapter<'_> {
             } else {
                 BTreeMap::new()
             },
+            invocation_environment: self.environment.clone(),
             resolutions: BTreeMap::new(),
         })
     }

@@ -105,6 +105,7 @@ fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot 
         capabilities: macportsbrew_domain::ProviderCapabilities::default(),
         inventory: macportsbrew_domain::ProviderInventory::default(),
         environment: BTreeMap::new(),
+        invocation_environment: BTreeMap::new(),
         resolutions: BTreeMap::new(),
     }
 }

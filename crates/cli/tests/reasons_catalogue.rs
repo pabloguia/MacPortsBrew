@@ -45,7 +45,11 @@ fn the_catalogue_carries_no_orphaned_reason_key() {
     // exception — it is the fallback the renderer uses for an identifier the
     // catalogue does not carry, so by construction no rule emits it.
     let catalogue = Catalogue::english();
-    let known: BTreeSet<&str> = reasons::all().iter().copied().collect();
+    let known: BTreeSet<&str> = reasons::all()
+        .iter()
+        .chain(macportsbrew_application::planner::REASON_IDS.iter())
+        .copied()
+        .collect();
 
     let orphaned: Vec<&str> = catalogue
         .keys()

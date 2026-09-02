@@ -29,6 +29,8 @@ add = "none"
 remove = "none"
 add_gui_app = "unknown"
 remove_gui_app = "unknown"
+# Cross-provider primary goes through the MacPortsBrew-managed directory in
+# the user's home (SE-036), never through the provider.
 set_primary = "none"
 
 [[entry]]
@@ -46,4 +48,11 @@ verify = ["-q", "installed"]
 [entry.elevation]
 add = "required"
 remove = "required"
-set_primary = "required"
+# MacPorts has no GUI-application package kind; stated so the planner never
+# reaches an elevation value by omission.
+add_gui_app = "unknown"
+remove_gui_app = "unknown"
+# Cross-provider primary goes through the MacPortsBrew-managed directory
+# (SE-036); the provider's own intra-provider selection mechanism needs
+# elevation and is proposed to the user, not run.
+set_primary = "none"

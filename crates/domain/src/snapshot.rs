@@ -24,9 +24,15 @@ pub struct ProviderSnapshot {
     pub capabilities: ProviderCapabilities,
     /// The inventory. Empty when the provider is absent or broken.
     pub inventory: ProviderInventory,
-    /// Reported environment (paths, variables the prefix implies).
+    /// Reported environment (paths, variables the prefix implies). Names
+    /// facts about the installation; not what the executor sets.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub environment: BTreeMap<String, String>,
+    /// The sanitised environment the adapter invokes the provider with
+    /// (INV-10): built from scratch, provider-quieting variables set,
+    /// build-flag variables absent. A plan command carries exactly this.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub invocation_environment: BTreeMap<String, String>,
     /// Resolutions of the executables the inventory names, keyed by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resolutions: BTreeMap<String, Resolution>,

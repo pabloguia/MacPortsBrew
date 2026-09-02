@@ -739,6 +739,7 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             capabilities: self.capabilities()?,
             inventory: self.inventory()?,
             environment: self.environment_info()?,
+            invocation_environment: crate::process::sanitised_environment(&self.environment()),
             resolutions: BTreeMap::new(),
         })
     }

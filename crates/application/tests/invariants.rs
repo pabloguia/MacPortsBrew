@@ -116,6 +116,9 @@ fn provider(
         capabilities: ProviderCapabilities::default(),
         inventory,
         environment: BTreeMap::new(),
+        invocation_environment: [("PATH".to_string(), format!("{prefix}/bin:/usr/bin:/bin"))]
+            .into_iter()
+            .collect(),
         resolutions: BTreeMap::new(),
     }
 }
@@ -352,6 +355,27 @@ fn invariant_09_duplication_is_reported_and_never_consolidated() {
         unit.recommendation.outcome,
         Outcome::MigrateTo { .. }
     ));
+}
+
+#[test]
+fn invariant_10_plan_commands_carry_the_sanitised_invocation_environment() {
+    let plan = plan_for(&both_present(), "tool", MP, false);
+    let commands: Vec<_> = plan
+        .steps
+        .iter()
+        .flat_map(|s| s.commands.iter())
+        .filter(|c| c.program != "macportsbrew")
+        .collect();
+    assert!(!commands.is_empty());
+    for c in commands {
+        assert!(c.environment.contains_key("PATH"), "{c:?}");
+        assert!(!c
+            .environment
+            .keys()
+            .any(|k| k == "PKG_CONFIG_PATH" || k.starts_with("DYLD_")));
+        // The descriptive environment_info keys never leak into a command.
+        assert!(!c.environment.contains_key("prefix") && !c.environment.contains_key("bin"));
+    }
 }
 
 #[test]

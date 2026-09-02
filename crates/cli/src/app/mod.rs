@@ -155,7 +155,7 @@ fn run_inner(
 ) -> Result<i32, DomainError> {
     let ctx = Context::build(cli, stderr)?;
     let advanced = cli.advanced;
-    if advanced && !cli.json {
+    if advanced {
         let _ = writeln!(stderr, "{}", ctx.messages.render_id("advanced.warning"));
     }
     let options = |only: BTreeSet<String>| AnalysisOptions {
@@ -163,7 +163,7 @@ fn run_inner(
         advanced,
         only,
     };
-    if ctx.policy.is_stale(&ctx.today) && !cli.json {
+    if ctx.policy.is_stale(&ctx.today) {
         let mut params = std::collections::BTreeMap::new();
         params.insert(
             "readOn".to_string(),
