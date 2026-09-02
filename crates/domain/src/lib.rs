@@ -27,14 +27,16 @@ pub mod snapshot;
 pub mod support;
 pub mod version;
 
-pub use availability::{ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence};
+pub use availability::{
+    ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, SourceBuildReason,
+};
 pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use error::{DomainError, ErrorId};
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
 };
 pub use mapping::{Confidence, MappingCandidate, MappingEvidence, PackageMapping};
-pub use ownership::{Ownership, OwnershipEvidence};
+pub use ownership::{classify_ownership as classify_ownership_for, Ownership, OwnershipEvidence};
 pub use package::{
     DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
 };

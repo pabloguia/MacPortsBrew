@@ -180,3 +180,23 @@ pub trait ProcessRunner {
         false
     }
 }
+
+impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
+    fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+        (**self).run(spec)
+    }
+
+    fn is_replay(&self) -> bool {
+        (**self).is_replay()
+    }
+}
+
+impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
+    fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+        (**self).run(spec)
+    }
+
+    fn is_replay(&self) -> bool {
+        (**self).is_replay()
+    }
+}

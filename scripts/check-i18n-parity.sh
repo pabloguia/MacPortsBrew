@@ -33,8 +33,16 @@ for root, _, files in os.walk("crates"):
     for fn in files:
         if fn.endswith(".rs"):
             src = open(os.path.join(root, fn), encoding="utf-8").read()
+            if root.endswith("/tests") or "/tests/" in root or fn.endswith("_test.rs"):
+                continue
+            # Test modules inside a file reference deliberately missing ids.
+            src = src.split("#[cfg(test)]")[0]
             used |= set(re.findall(r'\bmsg!\(\s*"([A-Za-z0-9_.-]+)"', src))
             used |= set(re.findall(r'MessageId::new\(\s*"([A-Za-z0-9_.-]+)"', src))
+            used |= set(re.findall(r'render_id\(\s*"([A-Za-z0-9_.-]+)"', src))
+            used |= set(re.findall(r'\.render\(\s*"([A-Za-z0-9_.-]+)"', src))
+            used |= set(re.findall(r'label\(ctx,\s*"([A-Za-z0-9_.-]+)"', src))
+            used |= set(re.findall(r'Reason::new\(\s*"([A-Za-z0-9_.-]+)"', src))
 for u in sorted(used - en):
     print(f"i18n: code references message {u} which locales/en.toml lacks"); bad += 1
 if bad: sys.exit(1)

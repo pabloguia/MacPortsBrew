@@ -44,6 +44,9 @@ must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 doc_markdown = "allow"
+# Orchestration functions (analysis, planner, doctor) are long by nature;
+# splitting them for a line count hides the sequence they exist to show.
+too_many_lines = "allow"
 # Shell execution anywhere but the central executor is a threat-model
 # violation (04-migration-and-safety.md). The executor is the only module
 # allowed to construct a std::process::Command; scripts/check-layering.sh

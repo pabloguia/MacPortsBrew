@@ -1,0 +1,420 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Human renderings. Plain text, stable when not on a terminal, every
+//! label through the catalogue, every column measured in display width.
+
+use super::context::Context;
+use crate::render::table::Table;
+use macportsbrew_application::{Analysis, DoctorReport, Explanation, PackageReport, Severity};
+use macportsbrew_domain::{
+    ArtifactAvailability, MigrationPlan, Outcome, Ownership, PackageClass, ProviderPresence,
+    SourceBuildReason, StepKind,
+};
+use std::collections::BTreeMap;
+use std::fmt::Write;
+
+fn label(ctx: &Context, id: &str) -> String {
+    ctx.messages.render_id(id)
+}
+
+fn params(pairs: &[(&str, String)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), v.clone()))
+        .collect()
+}
+
+fn outcome_text(ctx: &Context, outcome: &Outcome) -> String {
+    match outcome {
+        Outcome::Keep { provider } => ctx.messages.render(
+            "outcome.keep",
+            &params(&[("provider", provider.to_string())]),
+        ),
+        Outcome::MigrateTo { provider } => ctx.messages.render(
+            "outcome.migrate_to",
+            &params(&[("provider", provider.to_string())]),
+        ),
+        Outcome::KeepBoth { primary } => ctx.messages.render(
+            "outcome.keep_both",
+            &params(&[("primary", primary.to_string())]),
+        ),
+        Outcome::UseRuntimeManager => label(ctx, "outcome.use_runtime_manager"),
+        Outcome::ManualReview => label(ctx, "outcome.manual_review"),
+        Outcome::NoAction => label(ctx, "outcome.no_action"),
+    }
+}
+
+fn availability_text(ctx: &Context, a: &ArtifactAvailability) -> String {
+    match a {
+        ArtifactAvailability::BinaryAvailable => label(ctx, "availability.binary_available"),
+        ArtifactAvailability::SourceBuildRequired { reason } => {
+            let why = match reason {
+                SourceBuildReason::NoArtifactForThisPlatform => {
+                    "source_build.no_artifact_for_this_platform"
+                }
+                SourceBuildReason::NonDefaultOptions => "source_build.non_default_options",
+                SourceBuildReason::LicenceRestricted => "source_build.licence_restricted",
+                SourceBuildReason::ForcedByConfiguration => "source_build.forced_by_configuration",
+            };
+            ctx.messages.render(
+                "availability.source_build_required",
+                &params(&[("reason", label(ctx, why))]),
+            )
+        }
+        ArtifactAvailability::Unavailable => label(ctx, "availability.unavailable"),
+        ArtifactAvailability::UnsupportedPlatform => {
+            label(ctx, "availability.unsupported_platform")
+        }
+        ArtifactAvailability::Deprecated => label(ctx, "availability.deprecated"),
+        ArtifactAvailability::Disabled => label(ctx, "availability.disabled"),
+        ArtifactAvailability::Unknown => label(ctx, "availability.unknown"),
+    }
+}
+
+fn ownership_text(ctx: &Context, o: Ownership) -> String {
+    match o {
+        Ownership::TopLevel => label(ctx, "ownership.top_level"),
+        Ownership::Dependency => label(ctx, "ownership.dependency"),
+        Ownership::Orphan => label(ctx, "ownership.orphan"),
+        Ownership::Unknown => label(ctx, "ownership.unknown"),
+    }
+}
+
+fn class_text(ctx: &Context, c: PackageClass) -> String {
+    match c {
+        PackageClass::Simple => label(ctx, "class.simple"),
+        PackageClass::Stateful => label(ctx, "class.stateful"),
+        PackageClass::Service => label(ctx, "class.service"),
+        PackageClass::Runtime => label(ctx, "class.runtime"),
+        PackageClass::GuiApp => label(ctx, "class.gui_app"),
+        PackageClass::ThirdPartySourced => label(ctx, "class.third_party_sourced"),
+        PackageClass::ProviderInternal => label(ctx, "class.provider_internal"),
+    }
+}
+
+/// `status`.
+pub fn status(ctx: &Context, analysis: &Analysis) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "{}", label(ctx, "status.machine_heading"));
+    let m = &analysis.machine;
+    let _ = writeln!(
+        out,
+        "  {}",
+        ctx.messages.render(
+            "status.machine_line",
+            &params(&[
+                ("macos", m.macos.to_string()),
+                ("arch", m.architecture.to_string()),
+                ("translation", format!("{:?}", m.translation)),
+            ])
+        )
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "status.providers_heading"));
+    let mut table = Table::new([
+        label(ctx, "table.provider"),
+        label(ctx, "table.presence"),
+        label(ctx, "table.version"),
+        label(ctx, "table.prefix"),
+        label(ctx, "table.support"),
+        label(ctx, "table.packages"),
+    ]);
+    for (id, p) in &analysis.providers {
+        let presence = match &p.detection.presence {
+            ProviderPresence::Present => label(ctx, "presence.present"),
+            ProviderPresence::Absent => label(ctx, "presence.absent"),
+            ProviderPresence::Broken { .. } => label(ctx, "presence.broken"),
+        };
+        table.push([
+            id.to_string(),
+            presence,
+            p.detection
+                .version
+                .as_ref()
+                .map_or(String::from("-"), ToString::to_string),
+            p.detection
+                .prefix
+                .as_ref()
+                .map_or(String::from("-"), |x| x.display().to_string()),
+            format!("{:?}", p.support.tier).to_ascii_lowercase(),
+            format!("{} ({} top-level)", p.package_count, p.top_level_count),
+        ]);
+    }
+    out.push_str(&table.render(None));
+    let _ = writeln!(out);
+    let s = &analysis.summary;
+    let _ = writeln!(
+        out,
+        "{}",
+        ctx.messages.render(
+            "status.summary_line",
+            &params(&[
+                ("topLevel", s.top_level_units.to_string()),
+                ("manualReview", s.manual_review.to_string()),
+                ("policyVersion", analysis.policy_version.clone()),
+            ])
+        )
+    );
+    if analysis.policy_stale {
+        let _ = writeln!(
+            out,
+            "{}",
+            ctx.messages.render(
+                "policy.stale_notice",
+                &params(&[
+                    ("readOn", analysis.policy_read_on.clone()),
+                    ("url", "https://github.com/macportsbrew/macportsbrew".into())
+                ])
+            )
+        );
+    }
+    out
+}
+
+/// `analyze` and `list`: one unit per package across providers.
+pub fn analysis(ctx: &Context, analysis: &Analysis, with_reasons: bool) -> String {
+    let mut out = String::new();
+    if analysis.packages.is_empty() {
+        let _ = writeln!(out, "{}", label(ctx, "analysis.nothing_to_show"));
+        return out;
+    }
+    let mut table = Table::new([
+        label(ctx, "table.package"),
+        label(ctx, "table.provider"),
+        label(ctx, "table.version"),
+        label(ctx, "table.ownership"),
+        label(ctx, "table.availability"),
+        label(ctx, "table.class"),
+        label(ctx, "table.recommendation"),
+    ]);
+    for unit in &analysis.packages {
+        let mut first = true;
+        for (id, row) in &unit.rows {
+            let version = row
+                .installed
+                .iter()
+                .find(|r| r.active)
+                .or_else(|| row.installed.first())
+                .map_or_else(
+                    || label(ctx, "row.not_installed"),
+                    |r| r.version.to_string(),
+                );
+            table.push([
+                if first {
+                    unit.name.clone()
+                } else {
+                    String::new()
+                },
+                format!(
+                    "{id}{}",
+                    if row.presence == macportsbrew_application::RowPresence::Mapped {
+                        " *"
+                    } else {
+                        ""
+                    }
+                ),
+                version,
+                if row.presence == macportsbrew_application::RowPresence::Mapped {
+                    String::from("-")
+                } else {
+                    ownership_text(ctx, row.ownership)
+                },
+                availability_text(ctx, &row.availability.availability),
+                if first {
+                    class_text(ctx, unit.class.dominant())
+                } else {
+                    String::new()
+                },
+                if first {
+                    outcome_text(ctx, &unit.recommendation.outcome)
+                } else {
+                    String::new()
+                },
+            ]);
+            first = false;
+        }
+    }
+    out.push_str(&table.render(None));
+    if with_reasons {
+        let _ = writeln!(out);
+        for unit in &analysis.packages {
+            let _ = writeln!(out, "{}:", unit.name);
+            for reason in &unit.recommendation.reasons {
+                let _ = writeln!(out, "  - {}", ctx.messages.render_reason(reason));
+            }
+        }
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "analysis.mapped_row_note"));
+    if analysis.summary.dependency_units == 0 && !ctx_advanced(analysis) {
+        let _ = writeln!(out, "{}", label(ctx, "analysis.advanced_hint"));
+    }
+    out
+}
+
+fn ctx_advanced(analysis: &Analysis) -> bool {
+    analysis.packages.iter().any(|p| p.advanced_only)
+}
+
+/// `explain`.
+pub fn explanation(ctx: &Context, e: &Explanation) -> String {
+    let mut out = String::new();
+    let unit: &PackageReport = &e.package;
+    let _ = writeln!(
+        out,
+        "{}",
+        ctx.messages.render(
+            "explain.heading",
+            &params(&[
+                ("package", unit.name.clone()),
+                ("provider", unit.source.to_string())
+            ])
+        )
+    );
+    let _ = writeln!(
+        out,
+        "  {}: {}",
+        label(ctx, "explain.recommendation"),
+        outcome_text(ctx, &unit.recommendation.outcome)
+    );
+    let _ = writeln!(
+        out,
+        "  {}: {}",
+        label(ctx, "explain.policy_version"),
+        e.derivation.policy_version
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "explain.facts_heading"));
+    for (k, v) in &e.derivation.facts_used {
+        let _ = writeln!(out, "  {k}: {v}");
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "explain.fired_heading"));
+    for f in &e.derivation.fired {
+        let _ = writeln!(out, "  {} -> {}", f.rule, outcome_text(ctx, &f.outcome));
+        let _ = writeln!(out, "      {}", ctx.messages.render_reason(&f.reason));
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "explain.not_fired_heading"));
+    for r in &e.derivation.not_fired {
+        let _ = writeln!(out, "  {r}");
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "explain.mappings_heading"));
+    for m in &unit.mappings {
+        let _ = writeln!(out, "  -> {}: {:?}", m.destination, m.confidence);
+        for c in &m.candidates {
+            let _ = writeln!(out, "     {} ({:?})", c.package.name, c.confidence);
+            for ev in &c.evidence {
+                let _ = writeln!(out, "       {}: {} (+{})", ev.kind, ev.detail, ev.weight);
+            }
+        }
+    }
+    out
+}
+
+/// `plan`: the dry-run rendering of a plan.
+pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{}",
+        ctx.messages.render(
+            "plan.heading",
+            &params(&[
+                ("package", plan.package.name.clone()),
+                ("source", plan.source.to_string()),
+                ("destination", plan.destination.to_string()),
+            ])
+        )
+    );
+    let _ = writeln!(out, "  {}", label(ctx, "plan.dry_run_only"));
+    if let Some(o) = &plan.overrode {
+        let _ = writeln!(
+            out,
+            "  {}",
+            ctx.messages.render(
+                "plan.overrides",
+                &params(&[("recommendation", outcome_text(ctx, o))])
+            )
+        );
+    }
+    if !plan.risks.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", label(ctx, "plan.risks_heading"));
+        for r in &plan.risks {
+            let marker = if r.blocking { "!" } else { "-" };
+            let _ = writeln!(out, "  {marker} {}", ctx.messages.render_reason(&r.reason));
+        }
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "plan.steps_heading"));
+    for step in &plan.steps {
+        let kind = format!("{:?}", step.kind);
+        let _ = writeln!(
+            out,
+            "  {}. {} - {}",
+            step.index,
+            kind,
+            ctx.messages.render_reason(&step.reason)
+        );
+        for c in &step.commands {
+            let elevation = match &c.elevation {
+                macportsbrew_domain::Elevation::None => String::new(),
+                macportsbrew_domain::Elevation::Required { reason } => {
+                    format!("  [{}: {reason}]", label(ctx, "plan.elevation_required"))
+                }
+                macportsbrew_domain::Elevation::Unknown => {
+                    format!("  [{}]", label(ctx, "plan.elevation_unknown"))
+                }
+            };
+            let _ = writeln!(
+                out,
+                "       $ {} {}{elevation}",
+                c.program,
+                c.argv.join(" ")
+            );
+        }
+        for v in &step.verification {
+            let _ = writeln!(out, "       ? {v:?}");
+        }
+        if step.kind == StepKind::ManualReview {
+            let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
+        }
+    }
+    if !plan.elevated_steps.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{}",
+            ctx.messages.render(
+                "plan.elevated_summary",
+                &params(&[(
+                    "steps",
+                    plan.elevated_steps
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )])
+            )
+        );
+    }
+    out
+}
+
+/// `doctor`.
+pub fn doctor(ctx: &Context, doc: &DoctorReport) -> String {
+    let mut out = String::new();
+    for f in &doc.findings {
+        let sev = match f.severity {
+            Severity::Ok => label(ctx, "doctor.ok"),
+            Severity::Warning => label(ctx, "doctor.warning"),
+            Severity::Error => label(ctx, "doctor.error"),
+        };
+        let _ = writeln!(out, "[{sev}] {}", ctx.messages.render_reason(&f.reason));
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "doctor.deep_not_in_this_build"));
+    out
+}

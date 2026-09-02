@@ -31,6 +31,10 @@ macportsbrew-policy = { path = "../policy" }
 serde.workspace = true
 toml.workspace = true
 unicode-width.workspace = true
+macportsbrew-application = { path = "../application" }
+macportsbrew-adapters = { path = "../adapters" }
+clap.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 # Dev-only, and only to verify ADR-0002's open question: that the candidate TUI

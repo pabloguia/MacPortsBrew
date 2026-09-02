@@ -223,6 +223,12 @@ impl Messages {
     /// reason is a translation gap and not a normal outcome.
     pub fn render_reason(&self, reason: &Reason) -> String {
         let raw = reason.id.as_str();
+        // A reason id that is itself a catalogue key (doctor findings reuse
+        // `doctor.*` keys; the staleness notice reuses `policy.*`) renders
+        // directly; otherwise the `reason.` namespace applies.
+        if self.catalogue.get(raw).is_some() {
+            return self.render(raw, &reason.params);
+        }
         let suffix = raw.strip_prefix("reason.").unwrap_or(raw);
         let key = format!("reason.{suffix}");
         if self.catalogue.get(&key).is_some() {
