@@ -159,8 +159,25 @@ pub fn analyze(
                         .find(|r| r.identity.name == name)
                         .map(|r| r.version.clone())
                 });
-            let reverse =
-                u32::try_from(p.inventory.reverse_dependencies_of(&name).len()).unwrap_or(u32::MAX);
+            // Reverse dependencies are counted within each provider that
+            // holds the package and the largest count is what the engine
+            // sees: removing the package from either side is what the
+            // count guards (INV-04), and choosing one side by name would
+            // make the answer depend on provider ids (INV-17).
+            let mut reverse = p.inventory.reverse_dependencies_of(&name).len();
+            for m in &mappings {
+                if let Some(sel) = &m.selected {
+                    let dp = &snapshot.providers[&m.destination];
+                    if installed_names[&m.destination].contains(&sel.package.name) {
+                        reverse = reverse.max(
+                            dp.inventory
+                                .reverse_dependencies_of(&sel.package.name)
+                                .len(),
+                        );
+                    }
+                }
+            }
+            let reverse = u32::try_from(reverse).unwrap_or(u32::MAX);
             let facts = package_facts(
                 snapshot,
                 policy,

@@ -76,11 +76,24 @@ than an inspection.
 
 - Build and link a binary with `MACOSX_DEPLOYMENT_TARGET=10.12` for x86_64 and
   `11.0` for arm64, and confirm the linker does not silently raise the floor.
+  **Verified 2026-09-02:** rustc 1.98.0 defaults to exactly those targets
+  (`rustc --print deployment-target`), the x86_64 artifact records
+  `LC_VERSION_MIN_MACOSX 10.12` and the arm64 artifact `LC_BUILD_VERSION
+  minos 11.0`; a lower value is clamped with a warning and a higher one is
+  recorded silently, which is what `scripts/check-deployment-target.sh`
+  asserts on both built binaries in CI.
 - Confirm no transitive dependency raises the deployment target — add a check,
-  do not rely on inspection.
+  do not rely on inspection. **Verified 2026-09-02:** the same script scans
+  every object inside every rlib of the release build for a recorded minimum
+  above the floor.
 - Confirm the chosen TUI crate's double-width handling against CJK fixtures
-  (`06-cli-and-ux.md`).
-- Pin the toolchain version. Rust's macOS floor was itself raised once (10.7 to
+  (`06-cli-and-ux.md`). **Verified 2026-09-02:** `unicode-width` measures
+  `漢字` as 4 columns and `日本語のパッケージ` as 18; `ratatui` 0.30.2 (dev
+  dependency only, no TUI ships) renders the same widths into its buffer -
+  `adr_0002_tui_crate_handles_east_asian_double_width` in
+  `crates/cli/tests/render.rs`.
+- Pin the toolchain version. **Done 2026-09-02:** `rust-toolchain.toml`
+  pins 1.98.0 with both targets; `rustup` auto-installs it. Rust's macOS floor was itself raised once (10.7 to
   10.12, accepted in 2022) and can be raised again; an unpinned toolchain could
   drop the target audience in a routine upgrade. Treat a floor increase as a
   breaking change requiring an ADR.

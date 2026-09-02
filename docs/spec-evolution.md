@@ -889,6 +889,44 @@ change is made. Silent deviation remains the one unrecoverable error.
   this; the entry records that a first implementation got it wrong and how it
   was caught.
 
+## SE-042 — The package unit across providers: which side drives it, and what an analysis of a snapshot is "today"
+- Status: accepted
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Original assumption: `02-domain-model.md` makes the unit shown to the user
+  "the package across providers" and `03-policy-and-recommendations.md` gives
+  the engine one `source` provider per package, without saying which side is
+  the source when the package is installed under both, nor which reverse
+  dependencies count. `06-cli-and-ux.md` says `analyze --from-snapshot` must
+  be byte-identical (INV-15) while the engine takes the current date as a
+  fact.
+- Change: (1) a unit held by two providers is driven by the provider that
+  owns the executable `PATH` resolves for it; when no executable resolves,
+  by the first provider id in sorted order, and that fallback is the one
+  place an id order decides anything. (2) The reverse-dependency count the
+  engine sees is the largest count over every provider holding the package,
+  each counted inside its own provider (INV-04) - never summed across them.
+  (3) An analysis of a snapshot file is computed as of the snapshot's capture
+  date unless `--today` is given, so the output is a function of the file
+  alone; a live analysis uses the real date.
+- Rationale: (1) the executable that runs is the only machine fact that
+  distinguishes the two copies; choosing by name would make one provider win
+  every tie (INV-17), which `invariant_17_swapping_the_providers_swaps_the_analysis`
+  caught on the first implementation. (2) The count exists to block a removal
+  that would break something (INV-04); removing either copy is what a plan
+  may do, so the guard must see the worse side. (3) Without it the same
+  snapshot would give different staleness notices and deadline weights on
+  different days, and INV-15 would hold only by accident of the calendar.
+- Evidence: `crates/application/tests/invariants.rs` (INV-17 test failing
+  with `KeepBoth` vs `ManualReview` before the change, passing after);
+  `crates/application/src/analysis.rs` (`source_for`, the reverse count);
+  `crates/cli/src/app/context.rs` (`today` from `provenance.captured_at`).
+- User impact: a package under both providers is judged from the copy the
+  user actually runs; `analyze --from-snapshot` reproduces exactly.
+- Architectural impact: the analysis stays a pure function of
+  (snapshot, policy data, options); the date is an option.
+- Compatibility impact: the `--json` payload carries `today` so a reader can
+  tell which date an analysis was computed for.
+
 ---
 
 # Process: the agentic SDLC
