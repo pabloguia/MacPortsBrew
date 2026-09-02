@@ -41,15 +41,32 @@ described in `docs/spec/11-agentic-sdlc.md` (Subagents). You are not the
 right reviewer of your own change: run the relevant ones before you report
 anything complete, and resolve or accept their findings in writing.
 
-**Use the skills.** `/tooling-recheck`, `/spec-evolution`, `/adr`,
-`/research-note`, `/decision-pending`, `/preflight`, `/pass-report`. They
-encode procedures this project cares about getting right consistently, and
-you invoke them yourself — a pass runs autonomously.
+**Use the skills.** Procedural: `/tooling-recheck`, `/spec-evolution`, `/adr`,
+`/research-note`, `/decision-pending`, `/preflight`, `/pass-report`. Contributor
+recipes, each written from the same source as its `CONTRIBUTING.md` section so
+a human and an agent follow identical steps: `/add-mapping`,
+`/add-policy-rule`, `/add-locale`, `/add-doctor-check`, `/capture-fixture`,
+`/add-provider`. They encode procedures this project cares about getting right
+consistently, and you invoke them yourself — a pass runs autonomously.
+
+**Path-scoped rules.** `.claude/rules/*.md` carry `paths:` frontmatter and load
+the relevant specification chapter when you touch `crates/adapters/**`,
+`crates/policy/**`, `crates/domain/**`, `data/policy/**` or `locales/**`. Do not
+restate their content in this file; extend the rule.
 
 **Verify before you claim.** `/preflight` runs the definition-of-done checks.
 The `Stop` hook runs the mechanical part of it whether you ask or not, and will
 refuse to let the turn end while an objective check fails. That is deliberate:
 "give the agent a way to check its work" beats "tell the agent to be careful".
+
+**Observe the machine without touching it.** `--replay
+fixtures/recordings/<name>.json` runs the whole binary against a captured
+recording, and `--from-snapshot <file>` analyses a captured snapshot. Both are
+how you exercise a code path on a machine you do not have — and neither
+consults the live filesystem, which
+`invariant_15_a_replayed_reader_never_consults_the_live_filesystem` asserts.
+`scripts/capture-fixture.sh` produces a recording; fixtures are captured, never
+invented.
 
 ## Boundaries the tooling enforces
 
@@ -79,9 +96,15 @@ or `CLAUDE.local.md`; both are git-ignored for a reason.
 
 `rustup default|override|toolchain` and `cargo install` are denied because
 the pinned toolchain holds the macOS floor (ADR-0002 has the reasoning). `cargo
-fmt`, `clippy`, `test`, `build` and `tree` are allowed; the `Stop` gate runs
-fmt and clippy on every turn end, plus the test suite when `src/` or `tests/`
-changed, and `MPB_GATE_FULL=1` forces the full run.
+fmt`, `clippy`, `test`, `build` and `tree` are allowed.
+
+The `Stop` gate does not implement its own checks: it runs
+`scripts/validate.sh`, which is the one implementation of "valid" and the same
+one CI runs. `--quick` (format, clippy, layering, SPDX, dependency licences,
+i18n parity) on every turn end; the full default mode, which adds the test
+suite, when `crates/`, `tests/`, `fixtures/`, `locales/`, `data/` or
+`Cargo.lock` changed. `MPB_GATE_FULL=1` forces the tests regardless. Do not add
+a check anywhere else.
 
 ## The two invariants a Claude session trips over most
 

@@ -1,0 +1,138 @@
+# `doctor` schema, version 1
+
+Emitted by `macportsbrew doctor --json`, and written in redacted form by
+`macportsbrew doctor --report <file>`. Derived from `DoctorReport` in
+`crates/application/src/doctor.rs`. The compatibility rule is in
+[`README.md`](README.md).
+
+`doctor` reports structural facts about the machine — prefixes, `PATH` order,
+leaked build variables, provider health, support state. It makes no
+recommendation about any package; that is the policy engine's job, and it is in
+[`analysis.v1.md`](analysis.v1.md).
+
+## Root
+
+| Field | Type | Notes |
+|---|---|---|
+| `schemaVersion` | integer | `1` |
+| `toolVersion` | string | |
+| `policyVersion` | string | |
+| `findings` | array of `DoctorFinding` | Ordered worst-severity-last in human output; the array here is in check order |
+
+## `DoctorFinding`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Stable, lower-case. The list below is the current set |
+| `severity` | string | `OK`, `WARNING`, `ERROR` |
+| `reason` | `Reason` | `{ "id": "doctor.*", "params": { ... } }`. Carries no display text |
+| `provider` | string, optional | The provider id the finding is about, when it is about one |
+
+## Finding identifiers
+
+| `id` | Typical severity | `reason.id` | Parameters |
+|---|---|---|---|
+| `provider_present` | `OK` | `doctor.provider_present` | `provider`, `version` |
+| `provider_absent` | `OK` | `doctor.provider_absent` | `provider` |
+| `provider_broken` | `ERROR` | `doctor.provider_broken` | `provider`, `reason` |
+| `provider_architecture_mismatch` | `WARNING` | `doctor.provider_architecture_mismatch` | `provider`, `provider_arch`, `machine_arch` |
+| `provider_support_degraded` | `WARNING` | `doctor.provider_support` | `provider`, `tier`, `source`, `readOn` |
+| `provider_support_ending` | `WARNING` | `doctor.provider_support_ending` | `provider`, `endDate`, `source`, `readOn` |
+| `prefix_not_on_path` | `WARNING` | `doctor.prefix_not_on_path` | `provider`, `prefix` |
+| `path_order` | `OK` or `WARNING` | `doctor.path_order` | `order` |
+| `path_duplicate` | `WARNING` | `doctor.path_duplicate` | `entry` |
+| `build_variable_names_prefix` | `WARNING` | `doctor.build_variable_names_prefix` | `variable`, `provider` |
+| `running_translated` | `WARNING` | `doctor.running_translated` | — |
+| `command_line_tools` | `OK`, `WARNING` or `ERROR` | `doctor.command_line_tools_present` / `_missing` / `_unknown` | — |
+| `policy_stale` | `WARNING` | (policy staleness) | the read date and the threshold |
+
+**A dated provider policy is a `WARNING`, never an `ERROR`.** A support tier or
+an announced end-of-support date is something the user should know about and
+plan around; it does not mean their machine is broken. Both carry `source` and
+`readOn` in their parameters so the reader can check the claim themselves —
+that is INV-20 reaching the user interface.
+
+## Redaction
+
+`doctor --report` writes a file the user attaches to an issue. It **may**
+contain versions, architecture, macOS version, provider prefixes, package names
+and findings. It **must never** contain usernames, home paths, environment
+variable values or tokens, or anything outside the two providers' scope. A
+parameter that can carry a path is redacted: the home directory becomes `~`.
+
+The user sees the file and chooses to share it. **MacPortsBrew never uploads
+it, and makes no network call that reports anything about the user.**
+
+## Worked example
+
+`macportsbrew doctor --json` on an Intel Mac with Homebrew and no MacPorts:
+
+```json
+{
+  "schemaVersion": 1,
+  "toolVersion": "0.1.0",
+  "policyVersion": "2026.09.02-1",
+  "findings": [
+    {
+      "id": "path_duplicate",
+      "severity": "WARNING",
+      "reason": { "id": "doctor.path_duplicate", "params": { "entry": "~/some/dir/bin" } }
+    },
+    {
+      "id": "provider_support_degraded",
+      "severity": "WARNING",
+      "reason": {
+        "id": "doctor.provider_support",
+        "params": {
+          "provider": "homebrew",
+          "tier": "Degraded",
+          "source": "https://docs.brew.sh/Support-Tiers",
+          "readOn": "2026-09-02"
+        }
+      },
+      "provider": "homebrew"
+    },
+    {
+      "id": "provider_support_ending",
+      "severity": "WARNING",
+      "reason": {
+        "id": "doctor.provider_support_ending",
+        "params": {
+          "provider": "homebrew",
+          "endDate": "2027-09-01",
+          "source": "https://docs.brew.sh/Support-Tiers",
+          "readOn": "2026-09-02"
+        }
+      },
+      "provider": "homebrew"
+    },
+    {
+      "id": "command_line_tools",
+      "severity": "OK",
+      "reason": { "id": "doctor.command_line_tools_present" }
+    },
+    {
+      "id": "provider_absent",
+      "severity": "OK",
+      "reason": { "id": "doctor.provider_absent", "params": { "provider": "macports" } },
+      "provider": "macports"
+    },
+    {
+      "id": "provider_present",
+      "severity": "OK",
+      "reason": { "id": "doctor.provider_present", "params": { "provider": "homebrew", "version": "6.0.21" } },
+      "provider": "homebrew"
+    }
+  ]
+}
+```
+
+Note the `~` in the `path_duplicate` entry: that is the redaction, applied
+before the value ever reaches the payload.
+
+## In this build
+
+`--deep` (inspecting binaries for cross-prefix links) is accepted and reports
+that it is not part of this build. Every other check runs, and every one of
+them works identically from `--from-snapshot` and under `--replay`, because
+`doctor` reads the snapshot and the policy data and nothing else.

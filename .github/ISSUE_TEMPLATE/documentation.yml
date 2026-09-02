@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Documentation problem
+description: Something in the README, the wiki, the CLI help or the docs is wrong, out of date, unclear or missing.
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation is a product surface here, and it carries two obligations
+        the code does not:
+
+        - **Every claim about Homebrew or MacPorts behaviour carries its source
+          and the date it was read, or is phrased conditionally.** A claim
+          without one is a defect even if it happens to be true today. The
+          Intel timeline in particular is dated on purpose, so that a reader in
+          2028 knows what they are looking at.
+        - **Neither provider is presented as globally better.** If a page reads
+          as though one is, that is worth reporting.
+
+        Never paste secrets, tokens or credentials.
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The file or page, and the section or heading.
+      placeholder: "wiki/Intel-Mac-Homebrew-Support.md, the 'What the deadline means' section"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem
+      options:
+        - A claim about Homebrew or MacPorts is factually wrong
+        - A claim is out of date and its source now says something else
+        - A time-sensitive claim carries no date, or the date is stale
+        - A broken link
+        - The text is unclear or ambiguous
+        - Something is missing
+        - The two providers are not treated even-handedly
+        - A support claim is stronger than what is actually tested
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: What it says now, and what it should say
+      description: Quote the passage. If a provider fact has changed, give the source and the date you read it.
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Source and read date
+      description: Required if you are correcting a claim about provider behaviour. A correction without a source cannot be applied.
+      placeholder: "https://docs.brew.sh/Support-Tiers — read 2026-09-02"
+
+  - type: input
+    id: mpb-version
+    attributes:
+      label: MacPortsBrew version
+      description: Only if the problem is in CLI help or generated output.
+      placeholder: "0.1.0"

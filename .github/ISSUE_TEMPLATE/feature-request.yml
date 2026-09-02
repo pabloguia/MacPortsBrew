@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Feature request
+description: Something MacPortsBrew should do and does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things worth checking first, because they save everyone time:
+
+        - **`CHANGELOG.md` lists what is not yet implemented.** `migrate`,
+          `restore --run`, `primary`, `provider-priority`, `providers`, `env`,
+          `history`, `cleanup`, the interactive view and the translations are
+          planned, not missing by oversight.
+        - **`docs/spec/00-charter.md` lists the non-goals.** MacPortsBrew does
+          not become a package manager, build packages, host binaries, manage
+          language runtimes directly, manage Mac App Store apps, consolidate
+          the two providers' dependency trees, or send telemetry. A request in
+          one of those areas needs to argue with the charter, which is a
+          legitimate thing to do — but do it explicitly.
+
+        Never paste secrets, tokens or credentials.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what stops you. Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like MacPortsBrew to do
+      description: If you have a specific command or flag in mind, name it. If not, that is fine.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Does this apply to both migration directions?
+      description: Homebrew and MacPorts are peers here, and anything that works one way should work the other (INV-17). If your request is genuinely one-directional, say why.
+      options:
+        - Both directions equally
+        - Mostly Homebrew to MacPorts, but should work both ways
+        - Mostly MacPorts to Homebrew, but should work both ways
+        - Genuinely one-directional, explained below
+        - Not a migration feature
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Including "nothing, I gave up". Knowing the workaround tells us how much the feature is worth.
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and architecture
+      description: Only if the request is machine-specific.
+      placeholder: "26.6.2, Intel x86_64"
+
+  - type: input
+    id: mpb-version
+    attributes:
+      label: MacPortsBrew version
+      placeholder: "0.1.0"

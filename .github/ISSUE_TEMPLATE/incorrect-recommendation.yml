@@ -1,0 +1,107 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Incorrect recommendation
+description: MacPortsBrew recommended the wrong thing for a package on your machine.
+labels: ["recommendation", "policy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A recommendation is a function of `machine × package × provider ×
+        current support state`, produced by named rules you can inspect. The
+        most useful thing you can attach is the derivation itself:
+
+        ```
+        macportsbrew explain <package>
+        ```
+
+        It prints the facts the engine read, the rules that fired, the rules
+        that did not, and the mapping evidence. With that, the rule at fault is
+        usually identifiable without guessing.
+
+        Never paste secrets, tokens or credentials.
+
+  - type: input
+    id: package
+    attributes:
+      label: Package
+      placeholder: "postgresql@17"
+    validations:
+      required: true
+
+  - type: input
+    id: recommended
+    attributes:
+      label: What MacPortsBrew recommended
+      placeholder: "Needs a human decision"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and why
+      description: The reasoning matters more than the conclusion. If a provider fact is wrong, say which one and where you read the correct value.
+    validations:
+      required: true
+
+  - type: textarea
+    id: explain
+    attributes:
+      label: explain output
+      description: "`macportsbrew explain <package>`, in full."
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.6.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      options:
+        - Intel x86_64
+        - Apple Silicon arm64
+        - Apple Silicon running under Rosetta translation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: mpb-version
+    attributes:
+      label: MacPortsBrew version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: policy-version
+    attributes:
+      label: Policy version
+      description: "Printed by `explain` and at the end of `macportsbrew status`."
+      placeholder: "2026.09.02-1"
+    validations:
+      required: true
+
+  - type: input
+    id: provider-versions
+    attributes:
+      label: Provider versions
+      placeholder: "homebrew 6.0.21, macports 2.10.7"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have checked that this report contains no secrets, tokens or credentials.
+          required: true

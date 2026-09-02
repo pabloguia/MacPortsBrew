@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Provider compatibility problem
+description: MacPortsBrew misread Homebrew or MacPorts — output it could not parse, a provider it did not detect, or a capability it got wrong.
+labels: ["provider", "adapters"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable class of report, because it usually means a
+        provider changed its output and MacPortsBrew's fixtures are now out of
+        date. The fix is a fresh recording plus a parser change, and the
+        recording is what makes it possible.
+
+        If you can, run the read-only command MacPortsBrew failed on yourself
+        and paste its output. All of them are read-only; none of them modify
+        anything.
+
+        Never paste secrets, tokens or credentials. Provider output can contain
+        paths under your home directory — replace yours with `~` before
+        pasting.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider
+      options:
+        - Homebrew
+        - MacPorts
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What went wrong
+      options:
+        - The provider is installed but was reported as absent
+        - The provider is absent but was reported as present
+        - The prefix or version was read wrong
+        - Packages are missing from the inventory, or extra ones appear
+        - Ownership (top-level / dependency) is wrong
+        - Artifact availability (prebuilt / source build) is wrong
+        - A capability was reported AVAILABLE but does not work
+        - A "provider output changed" error
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: What you observed
+      description: What MacPortsBrew said, and what the provider itself says. Include the exact command and its output where you can.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: prefix
+    attributes:
+      label: Provider prefix
+      description: "`brew --prefix`, or the MacPorts prefix. `/usr/local`, `/opt/homebrew` and `/opt/local` are the defaults; a non-default prefix is important to know about."
+      placeholder: "/usr/local"
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.6.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      options:
+        - Intel x86_64
+        - Apple Silicon arm64
+        - Apple Silicon running under Rosetta translation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: mpb-version
+    attributes:
+      label: MacPortsBrew version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: policy-version
+    attributes:
+      label: Policy version
+      placeholder: "2026.09.02-1"
+    validations:
+      required: true
+
+  - type: input
+    id: provider-versions
+    attributes:
+      label: Provider versions
+      description: "`brew --version`, `port version`. Exact versions matter here more than anywhere else."
+      placeholder: "homebrew 6.0.21, macports 2.10.7"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor --report output
+      description: "Run `macportsbrew doctor --report <file>`, read the file, and paste it here."
+      render: text
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have checked that this report contains no secrets, tokens or credentials, and that no home path or user name survives in the output I pasted.
+          required: true

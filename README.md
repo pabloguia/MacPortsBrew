@@ -1,0 +1,218 @@
+# MacPortsBrew
+
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![SPDX](https://img.shields.io/badge/SPDX-Apache--2.0-informational.svg)](LICENSE)
+
+> Safely migrate and manage packages between Homebrew and MacPorts on macOS.
+
+MacPortsBrew is an open-source package-manager orchestrator for macOS. It
+analyses what you have installed under Homebrew and MacPorts, maps equivalent
+packages between them, explains which provider is the better choice for each
+package on *your* machine, and executes migrations in either direction without
+ever removing something before its replacement is installed and verified.
+
+## Homebrew and MacPorts are peers here
+
+Neither provider is globally better, and MacPortsBrew does not have a favourite.
+A recommendation is a function of `machine × package × provider × current
+support state`, and the same planner, the same policy engine and the same
+executor serve **Homebrew to MacPorts** and **MacPorts to Homebrew**. Migrating
+back is not an afterthought bolted on to a one-way tool; it is the same code
+path with the two provider identifiers exchanged, and a test asserts exactly
+that (`invariant_17_swapping_the_providers_swaps_the_analysis`).
+
+Running both side by side is also a supported end state, not a failure to
+choose. See [Using Homebrew and MacPorts Together](wiki/Using-Homebrew-and-MacPorts-Together.md).
+
+## Why it exists
+
+Homebrew classifies Intel x86_64 macOS as **Tier 3 — not supported**, and
+states it will **remove the ability to run Homebrew on Intel systems in or
+after September 2027** (source: <https://docs.brew.sh/Support-Tiers>, read
+2026-09-02). Homebrew also states it has stopped building new bottles for Intel
+systems; measured against the actual `homebrew/core` artifacts on 2026-09-02,
+the more accurate description is *frozen and eroding* rather than *stopped* —
+6680 of 8586 formulae still carried an Intel `sonoma` bottle at their current
+stable version, against 7277 with `arm64_sonoma`
+([`docs/research/F-1-homebrew-support-tiers.md`](docs/research/F-1-homebrew-support-tiers.md),
+2026-09-02).
+
+That turns a vague story about degradation into a dated deadline for anyone
+with an Intel Mac and a Homebrew installation. MacPorts continues to support a
+wider range of macOS versions and both architectures; MacPorts 2.12.6 ships
+package installers down to macOS 10.12 Sierra
+([`docs/research/R-4-macports-binary-archives.md`](docs/research/R-4-macports-binary-archives.md),
+read 2026-09-02).
+
+**These are dated facts, and MacPortsBrew treats them as data.** They live in
+versioned policy files with their source and read date, never in control flow,
+and they must be re-verified — Homebrew may extend, accelerate or reverse the
+timeline. If you are reading this long after 2026, check the source before
+acting on it.
+
+MacPortsBrew is not an Intel escape hatch. It is a safe orchestration,
+migration and coexistence layer that stays useful afterwards, on any Mac.
+
+## What this build does *not* do
+
+This is version 0.1.0, the read-only slice. It is honest about its scope, and
+the binary says so in its own `--help`:
+
+- **It executes nothing.** `plan` builds and prints a migration plan; there is
+  no `migrate` command, and no code path in the binary runs a mutating provider
+  subcommand. A gate script greps for one on every change.
+- **It never asks for elevation.** Analysis, inventory, mapping, planning and
+  `doctor` are all unprivileged by design.
+- **Not yet implemented:** `migrate`, `restore --run`, `primary`,
+  `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
+  interactive TUI, `doctor --deep`, caching, and locales other than English.
+  `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted so that
+  scripts written today keep working, and are no-ops in a build that never uses
+  the network, never caches, is always a dry run and never prompts.
+
+## Quick start
+
+MacPortsBrew builds from source with a pinned Rust toolchain.
+[`rust-toolchain.toml`](rust-toolchain.toml) pins 1.98.0 and both Apple
+targets; `rustup` installs it automatically on the first build, and the pin is
+what holds the macOS deployment floor
+([ADR-0002](docs/adr/0002-implementation-language.md)).
+
+```sh
+git clone <repository-url> macportsbrew
+cd macportsbrew
+cargo build --release
+```
+
+The binary is at `target/release/macportsbrew`. Every command below is
+read-only:
+
+```sh
+macportsbrew status              # machine and provider dashboard
+macportsbrew analyze             # inventory, mapping, assessment, recommendations
+macportsbrew list                # one row per package across providers
+macportsbrew explain git         # the full derivation of one recommendation
+macportsbrew plan git --to macports    # a migration plan; nothing is executed
+macportsbrew doctor              # prefixes, PATH order, leaked build variables
+macportsbrew snapshot            # capture both providers' state to a file
+```
+
+Add `--json` to any of them for a versioned, machine-readable payload on stdout
+(see [`docs/schemas/`](docs/schemas/README.md)).
+
+**`mpb` is the same program under a shorter name**, installed alongside
+`macportsbrew` rather than wrapping it. Installation refuses to shadow an
+existing `mpb` on your `PATH` silently — MIT Photonic-Bands ships an executable
+by that name — and installs only `macportsbrew` if it finds one
+([ADR-0003](docs/adr/0003-name-and-cli-alias.md)).
+
+### What it looks like
+
+```
+$ macportsbrew status
+Machine
+  macOS 26.6.2, x86_64, Native
+
+Providers
+Provider  Presence  Version  Prefix      Support    Packages
+homebrew  Present   6.0.21   /usr/local  degraded   189 (56 top-level)
+macports  Absent    -        -           supported  0 (0 top-level)
+56 top-level packages analysed; 14 need manual review. Policy 2026.09.02-1.
+```
+
+## Install
+
+**The plan is a self-contained binary from GitHub Releases**, for `x86_64` and
+`arm64`, with checksums, so MacPortsBrew can be installed by someone whose
+Homebrew installation is already broken or who has no package manager at all.
+`brew install` and `port install` may follow later as conveniences; neither
+will ever be the only route.
+
+**This build has no published release.** The repository has no remote yet by
+the owner's decision ([DP-007](docs/decisions-pending.md)), so the only way to
+get it today is to build from source as above.
+
+### Gatekeeper, honestly
+
+When releases do exist, macOS will treat them like any other downloaded
+executable, and it is worth saying plainly how that works rather than leaving
+you to discover it:
+
+The blocker is the **quarantine attribute, not the absence of a signature**. On
+Intel macOS 26.6.2, unsigned Mach-O executables run without obstruction as long
+as they are not quarantined — 267 of 321 executables in one `/usr/local/bin`
+are entirely unsigned and all of them work. Quarantine is applied by the
+*downloading application* through Launch Services, so a browser sets it and
+`curl` does not, and `xattr -d com.apple.quarantine <file>` clears it without
+elevation for a file you own. What a *quarantined, unsigned* binary does when
+run from a shell on macOS 26 is **not established**: Apple documents Gatekeeper
+around opening applications, plug-ins and installer packages, not around
+`execve`, and no quarantined Mach-O existed on the machine used to check. The
+project assumes the pessimistic case and will document the exact command you
+may need. Two further facts bound the choice: a bare binary cannot be
+notarisation-stapled, so notarisation would not produce an offline-verifiable
+artifact in the format planned; and `arm64` binaries are ad-hoc signed by the
+linker by default, so ad-hoc signing there is a property to assert in CI rather
+than a step to add. All of this is sourced and dated in
+[`docs/research/R-9-gatekeeper-and-distribution.md`](docs/research/R-9-gatekeeper-and-distribution.md)
+(2026-09-02, citing Apple's
+<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>);
+whether releases are Developer ID signed and notarised or ad-hoc signed with
+documented instructions is [DP-004](docs/decisions-pending.md), still open.
+
+MacPortsBrew will not ship a `curl | sh` installer. It would work — `curl` sets
+no quarantine — but a tool asking you to trust it with your package managers
+should not open by asking you to pipe an unreviewed remote script into a shell.
+
+## Supported machines
+
+The published [support matrix](docs/support-matrix.md) distinguishes what CI
+actually exercises from what is merely believed to work, and it is generated
+from the CI configuration rather than written by hand. macOS 15 and 26 are
+**tested** natively on both architectures; macOS 10.12 through 14 are
+**best-effort** — the deployment floor is met and asserted on every artifact,
+and nothing executes there, because GitHub keeps hosted images only for the
+latest two stable macOS versions. Verification on real hardware is welcome.
+
+The floor is macOS 10.12 Sierra on Intel and 11.0 Big Sur on Apple Silicon.
+Below 10.12, neither MacPortsBrew nor the provider it would recommend has a
+supported path.
+
+## Documentation
+
+| Where | What |
+|---|---|
+| [`wiki/`](wiki/Home.md) | User documentation: guides, migration walkthroughs, troubleshooting, FAQ, CLI reference |
+| [`docs/spec/`](docs/spec/README.md) | The specification, in reading order |
+| [`docs/schemas/`](docs/schemas/README.md) | The versioned `--json` schemas |
+| [`docs/support-matrix.md`](docs/support-matrix.md) | Tested versus best-effort, generated from CI |
+| [`docs/adr/`](docs/adr/0001-licence-apache-2-0.md) | Architecture decision records |
+| [`docs/research/`](docs/research/README.md) | Dated, sourced answers about provider behaviour |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, architecture, and the contributor recipes |
+| [`SECURITY.md`](SECURITY.md) | Threat model summary and how to report a vulnerability |
+| [`AGENTS.md`](AGENTS.md) | Orientation for coding agents |
+
+## Privacy
+
+No telemetry. No network calls that report anything about you. `analyze` works
+with no network at all, marking network-dependent facts `UNKNOWN` rather than
+guessing. `doctor --report` writes a redacted diagnostic file locally — never
+usernames, home paths, environment variable values or tokens — which you read
+and choose to share; MacPortsBrew never uploads it.
+
+## Licence
+
+Apache License 2.0. The full text is in [`LICENSE`](LICENSE), and every source
+file carries `SPDX-License-Identifier: Apache-2.0`. Contributions are licensed
+inbound under the same terms as outbound, so **no contributor licence agreement
+is required** — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Not affiliated
+
+MacPortsBrew is an independent project. It is **not affiliated with, endorsed
+by, or sponsored by** the Homebrew project or the MacPorts Project. Those names
+belong to their respective projects and are used here only to refer to them.
+MacPortsBrew interacts with both solely through their public, supported
+command-line interfaces: it never vendors, forks, patches or scrapes them, and
+never generates load on their infrastructure beyond what your own commands
+would.

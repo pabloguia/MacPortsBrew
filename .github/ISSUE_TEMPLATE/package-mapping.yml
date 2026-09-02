@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Package mapping problem
+description: A package maps to the wrong equivalent in the other provider, or to none when an equivalent exists.
+labels: ["mapping", "policy-data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mappings are never made by name alone. `1→1`, `1→many`, `many→1`,
+        versioned→versioned and *no equivalent* are all first-class results,
+        and every candidate carries recorded evidence.
+
+        The fastest fix is a curated entry with a citation. If you can name the
+        equivalent **and** the page you read it on today, say so below and the
+        row can be added directly — see the "Adding a package mapping" recipe
+        in `CONTRIBUTING.md`.
+
+        Never paste secrets, tokens or credentials.
+
+  - type: input
+    id: source-package
+    attributes:
+      label: Source package and provider
+      placeholder: "homebrew postgresql@17"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What is wrong
+      options:
+        - No equivalent was found, but one exists
+        - The wrong equivalent was selected
+        - The confidence is too low to act on, but the match is certain
+        - The confidence is too high; this match is not safe
+        - One package maps to several and only one was reported
+    validations:
+      required: true
+
+  - type: input
+    id: correct-destination
+    attributes:
+      label: The correct equivalent, if you know it
+      description: The exact name in the destination provider. Leave blank if you do not know it.
+      placeholder: "macports postgresql17-server"
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Where you read that name, and when
+      description: |
+        A URL or a file path plus the date. For MacPorts,
+        `https://ports.macports.org/api/v1/ports/<name>/`; for Homebrew, the
+        formula file or `https://formulae.brew.sh/api/formula/<name>.json`.
+        A mapping without a source cannot be added.
+      placeholder: "https://ports.macports.org/api/v1/ports/postgresql17-server/ — read 2026-09-02"
+
+  - type: textarea
+    id: explain
+    attributes:
+      label: explain output
+      description: "`macportsbrew explain <package>` — the 'Mappings and their evidence' section shows what was considered."
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.6.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      options:
+        - Intel x86_64
+        - Apple Silicon arm64
+        - Apple Silicon running under Rosetta translation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: mpb-version
+    attributes:
+      label: MacPortsBrew version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: policy-version
+    attributes:
+      label: Policy version
+      placeholder: "2026.09.02-1"
+    validations:
+      required: true
+
+  - type: input
+    id: provider-versions
+    attributes:
+      label: Provider versions
+      placeholder: "homebrew 6.0.21, macports 2.10.7"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have checked that this report contains no secrets, tokens or credentials.
+          required: true
