@@ -8,6 +8,13 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+macportsbrew-domain = { path = "../domain" }
+macportsbrew-policy = { path = "../policy" }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
 
 [lints]
 workspace = true
