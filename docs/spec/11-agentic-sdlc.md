@@ -23,7 +23,8 @@ actions come from a reviewed plan, not from good intentions — turned inward.
 
 The project's own three-source rule applies to the tools it is built with.
 Everything specified below was verified against Anthropic's Claude Code
-documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**. The
+documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**
+(re-verified the same day at the start of the Foundation Pass). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -196,14 +197,16 @@ reviewers:
 
 **MUST.** The reviewers are read-only twice over: `disallowedTools` covering
 `Write`, `Edit` and `NotebookEdit`, and `permissionMode: plan`, the
-harness's read-only mode for the file tools. Whether plan mode also stops a
-`Bash` heredoc or `sed -i` is **not verified**: the security review of the
-readiness pass observed a reviewer creating files under its scratch
-directory through `Bash` while running under that setting. Until
-`/tooling-recheck` settles it, `Bash` is the documented gap and the
-reviewers' prompts are what keep them from patching. A reviewer that can fix
-what it finds stops reporting and starts patching, and the finding
-disappears into a diff nobody reads.
+harness's read-only mode for the file tools. Plan mode does **not** stop a
+`Bash` heredoc or `sed -i`: the permission-modes documentation (read
+2026-09-02, Foundation Pass recheck) says plan mode blocks the file-editing
+tools while "any other shell command goes through the regular permission
+flow" — which the readiness pass had already observed when a reviewer
+created files under its scratch directory through `Bash`. So `Bash` is the
+documented gap, the `PreToolUse` guard is the boundary that holds during a
+review, and the reviewers' prompts are what keep them from patching. A
+reviewer that can fix what it finds stops reporting and starts patching, and
+the finding disappears into a diff nobody reads.
 
 **MUST.** `model` stays `inherit` in every agent file. Which model runs a
 subagent is decided at invocation by task weight (below), never by a model

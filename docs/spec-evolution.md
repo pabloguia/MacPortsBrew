@@ -499,7 +499,7 @@ change is made. Silent deviation remains the one unrecoverable error.
 ## SE-025 — Agent boundaries enforced by configuration and hooks, re-verified against current documentation
 - Status: accepted
 - Date / Pass: 2026-09-02 / agentic SDLC review; corrected 2026-09-02 /
-  00-REPO-READINESS-PASS
+  00-REPO-READINESS-PASS; re-verified 2026-09-02 / 01-FOUNDATION-PASS
 - Original assumption: the work order told the agent not to run mutating
   provider commands, not to elevate, and not to touch the developer's real
   package managers. Nothing checked.
@@ -550,7 +550,22 @@ change is made. Silent deviation remains the one unrecoverable error.
   environment block: it set the documented default and explained nothing;
   R-1 records that the quieting variables in place do not stop `brew info`
   from tapping on an unknown name, and the suppressing setting is that
-  research item's to find.
+  research item's to find. Foundation Pass recheck (same day, second run):
+  one contract defect — the `@claude` workflow passed `.claude/settings.json`
+  as `settings:`, and the github-actions page documents a settings allow
+  rule as an alternative grant to `--allowedTools`, so the run had been
+  granted `cargo build`/`test` after all; it now passes `--disallowedTools`
+  for every cargo verb that compiles or runs pull-request code. Settled: plan
+  mode does not constrain `Bash`, so the `PreToolUse` guard is the boundary
+  during a review. Adopted: `additionalContext` is truncated to the documented
+  10,000-character cap. Recorded once, not adopted, with the reason:
+  `permissions.disableAutoMode: "disable"` would change how the owner runs
+  sessions (the Foundation Pass itself ran under auto mode) and is the
+  operator's choice like `defaultMode`; a `SubagentStop` gate would block a
+  research subagent on a build failure the main session is mid-way through
+  fixing; the `sandbox` block stays a documented, evaluated recommendation
+  (`.claude/README.md`) because it takes effect at session start and could
+  not be exercised against the build from inside the pass that wrote it.
 - Rationale: a safety rule that depends on good intentions is not a safety
   rule — the argument behind INV-02 and behind making the no-mutation
   boundary `grep`-checkable (SE-020), applied to the process that builds the
@@ -568,14 +583,16 @@ change is made. Silent deviation remains the one unrecoverable error.
   `research/tooling/2026-09-02-hooks-permissions-ci.md` and
   `research/tooling/2026-09-02-memory-settings-plugins.md`; `test-hooks.sh`
   output, 34 of 34 cases, 2026-09-02;
-  `research/R-1-homebrew-read-interfaces.md`.
+  `research/R-1-homebrew-read-interfaces.md`; Foundation Pass recheck notes
+  `research/tooling/2026-09-02-*-foundation.md` (github-actions,
+  permission-modes, hooks and sandboxing pages, read 2026-09-02).
 - Compatibility impact: the hooks require `jq` or `python3` on a
   contributor's machine, and say so when neither is present.
 
 ## SE-026 — A definition-of-done gate that blocks, rather than a checklist that asks
 - Status: accepted
 - Date / Pass: 2026-09-02 / agentic SDLC review; corrected 2026-09-02 /
-  00-REPO-READINESS-PASS
+  00-REPO-READINESS-PASS; re-verified 2026-09-02 / 01-FOUNDATION-PASS
 - Original assumption: the acceptance list in `10-first-pass-work-order.md` is
   read and honoured by the agent at the end of a pass.
 - Change: `.claude/hooks/stop-gate.sh` runs on every turn end and refuses to

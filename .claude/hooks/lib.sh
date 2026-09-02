@@ -94,6 +94,11 @@ print(json.dumps({"hookSpecificOutput":{"hookEventName":sys.argv[1],
 # turn, so Stop uses mpb_message instead.
 mpb_context() {
   local event="$1" text="$2"
+  # additionalContext is capped at 10,000 characters (hooks reference, read
+  # 2026-09-02); keep the tail, which is where a linter's summary line is.
+  if [ "${#text}" -gt 9000 ]; then
+    text="[truncated to the last 9000 characters]"$'\n'"${text: -9000}"
+  fi
   if mpb_have jq; then
     jq -n --arg e "$event" --arg t "$text" \
       '{hookSpecificOutput:{hookEventName:$e,additionalContext:$t}}'
