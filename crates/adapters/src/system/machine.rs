@@ -211,6 +211,17 @@ pub fn from_process_environment() -> (Option<String>, BTreeMap<String, String>, 
     (path, variables, home)
 }
 
+/// Reads the locale preference variables in the order `06-cli-and-ux.md`
+/// gives them: the application override, `LC_ALL`, `LANG`. Part of the same
+/// single environment-reading surface as [`from_process_environment`].
+pub fn language_preference() -> (Option<String>, Option<String>, Option<String>) {
+    (
+        std::env::var("MACPORTSBREW_LANG").ok(),
+        std::env::var("LC_ALL").ok(),
+        std::env::var("LANG").ok(),
+    )
+}
+
 /// Reads the state-directory override, [`STATE_DIR_VARIABLE`].
 ///
 /// Part of the same single environment-reading surface as

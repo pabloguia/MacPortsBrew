@@ -13,7 +13,7 @@ use macportsbrew_adapters::persistence::{
 use macportsbrew_adapters::process::{ProcessRunner, ReplayRunner, SystemRunner};
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_adapters::system::machine::{
-    from_process_environment, state_dir_override, SystemMachine,
+    from_process_environment, language_preference, state_dir_override, SystemMachine,
 };
 use macportsbrew_application::{
     analyze, capture, Analysis, AnalysisOptions, AnalysisSource, CaptureContext, DoctorReport,
@@ -43,9 +43,7 @@ pub struct Context {
 /// The language preference from the process environment, collapsed the way
 /// `06-cli-and-ux.md` orders it.
 pub fn env_language() -> Option<String> {
-    let app = std::env::var("MACPORTSBREW_LANG").ok();
-    let lc_all = std::env::var("LC_ALL").ok();
-    let lang = std::env::var("LANG").ok();
+    let (app, lc_all, lang) = language_preference();
     crate::i18n::env_preference(app.as_deref(), lc_all.as_deref(), lang.as_deref())
         .map(str::to_string)
 }
