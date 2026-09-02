@@ -1,0 +1,67 @@
+# Work orders
+
+One file per pass. A work order is the session prompt: what to read, what
+authority you have, what this pass must not do, and how it is accepted.
+
+| File | Pass |
+|---|---|
+| [TEMPLATE-PASS.md](TEMPLATE-PASS.md) | The template. Copy it; do not improvise a new shape. |
+| [00-REPO-READINESS-PASS.md](00-REPO-READINESS-PASS.md) | Ran once, before any code: deep specification and tooling review, documentation consolidation, repository readiness. Completed 2026-09-02; report in `../docs/passes/`. |
+| [01-FOUNDATION-PASS.md](01-FOUNDATION-PASS.md) | Research, the domain, the read-only vertical slice. |
+| [02-ARCHITECTURE-REVIEW-PASS.md](02-ARCHITECTURE-REVIEW-PASS.md) | An independent reviewer challenges the foundation. Reviewing, not coding. |
+| [03-FOCUSED-IMPLEMENTATION-PASS.md](03-FOCUSED-IMPLEMENTATION-PASS.md) | One independently verifiable capability. Instantiated per task. |
+
+`.claude/current-pass` names the active one in a single line. The session-start
+hook reads it and announces it; keep it accurate.
+
+The number is the order of execution and nothing else: `00` ran once and will
+not run again, `01` runs next, `02` reviews what `01` built, `03` is copied per
+task after that. Pass reports use the same id (`../docs/passes/<id>-report.md`),
+so a reader can pair every work order with what it produced.
+
+## Conventions
+
+**Passes are roles, never model names.** Model names date faster than the
+repository and end up embedded in it (SE-017). A work order names the pass; the
+person starting the session decides who runs it.
+
+**A work order points, it does not restate.** The specification lives in
+`../docs/spec/`, tiered and loadable file by file. A prompt that pastes it back
+in is a copy that will drift, and drift in a safety specification is how a
+promise quietly becomes false. If a work order and the specification disagree,
+the specification wins and the work order is the bug.
+
+**Every work order has these seven sections**, in this order:
+
+1. **Read this first** — an ordered list, shortest sufficient set.
+2. **Authority and precedence** — the tier table, unchanged between passes.
+3. **Hard boundary** — what this pass must not do, stated so it is checkable.
+4. **Working protocol** — the rules that apply while working.
+5. **Order of work** — the sequence, where sequence matters.
+6. **Definition of done** — demonstrable, not assertable.
+7. **End-of-pass report** — what the handover must contain.
+
+**The hard boundary is the part to get right.** "Prefer not to" is not a
+constraint an agent can be held to. Write the boundary so a `grep`, a hook or a
+test can decide whether it held. The foundation pass's boundary is the model:
+*no mutating code path exists in the binary this pass produces* — checkable, and
+therefore an acceptance criterion rather than an intention.
+
+**Boundaries live in two places on purpose.** A work order states them so the
+agent understands them; `.claude/settings.json` and `.claude/hooks/` enforce the
+mechanical subset so understanding is not the only thing standing between the
+project and a mistake. See `../docs/spec/11-agentic-sdlc.md`.
+
+## Starting a pass
+
+The operator's command block is in `../.claude/README.md` ("Running a
+pass"); the normative statement is `../docs/spec/11-agentic-sdlc.md` ("The
+pass protocol"). In short: set `.claude/current-pass`, start in plan mode,
+`/tooling-recheck`, plan and have it reviewed, work incrementally with
+research and review delegated, `/preflight`, `/pass-report`.
+
+## Finishing one
+
+A pass is finished when its report is written to `../docs/passes/` and every
+material deviation it names already exists in `../docs/spec-evolution.md`.
+Update `.claude/current-pass` to the next pass, or to `none`.

@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(doas *)",
+      "Bash(chsh *)",
+      "Bash(launchctl *)",
+      "Bash(brew install *)",
+      "Bash(brew reinstall *)",
+      "Bash(brew uninstall *)",
+      "Bash(brew remove *)",
+      "Bash(brew rm *)",
+      "Bash(brew upgrade *)",
+      "Bash(brew update*)",
+      "Bash(brew link *)",
+      "Bash(brew unlink *)",
+      "Bash(brew pin *)",
+      "Bash(brew unpin *)",
+      "Bash(brew tap *)",
+      "Bash(brew untap *)",
+      "Bash(brew services *)",
+      "Bash(brew cleanup *)",
+      "Bash(brew autoremove *)",
+      "Bash(brew bundle *)",
+      "Bash(brew postinstall *)",
+      "Bash(port install *)",
+      "Bash(port uninstall *)",
+      "Bash(port upgrade *)",
+      "Bash(port activate *)",
+      "Bash(port deactivate *)",
+      "Bash(port select *)",
+      "Bash(port selfupdate*)",
+      "Bash(port sync*)",
+      "Bash(port clean *)",
+      "Bash(port reclaim*)",
+      "Bash(port load *)",
+      "Bash(port unload *)",
+      "Bash(port setrequested *)",
+      "Bash(port unsetrequested *)",
+      "Bash(port destroot *)",
+      "Bash(port build *)",
+      "Bash(port fetch *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(nc *)",
+      "Bash(git push *)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.zprofile)",
+      "Edit(~/.zshenv)",
+      "Edit(~/.bash_profile)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.profile)",
+      "Edit(~/.config/fish/**)",
+      "Edit(//opt/local/**)",
+      "Edit(//usr/local/**)",
+      "Edit(//opt/homebrew/**)",
+      "Edit(//Library/**)",
+      "Edit(~/Library/LaunchAgents/**)",
+      "Bash(cargo install *)",
+      "Bash(cargo publish *)",
+      "Bash(cargo yank *)",
+      "Bash(rustup default *)",
+      "Bash(rustup override *)",
+      "Bash(rustup toolchain *)",
+      "Bash(rustup self *)",
+      "Bash(su *)",
+      "Bash(su)",
+      "Bash(osascript *)",
+      "Bash(xcode-select --install*)",
+      "Bash(softwareupdate *)",
+      "Bash(installer *)",
+      "Bash(brew sh*)",
+      "Bash(brew ruby *)",
+      "Bash(brew irb*)",
+      "Bash(brew test *)",
+      "Bash(brew vendor-install*)",
+      "Bash(brew developer *)",
+      "Bash(brew analytics *)",
+      "Bash(port rev-upgrade*)",
+      "Bash(port archive *)",
+      "Bash(port test *)",
+      "Bash(port checksum *)",
+      "Bash(port mirror *)",
+      "Bash(port bump *)",
+      "Bash(port migrate*)",
+      "Bash(port edit *)",
+      "Bash(rustup install *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git init*)"
+    ],
+    "allow": [
+      "Bash(brew --prefix*)",
+      "Bash(brew --version*)",
+      "Bash(brew config*)",
+      "Bash(brew list *)",
+      "Bash(brew leaves*)",
+      "Bash(brew deps *)",
+      "Bash(brew uses *)",
+      "Bash(brew info *)",
+      "Bash(brew outdated*)",
+      "Bash(brew tap-info *)",
+      "Bash(port version*)",
+      "Bash(port installed*)",
+      "Bash(port echo *)",
+      "Bash(port deps *)",
+      "Bash(port rdeps *)",
+      "Bash(port dependents *)",
+      "Bash(port rdependents *)",
+      "Bash(port info *)",
+      "Bash(port variants *)",
+      "Bash(port outdated*)",
+      "Bash(sw_vers*)",
+      "Bash(uname *)",
+      "Bash(sysctl -n *)",
+      "Bash(arch)",
+      "Bash(xcode-select -p*)",
+      "Bash(shellcheck *)",
+      "WebFetch(domain:docs.brew.sh)",
+      "WebFetch(domain:trac.macports.org)",
+      "WebFetch(domain:guide.macports.org)",
+      "WebFetch(domain:ports.macports.org)",
+      "WebFetch(domain:doc.rust-lang.org)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:developer.apple.com)",
+      "WebFetch(domain:code.claude.com)",
+      "Bash(cargo fmt*)",
+      "Bash(cargo check*)",
+      "Bash(cargo build*)",
+      "Bash(cargo clippy*)",
+      "Bash(cargo test*)",
+      "Bash(cargo tree*)",
+      "Bash(cargo metadata*)",
+      "Bash(cargo deny *)",
+      "Bash(cargo about *)",
+      "Bash(cargo nextest *)",
+      "Bash(rustc --version*)",
+      "Bash(rustc --print *)",
+      "Bash(rustup show*)",
+      "Bash(rustup target list*)",
+      "Bash(otool -l *)",
+      "Bash(vtool -show *)",
+      "Bash(lipo -info *)",
+      "Bash(file *)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(shfmt -d *)",
+      "Bash(shfmt -l *)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "autoMemoryEnabled": false,
+  "env": {
+    "HOMEBREW_NO_AUTO_UPDATE": "1",
+    "HOMEBREW_NO_ANALYTICS": "1",
+    "HOMEBREW_NO_ENV_HINTS": "1",
+    "MACPORTSBREW_AGENT_SESSION": "1",
+    "CARGO_TERM_COLOR": "never"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/session-start.sh",
+            "timeout": 20,
+            "statusMessage": "Loading MacPortsBrew pass context"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/guard-provider-mutation.sh",
+            "timeout": 15,
+            "statusMessage": "Checking command against INV-05 / INV-06"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/guard-protected-paths.sh",
+            "timeout": 15,
+            "statusMessage": "Checking write target"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/post-edit-checks.sh",
+            "timeout": 120,
+            "statusMessage": "Formatting and checking the edited file"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/stop-gate.sh",
+            "timeout": 600,
+            "statusMessage": "Running the definition-of-done gate"
+          }
+        ]
+      }
+    ]
+  }
+}

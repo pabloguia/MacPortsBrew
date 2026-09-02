@@ -1,0 +1,56 @@
+# The validation that exists today, before there is any application code:
+# internal documentation links resolve, configuration parses, hooks are valid
+# shell, and the no-mutation boundary holds.
+#
+# This is the same script the agent's Stop gate runs
+# (docs/spec/07-quality-and-testing.md: three entry points, one implementation).
+# The foundation pass extends it to the full suite in that chapter - rustfmt,
+# clippy, layering, i18n key parity, tests, coverage floors, the dependency
+# licence and deployment-floor gates, the deployment-target assertion on the
+# built artifacts (ADR-0002), and a build for both architectures - rather than
+# adding a second, parallel definition of "valid".
+#
+# The macOS build-and-test job is deliberately NOT written here yet. R-10 in
+# docs/spec/09-research-checklist.md - the availability of hosted Intel macOS
+# runners - is unresolved, and a workflow written against an unverified runner
+# would be a claim about CI that CI does not support. That is the same
+# dishonesty the support matrix refuses. It lands with the research.
+name: Repository validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck jq
+
+      - name: Shellcheck the hooks
+        run: shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh
+
+      - name: Hooks decide what the specification says they decide
+        env:
+          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
+        run: .claude/hooks/test-hooks.sh
+
+      - name: Repository gate
+        env:
+          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
+          # CI is the authority: the full suite, not the changed-files subset.
+          MPB_GATE_FULL: "1"
+        run: .claude/hooks/stop-gate.sh
+
+      - name: LICENSE is the canonical Apache-2.0 text
+        run: |
+          echo "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE" \
+            | sha256sum --check --status \
+            || { echo "LICENSE does not match the canonical Apache-2.0 body recorded in SE-021." >&2; exit 1; }

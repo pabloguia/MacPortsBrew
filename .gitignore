@@ -1,0 +1,19 @@
+# Personal Claude Code overrides. Project rules belong in .claude/settings.json.
+.claude/settings.local.json
+.claude/agent-memory/
+
+# Local research and capture scratch. Committed fixtures live under tests/.
+docs/research/.scratch/
+
+# macOS
+.DS_Store
+
+# Build output (path confirmed once the implementation language is; ADR-0002)
+/target/
+/dist/
+
+# Personal per-project notes for Claude Code (loaded after CLAUDE.md, never committed).
+CLAUDE.local.md
+
+# Local tooling caches (token-pilot).
+.token-pilot/

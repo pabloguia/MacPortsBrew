@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# Shared helpers for MacPortsBrew Claude Code hooks.
+#
+# Hooks receive one JSON object on stdin. We need exactly one thing from it:
+# a named string field. We refuse to parse JSON with sed. Either `jq` or
+# `python3` must be present; a guard hook that cannot read its input fails
+# closed, because "the parser was missing" must never read as "the command was
+# safe" (the same rule the tool itself applies to provider output).
+
+set -euo pipefail
+
+mpb_have() { command -v "$1" >/dev/null 2>&1; }
+
+# mpb_json_field <json-text> <dotted.path>
+# Prints the string value, or the empty string when the field is absent.
+# Returns 3 when the input is not valid JSON, so a caller can tell "no such
+# field" from "could not read the input" - a guard must block on the latter.
+mpb_json_field() {
+  local json="$1" path="$2" out
+  if mpb_have jq; then
+    out="$(printf '%s' "$json" | jq -r --arg p "$path" '
+      getpath($p | split(".")) // "" | if type == "string" then . else tojson end
+    ' 2>/dev/null)" || return 3
+    printf '%s' "$out"
+  elif mpb_have python3; then
+    out="$(printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    doc = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+node = doc
+for part in sys.argv[1].split("."):
+    if isinstance(node, dict) and part in node:
+        node = node[part]
+    else:
+        sys.exit(0)
+sys.stdout.write(node if isinstance(node, str) else json.dumps(node))
+' "$path" 2>/dev/null)" || return 3
+    printf '%s' "$out"
+  else
+    return 1
+  fi
+}
+
+# mpb_field_or_fail_closed <variable-name> <json-text> <dotted.path>
+# Sets the named variable in the caller's shell. An unreadable input exits the
+# caller with 2 - not a subshell - so the contract does not depend on the
+# caller having `set -e`. (A `$(...)` form would exit only the subshell.)
+mpb_field_or_fail_closed() {
+  local __mpb_value
+  if [ "$#" -ne 3 ]; then
+    echo "MacPortsBrew hook: mpb_field_or_fail_closed needs <var> <json> <path>. Failing closed." >&2
+    exit 2
+  fi
+  if ! __mpb_value="$(mpb_json_field "$2" "$3")"; then
+    echo "MacPortsBrew hook: the tool input was not readable JSON, so this guard" >&2
+    echo "cannot tell whether the call is safe. Failing closed." >&2
+    exit 2
+  fi
+  printf -v "$1" '%s' "$__mpb_value"
+}
+
+mpb_require_json_parser() {
+  if ! mpb_have jq && ! mpb_have python3; then
+    echo "MacPortsBrew hook: neither jq nor python3 is available, so this guard" >&2
+    echo "cannot inspect the tool call. Failing closed. Install jq (port install jq" >&2
+    echo "or brew install jq) and retry." >&2
+    exit 2
+  fi
+}
+
+# Emit a PreToolUse deny decision and exit non-blocking-zero.
+# Exit 0 with a decision object is the documented way to deny with a reason.
+mpb_deny() {
+  local event="$1" reason="$2"
+  if mpb_have jq; then
+    jq -n --arg e "$event" --arg r "$reason" \
+      '{hookSpecificOutput:{hookEventName:$e,permissionDecision:"deny",permissionDecisionReason:$r}}'
+  else
+    python3 -c '
+import json, sys
+print(json.dumps({"hookSpecificOutput":{"hookEventName":sys.argv[1],
+  "permissionDecision":"deny","permissionDecisionReason":sys.argv[2]}}))
+' "$event" "$reason"
+  fi
+  exit 0
+}
+
+# Emit additionalContext for the agent. Documented for SessionStart and
+# PostToolUse (shown next to the tool result); on Stop it would continue the
+# turn, so Stop uses mpb_message instead.
+mpb_context() {
+  local event="$1" text="$2"
+  if mpb_have jq; then
+    jq -n --arg e "$event" --arg t "$text" \
+      '{hookSpecificOutput:{hookEventName:$e,additionalContext:$t}}'
+  else
+    python3 -c '
+import json, sys
+print(json.dumps({"hookSpecificOutput":{"hookEventName":sys.argv[1],
+  "additionalContext":sys.argv[2]}}))
+' "$event" "$text"
+  fi
+}
+
+# Emit a systemMessage: shown to the human as a warning, does not change the
+# hook decision. Used for Stop-gate warnings, which must not prolong the turn.
+mpb_message() {
+  local text="$1"
+  if mpb_have jq; then
+    jq -n --arg t "$text" '{systemMessage:$t}'
+  else
+    python3 -c '
+import json, sys
+print(json.dumps({"systemMessage":sys.argv[1]}))
+' "$text"
+  fi
+}
+
+# mpb_realpath <path>: canonical absolute path with symlinks resolved, so a
+# guard matches the target and not the spelling. Falls back to the input.
+mpb_realpath() {
+  if mpb_have python3; then
+    python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null && return 0
+  fi
+  if readlink -f / >/dev/null 2>&1; then
+    readlink -f "$1" 2>/dev/null && return 0
+  fi
+  printf '%s\n' "$1"
+}
