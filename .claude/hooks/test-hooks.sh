@@ -224,6 +224,14 @@ gate_case "literal in build.rs blocks" 2 'mutating subcommand literal'
 rm -f "$boundary/build.rs"
 printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/src/application/exec.rs"
 gate_case "elevation token in code blocks" 2 'INV-06'
+printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
+# The workspace layout: one crate per layer under crates/<layer>/src.
+mkdir -p "$boundary/crates/domain/src"
+printf 'let s = "%s";\n' "$INST" > "$boundary/crates/domain/src/plan.rs"
+gate_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
+printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
+printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
+gate_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
 rm -rf "$boundary"
 
 # --- report -----------------------------------------------------------------

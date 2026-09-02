@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The pinned toolchain is what holds the macOS floor (ADR-0002): rustc 1.98.0
+# targets x86_64-apple-darwin at macOS 10.12 and aarch64-apple-darwin at 11.0
+# by default (verified with `rustc --print deployment-target`, 2026-09-02).
+# Raising this version is a change that may raise the floor; it needs the
+# deployment-target check in CI to stay green and, if the floor moves, an ADR.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-apple-darwin", "aarch64-apple-darwin"]
+profile = "minimal"

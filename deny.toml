@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# cargo-deny configuration for CI. The licence allow-list mirrors
+# docs/spec/08-distribution-and-project.md and scripts/check-licences.sh;
+# the two must agree. GPLv2-only is forbidden by omission.
+[licenses]
+allow = [
+  "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC",
+  "Unlicense", "Zlib", "MPL-2.0",
+  "Unicode-3.0", # ADR-0004
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

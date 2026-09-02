@@ -1,0 +1,24 @@
+[package]
+name = "macportsbrew"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+default-run = "macportsbrew"
+
+# `mpb` is an equal alias, not a wrapper (06-cli-and-ux.md): both binaries are
+# built from the same source file and behave identically.
+[[bin]]
+name = "macportsbrew"
+path = "src/main.rs"
+
+[[bin]]
+name = "mpb"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -69,9 +69,13 @@ done < <(find .claude -name '*.sh' 2>/dev/null)
 #    directory's name, and integration tests live in the top-level tests/,
 #    which is outside src/. build.rs is scanned too: `cargo build` runs it.
 #    The foundation pass refines this against the real crate layout (step 21).
+#    The workspace keeps one crate per layer under crates/<layer>/src; a
+#    flat src/ is scanned too so the check does not depend on the layout.
 scan_paths=()
 [ -d src ] && scan_paths+=(src)
 [ -f build.rs ] && scan_paths+=(build.rs)
+for d in crates/*/src; do [ -d "$d" ] && scan_paths+=("$d"); done
+for b in crates/*/build.rs; do [ -f "$b" ] && scan_paths+=("$b"); done
 if [ ${#scan_paths[@]} -gt 0 ]; then
   mutating='"[^"]*\b(install|uninstall|reinstall|upgrade|link|unlink|selfupdate|activate|deactivate)\b[^"]*"'
   if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
@@ -94,22 +98,25 @@ fi
 #    `--locked`: a gate must never rewrite Cargo.lock as a side effect
 #    (supply chain, 04-migration-and-safety.md). Output is captured in
 #    variables, never in a predictable file under a shared /tmp.
-if [ -f Cargo.toml ] && command -v cargo >/dev/null 2>&1; then
-  cargo fmt --all --check >/dev/null 2>&1 \
-    || fail+=("cargo fmt --all --check fails. Run 'cargo fmt --all'.")
-
-  if ! clippy_out="$(cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1)"; then
-    fail+=("cargo clippy fails with warnings denied:"$'\n'"$(printf '%s\n' "$clippy_out" | tail -40)")
-  fi
-
-  run_tests="${MPB_GATE_FULL:-0}"
-  if [ "$run_tests" != "1" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-    [ -n "$(git status --porcelain -- src tests 2>/dev/null | head -1)" ] && run_tests=1
-  fi
-  if [ "$run_tests" = "1" ]; then
-    if ! test_out="$(cargo test --locked --all-features 2>&1)"; then
-      fail+=("cargo test fails:"$'\n'"$(printf '%s\n' "$test_out" | tail -40)")
+#    The checks themselves live in scripts/validate.sh - one implementation,
+#    three entry points (07-quality-and-testing.md). The gate only decides
+#    how much of it to run: --quick (format, lint, layering, SPDX, licences,
+#    i18n parity) on every turn end; the test suite too when code, tests,
+#    fixtures or catalogues changed, or when MPB_GATE_FULL=1.
+if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
+  PATH="$HOME/.cargo/bin:$PATH"
+  if command -v cargo >/dev/null 2>&1; then
+    run_tests="${MPB_GATE_FULL:-0}"
+    if [ "$run_tests" != "1" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+      [ -n "$(git status --porcelain -- crates src tests fixtures locales data Cargo.lock 2>/dev/null | head -1)" ] && run_tests=1
     fi
+    mode=--quick
+    [ "$run_tests" = "1" ] && mode=default
+    if ! validate_out="$(scripts/validate.sh "$mode" 2>&1)"; then
+      fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60)")
+    fi
+  else
+    warn+=("Cargo.toml exists but cargo is not on PATH; the code checks did not run.")
   fi
 fi
 
