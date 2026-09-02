@@ -1,2 +1,166 @@
 # SPDX-License-Identifier: Apache-2.0
 # English source catalogue. Keys are stable identifiers; see docs/spec/06-cli-and-ux.md.
+#
+# Format
+# ------
+# Flat `key = "text"` pairs. Keys are dotted, lower-case and stable: renaming
+# one is a compatibility change, because every other catalogue under locales/
+# is keyed by them and scripts/check-i18n-parity.sh fails on a missing or an
+# orphaned key.
+#
+# Placeholders are `{name}` and are substituted with values the caller supplies.
+# A literal brace is written `{{` or `}}`. Placeholder names are part of the
+# key's contract and are never translated.
+#
+# Plurals use a minimal ICU-style select:
+#
+#   {count, plural, =0 {none at all} one {# package} other {# packages}}
+#
+# `#` renders the argument's value. An `=N` arm matches that exact value and
+# wins over the category arms; `one` and `other` are chosen by the locale's
+# plural rule. English and Spanish and Brazilian Portuguese distinguish
+# one/other; Japanese and Chinese have only `other`, so a catalogue for those
+# locales writes a single `other` arm. Never build a sentence by concatenating
+# fragments (06-cli-and-ux.md, i18n).
+#
+# This file is the canonical source locale: every other catalogue is a
+# translation of exactly these keys, and the pseudolocale (`--language qps`)
+# is derived from it at runtime and has no file of its own.
+
+# --- Program identity -------------------------------------------------------
+
+cli.about = "Analyse, compare and migrate packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and migration runs in both directions."
+cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
+
+# --- Errors -----------------------------------------------------------------
+# One key per ErrorId::message_id(). Each carries a remediation sentence: a
+# bare failure with no next step is not acceptable user-facing output
+# (06-cli-and-ux.md, "Output contract"). `{detail}` is the untranslated
+# diagnostic detail the domain attached.
+
+error.usage = "That command line is not valid: {detail}. Run `macportsbrew --help` for the accepted commands and flags."
+error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew providers` to see what was detected and how to add it."
+error.provider_unhealthy = "The provider is present but did not answer correctly: {detail}. Run `macportsbrew doctor` for a full diagnosis before relying on its answers."
+error.provider_output_changed = "The provider's output did not have the shape this version expects: {detail}. The provider was probably updated; run `macportsbrew doctor --report` and attach the report to an issue."
+error.provider_timeout = "The provider did not answer within its time limit: {detail}. Try again, or pass --no-network if the delay is a metadata fetch."
+error.package_not_found = "That package is not present under that provider: {detail}. Run `macportsbrew list` to see what is there, and check the spelling."
+error.capability_missing = "The provider cannot supply something this operation needs: {detail}. Run `macportsbrew doctor` to see which capabilities were detected on this machine."
+error.snapshot_unusable = "The snapshot could not be read, or its schema is from an incompatible version: {detail}. Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file."
+error.policy_data_invalid = "The policy data could not be loaded or is inconsistent: {detail}. This is a defect in the build rather than something on this machine; please report it with `macportsbrew doctor --report`."
+error.safety_blocked = "A safety check stopped this operation and nothing was changed: {detail}. Read the finding, resolve it, and run the command again."
+error.not_implemented_in_this_pass = "This build does not carry that operation yet: {detail}. It is specified but not shipped; the read-only commands are available now."
+error.io = "A file could not be read or written: {detail}. Check that the path exists and that you have permission to it."
+error.internal = "An internal error occurred: {detail}. This is a defect. Please report it with `macportsbrew doctor --report`."
+
+# --- Reasons ----------------------------------------------------------------
+# Policy and domain emit stable reason identifiers with named parameters; the
+# UI renders `reason.<id>` with those parameters. Reason keys are added as the
+# rules that emit them are written. `reason.unknown` is the fallback for an
+# identifier this catalogue does not yet carry: it names the identifier rather
+# than inventing a sentence, so a missing translation degrades to something
+# a user can still report.
+
+reason.unknown = "Reason {id}."
+
+# --- Table headers ----------------------------------------------------------
+
+table.package = "Package"
+table.provider = "Provider"
+table.version = "Version"
+table.ownership = "Ownership"
+table.class = "Class"
+table.availability = "Availability"
+table.support = "Support"
+table.recommendation = "Recommendation"
+
+# --- Provider presence ------------------------------------------------------
+
+presence.present = "Present"
+presence.absent = "Absent"
+presence.broken = "Broken ({reason})"
+
+# --- Ownership --------------------------------------------------------------
+
+ownership.top_level = "Requested"
+ownership.dependency = "Dependency"
+ownership.orphan = "Orphan"
+ownership.unknown = "Unknown"
+
+# --- Package class ----------------------------------------------------------
+
+class.simple = "Simple"
+class.stateful = "Holds data"
+class.service = "Background service"
+class.runtime = "Language runtime"
+class.gui_app = "Application"
+class.third_party_sourced = "From a third-party source"
+class.provider_internal = "Provider internal"
+
+# --- Artifact availability --------------------------------------------------
+
+availability.binary_available = "Prebuilt"
+availability.source_build_required = "Builds from source ({reason})"
+availability.unavailable = "Not available"
+availability.unsupported_platform = "Not supported on this platform"
+availability.deprecated = "Deprecated"
+availability.disabled = "Disabled"
+availability.unknown = "Unknown"
+
+source_build.no_artifact_for_this_platform = "no prebuilt artifact for this machine"
+source_build.non_default_options = "non-default options were requested"
+source_build.licence_restricted = "the licence forbids redistributing a build"
+source_build.forced_by_configuration = "the configuration asks for a source build"
+
+# --- Support tier -----------------------------------------------------------
+
+support.supported = "Supported"
+support.degraded = "Degraded"
+support.unsupported = "Not supported"
+support.unknown = "Unknown"
+
+# --- Recommendation outcomes ------------------------------------------------
+
+outcome.keep = "Keep under {provider}"
+outcome.migrate_to = "Move to {provider}"
+outcome.keep_both = "Keep both, {primary} first"
+outcome.use_runtime_manager = "Use a language runtime manager instead"
+outcome.manual_review = "Needs a human decision"
+outcome.no_action = "Nothing to do"
+
+# --- Status dashboard -------------------------------------------------------
+
+status.title = "Machine and providers"
+status.machine = "Machine"
+status.architecture = "Architecture"
+status.macos_version = "macOS"
+status.providers = "Providers"
+status.primary_provider = "Primary provider"
+status.support = "Support"
+status.packages = "Packages"
+status.cache = "Cache"
+status.cache_fresh = "Fresh, taken {age}."
+status.cache_stale = "Stale, taken {age}. Pass --refresh to take it again."
+status.no_network = "Network use is off; facts that need it are shown as unknown."
+
+# --- Doctor -----------------------------------------------------------------
+
+doctor.title = "Diagnosis"
+doctor.ok = "OK"
+doctor.warning = "Warning"
+doctor.error = "Error"
+doctor.no_findings = "No findings. Both providers answered as expected."
+doctor.report_written = "A redacted report was written to {path}. Read it before you share it; nothing is uploaded."
+
+# --- Counts -----------------------------------------------------------------
+
+count.packages = "{count, plural, one {# package} other {# packages}}"
+count.findings = "{count, plural, =0 {no findings} one {# finding} other {# findings}}"
+
+# --- Policy data ------------------------------------------------------------
+
+policy.stale_notice = "Policy data was last verified on {readOn}; it may be out of date. See {url}."
+
+# --- Advanced mode ----------------------------------------------------------
+# 06-cli-and-ux.md, "Advanced mode": entering it must say what the risk is.
+
+advanced.warning = "Advanced mode shows dependencies. These packages are managed automatically by their provider; removing or migrating one on its own can break the packages that depend on it. Reverse dependencies are still checked and dependencies are never preselected."

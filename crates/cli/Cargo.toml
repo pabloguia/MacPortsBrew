@@ -18,7 +18,23 @@ path = "src/main.rs"
 name = "mpb"
 path = "src/main.rs"
 
+[lib]
+name = "macportsbrew"
+path = "src/lib.rs"
+
 [dependencies]
+macportsbrew-domain = { path = "../domain" }
+serde.workspace = true
+toml.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+# Dev-only, and only to verify ADR-0002's open question: that the candidate TUI
+# crate measures East Asian text in display width the way this crate's renderer
+# does. No TUI ships in this pass, so this dependency stays out of the binary.
+# `default-features = false` keeps the terminal backends (and their C bindings)
+# out of the graph: the test writes into an in-memory buffer.
+ratatui = { version = "0.30.2", default-features = false }
 
 [lints]
 workspace = true
