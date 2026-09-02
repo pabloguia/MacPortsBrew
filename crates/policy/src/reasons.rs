@@ -68,6 +68,10 @@ pub const KEEP_SOURCE_DEFAULT: &str = "reason.keep_source_default";
 /// Parameters: `provider`, `package`.
 pub const NO_ALTERNATIVE_PROVIDER_PRESENT: &str = "reason.no_alternative_provider_present";
 
+/// The provider holding the package has withdrawn it.
+/// Parameters: `provider`, `package`, `state`, optionally `replacedBy`.
+pub const SOURCE_WITHDRAWN: &str = "reason.source_withdrawn";
+
 /// Every identifier this crate can emit, sorted.
 pub fn all() -> &'static [&'static str] {
     &[
@@ -85,6 +89,7 @@ pub fn all() -> &'static [&'static str] {
         REVERSE_DEPENDENCIES_PRESENT,
         RUNTIME_FAMILY_MANAGED_ELSEWHERE,
         SOURCE_SUPPORT_ENDING,
+        SOURCE_WITHDRAWN,
     ]
 }
 

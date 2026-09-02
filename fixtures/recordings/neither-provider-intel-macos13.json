@@ -1,0 +1,537 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "macos": "13.7.6",
+    "architecture": "x86_64",
+    "providerVersions": [],
+    "capturedAt": "2026-09-02T00:00:00Z",
+    "capturedBy": "scripts/capture-fixture.sh homebrew-only-intel-macos26 (base), then derived by hand",
+    "origin": "derived",
+    "note": "DERIVED, not captured. Base: fixtures/recordings/homebrew-only-intel-macos26.json (captured by scripts/capture-fixture.sh on an Intel macOS 26.6.2 machine). Every edit, in full:\n`sw_vers -productVersion` 26.6.2 -> 13.7.6 and `-buildVersion` -> 22H625, so the machine is an Intel Mac on an older, still-current-enough macOS; `xcode-select -p` -> /Library/Developer/CommandLineTools (the base already reported a developer directory, this makes it the Command Line Tools one). `uname -m` and both `sysctl` answers are the captured Intel ones, unedited.\nEvery `brew` and every `port` invocation was replaced by the NOT_STARTED status the capture script records for an executable that is not there: `{\"status\":\"NOT_STARTED\",\"error\":\"No such file or directory (os error 2)\"}` with empty stdout and stderr. The argv list is the captured one, unchanged, so the fixture answers exactly the invocations the adapters make and neither provider is detected."
+  },
+  "invocations": [
+    {
+      "program": "sw_vers",
+      "argv": [
+        "-productVersion"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "13.7.6\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 243
+    },
+    {
+      "program": "sw_vers",
+      "argv": [
+        "-buildVersion"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "22H625\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 180
+    },
+    {
+      "program": "uname",
+      "argv": [
+        "-m"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "x86_64",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 147
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "hw.machine"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "x86_64",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 173
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "hw.optional.arm64"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 1
+      },
+      "stdout": "",
+      "stderr": "sysctl: unknown oid 'hw.optional.arm64'",
+      "truncated": false,
+      "durationMs": 144
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "sysctl.proc_translated"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 1
+      },
+      "stdout": "",
+      "stderr": "sysctl: unknown oid 'sysctl.proc_translated'",
+      "truncated": false,
+      "durationMs": 255
+    },
+    {
+      "program": "xcode-select",
+      "argv": [
+        "-p"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "/Library/Developer/CommandLineTools\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 217
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--version"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 427
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--prefix"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 231
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--cellar"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 236
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--caskroom"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 256
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--cache"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 227
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "config"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 2720
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "info",
+        "--json=v2",
+        "--installed"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 4120
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "list",
+        "--pinned"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 1589
+    },
+    {
+      "program": "port",
+      "argv": [
+        "version"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 80
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "installed"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 147
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "requested"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 71
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "active"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 100
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "leaves"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 68
+    },
+    {
+      "program": "port",
+      "argv": [
+        "dir"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 76
+    }
+  ]
+}

@@ -779,9 +779,13 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Original assumption: `03-policy-and-recommendations.md` lists `MANUAL_REVIEW`
   for "availability `UNKNOWN`", unscoped.
 - Change: `MANUAL_REVIEW_AVAILABILITY_UNKNOWN` fires when a destination that
-  has a candidate and answers on this machine reports `UNKNOWN`. An `UNKNOWN`
-  on the side already holding the package does not fire it, and neither does
-  one under a provider with no candidate or one that is absent or unhealthy.
+  has a candidate, answers on this machine and does **not already hold the
+  package** reports `UNKNOWN`. An `UNKNOWN` on the side already holding the
+  package does not fire it, and neither does one under a provider with no
+  candidate, one that is absent or unhealthy, or one under which the package
+  is installed (the fixture matrix showed that without the last exclusion
+  `KEEP_BOTH` could never win toward a provider whose archive availability
+  is only knowable online, R-4).
 - Rationale: the unscoped reading fires on almost every package. R-4 finding 9
   establishes that one provider's artifact availability is not determinable
   offline in the positive direction at all, and finding 10 that an offline
@@ -926,6 +930,30 @@ change is made. Silent deviation remains the one unrecoverable error.
   (snapshot, policy data, options); the date is an option.
 - Compatibility impact: the `--json` payload carries `today` so a reader can
   tell which date an analysis was computed for.
+
+## SE-043 — A package its own provider has withdrawn is a review item, not "nothing to do"
+- Status: accepted
+- Date / Pass: 2026-09-02 / 01-FOUNDATION-PASS
+- Original assumption: `03-policy-and-recommendations.md` lists deprecated or
+  disabled state *on the destination side* among the `MANUAL_REVIEW`
+  triggers and says nothing about the source side; the first policy set
+  therefore answered `NO_ACTION` for an installed formula its provider had
+  disabled.
+- Change: `MANUAL_REVIEW_SOURCE_WITHDRAWN` fires when the provider holding the
+  package marks it deprecated, disabled or superseded, naming the state and
+  the successor when one is published.
+- Rationale: the package works today and will not be replaced; "nothing to
+  do" hides the one fact the user needs to act on, and `03` makes
+  `MANUAL_REVIEW` the default whenever availability is uncertain.
+- Evidence: the derived fixture
+  `fixtures/recordings/homebrew-deprecated-and-tap-intel-macos26.json` (a
+  formula edited to `disabled: true`) produced `NO_ACTION` before the rule
+  (`scripts/run-fixture-matrix.sh` golden diff, 2026-09-02);
+  `crates/policy/src/rules/manual_review_source_withdrawn.rs` tests.
+- User impact: one more `MANUAL_REVIEW` row, with a reason that names the
+  state.
+- Architectural impact: none; one more rule in `rules::all()`.
+- Compatibility impact: a new reason id, `reason.source_withdrawn`.
 
 ---
 

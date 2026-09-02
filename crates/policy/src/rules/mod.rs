@@ -32,6 +32,7 @@ mod manual_review_destination_deprecated;
 mod manual_review_mapping_confidence;
 mod manual_review_persistent_data;
 mod manual_review_reverse_dependencies;
+mod manual_review_source_withdrawn;
 mod no_action_already_there;
 mod runtime_use_manager;
 mod source_no_prebuilt_destination_prebuilt;
@@ -124,6 +125,7 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(manual_review_mapping_confidence::ManualReviewMappingConfidence),
         Box::new(manual_review_persistent_data::ManualReviewPersistentData),
         Box::new(manual_review_reverse_dependencies::ManualReviewReverseDependencies),
+        Box::new(manual_review_source_withdrawn::ManualReviewSourceWithdrawn),
         Box::new(no_action_already_there::NoActionAlreadyThere),
         Box::new(runtime_use_manager::RuntimeUseManager),
         Box::new(source_no_prebuilt_destination_prebuilt::SourceNoPrebuiltDestinationPrebuilt),

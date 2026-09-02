@@ -1,0 +1,122 @@
+{
+  "machine": {
+    "architecture": "x86_64",
+    "commandLineTools": {
+      "path": "/Library/Developer/CommandLineTools",
+      "state": "INSTALLED"
+    },
+    "macos": {
+      "major": 12,
+      "minor": 7,
+      "patch": 6
+    },
+    "translation": "NATIVE"
+  },
+  "packages": [],
+  "policyReadOn": "2026-09-02",
+  "policyStale": false,
+  "policyVersion": "2026.09.02-1",
+  "providers": {
+    "homebrew": {
+      "capabilities": {
+        "capabilities": {}
+      },
+      "detection": {
+        "architecture": null,
+        "executable": null,
+        "prefix": null,
+        "presence": {
+          "state": "ABSENT"
+        },
+        "provider": "homebrew",
+        "version": null
+      },
+      "guiAppCount": 0,
+      "packageCount": 0,
+      "support": {
+        "endDate": "2027-09-01",
+        "entry": "hb-x86_64-tier3-with-stated-end",
+        "fact": {
+          "readOn": "2026-09-02",
+          "source": "https://docs.brew.sh/Support-Tiers"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "tier3",
+        "tier": "DEGRADED"
+      },
+      "topLevelCount": 0
+    },
+    "macports": {
+      "capabilities": {
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "state": "UNKNOWN"
+          },
+          "DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "DEPRECATION_STATE": {
+            "state": "UNKNOWN"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "UNKNOWN"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "UNKNOWN"
+          },
+          "OFFLINE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "REQUESTED_RECORD": {
+            "state": "UNKNOWN"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          }
+        }
+      },
+      "detection": {
+        "architecture": null,
+        "executable": "/opt/local/bin/port",
+        "prefix": "/opt/local",
+        "presence": {
+          "reason": "error.provider_unhealthy",
+          "state": "BROKEN"
+        },
+        "provider": "macports",
+        "version": null
+      },
+      "guiAppCount": 0,
+      "packageCount": 0,
+      "support": {
+        "entry": "mp-x86_64-build-farm-with-installer",
+        "fact": {
+          "readOn": "2026-09-02",
+          "source": "https://guide.macports.org/chunked/installing.macports.html"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "build-farm",
+        "tier": "SUPPORTED"
+      },
+      "topLevelCount": 0
+    }
+  },
+  "schemaVersion": 1,
+  "snapshotProvenance": {
+    "capturedAt": "<captured-at>",
+    "capturedBy": "macportsbrew --replay",
+    "origin": "captured"
+  },
+  "source": "SNAPSHOT",
+  "summary": {
+    "byOutcome": {},
+    "dependencyUnits": 0,
+    "manualReview": 0,
+    "topLevelUnits": 0
+  },
+  "today": "2026-09-02",
+  "toolVersion": "0.1.0"
+}

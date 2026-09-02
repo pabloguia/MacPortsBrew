@@ -49,9 +49,14 @@ impl Rule for ManualReviewAvailabilityUnknown {
     }
 
     fn evaluate(&self, facts: &Facts, _data: &PolicyData) -> Option<RuleVerdict> {
+        // A destination that already holds the package has nothing to
+        // obtain: an unknown there blocks no move (SE-039), and treating it
+        // as one made `KEEP_BOTH` unreachable whenever the other provider's
+        // archive availability is only knowable online (R-4).
         let destination = facts.mapped_destinations().into_iter().find(|id| {
             facts.at(id).is_some_and(|per| {
-                matches!(per.availability.availability, ArtifactAvailability::Unknown)
+                !per.installed
+                    && matches!(per.availability.availability, ArtifactAvailability::Unknown)
             })
         })?;
 

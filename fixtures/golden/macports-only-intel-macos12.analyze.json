@@ -1,0 +1,754 @@
+{
+  "machine": {
+    "architecture": "x86_64",
+    "commandLineTools": {
+      "path": "/Library/Developer/CommandLineTools",
+      "state": "INSTALLED"
+    },
+    "macos": {
+      "major": 12,
+      "minor": 7,
+      "patch": 6
+    },
+    "translation": "NATIVE"
+  },
+  "packages": [
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "homebrew",
+          "source": {
+            "name": "gnutls",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "gnutls",
+      "recommendation": {
+        "outcome": {
+          "kind": "NO_ACTION"
+        },
+        "policyVersion": "2026.09.02-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gnutls",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.no_alternative_provider_present",
+            "params": {
+              "package": "gnutls",
+              "provider": "macports"
+            },
+            "rule": "NO_ACTION_ALREADY_THERE"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "macports": {
+          "availability": {
+            "availability": {
+              "reason": "NON_DEFAULT_OPTIONS",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "the +universal variant changes both the variant and the architecture component of the archive filename, and the build farm publishes neither (R-4 Findings 3 and 4)",
+                "offline": true,
+                "source": "port -q installed (variant set on the active row)"
+              },
+              {
+                "detail": "the archive filename is keyed on the canonical variant set and on this machine's (darwin_<macos-major>, arch) tuple (R-4 Finding 2)",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "3.8.4_0",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gnutls",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "variants": [
+                "+universal"
+              ],
+              "version": "3.8.4"
+            }
+          ],
+          "name": "gnutls",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "STATEFUL"
+        ],
+        "evidence": [
+          {
+            "class": "STATEFUL",
+            "detail": "nginx",
+            "rule": "curated_stateful_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "homebrew",
+          "source": {
+            "name": "nginx",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "nginx",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.02-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "nginx",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "STATEFUL",
+              "package": "nginx"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          },
+          {
+            "id": "reason.package_owns_persistent_data",
+            "params": {
+              "family": "nginx",
+              "package": "nginx",
+              "provider": "macports"
+            },
+            "rule": "MANUAL_REVIEW_PERSISTENT_DATA"
+          },
+          {
+            "id": "reason.no_alternative_provider_present",
+            "params": {
+              "package": "nginx",
+              "provider": "macports"
+            },
+            "rule": "NO_ACTION_ALREADY_THERE"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "1.26.2_0",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "nginx",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "1.26.2"
+            }
+          ],
+          "name": "nginx",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "STATEFUL"
+        ],
+        "evidence": [
+          {
+            "class": "STATEFUL",
+            "detail": "postgresql",
+            "rule": "curated_stateful_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [
+            {
+              "confidence": "EXACT",
+              "evidence": [
+                {
+                  "detail": "postgresql17-server -> postgresql@17",
+                  "kind": "curated",
+                  "weight": 100
+                }
+              ],
+              "package": {
+                "name": "postgresql@17",
+                "provider": "homebrew"
+              }
+            }
+          ],
+          "confidence": "EXACT",
+          "destination": "homebrew",
+          "selected": {
+            "confidence": "EXACT",
+            "evidence": [
+              {
+                "detail": "postgresql17-server -> postgresql@17",
+                "kind": "curated",
+                "weight": 100
+              }
+            ],
+            "package": {
+              "name": "postgresql@17",
+              "provider": "homebrew"
+            }
+          },
+          "source": {
+            "name": "postgresql17-server",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "postgresql17-server",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.02-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "postgresql17-server",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "STATEFUL",
+              "package": "postgresql17-server"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          },
+          {
+            "id": "reason.package_owns_persistent_data",
+            "params": {
+              "family": "postgresql",
+              "package": "postgresql@17",
+              "provider": "homebrew"
+            },
+            "rule": "MANUAL_REVIEW_PERSISTENT_DATA"
+          },
+          {
+            "id": "reason.no_alternative_provider_present",
+            "params": {
+              "package": "postgresql17-server",
+              "provider": "macports"
+            },
+            "rule": "NO_ACTION_ALREADY_THERE"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "the destination's catalogue is not consulted offline in this pass",
+                "offline": true,
+                "source": "destination_catalogue"
+              }
+            ]
+          },
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [],
+          "name": "postgresql@17",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "not_installed"
+          },
+          "presence": "MAPPED",
+          "reverseDependencyCount": 0
+        },
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "17.2_0",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "postgresql17-server",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "17.2"
+            }
+          ],
+          "name": "postgresql17-server",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "homebrew",
+          "source": {
+            "name": "py-pygments",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "py-pygments",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.02-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "py-pygments",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.source_withdrawn",
+            "params": {
+              "package": "py-pygments",
+              "provider": "macports",
+              "replacedBy": "py312-pygments",
+              "state": "REPLACED"
+            },
+            "rule": "MANUAL_REVIEW_SOURCE_WITHDRAWN"
+          },
+          {
+            "id": "reason.no_alternative_provider_present",
+            "params": {
+              "package": "py-pygments",
+              "provider": "macports"
+            },
+            "rule": "NO_ACTION_ALREADY_THERE"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "DEPRECATED"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "the ports tree names `py312-pygments` as the replacement for this port",
+                "offline": true,
+                "source": "port info --index --replaced_by"
+              }
+            ]
+          },
+          "availableVersion": "2.17.2_0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "py-pygments",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "2.17.2"
+            }
+          ],
+          "name": "py-pygments",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "homebrew",
+          "source": {
+            "name": "wget",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "wget",
+      "recommendation": {
+        "outcome": {
+          "kind": "NO_ACTION"
+        },
+        "policyVersion": "2026.09.02-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "wget",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.no_alternative_provider_present",
+            "params": {
+              "package": "wget",
+              "provider": "macports"
+            },
+            "rule": "NO_ACTION_ALREADY_THERE"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              },
+              {
+                "detail": "the active row carries +gnutls; whether that is this port's default set is not decidable offline (R-4 E-5)",
+                "offline": true,
+                "source": "port -q installed (variant set on the active row)"
+              }
+            ]
+          },
+          "availableVersion": "1.25.0_1",
+          "dependencyCount": 3,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "wget",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "1",
+              "variants": [
+                "+gnutls"
+              ],
+              "version": "1.25.0"
+            }
+          ],
+          "name": "wget",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
+    }
+  ],
+  "policyReadOn": "2026-09-02",
+  "policyStale": false,
+  "policyVersion": "2026.09.02-1",
+  "providers": {
+    "homebrew": {
+      "capabilities": {
+        "capabilities": {}
+      },
+      "detection": {
+        "architecture": null,
+        "executable": null,
+        "prefix": null,
+        "presence": {
+          "state": "ABSENT"
+        },
+        "provider": "homebrew",
+        "version": null
+      },
+      "guiAppCount": 0,
+      "packageCount": 0,
+      "support": {
+        "endDate": "2027-09-01",
+        "entry": "hb-x86_64-tier3-with-stated-end",
+        "fact": {
+          "readOn": "2026-09-02",
+          "source": "https://docs.brew.sh/Support-Tiers"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "tier3",
+        "tier": "DEGRADED"
+      },
+      "topLevelCount": 0
+    },
+    "macports": {
+      "capabilities": {
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "reason": "network_required_ports_macports_builds_api",
+            "state": "UNAVAILABLE"
+          },
+          "DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "DEPRECATION_STATE": {
+            "state": "AVAILABLE"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "AVAILABLE"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "AVAILABLE"
+          },
+          "OFFLINE_METADATA": {
+            "state": "AVAILABLE"
+          },
+          "REQUESTED_RECORD": {
+            "state": "AVAILABLE"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          }
+        }
+      },
+      "detection": {
+        "architecture": null,
+        "executable": "/opt/local/bin/port",
+        "prefix": "/opt/local",
+        "presence": {
+          "state": "PRESENT"
+        },
+        "provider": "macports",
+        "version": "2.10.7"
+      },
+      "guiAppCount": 0,
+      "packageCount": 12,
+      "support": {
+        "entry": "mp-x86_64-build-farm-with-installer",
+        "fact": {
+          "readOn": "2026-09-02",
+          "source": "https://guide.macports.org/chunked/installing.macports.html"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "build-farm",
+        "tier": "SUPPORTED"
+      },
+      "topLevelCount": 5
+    }
+  },
+  "schemaVersion": 1,
+  "snapshotProvenance": {
+    "capturedAt": "<captured-at>",
+    "capturedBy": "macportsbrew --replay",
+    "origin": "captured"
+  },
+  "source": "SNAPSHOT",
+  "summary": {
+    "byOutcome": {
+      "MANUAL_REVIEW": 3,
+      "NO_ACTION": 2
+    },
+    "dependencyUnits": 0,
+    "manualReview": 3,
+    "topLevelUnits": 5
+  },
+  "today": "2026-09-02",
+  "toolVersion": "0.1.0"
+}
