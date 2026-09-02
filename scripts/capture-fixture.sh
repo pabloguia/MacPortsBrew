@@ -120,6 +120,24 @@ record "$port_env" "$port_prog" -q echo active
 record "$port_env" "$port_prog" -q echo leaves
 record "$port_env" "$port_prog" dir
 
+# Port metadata: one PortIndex field group per invocation, over every
+# installed name. `port info --line` documents its separator only as "Fields
+# are separated by spaces" and the one official example shows a field that
+# itself contains a space (R-3 E-8), so each invocation below carries at most
+# one variable-width field and that field is last. The names come from the
+# registry, which is why this runs after `-q installed`.
+port_names=""
+[ -n "$port_bin" ] && port_names="$("$port_bin" -q installed 2>/dev/null \
+  | sed -E 's/^[[:space:]]*//; s/[[:space:]].*$//' | sort -u | tr '\n' ' ')"
+if [ -n "$port_names" ]; then
+  for fields in "--version --revision --replaced_by" "--homepage --license" \
+                "--description" "--depends_lib" "--depends_run" "--depends_build"; do
+    # Word splitting is intended: port names match [A-Za-z0-9_.+-] only.
+    # shellcheck disable=SC2086
+    record "$port_env" "$port_prog" -q info --index --line --name $fields $port_names
+  done
+fi
+
 macos="$(sw_vers -productVersion)"; arch="$(uname -m)"
 versions='[]'
 [ -n "$brew_bin" ] && versions="$(jq --arg v "homebrew $("$brew_bin" --version 2>/dev/null | head -1)" '. + [$v]' <<<"$versions")"

@@ -1,0 +1,778 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "macos": "12.7.6",
+    "architecture": "x86_64",
+    "providerVersions": [
+      "macports 2.10.7"
+    ],
+    "capturedAt": "2026-09-02T00:00:00Z",
+    "capturedBy": "hand-written from docs/research/R-3-macports-read-interfaces.md",
+    "origin": "synthesised",
+    "note": "SYNTHESISED, not captured: MacPorts is installed on no machine available to this project (docs/research/R-3-macports-read-interfaces.md E-0). Every `port` invocation below follows a format that note cites, and none of its bytes was observed. `version` -> R-3 E-11 (the `version` action of port(1); the `Version:` label itself is UNVERIFIED). `-q installed` -> R-3 E-1, `name @version_revision+variants (active)` with the header line suppressed by -q, an inactive row carrying no marker, and `openssl3` present twice as R-3 Finding 5 requires. `-q echo requested|leaves|active` -> R-3 E-4 and E-5 (pseudo-portnames, one name per line as the documented example prints them). `-q info --index --line --name --<field>...` -> R-3 E-8: `--line` documents its separator only as \"Fields are separated by spaces\" and its one official example shows a field containing a space, so each invocation here carries at most one variable-width field and it is last. `-q provides <path>` -> the read-only argv table at the end of R-3; its exact rendering is UNVERIFIED. `+universal` on gnutls exercises R-4 Findings 3 and 4; `py-pygments` carries a `replaced_by` per R-3 E-10; `postgresql17-server` and `nginx` are the stateful/service family of R-8 E-9. The system invocations mirror the shapes of fixtures/recordings/homebrew-only-intel-macos26.json with the values of an Intel machine running macOS 12.7.6, and Homebrew is absent."
+  },
+  "invocations": [
+    {
+      "program": "sw_vers",
+      "argv": [
+        "-productVersion"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "12.7.6\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 231
+    },
+    {
+      "program": "sw_vers",
+      "argv": [
+        "-buildVersion"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "21H1320\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 178
+    },
+    {
+      "program": "uname",
+      "argv": [
+        "-m"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "x86_64\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 141
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "hw.machine"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "x86_64\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 166
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "hw.optional.arm64"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 1
+      },
+      "stdout": "",
+      "stderr": "sysctl: unknown oid 'hw.optional.arm64'\n",
+      "truncated": false,
+      "durationMs": 149
+    },
+    {
+      "program": "sysctl",
+      "argv": [
+        "-n",
+        "sysctl.proc_translated"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 1
+      },
+      "stdout": "",
+      "stderr": "sysctl: unknown oid 'sysctl.proc_translated'\n",
+      "truncated": false,
+      "durationMs": 152
+    },
+    {
+      "program": "xcode-select",
+      "argv": [
+        "-p"
+      ],
+      "environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "/Library/Developer/CommandLineTools\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 210
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--version"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--prefix"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--cellar"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--caskroom"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "--cache"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "config"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "info",
+        "--json=v2",
+        "--installed"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "brew",
+      "argv": [
+        "list",
+        "--pinned"
+      ],
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1"
+      },
+      "status": {
+        "status": "NOT_STARTED",
+        "error": "No such file or directory (os error 2)"
+      },
+      "stdout": "",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 70
+    },
+    {
+      "program": "port",
+      "argv": [
+        "version"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "Version: 2.10.7\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 190
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "installed"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "  bzip2 @1.0.8_0 (active)\n  gettext-runtime @0.22.5_0 (active)\n  gnutls @3.8.4_0+universal (active)\n  libiconv @1.17_0 (active)\n  libidn2 @2.3.7_0 (active)\n  ncurses @6.4_0 (active)\n  nginx @1.26.2_0 (active)\n  openssl3 @3.1.5_0\n  openssl3 @3.2.1_0 (active)\n  postgresql17-server @17.2_0 (active)\n  py-pygments @2.17.2_0 (active)\n  wget @1.25.0_1+gnutls (active)\n  zlib @1.3.1_0 (active)\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 420
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "requested"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "gnutls\nnginx\npostgresql17-server\npy-pygments\nwget\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 300
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "leaves"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2\ngettext-runtime\nncurses\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 305
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "echo",
+        "active"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2\ngettext-runtime\ngnutls\nlibiconv\nlibidn2\nncurses\nnginx\nopenssl3\npostgresql17-server\npy-pygments\nwget\nzlib\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 298
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--version",
+        "--revision",
+        "--replaced_by",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2 1.0.8 0\ngettext-runtime 0.22.5 0\ngnutls 3.8.4 0\nlibiconv 1.17 0\nlibidn2 2.3.7 0\nncurses 6.4 0\nnginx 1.26.2 0\nopenssl3 3.2.1 0\npostgresql17-server 17.2 0\npy-pygments 2.17.2 0 py312-pygments\nwget 1.25.0 1\nzlib 1.3.1 0\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--homepage",
+        "--license",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2 https://sourceware.org/bzip2/ BSD\ngettext-runtime https://www.gnu.org/software/gettext/ LGPL-2.1+\ngnutls https://www.gnutls.org/ LGPL-2.1+\nlibiconv https://www.gnu.org/software/libiconv/ LGPL-2\nlibidn2 https://www.gnu.org/software/libidn/ LGPL-3+ or GPL-2+\nncurses https://invisible-island.net/ncurses/ X11\nnginx https://nginx.org/ BSD-2-Clause\nopenssl3 https://www.openssl.org/ Apache-2\npostgresql17-server https://www.postgresql.org/ PostgreSQL\npy-pygments https://pygments.org/ BSD\nwget https://www.gnu.org/software/wget/ GPL-3+\nzlib https://zlib.net/ zlib\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--description",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2 Block-sorting file compressor\ngettext-runtime Runtime library for GNU gettext\ngnutls GNU Transport Layer Security Library\nlibiconv Character set conversion library\nlibidn2 Library for internationalized domain names\nncurses Terminal-independent screen handling library\nnginx High performance web server and reverse proxy\nopenssl3 OpenSSL 3 SSL/TLS cryptography library\npostgresql17-server Run PostgreSQL 17 as a server\npy-pygments Generic syntax highlighter, unversioned stub\nwget Internet file retriever\nzlib Data compression library\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--depends_lib",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2\ngettext-runtime port:libiconv\ngnutls port:libidn2 port:zlib\nlibiconv\nlibidn2 port:libiconv\nncurses\nnginx port:openssl3 port:zlib\nopenssl3 port:zlib\npostgresql17-server port:openssl3 port:zlib\npy-pygments\nwget port:openssl3 port:libidn2\nzlib\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--depends_run",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2\ngettext-runtime\ngnutls\nlibiconv\nlibidn2\nncurses\nnginx\nopenssl3\npostgresql17-server port:postgresql17\npy-pygments port:python312\nwget\nzlib\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "info",
+        "--index",
+        "--line",
+        "--name",
+        "--depends_build",
+        "bzip2",
+        "gettext-runtime",
+        "gnutls",
+        "libiconv",
+        "libidn2",
+        "ncurses",
+        "nginx",
+        "openssl3",
+        "postgresql17-server",
+        "py-pygments",
+        "wget",
+        "zlib"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "bzip2\ngettext-runtime\ngnutls port:pkgconfig\nlibiconv\nlibidn2\nncurses\nnginx port:pkgconfig\nopenssl3\npostgresql17-server\npy-pygments\nwget port:zlib\nzlib\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 340
+    },
+    {
+      "program": "port",
+      "argv": [
+        "-q",
+        "provides",
+        "/opt/local/bin/wget"
+      ],
+      "environment": {
+        "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "HOME": "~"
+      },
+      "status": {
+        "status": "EXITED",
+        "code": 0
+      },
+      "stdout": "/opt/local/bin/wget is provided by: wget\n",
+      "stderr": "",
+      "truncated": false,
+      "durationMs": 260
+    }
+  ]
+}
