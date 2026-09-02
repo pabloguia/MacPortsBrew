@@ -1,3 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! MacPortsBrew `domain` layer. See docs/spec/07-quality-and-testing.md.
+//! MacPortsBrew domain layer: provider-neutral types and pure rules.
+//!
+//! No I/O, no clock, no environment access, no provider names in any
+//! signature (`docs/spec/02-domain-model.md`, "Shape"). The layering is a
+//! Cargo dependency edge: this crate depends on `serde` and nothing else in
+//! the workspace, and `scripts/check-layering.sh` asserts it.
+//!
+//! Every collection that reaches a serialised surface is ordered
+//! (`BTreeMap`, `BTreeSet`, sorted `Vec`) so that the same input produces the
+//! same bytes (INV-15).
+
+pub mod availability;
+pub mod class;
+pub mod error;
+pub mod machine;
+pub mod mapping;
+pub mod ownership;
+pub mod package;
+pub mod plan;
+pub mod provider;
+pub mod reason;
+pub mod recommendation;
+pub mod resolution;
+pub mod snapshot;
+pub mod support;
+pub mod version;
+
+pub use availability::{ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence};
+pub use class::{ClassEvidence, ClassSet, PackageClass};
+pub use error::{DomainError, ErrorId};
+pub use machine::{Architecture, CommandLineTools, Machine, MacosVersion, Translation};
+pub use mapping::{Confidence, MappingCandidate, MappingEvidence, PackageMapping};
+pub use ownership::{Ownership, OwnershipEvidence};
+pub use package::{
+    DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
+};
+pub use plan::{
+    Elevation, MigrationPlan, MigrationStep, PlanCommand, PlanRisk, StepKind, VerificationCheck,
+};
+pub use provider::{
+    Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
+    ProviderInventory, ProviderPresence, ProviderRead, RequestedSet,
+};
+pub use reason::{Reason, ReasonId};
+pub use recommendation::{Outcome, Recommendation};
+pub use resolution::{ExecutableOwner, Resolution};
+pub use snapshot::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
+pub use support::{DatedFact, SupportState, SupportTier};
+pub use version::Version;
