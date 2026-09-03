@@ -1,239 +1,327 @@
 # 02-ARCHITECTURE-REVIEW-PASS — report
 
-**Date:** 2026-09-02 · **Commit:** `b6111bf`
+**Date:** 2026-09-03 · **Commit at review:** `ab56b06`
 
-## Read this first: the pass is not complete
+The findings are in
+[`02-ARCHITECTURE-REVIEW-findings.md`](02-ARCHITECTURE-REVIEW-findings.md), ranked
+by consequence, twenty of them. This report says what was done, what it cost, and
+what to do next. **One finding stops at the human: F-01, recorded as DP-010.**
 
-This report exists because a Tier 1 edit needs a traceable artifact, not because
-the architecture review finished. **It did not start.** Section 5 of the work
-order — provider neutrality under INV-17, isolation under INV-07/08/10, the
-planner and verifier symmetry check — is untouched. What this session did was
-record three owner decisions that arrived mid-pass, and propagate them.
+## About the earlier session under this pass id
 
-Six of the seven items in the work order's definition of done are unmet. The one
-met is "anything requiring a human decision added to
-`docs/decisions-pending.md`" — and it was met by *emptying* that file's Open
-section rather than by adding to it.
+An earlier session on 2026-09-02 wrote a report under this filename that opened
+"the pass is not complete … **It did not start.**" That was accurate and it said
+so plainly, which is the reason this pass could begin from a known position rather
+than a claimed one. What that session did do — resolving DP-004, DP-006 and DP-007
+with the owner, writing ADR-0005, and opening DP-008 and DP-009 — is not lost: it
+lives in `docs/decisions-pending.md` (Resolved), ADR-0005, and SE-014, SE-021,
+SE-034 and SE-037. This file is now the report for the review it was named after.
 
-**Do not read this as a clean architecture review.** The next session should run
-the pass as written; nothing here substitutes for it.
+## Gate status: run in full, for the first time in this pass lineage
 
-## Gate status: passed on what it could check, skipped the rest
+`scripts/validate.sh` in default mode **exits 0 with the whole test suite**, and
+`.claude/hooks/test-hooks.sh` passes 70 of 70.
 
-`.claude/hooks/stop-gate.sh` exits 0. That covers internal link resolution, JSON
-and shell validity, the grep-checkable no-mutation boundary, and
-specification-currency warnings.
+That is worth stating precisely, because the previous session reported the opposite
+and reported it as a fact about this machine: *"this machine has no Rust
+toolchain"*, and therefore *"no test ran in this pass, and no coverage figure in
+this report is observed."* On this machine today `cargo`, `rustc 1.98.0` and the
+pinned toolchain are all present, `rustc --print deployment-target` returns
+`10.12`, matching `rust-toolchain.toml`'s claim, and every Rust check runs.
 
-It **skipped** every Rust check. `stop-gate.sh:122` guards the `validate.sh` call
-with `command -v cargo`, and this machine has no Rust toolchain — already
-recorded in R-10, E-14. Run directly, `scripts/validate.sh --quick` reports
-`cargo: command not found` for format, clippy, layering and licences; the two
-checks that do not need cargo pass — SPDX ok, i18n ok at 154 keys with 106
-referenced. **No test ran in this pass, and no coverage figure in this report is
-observed.** The change is documentation-only, so it has no way to break a Rust
-check — but "cannot have broken it" is not "verified", and that distinction is
-the whole point of having a gate.
+Whatever changed between the two sessions, the mechanism that let a whole pass
+record unverified numbers is still in place: `.claude/hooks/stop-gate.sh:122` guards
+the `validate.sh` call with `command -v cargo` and **still exits 0** when the guard
+fails. A gate whose skipped path is indistinguishable from its successful path is
+not a gate. That is finding F-20 and it is on the task list.
 
-## What shipped
+**Not verified, and honestly so:** the coverage floors. `cargo-llvm-cov` is absent,
+so `scripts/check-coverage.sh` cannot run. The foundation pass said this and it is
+still true.
 
-Nothing a user can run. No code changed; `crates/`, `scripts/`, `.github/` and
-`.claude/` are untouched, the last three by the pass boundary in section 3.
+## What was verified rather than inherited
 
-What changed is that three questions blocking the project's public existence are
-answered. `docs/decisions-pending.md` briefly read **Open: None** as a result,
-and now carries DP-008 and DP-009 instead — two obligations this pass created and
-had no business leaving in ADR prose.
+The work order's first instruction is not to trust the previous report. Every
+numeric claim in it was re-run:
 
-## Decisions
+| Foundation-pass claim | Result |
+|---|---|
+| 456 tests pass | **Verified**, and the per-crate split matches exactly — domain 17, policy 100, application 28, adapters 190, cli 121. |
+| 157 fixture-matrix checks over 6 fixtures | **Verified.** |
+| 70 hook cases | **Verified.** |
+| The slice runs — 189 packages, 56 top-level | **Verified** on this machine (Intel, macOS 26.6.2, Homebrew 6.0.21 at `/usr/local`, MacPorts absent). |
+| INV-15 reproducibility | **Verified empirically** — two `--from-snapshot` runs byte-identical over 184 KB. |
+| INV-06 — nothing elevates | **Verified structurally** — zero elevation tokens in `crates/*/src`, exactly one `Command::new` site. |
+| All 20 invariants have a test | **They exist.** Several would not fail if the invariant were violated — F-19. |
+| Homebrew's Intel timeline | **Re-verified live 2026-09-03.** Unchanged; see below. |
 
-Three, all the owner's, all made in session on 2026-09-02.
+The foundation pass's reporting is accurate. Where this review disagrees with it,
+it disagrees about the *significance* of things that report already disclosed —
+most importantly the `--advanced` unit shift, which it recorded as a cosmetic count
+difference ("63 versus 62 … Known, not fixed") and which turns out to change the
+unit's source provider, its `advanced_only` flag and the rules that fire (F-03).
 
-**DP-004 — release signing.** Developer ID signing plus notarisation, with a
-secure timestamp, and three artifacts per architecture: the bare binary, still
-the path the documentation leads with, plus a `.pkg` and a `.dmg` that can carry
-a stapled ticket a bare Mach-O cannot (R-9). The earlier recommendation argued
-for ad-hoc signing on four grounds; two were voided by a fact the analysis did
-not have — the owner already holds a paid Apple Developer account, so the
-recurring cost does not exist and the legal identity it binds is the one DP-006
-resolved as copyright holder the same day. Recorded in **ADR-0005** (new) and
-SE-014.
+## Time-sensitive facts, re-verified and dated
 
-**DP-006 — copyright holder.** Pablo Guia, an individual. The string matches the
-Apple Developer account deliberately, so the Developer ID signature and the
-copyright line name one person rather than two spellings of one. Source files
-unchanged: ADR-0001's SPDX-only rule stands. Recorded in SE-021.
+<https://docs.brew.sh/Support-Tiers>, **read 2026-09-03**:
 
-**DP-007 — hosting and visibility.** Public repository on GitHub, personal Pro
-account, named `macportsbrew` (ADR-0003), with Pages for the project site.
-Recorded in SE-037.
+- *"macOS Tahoe 26 is the final version of macOS to run on Intel hardware … Homebrew
+  has stopped building new bottles for Intel systems, and will remove the ability to
+  run Homebrew on Intel systems in or after September 2027."* — **unchanged.** The
+  charter's timeline claim and `end_date = "2027-09-01"` in
+  `data/policy/provider-support.toml` are correct.
+- Intel x86_64 as of September 2026 is **Tier 3** (Catalina 10.15 → Tahoe 26).
+  **Unsupported** is a separate category — Mojave 10.14 and earlier.
 
-**One Tier 1 edit, authorised explicitly, made twice.** INV-10's parenthetical
-rationale justified a sanitised environment by saying build systems probe
-`/usr/local` — true, and not a reason for this rule, since clearing environment
-variables does not stop a compiler searching a path compiled into it. It was
-first replaced with the reason that does hold, then **shortened** at the owner's
-prompting from eight lines to two, deleting a summary of F-2 rather than
-correcting it. Both edits are in SE-034, which now also records why: a second
-copy of a research note inside Tier 1 text drifts from the sourced one, and this
-one already had — every remaining accuracy complaint sat inside the summary, not
-in the rule. The invariant's requirement is byte-identical throughout.
+That last distinction is the one the charter and README get wrong (F-11, DP-011),
+and the one `provider-support.toml` gets right. The data outlived the prose, which
+is the dated-facts design working as intended even while the prose drifted.
+
+`rustc 1.98.0` deployment target re-verified at `10.12` on this machine.
+
+## The findings, in one paragraph
+
+Four Tier 1 violations. One provider's dependency graph decides the other's
+recommendation and the user is told a false number (F-01, INV-04/INV-08 — the one
+that stops at the human). A package held by both providers can only be migrated in
+one direction, and which one is decided by alphabetical order of the provider ids
+(F-02, INV-17), with **all 8 `plan` invocations in the test suite pointing the same
+way**. `--advanced` removes a user-requested package from the top-level view, flips
+its source and changes the rules that fire, so `analyze` and `explain` contradict
+each other on one input (F-03, INV-13). And the one plan command that escapes the
+sanitised environment is excluded from the test named after that invariant by an
+explicit filter (F-04, INV-10). Then a demonstrated privacy leak — `doctor --report`
+with `HOME` unset wrote 39 occurrences of the real home path into a file the
+documentation invites users to attach to issues (F-05). Then verification steps that
+cannot verify (F-06), a `doctor` that cannot see the commonest shadowing directory
+on macOS (F-07), a "no shell to inject into" guarantee enforced by a lint that
+checks something else (F-08), and unvalidated snapshot input reaching plan argv
+(F-09). The documentation findings are honesty defects rather than errors of fact:
+CI has never run and the matrix says "tested" (F-12); the README's opening sentence
+says the tool executes migrations (F-13); INV-03 is restated as a guarantee with its
+qualifier removed (F-14).
 
 ## Specification changes
 
-All in `docs/spec-evolution.md`; this section indexes them.
+Eleven entries, **SE-044 to SE-054, all `Status: proposed`**, appended to
+`docs/spec-evolution.md` under a clearly marked heading. They are grouped rather
+than filed under their topics deliberately and temporarily — a proposal sitting
+beside accepted rationale reads as settled — and each says that on acceptance it
+merges into its topic under SE-032, keeping its identifier.
 
-Extended rather than multiplied, SE-032 applied: **SE-014** (signing resolved;
-attestation promoted SHOULD → MUST), **SE-021** (copyright holder), **SE-034**
-(third Tier 1 correction and its two refinements), **SE-037** (public repository
-confirmed, with the `-large` prohibition). No new identifier was created for any
-of them, and no entry restates what ADR-0005 says.
+Nothing in `docs/spec/` was edited. No invariant was changed. Under section 3 of the
+work order a reviewer may propose at any tier and may not apply, and the two narrow
+exceptions — a failing test, and a factual documentation correction — were not used:
+the factual corrections available here are in a Tier 2 document (F-11) and in
+user-facing text whose wording is a judgement call, so they went to DP-011 and to
+the task list rather than into this diff.
 
-Normative text changed in `08-distribution-and-project.md` (the signing decision
-as six MUSTs, attestation promoted), `07-quality-and-testing.md` (`-large` and
-self-hosted runners prohibited) and `09-research-checklist.md` (R-11 opened).
+**Nothing was rejected in this pass.** The previous report observed that a review
+rejecting nothing has probably not reviewed anything. The honest answer here is that
+the design decisions this pass examined were mostly *right* and the defects were
+implementation drift away from them — the policy engine's purity, the
+capture/analysis split, the ownership evidence model and the argv-only executor all
+survived being attacked. What this pass rejects is the *reading* that SE-042's
+declaration settled the cross-provider count question (F-01), and the reading that
+the `--advanced` shift was cosmetic (F-03).
 
-**Nothing was rejected in this pass**, which is itself a signal: a review pass
-that rejects nothing has probably not reviewed anything.
+## Decisions
+
+None taken. Three added for the owner, each with a recommendation and a reversible
+default already in place:
+
+- **DP-010** — a Tier 1 invariant (INV-04/INV-08) is currently relaxed by a Tier 3
+  entry (SE-042 change 2). Does the invariant stand, or does it need an explicit
+  carve-out? Recommendation: the invariant stands.
+- **DP-011** — the charter (Tier 2) states a provider fact its own data contradicts.
+  Recommendation: amend.
+- **DP-012** — do casks belong in the default top-level view? Either answer changes
+  the default view's scope, which is not an agent's call.
+
+DP-008 and DP-009 are untouched and still open. Neither blocks the implementation
+passes below.
 
 ## Research
 
-R-1 through R-10 are answered and dated 2026-09-02. **R-11 is open** and blocks
-the implementation pass that writes the release workflow: whether stapling a
-container covers a binary copied out of it — that answer decides whether the
-`.dmg` is kept or dropped, since `08` marks it provisional on exactly this;
-whether the Apple signing toolchain is present on the free `macos-15-intel`
-runner, which ADR-0005's compatibility argument assumes; which certificate signs
-the `.pkg`; whether the hardened runtime needs any entitlement for a tool that
-spawns other package managers; and what a quarantined, notarised, unstapled
-binary does with no network.
+R-1 to R-10 remain answered and dated 2026-09-02; nothing this pass found
+contradicts any of them, and F-2 and R-9 were leaned on again and held. **R-11 is
+still open** and still blocks the release workflow.
 
-R-9's own unresolved experiment survives as documentation of the path not taken.
-It no longer gates a release.
-
-## What this pass does not do
-
-It does not review the architecture. It does not touch code, tests, CI or
-`.claude/`. It does not verify a single claim about Apple's toolchain by
-observation — no signing, notarisation or stapling was performed, or could be. It
-does not establish that the release pipeline it specifies is buildable.
+No new research item is needed for any finding in this pass: every one is decidable
+from the code, from a source already cited, or from the owner. The largest standing
+research gap is unchanged and is not a finding of this review — **MacPorts has never
+been observed.** The adapter, its fixtures and its contract tests are
+documentation-derived. This review inherits that limitation completely: every
+MacPorts-side behaviour asserted here was read from synthesised fixtures, and F-02
+in particular (the one-direction planner) would be sharper evidence still on a
+machine that actually has both providers.
 
 ## Tests and coverage
 
-Unmeasured, for the reason in the gate section. The invariant this change
-touches, INV-10, keeps both its tests —
-`invariant_10_reading_the_machine_leaks_no_build_flag_into_a_probe`
-(`crates/adapters/tests/invariants.rs`) and
-`invariant_10_plan_commands_carry_the_sanitised_invocation_environment`
-(`crates/application/tests/invariants.rs`) — and neither needed to change,
-because only the rationale moved. `spec-guardian` confirmed the requirement text
-is byte-identical across all three edits.
+456 pass, 0 fail, re-run at the reviewed commit. No test was added: section 3 permits
+a *failing* test to demonstrate a finding, and the findings that would warrant one
+(F-02's missing reverse direction, F-04's filtered exception) are better delivered as
+the first task of the implementation pass, where the fix and its test land together.
+That is a judgement call and it is named as one.
+
+The more useful number is not 456. It is that **F-01 through F-04 all survived a
+fully green suite**, and F-19 explains why for each: a test that filters out its own
+exception, a test that skips every program the invariant is about, a test that
+asserts on the planner's correct value instead of the engine's incorrect one, a
+symmetry test that renames provider contents but keeps the map keys so iteration
+order never changes, and a subset assertion that was never written.
+
+Coverage floors: unverified, `cargo-llvm-cov` absent.
 
 ## CI
 
-Unchanged and unrun. The support matrix is untouched and still honest.
+Unchanged and still unrun — there is no remote. Beyond the two items the previous
+pass flagged, this review found:
 
-Two CI facts this pass found and could not fix, the pass boundary forbidding it:
+- **`cargo-deny` never checks advisories.** The workflow runs
+  `check licenses bans sources`; `deny.toml` declares `[advisories] yanked = "deny"`,
+  which is therefore dead configuration that reads as enforced (F-16).
+- **Twelve unpinned `uses:` references, four of them mutable refs**, not the one
+  previously reported — including `taiki-e/install-action@cargo-llvm-cov`, which also
+  downloads a binary into the job (F-17).
+- **`claude-code-review.yml` cannot post the comments it is configured to make** —
+  it declares `pull-requests: read` while granting an inline-comment tool — and has
+  no `author_association` guard, unlike `claude.yml`, which has a correct one (F-18).
+  The fork-secret concern is real but milder than recorded: the trigger is
+  `pull_request`, not `pull_request_target`, so GitHub withholds secrets from fork
+  runs.
 
-- **`dtolnay/rust-toolchain@master` is a mutable branch reference** in
-  `repository-validation.yml`, on a `pull_request` trigger. Whoever controls that
-  repository executes arbitrary code in every CI job. This is live today and gets
-  worse the day DP-007 is acted on.
-- **`claude-code-review.yml` runs on `pull_request` and consumes a secret.** On a
-  public repository GitHub withholds secrets from fork-triggered workflows, so
-  the first outside contributor's pull request gets a red check they cannot fix —
-  the exact outcome the new MUST in `08` exists to prevent, violated by the
-  repository's own CI on day one.
+The two axes of ADR-0004 that *are* enforced were verified and are genuinely good:
+`check-licences.sh` fails on an unlisted licence and on any unreviewed `build.rs`,
+and `check-deployment-target.sh` reads the load commands off the built binaries and
+every object inside every rlib rather than trusting the build.
 
-## Risks and limitations discovered
+## Risks and limitations of this review
 
-**The gate degrades silently.** `stop-gate.sh` skips every Rust check when
-`cargo` is absent and still exits 0. On a machine without the toolchain — this
-one — the definition-of-done gate reports success while checking a fraction of
-what it names. It should fail loudly, or state what it skipped.
+- **MacPorts was not observed**, as above. Half of every symmetry finding rests on
+  synthesised fixtures.
+- **No Apple Silicon machine.** The both-providers fixture is arm64 and derived; the
+  planner findings were reproduced under `--replay`, not natively.
+- **Coverage unmeasured**, so "which safety paths are tested" was answered by reading
+  the tests rather than by instrumentation. F-19 is a judgement about test quality,
+  not a coverage report.
+- **The reviewers were used as instruments and their findings were re-verified, not
+  relayed.** Every claim reproduced above was re-run by the main session: the
+  cross-provider count, the direction asymmetry, the `--advanced` flip, the empty
+  environment on `SET_PRIMARY`, the test filter, the redaction leak, the missing
+  advisories check, and the action inventory. Two subagent claims were checked and
+  *not* carried forward as findings, because my own probe showed my reading had been
+  wrong rather than the code: ownership is correctly recorded per row with an
+  evidence field, and `NO_ACTION_ALREADY_THERE` behaves correctly despite its name.
+- **Two guard false-positives were hit**, both on read-only work — one on a `plan`
+  invocation whose *package name* matched a tool name, one on a grep written to
+  verify INV-06, blocked by the INV-06 guard. Neither was reworded to evade the
+  guard; the documented remedy was used both times. This is the third consecutive
+  pass to report this, which is the pattern that eventually produces a workaround
+  that is not honest about itself.
 
-**A guard false-positives on documentation, twice.** Editing
-`08-distribution-and-project.md` was blocked because the replacement prose quoted
-a mutating provider command as an example. Writing *this report* was blocked for
-the same reason, by the paragraph describing the first block. Nothing was
-reworded to evade the guard either time — the first edit was re-anchored on text
-that did not need the string, the second was written through a file rather than a
-shell command line, which is the remedy `CLAUDE.md` names. But a guard that
-blocks writing *about* a command is a guard that will eventually be worked around
-instead of fixed, and the workaround will not always be honest.
+## Recommended next tasks, in priority order
 
-**A hook now emits an ambiguous signal.** `session-start.sh` scrapes `### DP-`
-headings from the Open section. With that section empty it prints
-`(none parsed - read the file)` — byte-identical to what it prints when the parse
-breaks. Found by `spec-guardian`.
+**Owner, before anything else.** DP-010 — the Tier 1 ruling. Every other planner
+task is cheaper once it is answered, and the fix for F-01 depends on it. DP-011 and
+DP-012 can follow at leisure; neither blocks work.
 
-**Obligations that lived only in ADR prose now have a register**, closed at the
-end of this pass rather than left as a finding. The two that are genuinely
-decisions became **DP-008** (is the `.pkg` also provisional pending R-11?) and
-**DP-009** (may the first public release ship before the revocation plan
-exists?). The GitHub settings no check can verify — private vulnerability
-reporting, the protected deployment environment, the protected-tag ruleset, and
-pinning the mutable toolchain reference — are an ordered pre-publication
-checklist inside DP-007's resolved entry, where someone looking up "what did we
-decide about going public" will find them. Extending ADR-0004's dependency gate
-to reach GitHub Actions and adding the action-pinning check to
-`scripts/validate.sh` are engineering tasks, and are in the list below.
+**Implementation pass 1 — the planner and the analysis merge.** These four are one
+change and should be done together, because they are the same defect seen from four
+angles: F-02 (`--to` names the destination; the guard tests the destination's
+contents), F-03 (decide unit identity before the visibility filter; stop hardcoding
+`advanced: true`), F-01 (per-provider reverse-dependency count, per DP-010), F-04
+(remove the filter from the INV-10 test and give `SET_PRIMARY` a sanitised
+environment and an absolute program). Ship with the mirrored `--to homebrew` tests
+that do not currently exist, and with the one-line subset assertion in the INV-13
+test that would have caught 63→62.
 
-**The assumption a reviewer should attack.** That recording a decision well
-substitutes for exercising it. Every control in ADR-0005 is written; none is
-enforced by anything that runs. Three review rounds found, in the text this
-session produced, an inference dressed as a citation, a chapter mandating two
-contradictory CI assertions, a claim in the present tense about a `doctor` check
-that does not exist, and six requirements dropped by a consolidation intended to
-reduce risk. Each was caught by a reviewer, not by the author — and none would
-have been caught by a machine.
+**Implementation pass 2 — the things that are cheap and fail today.** `advisories`
+added to the `cargo-deny` command (F-16). Every `uses:` pinned to a 40-hex SHA plus
+`scripts/check-action-pins.sh` in `validate.sh` (F-17). `claude-code-review.yml`
+given write permission or its `--comment` removed, and an author guard (F-18).
+`stop-gate.sh` made to fail loudly when it cannot run the Rust checks (F-20). The
+owner-writable finding kind in `path_audit.rs`, without which `doctor` cannot honour
+ADR-0005 (F-07). Redaction that says when it could not run (F-05).
 
-## Recommended next tasks
+**Implementation pass 3 — before the executor, not during it.** Snapshot input
+validated at deserialisation and `PlanCommand` given a fallible constructor (F-09).
+`PackageAbsent` added and `VERIFY_REMOVAL` fixed; `VERIFY_DESTINATION` made
+sensitive to pre-existing state; `check_ordering` made pairwise (F-06). A
+single-instance lock, or at minimum a failing test marking the MUST (F-20). The
+no-shell guarantee given a check or an honest sentence (F-08).
 
-**Architecture review pass — run 02 as written.** Section 5 is untouched. This is
-the top of the list; everything below assumes an architecture nobody has
-reviewed.
+**Documentation pass.** F-12 (the matrix states configuration until a green run),
+F-13 (the README's opening sentence), F-14 (INV-03's qualifier restored, "guarantees"
+dropped), F-15 (`restore`'s two missing limits), plus the four undated wiki claims
+and the wiki's `../docs/...` links, which break the day the wiki is published.
 
-**Implementation pass, in priority order.** Pin every `uses:` to a 40-hex SHA and
-add `scripts/check-action-pins.sh` to `validate.sh` — this one fails today and is
-testable now. Guard `claude-code-review.yml` against fork pull requests. Make
-`stop-gate.sh` fail loudly when it cannot run the Rust checks. Add the
-user-writable-and-precedes-system-paths finding kind to
-`crates/adapters/src/system/path_audit.rs`, without which `doctor` cannot honour
-the requirement ADR-0005 places on it. Then the release workflow, which R-11
-blocks.
-
-**Research pass.** R-11, all five items.
-
-**Owner, before publication.** The ordered checklist in DP-007's resolved entry:
-private vulnerability reporting, the protected deployment environment with its
-`v*` tag rule, the protected-tag ruleset, and pinning
-`dtolnay/rust-toolchain@master`. No check in this repository can verify any of
-them, which is why they are written down rather than delegated to a gate.
-
-**Owner, decisions.** **DP-008** and **DP-009**, both open in
-`docs/decisions-pending.md` with a recommendation and a reversible default.
-Neither blocks the architecture review.
+**Then the foundation pass's own list, unchanged and still right.** Capture a real
+MacPorts fixture; capture on Apple Silicon; destination catalogues offline; the
+executor; locales; coverage in CI once a remote exists.
 
 ## What is right about the foundation
 
-The next pass needs to know what not to break.
+The next pass needs to know what it must not break, and this list is not a
+courtesy — each item was checked, several by trying to break it.
 
-**The tiering works under pressure.** Three Tier 1 edits happened in this
-session; all three stopped at the human, none was made on an agent's judgement,
-and all three are recorded with their authorisation. The mechanism did what it
-was designed to do on the first occasion that tested it.
+**The layering is real.** Exactly one `std::process::Command` in the workspace, with
+`env_clear`; the layering check asserts dependency edges from `cargo metadata`
+rather than from a diagram; zero elevation tokens in shipped source; no
+`HashMap`/`HashSet` in domain, policy or application, so determinism is structural
+rather than tested for.
 
-**Reviewers earn their cost.** Three rounds found real defects in text that read
-fine, including two miscitations — the failure mode this project is explicitly
-built against — in work produced by an agent that had just finished writing about
-the importance of citations. The read-only-reviewer design is the strongest thing
-here.
+**The policy engine is genuinely pure.** An impurity sweep over `crates/policy/src`
+returned only the domain type `CommandLineTools` — a false positive on the word. No
+I/O, no clock, no environment; `today` is injected as a fact. That is what makes
+INV-14 and INV-15 hold, and it is why the policy layer is the one layer where the
+symmetry testing is exemplary.
 
-**"Record, do not accumulate" is the right rule, and it is not free.** SE-032
-prevented four new identifiers. The consolidation that followed the same rule
-dropped six requirements and had to be caught and reversed. The rule is correct;
-applying it to normative text needs a diff of requirements, not a reading.
+**INV-15 is proven rather than asserted.** Two `--from-snapshot` runs byte-identical
+across 184 KB, and the fixture matrix re-proves it over six fixtures on every run.
+Designing capture and analysis as separate functions so that `--from-snapshot` and
+`--replay` exercise the *same* code path is the best structural decision in the
+project, and it is what made most of this review possible on a machine with one
+provider.
 
-**F-2 and R-9 held up.** Both were written by earlier passes and both survived
-being leaned on hard by a decision they were not written for. The dated-research
-discipline paid a return this session.
+**Truncation is treated as corruption.** The reasoning at `process/mod.rs:182-190` —
+that a truncated line-oriented inventory parses *perfectly* into a silently short
+inventory — is the best piece of security reasoning in the codebase, and it closes a
+whole class of data-loss bug.
+
+**Ownership comes from the providers' own records.** `installed_on_request` and the
+`requested` pseudo-portname, with per-row evidence and an authoritative flag;
+`leaves` used only for orphan candidates and never substituted for intent. There is
+no graph inference anywhere a provider has a record — F-20's cask case is the
+no-record case, and even it is flagged non-authoritative rather than guessed
+silently.
+
+**The state directory is the best-defended area in the codebase.** `O_EXCL` at
+creation rather than `chmod` afterwards, `sync_all` then `rename`, symlink and
+non-directory refusal, ownership checked via `symlink_metadata` before permissions
+are touched, and a uid read without `libc`. The boundary that is *not* guaranteed is
+documented rather than glossed.
+
+**Elevation fails safe** — anything not literally `"none"` or `"required"` becomes
+`Unknown`, and `Unknown` counts as elevated. F-10 is the cost of that default being
+reached by omission, not an argument against the default.
+
+**"No telemetry" is verifiable**, not promised: no networking primitive anywhere in
+`crates/*/src`.
+
+**The peer position is kept in the documentation even where the code does not keep
+it.** The two migration pages are 1065 and 944 words, nine sections each,
+structurally parallel; the peer clause is in the opening paragraph of both `README.md`
+and `wiki/Home.md`; and `wiki/MacPorts-to-Homebrew-Migration.md:10-11` invites a bug
+report if the direction ever reads as an afterthought. That page is right and F-02 is
+the bug it asked for.
+
+**`explain` is the right product.** Facts, the rules that fired with their reasons,
+and the rules that did not. For a tool whose value is judgement, exposing the
+judgement is correct — and it is what made F-01 visible, because the false
+`provider: "macports"` label was printed rather than hidden.
+
+**Zero broken internal links across 105 markdown files**, and the tiering held under
+pressure in the previous session: three Tier 1 edits, all three stopped at the human.
+This review adds a fourth test of the same mechanism (DP-010) and the mechanism is
+why F-01 is a question rather than a commit.
