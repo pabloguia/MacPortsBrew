@@ -52,38 +52,6 @@ are recorded.
 - **Default meanwhile:** no public release. Nothing is published, so nothing is
   at risk while this is open.
 
-### DP-010 — A Tier 1 invariant is currently relaxed by a Tier 3 entry. Which gives way?
-- **The question:** `crates/application/src/analysis.rs:167-180` feeds the policy
-  engine the **maximum** reverse-dependency count across providers. INV-04 says
-  reverse dependencies are resolved "inside that provider"; INV-08 says one
-  provider never satisfies another's requirement "in any calculation, ever". This
-  is such a calculation. It is *declared* — SE-042 change (2) — but a Tier 3–5
-  entry cannot relax a Tier 1 invariant, and the authority table does not offer a
-  route by which an agent could have approved it. So the question is the owner's:
-  does the invariant stand, or does INV-04/INV-08 need an explicit carve-out?
-- **What it costs today:** the user is told something false. For `gnutls` on the
-  shipped both-providers fixture the emitted reason reads
-  `count: "3", provider: "macports"` when **zero** MacPorts ports depend on it —
-  the three are Homebrew's, relabelled. The outcome flips to `MANUAL_REVIEW` on the
-  strength of a graph the plan does not touch. The planner does not do this; it
-  reads the correct per-provider value, so engine and planner disagree on one run.
-- **In the current behaviour's favour:** `max` only ever over-reports, so it cannot
-  *miss* a blocking condition. The safety error is conservative. If the carve-out
-  is chosen, that is the argument for it.
-- **Options:** (a) the invariant stands — the engine receives the source provider's
-  own count, or `reverse_dependency_count` moves into the per-provider map where
-  availability already lives correctly; SE-042(2) is withdrawn. (b) INV-04 and
-  INV-08 gain an explicit, narrow exception for the *advisory* reverse-dependency
-  signal, written into Tier 1 by the owner, and the reason text is fixed regardless
-  so it names the provider the count actually came from.
-- **Recommendation:** (a). The conservative direction of the error is real but it
-  is not what INV-08 says, and the false provider label is a defect under either
-  option. If the "worse side" signal is wanted, it can be expressed as a distinct,
-  honestly-named fact rather than by overwriting a per-provider count.
-- **Default meanwhile:** unchanged. Nothing executes, so the cost is a wrong number
-  and an over-triggered review, not an unsafe action. Recorded as SE-045
-  (`Status: proposed`) and finding F-01.
-
 ### DP-011 — The charter states a provider fact its own data contradicts (Tier 2)
 - **The question:** `docs/spec/00-charter.md:37` says Homebrew classifies Intel
   x86_64 macOS as "**Tier 3 — not supported**". Re-verified 2026-09-02, the source
@@ -136,6 +104,26 @@ are recorded.
 ---
 
 ## Resolved
+
+### DP-010 — Reverse-dependency counts — **RESOLVED 2026-09-02: the invariant stands**
+Decided by the project owner: INV-04 and INV-08 hold as written, and the count
+moves into the per-provider map rather than a side being chosen. Recorded in
+**SE-045**, which withdraws SE-042 change (2); implemented with SE-047 and
+SE-048, because the three were one defect seen from three angles — the count was
+collapsed to one number partly *because* the source attribution was unstable.
+
+What this bought, measured: the engine no longer tells a user that three
+MacPorts ports depend on a package when zero do; the rule fires on exactly the
+139 units whose source side has dependents, with no divergence; and the
+planner's own message names the provider the count came from. What it cost: the
+shipped fixture's `manualReview` total goes from 23 to 22 — one unit changes
+outcome, three lose a reason they should not have carried — and one golden file
+changed.
+
+The reasoning that made this the owner's call rather than an agent's is kept in
+SE-045: the original `max` was not carelessness but a genuine collision between
+INV-04 and INV-17, and a Tier 3 entry had been used to resolve it.
+
 
 ### DP-002 — Implementation language — **RESOLVED 2026-09-02: Rust**
 Decided by the project owner. Recorded in

@@ -19,12 +19,16 @@ and this file is left as the record of what was found rather than rewritten:
 
 | Finding | State |
 |---|---|
+| **F-01** — cross-provider reverse-dependency count (Tier 1) | **Fixed**, on the owner's ruling (DP-010, resolved). SE-045; the count is per-provider and SE-042(2) is withdrawn. |
+| **F-02** — a dual-held package migrates one way only (Tier 1) | **Fixed.** SE-047. `--to` names the destination; mirrored tests added, and a plan no longer proposes installing what the destination already has. |
+| **F-03** — `--advanced` changes the answer (Tier 1) | **Fixed.** SE-048. Unit identity is decided before visibility; a top-level package that was invisible in the default view is back. |
 | **F-05** — home path published when `HOME` is unset | **Fixed.** SE-054, now `accepted`. `HomeRedaction` distinguishes the two absences; measured back to zero on `doctor --report` and `snapshot --out`. One residual is retained and recorded in SE-054: a home outside `/Users` is still not recognised. |
 | **F-16** — `cargo-deny` never checked advisories | **Fixed.** SE-055. |
 | **F-17** — twelve unpinned actions, four mutable | **Fixed.** SE-055; `scripts/check-action-pins.sh` in `validate.sh`, verified to fail on an unpinned ref. |
 | **F-18** — review workflow could not post, and had no author guard | **Fixed.** SE-055. |
 
-Everything else stands as written, including all four Tier 1 violations.
+**F-04** — the INV-10 test filtering out its own exception — is the one Tier 1
+violation still open, along with everything else below.
 
 ## What was verified, and on what
 

@@ -600,6 +600,231 @@ change is made. Silent deviation remains the one unrecoverable error.
   code comment, because a knowingly-retained deviation from a MUST that lives in
   a doc comment is a deviation nobody will find.
 
+## SE-045 — Reverse-dependency counts are per-provider; SE-042 change (2) is withdrawn
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW, ruled by the owner (DP-010)
+- Original assumption: SE-042 change (2) — the engine receives the largest
+  reverse-dependency count over every provider holding the package, each counted
+  inside its own provider, "never summed across them".
+- Change: `PackageFacts.reverse_dependency_count` is gone. The count lives in
+  `PackageProviderFacts`, beside `availability`, one per provider, derived in
+  `package_facts` where every other per-provider fact is derived.
+  `MANUAL_REVIEW_REVERSE_DEPENDENCIES` reads the source side's own count, and
+  `explain` lists one `package.<provider>.reverseDependencyCount` per provider
+  instead of a single figure attributed to nothing.
+- Rationale: INV-04 resolves reverse dependencies "inside that provider" and
+  INV-08 forbids a cross-provider calculation "in any calculation, ever". A
+  maximum across providers is such a calculation, and it reached the user as a
+  false statement: for `gnutls` the emitted reason read `count: 3, provider:
+  macports` when zero MacPorts ports depended on it and the three were
+  Homebrew's. Measured across the six fixtures, three units carried an inflated
+  count, in both directions — `python@3.12` was inflated *by* MacPorts — so it
+  was not a bias toward one provider, it was wrong symmetrically.
+- **Why the original was not carelessness, which matters for not reintroducing
+  it.** The code carried a second reason SE-042 did not record: *"choosing one
+  side by name would make the answer depend on provider ids (INV-17)"*. That is
+  true, and `max` is commutative, so it preserved symmetry at the cost of
+  INV-04's letter. It was a genuine collision between two Tier 1 invariants,
+  resolved in a direction the authority table does not let an agent choose —
+  hence DP-010 rather than a fix.
+  The collision was an artifact of the source attribution being unstable
+  (SE-047, SE-048). A map dissolves it: no side has to be chosen at
+  fact-construction time at all, each rule reads the provider it is reasoning
+  about, and both invariants hold at once.
+- Evidence: observed on `both-providers-arm64-macos15`; after the change the
+  rule fires on exactly the 139 units whose source side has dependents, with
+  zero divergence in either direction. `invariant_04_reverse_dependencies_are_
+  read_only_from_the_source_provider` gained the assertion that was missing —
+  dependents under the *other* provider must not block a removal from this one —
+  which is the assertion the defect needed and did not have.
+- **The test's own rationale was the vulnerability.** That test argued the
+  guarantee was type-level *because* the count was a single field on
+  `PackageFacts` and `PackageProviderFacts` "carries no dependents field at
+  all". The single scalar is precisely what let a cross-provider value be
+  smuggled in, because one number cannot say which provider it came from. The
+  guarantee is real now and it is the opposite shape.
+- User impact: three units lose a reason they should never have carried, and the
+  fixture's `manualReview` total goes from 23 to 22 — one unit changes outcome
+  (`python@3.12`, to `USE_RUNTIME_MANAGER`); the other two remain under review
+  for other, real reasons. An earlier draft of this entry said three units
+  "stop being held at manual review", which overstated it. The reason text now
+  names the provider the count came from. `plan gnutls --to macports` now says "3 packages under homebrew depend
+  on this one" — which is true, and was previously attributed to MacPorts.
+- Architectural impact: the destination's count is retained rather than
+  discarded, so a future rule about what installing here changes for other
+  packages has the fact available. It is a different rule and a different
+  question from the removal guard.
+- Compatibility impact: **breaking by the letter of the rule, and taken without
+  a version bump, deliberately.** `06-cli-and-ux.md` makes `--json` a
+  compatibility surface and `.claude/rules/domain.md` classes a removed field as
+  breaking: `facts.package.reverseDependencyCount` is gone,
+  `facts.package.perProvider.<id>.reverseDependencyCount` replaces it, and
+  `derivation.factsUsed` now carries one entry per provider. `explain` shares the
+  analysis schema version, so a bump would take `analysis`, `explain` and
+  `doctor` to v2 together.
+  That is not taken, because the contract protects *published* consumers and
+  there are none: the repository has no remote, no release exists, and no payload
+  carrying `schemaVersion: 1` has ever left it. `docs/schemas/explain.v1.md` is
+  corrected in this change instead — the removed row deleted, the new one
+  documented, the worked example fixed — so the document and the code agree.
+  **This exemption expires at the first release.** After that, the same change
+  costs a v2 across three documents, and that is the point of writing it down
+  rather than letting the next reader infer that removals are free. Golden files
+  regenerate.
+
+## SE-047 — `--to` names the destination; a dual-held package is migratable in either direction
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `build_plan` refuses when the unit's attributed `source`
+  equals `request.to`.
+- Change: `--to X` means X is the destination and the source is the other side
+  that actually holds the package. The refusal is now "nothing but the
+  destination holds it", which is the case where there is genuinely nothing to
+  move. When the destination already holds the package, `ADD_DESTINATION` stays
+  in the plan carrying **no command** and the reason
+  `reason.already_under_destination`. The mapping threshold is waived in exactly
+  one case: when the destination **is** the provider the unit is attributed to,
+  because then the "counterpart" is the package itself and there is no
+  equivalence to be unsure about.
+- Rationale: for a package installed under both providers, which side counted as
+  "source" fell back to provider-id order, so `htop --to macports` produced a
+  nine-step plan and `htop --to homebrew` an exit-2 usage error, for one machine
+  state. That is a special case in one direction, which INV-17 names as a defect,
+  and it landed on the direction the charter goes out of its way to call
+  first-class. Across the whole suite there were eight `plan` invocations and
+  every one pointed the same way, so nothing exercised the mirror.
+- **Why the step is kept rather than dropped.** Omitting `ADD_DESTINATION` when
+  there is nothing to add was the first implementation and it was worse: a plan
+  is a document a human reads before agreeing to it, so the absence of work is
+  itself worth stating; every plan keeps one shape for `check_ordering` and for
+  whatever executes it; and dropping the step silently removed the ordering
+  assertion `invariant_01` depends on.
+- **A narrower exemption than the first attempt, and why.** That attempt waived
+  the threshold whenever the destination held *anything* installed under the
+  mapped name. Since a destination row is inserted for any mapping with a
+  selected candidate, a `WEAK` or `AMBIGUOUS` mapping whose candidate happened to
+  be installed would have been promoted to `EXACT` and walked past
+  `MANUAL_REVIEW_MAPPING_CONFIDENCE` — the guard that exists precisely for the
+  guess that two differently-named packages are the same software. Caught on
+  self-review before the change landed; the waiver now keys on
+  `request.to == unit.source`, which is identity rather than equivalence.
+- **Each side is addressed by its own spelling.** A unit is keyed by the name
+  under the provider it is attributed to, so once `--to` may name that provider,
+  the source is the other side — whose row is often called something else,
+  `node` for `nodejs24`, `python312` for `python@3.13`. The removal command, its
+  reason and the recorded `PackageIdentity` all used the unit key, which names a
+  package the source side does not have — or, reachably, a *different* package it
+  does, never analysed, mapped or counted for dependents. Found by
+  `security-reviewer`; the destination's verification checks had the mirror of the
+  same defect and now use the destination's name.
+- **An ambiguous request is refused rather than guessed.** One provider's name
+  can be the counterpart of several of another's: `python312` is what MacPorts
+  calls the match for `python@3.12`, `python@3.13` *and* `python@3.14`. Looking
+  the unit up by row name took the first match, so `plan python312 --to macports`
+  planned `python@3.12` — a different package. It now reports the candidates and
+  stops, which is what this project does with every other ambiguous match.
+- **The planner analyses the whole machine.** It scoped the re-analysis to the
+  requested name, and `only` does not merely hide rows — which unit a row lands
+  in depends on what else was built, so scoping changed the unit and the planner
+  reasoned about one the user's view does not contain.
+- **A second defect fixed with it.** A unit's mappings point *away* from its own
+  source, so when the destination was that source there was no mapping toward it
+  to find — yielding no destination package and a `NONE` confidence that stopped
+  the plan at manual review. The destination's own row already says what the
+  package is called there.
+- Evidence: `htop` now plans in both directions with mirrored step kinds;
+  `gnutls --to macports` still stops at review and now says why — three Homebrew
+  packages depend on it — while `--to homebrew` proceeds, because MacPorts has
+  no dependents. The asymmetry that remains is a fact about the machine, not
+  about a name. `invariant_17_a_dual_held_package_plans_in_either_direction`
+  asserts both, and asserts mirrored plans once the one asymmetric fact in the
+  fixture is removed.
+- User impact: consolidating onto either provider is expressible, and a plan no
+  longer opens by proposing an install that would do nothing.
+- **Still emitted, and not fixed here.** The plan continues to warn that it
+  cannot tell whether the destination would supply a prebuilt artifact, even for
+  a package already built and installed there: the risk tests
+  `!dest_row.availability.is_prebuilt()` and never consults the destination's
+  presence. An earlier draft of this entry claimed otherwise. That is F-06 —
+  "`VERIFY_DESTINATION` is satisfiable by pre-existing state", the planner never
+  reading `unit.rows[to].presence` — which this change makes the *designed* shape
+  for every consolidation rather than an accident, and which stays open.
+- Architectural impact: `PlanRequest` still carries only a destination; the
+  source is derived from what holds the package.
+- Compatibility impact: an exit-2 usage error becomes a plan for some inputs.
+  `locales/en.toml` gains one key.
+
+## SE-048 — `--advanced` is a visibility switch and must not change the answer
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
+- Original assumption: advanced mode reveals dependency units; the foundation
+  pass recorded the resulting one-unit difference as a count that "differs by
+  one … Known, not fixed".
+- Change: a unit's identity — driving side, `advanced_only`, the rows it
+  contains — is decided from every provider that holds the package, and
+  visibility is applied afterwards, to finished units. A unit top-level under
+  *any* provider is top-level. The deferral in the merge is unconditional: when
+  another provider's copy drives the unit, that provider's loop builds it and
+  pulls this row in through its mappings.
+- Rationale: the filter ran on rows on the way in, *before* the merge, so which
+  provider built the unit depended on the mode — and with it the unit's source,
+  its `advanced_only` flag and the rules that fired. `analyze` reported `gnutls`
+  under MacPorts while `explain gnutls`, which forces the same path the planner
+  uses, reported Homebrew. Two commands, one input, contradictory answers.
+- **It was not a count artifact.** The unit's source, its `advanced_only` flag
+  and the rules that fired all moved with the flag. The property that holds now
+  is set-identity: the top-level set is **the same 63 units in both modes** on
+  all six recordings, no unit changes source between them, and advanced mode
+  adds 135 dependency units without removing anything.
+- **A claim this entry made and had to withdraw.** It first cited `python@3.14`
+  as a package "installed and top-level under MacPorts" that the default view
+  had hidden. That was wrong twice over: `python@3.14` is a Homebrew formula,
+  installed under Homebrew as a `DEPENDENCY`, and not installed under MacPorts
+  at all. Its appearance in the default view was not this fix working — it was a
+  defect this change introduced, and `security-reviewer` and `spec-guardian`
+  both caught the sentence before it was committed. See the visibility-vote
+  clause below. The episode is recorded rather than quietly deleted because an
+  inference dressed as a measurement is the failure mode this project is built
+  against, and it happened here in the entry arguing for the fix.
+- **The visibility vote requires a strong mapping, not merely an installed row.**
+  Deriving `advanced_only` from "top-level under any provider" let a row attached
+  by a `PROBABLE` mapping vote — so a Homebrew *dependency* was promoted into the
+  default view by a MacPorts row that is only probably the same software, and
+  which three separate units claimed at once. A row votes only if it is the
+  unit's own side or its mapping is `Strong` or better: the same threshold
+  SE-047 refuses to let a guess waive in the planner, applied to the question of
+  what the user sees.
+- **A third defect surfaced by the same change.** `analysis.rs` set the unit's
+  source to the *iterating* provider while `source_for` had chosen another, and
+  deferred only when a unit already existed — otherwise falling through and
+  building one labelled with the wrong side. Its own comment described the
+  correct behaviour; the code did not implement it. The visibility filter had
+  been hiding the second path, and
+  `invariant_17_swapping_the_providers_swaps_the_analysis` failed the moment it
+  stopped.
+- **The deferral asks before it defers.** Making it unconditional was the first
+  attempt and it dropped packages: mappings are scored per direction and are not
+  symmetric, so when the side that drives the unit does not select the deferred
+  row back, nobody builds it. An installed, user-requested port was then reported
+  nowhere — neither unit nor row, in either mode — with `plan` stating it was not
+  installed under any provider. Found by `spec-guardian`, reproduced, and now
+  guarded by two tests: one that enters the branch with an asymmetric mapping and
+  fails without the fix, and a completeness assertion over every installed name
+  in every recording, which the suite had never had.
+- Evidence: source is now identical across modes for every unit;
+  `invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view` asserts the
+  top-level set is unchanged and that no unit changes source, over four
+  fixtures. That one assertion is what the previous test lacked — it claimed
+  only that advanced mode yields *more* units, which stayed true throughout.
+  `every_installed_package_is_reported_somewhere` covers all six.
+- User impact: a top-level package stops being hidden; two commands stop
+  disagreeing.
+- Architectural impact: `build_plan` still forces `advanced: true`, which is now
+  harmless because it no longer changes what a unit is — naming a package is the
+  explicit entry INV-13 requires.
+- Compatibility impact: one golden file changes — one unit added, one source
+  corrected, one outcome no longer falsely `MANUAL_REVIEW`.
+
 # Policy, output and quality
 
 ## SE-009 — Machine-readable output contract, exit codes and error taxonomy
@@ -1047,18 +1272,23 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Change: (1) a unit held by two providers is driven by the provider that
   owns the executable `PATH` resolves for it; when no executable resolves,
   by the first provider id in sorted order, and that fallback is the one
-  place an id order decides anything. (2) The reverse-dependency count the
-  engine sees is the largest count over every provider holding the package,
-  each counted inside its own provider (INV-04) - never summed across them.
+  place an id order decides anything. (2) **Withdrawn 2026-09-02 by SE-045**, on the
+  owner's ruling (DP-010). It read: the reverse-dependency count the engine sees
+  is the largest count over every provider holding the package. A maximum across
+  providers is a cross-provider calculation, which INV-04 and INV-08 forbid, and
+  it reported a count under a provider it had not been counted in. The count is
+  per-provider now; see SE-045, which also records why this was a collision
+  between two Tier 1 invariants rather than an oversight.
   (3) An analysis of a snapshot file is computed as of the snapshot's capture
   date unless `--today` is given, so the output is a function of the file
   alone; a live analysis uses the real date.
 - Rationale: (1) the executable that runs is the only machine fact that
   distinguishes the two copies; choosing by name would make one provider win
   every tie (INV-17), which `invariant_17_swapping_the_providers_swaps_the_analysis`
-  caught on the first implementation. (2) The count exists to block a removal
-  that would break something (INV-04); removing either copy is what a plan
-  may do, so the guard must see the worse side. (3) Without it the same
+  caught on the first implementation. (2) Superseded with the change; the
+  reasoning that a plan "may remove either copy" does not describe the code -
+  a plan removes exactly one named side, and the planner already read that side
+  correctly. See SE-045. (3) Without it the same
   snapshot would give different staleness notices and deadline weights on
   different days, and INV-15 would hold only by accident of the calendar.
 - Evidence: `crates/application/tests/invariants.rs` (INV-17 test failing
@@ -1603,7 +1833,7 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 # Proposed by 02-ARCHITECTURE-REVIEW, not yet accepted
 
-These ten entries are `Status: proposed`. They are grouped rather than filed
+These seven entries are `Status: proposed`. They are grouped rather than filed
 under their topics **deliberately and temporarily**: a proposal that sits beside
 accepted rationale reads as settled, and these need triaging as a set. On
 acceptance each merges into its topical section above under SE-032, keeping its
@@ -1637,30 +1867,6 @@ finding ids in each entry.
 - Architectural impact: none. Data already models it correctly.
 - Compatibility impact: none.
 
-## SE-045 — Reverse-dependency counts are per-provider; SE-042 change (2) is withdrawn
-- Status: proposed (Tier 1 — the owner rules; see DP-010)
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
-- Original assumption: SE-042 change (2) — the guard should see "the worse side",
-  so the engine receives the maximum reverse-dependency count across providers.
-- Change: the engine receives the source provider's own count. Either pass that
-  value, or move `reverse_dependency_count` into the per-provider map in
-  `PackageFacts.per_provider`, where availability already lives correctly.
-- Rationale: INV-04 resolves reverse dependencies "inside that provider" and INV-08
-  forbids one provider's artifact satisfying another's requirement "in any
-  calculation, ever". A cross-provider maximum is such a calculation, and it emits
-  a false statement: for `gnutls` the user is told three MacPorts ports depend on
-  it when zero do and the three are Homebrew's. SE-042's stated rationale does not
-  describe the code — a plan removes exactly one named side, and the planner
-  already reads that side correctly at `planner.rs:152`. A Tier 3–5 entry cannot
-  relax a Tier 1 invariant, which is why this is a proposal and not an edit.
-- Evidence: observed on `both-providers-arm64-macos15.json`; finding F-01.
-- User impact: manual review stops being triggered by a graph the plan does not
-  touch, and the reason text stops naming the wrong provider.
-- Architectural impact: the fix belongs in `analysis.rs:167-180`; the consuming
-  rule already documents the correct behaviour.
-- Compatibility impact: some packages currently classified `MANUAL_REVIEW` become
-  actionable. Golden files change.
-
 ## SE-046 — Ownership with no provider record is `UNKNOWN`, not an inferred `TOP_LEVEL`
 - Status: proposed
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
@@ -1682,48 +1888,6 @@ finding ids in each entry.
   documentation stops claiming a guarantee the code does not provide.
 - Architectural impact: `Ownership::Unknown` becomes reachable for installed rows.
 - Compatibility impact: top-level counts and golden files change if the code moves.
-
-## SE-047 — `--to` names the destination; a dual-held package is migratable in either direction
-- Status: proposed
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
-- Original assumption: the planner infers the source from the unit and refuses when
-  the inferred source equals the requested destination.
-- Change: `--to X` means "X is the destination and the other side is the source".
-  The refusal guard tests whether the **destination already holds the package**, not
-  whether the inferred source happens to equal it.
-- Rationale: for a package installed under both providers the inferred source is
-  decided by map iteration order, so `"homebrew" < "macports"` makes one direction
-  expressible and the other an error. INV-17 says neither direction is a special
-  case in code, and the inexpressible one is the direction the charter calls
-  first-class. The same guard, testing the wrong property, also lets a full
-  install-then-remove plan be built for a package the destination already has.
-- Evidence: observed on three dual-held packages; all 8 plan invocations in the
-  suite are toward one provider. Finding F-02.
-- User impact: consolidating onto either provider becomes possible and symmetric.
-- Architectural impact: `PlanRequest` may need an explicit source for dual-held
-  units.
-- Compatibility impact: an exit-2 usage error becomes a plan for some inputs.
-
-## SE-048 — `--advanced` is a visibility switch and must not change the answer
-- Status: proposed
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
-- Original assumption: advanced mode reveals dependency units; the foundation pass
-  recorded the resulting one-unit difference as a display artifact.
-- Change: decide a unit's identity — driving side, `advanced_only`, class — across
-  all providers holding the name, and apply the visibility filter afterwards. A unit
-  top-level in *any* provider is top-level. `build_plan` stops hardcoding
-  `advanced: true`.
-- Rationale: it is not a display artifact. With the flag, a package that is
-  top-level under one provider by that provider's authoritative record is *removed*
-  from the top-level set, its source flips, and the rule set that fires changes —
-  so a visibility flag recomputes policy, which INV-13 does not contemplate. Because
-  the planner forces the flag internally, `analyze` and `explain` report different
-  source providers for one input.
-- Evidence: 63 versus 62 top-level units with the source flip and a dropped reason;
-  finding F-03.
-- User impact: two commands stop contradicting each other.
-- Architectural impact: the merge in `analysis.rs:102-146` is reordered.
-- Compatibility impact: golden files change.
 
 ## SE-049 — A verification check must be able to fail
 - Status: proposed

@@ -54,7 +54,6 @@ no clock, no environment (INV-14).
 | `classes` | `ClassSet` | An empty set means a plain, self-contained package |
 | `installedVersion` | string, nullable | |
 | `perProvider` | map of provider id to `PackageProviderFacts` | **The source and every mapping candidate use the same map**, so neither direction is a special case (INV-17) |
-| `reverseDependencyCount` | integer | **Within the source provider only.** Never counted across providers (INV-04) |
 | `coexistenceRequested` | boolean | Whether the user asked for it under both |
 
 ### `PackageProviderFacts`
@@ -69,6 +68,7 @@ no clock, no environment (INV-14).
 | `replacedBy` | string, nullable | |
 | `mappingConfidence` | string | `NONE`, `AMBIGUOUS`, `PROBABLE`, `STRONG`, `EXACT`. `EXACT` for the source itself, because the source is not a mapping |
 | `mappedName` | string, nullable | The name under this provider, when known |
+| `reverseDependencyCount` | integer | How many packages **inside this provider** depend on this one. Per-provider because INV-04 counts inside one provider and INV-08 forbids the substitution; it replaced a single figure on `PackageFacts` that was filled with the maximum across providers (SE-045, DP-010) |
 
 ## `Derivation`
 
@@ -139,7 +139,6 @@ answer:
           "mappedName": null
         }
       },
-      "reverseDependencyCount": 2,
       "coexistenceRequested": false
     }
   },
@@ -147,7 +146,8 @@ answer:
     "factsUsed": [
       ["machine.architecture", "x86_64"],
       ["machine.macos", "26.6.2"],
-      ["package.reverseDependencyCount", "2"],
+      ["package.homebrew.reverseDependencyCount", "3"],
+      ["package.macports.reverseDependencyCount", "0"],
       ["provider.homebrew.supportEndDate", "2027-09-01"]
     ],
     "fired": [

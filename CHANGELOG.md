@@ -74,6 +74,36 @@ to answer.
   request templates, and six contributor skills under `.claude/skills/`
   written from the same source as the recipes.
 
+### Fixed
+
+- **A package held by both providers can be migrated in either direction.**
+  `--to` was compared against the unit's *inferred* source, which falls back to
+  provider-id order, so one direction produced a plan and the mirror an error
+  for the same machine. `--to` names the destination now and the other holder is
+  the source (SE-047). Where the two directions still differ it is because of a
+  fact — dependents on one side — and the plan says which side.
+- **A plan no longer proposes installing what the destination already has.** The
+  step remains, saying so, and carries no command. It still warns that it cannot
+  tell whether the destination would supply a prebuilt artifact — that is a
+  separate open finding about verification reading pre-existing state.
+- **`--advanced` no longer changes the answer.** It decided which provider built
+  a unit, and with it the unit's source, its visibility flag and the rules that
+  fired — so `analyze` and `explain` could disagree about which provider held a
+  package. Unit identity is now decided before visibility is applied, and the
+  top-level set is the same in both modes (SE-048).
+- **A removal names the package as the provider being removed from calls it.**
+  A unit is keyed by one provider's spelling; the other side often uses another
+  (`node` for `nodejs24`). Now that either side can be the source, addressing the
+  removal by the unit key could name a package that side does not have — or a
+  different one it does.
+- **An ambiguous package name is refused rather than guessed.** `python312` is
+  what MacPorts calls the counterpart of three separate Homebrew packages;
+  planning by that name silently picked the first.
+- **Reverse dependencies are counted inside one provider.** The engine received
+  the maximum across providers and reported it under the source's name, telling
+  the user that three MacPorts ports depended on a package when none did and the
+  three were Homebrew's. The count is per-provider (SE-045, DP-010).
+
 ### Security
 
 - **`doctor --report` and `snapshot --out` no longer publish the home path when
