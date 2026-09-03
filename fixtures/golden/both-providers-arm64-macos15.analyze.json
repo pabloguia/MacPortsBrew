@@ -1946,7 +1946,7 @@
               "confidence": "STRONG",
               "evidence": [
                 {
-                  "detail": "https://gnutls.org/",
+                  "detail": "https://www.gnutls.org/",
                   "kind": "homepage",
                   "weight": 30
                 },
@@ -1958,17 +1958,17 @@
               ],
               "package": {
                 "name": "gnutls",
-                "provider": "homebrew"
+                "provider": "macports"
               }
             }
           ],
           "confidence": "STRONG",
-          "destination": "homebrew",
+          "destination": "macports",
           "selected": {
             "confidence": "STRONG",
             "evidence": [
               {
-                "detail": "https://gnutls.org/",
+                "detail": "https://www.gnutls.org/",
                 "kind": "homepage",
                 "weight": 30
               },
@@ -1980,12 +1980,12 @@
             ],
             "package": {
               "name": "gnutls",
-              "provider": "homebrew"
+              "provider": "macports"
             }
           },
           "source": {
             "name": "gnutls",
-            "provider": "macports"
+            "provider": "homebrew"
           }
         }
       ],
@@ -2009,7 +2009,7 @@
             "id": "reason.keep_source_default",
             "params": {
               "package": "gnutls",
-              "provider": "macports"
+              "provider": "homebrew"
             },
             "rule": "KEEP_SOURCE_DEFAULT"
           },
@@ -2017,18 +2017,9 @@
             "id": "reason.reverse_dependencies_present",
             "params": {
               "count": "3",
-              "provider": "macports"
+              "provider": "homebrew"
             },
             "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
-          },
-          {
-            "id": "reason.destination_offers_prebuilt",
-            "params": {
-              "cause": "NON_DEFAULT_OPTIONS",
-              "destination": "homebrew",
-              "source": "macports"
-            },
-            "rule": "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT"
           }
         ],
         "rulesNotFired": [
@@ -2041,6 +2032,7 @@
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
           "NO_ACTION_ALREADY_THERE",
           "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
       },
@@ -2137,7 +2129,7 @@
           "reverseDependencyCount": 0
         }
       },
-      "source": "macports"
+      "source": "homebrew"
     },
     {
       "advancedOnly": false,
@@ -3788,14 +3780,6 @@
             "rule": "MANUAL_REVIEW_MAPPING_CONFIDENCE"
           },
           {
-            "id": "reason.reverse_dependencies_present",
-            "params": {
-              "count": "4",
-              "provider": "macports"
-            },
-            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
-          },
-          {
             "id": "reason.runtime_family_managed_elsewhere",
             "params": {
               "family": "nodejs",
@@ -3810,6 +3794,7 @@
           "MANUAL_REVIEW_CLASS",
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
           "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
           "NO_ACTION_ALREADY_THERE",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
@@ -5266,7 +5251,7 @@
       "name": "python@3.12",
       "recommendation": {
         "outcome": {
-          "kind": "MANUAL_REVIEW"
+          "kind": "USE_RUNTIME_MANAGER"
         },
         "policyVersion": "2026.09.02-1",
         "reasons": [
@@ -5288,14 +5273,6 @@
             "rule": "KEEP_SOURCE_DEFAULT"
           },
           {
-            "id": "reason.reverse_dependencies_present",
-            "params": {
-              "count": "1",
-              "provider": "homebrew"
-            },
-            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
-          },
-          {
             "id": "reason.runtime_family_managed_elsewhere",
             "params": {
               "family": "python",
@@ -5311,6 +5288,7 @@
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
           "NO_ACTION_ALREADY_THERE",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
@@ -7432,10 +7410,11 @@
     "byOutcome": {
       "KEEP": 38,
       "KEEP_BOTH": 2,
-      "MANUAL_REVIEW": 23
+      "MANUAL_REVIEW": 22,
+      "USE_RUNTIME_MANAGER": 1
     },
     "dependencyUnits": 0,
-    "manualReview": 23,
+    "manualReview": 22,
     "topLevelUnits": 63
   },
   "today": "2026-09-02",

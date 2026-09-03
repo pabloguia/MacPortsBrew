@@ -95,6 +95,7 @@ pub fn package_at(
         installed: present,
         available_version: Some(Version::new("1.0")),
         availability: availability(state),
+        reverse_dependency_count: 0,
         deprecated: false,
         disabled: false,
         replaced_by: None,
@@ -142,7 +143,6 @@ pub fn baseline() -> Facts {
             classes: ClassSet::simple(),
             installed_version: Some(Version::new("1.0")),
             per_provider,
-            reverse_dependency_count: 0,
             coexistence_requested: false,
         },
     }
@@ -202,5 +202,16 @@ pub fn swap_outcome(outcome: &Outcome, a: &ProviderId, b: &ProviderId) -> Outcom
             primary: rename(primary),
         },
         other => other.clone(),
+    }
+}
+
+/// Sets how many packages depend on this one **inside the source provider**.
+///
+/// The count is per-provider (DP-010, SE-045), so a test has to say which side
+/// it means; every existing caller means the source.
+pub fn with_reverse_dependencies(facts: &mut Facts, count: u32) {
+    let source = facts.package.source.clone();
+    if let Some(per) = facts.package.per_provider.get_mut(&source) {
+        per.reverse_dependency_count = count;
     }
 }

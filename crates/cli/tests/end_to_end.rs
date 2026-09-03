@@ -733,6 +733,94 @@ fn json_goes_to_stdout_and_nothing_else_does() {
 }
 
 #[test]
+fn every_installed_package_is_reported_somewhere() {
+    // The assertion the suite never had, and the one that would have caught a
+    // package disappearing. Making the unit merge defer to the provider whose
+    // executable resolves is right, but mappings are scored per direction and
+    // are not symmetric, so the other side does not always claim the row back -
+    // and an installed, user-requested port was then reported nowhere at all,
+    // in either mode, while `plan` said it was not installed under any
+    // provider. Tidiness is not worth a package vanishing.
+    //
+    // Stated over the inventory rather than over the units, because that is the
+    // direction the defect ran: units looked fine, one input had no output.
+    let scratch = Scratch::new("completeness");
+    for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED, BROKEN, NEITHER] {
+        let advanced = json_run(&scratch, name, &["analyze", "--advanced"], true);
+        let reported: std::collections::BTreeSet<(String, String)> = units(&advanced)
+            .iter()
+            .flat_map(|u| {
+                u["rows"].as_object().into_iter().flat_map(|rows| {
+                    rows.iter().filter_map(|(provider, row)| {
+                        row["installed"].as_array().filter(|i| !i.is_empty())?;
+                        Some((provider.clone(), row["name"].as_str()?.to_string()))
+                    })
+                })
+            })
+            .collect();
+        for (provider, p) in advanced["providers"].as_object().expect("providers") {
+            if p["detection"]["presence"]["state"] != "PRESENT" {
+                continue;
+            }
+            for row in p["inventory"]["installed"].as_array().into_iter().flatten() {
+                let installed = row["identity"]["name"].as_str().unwrap_or_default();
+                assert!(
+                    reported.contains(&(provider.clone(), installed.to_string())),
+                    "{name}: {provider} has {installed} installed and the analysis \
+                     reports it under no unit, as neither a unit nor a row"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view() {
+    // One assertion, and it is the one that was missing. The suite asserted
+    // only that advanced mode yields *more* units, which stayed true while
+    // `--advanced` was quietly removing a user-requested package from the
+    // top-level set and flipping its source with it - the foundation pass
+    // recorded that as a count that "differs by one … Known, not fixed".
+    //
+    // The property that actually holds: visibility is applied to finished
+    // units, so the top-level set is identical in both modes and advanced mode
+    // only reveals dependencies (SE-048).
+    let scratch = Scratch::new("advanced-additive");
+    for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED] {
+        let plain = json_ok(&scratch, name, &["analyze"]);
+        // `--advanced` writes its documented notice to stderr, which is the
+        // point of notices being on stderr at all.
+        let advanced = json_run(&scratch, name, &["analyze", "--advanced"], true);
+
+        let top = |v: &Value| -> Vec<String> {
+            units(v)
+                .iter()
+                .filter(|u| u["advancedOnly"] != true)
+                .map(|u| u["name"].as_str().unwrap_or_default().to_string())
+                .collect()
+        };
+        assert_eq!(
+            top(&plain),
+            top(&advanced),
+            "{name}: the top-level set must not change with a visibility flag"
+        );
+        assert!(
+            units(&advanced).len() >= units(&plain).len(),
+            "{name}: advanced mode reveals, it does not hide"
+        );
+        // And the unit's identity is the same in both, not only its presence.
+        for u in units(&plain) {
+            let n = u["name"].as_str().unwrap_or_default();
+            let same = units(&advanced)
+                .iter()
+                .find(|a| a["name"] == u["name"])
+                .unwrap_or_else(|| panic!("{name}: {n} vanished under --advanced"));
+            assert_eq!(u["source"], same["source"], "{name}: {n} changed source");
+        }
+    }
+}
+
+#[test]
 fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() {
     // The redaction policy is chosen in `Context::build`, and nothing else
     // observes the choice — so without this the mapping could be flipped from

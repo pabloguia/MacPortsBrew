@@ -47,10 +47,19 @@ pub struct PackageInputs<'a> {
     pub classes: &'a ClassSet,
     /// Installed version under the source.
     pub installed_version: Option<Version>,
-    /// Reverse dependencies within the source provider.
-    pub reverse_dependency_count: u32,
     /// Mappings toward every other provider.
     pub mappings: &'a [PackageMapping],
+}
+
+/// How many packages inside one provider depend on `name` there.
+///
+/// Derived here, next to every other per-provider fact, rather than handed in
+/// by the caller. The caller used to pass a single number and computed it as the
+/// maximum across providers, which is the cross-provider calculation INV-08
+/// forbids — and it reached the user as a count attributed to a provider it did
+/// not come from (DP-010, SE-045).
+fn count_within(p: &macportsbrew_domain::ProviderSnapshot, name: &str) -> u32 {
+    u32::try_from(p.inventory.reverse_dependencies_of(name).len()).unwrap_or(u32::MAX)
 }
 
 /// Builds the engine input for one package.
@@ -81,6 +90,7 @@ pub fn package_facts(
                 replaced_by: meta.and_then(|m| m.replaced_by.clone()),
                 mapping_confidence: Confidence::Exact,
                 mapped_name: Some(inputs.name.to_string()),
+                reverse_dependency_count: count_within(p, inputs.name),
             },
         );
     }
@@ -117,6 +127,12 @@ pub fn package_facts(
                 disabled: meta.is_some_and(|m| m.disabled.is_some()),
                 replaced_by: meta.and_then(|m| m.replaced_by.clone()),
                 mapping_confidence: mapping.confidence,
+                reverse_dependency_count: match (&mapped, installed) {
+                    // Only a provider that actually holds the package can have
+                    // anything depending on it there.
+                    (Some(n), true) => count_within(p, n),
+                    _ => 0,
+                },
                 mapped_name: mapped,
             },
         );
@@ -133,7 +149,6 @@ pub fn package_facts(
             classes: inputs.classes.clone(),
             installed_version: inputs.installed_version.clone(),
             per_provider,
-            reverse_dependency_count: inputs.reverse_dependency_count,
             coexistence_requested: false,
         },
     }

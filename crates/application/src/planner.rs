@@ -26,6 +26,7 @@ pub const REASON_IDS: &[&str] = &[
     "reason.availability_unknown",
     "reason.snapshot_before_mutation",
     "reason.add_under_destination",
+    "reason.already_under_destination",
     "reason.verify_destination",
     "reason.set_primary_shim",
     "reason.verify_resolution",
@@ -56,32 +57,107 @@ pub fn build_plan(
     options: &AnalysisOptions,
     request: &PlanRequest,
 ) -> Result<MigrationPlan, DomainError> {
+    // Analyse the whole machine and pick the unit afterwards, rather than
+    // filtering the analysis down to the requested name.
+    //
+    // `only` does not merely hide rows: which unit a row ends up in depends on
+    // what else was built, because the merge marks counterpart identities as
+    // seen. Scoping the analysis to one name therefore *changed the unit*, and
+    // the planner then reasoned about a unit the user's view does not contain.
+    // Measured on the shipped fixture: `plan python@3.13 --to macports` and
+    // `plan python312 --to macports` - the two spellings of one package -
+    // produced plans for different packages, the second naming `python@3.12`.
+    // Two others produced a plan by one spelling and nothing by the other.
+    //
+    // Advanced, because a plan may legitimately be asked for a package that is
+    // a dependency somewhere: naming it is the explicit entry INV-13 requires.
+    // With SE-048 that no longer changes a unit's identity either, so the
+    // planner and the view the user was shown now genuinely agree.
     let opts = AnalysisOptions {
         advanced: true,
-        only: [request.package.clone()].into_iter().collect(),
+        only: std::collections::BTreeSet::default(),
         ..options.clone()
     };
     let analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
-    let unit = analysis
+    // An exact unit name wins outright; only if nothing matches by name do we
+    // look at what each provider calls its rows.
+    let matches: Vec<&_> = analysis
         .packages
         .iter()
-        .find(|p| p.name == request.package || p.rows.values().any(|r| r.name == request.package))
-        .ok_or_else(|| {
-            DomainError::new(
+        .filter(|p| p.name == request.package)
+        .collect();
+    let matches = if matches.is_empty() {
+        analysis
+            .packages
+            .iter()
+            .filter(|p| p.rows.values().any(|r| r.name == request.package))
+            .collect()
+    } else {
+        matches
+    };
+    let unit = match matches.as_slice() {
+        [] => {
+            return Err(DomainError::new(
                 ErrorId::PackageNotFound,
                 format!(
                     "{} is not installed under any detected provider",
                     request.package
                 ),
-            )
-        })?;
-    let source = unit.source.clone();
-    if source == request.to {
+            ))
+        }
+        [only] => *only,
+        // One provider's name can be the counterpart of several of another's:
+        // `python312` is what MacPorts calls the match for `python@3.12`,
+        // `python@3.13` and `python@3.14`. Taking the first was silent and
+        // wrong - asking to plan `python312` produced a plan for `python@3.12`,
+        // a different package. Ambiguity never acts automatically here; it is
+        // reported with the choices, like every other ambiguous match.
+        many => {
+            let mut names: Vec<&str> = many.iter().map(|u| u.name.as_str()).collect();
+            names.sort_unstable();
+            return Err(DomainError::new(
+                ErrorId::Usage,
+                format!(
+                    "{} is how {} names the counterpart of more than one package: {}. \
+                     Name the one you mean.",
+                    request.package,
+                    many[0]
+                        .rows
+                        .iter()
+                        .find(|(_, r)| r.name == request.package)
+                        .map_or("that provider", |(id, _)| id.as_str()),
+                    names.join(", ")
+                ),
+            ));
+        }
+    };
+    // `--to X` names the **destination**; the source is the other side that
+    // actually holds the package. It used to name neither: the guard compared
+    // the destination against the unit's inferred source, so for a package both
+    // providers hold - where that inference falls back to id order - one
+    // direction produced a plan and the mirrored one an error (INV-17, SE-047).
+    let holders: Vec<&ProviderId> = unit
+        .rows
+        .iter()
+        .filter(|(_, r)| !r.installed.is_empty())
+        .map(|(id, _)| id)
+        .collect();
+    let Some(source) = holders
+        .iter()
+        .find(|id| **id != &request.to)
+        .map(|id| (*id).clone())
+    else {
+        // Nothing holds it but the destination, so there is nothing to move.
         return Err(DomainError::new(
             ErrorId::Usage,
             format!("{} is already held by {}", unit.name, request.to),
         ));
-    }
+    };
+    // Whether the destination already has it decides the shape of the plan
+    // rather than whether there is one: consolidating onto a provider that
+    // already holds the package is a removal from the other side, not an
+    // install that would be a no-op.
+    let destination_holds_it = holders.iter().any(|id| **id == request.to);
     let dest_snapshot = snapshot.providers.get(&request.to).ok_or_else(|| {
         DomainError::new(
             ErrorId::ProviderNotFound,
@@ -89,15 +165,36 @@ pub fn build_plan(
         )
     })?;
     let commands = provider_commands::load()?;
+    // A unit's mappings point away from its own source, so when the destination
+    // *is* that source - consolidating onto the side the unit is attributed to -
+    // there is no mapping toward it to find, and asking for one yielded no
+    // destination package and a `NONE` confidence that blocked the plan at
+    // manual review. The destination's own row already says what the package is
+    // called there, and an installed counterpart is a fact rather than a guess.
     let mapping = unit
         .mappings
         .iter()
         .find(|m| m.destination == request.to)
         .cloned();
-    let destination_package = mapping
-        .as_ref()
-        .and_then(|m| m.selected.as_ref().map(|c| c.package.name.clone()));
+    let destination_row = unit.rows.get(&request.to);
+    let destination_package = if request.to == unit.source {
+        destination_row.map(|r| r.name.clone())
+    } else {
+        mapping
+            .as_ref()
+            .and_then(|m| m.selected.as_ref().map(|c| c.package.name.clone()))
+    };
     let source_row = &unit.rows[&source];
+    // What the package is called **on the side being removed from**. It is not
+    // always `unit.name`: a unit is keyed by the spelling under the provider it
+    // is attributed to, and now that `--to` may name that very provider, the
+    // source is the other side, whose row often carries a different name -
+    // `node` for `nodejs24`, `python312` for `python@3.13`. Addressing the
+    // removal by the unit key emitted a command against a package that side does
+    // not have, or - worse, and reachable - against a *different* package that it
+    // does, one never analysed, mapped or counted for dependents (INV-02: nothing
+    // outside the plan happens; here the plan itself named the wrong thing).
+    let source_name = source_row.name.clone();
     let kind = source_row
         .installed
         .first()
@@ -133,7 +230,35 @@ pub fn build_plan(
                 .with("class", &format!("{:?}", unit.class.dominant())),
         );
     }
-    let confidence = mapping.as_ref().map_or(Confidence::None, |m| m.confidence);
+    // Only the unit's own side is exempt from the mapping threshold, and only
+    // because it is not a mapping: when the destination *is* the provider the
+    // unit is attributed to, the "counterpart" is the package itself, so there
+    // is no equivalence to be unsure about and no mapping toward it to score.
+    //
+    // Deliberately narrower than "the destination holds something". A weak or
+    // ambiguous mapping whose candidate happens to be installed is still a
+    // guess about whether two differently-named packages are the same software,
+    // and treating it as certain because a name matched something on disk would
+    // walk straight past `MANUAL_REVIEW_MAPPING_CONFIDENCE` — the guard that
+    // exists for exactly that guess.
+    // The threshold always scores the guess that identifies the package being
+    // *removed*, because that is the destructive half.
+    //
+    // Normally that is the mapping toward the destination. When the destination
+    // is the unit's own side there is no such mapping - and no equivalence to be
+    // unsure about, since the destination is the package itself - but the
+    // *source* row got there by a mapping, and that is now the guess that says
+    // what will be uninstalled. Waiving the threshold outright in that branch
+    // would have exempted exactly the wrong side: `python@3.13`'s counterpart is
+    // selected at `PROBABLE`, and Python 3.13 and 3.12 are not the same software.
+    let confidence = if request.to == unit.source {
+        unit.mappings
+            .iter()
+            .find(|m| m.destination == source)
+            .map_or(Confidence::None, |m| m.confidence)
+    } else {
+        mapping.as_ref().map_or(Confidence::None, |m| m.confidence)
+    };
     if !confidence.is_strong() {
         push_block(
             &mut risks,
@@ -217,21 +342,45 @@ pub fn build_plan(
             Reason::new("reason.snapshot_before_mutation"),
         ));
         let dest_name = destination_package.clone().unwrap_or_default();
+        // The step stays in the plan when the destination already holds the
+        // package, and carries no command. Consolidating onto a provider that
+        // already has it is a removal from the other side, and the plan used to
+        // open by proposing an install that would do nothing - and to warn that
+        // it could not tell whether the destination would supply a prebuilt
+        // artifact for something already built and installed there.
+        //
+        // Saying "already present, nothing to add" is better than omitting the
+        // step: the plan is a document a human reads before agreeing to it, so
+        // the absence of work is itself worth stating, and every plan keeps the
+        // same shape for `check_ordering` and for whatever executes it.
+        let (add_commands, add_reason) = if destination_holds_it {
+            (
+                vec![],
+                Reason::new("reason.already_under_destination")
+                    .with("package", &dest_name)
+                    .with("provider", &request.to),
+            )
+        } else {
+            (
+                vec![command(
+                    &commands,
+                    dest_snapshot,
+                    &request.to,
+                    "add",
+                    &dest_name,
+                    kind,
+                )],
+                Reason::new("reason.add_under_destination")
+                    .with("package", &dest_name)
+                    .with("provider", &request.to),
+            )
+        };
         steps.push(next(
             StepKind::AddDestination,
             Some(request.to.clone()),
-            vec![command(
-                &commands,
-                dest_snapshot,
-                &request.to,
-                "add",
-                &dest_name,
-                kind,
-            )],
+            add_commands,
             vec![],
-            Reason::new("reason.add_under_destination")
-                .with("package", &dest_name)
-                .with("provider", &request.to),
+            add_reason,
         ));
         steps.push(next(
             StepKind::VerifyDestination,
@@ -248,10 +397,10 @@ pub fn build_plan(
                 VerificationCheck::ProviderReportsActive,
                 VerificationCheck::ProviderIntegrityCheck,
                 VerificationCheck::ExecutablesOwnedByDestination {
-                    executables: vec![unit.name.clone()],
+                    executables: vec![dest_name.clone()],
                 },
                 VerificationCheck::LivenessProbe {
-                    executable: unit.name.clone(),
+                    executable: dest_name.clone(),
                     flag: "--version".into(),
                 },
                 VerificationCheck::NoCrossProviderLinkage,
@@ -290,12 +439,12 @@ pub fn build_plan(
                     src_snapshot,
                     &source,
                     "remove",
-                    &unit.name,
+                    &source_name,
                     kind,
                 )],
                 vec![],
                 Reason::new("reason.remove_from_source")
-                    .with("package", &unit.name)
+                    .with("package", &source_name)
                     .with("provider", &source),
             ));
             steps.push(next(
@@ -337,7 +486,7 @@ pub fn build_plan(
         .collect();
     let plan = MigrationPlan {
         schema_version: PLAN_SCHEMA_VERSION,
-        package: PackageIdentity::new(source.clone(), unit.name.clone()),
+        package: PackageIdentity::new(source.clone(), source_name.clone()),
         source,
         destination: request.to.clone(),
         destination_package,

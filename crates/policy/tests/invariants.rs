@@ -157,7 +157,7 @@ fn scenarios() -> Vec<(&'static str, Facts)> {
         .add(PackageClass::Runtime, "fixture", "fixture");
 
     let mut dependents = testing::baseline();
-    dependents.package.reverse_dependency_count = 3;
+    testing::with_reverse_dependencies(&mut dependents, 3);
 
     vec![
         ("baseline", testing::baseline()),
@@ -620,15 +620,21 @@ fn every_reason_the_rules_can_emit_is_in_the_catalogue() {
 
 #[test]
 fn invariant_04_reverse_dependencies_are_read_only_from_the_source_provider() {
-    // Partly type-level, and deliberately so: `reverse_dependency_count` is a
-    // field of `PackageFacts`, which is scoped to the package on the side
-    // holding it, and `PackageProviderFacts` — the per-provider row — carries
-    // no dependents field at all. There is therefore no way to express a
-    // cross-provider count in the engine's input, which is a stronger
-    // guarantee than any rule checking itself.
+    // This test used to argue the opposite of what was true. Its comment held
+    // that keeping the count as one field on `PackageFacts` made a
+    // cross-provider count impossible to express — and the single scalar was
+    // precisely what allowed one to be smuggled in, because a lone number
+    // cannot say which provider it came from. `analysis.rs` filled it with the
+    // maximum across every provider holding the package, and the engine
+    // reported three MacPorts dependents for a package that had none there.
+    //
+    // The count is per-provider now (DP-010, SE-045), so the guarantee is real:
+    // every number is keyed by the provider it was counted in, and the rule
+    // reads the source's own. The second half of this test is the assertion
+    // that was missing and that would have caught the defect.
     let data = data();
     let mut facts = testing::baseline();
-    facts.package.reverse_dependency_count = 4;
+    testing::with_reverse_dependencies(&mut facts, 4);
 
     let recommendation = engine::recommend(&facts, &data);
     assert_eq!(recommendation.outcome, Outcome::ManualReview);
@@ -655,6 +661,28 @@ fn invariant_04_reverse_dependencies_are_read_only_from_the_source_provider() {
     assert_eq!(
         mirrored_reason.params.get("provider").map(String::as_str),
         Some(testing::beta().as_str())
+    );
+
+    // The assertion that was missing, and the one the defect needed. Dependents
+    // on the *other* side, none on the source: the rule must stay silent. A
+    // single cross-provider count made this fire, and named the source as the
+    // provider the dependents were in.
+    let mut only_elsewhere = testing::baseline();
+    testing::with_reverse_dependencies(&mut only_elsewhere, 0);
+    let other = testing::beta();
+    only_elsewhere
+        .package
+        .per_provider
+        .get_mut(&other)
+        .expect("the baseline carries both sides")
+        .reverse_dependency_count = 7;
+    assert!(
+        !engine::recommend(&only_elsewhere, &data)
+            .reasons
+            .iter()
+            .any(|r| r.id.as_str() == reasons::REVERSE_DEPENDENCIES_PRESENT),
+        "dependents under another provider must not block a removal from this one \
+         (INV-04 counts inside one provider; INV-08 forbids the substitution)"
     );
 }
 

@@ -248,6 +248,153 @@ fn plan_for(
 }
 
 #[test]
+fn a_deferred_row_the_other_side_does_not_claim_is_still_reported() {
+    // Mappings are scored per direction and are not symmetric. The curated
+    // table maps `macports/postgresql17-server` to a single Homebrew candidate,
+    // so it selects; `homebrew/postgresql@17` maps to two MacPorts candidates,
+    // so it selects neither. When the MacPorts row defers to Homebrew on the
+    // strength of the first, the second means Homebrew never pulls it back in.
+    //
+    // Deferring unconditionally therefore dropped an installed, user-requested
+    // port on the floor: reported under no unit, as neither a unit nor a row,
+    // in either mode, with `plan` stating it was not installed under any
+    // provider. No shipped recording carries a `resolutions` map, so nothing
+    // else in the suite enters this branch at all.
+    let mut snap = both_present();
+    let mp = snap.providers.get_mut(&ProviderId::new(MP)).unwrap();
+    let mut row = mp.inventory.installed[0].clone();
+    row.identity = macportsbrew_domain::PackageIdentity::new(
+        ProviderId::new(MP),
+        "postgresql17-server".to_string(),
+    );
+    row.requested = Some(true);
+    mp.inventory.installed.push(row);
+    // The resolution is what makes the other side drive the unit (SE-042).
+    mp.resolutions.insert(
+        "postgresql17-server".into(),
+        Resolution {
+            executable: "postgresql17-server".into(),
+            path: Some(PathBuf::from("/opt/homebrew/bin/postgres")),
+            canonical_path: None,
+            owner: ExecutableOwner::Provider {
+                provider: ProviderId::new(HB),
+                package: Some("postgresql@17".to_string()),
+            },
+            authoritative: true,
+        },
+    );
+
+    for advanced in [false, true] {
+        let analysis = analyze(
+            &snap,
+            &policy(),
+            &AnalysisOptions {
+                advanced,
+                ..options()
+            },
+            AnalysisSource::Snapshot,
+        );
+        let found = analysis.packages.iter().any(|u| {
+            u.name == "postgresql17-server"
+                || u.rows.values().any(|r| r.name == "postgresql17-server")
+        });
+        assert!(
+            found,
+            "an installed, requested port must be reported somewhere \
+             (advanced = {advanced})"
+        );
+    }
+}
+
+#[test]
+fn invariant_17_a_dual_held_package_plans_in_either_direction() {
+    // The asymmetry this test exists for: every one of the suite's plan
+    // invocations pointed at the same provider, so nothing exercised the
+    // direction the charter calls first-class. For a package both providers
+    // hold, `--to` used to be compared against the unit's *inferred* source -
+    // which falls back to id order - so one direction produced a plan and the
+    // mirror produced a usage error. `--to` names the destination now, and the
+    // other holder is the source (SE-047).
+    // `both_present` is deliberately asymmetric: under MacPorts, `other`
+    // depends on `tool`, and under Homebrew nothing does. So the two directions
+    // *should* differ - one removal breaks a dependent and the other does not -
+    // and both must still be accepted rather than refused as a usage error,
+    // which is the defect. Assert that first, on the fixture as it stands.
+    let asymmetric = both_present();
+    for dest in [MP, HB] {
+        let plan = plan_for(&asymmetric, "tool", dest, false);
+        assert!(
+            plan.check_ordering().is_ok(),
+            "a plan toward {dest} is produced rather than refused"
+        );
+    }
+    // Then remove the one asymmetric fact, and the two directions must be the
+    // same plan with the providers exchanged.
+    let mut snap = both_present();
+    snap.providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .inventory
+        .dependencies
+        .clear();
+    let to_mp = plan_for(&snap, "tool", MP, false);
+    let to_hb = plan_for(&snap, "tool", HB, false);
+
+    for (plan, dest) in [(&to_mp, MP), (&to_hb, HB)] {
+        assert!(
+            plan.check_ordering().is_ok(),
+            "ordering holds toward {dest}"
+        );
+        let kinds: Vec<StepKind> = plan.steps.iter().map(|s| s.kind).collect();
+        assert!(
+            kinds.contains(&StepKind::RemoveSource),
+            "a migration toward {dest} removes from the other side: {kinds:?}"
+        );
+        let verify = kinds
+            .iter()
+            .position(|k| *k == StepKind::VerifyDestination)
+            .expect("the destination is verified");
+        let remove = kinds
+            .iter()
+            .position(|k| *k == StepKind::RemoveSource)
+            .expect("the source is removed");
+        assert!(verify < remove, "INV-01 holds toward {dest}");
+    }
+    // Mirrored, not merely both non-empty: the same step kinds in the same
+    // order, with the providers exchanged.
+    let kinds = |p: &macportsbrew_domain::MigrationPlan| -> Vec<StepKind> {
+        p.steps.iter().map(|s| s.kind).collect()
+    };
+    assert_eq!(
+        kinds(&to_mp),
+        kinds(&to_hb),
+        "the two directions must be the same plan with the providers swapped"
+    );
+}
+
+#[test]
+fn a_destination_that_already_holds_the_package_is_told_so_rather_than_reinstalled() {
+    // `both_present` has the counterpart installed under the destination, so
+    // there is nothing to add. The step stays - a plan is a document a human
+    // reads, and the absence of work is worth stating - but it carries no
+    // command, and it used to carry an install that would do nothing plus a
+    // warning about whether the destination could supply a prebuilt artifact
+    // for something already built and installed there.
+    let plan = plan_for(&both_present(), "tool", MP, false);
+    let add = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::AddDestination)
+        .expect("the step is present even when there is nothing to add");
+    assert!(
+        add.commands.is_empty(),
+        "nothing is installed over an installed package: {:?}",
+        add.commands
+    );
+    assert_eq!(add.reason.id.as_str(), "reason.already_under_destination");
+}
+
+#[test]
 fn invariant_01_destination_is_added_and_verified_before_the_source_is_removed() {
     // A package only under Homebrew with a STRONG mapping to an installed
     // MacPorts counterpart is the case where a plan has every step.

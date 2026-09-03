@@ -71,9 +71,6 @@ pub struct PackageFacts {
     /// mapping produced. Both directions use the same map, so neither is a
     /// special case (INV-17).
     pub per_provider: BTreeMap<ProviderId, PackageProviderFacts>,
-    /// How many packages inside the source provider depend on this one
-    /// (INV-04: never counted across providers).
-    pub reverse_dependency_count: u32,
     /// Whether the user asked for the package to exist under both providers.
     pub coexistence_requested: bool,
 }
@@ -99,6 +96,22 @@ pub struct PackageProviderFacts {
     pub mapping_confidence: Confidence,
     /// The name the package carries under this provider, when known.
     pub mapped_name: Option<String>,
+    /// How many packages **inside this provider** depend on this one.
+    ///
+    /// Per-provider because INV-04 resolves reverse dependencies "inside that
+    /// provider" and INV-08 forbids one provider's package satisfying another's
+    /// requirement "in any calculation, ever". It used to be a single count on
+    /// `PackageFacts`, filled with the maximum across every provider holding the
+    /// package — which told the user that three MacPorts ports depended on
+    /// `gnutls` when zero did and the three were Homebrew's.
+    ///
+    /// The reason that was not simply a mistake, and the reason the fix is a map
+    /// rather than a choice of side: picking "the source" made the answer depend
+    /// on which provider id sorted first whenever no executable resolved, and
+    /// that is an INV-17 problem. `max` is commutative and so was symmetric. A
+    /// map needs no side chosen at all — each rule reads the provider it is
+    /// reasoning about — so both invariants hold at once. DP-010, SE-045.
+    pub reverse_dependency_count: u32,
 }
 
 impl Facts {

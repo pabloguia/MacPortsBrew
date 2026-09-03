@@ -99,10 +99,6 @@ pub fn analyze(
                 continue;
             }
             let (ownership, evidence) = ownership_of(p, &name);
-            let advanced_only = !ownership.is_top_level();
-            if advanced_only && !options.advanced {
-                continue;
-            }
             let kind = p
                 .inventory
                 .installed
@@ -129,18 +125,47 @@ pub fn analyze(
             // If another provider's installed counterpart drives the unit
             // (its executable resolves), that provider's row is the source.
             if &source_id != id {
-                // Mark this identity as seen; the unit will be built when
-                // the source provider's loop reaches it, unless it already
-                // did - in which case merge by skipping.
-                seen.insert(identity.clone());
-                if let Some(existing) = packages.iter_mut().find(|u: &&mut PackageReport| {
-                    u.source == source_id
-                        && u.rows.get(id).is_some_and(|r: &ProviderRow| r.name == name)
-                }) {
-                    existing
-                        .rows
-                        .entry(id.clone())
-                        .or_insert_with(|| installed_row(p, &name, ownership, evidence.clone()));
+                // Another provider's installed copy drives this unit, because
+                // its executable is the one that resolves (SE-042). Let that
+                // provider build it and pull this row in through its mappings -
+                // but only once we know it actually will.
+                //
+                // Mappings are scored per direction and are **not** symmetric.
+                // `homebrew/postgresql@17` maps to two MacPorts candidates and
+                // therefore selects neither (`AMBIGUOUS`), while
+                // `macports/postgresql17-server` maps to one and selects it. An
+                // unconditional deferral in that shape dropped the row on the
+                // floor: nobody built it, and an installed, user-requested port
+                // was reported nowhere, in either mode, with `plan` stating it
+                // was not installed under any provider. Completeness is not
+                // negotiable against tidiness, so the deferral asks first.
+                let claimed_back = mappings
+                    .iter()
+                    .find(|m| m.destination == source_id)
+                    .and_then(|m| m.selected.as_ref())
+                    .is_some_and(|c| {
+                        let sp = &snapshot.providers[&source_id];
+                        let sname = &c.package.name;
+                        map_package(
+                            &PackageIdentity::new(source_id.clone(), sname.clone()),
+                            sp.inventory.metadata.get(sname),
+                            id,
+                            Some(&p.inventory),
+                            policy,
+                        )
+                        .selected
+                        .is_some_and(|back| back.package.name == name)
+                    });
+                if claimed_back {
+                    seen.insert(identity.clone());
+                    if let Some(existing) = packages.iter_mut().find(|u: &&mut PackageReport| {
+                        u.source == source_id
+                            && u.rows.get(id).is_some_and(|r: &ProviderRow| r.name == name)
+                    }) {
+                        existing.rows.entry(id.clone()).or_insert_with(|| {
+                            installed_row(p, &name, ownership, evidence.clone())
+                        });
+                    }
                     continue;
                 }
             }
@@ -159,25 +184,11 @@ pub fn analyze(
                         .find(|r| r.identity.name == name)
                         .map(|r| r.version.clone())
                 });
-            // Reverse dependencies are counted within each provider that
-            // holds the package and the largest count is what the engine
-            // sees: removing the package from either side is what the
-            // count guards (INV-04), and choosing one side by name would
-            // make the answer depend on provider ids (INV-17).
-            let mut reverse = p.inventory.reverse_dependencies_of(&name).len();
-            for m in &mappings {
-                if let Some(sel) = &m.selected {
-                    let dp = &snapshot.providers[&m.destination];
-                    if installed_names[&m.destination].contains(&sel.package.name) {
-                        reverse = reverse.max(
-                            dp.inventory
-                                .reverse_dependencies_of(&sel.package.name)
-                                .len(),
-                        );
-                    }
-                }
-            }
-            let reverse = u32::try_from(reverse).unwrap_or(u32::MAX);
+            // Reverse dependencies are no longer collapsed to one number here.
+            // `package_facts` derives a count per provider, so the engine reads
+            // the side it is reasoning about and no side has to be chosen at
+            // fact-construction time — which is what let a maximum across
+            // providers stand in for the source's own count (DP-010, SE-045).
             let facts = package_facts(
                 snapshot,
                 policy,
@@ -188,7 +199,6 @@ pub fn analyze(
                     ownership,
                     classes: &classes,
                     installed_version,
-                    reverse_dependency_count: reverse,
                     mappings: &mappings,
                 },
             );
@@ -211,6 +221,34 @@ pub fn analyze(
                 }
             }
             seen.insert(identity);
+            // Top-level under *any* provider that holds it means the unit is
+            // top-level. Deciding this from the first row reached made it a
+            // property of iteration order, and because the filter then ran
+            // before the merge, `--advanced` could *remove* a user-requested
+            // package from the top-level view and flip the unit's source with
+            // it (SE-048). A row that is only a mapping candidate is not
+            // installed anywhere and carries no intent, so it does not vote.
+            let advanced_only = !rows.iter().any(|(provider, r)| {
+                // Installed, top-level by that provider's own record, and
+                // either the unit's own side or attached by a mapping strong
+                // enough to say the two are the same software.
+                //
+                // The last clause is the point. Without it a guess decided
+                // visibility: `python@3.14` is a Homebrew *dependency*, and it
+                // was promoted into the default view by a MacPorts row attached
+                // at `PROBABLE` - the same class of guess SE-047 refuses to let
+                // waive the planner's mapping threshold. A row that is only
+                // probably the same package should not be able to vote a
+                // dependency into the view INV-13 reserves for what the user
+                // asked for.
+                !r.installed.is_empty()
+                    && r.ownership.is_top_level()
+                    && (provider == id
+                        || mappings
+                            .iter()
+                            .find(|m| &m.destination == provider)
+                            .is_some_and(|m| m.confidence.is_strong()))
+            });
             packages.push(PackageReport {
                 name: name.clone(),
                 source: id.clone(),
@@ -224,6 +262,11 @@ pub fn analyze(
         }
     }
 
+    // Visibility is applied to finished units, not to rows on the way in, so a
+    // unit's identity is the same in both modes and `--advanced` only ever adds.
+    if !options.advanced {
+        packages.retain(|u| !u.advanced_only);
+    }
     packages.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.source.cmp(&b.source)));
     let summary = summarise(&packages);
     Analysis {

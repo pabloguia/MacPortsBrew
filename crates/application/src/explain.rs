@@ -64,7 +64,6 @@ pub fn explain_package(
             ownership: source_row.ownership,
             classes: &unit.class,
             installed_version,
-            reverse_dependency_count: source_row.reverse_dependency_count,
             mappings: &unit.mappings,
         },
     );

@@ -228,6 +228,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "plan.elevated_summary" = "Steps that would need administrator rights: {steps}."
 "reason.snapshot_before_mutation" = "A snapshot is taken automatically before the first change, so the run can be restored."
 "reason.add_under_destination" = "Add {package} under {provider}."
+"reason.already_under_destination" = "{package} is already installed under {provider}; nothing to add."
 "reason.verify_destination" = "Verify the destination per the verification contract: reported active, provider integrity check, executables owned by the destination, a liveness probe, and no cross-provider linkage."
 "reason.set_primary_shim" = "Make {provider} the primary implementation through the MacPortsBrew-managed directory; provider-native mechanisms cannot express a cross-provider choice."
 "reason.verify_resolution" = "Verify that `{executable}` now resolves to the destination."
