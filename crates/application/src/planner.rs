@@ -7,9 +7,9 @@ use crate::analysis::{analyze, AnalysisOptions, AnalysisSource};
 use crate::provider_commands::{self, ProviderCommands};
 use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
 use macportsbrew_domain::{
-    Confidence, DomainError, Elevation, ErrorId, MigrationPlan, MigrationStep, Outcome,
-    PackageIdentity, PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence, Reason,
-    Snapshot, StepKind, VerificationCheck,
+    CommandTarget, Confidence, DomainError, Elevation, ErrorId, MigrationPlan, MigrationStep,
+    Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence,
+    Reason, Snapshot, StepKind, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -413,7 +413,17 @@ pub fn build_plan(
         steps.push(next(
             StepKind::SetPrimary,
             Some(request.to.clone()),
+            // Marked as a self-invocation rather than left to be recognised by
+            // its program string. It is the one command in a plan that is not a
+            // provider invocation, so INV-10's sanitised environment is not what
+            // governs it - and the test named after INV-10 used to skip it by
+            // comparing `program` to a literal, which meant nobody noticed it
+            // carried no environment and a relative name at all. The type says
+            // which rule applies; an executor resolves its own binary instead of
+            // searching `PATH` for this one, which is the hazard `doctor` exists
+            // to warn about.
             vec![PlanCommand {
+                target: CommandTarget::Tool,
                 program: "macportsbrew".into(),
                 argv: vec!["primary".into(), unit.name.clone(), request.to.to_string()],
                 environment: BTreeMap::new(),
@@ -538,6 +548,7 @@ fn command(
         _ => Elevation::Unknown,
     };
     PlanCommand {
+        target: CommandTarget::Provider,
         program,
         argv,
         environment: provider.invocation_environment.clone(),

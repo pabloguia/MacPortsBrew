@@ -41,7 +41,8 @@ pub use package::{
     DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
 };
 pub use plan::{
-    Elevation, MigrationPlan, MigrationStep, PlanCommand, PlanRisk, StepKind, VerificationCheck,
+    CommandTarget, Elevation, MigrationPlan, MigrationStep, PlanCommand, PlanRisk, StepKind,
+    VerificationCheck,
 };
 pub use provider::{
     Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
@@ -51,8 +52,8 @@ pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
 pub use resolution::{ExecutableOwner, Resolution};
 pub use snapshot::{
-    redact_home, EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind, Provenance,
-    ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    is_build_flag, redact_home, EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind,
+    Provenance, ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use version::Version;

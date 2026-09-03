@@ -5,18 +5,20 @@
 //! with two providers and a handful of packages, and asserts the property
 //! on the analysis or the plan, never on a live machine.
 
-use macportsbrew_application::{analyze, build_plan, AnalysisOptions, AnalysisSource, PlanRequest};
+use macportsbrew_application::{
+    analyze, build_plan, provider_commands, AnalysisOptions, AnalysisSource, PlanRequest,
+};
 use macportsbrew_domain::{
-    Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
-    CommandLineTools, DependencyEdge, EnvironmentSnapshot, ExecutableOwner, InstalledPackage,
-    Machine, MacosVersion, Outcome, PackageIdentity, PackageKind, PackageMetadata, Provenance,
-    ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
-    ProviderSnapshot, RequestedSet, Resolution, Snapshot, StepKind, Translation, Version,
-    SNAPSHOT_SCHEMA_VERSION,
+    is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
+    AvailabilityEvidence, CommandLineTools, CommandTarget, DependencyEdge, Elevation,
+    EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan,
+    Outcome, PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
+    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
+    RequestedSet, Resolution, Snapshot, StepKind, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const HB: &str = "homebrew";
 const MP: &str = "macports";
@@ -504,25 +506,283 @@ fn invariant_09_duplication_is_reported_and_never_consolidated() {
     ));
 }
 
+/// A migration that genuinely installs something: Homebrew holds `gnu-sed`,
+/// MacPorts does not hold `gsed`, and `data/policy/curated-mappings.toml` maps
+/// the two at `EXACT`, in both directions, so the fixture works either way.
+///
+/// The plan reaches the mutating path because none of the planner's blocking
+/// conditions fires - not because anything overrides a halt. The policy's
+/// recommendation for this pair is nonetheless `MANUAL_REVIEW`, since the
+/// destination's artifact availability is unknown, and the plan records that in
+/// `overrode`. The assertion below pins the recommendation rather than the
+/// completion: if the policy stopped saying `MANUAL_REVIEW` here, the fixture
+/// would be describing a different situation than the one it was chosen for,
+/// and that should be visible rather than silent.
+fn install_needed(source: &str) -> Snapshot {
+    let held = |id: &str, name: &'static str| {
+        (id == source).then_some(Pkg {
+            name,
+            requested: true,
+            homepage: None,
+            service: false,
+        })
+    };
+    let other = || Pkg {
+        name: "other",
+        requested: true,
+        homepage: None,
+        service: false,
+    };
+    snapshot(
+        provider(
+            HB,
+            "/opt/homebrew",
+            true,
+            &[held(HB, "gnu-sed").unwrap_or_else(other)],
+            &[],
+        ),
+        provider(
+            MP,
+            "/opt/local",
+            true,
+            &[held(MP, "gsed").unwrap_or_else(other)],
+            &[],
+        ),
+    )
+}
+
+/// Every provider prefix this snapshot detected, so the leak check below names
+/// no literal. A MacPorts install at a non-default prefix would otherwise make
+/// the check vacuous - it would look for `/opt/local` in a `PATH` that never
+/// had it - and a third provider would make it wrong. `registry.rs` is meant to
+/// be the only place that knows where a provider lives; a test should not be a
+/// second one.
+fn detected_prefixes(snap: &Snapshot) -> Vec<PathBuf> {
+    snap.providers
+        .values()
+        .filter_map(|p| p.detection.prefix.clone())
+        .collect()
+}
+
+/// The prefix a command's program actually lives under: the longest detected
+/// prefix that contains it, compared by path component rather than by string,
+/// so a provider at `/opt/local-arm` is not read as living under `/opt/local`.
+/// That mistake would have been quiet rather than loud - a command counted as
+/// belonging to both prefixes has no *other* prefix left to leak, so its check
+/// would pass by having nothing to check.
+fn owning_prefix<'a>(program: &str, prefixes: &'a [PathBuf]) -> Option<&'a PathBuf> {
+    let p = Path::new(program);
+    prefixes
+        .iter()
+        .filter(|prefix| p.starts_with(prefix))
+        .max_by_key(|prefix| prefix.components().count())
+}
+
+fn check_invocation_environment(plan: &MigrationPlan, snap: &Snapshot, expected_tools: usize) {
+    // Stated rather than assumed: `SET_PRIMARY` is only emitted when nothing
+    // sent the plan to manual review, so a manual plan has no commands at all
+    // and the counts below would fail for a reason that is not a defect.
+    assert!(
+        plan.steps.iter().all(|s| s.kind != StepKind::ManualReview),
+        "this helper describes a plan that reaches the mutating path"
+    );
+    let prefixes = detected_prefixes(snap);
+    assert!(
+        prefixes.len() > 1,
+        "the leak check needs another prefix to look for"
+    );
+    // What a provider invocation is *called*, so a provider command relabelled
+    // as the tool is caught by what it runs rather than by where it lives. Where
+    // it lives cannot be the test: once the executor resolves the
+    // self-invocation, most likely with `current_exe()`, a MacPortsBrew installed *by* either
+    // provider is legitimately under that provider's prefix.
+    //
+    // From the same table the planner builds commands out of, not from this
+    // plan's own commands. Plan-local was the first attempt and it had a
+    // reachable hole: a retain-source plan never invokes the source provider, so
+    // that provider's program was missing from the set and a command named after
+    // it would have passed.
+    let table = provider_commands::load().expect("the provider command table");
+    // `file_name`, because the table stores `bin/brew` and `bin/port` while a
+    // command's program is a full path. Comparing the two raw forms is a check
+    // that can never fire, which is what the first attempt did.
+    let provider_programs: BTreeSet<&str> = table
+        .values()
+        .filter_map(|e| {
+            Path::new(&e.executable)
+                .file_name()
+                .and_then(|n| n.to_str())
+        })
+        .collect();
+    assert!(
+        !provider_programs.is_empty(),
+        "an empty set would make the check below vacuous"
+    );
+    let (mut tools, mut commands) = (0usize, 0usize);
+    for step in &plan.steps {
+        for c in &step.commands {
+            commands += 1;
+            // Which provider a command belongs to is decided by where its
+            // program lives, not by its target - so a mislabelled command is
+            // still measured against the right prefix.
+            let own = owning_prefix(&c.program, &prefixes);
+            // INV-10 in its own words, for every command in the plan: no other
+            // provider's prefix reaches the environment this one runs with.
+            // `contains`, not a `PATH`-shaped split: `LDFLAGS` and `CPPFLAGS`
+            // are named by INV-10 and their values look like
+            // `-I/opt/local/include`, which no split on `:` would find.
+            for other in prefixes.iter().filter(|p| Some(*p) != own) {
+                let other = other.to_string_lossy();
+                for (k, v) in &c.environment {
+                    assert!(!v.contains(other.as_ref()), "{other} reaches {k} of {c:?}");
+                }
+            }
+            match c.target {
+                CommandTarget::Provider => {
+                    assert!(
+                        !c.program.starts_with('<'),
+                        "the prefix was not detected, so this is a display string \
+                         rather than a program: {c:?}"
+                    );
+                    assert!(
+                        Path::new(&c.program).is_absolute(),
+                        "a provider program is absolute so `PATH` cannot decide it: {c:?}"
+                    );
+                    assert!(
+                        own.is_some(),
+                        "a provider command runs out of a detected prefix: {c:?}"
+                    );
+                    assert!(c.environment.contains_key("PATH"), "{c:?}");
+                    for k in c.environment.keys() {
+                        assert!(
+                            !is_build_flag(k),
+                            "INV-10 names {k}, so a provider command must not carry it: {c:?}"
+                        );
+                    }
+                    // The descriptive environment_info keys never leak into a command.
+                    assert!(
+                        !c.environment.contains_key("prefix") && !c.environment.contains_key("bin")
+                    );
+                }
+                CommandTarget::Tool => {
+                    tools += 1;
+                    // Both halves of the contract `plan.v1.md` states, because
+                    // the type alone does not stop a provider command being
+                    // given the other label: a `TOOL` command hangs off
+                    // `SET_PRIMARY`, and it is not one of the programs this plan
+                    // invokes providers with.
+                    assert_eq!(
+                        step.kind,
+                        StepKind::SetPrimary,
+                        "the only step that invokes this tool is primary selection: {c:?}"
+                    );
+                    let name = Path::new(&c.program)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or_default();
+                    assert!(
+                        !provider_programs.contains(name),
+                        "{name} is how a provider is invoked, so this is a provider command: {c:?}"
+                    );
+                    assert_eq!(
+                        c.argv.first().map(String::as_str),
+                        Some("primary"),
+                        "the only thing this tool invokes itself for is primary selection"
+                    );
+                    assert_eq!(
+                        c.elevation,
+                        Elevation::None,
+                        "primary selection stays off the elevating path (SE-036)"
+                    );
+                }
+            }
+        }
+    }
+    assert!(commands > 0);
+    // Not `<= 1`: zero would mean the `TOOL` arm above is dead code and the
+    // suite green anyway, which is the shape of the defect this test was
+    // rewritten to remove.
+    assert_eq!(tools, expected_tools, "self-invocations in {plan:?}");
+}
 #[test]
 fn invariant_10_plan_commands_carry_the_sanitised_invocation_environment() {
+    // This test used to read `.filter(|c| c.program != "macportsbrew")`, which
+    // excluded the one command in a plan that INV-10 does not reach - the
+    // primary-selection step, which carried no environment at all and a relative
+    // program the executor refuses by design. A gate
+    // that is green because its exception was written into it is worse than an
+    // absent one, because it is cited as evidence - and this suite's green
+    // status is cited in the report, the README and the wiki.
+    //
+    // Nothing is skipped now. Each command is checked against the rule that
+    // actually governs it, and which rule that is comes from the type rather
+    // than from a string comparison that a rename would silently defeat. What
+    // this asserts about a `TOOL` command is only what INV-10 has to say about
+    // one - that it is not a provider invocation wearing the other label. The
+    // *shape* of the self-invocation is pinned in its own test below, because a
+    // test named after an invariant should not be what a later fix has to edit.
+    //
+    // Two installing plans, in both directions (INV-17), because every shipped
+    // fixture has the destination already holding the package, so its
+    // `ADD_DESTINATION` carries no command - and a suite that never sees an
+    // install step is not checking the environment of the one command that
+    // installs software.
+    for (source, name, to, installed) in [(HB, "gnu-sed", MP, "gsed"), (MP, "gsed", HB, "gnu-sed")]
+    {
+        let snap = install_needed(source);
+        let plan = plan_for(&snap, name, to, false);
+        assert!(
+            plan.steps.iter().any(|s| s.kind == StepKind::AddDestination
+                && s.commands
+                    .iter()
+                    .any(|c| c.argv.iter().any(|a| a == installed))),
+            "the plan toward {to} must add {installed} for real"
+        );
+        assert_eq!(
+            plan.overrode,
+            Some(Outcome::ManualReview),
+            "the recommendation this fixture was chosen for"
+        );
+        check_invocation_environment(&plan, &snap, 1);
+    }
+    let snap = both_present();
+    check_invocation_environment(&plan_for(&snap, "tool", MP, false), &snap, 1);
+    // With the source retained, the plan never invokes the source provider. That
+    // is the case that decided where the name set comes from - derived from this
+    // plan's own commands it was short by one provider - so it is the case the
+    // suite has to keep exercising.
+    check_invocation_environment(&plan_for(&snap, "tool", MP, true), &snap, 1);
+}
+
+/// F-04 found three things wrong with the primary-selection command: the INV-10
+/// test filtered it out, its program is relative where `process/system.rs`
+/// refuses relative programs, and a bare name is resolved through `PATH` - the
+/// shadowing hazard `doctor` exists to warn about. Removing the filter fixed the
+/// first. The other two are the executor pass's to settle, most likely by
+/// running the binary this process is already running rather than spawning a
+/// name at all (SE-056).
+///
+/// So the current shape is pinned here and not in the test named after INV-10.
+/// This is a record of what is true today; changing it should mean editing a
+/// test that says so, rather than one whose name would lend the old shape an
+/// authority the invariant never gave it.
+#[test]
+fn the_self_invocation_has_the_shape_the_executor_pass_will_replace() {
     let plan = plan_for(&both_present(), "tool", MP, false);
-    let commands: Vec<_> = plan
+    let tool: Vec<_> = plan
         .steps
         .iter()
         .flat_map(|s| s.commands.iter())
-        .filter(|c| c.program != "macportsbrew")
+        .filter(|c| c.target == CommandTarget::Tool)
         .collect();
-    assert!(!commands.is_empty());
-    for c in commands {
-        assert!(c.environment.contains_key("PATH"), "{c:?}");
-        assert!(!c
-            .environment
-            .keys()
-            .any(|k| k == "PKG_CONFIG_PATH" || k.starts_with("DYLD_")));
-        // The descriptive environment_info keys never leak into a command.
-        assert!(!c.environment.contains_key("prefix") && !c.environment.contains_key("bin"));
-    }
+    assert_eq!(tool.len(), 1);
+    let c = tool[0];
+    assert_eq!(c.program, "macportsbrew");
+    assert!(
+        !Path::new(&c.program).is_absolute(),
+        "not yet resolved to this process's own binary"
+    );
+    assert!(c.environment.is_empty(), "no environment of its own yet");
 }
 
 #[test]

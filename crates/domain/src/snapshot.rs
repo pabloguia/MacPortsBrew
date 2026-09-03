@@ -103,6 +103,38 @@ pub struct PathFinding {
     pub kind: PathFindingKind,
 }
 
+/// Environment variables that make one prefix visible to another's build
+/// system. INV-10 names five of them - its sixth, `PATH`, is reserved rather
+/// than stripped - and then says "or equivalents"; this is the equivalents, in
+/// one place.
+///
+/// It lives in `domain` because it is a provider-neutral fact about build
+/// systems, not about either provider - and because it had begun to exist in
+/// three places at once. `adapters::process::environment` filters on it and
+/// `adapters::system::machine` kept a reporting superset in step with it by
+/// hand, while the INV-10 test named just one of these variables and a `DYLD_`
+/// prefix - so a leak through `CXXFLAGS` passed the test written to catch
+/// exactly that.
+pub fn is_build_flag(key: &str) -> bool {
+    matches!(
+        key,
+        "CPATH"
+            | "C_INCLUDE_PATH"
+            | "CPLUS_INCLUDE_PATH"
+            | "LIBRARY_PATH"
+            | "LD_LIBRARY_PATH"
+            | "PKG_CONFIG_PATH"
+            | "PKG_CONFIG_LIBDIR"
+            | "LDFLAGS"
+            | "CPPFLAGS"
+            | "CFLAGS"
+            | "CXXFLAGS"
+            | "OBJCFLAGS"
+            | "ACLOCAL_PATH"
+            | "CMAKE_PREFIX_PATH"
+    ) || key.starts_with("DYLD_")
+}
+
 /// Replaces the home directory with `~`, wherever it appears.
 ///
 /// `06-cli-and-ux.md` ("Privacy and diagnostics") forbids home paths and
@@ -408,5 +440,30 @@ impl Snapshot {
                 ),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_variable_inv_10_names_is_a_build_flag() {
+        // INV-10's own list, minus `PATH`, which is reserved rather than
+        // stripped. Three places consult this list - the executor's filter,
+        // `doctor`'s reporting set and the INV-10 test - and they read it from
+        // here so that adding an entry strengthens all three at once.
+        for key in [
+            "CPATH",
+            "LIBRARY_PATH",
+            "PKG_CONFIG_PATH",
+            "LDFLAGS",
+            "CPPFLAGS",
+        ] {
+            assert!(is_build_flag(key), "INV-10 names {key}");
+        }
+        assert!(is_build_flag("DYLD_INSERT_LIBRARIES"));
+        assert!(!is_build_flag("PATH"));
+        assert!(!is_build_flag("HOME"));
     }
 }

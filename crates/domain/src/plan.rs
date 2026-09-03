@@ -75,6 +75,17 @@ pub enum Elevation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanCommand {
+    /// What this command invokes: a provider, or MacPortsBrew itself.
+    ///
+    /// Modelled rather than inferred from the program string. INV-10's
+    /// sanitised environment is a rule about **provider** invocations, and the
+    /// one command in a plan that is not one used to be recognised by comparing
+    /// `program` to a literal — including inside the test named after the
+    /// invariant, which filtered it out and so could not see that it also
+    /// carried no environment at all. A distinction the type makes cannot be
+    /// filtered away by accident.
+    #[serde(default)]
+    pub target: CommandTarget,
     /// The program, resolved from the provider prefix at plan time.
     pub program: String,
     /// Arguments, each its own element.
@@ -84,6 +95,29 @@ pub struct PlanCommand {
     pub environment: BTreeMap<String, String>,
     /// Elevation this command needs.
     pub elevation: Elevation,
+}
+
+/// What a [`PlanCommand`] invokes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "target")]
+pub enum CommandTarget {
+    /// A provider's own executable, resolved from its detected prefix. INV-10
+    /// applies: the environment is constructed and never inherited, and the
+    /// program is absolute so that correctness does not depend on `PATH`.
+    #[default]
+    Provider,
+    /// MacPortsBrew itself, for a step it performs rather than delegates —
+    /// selecting the primary provider is the only one, because the shim
+    /// directory is this tool's own (SE-036).
+    ///
+    /// Not a provider invocation, so INV-10's sanitised environment is not what
+    /// governs it. It is equally not something to resolve through `PATH`: the
+    /// program here is the name a person reads in the plan, and an executor
+    /// must not resolve this name through `PATH` — most likely by running the
+    /// binary it is already running, or by performing the step in-process, which
+    /// the executor pass settles and this type does not —
+    /// which is the whole hazard `doctor` exists to warn about.
+    Tool,
 }
 
 /// One verification check of the contract in `04-migration-and-safety.md`.

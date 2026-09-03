@@ -22,13 +22,34 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-01** — cross-provider reverse-dependency count (Tier 1) | **Fixed**, on the owner's ruling (DP-010, resolved). SE-045; the count is per-provider and SE-042(2) is withdrawn. |
 | **F-02** — a dual-held package migrates one way only (Tier 1) | **Fixed.** SE-047. `--to` names the destination; mirrored tests added, and a plan no longer proposes installing what the destination already has. |
 | **F-03** — `--advanced` changes the answer (Tier 1) | **Fixed.** SE-048. Unit identity is decided before visibility; a top-level package that was invisible in the default view is back. |
+| **F-04** — the INV-10 test filters out its own exception (Tier 1) | **The violation is fixed; two of the three defects it uncovered are not.** SE-056. `PlanCommand` carries a `CommandTarget`, the filter is gone, the test asserts INV-10's sentence — no environment value of any command mentions another provider's prefix, in any variable — against a real install command in both directions, and a relabelled provider command is caught. The command's own shape — a relative program, resolved through `PATH` — is unchanged, and is now pinned by a test that says so rather than by one named after the invariant. It belongs to the executor pass. |
 | **F-05** — home path published when `HOME` is unset | **Fixed.** SE-054, now `accepted`. `HomeRedaction` distinguishes the two absences; measured back to zero on `doctor --report` and `snapshot --out`. One residual is retained and recorded in SE-054: a home outside `/Users` is still not recognised. |
 | **F-16** — `cargo-deny` never checked advisories | **Fixed.** SE-055. |
 | **F-17** — twelve unpinned actions, four mutable | **Fixed.** SE-055; `scripts/check-action-pins.sh` in `validate.sh`, verified to fail on an unpinned ref. |
 | **F-18** — review workflow could not post, and had no author guard | **Fixed.** SE-055. |
 
-**F-04** — the INV-10 test filtering out its own exception — is the one Tier 1
-violation still open, along with everything else below.
+**The four Tier 1 findings this review filed are closed**, each as regards what it
+stated: the cross-provider count, the one-way migration, the mode that
+changed the answer, and the gate that was green by exception. F-04's write-up
+also named two consequences of the concealed command — it is un-runnable as
+written, and its bare name resolves through `PATH` — and those are unchanged;
+making the command runnable is the executor pass's, and SE-056 records why it
+was not done here, as a **declared Tier 3 deviation**, because
+`docs/spec/04-migration-and-safety.md` requires a plan to be re-executable and
+one step of every plan that reaches the mutating path still is not. (Not every
+plan: one halted at manual review carries no commands at all.)
+
+**The Tier 1 column is not clear, and an earlier draft of this summary said it
+was.** F-21 below is a fifth Tier 1 finding — an INV-10 hole — raised by a
+reviewer of the F-04 fix rather than by the review, and it is open. Four closed
+and one open is the honest count.
+
+Everything else below stands as written — F-06 through F-20, and the seven
+`Status: proposed` entries — with one exception this change created: **F-19's
+verdict on `invariant_10_plan_commands_carry_the_sanitised_invocation_environment`
+no longer holds**, because that test is what F-04's fix rewrote. Its row is
+updated in place and marked, rather than left to be read as current.
+
 
 ## What was verified, and on what
 
@@ -204,6 +225,14 @@ derive `advanced_only` from the unit (top-level in *any* provider ⇒ top-level)
 
 ## F-04 — The one plan command that escapes INV-10, and the invariant's own test filters it out
 
+> **On the framing, added when this was fixed.** The body below says this command
+> "escapes INV-10" and "fails the invariant". That is not right: INV-10 governs
+> "every `brew` and `port` invocation" and a self-invocation is neither, so the
+> invariant never reached it. The defect was real — a test excluding the case it
+> was named for, concealing two others — but it is a scope boundary the test
+> decided invisibly, not an escape. The wording is left as written, per this
+> file's convention; SE-056 has the corrected framing.
+
 **Severity: high — not for the leak, for what the test says about the suite.**
 
 Every provider command in a plan carries a constructed environment. One does not.
@@ -240,6 +269,61 @@ through `PATH`, which is the shadowing hazard this tool exists to warn about.
 **The adapter layer is clean on INV-10** — all three production `CommandSpec` sites
 route through `sanitised_environment`, `Command::new` appears once with
 `.env_clear()`, and environment reads occur only in `system/machine.rs`.
+
+---
+
+## F-21 — A snapshot file can dictate the environment a provider command runs in
+
+**Severity: high. Found by `spec-guardian` while reviewing the F-04 fix, not by the
+review.**
+
+`invocation_environment` is built by `adapters/src/process/environment.rs`, which is
+clean: an allowlist, `is_build_flag` rejecting fourteen build-flag variables plus every
+`DYLD_*` — more than the six INV-10 names by hand — and
+`PATH` assembled from the provider's own prefix. But it is also a **deserialised
+field of `ProviderSnapshot`**, and `--from-snapshot` reads it verbatim. Nothing
+re-sanitises it on load. (`--replay` is not affected: it drives the real adapters
+against recorded process output, so the environment is still constructed.)
+
+So a snapshot carrying
+
+```json
+"invocationEnvironment": { "PATH": "/opt/homebrew/bin:/opt/local/bin",
+                           "DYLD_INSERT_LIBRARIES": "/tmp/x.dylib" }
+```
+
+produces a plan whose `port` commands state exactly that environment, and the plan
+is what a person reads before running it. INV-10 is upheld where the environment is
+*constructed* and not where it is *loaded*.
+
+**No test can see this**, which is the second half of the finding. The INV-10 test
+writes `invocation_environment` in its own fixture and the planner clones it, so the
+assertion checks a literal round-tripping through a `.clone()`. It constrains the
+loading path not at all. Note for whoever takes this: re-sanitising on load has to
+check the *values*, not just the variable names. A tampered `CPPFLAGS` of
+`-I/opt/homebrew/include` names no forbidden path in any `PATH`-shaped sense, and an
+allowlist of keys alone would pass it through.
+
+A second face of the same gap: `environment` is
+`skip_serializing_if = "BTreeMap::is_empty"`,
+so a snapshot with an empty `invocationEnvironment` yields a `PROVIDER` command
+serialised with no environment at all — indistinguishable, in the artifact, from one
+that simply has none to state.
+
+**This is the same boundary as F-09** ("`--from-snapshot` is an unvalidated source
+of plan argv") and as SE-051, which records that a snapshot is untrusted input
+validated at deserialisation. SE-051's change enumerates names, versions and
+paths — not the environment map, which is why this is an addition rather than a
+duplicate. Per SE-032 the two belong merged under one topic; that merge is the
+work of whoever takes the fix, and the severity should be reconciled with F-09's
+"high once the executor lands; medium today" at the same time. Filed separately
+here only because this review does not rewrite entries it is not fixing.
+
+Snapshots are user-supplied input — `--from-snapshot` exists precisely so a snapshot
+can come from another machine. Whether the remedy is to re-sanitise on load, to
+refuse a snapshot whose environment would not have been constructed, or to mark such
+a plan non-runnable, is a design question this review does not settle. What it
+settles is that the boundary is unguarded and untested.
 
 ---
 
@@ -592,7 +676,7 @@ The work order asked which invariant tests would actually fail. Assessed individ
 
 | Test | Verdict |
 |---|---|
-| `invariant_10_plan_commands_carry_the_sanitised_invocation_environment` | **Excludes its own exception** (F-04), and checks only that `PATH` exists and no build-flag *key* is present — never that the other provider's prefix is absent from `PATH`, which is what INV-10 actually says. |
+| `invariant_10_plan_commands_carry_the_sanitised_invocation_environment` | ~~**Excludes its own exception** (F-04), and checks only that `PATH` exists and no build-flag *key* is present — never that the other provider's prefix is absent from `PATH`, which is what INV-10 actually says.~~ **Superseded by the F-04 fix (SE-056)**: the filter is gone, every command is checked against the rule for its target, and no environment value of any command may contain another provider's prefix. The verdict above is what was found, kept for the record. |
 | `invariant_10_reading_the_machine_leaks_no_build_flag_into_a_probe` | **Cannot fail for the invariant's subject.** It `continue`s past every program that is not `sw_vers`/`uname`/`sysctl`/`xcode-select` — i.e. it skips every `brew` and `port` invocation. INV-10 is about `brew` and `port`. |
 | `invariant_07_08_dependencies_never_cross_providers` | **Actively misleading.** Its comment says facts count the source side only, then asserts on `plan.risks` — the planner's value, which is correct — never on the engine's `reverse_dependency_count`, which is the one that crosses. Passes while F-01 is live. |
 | `invariant_17_swapping_the_providers_swaps_the_analysis` | **Blind to the real asymmetry.** It renames provider *contents* but keeps the map keys, so iteration order never changes. Adding one assertion on the swapped `source` fails today. |

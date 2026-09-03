@@ -89,29 +89,13 @@ pub const STATE_DIR_VARIABLE: &str = "MACPORTSBREW_STATE_DIR";
 /// not. That split is not yet recorded in `docs/spec-evolution.md`, and it
 /// needs to be before `--report` ships.
 ///
-/// The set below mirrors `process::environment::is_build_flag`, which this
-/// module cannot call because `process` does not re-export it. Re-exporting it
-/// and deleting this copy is the right end state; until then the two are kept
-/// in step by hand, and `system_contract.rs` asserts the mirror is complete.
+/// The build-flag list itself is [`macportsbrew_domain::is_build_flag`], so a
+/// variable the executor strips is reported here without anyone keeping two
+/// lists in step by hand. `MANPATH` is the deliberate extra: it is not stripped,
+/// because it changes no build, but a `MANPATH` pointing at the other prefix is
+/// worth telling a reader about.
 pub fn is_reported(name: &str) -> bool {
-    matches!(
-        name,
-        "MANPATH"
-            | "CPATH"
-            | "C_INCLUDE_PATH"
-            | "CPLUS_INCLUDE_PATH"
-            | "LIBRARY_PATH"
-            | "LD_LIBRARY_PATH"
-            | "PKG_CONFIG_PATH"
-            | "PKG_CONFIG_LIBDIR"
-            | "LDFLAGS"
-            | "CPPFLAGS"
-            | "CFLAGS"
-            | "CXXFLAGS"
-            | "OBJCFLAGS"
-            | "ACLOCAL_PATH"
-            | "CMAKE_PREFIX_PATH"
-    ) || name.starts_with("DYLD_")
+    name == "MANPATH" || macportsbrew_domain::is_build_flag(name)
 }
 
 /// Replaces the home directory with `~`, wherever it appears.
@@ -834,28 +818,21 @@ mod tests {
 
     #[test]
     fn every_variable_the_executor_strips_is_one_doctor_reports() {
-        // The mirror of `process::environment::is_build_flag`. If that list
-        // grows, this fails until the copy here grows too.
+        // A property now, not a copy: whatever the executor strips, `doctor`
+        // reports. The list this iterates is the one the executor filters on.
+        assert!(is_reported("MANPATH"), "the deliberate extra");
         for name in [
             "CPATH",
-            "C_INCLUDE_PATH",
-            "CPLUS_INCLUDE_PATH",
-            "LIBRARY_PATH",
-            "LD_LIBRARY_PATH",
-            "PKG_CONFIG_PATH",
-            "PKG_CONFIG_LIBDIR",
             "LDFLAGS",
             "CPPFLAGS",
-            "CFLAGS",
             "CXXFLAGS",
-            "OBJCFLAGS",
-            "ACLOCAL_PATH",
             "CMAKE_PREFIX_PATH",
             "DYLD_LIBRARY_PATH",
-            "DYLD_FALLBACK_FRAMEWORK_PATH",
-            "MANPATH",
         ] {
-            assert!(is_reported(name), "{name} is stripped but not reported");
+            assert!(
+                macportsbrew_domain::is_build_flag(name) && is_reported(name),
+                "{name} is stripped but not reported"
+            );
         }
         // `PATH` has its own ordered field, and nothing else is captured.
         assert!(!is_reported("PATH"));

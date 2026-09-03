@@ -825,6 +825,173 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: one golden file changes — one unit added, one source
   corrected, one outcome no longer falsely `MANUAL_REVIEW`.
 
+## SE-056 — A plan command says what it invokes, so the rule that governs it is not inferred from its name
+- Status: accepted
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation
+- Original assumption: every `PlanCommand` is a provider invocation, and the one
+  that is not — `SET_PRIMARY`, which names MacPortsBrew itself — is recognised by
+  comparing `program` to the literal `"macportsbrew"`.
+- Change: `PlanCommand` carries a `CommandTarget`, `PROVIDER` or `TOOL`.
+  `invariant_10_plan_commands_carry_the_sanitised_invocation_environment` no
+  longer filters anything out; it checks each command against the rule that
+  governs it, and it now also asserts INV-10's actual sentence — that no environment
+  value of any command contains another provider's prefix, in any variable — which it
+  never did.
+- Rationale: the string comparison lived inside the test named after the
+  invariant, as `.filter(|c| c.program != "macportsbrew")`. It excluded the one
+  command that INV-10 does not reach, so nobody saw that the command
+  also carried no environment at all and a relative program the executor refuses
+  by design. A gate that is green because its exception was written into it is
+  worse than an absent gate, because it is cited as evidence — and this suite's
+  green status is cited in the pass report, the README and the wiki.
+  INV-10 is a rule about `brew` and `port` invocations, so not demanding a
+  sanitised environment of a self-invocation is correct. What was wrong was
+  deciding that by string match, invisibly, inside the test. A distinction the
+  type makes cannot be filtered away by accident, and a rename cannot defeat it.
+- **What the type settles, and what it does not.** It settles that this command
+  is not a provider invocation and must not be resolved through `PATH` — the
+  shadowing hazard `doctor` exists to warn about, previously implied by a bare
+  name an executor would have had to search for. It does not settle whether an
+  executor spawns it or performs the step in-process; the shim directory is
+  MacPortsBrew's own (SE-036), so in-process is likely, and that belongs to the
+  pass that writes the executor. The current shape — no environment, a readable
+  name rather than a path — is now pinned by assertion rather than left
+  unexamined, which is how it went unnoticed.
+- **A declared deviation, named as one.** `docs/spec/04-migration-and-safety.md`
+  ("The plan is the contract") states as **MUST** that a `MigrationPlan` is
+  *re-executable* and carries "every command to be run with its full argv".
+  While `program` for a `TOOL` command is a readable name rather than the
+  program, one step of every plan that reaches the mutating path does not meet
+  that MUST. Not of every plan: a plan halted at manual review carries no
+  commands at all. This is a
+  Tier 3 deviation and is recorded here as one rather than left as a matter of
+  scope: the remedy is the executor's — most likely `current_exe()`, or
+  performing the step in-process and emitting no command at all — and until it
+  lands the `--json` contract says plainly which command this is, so a consumer
+  is not misled about what it would run.
+- **Where the shape is pinned, after review.** First written into the INV-10
+  test itself, which repeated F-04's own mistake one step downstream: the
+  remedy for the relative program is an absolute one, and asserting the
+  relative form inside `invariant_10_*` would have made the fix fail a test
+  whose name lends the old shape an authority INV-10 never gave it. The shape
+  now lives in `the_self_invocation_has_the_shape_the_executor_pass_will_replace`,
+  and the INV-10 test asserts only what INV-10 governs.
+- **What the type does not enforce on its own**, also from review: nothing
+  structural stops a provider command being labelled `TOOL` and skipping every
+  provider check. What closes it is described three bullets below. The count is
+  `== 1`, not `<= 1`: zero would make the whole arm dead code with the suite
+  green, which is the shape of the defect being removed.
+- **Three weaknesses in the leak assertion, corrected over two review rounds.**
+  It checked two variables where INV-10 names six "or equivalents"; it compared
+  against the literals `/opt/local` and `/opt/homebrew`, so a MacPorts install
+  at another prefix would have made it vacuous while a real leak went unseen;
+  and it matched by splitting on `:` and testing the start of each element,
+  which finds `PATH`-shaped values and misses the form INV-10's own examples
+  take — `LDFLAGS=-I/opt/local/include` begins with `-I`. It now derives the
+  prefixes from the snapshot (`registry.rs` is meant to be the only place that
+  knows where a provider lives), compares them by path component rather than by
+  string, and asserts that no environment *value* of any command contains
+  another provider's prefix, in any variable. The value test is a substring
+  match and the ownership test is not, so they disagree in one shape: with
+  providers at `/opt/local` and `/opt/local-arm`, a clean `PATH` belonging to
+  the second contains the first as a substring and the check fails with no leak
+  present. No pair of real prefixes does this today, and the failure is loud
+  rather than silent, so it costs a future fixture author an afternoon rather
+  than hiding anything. It is recorded rather than left to be discovered.
+- **The build-flag list had begun to exist three times.** `process::environment`
+  filters on it, `system::machine` kept a reporting superset in step with it by
+  hand, and the INV-10 test named one of these variables and a `DYLD_` prefix —
+  so a leak through `CXXFLAGS` passed the test written to catch it. This fix's
+  own first draft made that a fourth copy, ten entries against the executor's
+  fourteen, which is how the problem became visible. The list is
+  now `domain::is_build_flag`, which is what the standing note in
+  `system/machine.rs` asked for: it names no provider and does no I/O, so it is
+  a domain fact. `system::machine::is_reported` now reads
+  `name == "MANPATH" || macportsbrew_domain::is_build_flag(name)` instead of
+  holding its own copy — fully qualified, because `process` keeps its
+  `environment` module private and re-exports only `sanitised_environment` and
+  `EnvironmentSpec`. The note there had asked for a `process` re-export and the
+  deletion of the copy; the re-export is not what happened, the deletion is, and
+  the shared definition sits a layer lower than the note imagined. So
+  the superset keeps its one deliberate extra and cannot drift. Its test is a
+  property now rather than a fourth hardcoded list: adding an entry in `domain`
+  strengthens the executor's filter, `doctor`'s reporting and the INV-10 test at
+  once, which it did not before — a probe adding one to the domain list left the
+  whole suite green while the two lists silently disagreed.
+- **How a `TOOL` command is told apart, after the second round.** First by
+  asserting it runs out of no provider prefix — which repeated the same mistake
+  again: the executor's likely fix is `current_exe()`, and a MacPortsBrew
+  installed *by* Homebrew or MacPorts legitimately lives under that provider's
+  prefix, so the correct future fix would have failed the INV-10 test. It is now
+  told apart by what it runs: its program's file name is not one of the
+  executables a provider is invoked through. Verified both ways — with the
+  program moved to `/opt/homebrew/bin/macportsbrew`, `invariant_10_*` passes and
+  the shape-pinning test fails, which is the division of labour intended.
+  The set comes from `provider_commands::load()`, the table the planner itself
+  builds commands from, after two attempts that did not work. Taking it from the
+  plan's own commands left a reachable hole — a retain-source plan never invokes
+  the source provider, so a `TOOL` command named `brew` passed. Taking the
+  table's `executable` verbatim was worse: it stores `bin/brew` against a
+  command's full path, so the comparison could never match at all and the
+  assertion was dead while reading as if it worked. Both were found by probing
+  and neither by reading.
+- **What this fix does not reach.** The environments it inspects are ones the
+  test wrote and the planner cloned, so it constrains the construction path and
+  not the loading one. `--from-snapshot` takes `invocation_environment` verbatim
+  from a file and nothing re-sanitises it. That is F-21, filed rather than fixed
+  here. `--replay` is not affected: it drives the real adapters against recorded
+  process output, so the environment is still constructed by
+  `sanitised_environment`.
+- **A second gap closed with it.** Every plan fixture had the destination already
+  holding the package, so after SE-047 their `ADD_DESTINATION` carries no
+  command — and the suite stopped seeing any command that installs software.
+  `install_needed()` uses the curated `gnu-sed → gsed` mapping, which is `EXACT`
+  and neither stateful nor a runtime family, so the plan completes and INV-10 is
+  asserted against a real `port install`.
+- Evidence: probes, each reverting one property, each run and each failing —
+  the self-invocation mislabelled as a provider command; a provider command
+  mislabelled as the tool, including with every other `TOOL` assertion disabled,
+  so the name check is shown to catch it alone; a `TOOL` command named `brew` in
+  a retain-source plan; the self-invocation deleted, which `<= 1` would have
+  permitted; `CXXFLAGS=-I/opt/homebrew/include` and `LDFLAGS=-L/opt/local/lib`,
+  both of which the earlier colon-splitting form passed; the other prefix
+  appended to a provider command's `PATH`; and, in the other direction, the
+  program moved to `/opt/homebrew/bin/macportsbrew`, which must *not* fail
+  `invariant_10_*`. Both installing directions are exercised (INV-17), so the
+  `brew` side is checked the same as the `port` side. Finding F-04, the last
+  Tier 1 violation the architecture review left open.
+- User impact: none directly; the plan gains a field that says what each command
+  is.
+- Architectural impact: `CommandTarget` is a domain type with a `Provider`
+  default, so a deserialised v1 plan without the field reads as a provider
+  command, which is what every v1 plan's commands were except one.
+- Compatibility impact: additive to `plan.v1.md`, so `schemaVersion` stays 1 and
+  the field is documented there; noted in `CHANGELOG.md`, which the
+  backward-compatible rule requires. **The default has one wrong case, and it is
+  this entry's own subject.** A plan written before this change carries no
+  `target`, so its `SET_PRIMARY` command loads as `PROVIDER` — asserting the
+  opposite of the fact the field exists to record. `PROVIDER` is still the right
+  default, because it is correct for every other command in every such plan and
+  the alternative is a third state that means "an old writer"; nothing consumes
+  `target` yet, so nothing acts on the wrong value. It is recorded here rather
+  than left for someone to find.
+- **Not an exemption — a scope boundary, which is a different thing.** An
+  earlier draft of this entry called `CommandTarget::Tool` "a declared exemption
+  from INV-10's rule". That was wrong in a way worth recording, because it would
+  have become precedent: INV-10 governs "every `brew` and `port` invocation",
+  and a self-invocation is neither, so INV-10 never reached this command and
+  nothing is being relaxed. The type records where the invariant's scope ends,
+  in place of a string comparison that decided the same thing invisibly.
+  Declaring an exemption from a Tier 1 invariant is not an agent's to make; the
+  distinction is the difference between recording a boundary and quietly moving
+  one.
+- **Coverage, stated plainly.** What keeps a provider command from taking the
+  `TOOL` label and skipping every provider check is a handful of assertions over
+  four hand-built plans. That is thin for a boundary this load-bearing. Widening
+  it means sweeping the helper over more plans, not adding a constraint to
+  `MigrationPlan::check_ordering`, which is INV-01's home and should not grow an
+  unrelated rule.
+
 # Policy, output and quality
 
 ## SE-009 — Machine-readable output contract, exit codes and error taxonomy

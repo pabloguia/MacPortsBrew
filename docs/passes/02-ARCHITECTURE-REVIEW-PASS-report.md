@@ -113,7 +113,12 @@ topic under SE-032, keeping its identifier.
 with **SE-055** (supply chain), which the review's own findings F-16 to F-18
 called for. SE-054 duly moved into "Domain and safety" and records what was built
 rather than what was proposed — the two differ, and the entry says how and why.
-F-05, F-16, F-17 and F-18 are fixed; the four Tier 1 violations are not.
+F-05, F-16, F-17 and F-18 are fixed, and so are the four Tier 1 findings this
+review filed —
+F-01, F-02 and F-03 outright, F-04 as the violation it named, leaving a
+declared Tier 3 deviation that belongs to the executor pass (SE-056). F-21
+was found by a reviewer of the F-04 fix and is open — a fifth Tier 1 finding, so
+the Tier 1 column is four closed and one open, not clear.
 
 Nothing in `docs/spec/` was edited. No invariant was changed. Under section 3 of the
 work order a reviewer may propose at any tier and may not apply, and the two narrow

@@ -65,25 +65,10 @@ fn is_reserved(key: &str) -> bool {
 }
 
 /// Variables that make one prefix visible to the other's build system.
-pub fn is_build_flag(key: &str) -> bool {
-    matches!(
-        key,
-        "CPATH"
-            | "C_INCLUDE_PATH"
-            | "CPLUS_INCLUDE_PATH"
-            | "LIBRARY_PATH"
-            | "LD_LIBRARY_PATH"
-            | "PKG_CONFIG_PATH"
-            | "PKG_CONFIG_LIBDIR"
-            | "LDFLAGS"
-            | "CPPFLAGS"
-            | "CFLAGS"
-            | "CXXFLAGS"
-            | "OBJCFLAGS"
-            | "ACLOCAL_PATH"
-            | "CMAKE_PREFIX_PATH"
-    ) || key.starts_with("DYLD_")
-}
+/// The list itself is `domain`, so the filter here, the reporting superset in
+/// `system::machine` and the INV-10 test all read one definition rather than
+/// three copies kept in step by hand.
+pub use macportsbrew_domain::is_build_flag;
 
 #[cfg(test)]
 mod tests {

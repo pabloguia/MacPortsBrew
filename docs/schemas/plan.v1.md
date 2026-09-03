@@ -75,10 +75,57 @@ the plan is the useful output even when it cannot be run unattended.
 
 | Field | Type | Notes |
 |---|---|---|
-| `program` | string | An absolute path resolved from the provider's detected prefix, never from `PATH` |
+| `target` | tagged union, tag `target` | `PROVIDER` or `TOOL`. Added in v1; additive, and a reader that does not know the field should treat a missing one as `PROVIDER` |
+| `program` | string | For `PROVIDER`, an absolute path resolved from the provider's detected prefix, never from `PATH` — or, where the prefix was not detected, a `<provider prefix>/bin/...` placeholder, which is a display string and not runnable. For `TOOL`, the name a person reads in the plan — an executor must not resolve it through `PATH`; how it obtains the binary instead is the executor pass's to settle |
 | `argv` | array of string | The full argument vector. **There is no shell and no string interpolation**: package names and paths are arguments, never fragments of a command line |
-| `environment` | map of string to string, optional | The sanitised environment the command would run in |
+| `environment` | map of string to string, optional | The sanitised environment the command would run in. Omitted when empty, so its absence does not by itself mean `TOOL`: a `PROVIDER` command whose source snapshot carried no environment is written without it too (see F-21) |
 | `elevation` | tagged union, tag `elevation` | `NONE`, `REQUIRED` (with a `reason` — the provider's own statement or a stable identifier), `UNKNOWN` |
+
+**`TOOL` is not a provider invocation.** Exactly one step can carry one —
+`SET_PRIMARY`, because the shim directory is MacPortsBrew's own (SE-036) — and
+it is a distinct value rather than something inferred from the program string,
+so the rule that applies to a command is a property a reader of `--json` can see. The rendered text plan does not yet show it. Deciding
+whether an executor spawns it or performs the step in-process belongs to the
+pass that writes the executor; what the plan settles is that it is not a
+provider command and must not be resolved through `PATH`.
+
+Both shapes as they actually serialise — `target`, like `elevation`, is an
+internally tagged union, so the tag repeats the field name. Taken from
+`plan htop --to macports --json` against
+`fixtures/recordings/both-providers-arm64-macos15.json`:
+
+```json
+{
+  "target": { "target": "PROVIDER" },
+  "program": "/opt/local/bin/port",
+  "argv": ["-q", "installed", "htop"],
+  "environment": {
+    "LANG": "C",
+    "LC_ALL": "C",
+    "NO_COLOR": "1",
+    "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "TERM": "dumb"
+  },
+  "elevation": { "elevation": "UNKNOWN" }
+}
+```
+
+```json
+{
+  "target": { "target": "TOOL" },
+  "program": "macportsbrew",
+  "argv": ["primary", "htop", "macports"],
+  "elevation": { "elevation": "NONE" }
+}
+```
+
+An unrecognised `target` value fails to parse rather than reading as unknown.
+That is a deliberate departure from this project's usual unknown-tolerance:
+`UNKNOWN` is a real state everywhere it describes what a machine did not tell
+us, but "what does this command invoke" is not an observation, and a reader
+that cannot tell must not guess. The cost is that a third target would be a
+breaking change; the alternative was a reader treating an unfamiliar target as
+a provider invocation, or as neither.
 
 `UNKNOWN` elevation is shown as unknown and never assumed away. Homebrew's
 prefix subdirectories are user-owned so formula operations do not elevate,

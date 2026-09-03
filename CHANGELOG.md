@@ -96,6 +96,12 @@ to answer.
   (`node` for `nodejs24`). Now that either side can be the source, addressing the
   removal by the unit key could name a package that side does not have — or a
   different one it does.
+- **A plan command says whether it invokes a provider or this tool.** The one
+  command that is not a provider invocation was recognised by comparing its
+  program to a literal — inside the test named after the invariant, so
+  nobody saw it carried no environment and a name that cannot be resolved
+  safely. `PlanCommand` gains a `target` field (`PROVIDER` or `TOOL`; additive,
+  so `schemaVersion` stays 1 — [`docs/schemas/plan.v1.md`](docs/schemas/plan.v1.md)).
 - **An ambiguous package name is refused rather than guessed.** `python312` is
   what MacPorts calls the counterpart of three separate Homebrew packages;
   planning by that name silently picked the first.
