@@ -34,7 +34,7 @@ pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Cap on the length of a path this workspace will hand to a provider, or
 /// accept from one as a prefix.
-pub const MAX_PATH_LEN: usize = 4096;
+pub use macportsbrew_domain::MAX_PATH_LEN;
 
 /// True when `path` is one that may be handed to a provider as an argument, or
 /// trusted as a prefix to build an executable path from.
@@ -49,20 +49,7 @@ pub const MAX_PATH_LEN: usize = 4096;
 /// MacPorts adapter, for a path it passes to `port`, and the command line, for
 /// a prefix read out of a recording — are in different layers and must not
 /// each carry their own idea of "safe".
-pub fn is_safe_path(path: &std::path::Path) -> bool {
-    let Some(text) = path.to_str() else {
-        return false;
-    };
-    if text.len() > MAX_PATH_LEN || !text.starts_with('/') {
-        return false;
-    }
-    if text.chars().any(char::is_control) {
-        return false;
-    }
-    !path
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-}
+pub use macportsbrew_domain::is_safe_path;
 
 /// What to run.
 #[derive(Clone, Debug, PartialEq, Eq)]

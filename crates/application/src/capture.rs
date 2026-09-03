@@ -5,6 +5,7 @@
 //! a function of the snapshot.
 
 use crate::TOOL_VERSION;
+use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
     redact_home, DomainError, HomeRedaction, MachineRead, Provenance, ProviderRead,
     ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -31,6 +32,16 @@ pub struct CaptureContext<'a> {
     /// captured, and re-redacting it against *this* machine's home would be
     /// a host fact leaking into a replayed analysis (INV-15).
     pub home: HomeRedaction,
+    /// What each provider's adapter could have put in an invocation
+    /// environment, from the layer that knows providers.
+    ///
+    /// Required rather than optional, and consumed here rather than by the
+    /// caller, because a capture that is not checked is the gap: `capture` is
+    /// public, and a future subcommand or embedder that built a snapshot
+    /// without running the rule would reopen F-21 silently. Making the facts
+    /// part of the context means a `CaptureContext` cannot be constructed
+    /// without them.
+    pub environment_contracts: BTreeMap<String, ProviderEnvironmentContract>,
 }
 
 /// Captures a snapshot. A provider that fails to answer is recorded as
@@ -91,7 +102,7 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     for snap in providers.values_mut() {
         redact_provider(snap, &ctx.home);
     }
-    Ok(Snapshot {
+    let snapshot = Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         tool_version: TOOL_VERSION.to_string(),
         policy_version: ctx.policy_version.clone(),
@@ -104,7 +115,14 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
         machine,
         environment,
         providers,
-    })
+    };
+    // Last, and here rather than in the caller. "Constructed" does not mean
+    // safe: the leading `PATH` is `<prefix>/bin` and the prefix is whatever the
+    // provider - or a recording - answered, so a capture can carry the same
+    // leak a file can state outright (F-21). Running it inside `capture` means
+    // no route produces an unchecked snapshot.
+    snapshot.check_invocation_environments(&ctx.environment_contracts)?;
+    Ok(snapshot)
 }
 
 /// Replaces the home directory with `~` in every path-valued field of one

@@ -536,6 +536,447 @@ fn a_snapshot_from_an_unsupported_schema_is_refused() {
     assert!(!out.stderr.is_empty(), "the refusal is explained on stderr");
 }
 
+/// F-21: a snapshot must not be able to state the environment a provider
+/// command runs in.
+///
+/// The finding's second half was that no test could see it — the INV-10 plan
+/// test writes an environment into its own fixture and the planner clones it,
+/// so it never crosses a boundary. This one crosses both: `--from-snapshot`,
+/// where the environment is read from a file, and `--replay`, where it is
+/// *constructed* from a recording that decides what `brew --prefix` answers.
+/// The second was the surprise. "Constructed" was taken to mean "safe", and a
+/// review showed it does not: `sanitised_environment` never sees the other
+/// provider, so it cannot notice that this one has moved on top of it.
+///
+/// Every case runs against both providers, because a guard that only holds one
+/// way is not a guard (INV-17) — an earlier version alternated them by index
+/// and, as it turned out, exercised no rule in both directions.
+#[test]
+fn invariant_10_a_snapshot_cannot_dictate_a_provider_command_environment() {
+    let scratch = Scratch::new("f21");
+    let clean = scratch.path().join("clean.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            fixture(BOTH).to_str().expect("path"),
+            "--json",
+            "snapshot",
+            "--out",
+            clean.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "capturing the clean snapshot");
+
+    let load = |file: &Path| {
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "analyze",
+            ],
+        )
+    };
+    let base: Value = serde_json::from_slice(&std::fs::read(&clean).expect("read"))
+        .expect("the captured snapshot is JSON");
+    assert_eq!(
+        load(&clean).status.code(),
+        Some(0),
+        "the untampered snapshot must still load, or this test proves nothing"
+    );
+
+    let write = |doc: &Value, name: &str| {
+        let file = scratch.path().join(name);
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        file
+    };
+
+    for (id, own, other) in [
+        ("homebrew", "/opt/homebrew", "/opt/local"),
+        ("macports", "/opt/local", "/opt/homebrew"),
+    ] {
+        let ok_path = format!("{own}/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+        // Each case names a fragment the refusal must contain. Without that a
+        // case can be refused for another case's reason and the test stays
+        // green — which is how the first version of this test hid the fact
+        // that four of its cases were tripping the same rule.
+        let cases: Vec<(&str, Value, &str)> = vec![
+            (
+                "a variable that runs a program of the attacker's choosing",
+                serde_json::json!({"PATH": ok_path, "SUDO_ASKPASS": "/tmp/evil/askpass.sh"}),
+                "SUDO_ASKPASS",
+            ),
+            (
+                "a variable that injects code into the provider's own runtime",
+                serde_json::json!({"PATH": ok_path, "RUBYOPT": "-r/tmp/evil.rb"}),
+                "RUBYOPT",
+            ),
+            (
+                "a plausible-looking provider variable that is still not on the list",
+                serde_json::json!({"PATH": ok_path, "HOMEBREW_ARTIFACT_DOMAIN": "http://elsewhere.example"}),
+                "HOMEBREW_ARTIFACT_DOMAIN",
+            ),
+            (
+                "a dynamic linker injection",
+                serde_json::json!({"PATH": ok_path, "DYLD_INSERT_LIBRARIES": "/tmp/x.dylib"}),
+                "DYLD_INSERT_LIBRARIES",
+            ),
+            (
+                "a build flag",
+                serde_json::json!({"PATH": ok_path, "CPPFLAGS": format!("-I{own}/include")}),
+                "CPPFLAGS",
+            ),
+            (
+                "a pinned variable given another value",
+                serde_json::json!({"PATH": ok_path, "LANG": "en_US.UTF-8"}),
+                "LANG",
+            ),
+            (
+                "a PATH entry reaching through `..`",
+                serde_json::json!({"PATH": format!("/opt/../{}/bin:{ok_path}", other.trim_start_matches('/'))}),
+                "..",
+            ),
+            (
+                "a writable directory first on PATH",
+                serde_json::json!({"PATH": format!("/tmp/evil/bin:{ok_path}")}),
+                "not a directory it was detected at",
+            ),
+            (
+                "the other provider's prefix on PATH",
+                serde_json::json!({"PATH": format!("{other}/bin:{ok_path}")}),
+                "is under",
+            ),
+            (
+                "a real path that is nobody's prefix",
+                serde_json::json!({"PATH": format!("/private{own}/bin:{ok_path}")}),
+                "not a directory it was detected at",
+            ),
+            (
+                "an empty PATH entry",
+                serde_json::json!({"PATH": format!("{own}/bin::{ok_path}")}),
+                "empty, relative",
+            ),
+            (
+                "a relative PATH entry",
+                serde_json::json!({"PATH": format!(".:{ok_path}")}),
+                "empty, relative",
+            ),
+            (
+                "no PATH at all",
+                serde_json::json!({"LANG": "C"}),
+                "states no PATH",
+            ),
+            (
+                "a home of the snapshot's choosing",
+                serde_json::json!({"PATH": ok_path, "HOME": "/tmp/evil"}),
+                "HOME=",
+            ),
+            (
+                "a PATH that does not end with the system directories",
+                serde_json::json!({"PATH": format!("{own}/bin")}),
+                "does not end with the system directories",
+            ),
+            (
+                "a pinned variable left out",
+                serde_json::json!({"PATH": ok_path}),
+                "states no",
+            ),
+        ];
+
+        for (what, mut environment, names) in cases {
+            // Every case but the two that are *about* the pinned variables
+            // carries them, so each reaches the rule it is written for rather
+            // than tripping an earlier one - which is how an earlier version of
+            // this test came to exercise four cases against one rule.
+            if !matches!(names, "LANG" | "states no") {
+                for (key, value) in [
+                    ("LANG", "C"),
+                    ("LC_ALL", "C"),
+                    ("TERM", "dumb"),
+                    ("NO_COLOR", "1"),
+                ] {
+                    environment[key] = serde_json::json!(value);
+                }
+                // And whatever the adapter itself adds, which the reader now
+                // requires by value and not only by name.
+                if id == "homebrew" {
+                    for key in [
+                        "HOMEBREW_NO_ANALYTICS",
+                        "HOMEBREW_NO_AUTO_UPDATE",
+                        "HOMEBREW_NO_COLOR",
+                        "HOMEBREW_NO_EMOJI",
+                        "HOMEBREW_NO_ENV_HINTS",
+                        "HOMEBREW_NO_INSTALL_CLEANUP",
+                    ] {
+                        environment[key] = serde_json::json!("1");
+                    }
+                }
+            }
+            let mut doc = base.clone();
+            doc["providers"][id]["invocationEnvironment"] = environment;
+            let out = load(&write(&doc, "tampered.json"));
+            assert_eq!(
+                out.status.code(),
+                Some(8),
+                "{id}: {what} must be refused as an unusable snapshot"
+            );
+            assert!(
+                out.stdout.is_empty(),
+                "{id}: {what}: a refusal prints no analysis"
+            );
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                stderr.contains(names),
+                "{id}: {what}: the refusal should name {names}, said: {stderr}"
+            );
+        }
+
+        // The prefix a provider declares widens what it may put on its `PATH`,
+        // so it is not taken on trust: claiming the other provider's is how a
+        // tampered recording would have laundered a leak through the
+        // *constructed* route.
+        let mut doc = base.clone();
+        doc["providers"][id]["detection"]["prefix"] = serde_json::json!(other);
+        doc["providers"][id]["invocationEnvironment"] =
+            serde_json::json!({"PATH": format!("{other}/bin:/usr/bin:/bin:/usr/sbin:/sbin")});
+        let out = load(&write(&doc, "claimed.json"));
+        assert_eq!(
+            out.status.code(),
+            Some(8),
+            "{id} claiming {other} must be refused"
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("overlaps"),
+            "{id}: the refusal names whose prefix it overlaps"
+        );
+    }
+
+    // A case-folded prefix. The boot volume is case-insensitive, so `/OPT/Local`
+    // and `/opt/local` are one directory while a byte comparison calls them two -
+    // the same class as `..`, the string and the kernel disagreeing.
+    let mut folded = base.clone();
+    folded["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("/OPT/Homebrew");
+    folded["providers"]["macports"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "/OPT/Homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    let out = load(&write(&folded, "folded.json"));
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "a case-folded prefix is the same prefix"
+    );
+
+    // A prefix reaching through `..`, which would otherwise become a program.
+    let mut dotdot = base.clone();
+    dotdot["providers"]["homebrew"]["detection"]["prefix"] =
+        serde_json::json!("/opt/homebrew/../../tmp/evil");
+    assert_eq!(
+        load(&write(&dotdot, "dotdot.json")).status.code(),
+        Some(8),
+        "a prefix reaching through `..` is not a usable directory"
+    );
+
+    // `/usr/local` is a prefix the registry knows for Homebrew, and
+    // `/usr/local/bin` is group-writable on every Mac - `doctor` calls that an
+    // error in its own right. A Homebrew detected at `/opt/homebrew` may not
+    // have it on the PATH just because the registry knows the name.
+    let mut known = base.clone();
+    known["providers"]["homebrew"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    assert_eq!(
+        load(&write(&known, "known.json")).status.code(),
+        Some(8),
+        "a known prefix is not the detected one"
+    );
+
+    // A prefix shallow enough to contain other things switches the containment
+    // rule off entirely: `/opt` makes the other provider's whole tree "mine",
+    // and `/` makes everything mine. This was a working bypass of the rule the
+    // whole check exists to enforce, found by review after two rebuilds.
+    for (id, prefix, entry) in [
+        ("homebrew", "/opt", "/opt/local/bin"),
+        ("homebrew", "/", "/tmp/evil/bin"),
+        ("homebrew", "/usr", "/usr/local/bin"),
+        ("macports", "/opt", "/opt/homebrew/bin"),
+    ] {
+        let mut shallow = base.clone();
+        shallow["providers"][id]["detection"]["prefix"] = serde_json::json!(prefix);
+        let mut environment = serde_json::json!({
+            "PATH": format!("{entry}:/usr/bin:/bin:/usr/sbin:/sbin"),
+            "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+        if id == "homebrew" {
+            for key in [
+                "HOMEBREW_NO_ANALYTICS",
+                "HOMEBREW_NO_AUTO_UPDATE",
+                "HOMEBREW_NO_COLOR",
+                "HOMEBREW_NO_EMOJI",
+                "HOMEBREW_NO_ENV_HINTS",
+                "HOMEBREW_NO_INSTALL_CLEANUP",
+            ] {
+                environment[key] = serde_json::json!("1");
+            }
+        }
+        shallow["providers"][id]["invocationEnvironment"] = environment;
+        assert_eq!(
+            load(&write(&shallow, "shallow.json")).status.code(),
+            Some(8),
+            "{id} declaring {prefix} must not thereby own {entry}"
+        );
+    }
+
+    // A quieting variable turned off, or dropped. `HOMEBREW_NO_AUTO_UPDATE` is
+    // what makes a read-only command read-only, and permitting the key by name
+    // rather than by value let a snapshot set it to "0" while the rule claimed
+    // to assert what the builder emits.
+    for (what, mutate) in [
+        (
+            "a quieting variable turned off",
+            serde_json::json!({"HOMEBREW_NO_AUTO_UPDATE": "0"}),
+        ),
+        (
+            "a quieting variable dropped",
+            serde_json::json!({"HOMEBREW_NO_AUTO_UPDATE": null}),
+        ),
+    ] {
+        let mut quiet = base.clone();
+        let environment = quiet["providers"]["homebrew"]["invocationEnvironment"]
+            .as_object_mut()
+            .expect("environment object");
+        for (key, value) in mutate.as_object().expect("object") {
+            if value.is_null() {
+                environment.remove(key);
+            } else {
+                environment.insert(key.clone(), value.clone());
+            }
+        }
+        assert_eq!(
+            load(&write(&quiet, "quiet.json")).status.code(),
+            Some(8),
+            "{what} must be refused"
+        );
+    }
+
+    // A provider the file calls present while stating no prefix. Every provider
+    // this tool detects reports where it was found, so this is not a document it
+    // wrote - and honouring it would hand back the registry's whole list as
+    // "its own", which is the narrowing the containment rule exists for.
+    let mut headless = base.clone();
+    headless["providers"]["homebrew"]["detection"]["prefix"] = Value::Null;
+    headless["providers"]["homebrew"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    assert_eq!(
+        load(&write(&headless, "headless.json")).status.code(),
+        Some(8),
+        "a present provider states where it was found"
+    );
+
+    // Two providers claiming the same place. Neither is a registry candidate,
+    // so only the other provider's own claim can catch it.
+    let mut both = base.clone();
+    for id in ["homebrew", "macports"] {
+        both["providers"][id]["detection"]["prefix"] = serde_json::json!("~/shared");
+        both["providers"][id]["invocationEnvironment"] = serde_json::json!({
+            "PATH": "~/shared/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    }
+    assert_eq!(
+        load(&write(&both, "both.json")).status.code(),
+        Some(8),
+        "two providers cannot both own one directory"
+    );
+
+    // And two shapes that must keep loading, because refusing a document this
+    // tool wrote is the failure mode a check like this actually causes.
+    let mut home_install = base.clone();
+    home_install["providers"]["homebrew"]["detection"]["prefix"] = serde_json::json!("~/homebrew");
+    home_install["providers"]["homebrew"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "~/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1",
+        "HOMEBREW_NO_ANALYTICS": "1", "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_COLOR": "1", "HOMEBREW_NO_EMOJI": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1", "HOMEBREW_NO_INSTALL_CLEANUP": "1"});
+    assert_eq!(
+        load(&write(&home_install, "home.json")).status.code(),
+        Some(0),
+        "a Homebrew installed under $HOME is redacted to `~`, and must still load"
+    );
+
+    let mut broken = base.clone();
+    broken["providers"]["macports"]["detection"]["presence"] =
+        serde_json::json!({"state": "BROKEN", "reason": "error.provider_unhealthy"});
+    broken["providers"]["macports"]["detection"]["prefix"] = Value::Null;
+    broken["providers"]["macports"]
+        .as_object_mut()
+        .expect("provider object")
+        .remove("invocationEnvironment");
+    assert_eq!(
+        load(&write(&broken, "broken.json")).status.code(),
+        Some(0),
+        "a provider whose capture failed states no environment, and `capture::broken` \
+         writes exactly that - refusing it would reject the snapshot taken on the \
+         broken machine someone is asking for help with"
+    );
+}
+
+/// The other half of F-21, and the one that was missed: a *constructed*
+/// environment is not automatically a safe one.
+///
+/// `sanitised_environment` builds Homebrew's `PATH` by prepending
+/// `<prefix>/bin`, and the prefix is whatever `brew --prefix` answered - which
+/// under `--replay` comes from the recording, and on a live run comes from the
+/// provider, which the threat model treats as untrusted either way. So a file
+/// can move one provider on top of the other without ever touching an
+/// `invocationEnvironment`. Nothing objected before this check ran on captured
+/// snapshots too.
+#[test]
+fn invariant_10_a_recording_cannot_move_one_provider_onto_the_other() {
+    let scratch = Scratch::new("f21-replay");
+    let mut recording: Value =
+        serde_json::from_slice(&std::fs::read(fixture(BOTH)).expect("read")).expect("recording");
+    let mut patched = 0;
+    for invocation in recording["invocations"]
+        .as_array_mut()
+        .expect("invocations")
+        .iter_mut()
+    {
+        let is_prefix_query = invocation["argv"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v == "--prefix"));
+        if is_prefix_query {
+            invocation["stdout"] = serde_json::json!("/opt/local\n");
+            patched += 1;
+        }
+    }
+    assert!(patched > 0, "the recording must contain a prefix query");
+    let file = scratch.path().join("evil-recording.json");
+    std::fs::write(&file, serde_json::to_vec(&recording).expect("serialise")).expect("write");
+
+    let out = run(
+        &scratch,
+        &[
+            "--json",
+            "--replay",
+            file.to_str().expect("path"),
+            "analyze",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "a recording that makes one provider claim the other's prefix is unusable"
+    );
+    assert!(out.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("overlaps"),
+        "the refusal names whose prefix it overlaps"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The two binaries, and the two determinism invariants
 // ---------------------------------------------------------------------------

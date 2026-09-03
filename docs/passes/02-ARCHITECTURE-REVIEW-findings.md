@@ -27,6 +27,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-16** — `cargo-deny` never checked advisories | **Fixed.** SE-055. |
 | **F-17** — twelve unpinned actions, four mutable | **Fixed.** SE-055; `scripts/check-action-pins.sh` in `validate.sh`, verified to fail on an unpinned ref. |
 | **F-18** — review workflow could not post, and had no author guard | **Fixed.** SE-055. |
+| **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -39,10 +40,19 @@ was not done here, as a **declared Tier 3 deviation**, because
 one step of every plan that reaches the mutating path still is not. (Not every
 plan: one halted at manual review carries no commands at all.)
 
-**The Tier 1 column is not clear, and an earlier draft of this summary said it
-was.** F-21 below is a fifth Tier 1 finding — an INV-10 hole — raised by a
-reviewer of the F-04 fix rather than by the review, and it is open. Four closed
-and one open is the honest count.
+**F-21 is a fifth Tier 1 finding**, an INV-10 hole raised by a reviewer of the
+F-04 fix rather than by the review. It is now fixed too, so the Tier 1 column is
+five closed — but "closed" means what each finding stated, and two limits are
+worth naming. The prefix a provider declares is still unvalidated in itself
+(F-09, open under *Security and safety*); the rule compensates by refusing a prefix that
+is unusable in shape or that another provider owns or has claimed, but a prefix
+nobody owns — `/tmp/evil` — is still declarable, and the general fix is SE-051
+part 2. And the rule guards what an adapter's environment *is*, not everything a
+recording could make an adapter do: the prefix was the reachable case and it is
+closed, the class is not. A fourth, structural: the "prefix names a directory of
+its own" rule can only ever be tripped by the alphabetically first provider,
+because a `BTreeMap` decides which provider's overlap check runs first — the code
+loop is uniform, but the rule is reachable one way round.
 
 Everything else below stands as written — F-06 through F-20, and the seven
 `Status: proposed` entries — with one exception this change created: **F-19's
@@ -275,7 +285,14 @@ route through `sanitised_environment`, `Command::new` appears once with
 ## F-21 — A snapshot file can dictate the environment a provider command runs in
 
 **Severity: high. Found by `spec-guardian` while reviewing the F-04 fix, not by the
-review.**
+review. Fixed — SE-051 part 1. The body below is the finding as written.**
+
+**On the severity, which F-21 asked to have reconciled with F-09's "high once the
+executor lands; medium today":** they are not the same and should not be levelled.
+Both today produce only a misleading plan. But an environment reaches a step the
+plan itself marks as elevating, and `SUDO_ASKPASS` in it names a program that runs
+as root the moment an executor exists — so this one earns the higher reading, while
+F-09's argv reaches a command that is not yet run at all.
 
 `invocation_environment` is built by `adapters/src/process/environment.rs`, which is
 clean: an allowlist, `is_build_flag` rejecting fourteen build-flag variables plus every
@@ -324,6 +341,12 @@ can come from another machine. Whether the remedy is to re-sanitise on load, to
 refuse a snapshot whose environment would not have been constructed, or to mark such
 a plan non-runnable, is a design question this review does not settle. What it
 settles is that the boundary is unguarded and untested.
+
+**Settled, on taking the fix:** refuse. Re-sanitising would make the analysis stop
+being a function of the snapshot, which is the property `--from-snapshot` exists to
+have, and it would conceal the tampering; marking the plan non-runnable would leave
+a hostile environment in an artifact people read. SE-051 has the reasoning, the rule
+and its limit.
 
 ---
 

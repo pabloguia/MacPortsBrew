@@ -96,11 +96,18 @@ pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, D
     Ok(path)
 }
 
-/// Reads a snapshot, checking its size and its schema version.
+/// Reads a snapshot, checking its size, its schema version, and the invocation
+/// environments it states.
 ///
 /// Every failure is `SnapshotUnusable`, which is the "fails closed" of the
 /// threat model: a snapshot that cannot be trusted produces no plan, rather
 /// than a partial one.
+///
+/// The environment check runs here because this is where a snapshot enters the
+/// program. It is *also* run on a captured snapshot, because "constructed"
+/// turned out not to mean "safe": a recording that changes what `brew --prefix`
+/// answers moves the other provider's prefix into a legitimately built
+/// environment, which a review demonstrated. One rule, both routes. F-21.
 pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
     let text = read_bounded(path)?;
     let snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
@@ -110,6 +117,7 @@ pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
         )
     })?;
     snapshot.check_schema()?;
+    snapshot.check_invocation_environments(&crate::registry::environment_contracts())?;
     Ok(snapshot)
 }
 

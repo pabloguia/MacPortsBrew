@@ -10,7 +10,9 @@
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
 use crate::process::ProcessRunner;
+use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{ProviderId, ProviderRead};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// The provider ids this build knows, in a stable order.
@@ -33,6 +35,34 @@ pub fn candidate_prefixes(provider: &ProviderId) -> Vec<PathBuf> {
         "macports" => vec![PathBuf::from("/opt/local")],
         _ => Vec::new(),
     }
+}
+
+/// What each provider's adapter could have put in an invocation environment.
+///
+/// The domain holds the rule and names no provider, so it is handed these
+/// facts. Both halves matter. The prefixes come from [`candidate_prefixes`] and
+/// not only from the snapshot's own `detection.prefix`, because a file that
+/// understated its prefix would otherwise widen what it is allowed to say. The
+/// keys come from each adapter's own list, so adding a quieting variable
+/// changes the builder and the reader together.
+pub fn environment_contracts() -> BTreeMap<String, ProviderEnvironmentContract> {
+    known_provider_ids()
+        .into_iter()
+        .map(|id| {
+            let extra = match id.as_str() {
+                crate::homebrew::PROVIDER_ID => crate::homebrew::QUIETING_KEYS
+                    .iter()
+                    .map(|k| ((*k).to_string(), "1".to_string()))
+                    .collect(),
+                _ => BTreeMap::new(),
+            };
+            let contract = ProviderEnvironmentContract {
+                prefixes: candidate_prefixes(&id),
+                extra,
+            };
+            (id.as_str().to_string(), contract)
+        })
+        .collect()
 }
 
 /// Resolves the prebuilt-artifact tags for a provider id.

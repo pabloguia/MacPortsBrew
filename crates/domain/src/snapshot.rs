@@ -103,6 +103,115 @@ pub struct PathFinding {
     pub kind: PathFindingKind,
 }
 
+/// The longest path this tool will accept anywhere.
+pub const MAX_PATH_LEN: usize = 4096;
+
+/// The system directories every sanitised `PATH` ends with, in order.
+///
+/// In the domain because three places need the same list: the executor builds a
+/// `PATH` from it, and the snapshot reader checks one against it. A second copy
+/// is a second definition of what a clean `PATH` is.
+pub const SYSTEM_PATH: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+/// The variables every sanitised environment carries, with the only values they
+/// are ever given. `PATH` and `HOME` are not here: one is checked by shape, the
+/// other is a path this tool does not choose.
+pub const PINNED_ENVIRONMENT: &[(&str, &str)] = &[
+    ("LANG", "C"),
+    ("LC_ALL", "C"),
+    ("TERM", "dumb"),
+    ("NO_COLOR", "1"),
+];
+
+fn path_is_sane(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= MAX_PATH_LEN
+        && !text.chars().any(char::is_control)
+        && !Path::new(text)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// Whether a path is one this tool will hand to the machine: absolute, bounded,
+/// no `..`, no control characters.
+///
+/// `..` matters more than it looks. A component-wise prefix comparison does not
+/// normalise it, so `/opt/../opt/homebrew/bin` is not "under `/opt/homebrew`"
+/// by any structural test while the kernel resolves it there. Rejecting the
+/// component outright is what makes a prefix comparison mean anything.
+pub fn is_safe_path(path: &Path) -> bool {
+    path.to_str()
+        .is_some_and(|text| text.starts_with('/') && path_is_sane(text))
+}
+
+/// The same rule for a path read back from a capture, where redaction has
+/// replaced the home directory with `~` ([`redact_home`]). Such a path is
+/// absolute on the machine it came from; refusing it would make a snapshot
+/// taken on a Homebrew-under-`$HOME` install unreadable by the tool that wrote
+/// it.
+pub fn is_safe_captured_path(text: &str) -> bool {
+    (text.starts_with('/') || text == "~" || text.starts_with("~/")) && path_is_sane(text)
+}
+
+/// Every prefix a provider other than `id` is known to own or has declared.
+fn taken_prefixes<'a>(
+    contracts: &'a BTreeMap<String, ProviderEnvironmentContract>,
+    declared: &'a [(&'a str, &'a Path)],
+    id: &'a str,
+) -> impl Iterator<Item = (&'a str, &'a Path)> {
+    contracts
+        .iter()
+        .filter(move |(other, _)| other.as_str() != id)
+        .flat_map(|(other, c)| {
+            c.prefixes
+                .iter()
+                .map(move |p| (other.as_str(), p.as_path()))
+        })
+        .chain(declared.iter().filter(move |(o, _)| *o != id).copied())
+}
+
+/// Whether `path` lies under `prefix`, comparing components case-insensitively.
+///
+/// The boot volume is case-insensitive APFS by default: `/OPT/Local/bin` and
+/// `/opt/local/bin` are the same directory, so a byte comparison says
+/// "different prefix" while the kernel opens the same file. (`realpath` *does*
+/// fold, but nothing here calls it: this comparison is lexical by design, so it
+/// can be decided from the snapshot alone.) That is the same class of defeat as a `..` component - the string and
+/// the machine disagreeing - and it is closed the same way, by refusing to let
+/// the comparison be the looser of the two.
+pub fn path_starts_with_insensitive(path: &Path, prefix: &Path) -> bool {
+    let fold = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect()
+    };
+    let (path, prefix) = (fold(path), fold(prefix));
+    prefix.len() <= path.len() && path[..prefix.len()] == prefix[..]
+}
+
+/// What one provider's adapter could have produced, as the layer that knows
+/// providers describes it.
+///
+/// The domain names no provider, so it cannot know where Homebrew lives or that
+/// MacPorts adds no variables of its own. It is handed those facts and applies
+/// the rule to them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProviderEnvironmentContract {
+    /// Directories this provider's `PATH` may lead with - its detected prefix
+    /// and the prefixes the registry knows for it. Taking the *known* ones from
+    /// code and not only the detected one from the file matters: a snapshot
+    /// that understates its own prefix would otherwise widen what it may say.
+    pub prefixes: Vec<PathBuf>,
+    /// Variables this provider's adapter adds beyond the pinned ones, with the
+    /// values it sets them to.
+    ///
+    /// A map and not a set, because permitting a key by name is not equality:
+    /// `HOMEBREW_NO_AUTO_UPDATE` is what makes a read-only command read-only,
+    /// and a snapshot that set it to `"0"` was accepted while the rule claimed
+    /// to assert what the builder emits.
+    pub extra: BTreeMap<String, String>,
+}
+
 /// Environment variables that make one prefix visible to another's build
 /// system. INV-10 names five of them - its sixth, `PATH`, is reserved rather
 /// than stripped - and then says "or equivalents"; this is the equivalents, in
@@ -427,6 +536,263 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Refuses a snapshot stating an invocation environment no adapter could
+    /// have built.
+    ///
+    /// `sanitised_environment` builds a clean environment, and that was taken
+    /// to mean a clean environment is what a command gets. It is not, by two
+    /// routes. `invocation_environment` is a deserialised field, so
+    /// `--from-snapshot` can state outright what a `brew` or `port` command
+    /// runs in (F-21). And the *constructed* route is no safer: the leading
+    /// `PATH` is `<prefix>/bin`, the prefix is what `brew --prefix` answered,
+    /// and that answer comes from a recording under `--replay` and from the
+    /// provider on a live run - untrusted in both cases by the threat model.
+    /// `sanitised_environment` cannot notice, because it never sees the other
+    /// provider. So this runs on every snapshot, captured or loaded.
+    ///
+    /// The remedy is to refuse rather than to rewrite: re-sanitising would make
+    /// the analysis stop being a function of the snapshot, which is the
+    /// property `--from-snapshot` exists to have, and it would conceal the
+    /// tampering.
+    ///
+    /// **What is asserted is what the builder emits**, not the absence of things
+    /// to fear. Three security reviews are the reason, and the lesson had the
+    /// same shape each time: every defeat after the first was a place where the
+    /// rule was *wider* than the builder. The
+    /// first version banned build-flag keys and the other provider's prefix,
+    /// and was defeated four ways in minutes - `SUDO_ASKPASS` and `RUBYOPT` are
+    /// neither and both name a program the provider will run; `/tmp/evil/bin`
+    /// first on `PATH` is neither; `/opt/../opt/homebrew/bin` slips a
+    /// component-wise prefix test while the kernel resolves it where you would
+    /// expect. The second version asserted a shape, and every remaining defeat
+    /// was a place where the shape asserted was *wider* than the shape built:
+    /// `/OPT/Local` compares unequal and opens the same file, because the boot
+    /// volume is case-insensitive; a `HOME` of the attacker's choosing makes
+    /// `brew` read `$HOME/.homebrew/brew.env` and export `SUDO_ASKPASS` and
+    /// every `HOMEBREW_*` from it, reinstating the whole refused key set; and
+    /// `/usr/local/bin`, group-writable on any Mac, is "under a known Homebrew
+    /// prefix". So the rule is now: exactly the variables the builder sets,
+    /// exactly the values it sets them to, and a `PATH` of this provider's own
+    /// directories followed by the system ones. The third round added the two
+    /// that mattered most: a quieting variable was permitted by name, so a
+    /// snapshot could set `HOMEBREW_NO_AUTO_UPDATE=0` and turn a read-only
+    /// command into one that writes; and a prefix shallow enough to contain
+    /// other things - `/opt`, or `/` - made every rule below vacuous, which was
+    /// a working bypass of the whole check.
+    ///
+    /// Decided from the snapshot and the contract alone - no clock, no
+    /// filesystem, no live environment - so a snapshotted read stays
+    /// reproducible (INV-15).
+    pub fn check_invocation_environments(
+        &self,
+        contracts: &BTreeMap<String, ProviderEnvironmentContract>,
+    ) -> Result<(), crate::error::DomainError> {
+        let refuse = |detail: String| {
+            Err(crate::error::DomainError::new(
+                crate::error::ErrorId::SnapshotUnusable,
+                detail,
+            ))
+        };
+        // Every prefix any provider lays claim to, before any of them is
+        // trusted. Collected first because a provider that legitimately lives
+        // somewhere the registry does not know - Homebrew under `$HOME` - would
+        // otherwise be unprotected against another provider claiming the same
+        // place.
+        let declared: Vec<(&str, &Path)> = self
+            .providers
+            .iter()
+            .filter_map(|(id, p)| p.detection.prefix.as_deref().map(|d| (id.as_str(), d)))
+            .collect();
+
+        for (id, provider) in &self.providers {
+            let environment = &provider.invocation_environment;
+            // A provider whose capture failed states nothing, because the
+            // adapter never got far enough to build one. Accepting that is not
+            // a hole - the planner emits no command for a provider that is not
+            // present - and refusing it would make the tool reject a snapshot
+            // it had just written, on exactly the broken machine someone
+            // captures a snapshot from in order to get help.
+            if environment.is_empty()
+                && provider.detection.presence != crate::provider::ProviderPresence::Present
+            {
+                continue;
+            }
+            let contract = contracts.get(id.as_str()).cloned().unwrap_or_default();
+
+            // Where this provider is allowed to be. A declared prefix is
+            // honoured - a provider may install anywhere - but never on top of
+            // somewhere another provider is known to live or has claimed, and
+            // never in a shape the kernel reads differently from the way it
+            // compares.
+            let mut own: Vec<PathBuf> = Vec::new();
+            if let Some(detected) = provider.detection.prefix.as_deref() {
+                let text = detected.to_string_lossy().into_owned();
+                if !is_safe_captured_path(&text) {
+                    return refuse(format!(
+                        "{id} declares a prefix that is not a usable directory ({text:?})"
+                    ));
+                }
+                // A prefix shallow enough to contain other things is how the
+                // containment rule below gets switched off: declare `/opt` and
+                // the other provider's whole tree is "mine"; declare `/` and
+                // everything is. Every real prefix names a directory of its
+                // own, so requiring two components and forbidding an ancestor
+                // relationship costs nothing and closes the family.
+                if detected.components().count() < 2 {
+                    return refuse(format!(
+                        "{id} declares {text:?} as its prefix, which contains \
+                         everything below it rather than naming a directory of its own"
+                    ));
+                }
+                for system in SYSTEM_PATH {
+                    if path_starts_with_insensitive(Path::new(system), detected) {
+                        return refuse(format!(
+                            "{id} declares {text:?}, which contains the system \
+                             directory {system}"
+                        ));
+                    }
+                }
+                for (other, prefix) in taken_prefixes(contracts, &declared, id.as_str()) {
+                    if path_starts_with_insensitive(detected, prefix)
+                        || path_starts_with_insensitive(prefix, detected)
+                    {
+                        return refuse(format!(
+                            "{id} claims a prefix ({text}) that overlaps {other}'s"
+                        ));
+                    }
+                }
+                own.push(detected.to_path_buf());
+            } else if provider.detection.presence == crate::provider::ProviderPresence::Present {
+                // A present provider was found somewhere, so the adapter has a
+                // prefix and states it. Falling back to the registry's list here
+                // would undo the narrowing above: a snapshot saying "present,
+                // prefix unknown" would get `/usr/local` back as its own.
+                return refuse(format!(
+                    "{id} is present but states no prefix; every provider this tool \
+                     detects reports where it was found"
+                ));
+            } else {
+                // Absent or broken, so there is nothing to honour: the adapter
+                // still leads its `PATH` with a default, which the registry
+                // knows, and the planner emits no command for it either way.
+                own.extend(contract.prefixes.iter().cloned());
+            }
+
+            for (key, value) in environment {
+                let pinned = PINNED_ENVIRONMENT.iter().find(|(k, _)| *k == key);
+                let permitted = key == "PATH"
+                    || key == "HOME"
+                    || pinned.is_some()
+                    || contract.extra.contains_key(key);
+                if !permitted {
+                    return refuse(format!(
+                        "{id} states {key}, which no adapter puts in a provider's \
+                         environment; a snapshot may only state what this tool builds"
+                    ));
+                }
+                if let Some((_, expected)) = pinned {
+                    if value != expected {
+                        return refuse(format!(
+                            "{id} states {key}={value:?}, and this tool only ever \
+                             sets it to {expected:?}"
+                        ));
+                    }
+                }
+                // `HOME` is redacted to `~` at capture and absent under replay,
+                // so those are the only two shapes this tool produces - and the
+                // tightest useful rule, because `brew` reads
+                // `$HOME/.homebrew/brew.env` and exports `SUDO_ASKPASS` and any
+                // `HOMEBREW_*` it finds there (observed in `bin/brew`,
+                // 2026-09-03). A `HOME` a snapshot chooses hands back every key
+                // the list above refuses.
+                if let Some(expected) = contract.extra.get(key) {
+                    if value != expected {
+                        return refuse(format!(
+                            "{id} states {key}={value:?}, and its adapter only ever \
+                             sets it to {expected:?}"
+                        ));
+                    }
+                }
+                if key == "HOME" && value != "~" {
+                    return refuse(format!(
+                        "{id} states HOME={value:?}; a captured home is redacted to \
+                         `~`, and a provider reads its own configuration from there"
+                    ));
+                }
+            }
+            let required = PINNED_ENVIRONMENT
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .chain(contract.extra.clone());
+            for (key, expected) in required {
+                if !environment.contains_key(&key) {
+                    return refuse(format!(
+                        "{id} states no {key}, which its environment always carries \
+                         set to {expected:?}; without it a command behaves differently"
+                    ));
+                }
+            }
+
+            let Some(path) = environment.get("PATH") else {
+                return refuse(format!(
+                    "{id} states no PATH to run its commands with; every environment \
+                     this tool builds has one"
+                ));
+            };
+            let entries: Vec<&str> = path.split(':').collect();
+            let split = entries.len().saturating_sub(SYSTEM_PATH.len());
+            if entries.len() <= SYSTEM_PATH.len() || &entries[split..] != SYSTEM_PATH {
+                return refuse(format!(
+                    "{id} has a PATH that does not end with the system directories \
+                     ({}); this tool builds one by prepending a provider's own \
+                     directories to them",
+                    SYSTEM_PATH.join(":")
+                ));
+            }
+            for entry in &entries[..split] {
+                if !is_safe_captured_path(entry) {
+                    return refuse(format!(
+                        "{id} has a PATH entry that is empty, relative, over-long, or \
+                         reaches through `..` ({entry:?}); a command would resolve \
+                         somewhere other than where the entry reads"
+                    ));
+                }
+                // The only positive rule, and deliberately narrow: a directory
+                // *this* provider was detected at. Not the prefixes the
+                // registry knows for it - `/usr/local/bin` is group-writable on
+                // where an Intel Homebrew created it, and `doctor` calls that an
+                // error in its own right,
+                // so a snapshot must not be able to put it on the `PATH` of a
+                // Homebrew that lives at `/opt/homebrew`.
+                for (other, prefix) in taken_prefixes(contracts, &declared, id.as_str()) {
+                    if path_starts_with_insensitive(Path::new(entry), prefix) {
+                        return refuse(format!(
+                            "{id} has {entry:?} on its PATH, which is under {other}'s \
+                             prefix (INV-10)"
+                        ));
+                    }
+                }
+                // Byte-exact, deliberately, and not the case-insensitive
+                // comparison used for the anchor. The two directions need
+                // opposite folds: for "may not claim another's prefix" the
+                // loosest matcher is safe, because every extra match is a
+                // refusal; for "this entry is under my own prefix" the
+                // strictest is, because every extra match is an acceptance. The
+                // adapter builds the prefix and the entry from one `PathBuf`
+                // and redaction rewrites both the same way, so on a snapshot
+                // this tool wrote the bytes always agree.
+                if !own.iter().any(|p| Path::new(entry).starts_with(p)) {
+                    return refuse(format!(
+                        "{id} leads its PATH with {entry:?}, which is not a directory \
+                         it was detected at; a command it runs would resolve helpers \
+                         from there (INV-10)"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Fails when the schema version is not the one this build reads.
     pub fn check_schema(&self) -> Result<(), crate::error::DomainError> {
         if self.schema_version == SNAPSHOT_SCHEMA_VERSION {

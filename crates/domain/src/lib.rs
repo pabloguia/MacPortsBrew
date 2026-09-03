@@ -52,8 +52,10 @@ pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
 pub use resolution::{ExecutableOwner, Resolution};
 pub use snapshot::{
-    is_build_flag, redact_home, EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind,
-    Provenance, ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    is_build_flag, is_safe_captured_path, is_safe_path, path_starts_with_insensitive, redact_home,
+    EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind, Provenance,
+    ProviderEnvironmentContract, ProviderSnapshot, Snapshot, MAX_PATH_LEN, PINNED_ENVIRONMENT,
+    SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use version::Version;

@@ -117,8 +117,18 @@ F-05, F-16, F-17 and F-18 are fixed, and so are the four Tier 1 findings this
 review filed —
 F-01, F-02 and F-03 outright, F-04 as the violation it named, leaving a
 declared Tier 3 deviation that belongs to the executor pass (SE-056). F-21
-was found by a reviewer of the F-04 fix and is open — a fifth Tier 1 finding, so
-the Tier 1 column is four closed and one open, not clear.
+was found by a reviewer of the F-04 fix and is fixed too (SE-051 part 1), so the
+Tier 1 column is five closed. Three limits are named rather than left implicit:
+`detection.prefix` is checked for shape but not for plausibility, so a prefix
+nobody owns is still declarable (F-09, SE-051 part 2, open); a live run validates
+that prefix less than a replayed one does; and nothing yet guards what a
+*recording* can make an adapter construct beyond the prefix. The fix took three
+security reviews and three rebuilds — the first version was defeated four ways,
+the second six more including a working bypass of the rule itself, and between
+them they wrongly refused three legitimate things, one of which stopped the tool
+running at all on any machine whose `HOME` carried a trailing slash. SE-051
+records the path and not only the destination, because the path is the part that
+stops someone repeating it.
 
 Nothing in `docs/spec/` was edited. No invariant was changed. Under section 3 of the
 work order a reviewer may propose at any tier and may not apply, and the two narrow

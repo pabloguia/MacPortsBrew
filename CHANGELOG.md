@@ -111,6 +111,27 @@ to answer.
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
 ### Security
+- **A file can no longer decide what a provider command runs in.** Two routes led
+  there. `--from-snapshot` read `invocationEnvironment` verbatim, so a snapshot
+  could put the other provider's prefix on a `port` command's `PATH`, or a
+  `SUDO_ASKPASS` beside it on the step that elevates. And a *constructed*
+  environment was no safer: the `PATH` leads with `<prefix>/bin`, and the prefix is
+  what `brew --prefix` answered — from a recording under `--replay`, from the
+  provider on a live run. A snapshot is now refused, on either route, unless its
+  environment has the shape an adapter builds: only the variables an adapter emits,
+  the pinned ones unchanged, and every `PATH` entry a system directory or one under
+  a prefix that provider owns — and no provider may claim a prefix another owns.
+  Refused, not quietly repaired, so the analysis stays a function of the snapshot.
+  What is asserted is equality with what an adapter builds — the same variables,
+  the same fixed values, a `PATH` of that provider's own directories followed by
+  the system ones — because two security reviews showed that anything looser has
+  a way through: `SUDO_ASKPASS`, a case-folded `/OPT/Local` on a case-insensitive
+  volume, and a `HOME` of the file's choosing, which makes `brew` load
+  `$HOME/.homebrew/brew.env` and re-export the very keys being refused. A snapshot
+  written before `invocationEnvironment` existed carries none, and no longer loads
+  unless every provider in it was absent or broken — which is the same exemption
+  that keeps a snapshot from a machine with a failed provider readable.
+  SE-051 part 1, finding F-21.
 
 - **`doctor --report` and `snapshot --out` no longer publish the home path when
   `HOME` is unset.** Redaction treated "no home directory" as "nothing to

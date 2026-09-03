@@ -157,6 +157,7 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Known(PathBuf::from(HOME)),
+        environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
     })
     .expect("the machine answers, so the capture succeeds");
 
@@ -221,6 +222,7 @@ fn a_resolution_taken_from_path_is_redacted_too() {
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Known(PathBuf::from(HOME)),
+        environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
     })
     .expect("the machine answers");
 
@@ -242,11 +244,16 @@ fn a_recorded_capture_is_not_rewritten() {
     // function: a recording was redacted when it was captured, and redacting it
     // again against *this* machine's home would be a host fact reaching a
     // replayed analysis (INV-15).
+    //
+    // No home is passed, because `--replay` passes none - a recording is not
+    // this machine, so there is no live home to hand a provider. The identity
+    // property is asserted on the prefix and on the constructed `PATH`, both of
+    // which carry the recording's own home path and must come back untouched.
     let runner = ReplayRunner::new(recording());
     let adapter = macportsbrew_adapters::homebrew::HomebrewAdapter::new(
         &runner,
         PathBuf::from(format!("{HOME}/homebrew")),
-        Some(PathBuf::from(HOME)),
+        None,
         vec!["tahoe".to_string()],
     );
     let machine = HomeMachine;
@@ -257,6 +264,7 @@ fn a_recorded_capture_is_not_rewritten() {
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Recorded,
+        environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
     })
     .expect("the machine answers");
     let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
@@ -264,6 +272,18 @@ fn a_recorded_capture_is_not_rewritten() {
         homebrew.detection.prefix,
         Some(PathBuf::from(format!("{HOME}/homebrew"))),
         "a recording was redacted at capture, so it is left exactly as it was"
+    );
+    assert_eq!(
+        homebrew
+            .invocation_environment
+            .get("PATH")
+            .map(String::as_str),
+        Some(format!("{HOME}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin").as_str()),
+        "and neither is the environment built from it"
+    );
+    assert!(
+        !homebrew.invocation_environment.contains_key("HOME"),
+        "a replayed capture has no live home to state"
     );
 }
 
@@ -289,6 +309,7 @@ fn a_live_capture_whose_home_is_unresolvable_still_carries_no_home_path() {
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Unresolved,
+        environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
     })
     .expect("the machine answers");
     let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];

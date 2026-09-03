@@ -138,6 +138,7 @@ impl Context {
                     if replay { "--replay" } else { "capture" }
                 ),
                 home: home_redaction.clone(),
+                environment_contracts: registry::environment_contracts(),
             })?
         };
         Ok(Self {

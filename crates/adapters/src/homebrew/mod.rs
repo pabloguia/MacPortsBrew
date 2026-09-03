@@ -104,6 +104,19 @@ fn executable_in(prefix: &Path) -> PathBuf {
     prefix.join("bin").join(EXECUTABLE_NAME)
 }
 
+/// The variables this adapter adds to a sanitised environment, and the only
+/// ones a snapshot may state for Homebrew. Named here so the reader that
+/// validates a captured environment and the builder that makes one cannot
+/// disagree about the list.
+pub const QUIETING_KEYS: &[&str] = &[
+    "HOMEBREW_NO_AUTO_UPDATE",
+    "HOMEBREW_NO_ANALYTICS",
+    "HOMEBREW_NO_ENV_HINTS",
+    "HOMEBREW_NO_INSTALL_CLEANUP",
+    "HOMEBREW_NO_COLOR",
+    "HOMEBREW_NO_EMOJI",
+];
+
 /// The environment every invocation of this provider runs in.
 ///
 /// `HOMEBREW_NO_AUTO_UPDATE` is the load-bearing one: it is what makes a
@@ -113,15 +126,8 @@ fn executable_in(prefix: &Path) -> PathBuf {
 /// drops build-affecting variables, and pins the locale (INV-10).
 pub fn quiet_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
     let mut extra = BTreeMap::new();
-    for key in [
-        "HOMEBREW_NO_AUTO_UPDATE",
-        "HOMEBREW_NO_ANALYTICS",
-        "HOMEBREW_NO_ENV_HINTS",
-        "HOMEBREW_NO_INSTALL_CLEANUP",
-        "HOMEBREW_NO_COLOR",
-        "HOMEBREW_NO_EMOJI",
-    ] {
-        extra.insert(key.to_string(), "1".to_string());
+    for key in QUIETING_KEYS {
+        extra.insert((*key).to_string(), "1".to_string());
     }
     sanitised_environment(&EnvironmentSpec {
         leading_path: vec![prefix.join("bin")],

@@ -121,11 +121,20 @@ pub fn from_process_environment() -> (Option<String>, BTreeMap<String, String>, 
     let variables = std::env::vars()
         .filter(|(name, _)| is_reported(name))
         .collect();
-    let home = std::env::var("HOME")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
+    let home = std::env::var("HOME").ok().as_deref().and_then(usable_home);
     (path, variables, home)
+}
+
+/// Trailing slashes are trimmed and `/` is rejected outright. `HOME` is what
+/// redaction substitutes and what a provider reads its own configuration
+/// from, and `/Users/x/` is a shape shells and launchd hand out freely: it
+/// redacts to `~/` rather than `~`, which made every live run refuse its own
+/// snapshot until this normalised. Doing it at the one place that reads the
+/// environment fixes redaction everywhere rather than teaching each consumer
+/// the same trick.
+pub fn usable_home(value: &str) -> Option<PathBuf> {
+    let trimmed = PathBuf::from(value.trim_end_matches('/'));
+    (trimmed.is_absolute() && trimmed.components().count() > 1).then_some(trimmed)
 }
 
 /// Reads the locale preference variables in the order `06-cli-and-ux.md`
@@ -814,6 +823,31 @@ mod tests {
             reader.home(),
             &HomeRedaction::Known(PathBuf::from("/Users/ada"))
         );
+    }
+
+    #[test]
+    fn a_home_with_a_trailing_slash_is_the_same_home() {
+        // Not cosmetic. `HOME` is what redaction substitutes, and `/Users/x/`
+        // redacts to `~/` rather than `~`, which made the tool refuse the very
+        // snapshot it had just written - in every subcommand, on any machine
+        // whose `HOME` carried a trailing slash, a shape shells and launchd hand
+        // out freely. The guard that stops that lives in one expression, so it
+        // gets a test of its own.
+        assert_eq!(
+            usable_home("/Users/ada/"),
+            Some(PathBuf::from("/Users/ada"))
+        );
+        assert_eq!(
+            usable_home("/Users/ada///"),
+            Some(PathBuf::from("/Users/ada"))
+        );
+        assert_eq!(usable_home("/Users/ada"), Some(PathBuf::from("/Users/ada")));
+        // A home of `/` names no directory of the user's, and redacting against
+        // it would rewrite every absolute path in the snapshot.
+        assert_eq!(usable_home("/"), None);
+        assert_eq!(usable_home("//"), None);
+        assert_eq!(usable_home("relative"), None);
+        assert_eq!(usable_home(""), None);
     }
 
     #[test]

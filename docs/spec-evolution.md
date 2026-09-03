@@ -825,6 +825,176 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: one golden file changes — one unit added, one source
   corrected, one outcome no longer falsely `MANUAL_REVIEW`.
 
+## SE-051 — A snapshot is untrusted input, and so is anything that decides what a command runs in
+- Status: accepted. Part 1 of three is built; parts 2 and 3 are still proposals
+  and are kept here rather than split off, because it is one boundary (SE-032).
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; part 1 implemented 2026-09-03
+- Original assumption: `--from-snapshot` accepts a file whose schema version
+  matches, and an environment built by `sanitised_environment` is safe by
+  construction.
+- Change, in three parts:
+  1. **Built.** `Snapshot::check_invocation_environments`, run inside `capture`
+     and by `load_snapshot`, refuses an invocation environment no adapter could
+     have produced: only the keys an adapter sets (`PATH`, an optional `HOME`,
+     the four pinned variables, and that provider's own quieting variables),
+     each present and equal to the value the adapter gives it — by name alone
+     was not enough, since `HOMEBREW_NO_AUTO_UPDATE` is what makes a read-only
+     command read-only and a snapshot could set it to `"0"` — `HOME` exactly
+     `~`, and a `PATH`
+     ending in the system directories with every leading entry under the prefix
+     that provider was *detected* at; a provider the file calls present must
+     declare one, and only an absent or broken provider falls back to the
+     registry's list. A declared prefix must itself be a usable
+     directory, and may not be one another provider is known to own or has
+     claimed. The cross-provider comparisons fold case; the "under my own
+     prefix" one is byte-exact, because the two directions need opposite folds -
+     the loosest matcher is the safe one when every extra match is a refusal, the
+     strictest when every extra match is an acceptance.
+  2. *Proposed.* Validate every name, version and path in a deserialised
+     snapshot with the same predicates the adapters apply to provider output.
+  3. *Proposed.* Give `PlanCommand` a fallible constructor that refuses an argv
+     element that is empty or begins with `-` unless it came from the verb table.
+- Rationale: `check_schema` compares an integer and nothing else, and
+  `--from-snapshot` is global, so it reaches `plan`. Names from the file become argv
+  elements and even executable names, with no `--` separator and without passing any
+  adapter allow-list, because the allow-lists live in the adapters and the planner
+  does not go through them. Sharing a snapshot for diagnosis is a workflow the
+  documentation invites. Today the consequence is a misleading plan; when the
+  executor runs `PlanCommand.argv` as the contract requires, it is flag injection.
+- **The environment is the same boundary, and it has two sides, not one.** The
+  obvious side is the deserialised field: `--from-snapshot` read
+  `invocationEnvironment` verbatim, so a file could state what a `brew` or `port`
+  command runs in (F-21). The side that was missed is that *constructed* does
+  not mean *safe*: `sanitised_environment` leads the `PATH` with `<prefix>/bin`,
+  and the prefix is whatever `brew --prefix` answered — from a recording under
+  `--replay`, from the provider on a live run, untrusted either way. A review
+  demonstrated it by patching one recorded line, and every layer above accepted
+  the result. `sanitised_environment` cannot catch that; it never sees the other
+  provider. So the check runs on both routes, and an earlier draft of this entry
+  claiming `--replay` was unaffected was wrong.
+- **What is asserted, arrived at over three security reviews.** The first
+  implementation banned build-flag keys and the other provider's prefix, and was
+  defeated four ways: `SUDO_ASKPASS` and `RUBYOPT` are neither and both name a
+  program the provider will run; `/tmp/evil/bin` first on `PATH` is neither; and
+  `/opt/../opt/homebrew/bin` slips a component-wise prefix test while the kernel
+  resolves it where you would expect. Banning is an arms race against everything
+  anyone will ever add to `brew`, so the second implementation asserted a shape
+  instead — and **every remaining defeat was a place where the shape asserted was
+  wider than the shape built**:
+  - `/OPT/Local` compares unequal to `/opt/local` and opens the same directory.
+    The boot volume is case-insensitive APFS, and `realpath` does not fold it, so
+    this is the `..` problem again: the string and the kernel disagreeing.
+  - A `HOME` of the snapshot's choosing hands back the entire refused key set.
+    `bin/brew` reads `${HOME}/.homebrew/brew.env` and exports anything matching
+    `^(HOMEBREW_|SUDO_ASKPASS=|(all|no|ftp|https?)_proxy=)` from it — read in
+    Homebrew's own source on this machine, 2026-09-03. The legitimate values are
+    absent or `~`, so that is now the rule.
+  - `/usr/local` is a prefix the registry knows for Homebrew, and `/usr/local/bin`
+    is commonly user- or group-writable where an Intel Homebrew created it — a
+    stock macOS has no such directory — and `doctor` reports that configuration as
+    an error in its own right. Containment now uses the prefix a provider was
+    *detected* at; the registry's list anchors only the "may not claim" test,
+    which is the job the comment always described.
+  - A prefix shallow enough to contain other things switched the rule off
+    altogether. Declaring `/opt` made the other provider's whole tree "mine";
+    declaring `/` made everything mine, and `/tmp/evil/bin` went onto the `PATH`
+    of a provider whose plan step elevates. This was a *working bypass of the rule
+    this entry is about*, and it survived two rebuilds — which is why the declared
+    prefix is now constrained in its own right (at least two components, no
+    overlap with another provider's, never an ancestor of a system directory) and
+    why every leading entry, not only the prefix, is tested against the other
+    providers.
+  - An environment with no pinned variables, or a `PATH` with no system
+    directories, was accepted. Dropping `LANG=C` is a parser-divergence lever
+    against a tool whose untrusted-output posture rests on
+    `ErrorId::ProviderOutputChanged`; dropping `/usr/bin` changes which helper a
+    provider finds. Both are now required, because the builder always emits them.
+- **Refuse rather than rewrite.** Silently re-sanitising on load would make the
+  analysis stop being a function of the snapshot, which is the property
+  `--from-snapshot` exists to have, and it would hide that the file was tampered
+  with. Refusing is what `load_snapshot` already promises — a snapshot that
+  cannot be trusted produces no plan rather than a partial one.
+- **What refusing costs, and the three legitimate things it wrongly refused.** A
+  check like this fails by rejecting what is real, and this one did three times
+  across three rounds. The third is the worst and was not a document at all: a
+  `HOME` of `/Users/x/` — a trailing slash, which shells and `launchd` hand out
+  freely — redacts to `~/` rather than `~`, so **every live run of every
+  subcommand exited 8**, telling the user to take a snapshot that would fail the
+  same way. `HOME` is now normalised where the environment is read, once, which
+  fixes redaction everywhere rather than teaching each consumer the same trick,
+  and `usable_home` has a test of its own because nothing else would catch its
+  removal. The first two: `capture::broken()` writes no environment at all, so a snapshot taken on
+  a machine whose provider had failed — precisely the machine someone captures
+  one from to ask for help — was unreadable, and the error told them to take
+  another. And home redaction rewrites a `PATH` to `~/homebrew/bin`, which the
+  check called relative, so any Homebrew installed under `$HOME` produced a
+  snapshot it could not read back. Both load now, and both are asserted.
+- **Where the check runs.** Inside `capture`, and in `load_snapshot`. Not in the
+  caller: `capture` is public, so a future subcommand or embedder that built a
+  snapshot without running the rule would reopen this silently. The contract is a
+  required field of `CaptureContext`, so one cannot be constructed without it —
+  which is why four test call sites had to be given it, and that is the point.
+- **Where the rule lives, and where the facts do.** The rule is in `domain`: pure,
+  no I/O, no clock, no provider named. The facts it needs — which prefixes belong
+  to which provider, which extra variables an adapter adds — come from
+  `registry::environment_contracts`, in the layer that knows providers. Taking
+  the prefixes from the registry and not only from the file is what closes the
+  evasion above, and it is deliberately *not* used to widen where a provider may
+  put its own `PATH`; taking the keys from each adapter's own list is what stops the
+  builder and the reader drifting apart, the same consolidation SE-056 made for
+  `is_build_flag`. `is_safe_path`, `SYSTEM_PATH` and the pinned variables moved to
+  `domain` for the same reason, and `adapters` re-exports `is_safe_path` so its
+  three existing callers are unchanged.
+- Evidence: findings F-09 and F-21. (An earlier draft carried line references
+  inherited from the proposal; they had drifted onto unrelated code, so they are
+  dropped rather than re-guessed.) For part 1, every claim below was run rather than
+  reasoned: every evasion named above, and the ancestor-prefix family a third
+  review found after two rebuilds, reproduced against the real binary before it was
+  believed and refused after; the case-insensitivity confirmed on this
+  machine (`/USR/bin` resolves; an earlier draft added "and `realpath /OPT`
+  returns `/OPT`", which is false — `/bin/realpath` does fold, and the
+  observation came from Python's lexical `os.path.realpath`. The conclusion is
+  unaffected, since nothing here calls `realpath`, but this bullet claims every
+  statement in it was run) and the `HOME`
+  mechanism read in Homebrew's own `bin/brew`; both false positives reproduced and
+  fixed; a tampered recording refused on the `--replay` route; all six recordings
+  still replay, and all six still capture through `snapshot --out` and load again —
+  which `scripts/run-fixture-matrix.sh` has covered all along, at `:161-167`. An
+  earlier draft of this entry said it covered "the replay half only", which was
+  simply false, and is the fourth evidence claim of mine a reviewer caught in this
+  pass. The
+  tests are `invariant_10_a_snapshot_cannot_dictate_a_provider_command_environment`
+  — seventeen cases run against both providers, each asserting the refusal names
+  its own reason, plus ten that do not generalise and assert the exit code — and
+  `invariant_10_a_recording_cannot_move_one_provider_onto_the_other`.
+- **What is still open, stated as limits rather than left implicit.**
+  - `detection.prefix` is validated for *shape* here, not for plausibility. A
+    snapshot may still declare a prefix nobody owns — `/tmp/evil` — and then
+    legitimately lead its `PATH` with `/tmp/evil/bin`, producing a plan whose
+    program is `/tmp/evil/bin/brew`. That is F-09, and it is why parts 2 and 3
+    should land with it rather than after it.
+  - The live route validates the incoming prefix *less* than the replayed one:
+    `--replay` puts a recording's prefix through `is_safe_path`, while
+    `brew --prefix` on a live run passes only an absoluteness test. The rule here
+    closes the `..` case for both, but the asymmetry belongs in part 2.
+  - A plan derived from a redacted snapshot is not runnable as it stands: its
+    programs read `~/...`. Nothing executes plan commands yet, so this is a note
+    for the executor pass rather than a defect.
+- User impact: a malformed or hostile snapshot is rejected with a clear error.
+- Architectural impact: validation moves to the boundary rather than living only in
+  the adapters, and the boundary is now both routes rather than the loaded one.
+- Compatibility impact: a snapshot stating an environment this tool would not have
+  built stops loading. Snapshots written before `invocation_environment` existed
+  carry none and are refused; they are pre-release scratch files.
+  **The permitted key set is now part of the artifact contract without being part
+  of its version.** Adding a quieting variable to an adapter makes every snapshot
+  the new build writes unreadable by the old one, with a message that reads like
+  tampering, and `.claude/rules/domain.md` does not count an added environment key
+  as a `schemaVersion` change. Taken deliberately: "fails closed" is the stated
+  posture and the alternative is warn-and-continue, which is how the boundary came
+  to be unguarded in the first place. If the key set changes before the first
+  release, the version should move with it.
+
 ## SE-056 — A plan command says what it invokes, so the rule that governs it is not inferred from its name
 - Status: accepted
 - Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation
@@ -2000,7 +2170,10 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 # Proposed by 02-ARCHITECTURE-REVIEW, not yet accepted
 
-These seven entries are `Status: proposed`. They are grouped rather than filed
+These six entries are `Status: proposed`. SE-051 was a seventh and has moved
+to *Domain and safety*: one of its three parts is built, and this section's own
+rule is that an accepted entry merges into its topical section keeping its
+identifier. They are grouped rather than filed
 under their topics **deliberately and temporarily**: a proposal that sits beside
 accepted rationale reads as settled, and these need triaging as a set. On
 acceptance each merges into its topical section above under SE-032, keeping its
@@ -2101,29 +2274,6 @@ finding ids in each entry.
 - Architectural impact: a type-level guarantee is the stronger option and removes
   the need for the grep.
 - Compatibility impact: none.
-
-## SE-051 — A snapshot is untrusted input and is validated at deserialisation
-- Status: proposed
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
-- Original assumption: `--from-snapshot` accepts a file whose schema version matches.
-- Change: validate every name, version and path in a deserialised snapshot with the
-  same predicates the adapters apply to provider output, failing with
-  `SnapshotUnusable`; and give `PlanCommand` a fallible constructor that refuses an
-  argv element that is empty or begins with `-` unless it came from the verb table.
-- Rationale: `check_schema` compares an integer and nothing else, and
-  `--from-snapshot` is global, so it reaches `plan`. Names from the file become argv
-  elements and even executable names, with no `--` separator and without passing any
-  adapter allow-list, because the allow-lists live in the adapters and the planner
-  does not go through them. Sharing a snapshot for diagnosis is a workflow the
-  documentation invites. Today the consequence is a misleading plan; when the
-  executor runs `PlanCommand.argv` as the contract requires, it is flag injection.
-- Evidence: `app/mod.rs:66-67`, `snapshot.rs:226-238`, `planner.rs:219, :251, :254,
-  :377`; finding F-09.
-- User impact: a malformed or hostile snapshot is rejected with a clear error.
-- Architectural impact: validation moves to the boundary rather than living only in
-  the adapters.
-- Compatibility impact: snapshots containing names the predicates reject stop
-  loading.
 
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: proposed
