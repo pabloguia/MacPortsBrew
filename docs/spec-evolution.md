@@ -1450,3 +1450,262 @@ change is made. Silent deviation remains the one unrecoverable error.
   documentation verifications, one baseline audit and three reviews
   delegated in parallel, with the main session holding only what it edited.
 - Architectural impact: none on the product.
+
+---
+
+# Proposed by 02-ARCHITECTURE-REVIEW, not yet accepted
+
+These eleven entries are `Status: proposed`. They are grouped rather than filed
+under their topics **deliberately and temporarily**: a proposal that sits beside
+accepted rationale reads as settled, and these need triaging as a set. On
+acceptance each merges into its topical section above under SE-032, keeping its
+identifier. On rejection the entry stays, because a rejection is the current
+rationale for something's absence.
+
+Evidence for all eleven is in
+[`passes/02-ARCHITECTURE-REVIEW-findings.md`](passes/02-ARCHITECTURE-REVIEW-findings.md),
+finding ids in each entry.
+
+## SE-044 — Homebrew's "Tier 3" and "Unsupported" are different things, and the charter conflates them
+- Status: proposed (Tier 2 — needs the owner)
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `00-charter.md:37` and `README.md:31` — "Homebrew
+  classifies Intel x86_64 macOS as **Tier 3 — not supported**".
+- Change: say "Tier 3 — degraded, with bottle builds stopped and an announced end
+  date", and reserve "not supported" for what Homebrew labels Unsupported.
+- Rationale: the source treats them as distinct categories. Intel on Catalina
+  10.15 through Tahoe 26 is Tier 3 and Homebrew runs there today; "Unsupported" is
+  Mojave 10.14 and earlier, defined as a configuration where Homebrew "will not run
+  without third-party patches or modifications". The project's own data model gets
+  this right — `provider-support.toml` maps Intel Tier 3 to `DEGRADED` and only
+  `macos_max = "10.14"` to `UNSUPPORTED` — so the binary is more honest than the
+  prose. The error runs in the direction that favours the tool, which is the
+  direction that costs credibility when a reader checks the citation.
+- Evidence: <https://docs.brew.sh/Support-Tiers>, re-read 2026-09-03. The timeline
+  sentence and the September 2027 date are unchanged and remain correctly cited.
+  Finding F-11.
+- User impact: a reader on an Intel Mac is no longer told their installation is
+  already unsupported when it is degraded.
+- Architectural impact: none. Data already models it correctly.
+- Compatibility impact: none.
+
+## SE-045 — Reverse-dependency counts are per-provider; SE-042 change (2) is withdrawn
+- Status: proposed (Tier 1 — the owner rules; see DP-010)
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: SE-042 change (2) — the guard should see "the worse side",
+  so the engine receives the maximum reverse-dependency count across providers.
+- Change: the engine receives the source provider's own count. Either pass that
+  value, or move `reverse_dependency_count` into the per-provider map in
+  `PackageFacts.per_provider`, where availability already lives correctly.
+- Rationale: INV-04 resolves reverse dependencies "inside that provider" and INV-08
+  forbids one provider's artifact satisfying another's requirement "in any
+  calculation, ever". A cross-provider maximum is such a calculation, and it emits
+  a false statement: for `gnutls` the user is told three MacPorts ports depend on
+  it when zero do and the three are Homebrew's. SE-042's stated rationale does not
+  describe the code — a plan removes exactly one named side, and the planner
+  already reads that side correctly at `planner.rs:152`. A Tier 3–5 entry cannot
+  relax a Tier 1 invariant, which is why this is a proposal and not an edit.
+- Evidence: observed on `both-providers-arm64-macos15.json`; finding F-01.
+- User impact: manual review stops being triggered by a graph the plan does not
+  touch, and the reason text stops naming the wrong provider.
+- Architectural impact: the fix belongs in `analysis.rs:167-180`; the consuming
+  rule already documents the correct behaviour.
+- Compatibility impact: some packages currently classified `MANUAL_REVIEW` become
+  actionable. Golden files change.
+
+## SE-046 — Ownership with no provider record is `UNKNOWN`, not an inferred `TOP_LEVEL`
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
+  that casks carry no intent field, so ownership is `UNKNOWN` and is never inferred
+  from a dependency graph.
+- Change: either `classify_ownership` returns `Unknown` when there is no intent
+  record, or the written rule is relaxed to "never an *unrecorded* graph inference"
+  and the documentation stops promising `UNKNOWN`.
+- Rationale: the code folds "no record" into `TopLevel` and `classify_ownership`
+  cannot return `Unknown` at all. Nine casks on the reviewer's machine — 16% of 56
+  top-level rows — enter the default destructive-workflow surface (INV-13) on
+  `authoritative: false` evidence. The inference *is* recorded as non-authoritative,
+  which is better engineering than silent guessing; the defect is that two
+  documents and the code state different rules. Whichever way it goes, changing the
+  default view's population is a scope decision.
+- Evidence: `crates/domain/src/ownership.rs:72-82`; observed distribution; F-20.
+- User impact: either nine casks leave the default top-level count, or the
+  documentation stops claiming a guarantee the code does not provide.
+- Architectural impact: `Ownership::Unknown` becomes reachable for installed rows.
+- Compatibility impact: top-level counts and golden files change if the code moves.
+
+## SE-047 — `--to` names the destination; a dual-held package is migratable in either direction
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the planner infers the source from the unit and refuses when
+  the inferred source equals the requested destination.
+- Change: `--to X` means "X is the destination and the other side is the source".
+  The refusal guard tests whether the **destination already holds the package**, not
+  whether the inferred source happens to equal it.
+- Rationale: for a package installed under both providers the inferred source is
+  decided by map iteration order, so `"homebrew" < "macports"` makes one direction
+  expressible and the other an error. INV-17 says neither direction is a special
+  case in code, and the inexpressible one is the direction the charter calls
+  first-class. The same guard, testing the wrong property, also lets a full
+  install-then-remove plan be built for a package the destination already has.
+- Evidence: observed on three dual-held packages; all 8 plan invocations in the
+  suite are toward one provider. Finding F-02.
+- User impact: consolidating onto either provider becomes possible and symmetric.
+- Architectural impact: `PlanRequest` may need an explicit source for dual-held
+  units.
+- Compatibility impact: an exit-2 usage error becomes a plan for some inputs.
+
+## SE-048 — `--advanced` is a visibility switch and must not change the answer
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: advanced mode reveals dependency units; the foundation pass
+  recorded the resulting one-unit difference as a display artifact.
+- Change: decide a unit's identity — driving side, `advanced_only`, class — across
+  all providers holding the name, and apply the visibility filter afterwards. A unit
+  top-level in *any* provider is top-level. `build_plan` stops hardcoding
+  `advanced: true`.
+- Rationale: it is not a display artifact. With the flag, a package that is
+  top-level under one provider by that provider's authoritative record is *removed*
+  from the top-level set, its source flips, and the rule set that fires changes —
+  so a visibility flag recomputes policy, which INV-13 does not contemplate. Because
+  the planner forces the flag internally, `analyze` and `explain` report different
+  source providers for one input.
+- Evidence: 63 versus 62 top-level units with the source flip and a dropped reason;
+  finding F-03.
+- User impact: two commands stop contradicting each other.
+- Architectural impact: the merge in `analysis.rs:102-146` is reordered.
+- Compatibility impact: golden files change.
+
+## SE-049 — A verification check must be able to fail
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the verification contract is expressed by the
+  `VerificationCheck` values a plan carries.
+- Change: add a `PackageAbsent` check and use it for `VERIFY_REMOVAL`; make
+  `VERIFY_DESTINATION` record the destination's pre-state so "already there" is
+  distinguishable from "this install succeeded"; make `check_ordering` pairwise
+  rather than first-position.
+- Rationale: `VERIFY_REMOVAL` currently carries `ProviderReportsActive`, documented
+  as "reports the package installed and active" — as data the plan says to verify a
+  removal by confirming the package is still present. `VERIFY_DESTINATION` is
+  satisfiable by state that predates the plan, so a no-op or failed install clears
+  the gate INV-01 depends on. `check_ordering` compares first occurrences, so a
+  multi-package plan can interleave a removal before its own guard and still pass.
+  None of this is reachable today because nothing executes and every plan holds one
+  of each step — which is precisely why it should be fixed before the executor pass
+  rather than during it.
+- Evidence: `planner.rs:301-307`, `plan.rs:93-94`, `plan.rs:206-216`; finding F-06.
+- User impact: none until execution exists.
+- Architectural impact: `VerificationCheck` gains a variant; INV-01's enforcement
+  point becomes pairwise.
+- Compatibility impact: plan JSON gains a value; `schemaVersion` may need a bump.
+
+## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
+  inject into. Enforced by a lint rule, not by discipline."
+- Change: either add a check that no `CommandSpec` program is a shell literal
+  outside the executor's own tests — better, make `CommandSpec::program`
+  constructible only from a detected prefix plus a relative executable, so the type
+  carries the guarantee — or correct the sentence to say the control is a
+  per-adapter run-time allow-list.
+- Rationale: the existing lint asserts *where* a subprocess is spawned, not *what*.
+  The executor's only program check is `is_absolute()`, and a shell is absolute.
+  What actually holds the line today is an allow-list in each of the two adapters —
+  good, and checked at run time rather than under `debug_assert!` — but that is
+  discipline, which the sentence says it is not relying on. A third adapter added by
+  a later pass would pass clippy, the layering check and every test.
+- Evidence: `check-layering.sh:58`, `process/system.rs:171`; finding F-08.
+- User impact: none directly.
+- Architectural impact: a type-level guarantee is the stronger option and removes
+  the need for the grep.
+- Compatibility impact: none.
+
+## SE-051 — A snapshot is untrusted input and is validated at deserialisation
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `--from-snapshot` accepts a file whose schema version matches.
+- Change: validate every name, version and path in a deserialised snapshot with the
+  same predicates the adapters apply to provider output, failing with
+  `SnapshotUnusable`; and give `PlanCommand` a fallible constructor that refuses an
+  argv element that is empty or begins with `-` unless it came from the verb table.
+- Rationale: `check_schema` compares an integer and nothing else, and
+  `--from-snapshot` is global, so it reaches `plan`. Names from the file become argv
+  elements and even executable names, with no `--` separator and without passing any
+  adapter allow-list, because the allow-lists live in the adapters and the planner
+  does not go through them. Sharing a snapshot for diagnosis is a workflow the
+  documentation invites. Today the consequence is a misleading plan; when the
+  executor runs `PlanCommand.argv` as the contract requires, it is flag injection.
+- Evidence: `app/mod.rs:66-67`, `snapshot.rs:226-238`, `planner.rs:219, :251, :254,
+  :377`; finding F-09.
+- User impact: a malformed or hostile snapshot is rejected with a clear error.
+- Architectural impact: validation moves to the boundary rather than living only in
+  the adapters.
+- Compatibility impact: snapshots containing names the predicates reject stop
+  loading.
+
+## SE-052 — The support matrix states configuration until a CI run exists
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the generated matrix distinguishes tested from best-effort,
+  and "tested" means a hosted runner runs the full suite natively.
+- Change: until the first green CI run, the generator emits an unconditional line
+  saying no CI job has ever executed and that every row describes configuration
+  rather than evidence; "runs" becomes "is configured to run". Mirrored in
+  `README.md` and in the `CHANGELOG.md` known-limitations list, which omits it.
+- Rationale: the repository has no remote, so the workflow has never executed, and
+  the matrix is generated from `runner:` labels — the generator parses nothing else.
+  `08-distribution-and-project.md:236-237` names this failure mode in the project's
+  own words. The best-effort rows are already handled correctly; it is the tested
+  rows that claim an event that has not happened.
+- Evidence: empty `git remote -v`; `scripts/support-matrix.sh`; finding F-12.
+- User impact: the matrix stops overstating what has been observed.
+- Architectural impact: none — the change is in the generator, not the artifact.
+- Compatibility impact: the checked-in matrix regenerates.
+
+## SE-053 — `doctor` gains an owner-writable finding kind
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the path audit reports world-writable and group-writable
+  directories, escalating world-writable ones that precede a system path.
+- Change: add `PathFindingKind::OwnerWritable`; escalate *any* writable kind to
+  `Error` when it precedes a system path; emit a finding when no system directory
+  appears on `PATH` at all.
+- Rationale: the common shadowing directory on macOS is `~/bin` at `0755`, owned by
+  the user — currently no finding at all, though it is verbatim the threat-model
+  item at `04-migration-and-safety.md:260-261`. On Intel, `/usr/local/bin` is
+  group-writable by `admin` and never escalated by position. ADR-0005:210-218
+  requires `doctor` to report MacPortsBrew's own installed directory, which is
+  user-owned `0755` — so the tool cannot honour a requirement its own release design
+  places on it. And when `first_system` resolves to nothing, every escalation
+  silently degrades to a warning.
+- Evidence: `path_audit.rs:89-94`, `doctor.rs:202-228`, `snapshot.rs:69-91`; F-07.
+- User impact: `doctor` detects the shadowing case the tool exists to detect.
+- Architectural impact: `PathFindingKind` gains a variant; uid comparison without
+  `libc` already exists in `state_dir.rs:164-185`.
+- Compatibility impact: `--json` gains a finding kind; more machines report findings.
+
+## SE-054 — Redaction that cannot run says so
+- Status: proposed
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `doctor --report` produces a file safe to attach to an issue,
+  with home paths redacted.
+- Change: when the home directory cannot be resolved, either resolve it by a second
+  mechanism or stamp the artifact `"redacted": false`. A live capture that could not
+  redact must not present itself as one that did.
+- Rationale: `redact_home` is well built, but it is the identity function when
+  `home` is `None`, and `home` is `None` whenever `HOME` is unset or relative —
+  routine under `cron`, `launchd` and some CI. Observed: with `HOME` unset the
+  report carried 39 occurrences of the reviewer's real home path, including the
+  username and installed tooling, in a file `06-cli-and-ux.md:134-137` invites the
+  user to attach to an issue. The replay path sets `home: None` deliberately and
+  correctly, so the two cases are indistinguishable at the redaction site — that is
+  the underlying defect.
+- Evidence: reproduced on this machine; `machine.rs:140-143`, `snapshot.rs:132-146`;
+  finding F-05.
+- User impact: a user is no longer misled about what they are about to publish.
+- Architectural impact: the redaction site needs to distinguish "no home" from
+  "replay".
+- Compatibility impact: the report gains a field.
