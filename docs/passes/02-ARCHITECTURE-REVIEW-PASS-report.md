@@ -40,7 +40,9 @@ Nothing a user can run. No code changed; `crates/`, `scripts/`, `.github/` and
 `.claude/` are untouched, the last three by the pass boundary in section 3.
 
 What changed is that three questions blocking the project's public existence are
-answered, and `docs/decisions-pending.md` now opens with **Open: None**.
+answered. `docs/decisions-pending.md` briefly read **Open: None** as a result,
+and now carries DP-008 and DP-009 instead — two obligations this pass created and
+had no business leaving in ADR prose.
 
 ## Decisions
 
@@ -164,12 +166,17 @@ headings from the Open section. With that section empty it prints
 `(none parsed - read the file)` — byte-identical to what it prints when the parse
 breaks. Found by `spec-guardian`.
 
-**Four obligations have no register.** `decisions-pending.md` is for decisions,
-and these are not: the revocation incident-response plan ADR-0005 declares owed
-and does not write; extending ADR-0004's dependency gate to reach GitHub Actions;
-the `scripts/validate.sh` check for action pinning; and enabling private
-vulnerability reporting *before* publication, which is a one-way door. They live
-only in prose today.
+**Obligations that lived only in ADR prose now have a register**, closed at the
+end of this pass rather than left as a finding. The two that are genuinely
+decisions became **DP-008** (is the `.pkg` also provisional pending R-11?) and
+**DP-009** (may the first public release ship before the revocation plan
+exists?). The GitHub settings no check can verify — private vulnerability
+reporting, the protected deployment environment, the protected-tag ruleset, and
+pinning the mutable toolchain reference — are an ordered pre-publication
+checklist inside DP-007's resolved entry, where someone looking up "what did we
+decide about going public" will find them. Extending ADR-0004's dependency gate
+to reach GitHub Actions and adding the action-pinning check to
+`scripts/validate.sh` are engineering tasks, and are in the list below.
 
 **The assumption a reviewer should attack.** That recording a decision well
 substitutes for exercising it. Every control in ADR-0005 is written; none is
@@ -197,13 +204,15 @@ blocks.
 
 **Research pass.** R-11, all five items.
 
-**Owner, before publication.** Enable private vulnerability reporting; create the
-protected deployment environment with its `v*` tag rule, and a protected-tag
-ruleset. No check in this repository can verify any of the three.
+**Owner, before publication.** The ordered checklist in DP-007's resolved entry:
+private vulnerability reporting, the protected deployment environment with its
+`v*` tag rule, the protected-tag ruleset, and pinning
+`dtolnay/rust-toolchain@master`. No check in this repository can verify any of
+them, which is why they are written down rather than delegated to a gate.
 
-**Owner, decisions.** Whether the `.pkg` is also provisional pending R-11 — the
-same premise carries it and only the `.dmg` is marked — and whether the first
-public release may ship before the revocation plan exists.
+**Owner, decisions.** **DP-008** and **DP-009**, both open in
+`docs/decisions-pending.md` with a recommendation and a reversible default.
+Neither blocks the architecture review.
 
 ## What is right about the foundation
 
