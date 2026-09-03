@@ -74,6 +74,33 @@ to answer.
   request templates, and six contributor skills under `.claude/skills/`
   written from the same source as the recipes.
 
+### Security
+
+- **`doctor --report` and `snapshot --out` no longer publish the home path when
+  `HOME` is unset.** Redaction treated "no home directory" as "nothing to
+  redact", which is right for a replayed recording and wrong for a live run
+  whose `HOME` is unset or relative — routine under `cron`, `launchd` and some
+  CI. Measured before the fix: 39 occurrences of the real home path, username
+  included, in a file the documentation invites the user to attach to an issue.
+  The two cases are now distinct states rather than one absent value, and the
+  report says which redaction produced it in a new `redaction` field
+  (`GROUNDED`, `HEURISTIC` or `AS_CAPTURED`; additive, so `schemaVersion` stays 1 —
+  [`docs/schemas/doctor.v1.md`](docs/schemas/doctor.v1.md)).
+- **`doctor` no longer stops reporting writable `PATH` directories when `HOME`
+  is unset.** The audit ran on redacted entries, so a `~` it could not expand
+  became a false "not absolute" and skipped the world- and group-writable
+  checks — the executable-shadowing item in the threat model — on the same runs
+  the redaction fix targets. The audit now runs on raw entries and each finding
+  is redacted afterwards. This also fixes a pre-existing case: a username
+  appearing outside the home turned a real directory into a path that does not
+  exist, reported as missing instead of as writable.
+- **Every GitHub Action is pinned to a commit SHA**, checked by
+  `scripts/check-action-pins.sh` in `scripts/validate.sh`. Four of the twelve
+  references were mutable by name, including one that downloads a binary into
+  the job. `cargo-deny` now runs `advisories`, which `deny.toml` had declared
+  and the workflow had never invoked, so a RUSTSEC advisory or a yanked crate
+  could ship green. See SE-055.
+
 ### Not yet implemented
 
 Named here because a changelog that lists only what exists invites the reader
@@ -94,6 +121,11 @@ catalogue are in place, the translations are not.
 - Branch-coverage floors are not enforced: `cargo-llvm-cov --branch` needs a
   nightly toolchain and the pinned toolchain is stable
   ([ADR-0002](docs/adr/0002-implementation-language.md)).
+- When a live run cannot resolve the home directory, redaction falls back to
+  recognising the *shape* of a macOS home (`/Users/<name>`). A home somewhere
+  else — a network mount, a relocated account — is not recognised, and the
+  diagnostic file says `"redaction": "HEURISTIC"` rather than pretending
+  otherwise. Skim the paths before sharing such a file.
 - There is no published release yet. Release signing is decided — Developer ID
   plus notarisation, with a bare binary, a `.pkg` and a `.dmg`
   ([DP-004](docs/decisions-pending.md),

@@ -86,7 +86,7 @@ are recorded.
 
 ### DP-011 — The charter states a provider fact its own data contradicts (Tier 2)
 - **The question:** `docs/spec/00-charter.md:37` says Homebrew classifies Intel
-  x86_64 macOS as "**Tier 3 — not supported**". Re-verified 2026-09-03, the source
+  x86_64 macOS as "**Tier 3 — not supported**". Re-verified 2026-09-02, the source
   treats Tier 3 and Unsupported as distinct: Intel on Catalina 10.15 through Tahoe
   26 is **Tier 3**, and "Unsupported" — defined as a configuration where Homebrew
   "will not run without third-party patches" — is Mojave 10.14 and earlier. The

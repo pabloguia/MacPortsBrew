@@ -1,6 +1,6 @@
 # 02-ARCHITECTURE-REVIEW-PASS — report
 
-**Date:** 2026-09-03 · **Commit at review:** `ab56b06`
+**Date:** 2026-09-02 · **Commit at review:** `ab56b06`
 
 The findings are in
 [`02-ARCHITECTURE-REVIEW-findings.md`](02-ARCHITECTURE-REVIEW-findings.md), ranked
@@ -53,7 +53,7 @@ numeric claim in it was re-run:
 | INV-15 reproducibility | **Verified empirically** — two `--from-snapshot` runs byte-identical over 184 KB. |
 | INV-06 — nothing elevates | **Verified structurally** — zero elevation tokens in `crates/*/src`, exactly one `Command::new` site. |
 | All 20 invariants have a test | **They exist.** Several would not fail if the invariant were violated — F-19. |
-| Homebrew's Intel timeline | **Re-verified live 2026-09-03.** Unchanged; see below. |
+| Homebrew's Intel timeline | **Re-verified live 2026-09-02.** Unchanged; see below. |
 
 The foundation pass's reporting is accurate. Where this review disagrees with it,
 it disagrees about the *significance* of things that report already disclosed —
@@ -63,7 +63,7 @@ unit's source provider, its `advanced_only` flag and the rules that fire (F-03).
 
 ## Time-sensitive facts, re-verified and dated
 
-<https://docs.brew.sh/Support-Tiers>, **read 2026-09-03**:
+<https://docs.brew.sh/Support-Tiers>, **read 2026-09-02**:
 
 - *"macOS Tahoe 26 is the final version of macOS to run on Intel hardware … Homebrew
   has stopped building new bottles for Intel systems, and will remove the ability to
@@ -103,11 +103,17 @@ qualifier removed (F-14).
 
 ## Specification changes
 
-Eleven entries, **SE-044 to SE-054, all `Status: proposed`**, appended to
-`docs/spec-evolution.md` under a clearly marked heading. They are grouped rather
-than filed under their topics deliberately and temporarily — a proposal sitting
-beside accepted rationale reads as settled — and each says that on acceptance it
-merges into its topic under SE-032, keeping its identifier.
+Eleven entries, **SE-044 to SE-054**, appended to
+`docs/spec-evolution.md`. Ten are `Status: proposed` and grouped under a clearly
+marked heading, deliberately and temporarily — a proposal sitting beside accepted
+rationale reads as settled — and each says that on acceptance it merges into its
+topic under SE-032, keeping its identifier.
+
+**SE-054 has since been accepted and implemented**, at the owner's request, along
+with **SE-055** (supply chain), which the review's own findings F-16 to F-18
+called for. SE-054 duly moved into "Domain and safety" and records what was built
+rather than what was proposed — the two differ, and the entry says how and why.
+F-05, F-16, F-17 and F-18 are fixed; the four Tier 1 violations are not.
 
 Nothing in `docs/spec/` was edited. No invariant was changed. Under section 3 of the
 work order a reviewer may propose at any tier and may not apply, and the two narrow

@@ -515,6 +515,91 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ---
 
+## SE-054 — "No home directory" was two different situations, and treating them alike published a home path
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW, proposed and implemented
+- Original assumption: `doctor --report` produces a file safe to attach to an
+  issue, with home paths redacted. `redact_home(value, home: Option<&Path>)`
+  returned the value unchanged when `home` was `None`.
+- Change: `HomeRedaction { Known(PathBuf), Unresolved, Recorded }` replaces the
+  `Option<&Path>` at every redaction site, threaded through `CaptureContext`,
+  `SystemMachine` and the CLI `Context`. `Known` redacts the home and the user
+  name as before. `Recorded` — a recording or a snapshot file — is the identity,
+  as `None` used to be. `Unresolved` — a live run whose `HOME` is unset or
+  relative — redacts by *shape*: `/Users/<name>` becomes `~` and the name is then
+  redacted as a whole component, `Shared`, `Guest`, `Deleted Users` and
+  `Localized` excepted. The diagnostic report gains a `redaction` field carrying
+  `GROUNDED`, `HEURISTIC` or `AS_CAPTURED`.
+- Rationale: `None` meant both "a replayed recording, redacted when it was
+  captured" and "a live run whose home is unknown", and those need opposite
+  treatment. Observed with `HOME` unset: 39 occurrences of the real home path,
+  username and installed tooling included, in the file `06-cli-and-ux.md:134-137`
+  invites the user to attach to an issue — routine under `cron`, `launchd` and
+  some CI. The proposal offered "resolve it by a second mechanism **or** stamp
+  the artifact"; what shipped is a third thing and both halves, and the reasons
+  are worth keeping:
+  - **A second mechanism was rejected.** Resolving the home without `HOME` means
+    `getpwuid`, which needs `libc` and so an ADR under ADR-0004, or shelling out
+    to `id -un`, which adds a probe to `SystemMachine` that every existing
+    recording lacks — so every fixture would need recapturing and `--replay`
+    would fail on all six until they were. The cost lands on the fixture corpus,
+    which is the project's evidence base, to buy a case that is already handled
+    conservatively.
+  - **A stamp alone was not enough.** It tells the reader the file is unsafe
+    without making it safer, and the reader who most needs the warning is the one
+    who attaches the file without reading it.
+  - **Three states, not a boolean.** A first attempt exposed `is_grounded() ->
+    bool` and mapped `Recorded` to "grounded". That is false: a recording carries
+    no record of *how* it was redacted, and a snapshot captured with no
+    resolvable home was redacted heuristically — so `--from-snapshot ... --report`
+    would have stamped a heuristically-redacted file as grounded, on exactly the
+    path the leak came from. `AS_CAPTURED` names the unknown instead, per the
+    domain rule that an unknown is never folded into its favourable neighbour.
+- Evidence: reproduced and then re-measured to zero on this machine
+  (`doctor --report` and `snapshot --out`, with and without `HOME`);
+  `machine.rs:140-143`, `snapshot.rs`; 460 tests including
+  `a_live_run_with_no_resolvable_home_still_redacts_by_shape`,
+  `a_live_capture_whose_home_is_unresolvable_still_carries_no_home_path` and
+  `invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host`;
+  157 fixture-matrix checks unchanged. Finding F-05.
+- User impact: the leak is closed for a home under `/Users`, and the file says
+  which redaction produced it rather than looking identical either way.
+- Architectural impact: the redaction site can now tell the two absences apart,
+  which is what the defect was. `Context` keeps the real home separately from the
+  redaction policy — the first locates the state directory, the second decides
+  what may be written down, and conflating those was how one absent value came to
+  answer two questions in the first place.
+- Compatibility impact: the report gains a field. Additive, so `schemaVersion`
+  stays 1 (`docs/schemas/README.md`); documented in `docs/schemas/doctor.v1.md`
+  and noted in `CHANGELOG.md`, which that rule requires.
+- **The order of audit and redaction is part of this entry, learned the hard
+  way.** The first implementation redacted `PATH` and then handed the redacted
+  entries to `path_audit::audit_path` together with the home. With the home
+  unresolved there was nothing to expand `~` against, so every home-relative
+  entry was classified `Relative` and never inspected — silently dropping the
+  world- and group-writable checks, which are the executable-shadowing item in
+  `04-migration-and-safety.md`, on exactly the runs this fix exists for, and
+  reporting an absolute path as "not absolute" while doing it. Measured: the
+  finding present with `HOME` set was absent with `HOME` unset. The audit now
+  runs on the raw entries and each finding's `entry` is redacted afterwards, and
+  `audit_path` no longer takes a home at all, so the round trip cannot return.
+  That also closed a **pre-existing** bug of the same shape: a username outside
+  the home (`/tmp/build/ada/bin`) was redacted to a `USER` path that does not
+  exist, and stat'd, yielding a spurious `Missing` in place of a real finding.
+- **Known residuals, deliberately retained.** `06-cli-and-ux.md:133-137` says
+  *never* a home path or a user name. Two cases remain. A directory under
+  `/Users` whose name contains a space — `/Users/Deleted Users/bob/...` — is left
+  entirely alone, because the extracted name is the fragment `Deleted` and
+  rewriting a fragment mangles the path while leaving the real name behind;
+  macOS puts no live home there. And a live run whose home is **not** under
+  `/Users` — a network mount, a relocated account, `/var/root` — is still
+  published, because nothing in the process can recognise it as a home. The
+  deviation is narrowed rather than closed, it is visible in the artifact as
+  `HEURISTIC`, it is in `CHANGELOG.md` under Known limitations, and closing it
+  needs the `libc`/`getpwuid` decision above. Recorded here rather than only in a
+  code comment, because a knowingly-retained deviation from a MUST that lives in
+  a doc comment is a deviation nobody will find.
+
 # Policy, output and quality
 
 ## SE-009 — Machine-readable output contract, exit codes and error taxonomy
@@ -1013,6 +1098,66 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ---
 
+## SE-055 — Every GitHub Action is pinned to a commit SHA, and the pin is checked
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW, implementation
+- Original assumption: SE-025 rejected pinning Actions to commit SHAs from inside
+  an agent session, on the ground that there was no honest network path by which
+  a session could learn what a tag pointed at, and a guessed SHA is worse than an
+  honest tag. Pinning stayed deferred across two passes.
+- Change: every `uses:` in `.github/workflows/` names a 40-hex commit SHA with a
+  trailing `# <version>` comment, and `scripts/check-action-pins.sh` — wired into
+  `scripts/validate.sh`, so it runs in `--quick` and needs no toolchain — fails
+  the build on a tag, a branch or a bare SHA with no readable comment. The
+  `cargo-deny` invocation also gains `advisories`, which `deny.toml` had declared
+  and the workflow had never run. `claude-code-review.yml` gains an
+  `author_association` guard and the `pull-requests: write` its inline-comment
+  tool needs.
+- Rationale: the rejection's premise stopped being true. `api.github.com` answers
+  what a tag or branch resolves to, which is the authoritative source rather than
+  a guess, so the SHAs below were read rather than invented. The pins matter more
+  than the usual secret argument suggests: `repository-validation.yml` carries no
+  secrets and only `contents: read`, but it is the job that runs
+  `check-deployment-target.sh`, so its integrity is load-bearing for a
+  *correctness* claim, not only a confidentiality one. Four of the twelve refs
+  were mutable by name — three `dtolnay/rust-toolchain@master` and
+  `taiki-e/install-action@cargo-llvm-cov`, the latter a moving per-tool tag that
+  also downloads a binary into the job, and neither previously reported. That
+  one is pinned to the **generic `v2` commit with `tool: cargo-llvm-cov` named
+  explicitly**, not to the per-tool tag's own commit: the tag resolves to a
+  published variant whose `action.yml` carries the default, so pinning it by SHA
+  does work, but it makes the tool a property of which commit was chosen rather
+  than of anything readable in the workflow. The
+  `advisories` omission meant `[advisories] yanked = "deny"` was dead
+  configuration that read as enforced. The workflow permission was a plain
+  defect: the job asked for `--comment` while holding `pull-requests: read`, so
+  it could only ever run and produce nothing.
+- Evidence: SHAs resolved from `api.github.com/repos/<owner>/<repo>/git/ref/...`
+  on 2026-09-02, annotated tags dereferenced to their commit —
+  `actions/checkout@v6` `d23441a4…af803`, `anthropics/claude-code-action@v1`
+  `fa2b2666…3c8f`, `EmbarkStudios/cargo-deny-action@v2` `3c634983…5f25`,
+  `dtolnay/rust-toolchain@master` `6c977a6c…8772`,
+  `taiki-e/install-action@cargo-llvm-cov` `b1d53d4d…0f64`. The check was verified
+  in both directions: it reports `ok (12 pinned)` on the pinned tree and fails
+  with a named file and ref when one is reverted to `@v6`. Findings F-16, F-17,
+  F-18.
+- User impact: none directly. A contributor opening a fork pull request no longer
+  gets a red check they cannot fix, because the review job no longer starts for
+  them rather than starting and failing for want of a secret.
+- Architectural impact: one more check in the one definition of valid. Updating an
+  action is now a deliberate act with a diff, which is the point; Dependabot's
+  `github-actions` ecosystem updates SHAs and preserves the comment.
+- Compatibility impact: none. `SE-025`'s rejection of pinning is superseded by
+  this entry and its reason is recorded here rather than deleted.
+- **Who triages an advisory.** `check advisories` fetches the RustSec database at
+  run time, with no `ignore` list and no pinned `db-urls`, so a new advisory
+  against any locked crate — or a transient fetch failure — turns every push red
+  with no change in this repository. That is the intended behaviour of advisory
+  checking and not a defect, but it means the first red build of that kind is a
+  triage task and not a regression: read the advisory, and either update the
+  dependency through ADR-0004's gate or record an `ignore` with its reason and a
+  date. Nobody had that written down before this entry.
+
 # Process: the agentic SDLC
 
 ## SE-001 — Specification lives in versioned repository documents, not in a session prompt
@@ -1139,9 +1284,12 @@ change is made. Silent deviation remains the one unrecoverable error.
   set (home paths in pasted panics); the `@claude` workflow neither builds
   nor tests the pull-request head and disables the `Stop` gate for that
   reason, and the validation workflow runs the gate in full. Deliberately
-  not done: pinning the two GitHub Actions to commit SHAs — there is no
-  network path in a session to read the SHAs honestly; it is the first
-  step of activating the workflows (`.claude/README.md`). Two decisions
+  not done at the time: pinning the GitHub Actions to commit SHAs — the
+  reasoning was that no session had a network path to read the SHAs honestly,
+  and a guessed SHA is worse than an honest tag. **Superseded by SE-055**
+  (2026-09-02): the premise was wrong rather than the conclusion, because
+  `api.github.com` answers what a ref resolves to, and all twelve `uses:` are
+  now pinned and checked. Two decisions
   about what the boundary does *not* do: `permissions.defaultMode` is deliberately unset, because plan mode
   gates on a human approving the plan and the owner runs passes
   autonomously; and Claude Code's sandbox — the documented OS-level layer
@@ -1455,7 +1603,7 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 # Proposed by 02-ARCHITECTURE-REVIEW, not yet accepted
 
-These eleven entries are `Status: proposed`. They are grouped rather than filed
+These ten entries are `Status: proposed`. They are grouped rather than filed
 under their topics **deliberately and temporarily**: a proposal that sits beside
 accepted rationale reads as settled, and these need triaging as a set. On
 acceptance each merges into its topical section above under SE-032, keeping its
@@ -1468,7 +1616,7 @@ finding ids in each entry.
 
 ## SE-044 — Homebrew's "Tier 3" and "Unsupported" are different things, and the charter conflates them
 - Status: proposed (Tier 2 — needs the owner)
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `00-charter.md:37` and `README.md:31` — "Homebrew
   classifies Intel x86_64 macOS as **Tier 3 — not supported**".
 - Change: say "Tier 3 — degraded, with bottle builds stopped and an announced end
@@ -1481,7 +1629,7 @@ finding ids in each entry.
   `macos_max = "10.14"` to `UNSUPPORTED` — so the binary is more honest than the
   prose. The error runs in the direction that favours the tool, which is the
   direction that costs credibility when a reader checks the citation.
-- Evidence: <https://docs.brew.sh/Support-Tiers>, re-read 2026-09-03. The timeline
+- Evidence: <https://docs.brew.sh/Support-Tiers>, re-read 2026-09-02. The timeline
   sentence and the September 2027 date are unchanged and remain correctly cited.
   Finding F-11.
 - User impact: a reader on an Intel Mac is no longer told their installation is
@@ -1491,7 +1639,7 @@ finding ids in each entry.
 
 ## SE-045 — Reverse-dependency counts are per-provider; SE-042 change (2) is withdrawn
 - Status: proposed (Tier 1 — the owner rules; see DP-010)
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: SE-042 change (2) — the guard should see "the worse side",
   so the engine receives the maximum reverse-dependency count across providers.
 - Change: the engine receives the source provider's own count. Either pass that
@@ -1515,7 +1663,7 @@ finding ids in each entry.
 
 ## SE-046 — Ownership with no provider record is `UNKNOWN`, not an inferred `TOP_LEVEL`
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
   that casks carry no intent field, so ownership is `UNKNOWN` and is never inferred
   from a dependency graph.
@@ -1537,7 +1685,7 @@ finding ids in each entry.
 
 ## SE-047 — `--to` names the destination; a dual-held package is migratable in either direction
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the planner infers the source from the unit and refuses when
   the inferred source equals the requested destination.
 - Change: `--to X` means "X is the destination and the other side is the source".
@@ -1558,7 +1706,7 @@ finding ids in each entry.
 
 ## SE-048 — `--advanced` is a visibility switch and must not change the answer
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: advanced mode reveals dependency units; the foundation pass
   recorded the resulting one-unit difference as a display artifact.
 - Change: decide a unit's identity — driving side, `advanced_only`, class — across
@@ -1579,7 +1727,7 @@ finding ids in each entry.
 
 ## SE-049 — A verification check must be able to fail
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the verification contract is expressed by the
   `VerificationCheck` values a plan carries.
 - Change: add a `PackageAbsent` check and use it for `VERIFY_REMOVAL`; make
@@ -1603,7 +1751,7 @@ finding ids in each entry.
 
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: either add a check that no `CommandSpec` program is a shell literal
@@ -1625,7 +1773,7 @@ finding ids in each entry.
 
 ## SE-051 — A snapshot is untrusted input and is validated at deserialisation
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `--from-snapshot` accepts a file whose schema version matches.
 - Change: validate every name, version and path in a deserialised snapshot with the
   same predicates the adapters apply to provider output, failing with
@@ -1648,7 +1796,7 @@ finding ids in each entry.
 
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the generated matrix distinguishes tested from best-effort,
   and "tested" means a hosted runner runs the full suite natively.
 - Change: until the first green CI run, the generator emits an unconditional line
@@ -1667,7 +1815,7 @@ finding ids in each entry.
 
 ## SE-053 — `doctor` gains an owner-writable finding kind
 - Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the path audit reports world-writable and group-writable
   directories, escalating world-writable ones that precede a system path.
 - Change: add `PathFindingKind::OwnerWritable`; escalate *any* writable kind to
@@ -1686,26 +1834,3 @@ finding ids in each entry.
 - Architectural impact: `PathFindingKind` gains a variant; uid comparison without
   `libc` already exists in `state_dir.rs:164-185`.
 - Compatibility impact: `--json` gains a finding kind; more machines report findings.
-
-## SE-054 — Redaction that cannot run says so
-- Status: proposed
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW
-- Original assumption: `doctor --report` produces a file safe to attach to an issue,
-  with home paths redacted.
-- Change: when the home directory cannot be resolved, either resolve it by a second
-  mechanism or stamp the artifact `"redacted": false`. A live capture that could not
-  redact must not present itself as one that did.
-- Rationale: `redact_home` is well built, but it is the identity function when
-  `home` is `None`, and `home` is `None` whenever `HOME` is unset or relative —
-  routine under `cron`, `launchd` and some CI. Observed: with `HOME` unset the
-  report carried 39 occurrences of the reviewer's real home path, including the
-  username and installed tooling, in a file `06-cli-and-ux.md:134-137` invites the
-  user to attach to an issue. The replay path sets `home: None` deliberately and
-  correctly, so the two cases are indistinguishable at the redaction site — that is
-  the underlying defect.
-- Evidence: reproduced on this machine; `machine.rs:140-143`, `snapshot.rs:132-146`;
-  finding F-05.
-- User impact: a user is no longer misled about what they are about to publish.
-- Architectural impact: the redaction site needs to distinguish "no home" from
-  "replay".
-- Compatibility impact: the report gains a field.

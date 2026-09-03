@@ -1,16 +1,30 @@
 # 02-ARCHITECTURE-REVIEW — findings
 
-**Date:** 2026-09-03 · **Reviewed at commit:** `ab56b06` · Work order:
+**Date:** 2026-09-02 · **Reviewed at commit:** `ab56b06` · Work order:
 [`../../prompts/02-ARCHITECTURE-REVIEW-PASS.md`](../../prompts/02-ARCHITECTURE-REVIEW-PASS.md)
 
 Findings are ranked by consequence, not by count. Each states what was checked,
 names the invariant or specification line it violates — or says explicitly that it
 is a judgement call — and gives a concrete failure scenario. Proposed specification
-changes are SE-044 to SE-052 in [`../spec-evolution.md`](../spec-evolution.md), all
-`Status: proposed`, so a later pass can accept or reject each individually. The pass
-report is [`02-ARCHITECTURE-REVIEW-PASS-report.md`](02-ARCHITECTURE-REVIEW-PASS-report.md).
+changes are SE-044 to SE-054 in [`../spec-evolution.md`](../spec-evolution.md), so a
+later pass can accept or reject each individually. The pass report is
+[`02-ARCHITECTURE-REVIEW-PASS-report.md`](02-ARCHITECTURE-REVIEW-PASS-report.md).
 
 **One finding stops at the human and is not mine to resolve: F-01.**
+
+## Status since the review
+
+Four findings were fixed immediately after the review, at the owner's request,
+and this file is left as the record of what was found rather than rewritten:
+
+| Finding | State |
+|---|---|
+| **F-05** — home path published when `HOME` is unset | **Fixed.** SE-054, now `accepted`. `HomeRedaction` distinguishes the two absences; measured back to zero on `doctor --report` and `snapshot --out`. One residual is retained and recorded in SE-054: a home outside `/Users` is still not recognised. |
+| **F-16** — `cargo-deny` never checked advisories | **Fixed.** SE-055. |
+| **F-17** — twelve unpinned actions, four mutable | **Fixed.** SE-055; `scripts/check-action-pins.sh` in `validate.sh`, verified to fail on an unpinned ref. |
+| **F-18** — review workflow could not post, and had no author guard | **Fixed.** SE-055. |
+
+Everything else stands as written, including all four Tier 1 violations.
 
 ## What was verified, and on what
 
@@ -30,7 +44,7 @@ deployment target `10.12`. Everything marked *observed* below was run here — I
 | INV-06 — nothing elevates | **Verified structurally** — zero elevation tokens in `crates/*/src`; exactly one `Command::new` site. |
 | All 20 invariants have a test | **Verified** they exist. Several would not fail if the invariant were violated — see F-19. |
 | Coverage floors | **Still unverified.** `cargo-llvm-cov` absent. Honestly reported before, still true. |
-| Homebrew Intel timeline | **Re-verified live 2026-09-03** — see F-10. |
+| Homebrew Intel timeline | **Re-verified live 2026-09-02** — see F-10. |
 
 ---
 
@@ -397,7 +411,7 @@ invariant exists to prevent.
 
 **Severity: medium-high. Tier 2 document; the project's central justification.**
 
-**Re-verified live 2026-09-03** at <https://docs.brew.sh/Support-Tiers>:
+**Re-verified live 2026-09-02** at <https://docs.brew.sh/Support-Tiers>:
 
 - *"macOS Tahoe 26 is the final version of macOS to run on Intel hardware. In
   alignment with this change, Homebrew has stopped building new bottles for Intel

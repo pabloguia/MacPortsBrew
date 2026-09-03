@@ -18,6 +18,10 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `toolVersion` | string | |
 | `policyVersion` | string | |
 | `findings` | array of `DoctorFinding` | Ordered worst-severity-last in human output; the array here is in check order |
+| `redaction` | string | **`--report` only.** `GROUNDED`, `HEURISTIC` or `AS_CAPTURED` — see Redaction. Added in v1; additive, so no version bump |
+| `machine` | `Machine` | **`--report` only.** As in `snapshot.v1.md` |
+| `pathEntries` | integer | **`--report` only.** How many `PATH` entries were seen. The entries themselves are not emitted; only findings quote one, redacted |
+| `providers` | object | **`--report` only.** Keyed by provider id: `presence`, `version`, `prefix`, `packages` |
 
 ## `DoctorFinding`
 
@@ -59,6 +63,21 @@ contain versions, architecture, macOS version, provider prefixes, package names
 and findings. It **must never** contain usernames, home paths, environment
 variable values or tokens, or anything outside the two providers' scope. A
 parameter that can carry a path is redacted: the home directory becomes `~`.
+
+The file written by `--report` carries a **`redaction`** field, additive in v1,
+saying which of three redactions produced it:
+
+| Value | Meaning |
+|---|---|
+| `GROUNDED` | The home directory was known. Every occurrence of it, and of the user name, was replaced. |
+| `HEURISTIC` | A live run whose home could not be resolved — `HOME` unset, or set to a relative path, which happens under `cron`, `launchd` and some CI. Paths shaped like a macOS home (`/Users/<name>`) were redacted, but a home somewhere else — a network mount, a relocated account — cannot be recognised and is still present. |
+| `AS_CAPTURED` | The analysis came from a recording (`--replay`) or a snapshot file (`--from-snapshot`). Those were redacted when they were captured and are not redacted again, and neither carries a record of *how*. This is an unknown, not a guarantee: a snapshot captured with no resolvable home was redacted heuristically, and reading it back cannot discover that. |
+
+The field exists because the two files are otherwise indistinguishable, and a
+file that merely *looks* redacted is the one a user attaches without thinking.
+Before it existed, a `--report` run with `HOME` unset published the real home
+path — measured at 39 occurrences, username included. A reader who sees
+`HEURISTIC` should skim the paths before sharing.
 
 The user sees the file and chooses to share it. **MacPortsBrew never uploads
 it, and makes no network call that reports anything about the user.**
