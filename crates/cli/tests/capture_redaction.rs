@@ -22,8 +22,8 @@ use macportsbrew_adapters::process::{
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_application::{capture, doctor, CaptureContext};
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, Machine, MachineRead,
-    MacosVersion, PathFinding, PathFindingKind, ProviderId, Translation,
+    Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, HomeRedaction, Machine,
+    MachineRead, MacosVersion, PathFinding, PathFindingKind, ProviderId, Translation,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -156,7 +156,7 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
         policy_version: "test".into(),
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
-        home: Some(PathBuf::from(HOME)),
+        home: HomeRedaction::Known(PathBuf::from(HOME)),
     })
     .expect("the machine answers, so the capture succeeds");
 
@@ -220,7 +220,7 @@ fn a_resolution_taken_from_path_is_redacted_too() {
         policy_version: "test".into(),
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
-        home: Some(PathBuf::from(HOME)),
+        home: HomeRedaction::Known(PathBuf::from(HOME)),
     })
     .expect("the machine answers");
 
@@ -237,8 +237,8 @@ fn a_resolution_taken_from_path_is_redacted_too() {
 }
 
 #[test]
-fn without_a_home_nothing_is_rewritten() {
-    // Under replay the home is `None`, and redaction must then be the identity
+fn a_recorded_capture_is_not_rewritten() {
+    // Under replay the redaction is `Recorded`, and must then be the identity
     // function: a recording was redacted when it was captured, and redacting it
     // again against *this* machine's home would be a host fact reaching a
     // replayed analysis (INV-15).
@@ -256,14 +256,50 @@ fn without_a_home_nothing_is_rewritten() {
         policy_version: "test".into(),
         captured_at: "2026-09-02T00:00:00Z".into(),
         captured_by: "capture_redaction.rs".into(),
-        home: None,
+        home: HomeRedaction::Recorded,
     })
     .expect("the machine answers");
     let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
     assert_eq!(
         homebrew.detection.prefix,
         Some(PathBuf::from(format!("{HOME}/homebrew"))),
-        "with no home to redact against, the value is left exactly as it was"
+        "a recording was redacted at capture, so it is left exactly as it was"
+    );
+}
+
+#[test]
+fn a_live_capture_whose_home_is_unresolvable_still_carries_no_home_path() {
+    // The other side of the same distinction, and the regression test for a
+    // measured leak: with `HOME` unset, `doctor --report` wrote the real home
+    // path 39 times into a file `06-cli-and-ux.md` invites the user to attach to
+    // an issue. `Recorded` is right for a recording and was wrong here, because
+    // a live run whose home is unknown has everything still to redact.
+    let runner = ReplayRunner::new(recording());
+    let adapter = macportsbrew_adapters::homebrew::HomebrewAdapter::new(
+        &runner,
+        PathBuf::from(format!("{HOME}/homebrew")),
+        Some(PathBuf::from(HOME)),
+        vec!["tahoe".to_string()],
+    );
+    let machine = HomeMachine;
+    let snapshot = capture(&CaptureContext {
+        machine: &machine,
+        providers: vec![&adapter],
+        policy_version: "test".into(),
+        captured_at: "2026-09-02T00:00:00Z".into(),
+        captured_by: "capture_redaction.rs".into(),
+        home: HomeRedaction::Unresolved,
+    })
+    .expect("the machine answers");
+    let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
+    assert_eq!(
+        homebrew.detection.prefix,
+        Some(PathBuf::from("~/homebrew")),
+        "an unresolvable home is redacted by shape rather than published"
+    );
+    assert_no_home(
+        &serde_json::to_string(&snapshot).unwrap(),
+        "the snapshot of a live capture with no resolvable home",
     );
 }
 

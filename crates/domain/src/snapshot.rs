@@ -9,8 +9,8 @@ use crate::machine::Machine;
 use crate::provider::{ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory};
 use crate::resolution::Resolution;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 /// The snapshot schema version. Loading a different major fails loudly.
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -129,10 +129,77 @@ pub struct PathFinding {
 /// the system adapter, for the environment it reports, and the application's
 /// capture, for every path a provider hands back. One implementation, so the
 /// two cannot drift into disagreeing about what a home path is.
-pub fn redact_home(value: &str, home: Option<&Path>) -> String {
-    let Some(home) = home else {
-        return value.to_string();
-    };
+pub fn redact_home(value: &str, home: &HomeRedaction) -> String {
+    match home {
+        HomeRedaction::Known(home) => redact_known_home(value, home),
+        HomeRedaction::Unresolved => redact_home_by_shape(value),
+        HomeRedaction::Recorded => value.to_string(),
+    }
+}
+
+/// Why a home directory is, or is not, available to redact against.
+///
+/// This used to be an `Option<&Path>`, and could not carry the distinction that
+/// matters: `None` meant both *"a replayed recording, redacted when it was
+/// captured"* and *"a live run whose `HOME` is unset"*. The two need opposite
+/// treatment, and giving the second the first's treatment published the user's
+/// home path — measured at 39 occurrences in one `doctor --report` run, username
+/// included, in a file `06-cli-and-ux.md` invites them to attach to an issue.
+///
+/// Making it a type rather than a boolean is deliberate: the reason is what
+/// decides the behaviour, so the reason is what the call site must state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HomeRedaction {
+    /// The home directory is known. Redact it, and the user name with it.
+    Known(PathBuf),
+    /// A live run whose home could not be resolved — `HOME` unset, or set to a
+    /// relative path. Redact by shape: publishing the path is the worse failure,
+    /// and over-redacting a path that merely looks like a home costs nothing.
+    Unresolved,
+    /// A replayed recording. It was redacted when it was captured, and redacting
+    /// it again against *this* machine would let a host fact reach a replayed
+    /// analysis (INV-15), so the right answer is to leave it exactly as it is.
+    Recorded,
+}
+
+impl HomeRedaction {
+    /// The policy for a live run, given whatever `HOME` yielded.
+    pub fn live(home: Option<PathBuf>) -> Self {
+        home.map_or(Self::Unresolved, Self::Known)
+    }
+
+    /// How a reader should read the redaction of anything produced under this
+    /// policy. Three states, deliberately not a boolean: `Recorded` is not
+    /// grounded, it is *unknown* — a recording or a snapshot file carries no
+    /// record of how it was redacted when it was captured, so a run reading one
+    /// cannot claim the home was known. Collapsing that into "grounded" is what
+    /// a boolean did, and it produced a confident false claim on exactly the
+    /// path the leak came from: a snapshot captured with `HOME` unset is
+    /// redacted heuristically, and a later `--from-snapshot --report` stamped it
+    /// as grounded.
+    ///
+    /// `SCREAMING_SNAKE_CASE` per `docs/schemas/README.md`.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Known(_) => "GROUNDED",
+            Self::Unresolved => "HEURISTIC",
+            Self::Recorded => "AS_CAPTURED",
+        }
+    }
+
+    /// The home directory itself, for the callers that need a real path rather
+    /// than a redaction rule — expanding a leading `~` before a directory can be
+    /// inspected is the one such caller. `Unresolved` and `Recorded` both yield
+    /// `None`, and correctly: there is no path to expand against in either.
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Known(home) => Some(home),
+            Self::Unresolved | Self::Recorded => None,
+        }
+    }
+}
+
+fn redact_known_home(value: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
     let home = home.trim_end_matches('/');
     if home.is_empty() {
@@ -143,6 +210,112 @@ pub fn redact_home(value: &str, home: Option<&Path>) -> String {
         Some(user) => replace_component(&redacted, user, "USER"),
         None => redacted,
     }
+}
+
+/// Directories under `/Users` that macOS creates and that name no user.
+///
+/// `Deleted Users` is deliberately absent: `is_component_break` treats the space
+/// as a boundary, so the name extracted from `/Users/Deleted Users/bob/...` is
+/// `Deleted`, and listing the two-word form here matched nothing while the real
+/// user name went unredacted. It is handled by the space check in
+/// [`redact_home_by_shape`] instead.
+const NOT_A_USER_HOME: &[&str] = &["Shared", "Guest", "Localized"];
+
+/// Names that are ordinary path components far more often than they are user
+/// names. The bare-name pass rewrites a name *everywhere* in a value, so a home
+/// called `local` would turn `/opt/local/bin` — the MacPorts prefix, the single
+/// most load-bearing fact in a diagnostic report — into `/opt/USER/bin`. The
+/// home path itself is still redacted for these; only the bare-name pass is
+/// skipped, which is the trade that keeps the report readable without
+/// publishing the home.
+const AMBIGUOUS_AS_A_BARE_NAME: &[&str] = &[
+    "local",
+    "opt",
+    "bin",
+    "sbin",
+    "lib",
+    "libexec",
+    "usr",
+    "var",
+    "etc",
+    "tmp",
+    "share",
+    "src",
+    "include",
+    "Library",
+    "Applications",
+    "System",
+    "Users",
+    "Volumes",
+    "Developer",
+    "Public",
+];
+
+/// Redacts home paths by their shape, for the case where the home directory
+/// could not be resolved at all.
+///
+/// `redact_home` used to return the value unchanged when `home` was `None`,
+/// which conflated two situations that are not alike. Under `--replay` the home
+/// is deliberately absent because a recording carries no live paths, and doing
+/// nothing is right. On a live run the home is absent whenever `HOME` is unset
+/// or relative — routine under `cron`, `launchd` and some CI — and doing
+/// nothing published the user's home path into a file
+/// `06-cli-and-ux.md` ("Privacy and diagnostics") invites them to attach to an
+/// issue. Measured before this existed: a `doctor --report` run with `HOME`
+/// unset carried 39 occurrences of the real path, username included.
+///
+/// So the fallback redacts what it can still recognise without being told:
+/// `/Users/<name>` is where macOS puts a home, and the name is then redacted as
+/// a whole component the same way the grounded path does it. It is a heuristic
+/// and it fails in the safe direction — it over-redacts a path that merely looks
+/// like a home, and it cannot see a home somewhere else entirely, which is why
+/// the diagnostic report also records which of the two redactions it applied
+/// rather than letting the reader assume.
+fn redact_home_by_shape(value: &str) -> String {
+    const ROOT: &str = "/Users/";
+    // A bound on distinct names, not on the value: the loop below is linear in
+    // the input, but each name costs two more passes over the whole string, so
+    // an adversarial value full of distinct `/Users/<name>` segments would be
+    // quadratic. Provider output is untrusted and bounded only at 64 MiB, and a
+    // value with more than this many distinct home names is not a value whose
+    // legibility is worth defending.
+    const MAX_NAMES: usize = 32;
+    let mut names: BTreeSet<&str> = BTreeSet::new();
+    let mut rest = value;
+    while let Some(at) = rest.find(ROOT) {
+        // No leading-boundary test. `ROOT` begins with `/`, so it carries its
+        // own boundary — the same reasoning `replace_component` documents — and
+        // requiring another one before it would miss `-I/Users/ada/.local`,
+        // which is what a compiler-flag variable actually looks like and is
+        // exactly the shape the grounded path was built to catch.
+        let after = &rest[at + ROOT.len()..];
+        let end = after.find(is_component_break).unwrap_or(after.len());
+        let name = &after[..end];
+        // A space ends the extracted name but not the component, so `Deleted
+        // Users` and any other multi-word directory would yield a fragment.
+        // Rewriting a fragment mangles the path and leaves the real name behind,
+        // which is worse than leaving it alone and reporting `HEURISTIC`.
+        let multi_word = after[end..].starts_with(' ');
+        if !name.is_empty()
+            && !multi_word
+            && !NOT_A_USER_HOME.contains(&name)
+            && names.len() < MAX_NAMES
+        {
+            names.insert(name);
+        }
+        rest = after;
+    }
+    let mut redacted = value.to_string();
+    for name in names {
+        // The home path always goes, whatever the name is: a one-character home
+        // is still a home, and the length filter below is about the *bare-name*
+        // pass only — which is where `redact_known_home` applies it too.
+        redacted = replace_component(&redacted, &format!("{ROOT}{name}"), "~");
+        if name.len() > 1 && !AMBIGUOUS_AS_A_BARE_NAME.contains(&name) {
+            redacted = replace_component(&redacted, name, "USER");
+        }
+    }
+    redacted
 }
 
 /// Replaces `needle` with `replacement` wherever `needle` is a whole path

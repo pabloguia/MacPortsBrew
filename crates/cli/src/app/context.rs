@@ -18,7 +18,7 @@ use macportsbrew_adapters::system::machine::{
 use macportsbrew_application::{
     analyze, capture, Analysis, AnalysisOptions, AnalysisSource, CaptureContext, DoctorReport,
 };
-use macportsbrew_domain::{DomainError, ErrorId, MachineRead, ProviderId, Snapshot};
+use macportsbrew_domain::{DomainError, ErrorId, HomeRedaction, MachineRead, ProviderId, Snapshot};
 use macportsbrew_policy::PolicyData;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -36,8 +36,12 @@ pub struct Context {
     pub today: String,
     /// Live capture, replayed recording, or a snapshot file.
     pub source: AnalysisSource,
-    /// Home directory, when known (never written to output).
+    /// The real home directory, when known. Locates the state directory; it is
+    /// never written to output, which is what `redaction` is for.
     pub home: Option<PathBuf>,
+    /// How home paths are redacted out of anything the user might share, and
+    /// why — the two reasons a home can be absent need opposite treatment.
+    pub redaction: HomeRedaction,
 }
 
 /// The language preference from the process environment, collapsed the way
@@ -71,6 +75,9 @@ impl Context {
                 today,
                 source: AnalysisSource::Snapshot,
                 home,
+                // A snapshot file was redacted when it was captured, so it is
+                // read back on the same terms as a recording.
+                redaction: HomeRedaction::Recorded,
             });
         }
 
@@ -83,6 +90,16 @@ impl Context {
             } else {
                 (Rc::new(SystemRunner::new()), None, false)
             };
+        // Why there is no home matters, so it is stated once here and carried
+        // as a reason rather than as an absent value. Under replay the recording
+        // was redacted when it was captured; on a live run an absent `HOME` means
+        // the home is unknown, which is not the same thing and must not be
+        // treated as "nothing to redact".
+        let home_redaction = if replay {
+            HomeRedaction::Recorded
+        } else {
+            HomeRedaction::live(home.clone())
+        };
         let machine = SystemMachine::new(
             Box::new(Rc::clone(&runner)),
             if replay { None } else { path_env },
@@ -91,7 +108,7 @@ impl Context {
             } else {
                 variables
             },
-            if replay { None } else { home.clone() },
+            home_redaction.clone(),
         );
         let machine_facts = machine.machine()?;
         let snapshot = {
@@ -120,7 +137,7 @@ impl Context {
                     "macportsbrew {}",
                     if replay { "--replay" } else { "capture" }
                 ),
-                home: if replay { None } else { home.clone() },
+                home: home_redaction.clone(),
             })?
         };
         Ok(Self {
@@ -134,6 +151,7 @@ impl Context {
                 AnalysisSource::Live
             },
             home,
+            redaction: home_redaction,
         })
     }
 
@@ -216,10 +234,18 @@ pub fn write_diagnostic_report(
             )
         })
         .collect();
+    // Which redaction the paths in this file went through, so the reader is not
+    // left to assume. Three states rather than two: `AS_CAPTURED` says the file
+    // was built from a recording or a snapshot, which carries no record of how
+    // it was redacted — claiming "grounded" there would be a guess, and it would
+    // be wrong precisely when the snapshot was itself captured with no
+    // resolvable home.
+    let redaction = ctx.redaction.label();
     let report = serde_json::json!({
         "schemaVersion": doc.schema_version,
         "toolVersion": doc.tool_version,
         "policyVersion": doc.policy_version,
+        "redaction": redaction,
         "machine": ctx.snapshot.machine,
         "pathEntries": ctx.snapshot.environment.path.len(),
         "providers": providers,

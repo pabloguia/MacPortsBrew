@@ -38,7 +38,7 @@ use crate::process::{
 };
 use macportsbrew_domain::{
     Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, ErrorId, Machine,
-    MachineRead, MacosVersion, Translation,
+    MachineRead, MacosVersion, PathFinding, Translation,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -121,7 +121,7 @@ pub fn is_reported(name: &str) -> bool {
 /// provider hands back — two layers redacting with two copies of the rule is
 /// two rules waiting to disagree, and the one that disagrees quietly is the one
 /// that publishes a username.
-pub use macportsbrew_domain::redact_home;
+pub use macportsbrew_domain::{redact_home, HomeRedaction};
 
 /// Reads the process environment.
 ///
@@ -171,7 +171,7 @@ pub struct SystemMachine {
     runner: Box<dyn ProcessRunner>,
     path_env: Option<String>,
     variables: BTreeMap<String, String>,
-    home: Option<PathBuf>,
+    home: HomeRedaction,
     /// The probes are pure with respect to a given machine, so the answer is
     /// computed once. A failure is cached too: re-running a probe that already
     /// failed would produce a second, differently worded error for one cause.
@@ -188,7 +188,7 @@ impl SystemMachine {
         runner: Box<dyn ProcessRunner>,
         path_env: Option<String>,
         variables: BTreeMap<String, String>,
-        home: Option<PathBuf>,
+        home: HomeRedaction,
     ) -> Self {
         Self {
             runner,
@@ -212,8 +212,8 @@ impl SystemMachine {
     }
 
     /// The home directory this reader redacts against, when one is known.
-    pub fn home(&self) -> Option<&Path> {
-        self.home.as_deref()
+    pub fn home(&self) -> &HomeRedaction {
+        &self.home
     }
 
     /// Runs one probe. A probe that could not be started is not an error here:
@@ -355,7 +355,7 @@ impl SystemMachine {
             CommandLineTools::Unknown
         } else {
             CommandLineTools::Installed {
-                path: PathBuf::from(redact_home(path, self.home.as_deref())),
+                path: PathBuf::from(redact_home(path, &self.home)),
             }
         }
     }
@@ -371,30 +371,49 @@ impl MachineRead for SystemMachine {
     }
 
     fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
-        let home = self.home.as_deref();
-        let path = self
-            .path_entries()
-            .iter()
-            .map(|e| redact_home(e, home))
-            .collect();
+        let home = &self.home;
         let mut reported = BTreeMap::new();
         for (name, value) in &self.variables {
             if is_reported(name) {
                 reported.insert(name.clone(), redact_home(value, home));
             }
         }
-        let mut snapshot = EnvironmentSnapshot {
-            path,
+        // Audit first, on the **raw** entries, and redact afterwards.
+        //
+        // The order is the whole point. Auditing a redacted entry means asking
+        // the filesystem about a path that has been rewritten, and the rewrite
+        // is not always reversible: `~` cannot be expanded when the home is
+        // unresolved, so every home-relative entry was classified `Relative` and
+        // never stat'd — silently dropping the world- and group-writable checks
+        // on exactly the runs (`HOME` unset: cron, launchd, CI) that the
+        // redaction fallback exists for, and reporting an absolute path as
+        // "not absolute" while doing it. The same round trip turned a username
+        // outside the home — `/tmp/build/ada/bin` — into `/tmp/build/USER/bin`,
+        // which is absolute, so it *was* stat'd, at a path that does not exist:
+        // a spurious `Missing` in place of a real finding.
+        //
+        // The audit stats real directories, so it belongs to the capture and not
+        // to the analysis: what it finds is a fact about *this* host, it is
+        // written into the snapshot here, and everything downstream reads the
+        // recording rather than the filesystem (INV-15). A replayed reader has
+        // no `PATH`, so it produces no findings at all.
+        let raw = EnvironmentSnapshot {
+            path: self.path_entries().clone(),
             reported,
             path_findings: Vec::new(),
         };
-        // The audit stats real directories, so it belongs to the capture and
-        // not to the analysis: what it finds is a fact about *this* host, it is
-        // written into the snapshot here, and everything downstream reads the
-        // recording rather than the filesystem (INV-15). A replayed reader has
-        // no `PATH` and no home, so it produces no findings at all.
-        snapshot.path_findings = crate::system::path_audit::audit_path(&snapshot, home);
-        Ok(snapshot)
+        let path_findings = crate::system::path_audit::audit_path(&raw)
+            .into_iter()
+            .map(|f| PathFinding {
+                entry: redact_home(&f.entry, home),
+                ..f
+            })
+            .collect();
+        Ok(EnvironmentSnapshot {
+            path: raw.path.iter().map(|e| redact_home(e, home)).collect(),
+            path_findings,
+            ..raw
+        })
     }
 
     /// Resolves a name against the observed `PATH`.
@@ -546,7 +565,7 @@ mod tests {
             Box::new(ReplayRunner::new(recording(invocations))),
             None,
             BTreeMap::new(),
-            None,
+            HomeRedaction::Recorded,
         )
     }
 
@@ -795,7 +814,7 @@ mod tests {
             Box::new(ReplayRunner::new(recording(intel_native()))),
             Some("/Users/ada/bin:/usr/local/bin:/usr/bin".to_string()),
             variables,
-            Some(PathBuf::from("/Users/ada")),
+            HomeRedaction::Known(PathBuf::from("/Users/ada")),
         );
         let env = reader.environment().unwrap();
         assert_eq!(env.path, vec!["~/bin", "/usr/local/bin", "/usr/bin"]);
@@ -807,7 +826,10 @@ mod tests {
         assert!(!env.reported.contains_key("PATH"));
         // Unredacted entries stay available to the code that must search them.
         assert_eq!(reader.path_entries()[0], "/Users/ada/bin");
-        assert_eq!(reader.home(), Some(Path::new("/Users/ada")));
+        assert_eq!(
+            reader.home(),
+            &HomeRedaction::Known(PathBuf::from("/Users/ada"))
+        );
     }
 
     #[test]
@@ -847,31 +869,131 @@ mod tests {
     #[test]
     fn home_redaction_replaces_whole_components_wherever_they_appear() {
         let home = PathBuf::from("/Users/ada");
-        assert_eq!(redact_home("/Users/ada", Some(&home)), "~");
-        assert_eq!(redact_home("/Users/ada/bin", Some(&home)), "~/bin");
-        assert_eq!(redact_home("/usr/bin", Some(&home)), "/usr/bin");
-        assert_eq!(redact_home("/Users/ada", None), "/Users/ada");
-        // A longer name that merely starts with the home path is not it.
-        assert_eq!(redact_home("/Users/adamant", Some(&home)), "/Users/adamant");
+        let known = HomeRedaction::Known(home.clone());
+        assert_eq!(redact_home("/Users/ada", &known), "~");
+        assert_eq!(redact_home("/Users/ada/bin", &known), "~/bin");
+        assert_eq!(redact_home("/usr/bin", &known), "/usr/bin");
         assert_eq!(
-            redact_home("/Users/adamant/Users/ada/x", Some(&home)),
+            redact_home("/Users/ada", &HomeRedaction::Recorded),
+            "/Users/ada"
+        );
+        // A longer name that merely starts with the home path is not it.
+        assert_eq!(redact_home("/Users/adamant", &known), "/Users/adamant");
+        assert_eq!(
+            redact_home("/Users/adamant/Users/ada/x", &known),
             "/Users/adamant~/x"
         );
         // Embedded and repeated occurrences, which is what a compiler-flag
         // variable and a colon-separated list actually look like.
         assert_eq!(
-            redact_home("-I/Users/ada/.local/include", Some(&home)),
+            redact_home("-I/Users/ada/.local/include", &known),
             "-I~/.local/include"
         );
         assert_eq!(
-            redact_home("/Users/ada/a:/opt/local/b:/Users/ada", Some(&home)),
+            redact_home("/Users/ada/a:/opt/local/b:/Users/ada", &known),
             "~/a:/opt/local/b:~"
         );
         // A home of `/` would redact the whole filesystem; it is left alone.
-        assert_eq!(redact_home("/usr/bin", Some(Path::new("/"))), "/usr/bin");
         assert_eq!(
-            redact_home("/Users/ada/x", Some(Path::new("/Users/ada/"))),
+            redact_home("/usr/bin", &HomeRedaction::Known(PathBuf::from("/"))),
+            "/usr/bin"
+        );
+        assert_eq!(
+            redact_home(
+                "/Users/ada/x",
+                &HomeRedaction::Known(PathBuf::from("/Users/ada/"))
+            ),
             "~/x"
+        );
+    }
+
+    #[test]
+    fn a_live_run_with_no_resolvable_home_still_redacts_by_shape() {
+        // The regression test for the leak this variant exists to close. With
+        // `HOME` unset, `doctor --report` wrote the real home path 39 times into
+        // a file `06-cli-and-ux.md` invites the user to attach to an issue,
+        // because "no home" was treated as "nothing to redact".
+        let live = HomeRedaction::Unresolved;
+        assert_eq!(redact_home("/Users/ada", &live), "~");
+        assert_eq!(redact_home("/Users/ada/bin", &live), "~/bin");
+        assert_eq!(
+            redact_home("-I/Users/ada/.local/include", &live),
+            "-I~/.local/include"
+        );
+        // Once a name has been seen under /Users it is redacted elsewhere in the
+        // same value too, on the same terms as the grounded path.
+        assert_eq!(
+            redact_home("/Users/ada/a -I/Volumes/build/ada/x", &live),
+            "~/a -I/Volumes/build/USER/x"
+        );
+        // And the limit of the heuristic, stated rather than glossed: a name
+        // that never appears under /Users cannot be recognised as a user name,
+        // because nothing here knows it is one. This is exactly why the
+        // diagnostic report records `heuristic` instead of implying the file was
+        // redacted against a known home.
+        assert_eq!(
+            redact_home("/Volumes/build/ada/x", &live),
+            "/Volumes/build/ada/x"
+        );
+        // Two different users in one value are both redacted.
+        assert_eq!(redact_home("/Users/ada/a:/Users/bo/b", &live), "~/a:~/b");
+        // Directories macOS puts under /Users that name no user are left alone,
+        // and so is anything outside /Users.
+        assert_eq!(redact_home("/Users/Shared/x", &live), "/Users/Shared/x");
+        // A one-character home is still a home: the length filter belongs to the
+        // bare-name pass, not to the path itself, which is where the grounded
+        // path puts it too.
+        assert_eq!(redact_home("/Users/j/bin", &live), "~/bin");
+        // A multi-word directory yields a fragment, and rewriting a fragment
+        // mangles the path while leaving the real name behind. Left alone
+        // instead, which is what `HEURISTIC` on the artifact is for.
+        assert_eq!(
+            redact_home("/Users/Deleted Users/bob/x", &live),
+            "/Users/Deleted Users/bob/x"
+        );
+        // Multi-byte names do not panic and are redacted like any other.
+        assert_eq!(redact_home("/Users/Jos\u{e9}/lib", &live), "~/lib");
+        assert_eq!(redact_home("/usr/local/bin", &live), "/usr/local/bin");
+        // Already redacted input is unchanged, so replaying our own output is
+        // not a second rewrite.
+        assert_eq!(redact_home("~/bin", &live), "~/bin");
+        // The cost of guessing, asserted rather than discovered later: a home
+        // whose last component collides with an ordinary directory name takes
+        // that name with it everywhere in the value. `/Users/runner` is the
+        // home on a GitHub-hosted macOS runner, so this is the realistic case
+        // and not a contrived one. It errs toward redacting, which is the right
+        // direction for privacy and the wrong one for a legible report - which
+        // is what the `HEURISTIC` label on the artifact exists to tell a reader.
+        assert_eq!(
+            redact_home("/Users/runner/w:/opt/runner/bin", &live),
+            "~/w:/opt/USER/bin"
+        );
+        // But a name that is an ordinary path component far more often than it
+        // is a user name keeps its home redacted and skips the bare-name pass:
+        // rewriting `/opt/local/bin` to `/opt/USER/bin` would destroy the single
+        // most load-bearing fact in a diagnostic report to hide a name that is
+        // very probably not a name.
+        assert_eq!(
+            redact_home("/opt/local/bin:/Users/local/x", &live),
+            "/opt/local/bin:~/x"
+        );
+    }
+
+    #[test]
+    fn a_recorded_home_is_left_exactly_as_captured() {
+        // The other half of the distinction. A recording was redacted when it
+        // was captured, and redacting it again against *this* host would be a
+        // host fact reaching a replayed analysis (INV-15).
+        let recorded = HomeRedaction::Recorded;
+        assert_eq!(redact_home("/Users/ada/bin", &recorded), "/Users/ada/bin");
+        // Three distinct labels. `Recorded` must not claim to be grounded: a
+        // recording carries no record of how it was redacted, and a snapshot
+        // captured with no resolvable home was redacted heuristically.
+        assert_eq!(recorded.label(), "AS_CAPTURED");
+        assert_eq!(HomeRedaction::Unresolved.label(), "HEURISTIC");
+        assert_eq!(
+            HomeRedaction::Known(PathBuf::from("/Users/ada")).label(),
+            "GROUNDED"
         );
     }
 
@@ -881,19 +1003,17 @@ mod tests {
         // `scripts/capture-fixture.sh` already replaces `id -un`. A build
         // directory on another volume is where the two rules differ.
         let home = PathBuf::from("/Users/ada");
+        let known = HomeRedaction::Known(home.clone());
         assert_eq!(
-            redact_home("-I/Volumes/build/ada/include", Some(&home)),
+            redact_home("-I/Volumes/build/ada/include", &known),
             "-I/Volumes/build/USER/include"
         );
-        assert_eq!(redact_home("/opt/ada", Some(&home)), "/opt/USER");
+        assert_eq!(redact_home("/opt/ada", &known), "/opt/USER");
         // A longer word that merely contains the name is left alone.
-        assert_eq!(
-            redact_home("/opt/adabas/lib", Some(&home)),
-            "/opt/adabas/lib"
-        );
-        assert_eq!(redact_home("/opt/prada", Some(&home)), "/opt/prada");
+        assert_eq!(redact_home("/opt/adabas/lib", &known), "/opt/adabas/lib");
+        assert_eq!(redact_home("/opt/prada", &known), "/opt/prada");
         // The home path is still replaced first, so `~` wins where both apply.
-        assert_eq!(redact_home("/Users/ada/ada", Some(&home)), "~/USER");
+        assert_eq!(redact_home("/Users/ada/ada", &known), "~/USER");
     }
 
     #[test]
@@ -926,7 +1046,7 @@ mod tests {
             Box::new(crate::process::SystemRunner::new()),
             Some(path),
             BTreeMap::new(),
-            None,
+            HomeRedaction::Recorded,
         );
         assert!(!reader.is_replay());
         assert_eq!(reader.which("tool"), Some(second.join("tool")));

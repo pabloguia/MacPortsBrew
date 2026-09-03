@@ -17,7 +17,7 @@
 use macportsbrew_adapters::persistence::StateDir;
 use macportsbrew_adapters::process::ReplayRunner;
 use macportsbrew_adapters::system::{is_reported, SystemMachine};
-use macportsbrew_domain::MachineRead;
+use macportsbrew_domain::{HomeRedaction, MachineRead};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -146,7 +146,7 @@ fn invariant_15_a_replayed_reader_never_consults_the_live_filesystem() {
         Box::new(ReplayRunner::new(recording)),
         Some(bin.to_string_lossy().into_owned()),
         BTreeMap::new(),
-        None,
+        HomeRedaction::Recorded,
     );
     assert!(replayed.is_replay());
     assert_eq!(
@@ -262,7 +262,7 @@ fn invariant_06_reading_the_machine_needs_no_elevation() {
         Box::new(ReplayRunner::new(recording)),
         None,
         BTreeMap::new(),
-        None,
+        HomeRedaction::Recorded,
     );
     reader.machine().expect("the machine reads unprivileged");
 }

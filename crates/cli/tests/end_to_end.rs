@@ -733,6 +733,93 @@ fn json_goes_to_stdout_and_nothing_else_does() {
 }
 
 #[test]
+fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() {
+    // The redaction policy is chosen in `Context::build`, and nothing else
+    // observes the choice — so without this the mapping could be flipped from
+    // `Recorded` to `Unresolved` and no test would notice: no fixture contains a
+    // `/Users/<name>` string, so the shape redaction is a no-op over all six
+    // recordings and every golden file stays byte-identical. That is a gate
+    // blind to exactly the regression this policy makes possible.
+    //
+    // `AS_CAPTURED` is the observable proof that a replayed or snapshotted run
+    // redacts nothing against *this* host (INV-15). It is deliberately not
+    // `GROUNDED`: neither a recording nor a snapshot records how it was redacted
+    // when it was captured, and one captured with no resolvable home was
+    // redacted heuristically.
+    let scratch = Scratch::new("redaction-policy");
+    let fixture_path = fixture(HOMEBREW_ONLY);
+    let path = fixture_path.to_str().expect("fixture path is UTF-8");
+
+    let replayed = scratch.path().join("replayed.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            path,
+            "doctor",
+            "--report",
+            replayed.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert!(
+        out.status.code() == Some(0) || out.status.code() == Some(5),
+        "doctor exits 0, or 5 on a broken provider; got {:?}",
+        out.status.code()
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(&replayed).expect("the report was written"))
+            .expect("the report is JSON");
+    assert_eq!(
+        report["redaction"], "AS_CAPTURED",
+        "a --replay run must not redact against this host"
+    );
+
+    // The same for a snapshot file, which reaches `Context::build` by a
+    // different branch and returns before a machine is ever built.
+    let snapshot = scratch.path().join("s.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            path,
+            "snapshot",
+            "--out",
+            snapshot.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let from_snapshot = scratch.path().join("from-snapshot.json");
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            snapshot.to_str().expect("path"),
+            "doctor",
+            "--report",
+            from_snapshot.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert!(
+        out.status.code() == Some(0) || out.status.code() == Some(5),
+        "got {:?}",
+        out.status.code()
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(&from_snapshot).expect("the report was written"))
+            .expect("the report is JSON");
+    assert_eq!(
+        report["redaction"], "AS_CAPTURED",
+        "a --from-snapshot run must not redact against this host"
+    );
+}
+
+#[test]
 fn every_fixture_matches_its_committed_golden_analysis() {
     // The golden files are the committed proof of INV-15 across the matrix.
     // scripts/run-fixture-matrix.sh --update regenerates them; this fails when

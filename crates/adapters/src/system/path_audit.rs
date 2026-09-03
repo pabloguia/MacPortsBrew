@@ -43,7 +43,7 @@
 use macportsbrew_domain::{EnvironmentSnapshot, PathFinding, PathFindingKind};
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Audits the entries of a redacted `PATH`, in order.
 ///
@@ -54,7 +54,7 @@ use std::path::{Path, PathBuf};
 /// both things. An entry that is not absolute is reported and then left alone:
 /// resolving it is the attack. The same input on the same machine always
 /// produces the same list.
-pub fn audit_path(environment: &EnvironmentSnapshot, home: Option<&Path>) -> Vec<PathFinding> {
+pub fn audit_path(environment: &EnvironmentSnapshot) -> Vec<PathFinding> {
     let mut findings = Vec::new();
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     for (index, entry) in environment.path.iter().enumerate() {
@@ -68,10 +68,15 @@ pub fn audit_path(environment: &EnvironmentSnapshot, home: Option<&Path>) -> Vec
         if !seen.insert(entry.as_str()) {
             push(PathFindingKind::Duplicate);
         }
-        let Some(absolute) = expand_home(entry, home) else {
+        // The entries are raw, as the shell gave them, so "absolute" is a
+        // property of the entry itself and needs nothing resolved against it.
+        // This function must never be handed redacted entries: a `~` it cannot
+        // expand becomes a false `Relative` that skips every check below.
+        if !entry.starts_with('/') {
             push(PathFindingKind::Relative);
             continue;
-        };
+        }
+        let absolute = PathBuf::from(entry);
         // `metadata` follows a symbolic reference, which is right here: what
         // matters is the directory that would actually be searched.
         let Ok(meta) = std::fs::metadata(&absolute) else {
@@ -94,20 +99,6 @@ pub fn audit_path(environment: &EnvironmentSnapshot, home: Option<&Path>) -> Vec
         }
     }
     findings
-}
-
-/// Turns a redacted entry back into a path to inspect, or `None` when the
-/// entry is not absolute (and so must not be resolved).
-fn expand_home(entry: &str, home: Option<&Path>) -> Option<PathBuf> {
-    if entry.starts_with('/') {
-        return Some(PathBuf::from(entry));
-    }
-    let home = home?;
-    if entry == "~" {
-        return Some(home.to_path_buf());
-    }
-    let rest = entry.strip_prefix("~/")?;
-    Some(home.join(rest))
 }
 
 #[cfg(test)]
@@ -172,7 +163,7 @@ mod tests {
             good.to_string_lossy().into_owned(),
         ];
         let refs: Vec<&str> = entries.iter().map(String::as_str).collect();
-        let findings = audit_path(&environment(&refs), None);
+        let findings = audit_path(&environment(&refs));
 
         assert_eq!(
             kinds(&findings, &open.to_string_lossy()),
@@ -215,7 +206,7 @@ mod tests {
 
     #[test]
     fn a_repeated_relative_entry_is_both_things_in_the_documented_order() {
-        let findings = audit_path(&environment(&["bin", "bin"]), None);
+        let findings = audit_path(&environment(&["bin", "bin"]));
         let kinds: Vec<PathFindingKind> = findings.iter().map(|f| f.kind).collect();
         assert_eq!(
             kinds,
@@ -232,30 +223,40 @@ mod tests {
         let dir = scratch("audit-clean");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         let entry = dir.to_string_lossy().into_owned();
-        assert!(audit_path(&environment(&[&entry]), None).is_empty());
-        assert!(audit_path(&environment(&[]), None).is_empty());
+        assert!(audit_path(&environment(&[&entry])).is_empty());
+        assert!(audit_path(&environment(&[])).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn a_redacted_entry_is_expanded_against_the_home_it_was_redacted_with() {
-        let home = scratch("audit-home");
+    fn the_audit_sees_raw_entries_and_never_a_redacted_one() {
+        // The contract this function now has, and the reason it has it.
+        //
+        // It used to take the home and expand a redacted `~` back into a path
+        // to stat. That round trip broke in both directions: with no home to
+        // expand against, every `~` entry became a false `Relative` and skipped
+        // the writable checks entirely — on exactly the runs where `HOME` is
+        // unset — and a username redacted outside the home turned a real
+        // directory into a `USER` path that does not exist, reported as
+        // `Missing`. The caller now audits the raw entries and redacts each
+        // finding's `entry` afterwards, so neither is reachable.
+        let home = scratch("audit-raw");
         let bin = home.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let raw = bin.to_str().expect("path is UTF-8").to_string();
 
-        assert!(audit_path(&environment(&["~/bin"]), Some(&home)).is_empty());
-        assert_eq!(
-            kinds(
-                &audit_path(&environment(&["~/absent"]), Some(&home)),
-                "~/absent"
-            ),
-            vec![PathFindingKind::Missing]
+        // A raw absolute entry is inspected, and the mode is seen.
+        assert!(
+            kinds(&audit_path(&environment(&[&raw])), &raw)
+                .contains(&PathFindingKind::WorldWritable),
+            "a raw entry must be stat'd, not classified as relative"
         );
-        // Without a home the entry cannot be inspected, and is reported rather
-        // than quietly passed.
+
+        // A redacted entry is not something this function can inspect, and it
+        // says so rather than guessing. Handing it one is the caller's bug.
         assert_eq!(
-            kinds(&audit_path(&environment(&["~/bin"]), None), "~/bin"),
+            kinds(&audit_path(&environment(&["~/bin"])), "~/bin"),
             vec![PathFindingKind::Relative]
         );
         std::fs::remove_dir_all(&home).ok();

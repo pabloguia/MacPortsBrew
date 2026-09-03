@@ -51,8 +51,8 @@ pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
 pub use resolution::{ExecutableOwner, Resolution};
 pub use snapshot::{
-    redact_home, EnvironmentSnapshot, PathFinding, PathFindingKind, Provenance, ProviderSnapshot,
-    Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    redact_home, EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind, Provenance,
+    ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use version::Version;

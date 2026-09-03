@@ -6,11 +6,11 @@
 
 use crate::TOOL_VERSION;
 use macportsbrew_domain::{
-    redact_home, DomainError, MachineRead, Provenance, ProviderRead, ProviderSnapshot, Snapshot,
-    SNAPSHOT_SCHEMA_VERSION,
+    redact_home, DomainError, HomeRedaction, MachineRead, Provenance, ProviderRead,
+    ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// What a capture needs.
 pub struct CaptureContext<'a> {
@@ -30,7 +30,7 @@ pub struct CaptureContext<'a> {
     /// makes redaction a no-op there: a recording was redacted when it was
     /// captured, and re-redacting it against *this* machine's home would be
     /// a host fact leaking into a replayed analysis (INV-15).
-    pub home: Option<PathBuf>,
+    pub home: HomeRedaction,
 }
 
 /// Captures a snapshot. A provider that fails to answer is recorded as
@@ -89,7 +89,7 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     // last means the real paths were still available above, where `resolution`
     // needed to canonicalise them and compare them with a prefix.
     for snap in providers.values_mut() {
-        redact_provider(snap, ctx.home.as_deref());
+        redact_provider(snap, &ctx.home);
     }
     Ok(Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -115,7 +115,7 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
 /// home path on every machine, and `HOME` itself is in the sanitised
 /// invocation environment INV-10 builds. Anything holding a path is listed
 /// here; a new path-valued field is a line in this function.
-fn redact_provider(snap: &mut ProviderSnapshot, home: Option<&Path>) {
+fn redact_provider(snap: &mut ProviderSnapshot, home: &HomeRedaction) {
     for value in snap.environment.values_mut() {
         *value = redact_home(value, home);
     }
@@ -143,7 +143,7 @@ fn redact_provider(snap: &mut ProviderSnapshot, home: Option<&Path>) {
     }
 }
 
-fn redact_option_path(path: &mut Option<PathBuf>, home: Option<&Path>) {
+fn redact_option_path(path: &mut Option<PathBuf>, home: &HomeRedaction) {
     if let Some(value) = path {
         *value = PathBuf::from(redact_home(&value.to_string_lossy(), home));
     }
