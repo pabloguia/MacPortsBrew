@@ -52,6 +52,87 @@ are recorded.
 - **Default meanwhile:** no public release. Nothing is published, so nothing is
   at risk while this is open.
 
+### DP-010 — A Tier 1 invariant is currently relaxed by a Tier 3 entry. Which gives way?
+- **The question:** `crates/application/src/analysis.rs:167-180` feeds the policy
+  engine the **maximum** reverse-dependency count across providers. INV-04 says
+  reverse dependencies are resolved "inside that provider"; INV-08 says one
+  provider never satisfies another's requirement "in any calculation, ever". This
+  is such a calculation. It is *declared* — SE-042 change (2) — but a Tier 3–5
+  entry cannot relax a Tier 1 invariant, and the authority table does not offer a
+  route by which an agent could have approved it. So the question is the owner's:
+  does the invariant stand, or does INV-04/INV-08 need an explicit carve-out?
+- **What it costs today:** the user is told something false. For `gnutls` on the
+  shipped both-providers fixture the emitted reason reads
+  `count: "3", provider: "macports"` when **zero** MacPorts ports depend on it —
+  the three are Homebrew's, relabelled. The outcome flips to `MANUAL_REVIEW` on the
+  strength of a graph the plan does not touch. The planner does not do this; it
+  reads the correct per-provider value, so engine and planner disagree on one run.
+- **In the current behaviour's favour:** `max` only ever over-reports, so it cannot
+  *miss* a blocking condition. The safety error is conservative. If the carve-out
+  is chosen, that is the argument for it.
+- **Options:** (a) the invariant stands — the engine receives the source provider's
+  own count, or `reverse_dependency_count` moves into the per-provider map where
+  availability already lives correctly; SE-042(2) is withdrawn. (b) INV-04 and
+  INV-08 gain an explicit, narrow exception for the *advisory* reverse-dependency
+  signal, written into Tier 1 by the owner, and the reason text is fixed regardless
+  so it names the provider the count actually came from.
+- **Recommendation:** (a). The conservative direction of the error is real but it
+  is not what INV-08 says, and the false provider label is a defect under either
+  option. If the "worse side" signal is wanted, it can be expressed as a distinct,
+  honestly-named fact rather than by overwriting a per-provider count.
+- **Default meanwhile:** unchanged. Nothing executes, so the cost is a wrong number
+  and an over-triggered review, not an unsafe action. Recorded as SE-045
+  (`Status: proposed`) and finding F-01.
+
+### DP-011 — The charter states a provider fact its own data contradicts (Tier 2)
+- **The question:** `docs/spec/00-charter.md:37` says Homebrew classifies Intel
+  x86_64 macOS as "**Tier 3 — not supported**". Re-verified 2026-09-03, the source
+  treats Tier 3 and Unsupported as distinct: Intel on Catalina 10.15 through Tahoe
+  26 is **Tier 3**, and "Unsupported" — defined as a configuration where Homebrew
+  "will not run without third-party patches" — is Mojave 10.14 and earlier. The
+  charter is Tier 2, so an agent may not change it.
+- **Why it matters more than a wording nit:** this sentence is the project's stated
+  reason for existing, it is copied into `README.md:31`, and the error runs in the
+  direction that favours the tool. The repository's own data model already gets it
+  right (`provider-support.toml` maps Intel Tier 3 to `DEGRADED`), so the binary is
+  more honest than the prose — `status` prints `degraded` on an Intel machine.
+- **Options:** amend the charter to "Tier 3 — degraded, with bottle builds stopped
+  and an announced end date", and `README.md` with it; **or** keep the wording and
+  record why the conflation is deliberate.
+- **Recommendation:** amend. The timeline claim and the September 2027 date are
+  correct and re-verified; only the tier vocabulary is wrong, and it is the part a
+  sceptical reader can check in one click.
+- **Default meanwhile:** unchanged, because it is Tier 2. Recorded as SE-044
+  (`Status: proposed`) and finding F-11.
+
+### DP-012 — Do casks belong in the default top-level view?
+- **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
+  that a cask carries no user-intent field, so its ownership is `UNKNOWN` and is
+  **never** inferred from a dependency graph. `crates/domain/src/ownership.rs:72-82`
+  instead folds "no intent record" into `TOP_LEVEL`, and `classify_ownership`
+  cannot return `Unknown` at all. On the reviewer's machine that is 9 casks — 16%
+  of 56 top-level rows — inside the population INV-13 reserves for default views
+  and destructive workflows, on evidence the code itself marks
+  `authoritative: false`.
+- **Why it is the owner's:** either answer changes what the default view contains,
+  which is a scope decision rather than a bug fix. Making it `UNKNOWN` removes nine
+  rows from the headline count on a typical machine; leaving it means the
+  documentation stops promising `UNKNOWN`.
+- **In the code's favour:** the inference is *recorded* as non-authoritative rather
+  than silently guessed, which is better than what the absolute rule would suggest
+  the alternative is.
+- **Options:** (a) `None ⇒ Ownership::Unknown`, and decide separately whether
+  `UNKNOWN` rows are shown in normal mode; (b) relax the written rule to "never an
+  *unrecorded* graph inference" and keep the current behaviour.
+- **Recommendation:** (b) for the rule, (a) for the reachability of `Unknown` —
+  that is, keep casks visible, stop claiming they are `UNKNOWN`, and make
+  `Ownership::Unknown` reachable for the cases that genuinely are. Casks are
+  already classified out of scope for migration, so their presence in the count is
+  informative rather than dangerous.
+- **Default meanwhile:** unchanged. Recorded as SE-046 (`Status: proposed`) and
+  finding F-20.
+
+
 ---
 
 ## Resolved
