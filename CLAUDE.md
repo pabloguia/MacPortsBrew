@@ -101,7 +101,7 @@ fmt`, `clippy`, `test`, `build` and `tree` are allowed.
 The `Stop` gate does not implement its own checks: it runs
 `scripts/validate.sh`, which is the one implementation of "valid" and the same
 one CI runs. `--quick` (format, clippy, layering, SPDX, dependency licences,
-i18n parity) on every turn end; the full default mode, which adds the test
+i18n parity, GitHub Action SHA pins) on every turn end; the full default mode, which adds the test
 suite, when `crates/`, `tests/`, `fixtures/`, `locales/`, `data/` or
 `Cargo.lock` changed. `MPB_GATE_FULL=1` forces the tests regardless. Do not add
 a check anywhere else.

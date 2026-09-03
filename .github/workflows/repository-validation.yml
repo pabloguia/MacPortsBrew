@@ -34,7 +34,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck jq
@@ -48,7 +48,7 @@ jobs:
         run: .claude/hooks/test-hooks.sh
 
       - name: Rust toolchain (pinned by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
@@ -70,9 +70,9 @@ jobs:
         run: scripts/support-matrix.sh --check
 
       - name: Dependency licences (cargo-deny)
-        uses: EmbarkStudios/cargo-deny-action@v2
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
-          command: check licenses bans sources
+          command: check advisories licenses bans sources
 
   macos:
     name: macos (${{ matrix.runner }})
@@ -85,10 +85,10 @@ jobs:
         runner: [macos-26, macos-26-intel, macos-15, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Rust toolchain (pinned by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
@@ -117,11 +117,22 @@ jobs:
     needs: validate
     runs-on: macos-26-intel
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
         with:
           toolchain: 1.98.0
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      # Pinned to the generic v2 commit with the tool named explicitly, not to
+      # the `@cargo-llvm-cov` tag. That tag resolves to a *published variant*
+      # commit whose action.yml carries `default: cargo-llvm-cov`, so pinning it
+      # by SHA does work — but it makes the tool a property of which commit was
+      # chosen rather than of anything readable in this file, and it would stop
+      # working the day the maintainer changes how variants are published. The
+      # `tool` input is `required: true` on the generic commit (checked at
+      # e67fa11c, 2026-09-02), so naming it is the form that cannot silently
+      # mean something else.
+      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2
+        with:
+          tool: cargo-llvm-cov
       - name: Coverage per layer against the floors in 07-quality-and-testing.md
         run: scripts/check-coverage.sh

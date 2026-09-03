@@ -6,7 +6,8 @@
 # CI (authoritative), a contributor before pushing, and the agent's Stop
 # gate. Do not add a check anywhere else.
 #
-#   scripts/validate.sh --quick   format, lint, layering, SPDX, licences, i18n
+#   scripts/validate.sh --quick   format, lint, layering, SPDX, licences, i18n,
+#                                 action pins
 #   scripts/validate.sh           --quick plus the test suite
 #   scripts/validate.sh --full    everything, plus the release build for both
 #                                 architectures with the deployment-target
@@ -26,6 +27,7 @@ step "layering";     run scripts/check-layering.sh
 step "spdx";         run scripts/check-spdx.sh
 step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh
+step "action pins";  run scripts/check-action-pins.sh
 
 if [ "$mode" != "--quick" ]; then
   step "cargo test"; run cargo test --locked --all-features --workspace

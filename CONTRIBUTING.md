@@ -57,7 +57,7 @@ check anywhere else.
 
 | Invocation | What it runs |
 |---|---|
-| `scripts/validate.sh --quick` | format, clippy, layering, SPDX headers, dependency licences, i18n key parity |
+| `scripts/validate.sh --quick` | format, clippy, layering, SPDX headers, dependency licences, i18n key parity, GitHub Action SHA pins |
 | `scripts/validate.sh` | the above plus `cargo test --workspace` |
 | `scripts/validate.sh --full` | the above plus the release build for both architectures with the deployment-target assertion (macOS only; needs `otool`) |
 
