@@ -103,7 +103,7 @@ Rules that fired
   MANUAL_REVIEW_REVERSE_DEPENDENCIES -> Needs a human decision
       2 packages under homebrew depend on this one, and removing or moving it
       on its own can break them.
-  NO_ACTION_ALREADY_THERE -> Nothing to do
+  NO_ALTERNATIVE_PROVIDER_PRESENT -> Nothing to do
       homebrew is the only package manager on this machine carrying curl, so
       there is nowhere to move it to.
 

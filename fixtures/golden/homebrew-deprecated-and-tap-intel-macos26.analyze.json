@@ -51,7 +51,7 @@
               "package": "actionlint",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -168,7 +168,7 @@
               "package": "adoptopenjdk",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -275,7 +275,7 @@
               "package": "bvi",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -380,7 +380,7 @@
               "package": "cask",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -481,7 +481,7 @@
               "package": "cloc",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -598,7 +598,7 @@
               "package": "codeburn",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -720,7 +720,7 @@
               "package": "copilot-cli",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -826,7 +826,7 @@
               "package": "coreutils",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -934,7 +934,7 @@
               "package": "curl",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1034,7 +1034,7 @@
               "package": "findutils",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1135,7 +1135,7 @@
               "package": "firebase-cli",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1258,7 +1258,7 @@
               "package": "gcloud-cli",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1366,7 +1366,7 @@
               "package": "gemini-cli",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1471,7 +1471,7 @@
               "package": "gh",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1578,7 +1578,7 @@
               "package": "ghidra",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1695,7 +1695,7 @@
               "package": "gimp",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1793,7 +1793,7 @@
               "package": "git",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -1894,7 +1894,7 @@
               "package": "git-lfs",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2001,7 +2001,7 @@
               "package": "gitleaks",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2102,7 +2102,7 @@
               "package": "go-task",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2203,7 +2203,7 @@
               "package": "graphviz",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2304,7 +2304,7 @@
               "package": "htop",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2421,7 +2421,7 @@
               "package": "jupyterlab",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2521,7 +2521,7 @@
               "package": "just",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2622,7 +2622,7 @@
               "package": "links",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2740,7 +2740,7 @@
               "package": "meld",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2838,7 +2838,7 @@
               "package": "mise",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -2957,7 +2957,7 @@
               "package": "moreutils",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3058,7 +3058,7 @@
               "package": "nmap",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3175,7 +3175,7 @@
               "package": "node",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           },
           {
             "id": "reason.runtime_family_managed_elsewhere",
@@ -3288,7 +3288,7 @@
               "package": "nvm",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3389,7 +3389,7 @@
               "package": "nvtop",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3490,7 +3490,7 @@
               "package": "opentofu",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3607,7 +3607,7 @@
               "package": "oracle-jdk",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3705,7 +3705,7 @@
               "package": "osv-scanner",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3806,7 +3806,7 @@
               "package": "p7zip",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -3907,7 +3907,7 @@
               "package": "phpbrew",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4009,7 +4009,7 @@
               "package": "pipx",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4159,7 +4159,7 @@
               "package": "python@3.12",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           },
           {
             "id": "reason.runtime_family_managed_elsewhere",
@@ -4310,7 +4310,7 @@
               "package": "python@3.13",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           },
           {
             "id": "reason.runtime_family_managed_elsewhere",
@@ -4417,7 +4417,7 @@
               "package": "sem-cli",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4524,7 +4524,7 @@
               "package": "semgrep",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4632,7 +4632,7 @@
               "package": "sonar-scanner",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4733,7 +4733,7 @@
               "package": "swiftformat",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4840,7 +4840,7 @@
               "package": "swiftlint",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -4941,7 +4941,7 @@
               "package": "tmux",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5042,7 +5042,7 @@
               "package": "tree",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5143,7 +5143,7 @@
               "package": "unzip",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5245,7 +5245,7 @@
               "package": "uv",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5368,7 +5368,7 @@
               "package": "visualdiffer",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5482,7 +5482,7 @@
               "package": "wailbrew",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5580,7 +5580,7 @@
               "package": "watch",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5681,7 +5681,7 @@
               "package": "wget",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5782,7 +5782,7 @@
               "package": "wireshark",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5899,7 +5899,7 @@
               "package": "wireshark-chmodbpf",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -5997,7 +5997,7 @@
               "package": "xcodegen",
               "provider": "homebrew"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [

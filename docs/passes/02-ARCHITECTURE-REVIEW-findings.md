@@ -994,7 +994,7 @@ records.
   provider's resolutions and returns the first hit in map order. Safe today only
   because capture files each executable under exactly one provider — and `source_for`
   consumes the result.
-- **`NO_ACTION_ALREADY_THERE` is misnamed** — its reason id is
+- **`NO_ACTION_ALREADY_THERE` is misnamed** *(fixed — SE-065)* — its reason id is
   `NO_ALTERNATIVE_PROVIDER_PRESENT`, which is what it means. Behaviour correct, name
   misleading in `explain`, whose job is clarity.
 - **`explain` lists non-fired rules by identifier only**, with no indication of which

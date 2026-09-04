@@ -157,7 +157,7 @@ answer:
       { "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
         "outcome": { "kind": "MANUAL_REVIEW" },
         "reason": { "id": "reason.reverse_dependencies_present", "params": { "count": "2", "provider": "homebrew" } } },
-      { "rule": "NO_ACTION_ALREADY_THERE",
+      { "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT",
         "outcome": { "kind": "NO_ACTION" },
         "reason": { "id": "reason.no_alternative_provider_present", "params": { "package": "curl", "provider": "homebrew" } } }
     ],

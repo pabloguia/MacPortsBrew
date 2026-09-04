@@ -135,6 +135,13 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Changed
+- **A policy rule is named for what it means.** `NO_ACTION_ALREADY_THERE` fires
+  when a package exists under only one provider — that is, when there is nowhere
+  to move it to, not when it has arrived somewhere. Its reason has said
+  `reason.no_alternative_provider_present` since it was written; the rule is
+  called that now, and `explain` stops asking the reader to translate. The rule
+  id appears in `explain --json`, so this is a breaking rename, done before the
+  first release because that is the cheapest it ever gets. SE-065, finding F-20.
 - **The support column showed a Rust identifier, and the package count was a
   sentence built in code.** `locales/en.toml` has said "Not supported" for an
   unsupported tier since it was written; the column printed `unsupported`,

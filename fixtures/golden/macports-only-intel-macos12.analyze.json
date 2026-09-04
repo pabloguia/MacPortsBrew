@@ -51,7 +51,7 @@
               "package": "gnutls",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -185,7 +185,7 @@
               "package": "nginx",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -337,7 +337,7 @@
               "package": "postgresql17-server",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -472,7 +472,7 @@
               "package": "py-pygments",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -571,7 +571,7 @@
               "package": "wget",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [

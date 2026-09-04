@@ -2922,6 +2922,35 @@ finding ids in each entry.
 - Architectural impact: none.
 - Compatibility impact: `--json` untouched; this is the human renderer.
 
+## SE-065 — A rule named for what it is not
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `NO_ACTION_ALREADY_THERE` describes the rule that fires
+  when a package exists under only one provider.
+- Change: the rule is `NO_ALTERNATIVE_PROVIDER_PRESENT`, matching the reason id
+  it has always carried. File, struct and every reference move with it; the six
+  golden analyses regenerate.
+- Rationale: "already there" says the package has reached its destination. This
+  rule fires when there is no other destination on the machine at all, and its
+  reason has said `reason.no_alternative_provider_present` since it was written.
+  `explain` exists so a person can see why a recommendation came out as it did,
+  and a rule id the reader has to translate is the opposite of that (F-20).
+- **Why this is safe to rename, checked rather than assumed.** A rule id is a
+  tie-break in the engine's total order (INV-15), so a rename can move a rule
+  past another. `PRIORITY_NOTHING_TO_DO` is this rule's alone — no other rule
+  shares it — so no tie-break involves it, and evaluation order cannot change an
+  outcome because a rule is a pure function of its two arguments. The six golden
+  analyses confirm it: the only lines that moved are the 180 carrying the id.
+- Evidence: finding F-20. `run-fixture-matrix.sh --update` produced a diff of
+  exactly two kinds of line, inspected rather than assumed.
+- User impact: `explain` names the rule for what it means. The rule id appears in
+  `--json`.
+- Architectural impact: none.
+- Compatibility impact: a rule id in `explain --json` changes. Renaming a value
+  is breaking under `docs/schemas/README.md`; there is no reader and no release,
+  and `explain.v1.md` moves with it. Doing it before the first release is the
+  cheapest this ever gets.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
