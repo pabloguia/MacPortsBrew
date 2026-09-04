@@ -75,6 +75,13 @@ to answer.
   written from the same source as the recipes.
 
 ### Fixed
+- The executor's reader-drain timeout was two seconds, which bounded a held
+  pipe but also failed on ordinary scheduling: under load a reader thread could
+  miss the window and the invocation came back with empty output marked
+  truncated. Nothing mis-parsed — truncation is refused before any adapter
+  parses — but the test gate failed for it at roughly one run in fifteen. Now
+  six seconds, which keeps the worst case (two streams, drained in sequence)
+  under the twenty the pathological-case test fixes. SE-057.
 
 - **A package held by both providers can be migrated in either direction.**
   `--to` was compared against the unit's *inferred* source, which falls back to
@@ -111,6 +118,19 @@ to answer.
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
 ### Security
+- **A snapshot can no longer put a flag where a package name belongs.** The
+  adapters validate every name a provider reports; `--from-snapshot` read the same
+  fields out of a file that never met one, and the planner turns them into argv
+  elements and executable names without passing any allow-list. A package called
+  `--force`, or `-o/etc/anything`, or `../../../bin/sh` rendered into a plan, and
+  the plan is what an executor will run. A snapshot is now refused unless what it
+  states is what a provider could have said, with the rule chosen by where the
+  value goes: a name becomes an argument and is held to the adapters' own
+  predicate; the prefix becomes a command's program and is held to the prefix
+  rule; everything else reaches a reader and is only bounded and free of control
+  characters. Twelve words `port` reads as *sets of ports* — removing the set
+  named `installed` is how you remove the whole installation — are refused from
+  data. SE-051 parts 2 and 3, finding F-09.
 - **A file can no longer decide what a provider command runs in.** Two routes led
   there. `--from-snapshot` read `invocationEnvironment` verbatim, so a snapshot
   could put the other provider's prefix on a `port` command's `PATH`, or a

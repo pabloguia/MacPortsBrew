@@ -121,7 +121,7 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     // provider - or a recording - answered, so a capture can carry the same
     // leak a file can state outright (F-21). Running it inside `capture` means
     // no route produces an unchecked snapshot.
-    snapshot.check_invocation_environments(&ctx.environment_contracts)?;
+    snapshot.check(&ctx.environment_contracts)?;
     Ok(snapshot)
 }
 

@@ -13,6 +13,7 @@ use macportsbrew_domain::{
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// Every reason identifier the planner emits, so the UI can assert its
 /// catalogue covers them (the policy engine lists its own in
@@ -369,7 +370,7 @@ pub fn build_plan(
                     "add",
                     &dest_name,
                     kind,
-                )],
+                )?],
                 Reason::new("reason.add_under_destination")
                     .with("package", &dest_name)
                     .with("provider", &request.to),
@@ -392,7 +393,7 @@ pub fn build_plan(
                 "verify",
                 &dest_name,
                 kind,
-            )],
+            )?],
             vec![
                 VerificationCheck::ProviderReportsActive,
                 VerificationCheck::ProviderIntegrityCheck,
@@ -451,7 +452,7 @@ pub fn build_plan(
                     "remove",
                     &source_name,
                     kind,
-                )],
+                )?],
                 vec![],
                 Reason::new("reason.remove_from_source")
                     .with("package", &source_name)
@@ -524,12 +525,68 @@ fn command(
     operation: &str,
     package: &str,
     kind: PackageKind,
-) -> PlanCommand {
+) -> Result<PlanCommand, DomainError> {
     let entry = table.get(id.as_str());
     let program = provider.detection.prefix.as_ref().zip(entry).map_or_else(
         || format!("<{id} prefix>/bin/{id}"),
         |(prefix, e)| prefix.join(&e.executable).to_string_lossy().into_owned(),
     );
+    // The one element of this argv that is data rather than a verb from the
+    // table. A verb may legitimately begin with a dash - `-q` is how MacPorts is
+    // quieted - so the finished argv cannot be checked as a whole; the guard
+    // belongs here, where the package is still known to be a package.
+    //
+    // `--from-snapshot` validates the same names at the boundary now, so this is
+    // the second of two. It is worth having: it is the one that holds for a
+    // name that reached the planner by some other route, and it fails closed
+    // where an empty `dest_name` would otherwise have become an empty argument
+    // (F-09).
+    if entry.is_some_and(|e| {
+        e.reserved_names
+            .iter()
+            .any(|reserved| reserved.eq_ignore_ascii_case(package))
+    }) {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            format!(
+                "{package:?} is a word {id} reads as a set of ports rather than as \
+                 one package, so a step naming it would reach far more than the plan says"
+            ),
+        ));
+    }
+    if package.is_empty() {
+        // Not a bad snapshot: an empty name here means the planner reached the
+        // mutating path without a destination, which the mapping-confidence
+        // block is supposed to prevent. Telling the user to recapture a file
+        // that was fine would send them after the wrong thing.
+        return Err(DomainError::new(
+            ErrorId::Internal,
+            format!("the plan reached a {operation} step for {id} with no package named"),
+        ));
+    }
+    if !macportsbrew_domain::is_safe_provider_name(package) {
+        return Err(DomainError::new(
+            ErrorId::SnapshotUnusable,
+            format!(
+                "{package:?} is not a package name this tool will pass to a provider; \
+                 it would be read as a flag or a path rather than as a package"
+            ),
+        ));
+    }
+    // And the program itself, last. The prefix is validated at the boundary, but
+    // a relative program is never correct whatever produced it: `Command::new`
+    // resolves a string containing a slash against the working directory, so
+    // this is the difference between running the provider and running whatever
+    // is under the directory the user happened to be in.
+    if !program.starts_with('<') && !Path::new(&program).is_absolute() {
+        return Err(DomainError::new(
+            ErrorId::SnapshotUnusable,
+            format!(
+                "the plan would run {program:?}, which is not an absolute program: \
+                 the prefix it came from names no directory this tool can resolve"
+            ),
+        ));
+    }
     let mut argv: Vec<String> = entry
         .and_then(|e| e.verbs.get(operation).cloned())
         .unwrap_or_else(|| vec![format!("<{operation}>")]);
@@ -547,11 +604,11 @@ fn command(
         },
         _ => Elevation::Unknown,
     };
-    PlanCommand {
+    Ok(PlanCommand {
         target: CommandTarget::Provider,
         program,
         argv,
         environment: provider.invocation_environment.clone(),
         elevation,
-    }
+    })
 }

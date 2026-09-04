@@ -27,6 +27,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-16** — `cargo-deny` never checked advisories | **Fixed.** SE-055. |
 | **F-17** — twelve unpinned actions, four mutable | **Fixed.** SE-055; `scripts/check-action-pins.sh` in `validate.sh`, verified to fail on an unpinned ref. |
 | **F-18** — review workflow could not post, and had no author guard | **Fixed.** SE-055. |
+| **F-09** — `--from-snapshot` is an unvalidated source of plan argv | **Fixed.** SE-051 parts 2 and 3. What is refused depends on where a value goes: a name becomes an argument and takes the adapters' own predicate; the prefix becomes a command's `program` and takes the prefix shape rule; everything else reaches a reader and is only bounded and free of control characters. Getting that split wrong cost three attempts — a first version validated `detection.executable`, which no command uses, while leaving `detection.prefix`, which every command uses, unvalidated on the path that mattered, and refused two shapes a correct machine reports. Twelve MacPorts pseudo-portnames are refused from data, because a provider-neutral predicate can say "not a flag" but not "not a keyword". |
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
@@ -44,7 +45,8 @@ plan: one halted at manual review carries no commands at all.)
 F-04 fix rather than by the review. It is now fixed too, so the Tier 1 column is
 five closed — but "closed" means what each finding stated, and two limits are
 worth naming. The prefix a provider declares is still unvalidated in itself
-(F-09, open under *Security and safety*); the rule compensates by refusing a prefix that
+(F-09's names and paths are now refused too, but where a provider may be
+*installed* is undecided); the rule compensates by refusing a prefix that
 is unusable in shape or that another provider owns or has claimed, but a prefix
 nobody owns — `/tmp/evil` — is still declarable, and the general fix is SE-051
 part 2. And the rule guards what an adapter's environment *is*, not everything a
@@ -474,7 +476,19 @@ threat model's "structurally impossible" is now false and nothing failed.
 
 ## F-09 — `--from-snapshot` is an unvalidated source of plan argv
 
-**Severity: high once the executor lands; medium today.**
+**Severity: high once the executor lands; medium today. Fixed — SE-051 parts 2
+and 3. The body below is the finding as written.**
+
+**One of its three routes turned out not to be reachable.** The names and the
+paths were real and are refused at the load boundary now — though the first
+attempt at that guarded the wrong path: `detection.executable`, which no command
+consumes, while `detection.prefix`, which becomes the `program` of every provider
+command, went unvalidated wherever the environment check skipped it. The third — "`:219`
+yields an empty argv element when the mapping is missing" — never reached the
+mutating path in any plan the suite builds: a unit whose mapping has no selection
+is sent to manual review first, and a manual plan carries no commands at all. The
+guard in `planner::command` would catch it if that changed, and has no test of its
+own because the boundary applies the same predicate and gets there first.
 
 `--from-snapshot` is `global = true` (`cli/src/app/mod.rs:66-67`), so it applies to
 `plan`. `check_schema` (`domain/src/snapshot.rs:226-238`) compares an integer version

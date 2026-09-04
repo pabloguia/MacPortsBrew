@@ -977,6 +977,306 @@ fn invariant_10_a_recording_cannot_move_one_provider_onto_the_other() {
     );
 }
 
+/// F-09: `--from-snapshot` was an unvalidated source of plan argv.
+///
+/// The adapters apply `is_safe_name` / `checked_name` to everything a provider
+/// says, and the planner turns names into argv elements and executable names
+/// without passing any allow-list — because the allow-lists live in the
+/// adapters, and a snapshot never met one. "Here is a snapshot from my machine,
+/// what should I migrate?" is a workflow the documentation invites; a package in
+/// that file called `--force` is a flag the executor would hand to `brew`.
+///
+/// Both providers, and every field that reaches a command: the package name, the
+/// dependency edges, the resolved executables, and the paths.
+#[test]
+fn a_snapshot_cannot_turn_provider_metadata_into_a_flag_or_a_path() {
+    let scratch = Scratch::new("f09");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+    );
+    let base: Value = serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("json");
+    let load = |doc: &Value, name: &str| {
+        let file = scratch.path().join(name);
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "wget",
+                "--to",
+                "macports",
+            ],
+        )
+    };
+    assert_ne!(
+        load(&base, "clean.json").status.code(),
+        Some(8),
+        "the untampered snapshot must not be refused, or this test proves nothing"
+    );
+
+    for id in ["homebrew", "macports"] {
+        for hostile in [
+            "--force",
+            "-o/etc/anything",
+            "../../../bin/sh",
+            "foo bar",
+            "foo;rm -rf /",
+            "",
+        ] {
+            let mut doc = base.clone();
+            let inventory = &mut doc["providers"][id]["inventory"];
+            let previous = inventory["installed"][0]["identity"]["name"]
+                .as_str()
+                .expect("a name")
+                .to_string();
+            inventory["installed"][0]["identity"]["name"] = serde_json::json!(hostile);
+            for map in ["metadata", "availability"] {
+                if let Some(object) = inventory[map].as_object_mut() {
+                    if let Some(value) = object.remove(&previous) {
+                        object.insert(hostile.to_string(), value);
+                    }
+                }
+            }
+            let out = load(&doc, "hostile.json");
+            assert_eq!(
+                out.status.code(),
+                Some(8),
+                "{id}: a package named {hostile:?} must not reach a command"
+            );
+            assert!(out.stdout.is_empty(), "{id}: {hostile:?} produced a plan");
+        }
+
+        // The same names by the other routes into a command.
+        let mut edge = base.clone();
+        edge["providers"][id]["inventory"]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .push(serde_json::json!({"from": "--force", "to": "wget", "buildOnly": false}));
+        assert_eq!(
+            load(&edge, "edge.json").status.code(),
+            Some(8),
+            "{id}: a dependency edge is a name too"
+        );
+
+        // `detection.executable` is where the provider's own binary was found.
+        // It is printed and never run - the planner builds a program from the
+        // prefix and the verb table - so `..` in it is not a defect, and
+        // refusing it would be the strict rule applied where it does not belong.
+        // Escape codes are refused, because it reaches a terminal.
+        let mut executable = base.clone();
+        executable["providers"][id]["detection"]["executable"] =
+            serde_json::json!("/opt/homebrew/../bin/brew");
+        assert_ne!(
+            load(&executable, "executable.json").status.code(),
+            Some(8),
+            "{id}: a reported executable path is not a program"
+        );
+        executable["providers"][id]["detection"]["executable"] =
+            serde_json::json!("/opt/homebrew/bin/\u{1b}[31mbrew\u{1b}[0m");
+        assert_eq!(
+            load(&executable, "painted-executable.json").status.code(),
+            Some(8),
+            "{id}: but it is printed, so it carries no escape codes"
+        );
+
+        // The prefix is the one field that becomes a command's `program`, and
+        // it was the field the first version of this fix left out - while
+        // validating `detection.executable`, which no command uses. A provider
+        // whose capture failed is skipped by the environment rule, and can
+        // still be the source side of a plan, so these reached a `REMOVE_SOURCE`
+        // step that elevates.
+        for hostile in [
+            "relative/evil",
+            ".",
+            "/opt/../tmp/evil",
+            "/tmp/\u{1b}[31mPWNED\u{1b}[0m",
+            "/usr",
+        ] {
+            let mut doc = base.clone();
+            doc["providers"][id]["detection"]["presence"] = serde_json::json!({"state": "ABSENT"});
+            doc["providers"][id]["detection"]["prefix"] = serde_json::json!(hostile);
+            doc["providers"][id]
+                .as_object_mut()
+                .expect("provider")
+                .remove("invocationEnvironment");
+            assert_eq!(
+                load(&doc, "prefix.json").status.code(),
+                Some(8),
+                "{id}: a prefix of {hostile:?} becomes the program of every command"
+            );
+        }
+    }
+
+    // Words `port` reads as a set of ports. A provider-neutral predicate can say
+    // "not a flag"; it cannot say "not a keyword", so the list is data with a
+    // source, and the guard sits where the argv is built.
+    for word in ["installed", "all", "INACTIVE"] {
+        let mut doc = base.clone();
+        for id in ["homebrew", "macports"] {
+            let inventory = &mut doc["providers"][id]["inventory"];
+            let previous = inventory["installed"][0]["identity"]["name"]
+                .as_str()
+                .expect("a name")
+                .to_string();
+            inventory["installed"][0]["identity"]["name"] = serde_json::json!(word);
+            for map in ["metadata", "availability"] {
+                if let Some(object) = inventory[map].as_object_mut() {
+                    if let Some(value) = object.remove(&previous) {
+                        object.insert(word.to_string(), value);
+                    }
+                }
+            }
+        }
+        let file = scratch.path().join("pseudo.json");
+        std::fs::write(&file, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+        let out = run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                word,
+                "--to",
+                "macports",
+            ],
+        );
+        assert_ne!(
+            out.status.code(),
+            Some(0),
+            "a package named {word:?} must not become an argument"
+        );
+    }
+
+    // What reaches a reader is bounded and printable; what becomes a command is
+    // held to the stricter rule. Getting that split wrong in either direction is
+    // a defect: escape codes painted into `doctor`'s output on one side, and a
+    // refused capture on any machine whose `PATH` contains `.../bin/../bin` on
+    // the other, because `which` answers with the entry as written.
+    let mut painted = base.clone();
+    painted["environment"]["path"]
+        .as_array_mut()
+        .expect("path")
+        .insert(0, serde_json::json!("/tmp/\u{1b}[31mPWNED\u{1b}[0m/bin"));
+    assert_eq!(
+        load(&painted, "painted.json").status.code(),
+        Some(8),
+        "a snapshot must not paint a warning in someone's terminal"
+    );
+
+    let resolution = |name: &str, path: &str| {
+        serde_json::json!({name: {"executable": name, "path": path,
+                                  "owner": {"owner": "SYSTEM"}, "authoritative": false}})
+    };
+    let mut indirect = base.clone();
+    indirect["providers"]["homebrew"]["resolutions"] =
+        resolution("wget", "/usr/local/bin/../bin/wget");
+    assert_ne!(
+        load(&indirect, "indirect.json").status.code(),
+        Some(8),
+        "a resolution is where `PATH` said something was, not a program"
+    );
+    let mut flagged = base.clone();
+    flagged["providers"]["homebrew"]["resolutions"] = resolution("--force", "/usr/local/bin/wget");
+    assert_eq!(
+        load(&flagged, "flagged.json").status.code(),
+        Some(8),
+        "the executable name in a resolution is a name"
+    );
+
+    // A `~`-rooted prefix is a redacted absolute path, so it reads; but it
+    // cannot become a program, because `Command::new` would resolve it against
+    // the working directory. Refused where it matters, not where it is read.
+    let mut home_prefix = base.clone();
+    home_prefix["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("~/evil");
+    home_prefix["providers"]["macports"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!("~/evil/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    let file = scratch.path().join("home-prefix.json");
+    std::fs::write(&file, serde_json::to_vec(&home_prefix).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "analyze",
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "a redacted home prefix is readable"
+    );
+    assert_ne!(
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "wget",
+                "--to",
+                "macports",
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "but it cannot become the program of a command"
+    );
+
+    // And the shapes a correct machine reports that earlier versions of this
+    // rule refused outright.
+    let mut variant = base.clone();
+    variant["providers"]["macports"]["inventory"]["installed"][0]["variants"] =
+        serde_json::json!(["-x11", "+universal"]);
+    assert_ne!(
+        load(&variant, "variant.json").status.code(),
+        Some(8),
+        "MacPorts records a deselected variant with its sign (R-3 E-1)"
+    );
+    // The same field, filled by the other provider with something else
+    // entirely: Homebrew copies a keg's `used_options`, which are option flags.
+    // A predicate designed from the MacPorts shape refused these at *capture*,
+    // so the tool declined the machine in front of it.
+    variant["providers"]["homebrew"]["inventory"]["installed"][0]["variants"] =
+        serde_json::json!(["--with-openssl", "--HEAD", "--c++11"]);
+    assert_ne!(
+        load(&variant, "options.json").status.code(),
+        Some(8),
+        "Homebrew records a keg's used_options in the same field"
+    );
+    let mut shallow = base.clone();
+    shallow["providers"]["homebrew"]["detection"]["version"] =
+        serde_json::json!(">=4.3.0 (shallow or no git repository)");
+    assert_ne!(
+        load(&shallow, "shallow.json").status.code(),
+        Some(8),
+        "Homebrew answers this when installed from the .pkg or a shallow clone"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The two binaries, and the two determinism invariants
 // ---------------------------------------------------------------------------

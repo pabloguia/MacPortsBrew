@@ -826,9 +826,10 @@ change is made. Silent deviation remains the one unrecoverable error.
   corrected, one outcome no longer falsely `MANUAL_REVIEW`.
 
 ## SE-051 — A snapshot is untrusted input, and so is anything that decides what a command runs in
-- Status: accepted. Part 1 of three is built; parts 2 and 3 are still proposals
-  and are kept here rather than split off, because it is one boundary (SE-032).
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; part 1 implemented 2026-09-03
+- Status: accepted. All three parts are built. One entry rather than three,
+  because it is one boundary (SE-032).
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-03, part 1
+  (F-21) and then parts 2 and 3 (F-09)
 - Original assumption: `--from-snapshot` accepts a file whose schema version
   matches, and an environment built by `sanitised_environment` is safe by
   construction.
@@ -850,10 +851,35 @@ change is made. Silent deviation remains the one unrecoverable error.
      prefix" one is byte-exact, because the two directions need opposite folds -
      the loosest matcher is the safe one when every extra match is a refusal, the
      strictest when every extra match is an acceptance.
-  2. *Proposed.* Validate every name, version and path in a deserialised
-     snapshot with the same predicates the adapters apply to provider output.
-  3. *Proposed.* Give `PlanCommand` a fallible constructor that refuses an argv
-     element that is empty or begins with `-` unless it came from the verb table.
+  2. **Built.** `Snapshot::check_names` refuses what a provider could not have
+     reported, and the rule differs by *where the value goes* rather than by what
+     type it has:
+     - **A name becomes an argument**, so it takes the strict rule
+       (`is_safe_provider_name`, the union of the two adapters' predicates): every
+       installed, requested, dependency-edge, metadata, availability and
+       resolution name, plus revisions.
+     - **The prefix becomes a command's `program`**, so it takes the same shape
+       rule the environment check applies — one definition, `prefix_shape_error`,
+       because the two checks run on different sets of providers and a prefix that
+       only one of them saw is how `relative/evil` reached an elevating step.
+     - **Everything else reaches a reader**, so it is bounded and free of control
+       characters and nothing more: reported versions, install paths, resolved
+       paths, the machine's own `PATH` and its findings. Applying the strict rule
+       to those refused real machines, twice.
+     - **A variant is neither**, and gets its own predicate: MacPorts records a
+       deselected variant with its `-` sign.
+  3. **Built, and differently from the proposal.** The proposal was a fallible
+     `PlanCommand` constructor refusing an argv element that is empty or begins
+     with `-`. That is the wrong shape twice over. A verb may legitimately begin
+     with a dash — `-q` is how MacPorts is quieted — so a finished argv cannot be
+     judged as a whole; the guard sits in `planner::command`, where the package is
+     still known to be a package. And "not a flag" is not the whole danger: `port`
+     reads `installed`, `all`, `inactive` and nine others as *sets of ports*
+     wherever a portname goes, and the set named `installed` is the whole
+     installation. A provider-neutral predicate cannot know that, so the twelve
+     are data with a source — the list `docs/research/R-3-macports-read-interfaces.md`
+     verified against `port.1` on 2026-09-02 — and the guard reads them from the
+     provider table.
 - Rationale: `check_schema` compares an integer and nothing else, and
   `--from-snapshot` is global, so it reaches `plan`. Names from the file become argv
   elements and even executable names, with no `--` separator and without passing any
@@ -967,12 +993,50 @@ change is made. Silent deviation remains the one unrecoverable error.
   — seventeen cases run against both providers, each asserting the refusal names
   its own reason, plus ten that do not generalise and assert the exit code — and
   `invariant_10_a_recording_cannot_move_one_provider_onto_the_other`.
+- **One door.** `Snapshot::check` runs the schema, the names and the
+  environments, and both boundaries call it. Three checks reachable separately is
+  how a boundary comes to apply two of them.
+- **What the second guard is worth, said plainly.** Removing `check_names` from
+  the door makes the F-09 test fail. Removing the *name* half of the guard in
+  `planner::command` makes nothing fail, because the boundary applies the same
+  predicate and gets there first — but the *reason* is narrower than it looks.
+  A destination name can come from `mapping.selected`, which is sourced from
+  `data/policy/curated-mappings.toml` and never passes `check_names` at all, so
+  for that route the planner guard is the only check rather than the second one.
+  The reserved-word half exists only there in any case, since a pseudo-portname
+  is a perfectly good name. It is kept as defence in depth for a name reaching the planner by
+  some other route, and because it fails closed where an empty destination name
+  would become an empty argument — a case F-09 named and which a probe over every
+  plan the suite builds never reached, the mapping-confidence block sending such
+  a unit to manual review first.
 - **What is still open, stated as limits rather than left implicit.**
-  - `detection.prefix` is validated for *shape* here, not for plausibility. A
-    snapshot may still declare a prefix nobody owns — `/tmp/evil` — and then
-    legitimately lead its `PATH` with `/tmp/evil/bin`, producing a plan whose
-    program is `/tmp/evil/bin/brew`. That is F-09, and it is why parts 2 and 3
-    should land with it rather than after it.
+  - `detection.prefix` is validated for shape — absolute or `~`-rooted, no `..`,
+    bounded, at least two components, containing no system directory, not
+    overlapping another provider's — but not for plausibility. A snapshot may
+    still declare a prefix nobody owns, `/tmp/evil`, and legitimately lead its
+    `PATH` with `/tmp/evil/bin`, producing a plan whose program is
+    `/tmp/evil/bin/brew`. Closing that means deciding where a provider may be
+    installed, which is a product question rather than a validation one, and is
+    not decided here.
+  - **The reserved-word list is applied by the planner, not at the boundary**, so
+    a snapshot naming a port `installed` loads, is reported by every command, and
+    can even be written back out; only a plan for it is refused. Moving the check
+    to the boundary would need the domain to see provider-command data, which is
+    a layer it cannot reach from `load_snapshot`. The schema document says which
+    rule runs where rather than implying one place.
+  - **The reserved-word list is MacPorts' only.** Homebrew's own vocabulary was
+    not researched, so if `brew` reads some word as other than a formula name,
+    nothing here catches it. The mechanism is in place — `reserved_names` per
+    provider in the command table — and filling it is a research item.
+  - **Several fields are unchecked because nothing renders them** — `provenance`,
+    `metadata`, `environment.reported`, the per-provider `environment` map. Probed
+    with escape codes and none reached a terminal, but that holds by where they
+    are consumed rather than by a rule, so a new renderer could expose one.
+  - **No fixture exercises a resolution.** All six recordings carry none, so the
+    resolution arm of `check_names` runs only against hand-built snapshots in the
+    test and on a live machine. That is the arm with the residual false-positive
+    risk, which is why resolved paths are held to the printable rule and not the
+    strict one.
   - The live route validates the incoming prefix *less* than the replayed one:
     `--replay` puts a recording's prefix through `is_safe_path`, while
     `brew --prefix` on a live run passes only an absoluteness test. The rule here
@@ -994,6 +1058,51 @@ change is made. Silent deviation remains the one unrecoverable error.
   posture and the alternative is warn-and-continue, which is how the boundary came
   to be unguarded in the first place. If the key set changes before the first
   release, the version should move with it.
+
+## SE-057 — The reader-drain timeout was a bound on scheduling, not on a held pipe
+- Status: accepted
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation
+- Original assumption: two seconds is long enough for a reader thread to hand
+  back what it read, so a longer wait means a grandchild is holding the pipe.
+- Change: `READER_DRAIN_TIMEOUT` in `adapters::process::system` goes from two
+  seconds to six. The two tests that assert on captured `stdout` now assert
+  `!inv.truncated` first.
+- Rationale: the constant exists to bound the pathological case — a child exits
+  and leaves a grandchild holding the write end, so a blocking read never
+  returns. Two seconds does bound that. What it also did was fail on ordinary
+  *scheduling*: with a dozen test binaries and a build competing for the
+  machine, the reader for `/bin/echo` did not get its result onto the channel
+  in time, and the invocation came back with an empty `stdout` marked
+  truncated. This repository's own suite reproduced it at roughly one run in
+  fifteen.
+- **Nothing mis-parsed, and that is the part worth keeping.**
+  `Invocation::require_success` turns truncation into `ProviderOutputChanged`
+  before any adapter parses, precisely because a stream cut mid-way is a
+  *plausible* one: a line-oriented inventory parses perfectly into an inventory
+  silently missing packages. So the product behaviour was correct throughout —
+  a loaded machine would have refused to analyse rather than analysed wrongly.
+  What was wrong was the gate: `scripts/validate.sh` is the definition of
+  "valid", and one that fails for a reason like this teaches people to re-run
+  it, which is how a real failure gets waved through.
+- **Why six and not more.** The two streams are drained one after the other, so
+  the worst case is twice the constant, and
+  `a_grandchild_holding_the_pipe_does_not_hang_the_runner` fixes twenty seconds
+  as the ceiling for a held pipe. Ten seconds sat exactly on that bound and
+  failed the test — which is how the doubling was found, and it is now written
+  beside the constant. Six keeps the worst case at twelve. Draining
+  concurrently would remove the doubling and allow a longer wait; that is a
+  change to the one subprocess site and is not made here.
+- Evidence: reproduced before the change at 1 in 12, 1 in 25 and 1 in 15 full
+  runs of the adapters crate, and confirmed by making the assertion name its
+  cause — the failure then reads "the reader thread did not drain in time"
+  rather than reporting the output as wrong. After the change, 30 consecutive
+  full runs with no failure, where roughly two would have been expected. Thirty
+  runs is evidence, not proof.
+- User impact: none in the normal case, where the channel already has the
+  answer. A machine with a grandchild holding both pipes waits up to twelve
+  seconds per invocation instead of four before recording a truncated read.
+- Architectural impact: none. One constant and two assertions.
+- Compatibility impact: none.
 
 ## SE-056 — A plan command says what it invokes, so the rule that governs it is not inferred from its name
 - Status: accepted

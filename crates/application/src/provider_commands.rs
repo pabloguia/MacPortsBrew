@@ -28,6 +28,14 @@ pub struct ProviderCommands {
     /// Why elevation is needed where it is.
     #[serde(default)]
     pub elevation_reason: Option<String>,
+    /// Words this provider reads as something other than a package name,
+    /// wherever a package name goes.
+    ///
+    /// A provider-neutral predicate can say "this is not a flag"; it cannot say
+    /// "this is not a keyword", because the keywords belong to the provider. So
+    /// they are data, dated and sourced like every other provider fact (INV-20).
+    #[serde(default)]
+    pub reserved_names: Vec<String>,
     /// Provenance.
     pub source: String,
     /// Read date.

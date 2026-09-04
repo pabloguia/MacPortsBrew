@@ -153,6 +153,90 @@ pub fn is_safe_captured_path(text: &str) -> bool {
     (text.starts_with('/') || text == "~" || text.starts_with("~/")) && path_is_sane(text)
 }
 
+/// Cap on a name or version read out of a snapshot, matching what both
+/// adapters already impose on provider output.
+pub const MAX_COMPONENT_LEN: usize = 128;
+
+fn is_safe_component(text: &str, extra: &[char]) -> bool {
+    !text.is_empty()
+        && text.len() <= MAX_COMPONENT_LEN
+        && text != "."
+        && text != ".."
+        && !text.starts_with('-')
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(&c))
+}
+
+/// True when `name` is one this tool will pass to a provider as an argument.
+///
+/// The union of what the two adapters already accept from provider output —
+/// Homebrew's `python@3.13`, MacPorts' `python313` — and nothing wider. A
+/// leading `-` is refused outright, which is the whole point: a name is an
+/// argument, and an argument that starts with a dash is a flag.
+///
+/// In the domain because a name reaches a command by two routes and only one
+/// of them went through an adapter. The adapters validate what a provider
+/// says; `--from-snapshot` reads the same names out of a file that never met
+/// one, and the planner turns them into argv elements and executable names
+/// without passing any allow-list, because the allow-lists live in the
+/// adapters (F-09).
+pub fn is_safe_provider_name(name: &str) -> bool {
+    is_safe_component(name, &['@', '+', '.', '_', '-'])
+}
+
+/// True when free text a provider reported is safe to keep and to print.
+///
+/// Bounded, and with no control characters, which is all that can be asked of a
+/// version string or a description: they reach a reader, never a command. The
+/// stricter rule was tried and refused a real machine - Homebrew reports
+/// `>=4.3.0 (shallow or no git repository)` when it is installed from the `.pkg`
+/// or from a shallow clone, which is neither a name nor a path but is what
+/// `brew --version` says.
+pub fn is_safe_provider_text(text: &str) -> bool {
+    text.len() <= MAX_TEXT_LEN && !text.chars().any(char::is_control)
+}
+
+/// Cap on free text kept from provider output.
+pub const MAX_TEXT_LEN: usize = 4096;
+
+/// The same as [`is_safe_provider_name`], for a version string, which carries a
+/// few more separators. Applied where a version is a *component* - never to
+/// what a provider reports about itself, which is prose.
+pub fn is_safe_provider_version(version: &str) -> bool {
+    is_safe_component(version, &['@', '+', '.', '_', '-', ',', '~', ':'])
+}
+
+/// Why this path cannot be a provider's prefix, or `None` when it can be.
+///
+/// One definition, because two checks need it and they run on different sets of
+/// providers: the environment rule skips a provider whose capture failed, and
+/// the name rule does not. A prefix that only the first checked was how
+/// `relative/evil` and `.` reached a command's `program`.
+fn prefix_shape_error(prefix: &Path) -> Option<String> {
+    let text = prefix.to_string_lossy().into_owned();
+    if !is_safe_captured_path(&text) {
+        return Some(format!("{text:?} is not a usable directory"));
+    }
+    // A `~`-rooted prefix is allowed *here* and refused where it matters. It is
+    // not really relative - it is an absolute path with the home elided by
+    // redaction, and the privacy machinery exists so a home-installed provider
+    // can be captured and read at all. But `Command::new` resolves a string
+    // containing a slash against the working directory, so `~/evil/bin/port`
+    // would follow the user wherever they ran the tool. `planner::command`
+    // therefore refuses to emit a program that is not absolute: such a snapshot
+    // can be analysed and reported, and cannot produce a command.
+    if prefix.components().count() < 2 {
+        return Some(format!(
+            "{text:?} contains everything below it rather than naming a directory of its own"
+        ));
+    }
+    SYSTEM_PATH
+        .iter()
+        .find(|system| path_starts_with_insensitive(Path::new(*system), prefix))
+        .map(|system| format!("{text:?} contains the system directory {system}"))
+}
+
 /// Every prefix a provider other than `id` is known to own or has declared.
 fn taken_prefixes<'a>(
     contracts: &'a BTreeMap<String, ProviderEnvironmentContract>,
@@ -583,7 +667,7 @@ impl Snapshot {
     /// Decided from the snapshot and the contract alone - no clock, no
     /// filesystem, no live environment - so a snapshotted read stays
     /// reproducible (INV-15).
-    pub fn check_invocation_environments(
+    pub(crate) fn check_invocation_environments(
         &self,
         contracts: &BTreeMap<String, ProviderEnvironmentContract>,
     ) -> Result<(), crate::error::DomainError> {
@@ -627,10 +711,8 @@ impl Snapshot {
             let mut own: Vec<PathBuf> = Vec::new();
             if let Some(detected) = provider.detection.prefix.as_deref() {
                 let text = detected.to_string_lossy().into_owned();
-                if !is_safe_captured_path(&text) {
-                    return refuse(format!(
-                        "{id} declares a prefix that is not a usable directory ({text:?})"
-                    ));
+                if let Some(why) = prefix_shape_error(detected) {
+                    return refuse(format!("{id} declares a prefix that {why}"));
                 }
                 // A prefix shallow enough to contain other things is how the
                 // containment rule below gets switched off: declare `/opt` and
@@ -638,20 +720,6 @@ impl Snapshot {
                 // everything is. Every real prefix names a directory of its
                 // own, so requiring two components and forbidding an ancestor
                 // relationship costs nothing and closes the family.
-                if detected.components().count() < 2 {
-                    return refuse(format!(
-                        "{id} declares {text:?} as its prefix, which contains \
-                         everything below it rather than naming a directory of its own"
-                    ));
-                }
-                for system in SYSTEM_PATH {
-                    if path_starts_with_insensitive(Path::new(system), detected) {
-                        return refuse(format!(
-                            "{id} declares {text:?}, which contains the system \
-                             directory {system}"
-                        ));
-                    }
-                }
                 for (other, prefix) in taken_prefixes(contracts, &declared, id.as_str()) {
                     if path_starts_with_insensitive(detected, prefix)
                         || path_starts_with_insensitive(prefix, detected)
@@ -793,8 +861,166 @@ impl Snapshot {
         Ok(())
     }
 
+    /// Refuses a snapshot whose names, versions or paths are not ones a
+    /// provider could have reported.
+    ///
+    /// The adapters already apply these predicates to provider output. But
+    /// `--from-snapshot` reads the same fields out of a file that never met an
+    /// adapter, and the planner turns them into argv elements and executable
+    /// names without passing any allow-list, because the allow-lists live in
+    /// the adapters. "Here is a snapshot from my machine, what should I
+    /// migrate?" is a workflow the documentation invites, and a package in that
+    /// file named `--force` or `-o/etc/anything` is a flag the executor would
+    /// hand to `brew` (F-09).
+    ///
+    /// Today the consequence is a misleading plan; the plan is the executor's
+    /// contract, so when one exists it is flag injection. Refusing now costs
+    /// nothing: every name in all six recordings passes, and the predicate is
+    /// the union of what the two adapters already accept, not a new rule.
+    pub(crate) fn check_names(&self) -> Result<(), crate::error::DomainError> {
+        let refuse = |what: &str, value: &str| {
+            Err(crate::error::DomainError::new(
+                crate::error::ErrorId::SnapshotUnusable,
+                format!("{what} {value:?} is not something a provider could have reported"),
+            ))
+        };
+        let name = |what: &str, value: &str| {
+            if is_safe_provider_name(value) {
+                Ok(())
+            } else {
+                refuse(what, value)
+            }
+        };
+        // Printable and bounded, for everything that reaches a reader rather
+        // than a command. The strict command-path rule would refuse a machine
+        // whose `PATH` legitimately contains `.../bin/../bin`, because `which`
+        // answers with the entry as written - a fifth way to break a correct
+        // machine, and the class this check keeps failing by.
+        let text = |what: &str, value: &str| {
+            if is_safe_provider_text(value) {
+                Ok(())
+            } else {
+                refuse(what, value)
+            }
+        };
+        // The machine's own `PATH`, which `doctor` prints back a line at a time.
+        for entry in &self.environment.path {
+            text("a PATH entry", entry)?;
+        }
+        for finding in &self.environment.path_findings {
+            text("a PATH finding", &finding.entry)?;
+        }
+        for (id, provider) in &self.providers {
+            // The prefix, first and unconditionally. It is the one field that
+            // becomes a command's `program` - `planner.rs` joins it with the
+            // executable name from the table - and it was the field this check
+            // originally left out while validating `detection.executable`, which
+            // no command uses at all. `check_invocation_environments` does
+            // constrain a prefix, but it skips a provider whose capture failed,
+            // and such a provider can still be the source side of a plan, so
+            // `relative/evil` and `.` reached a `REMOVE_SOURCE` step that
+            // elevates.
+            if let Some(prefix) = &provider.detection.prefix {
+                if let Some(why) = prefix_shape_error(prefix) {
+                    return Err(crate::error::DomainError::new(
+                        crate::error::ErrorId::SnapshotUnusable,
+                        format!("{id} declares a prefix that {why}"),
+                    ));
+                }
+            }
+            if let Some(version) = &provider.detection.version {
+                // Prose, not a component: `brew --version` answers
+                // `>=4.3.0 (shallow or no git repository)` on a `.pkg` install.
+                if !is_safe_provider_text(version.as_str()) {
+                    return refuse(&format!("{id}'s reported version"), version.as_str());
+                }
+            }
+            if let Some(executable) = &provider.detection.executable {
+                text(&format!("{id}'s executable"), &executable.to_string_lossy())?;
+            }
+            let inventory = &provider.inventory;
+            for row in &inventory.installed {
+                name(&format!("a package {id} reports"), &row.identity.name)?;
+                if !is_safe_provider_version(row.version.as_str()) {
+                    return refuse(
+                        &format!("the version of {}", row.identity.name),
+                        row.version.as_str(),
+                    );
+                }
+                if let Some(revision) = &row.revision {
+                    name(&format!("a revision of {}", row.identity.name), revision)?;
+                }
+                // Bounded and printable, and nothing more. Two providers fill
+                // this field and they fill it with different things: MacPorts
+                // writes `+universal` and the deselected `-x11`, Homebrew copies
+                // a keg's `used_options`, which are literally `--with-openssl`
+                // and `--HEAD`. A predicate designed from one provider's shape
+                // refused the other's outright - and because this check runs
+                // inside `capture`, that was the tool refusing the machine in
+                // front of it. A variant reaches no command and no renderer, so
+                // the rule for it is the one for everything a reader might see.
+                for variant in &row.variants {
+                    text(&format!("a variant of {}", row.identity.name), variant)?;
+                }
+                if let Some(installed_at) = &row.install_path {
+                    text(
+                        &format!("`install_path` of {}", row.identity.name),
+                        &installed_at.to_string_lossy(),
+                    )?;
+                }
+            }
+            for requested in &inventory.requested.names {
+                name(&format!("a package {id} records as requested"), requested)?;
+            }
+            for edge in &inventory.dependencies {
+                name(&format!("a dependent {id} reports"), &edge.from)?;
+                name(&format!("a dependency {id} reports"), &edge.to)?;
+            }
+            for key in inventory.metadata.keys() {
+                name(&format!("a package {id} has metadata for"), key)?;
+            }
+            for key in inventory.availability.keys() {
+                name(&format!("a package {id} assessed availability for"), key)?;
+            }
+            for (key, resolution) in &provider.resolutions {
+                name(&format!("an executable {id} resolved"), key)?;
+                name(
+                    &format!("an executable {id} resolved"),
+                    &resolution.executable,
+                )?;
+                for (what, value) in [
+                    ("the path of", resolution.path.as_deref()),
+                    (
+                        "the canonical path of",
+                        resolution.canonical_path.as_deref(),
+                    ),
+                ] {
+                    if let Some(value) = value {
+                        text(&format!("{what} {key}"), &value.to_string_lossy())?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Every rule a deserialised or captured snapshot must satisfy, in one
+    /// call.
+    ///
+    /// One door, because two boundaries have to apply the same set and a
+    /// boundary that calls three of four checks is how a gap gets in. Both
+    /// callers - `load_snapshot` and `capture` - go through this.
+    pub fn check(
+        &self,
+        contracts: &BTreeMap<String, ProviderEnvironmentContract>,
+    ) -> Result<(), crate::error::DomainError> {
+        self.check_schema()?;
+        self.check_names()?;
+        self.check_invocation_environments(contracts)
+    }
+
     /// Fails when the schema version is not the one this build reads.
-    pub fn check_schema(&self) -> Result<(), crate::error::DomainError> {
+    pub(crate) fn check_schema(&self) -> Result<(), crate::error::DomainError> {
         if self.schema_version == SNAPSHOT_SCHEMA_VERSION {
             Ok(())
         } else {
@@ -812,6 +1038,83 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_provider_name_is_an_argument_and_never_a_flag() {
+        // The union of what the two adapters accept from provider output, and
+        // nothing wider: every one of the 201 distinct names and 210 versions in
+        // the six recordings passes, so refusing at the load boundary costs no
+        // legitimate snapshot.
+        for name in [
+            "wget",
+            "python@3.13",
+            "python313",
+            "gnu-sed",
+            "ca_root_nss",
+            "libxml2.1",
+        ] {
+            assert!(is_safe_provider_name(name), "{name}");
+        }
+        for version in ["1.2.3", "2.44.0_1", "3.13.1+build", "1.0~beta,2"] {
+            assert!(is_safe_provider_version(version), "{version}");
+        }
+        // A leading dash is the whole point: an argument that starts with one
+        // is a flag, and the planner appends a package to an argv with no `--`
+        // separator in front of it.
+        for hostile in [
+            "--force",
+            "-o/etc/anything",
+            "../../../bin/sh",
+            "foo bar",
+            "foo;rm -rf /",
+            "",
+            ".",
+            "..",
+        ] {
+            assert!(!is_safe_provider_name(hostile), "{hostile:?}");
+        }
+        assert!(!is_safe_provider_name(&"a".repeat(MAX_COMPONENT_LEN + 1)));
+        assert!(
+            !is_safe_provider_name("naïve"),
+            "non-ASCII is not a port name"
+        );
+    }
+
+    #[test]
+    fn a_variant_and_a_reported_version_are_read_by_people_not_by_providers() {
+        // Two shapes an earlier version of this rule refused, each of which is
+        // what a correct machine actually reports. MacPorts records a deselected
+        // variant with its sign - `libsdl @1.2.15_3-x11`, R-3 E-1, and this
+        // repository's own parser asserts the sign survives - and Homebrew
+        // answers `>=4.3.0 (shallow or no git repository)` when it was installed
+        // from the `.pkg` or from a shallow clone. Refusing either made every
+        // command on such a machine exit 8, including the one the error told the
+        // user to run.
+        // Two providers fill `variants` and they fill it differently: MacPorts
+        // writes `+universal` and the deselected `-x11`, Homebrew copies a keg's
+        // `used_options`, which are `--with-openssl` and `--HEAD`. A predicate
+        // built from one shape refused the other, and refused it *at capture*,
+        // so the tool declined the machine in front of it. A variant reaches no
+        // command, so it is held to the rule for what a reader might see.
+        for variant in [
+            "-x11",
+            "+universal",
+            "gnutls",
+            "--with-openssl",
+            "--HEAD",
+            "--c++11",
+        ] {
+            assert!(is_safe_provider_text(variant), "{variant}");
+        }
+
+        assert!(is_safe_provider_text(
+            ">=4.3.0 (shallow or no git repository)"
+        ));
+        assert!(is_safe_provider_text("2.44.0"));
+        // Free text still reaches a terminal, so control characters do not.
+        assert!(!is_safe_provider_text("\u{1b}[31mPWNED\u{1b}[0m"));
+        assert!(!is_safe_provider_text(&"a".repeat(MAX_TEXT_LEN + 1)));
+    }
 
     #[test]
     fn every_variable_inv_10_names_is_a_build_flag() {

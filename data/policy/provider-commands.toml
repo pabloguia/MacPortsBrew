@@ -39,6 +39,23 @@ executable = "bin/port"
 source = "https://guide.macports.org (using.port.install, using.port.uninstall); docs/research/R-5-privilege-requirements.md"
 read_on = "2026-09-02"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
+# Words `port` reads as a *set of ports* wherever a portname goes, so a package
+# called one of these is not a package: removing the set named `installed` is
+# the documented way to remove the whole installation.
+#
+# This is a safety guard, not a fidelity record, so it is deliberately a
+# superset of what is documented. The twelve verified entries are the list
+# docs/research/R-3-macports-read-interfaces.md checked against port.1 on
+# 2026-09-02. `actinact` is added even though neither of that note's passes
+# returned it: no port is named `actinact`, so over-inclusion costs nothing,
+# while under-inclusion costs an installation. The comparison folds case for the
+# same reason - `port`'s own case behaviour is not documented in either source,
+# and every extra match here is a refusal rather than an action.
+reserved_names = [
+  "all", "current", "active", "inactive", "actinact", "installed",
+  "uninstalled", "outdated", "obsolete", "requested", "unrequested",
+  "leaves", "rleaves",
+]
 
 [entry.verbs]
 add = ["install"]

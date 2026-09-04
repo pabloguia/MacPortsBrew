@@ -79,7 +79,31 @@ impl SystemRunner {
 /// a grandchild holding the write end, and then a blocking read never returns.
 /// Waiting for a bounded time and recording a truncated stream is the right
 /// trade — the alternative is a `macportsbrew analyze` that never comes back.
-const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+///
+/// Six seconds, and it was two. Two was not a bound on a held pipe, which is
+/// what this exists for; it was tight enough to be missed by *scheduling*. This
+/// repository's own test suite reproduced it at roughly one run in fifteen: the
+/// reader for `/bin/echo` did not get its result onto the channel within two
+/// seconds while a dozen test binaries and a build competed for the machine,
+/// and the invocation came back with an empty stdout marked truncated. Nothing
+/// mis-parsed — `Invocation::require_success` turns truncation into
+/// `ProviderOutputChanged`, which is the whole point of the flag — but a gate
+/// that fails for a reason like that teaches people to re-run it, and that is
+/// how a real failure gets waved through.
+///
+/// Six costs nothing when the pipe is closed, which is every normal read: the
+/// channel already has the answer. It only lengthens the pathological case, and
+/// it is a twentieth of [`crate::process::DEFAULT_TIMEOUT`], the time the same
+/// executor already allows one command to take, so a drain cannot dominate a
+/// run.
+///
+/// **The two streams are drained one after the other, so the worst case is
+/// twice this.** A grandchild inherits both pipes and holds both, and
+/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` fixes twenty
+/// seconds as the ceiling for that. Six keeps the worst case at twelve, with
+/// margin; ten would have sat exactly on the bound, which is how this value was
+/// found out.
+const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Reads a stream up to `cap` bytes, returning the text and whether anything
 /// was lost.
@@ -318,6 +342,14 @@ mod tests {
             env(),
         );
         let inv = runner.run(&spec).unwrap();
+        // First, because a reader thread that misses `READER_DRAIN_TIMEOUT`
+        // returns an *empty* stdout with this flag set, and an assertion on the
+        // text then fails saying the output was wrong when what happened is
+        // that it never arrived. Production cannot confuse the two -
+        // `require_success` turns truncation into `ProviderOutputChanged` - but
+        // these tests call `run` directly, and under a loaded machine the flake
+        // was reproducible at roughly one run in twelve.
+        assert!(!inv.truncated, "the reader thread did not drain in time");
         assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
         assert_eq!(inv.stdout, "hello $HOME; rm -rf /\n");
         assert_eq!(inv.program, "echo");
@@ -333,6 +365,7 @@ mod tests {
         e.insert("MPB_TEST_MARKER".into(), "present".into());
         let spec = CommandSpec::new("/usr/bin/env", vec![], e);
         let inv = runner.run(&spec).unwrap();
+        assert!(!inv.truncated, "the reader thread did not drain in time");
         assert!(inv.stdout.contains("MPB_TEST_MARKER=present"));
         assert!(inv.stdout.contains("LC_ALL=C"));
         assert!(!inv.stdout.contains("PKG_CONFIG_PATH="));

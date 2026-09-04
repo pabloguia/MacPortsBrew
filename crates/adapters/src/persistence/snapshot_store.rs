@@ -116,8 +116,7 @@ pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
             format!("{} is not a readable snapshot: {e}", path.display()),
         )
     })?;
-    snapshot.check_schema()?;
-    snapshot.check_invocation_environments(&crate::registry::environment_contracts())?;
+    snapshot.check(&crate::registry::environment_contracts())?;
     Ok(snapshot)
 }
 

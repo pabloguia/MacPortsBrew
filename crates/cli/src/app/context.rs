@@ -62,8 +62,8 @@ impl Context {
         let (path_env, variables, home) = from_process_environment();
 
         if let Some(file) = &cli.from_snapshot {
+            // `load_snapshot` runs every check, schema included.
             let snapshot = load_snapshot(file)?;
-            snapshot.check_schema()?;
             let today = cli
                 .today
                 .clone()
