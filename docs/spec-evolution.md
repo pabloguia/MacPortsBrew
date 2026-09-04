@@ -2850,6 +2850,38 @@ finding ids in each entry.
   provider prefix, which INV-20 already required.
 - Compatibility impact: none.
 
+## SE-063 — The `Stop` gate fails where it used to pass having checked nothing
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the `Stop` hook runs `validate.sh`, so a turn cannot end
+  while an objective check fails.
+- Change: when `cargo` is not on `PATH` and the turn changed code, tests,
+  fixtures, locales or data, the gate **fails** rather than warning. It also
+  fails when `scripts/validate.sh` is not executable, and warns when there is no
+  `Cargo.toml` at all — a case the old shape skipped in silence.
+- Rationale: the guard warned and exited 0, and the previous pass's report then
+  states as fact that this machine has no toolchain and that no coverage figure
+  was observed. Both were false: `cargo`, `rustc 1.98.0` and the pin were all
+  present and `validate.sh` passed in full. That is the cost of a degradation
+  that reads like a pass — not a missed check, but a *report* built on one.
+  CLAUDE.md's own argument for this hook is that "give the agent a way to check
+  its work" beats "tell the agent to be careful"; a way to check that can quietly
+  not run is neither.
+- **Scoped, so it is not a hostage.** A documentation turn on a machine without a
+  toolchain is not blocked: the failure fires only when the working tree has
+  changes under the paths the checks cover, which is the same set the gate
+  already uses to decide between `--quick` and the full run. With no `git`
+  either, it assumes the worst rather than the convenient.
+- Evidence: finding F-20. Probed with `HOME` pointed at an empty directory so
+  the hook's own `$HOME/.cargo/bin` prepend cannot find a toolchain: with a
+  modified `crates/` file the gate exits 2 and names the reason, with a clean
+  tree it exits 0 and warns. Removing `validate.sh`'s executable bit exits 2.
+  Hook tests 70/70.
+- User impact: none — this is agent tooling.
+- Architectural impact: none.
+- Compatibility impact: a turn that changes code on a machine with no toolchain
+  can no longer end silently. That is the point.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW

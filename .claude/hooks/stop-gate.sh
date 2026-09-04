@@ -130,7 +130,43 @@ if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
       fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60)")
     fi
   else
-    warn+=("Cargo.toml exists but cargo is not on PATH; the code checks did not run.")
+    # A warning here, and the previous pass concluded from it that this machine
+    # had no toolchain - which was false, and the report said so as fact. The
+    # gate must not be able to pass while the checks it exists to run did not
+    # run at all (F-20).
+    #
+    # Scoped to a change that needs them, so a documentation turn on a machine
+    # without a toolchain is not held hostage to one. A change under `crates/`,
+    # `tests/`, `fixtures/`, `locales/`, `data/` or `Cargo.lock` needs them, and
+    # that is the same set the mode decision uses above.
+    touched_code=0
+    if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+      [ -n "$(git status --porcelain -- crates src tests fixtures locales data Cargo.lock 2>/dev/null | head -1)" ] && touched_code=1
+    else
+      # No git either: assume the worst rather than the convenient.
+      touched_code=1
+    fi
+    if [ "$touched_code" = "1" ]; then
+      fail+=("cargo is not on PATH, and this turn changed code, tests, fixtures, \
+locales or data. The checks that would have run did not run - which is not the \
+same as passing. Install the pinned toolchain, or say plainly in the turn's \
+report that nothing was verified.")
+    else
+      warn+=("cargo is not on PATH; the code checks did not run. No code changed \
+this turn, so nothing is blocked - but do not report anything as verified.")
+    fi
+  fi
+else
+  # The other half of the same defect: if this is not a Rust workspace, or
+  # `validate.sh` is not executable, the block above is skipped entirely and the
+  # gate exits 0 having checked nothing at all. Being in the wrong directory
+  # looks exactly like a clean turn.
+  if [ ! -f Cargo.toml ]; then
+    warn+=("no Cargo.toml here; the stop gate ran no code checks. If you expected \
+it to, the working directory is wrong.")
+  elif [ ! -x scripts/validate.sh ]; then
+    fail+=("scripts/validate.sh is not executable, so the one implementation of \
+\"valid\" did not run. Restore its mode rather than working around it.")
   fi
 fi
 

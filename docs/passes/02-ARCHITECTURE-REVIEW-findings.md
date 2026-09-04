@@ -957,7 +957,7 @@ records.
   `"{} ({} top-level)"` in code, which `06-cli-and-ux.md:121-122` forbids as a MUST.
   `check-i18n-parity.sh` passes because it checks two of three directions, never
   `en.toml → code`, though its header claims it fails on an orphaned key.
-- **The `Stop` gate degrades silently, and it misled the previous pass.**
+- **The `Stop` gate degrades silently, and it misled the previous pass.** *Fixed — SE-063.*
   `.claude/hooks/stop-gate.sh:122` guards `validate.sh` with `command -v cargo` and
   still exits 0 when absent. The previous report states as fact that this machine has
   no toolchain and that no coverage figure was observed; today `cargo`, `rustc 1.98.0`
