@@ -101,8 +101,11 @@ this order, and the order is enforced rather than conventional:
 9. **Record history.**
 
 **Nothing is removed from Homebrew until the MacPorts package is installed and
-verified.** That is INV-01, and it has a test named after it. If a step fails,
-the run stops and leaves the machine at least as usable as it was.
+verified** (INV-01, with a test named after it), and because of that ordering a
+failed step leaves the machine at least as usable as it was — *whenever that is
+technically possible*. That qualifier is load-bearing, and
+[Dependencies and Safety](Dependencies-and-Safety.md#what-is-guaranteed-and-what-is-not)
+says why in one place rather than four.
 
 ## Elevation
 
@@ -140,4 +143,4 @@ before deciding.
   same thing, the other way.
 - [Package Mapping](Package-Mapping.md) — why the equivalent was or was not
   found.
-- [Undoing a Migration](Undoing-a-Migration.md) — the way back.
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — the way back.

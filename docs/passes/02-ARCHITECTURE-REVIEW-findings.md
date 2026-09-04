@@ -31,6 +31,9 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-09** — `--from-snapshot` is an unvalidated source of plan argv | **Fixed.** SE-051 parts 2 and 3. What is refused depends on where a value goes: a name becomes an argument and takes the adapters' own predicate; the prefix becomes a command's `program` and takes the prefix shape rule; everything else reaches a reader and is only bounded and free of control characters. Getting that split wrong cost three attempts — a first version validated `detection.executable`, which no command uses, while leaving `detection.prefix`, which every command uses, unvalidated on the path that mattered, and refused two shapes a correct machine reports. Twelve MacPorts pseudo-portnames are refused from data, because a provider-neutral predicate can say "not a flag" but not "not a keyword". |
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
+| **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
+| **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
+| **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -603,7 +606,11 @@ limitations, which omits it.
 
 ## F-13 — The README's opening paragraph says the tool executes migrations
 
-**Severity: medium-high.**
+**Severity: medium-high. Fixed — SE-058.** The lead says "builds a reviewable
+migration plan", and "this version plans; it does not execute" is now *in* the
+lead rather than fifty lines below it. The charter's Tier 2 identity sentence is
+unchanged and the deviation is recorded, because a Tier 2 document saying "use
+this consistently" is not something to route around silently.
 
 `README.md:11`: *"…and **executes migrations in either direction** without ever
 removing something before its replacement is installed and verified."*
@@ -618,7 +625,11 @@ pages open with an explicit note that execution is a later pass.
 
 ## F-14 — INV-03 is restated to users as a guarantee, with its qualifier removed
 
-**Severity: medium-high. Violates an explicit MUST.**
+**Severity: medium-high. Violates an explicit MUST. Fixed — SE-058.** Four pages
+carried the unqualified form, not the two this finding named: both migration
+pages did too. All four carry "whenever technically possible" now and say why
+neither provider can offer transactions; the heading is "What is guaranteed, and
+what is not".
 
 `01-invariants.md:22-25`: *"left at least as usable as before, **whenever technically
 possible**."* `wiki/Dependencies-and-Safety.md:132` heads the section **"The safety
@@ -633,7 +644,12 @@ partway, leaves a state MacPortsBrew cannot rewind.
 
 ## F-15 — `restore` is documented as "undo" and omits two of the three limits the spec mandates
 
-**Severity: medium-high. Violates an explicit MUST.**
+**Severity: medium-high. Violates an explicit MUST. Fixed — SE-058.** The page is
+`Restoring-After-a-Migration.md`, says why the command is not called `undo`, and
+carries all three limits plus the unreadable-snapshot case. The limit that was
+missing and mattered most is the ordinary one: upstream moves on, so a restore
+returns something *newer* than the snapshot. Line 68's overstated scope is
+corrected to the run's own primary-selection changes.
 
 `04-migration-and-safety.md:144-152` requires the name `restore` *"not `undo`, and
 the documentation says why"*, no promise of version-exact reconstruction, and no
@@ -737,6 +753,63 @@ The work order asked which invariant tests would actually fail. Assessed individ
 | `invariant_15_a_replayed_reader_never_consults_the_live_filesystem` | Covers `which()` only. `canonicalize` at `homebrew/mod.rs:767, :885, :897`, `macports/mod.rs:730` and `read_dir` at `macports/service.rs:64` are unreached under replay by a coincidence of call order, not a guard. |
 | `invariant_17_symmetric_rules`, `invariant_17_every_rule_individually_follows_the_rename` | **The strongest tests in the repository** — rule-by-rule rename over neutral ids. They are also why F-02 and F-03 survived: they prove the *policy* layer is symmetric, which is not where the asymmetry is. |
 | `invariant_01`, `invariant_06`, `invariant_08` (policy), `invariant_12`, `invariant_14`, `invariant_16`, `invariant_18`, `invariant_19` | Sound. `invariant_16_idempotent_read_commands` (asserts the state dir stays empty) is particularly good. |
+
+---
+
+## F-22 — A cask's verify step would emit a command that fails on a correctly installed cask
+
+**Severity: medium. Found by `provider-researcher` while sourcing F-10, outside
+what was asked.**
+
+`brew list --versions <cask>` **exits 1 with empty stdout and empty stderr** for
+an installed cask — observed on this machine, 2026-09-04, on `gimp` and
+`wireshark-chmodbpf`. `--versions` is formula-only once a name is given;
+`--cask` is required. The trap is that with *no* named argument
+`brew list --versions` does include casks, so a test on the bare command passes.
+
+`planner.rs:590-606` takes `argv` from `verbs[operation]` and only the
+*elevation key* from the package kind:
+
+```rust
+let mut argv = entry.and_then(|e| e.verbs.get(operation).cloned())...
+let elevation_key = match kind {
+    PackageKind::GuiApp => format!("{operation}_gui_app"),
+    PackageKind::Package => operation.to_string(),
+};
+```
+
+So a cask `VERIFY_DESTINATION` step emits `brew list --versions <cask>`, which
+reports failure for a cask that is correctly installed.
+`provider-commands.toml` has no way to express a kind-dependent *verb* — only a
+kind-dependent elevation.
+
+**And the two are inconsistent about whether a cask reaches a plan at all.**
+`kind` is read from the **source** row (`planner.rs:199-202`) and reused for the
+**destination** lookup, so migrating a Homebrew cask towards MacPorts consults
+MacPorts' `*_gui_app` cells. Either `PackageClass::GuiApp` forces
+`MANUAL_REVIEW` and a cask never reaches a verify step — in which case the four
+`*_gui_app` elevation cells are dead and should say so — or it does, and the
+verbs table needs to be kind-aware. It cannot be both, and nothing currently
+tests which.
+
+---
+
+## F-23 — The binary's own `--help` is a hardcoded English literal, and the catalogue key for it has drifted
+
+**Severity: low-medium. Found by `docs-auditor` while auditing F-13.**
+
+`crates/cli/src/app/mod.rs:32-35` holds the `about` text as a Rust string
+literal, outside the i18n layer. `locales/en.toml:32` defines `cli.about` for
+the same purpose; it is referenced only from `crates/cli/tests/i18n.rs:100` and
+doc examples, never rendered. The two have now drifted: the catalogue says
+*"Analyse, compare and **migrate** packages…"*, which contradicts both the clap
+help and the corrected `README.md`.
+
+Two defects in one place: a user-facing string outside the catalogue, which
+`06-cli-and-ux.md` forbids, and a dead duplicate that drifted precisely because
+nothing renders it. It is also why `check-i18n-parity.sh` did not notice — it
+checks two of three directions and never `en.toml → code`, which F-20 already
+records.
 
 ---
 

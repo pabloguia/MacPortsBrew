@@ -270,7 +270,7 @@ validated at deserialisation and `PlanCommand` given a fallible constructor (F-0
 `PackageAbsent` added and `VERIFY_REMOVAL` fixed; `VERIFY_DESTINATION` made
 sensitive to pre-existing state; `check_ordering` made pairwise (F-06). A
 single-instance lock, or at minimum a failing test marking the MUST (F-20). The
-no-shell guarantee given a check or an honest sentence (F-08).
+no-shell guarantee given both a type and a check, and an honest sentence (F-08).
 
 **Documentation pass.** F-12 (the matrix states configuration until a green run),
 F-13 (the README's opening sentence), F-14 (INV-03's qualifier restored, "guarantees"

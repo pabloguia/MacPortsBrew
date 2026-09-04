@@ -129,7 +129,7 @@ Both providers can host a runtime perfectly well; a version manager is usually
 a better fit for the way runtimes are actually used, and saying so is more
 useful than picking a provider.
 
-## The safety guarantees
+## What is guaranteed, and what is not
 
 Behind all of the above are invariants with tests named after them, in
 [`../docs/spec/01-invariants.md`](../docs/spec/01-invariants.md):
@@ -138,8 +138,9 @@ Behind all of the above are invariants with tests named after them, in
   (INV-01).
 - **Every destructive action comes from a plan a human has seen** (INV-02).
   Nothing is derived at execution time.
-- **Failure preserves the prior working state** (INV-03). Partial success is
-  reported as partial success, never as success.
+- **Failure preserves the prior working state *whenever technically possible***
+  (INV-03) — and the qualifier is part of the invariant, not a hedge on it.
+  Partial success is reported as partial success, never as success.
 - **Reverse dependencies are checked before removal** (INV-04).
 - **Installing a package manager needs explicit consent** (INV-05). MacPortsBrew
   never installs one implicitly.
@@ -148,9 +149,26 @@ Behind all of the above are invariants with tests named after them, in
 - **Packages that own data or run as services are never migrated blind**
   (INV-19).
 
+**What is not guaranteed: undoing a provider's own half-finished write.**
+MacPortsBrew will not promise what it cannot deliver, and neither provider
+documents transactional install or uninstall. MacPorts' `uninstall` is
+documented as two actions in one — *"Deactivate and uninstall portname"*
+([`port(1)`](https://guide.macports.org/#using.port), read 2026-09-02; recorded
+in [`R-5`](../docs/research/R-5-privilege-requirements.md)) — so a run that dies
+between them leaves a port deactivated but present. We have found no equivalent
+statement either way for Homebrew, so treat a `brew link` or `brew uninstall`
+interrupted partway as recoverable only by hand until something says otherwise.
+
+So *"left at least as usable as before"* is what the plan is **ordered** to
+achieve — nothing is removed before its replacement is installed and verified,
+which is the ordering INV-01 enforces — and not a claim that any failure can be
+rewound. Where a step cannot be recovered from, you are told which step and what
+state it left, which is the difference between a tool you can act on and one
+that says it succeeded.
+
 ## See also
 
 - [Package Mapping](Package-Mapping.md) — the other half of whether a move is
   safe.
-- [Undoing a Migration](Undoing-a-Migration.md) — what happens when it goes
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — what happens when it goes
   wrong anyway.

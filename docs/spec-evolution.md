@@ -2470,6 +2470,80 @@ finding ids in each entry.
   from configuration, which is the point.
 - Compatibility impact: none.
 
+## SE-058 — The user-facing documentation promised more than the design does
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the wiki and README restate the invariants accurately, so
+  reading either tells you what the tool guarantees.
+- Change: three corrections, filed separately as F-13, F-14 and F-15 and recorded
+  together because they are one defect wearing three faces — every one of them is
+  a place where a qualifier the specification wrote down was dropped on the way to
+  the reader.
+  1. `README.md`'s lead said the tool "executes migrations in either direction".
+     It now says it builds a reviewable plan, and the sentence that this build
+     executes nothing moves *into* the lead instead of sitting fifty lines below
+     the fold.
+  2. INV-03 is "the system is left at least as usable as before, **whenever
+     technically possible**". `wiki/Dependencies-and-Safety.md` headed the section
+     "The safety guarantees" and dropped the qualifier; `wiki/FAQ.md` did the same;
+     both migration pages restated it unqualified. All four carry it now, the
+     heading is "What is guaranteed, and what is not", and each page says plainly
+     that neither provider offers transactions.
+  3. `wiki/Undoing-a-Migration.md` becomes `wiki/Restoring-After-a-Migration.md`,
+     says why the command is `restore` and not `undo`, and carries all three limits
+     `04-migration-and-safety.md:144-152` requires rather than one.
+- Rationale: `04-migration-and-safety.md:83-84` is a **MUST** — "do not promise
+  transaction semantics the underlying package managers do not provide" — and
+  `:144-152` is another. Both were violated in the documentation while the code
+  they describe was correct, which is the worse of the two ways round: the tool
+  behaves honestly and the reader has been told to expect something else. A
+  qualifier dropped in a wiki is not a smaller error than one dropped in a
+  signature; it is the one the user actually reads.
+- **On the missing limit that mattered most.** The restore page carried "cannot
+  restore a version a provider no longer offers", which is the *rare* case. The
+  common one — upstream has moved on, so a restore gives you something **newer**
+  than the snapshot recorded — was not stated anywhere. A reader who understood
+  the page would have expected the machine back as it was.
+- **On renaming the page.** `08-distribution-and-project.md:188-192` is a SHOULD
+  listing the wiki pages by name and asking that titles "use the words people
+  search for"; the list is updated, and the word "undo" still closes the page's
+  first sentence — *"In this build there is nothing to undo"* — so the search
+  argument is not lost. There is no published
+  URL to break: DP-007 is decided but the remote does not exist yet, which is the
+  one moment renaming a wiki page costs nothing.
+- **On the charter, which is Tier 2.** `00-charter.md:29` carries the identity
+  sentence the README was quoting, including "executes migrations", and directs
+  that it be used consistently across README, docs, wiki and CLI help. It is
+  unchanged, and the README now deviates from its wording — as `wiki/Home.md`
+  already did, in text F-13 cites approvingly. The charter states what
+  MacPortsBrew *is*; a release page states what a release *does*, and at 0.1.0
+  those differ. Recorded rather than taken quietly, because a Tier 2 document
+  saying "use this consistently" is not something to route around silently. If the
+  owner reads it as the wording rather than the substance, this is the entry to
+  reverse.
+- Evidence: `01-invariants.md:22-25`; `04-migration-and-safety.md:83-84, 144-152`;
+  findings F-13, F-14, F-15. Audited after the fact, which found two things this
+  entry had got wrong. The four new provider claims carried no source and no read
+  date, violating `08-distribution-and-project.md:198-200` — another **MUST**,
+  broken while fixing two others, and the claims being *true* and making the tool
+  promise *less* is exactly why the instinct was to wave them through. MacPorts'
+  half was already sourced in `R-5` and simply not cited; Homebrew's has no
+  provenance anywhere in the tree and is phrased conditionally rather than
+  asserted. And the explanation had been copied into four pages; it is in one now,
+  with the others carrying the qualifier and a link, which is what the anchor was
+  for. Three of those links then pointed at a bold paragraph rather than a
+  heading — found by inspection, and the reason `scripts/check-links.sh` now
+  exists. `08-distribution-and-project.md:183-184` had required link-checking all
+  along and nothing did it. The charter question the audit said should have been
+  filed rather than only noted is DP-013. No stale link to the renamed page remains in `wiki/`,
+  `docs/`, `README.md`, `locales/` or `crates/`; neither the CLI help nor the
+  catalogue uses the word "undo" at all, so the command surface needed no change.
+- User impact: the documentation now states the limits the design always had. Some
+  readers will find the tool promises less than they thought; that is the point.
+- Architectural impact: none. No code changed.
+- Compatibility impact: one wiki page is renamed. The wiki has never been
+  published.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: proposed
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW

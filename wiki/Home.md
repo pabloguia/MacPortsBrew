@@ -47,7 +47,7 @@ the order.
   — prebuilt artifacts, source builds, and how to tell which you will get.
 - [Primary Provider](Primary-Provider.md) — when both providers have the same
   tool, which one actually runs.
-- [Undoing a Migration](Undoing-a-Migration.md) — snapshots, history and the
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — snapshots, history and the
   restore path.
 
 ## What this build does

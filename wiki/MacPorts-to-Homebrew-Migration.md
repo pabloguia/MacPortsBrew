@@ -109,7 +109,11 @@ Identical to the other direction, because it is the same planner:
 9. **Record history.**
 
 **Nothing is removed from MacPorts until the Homebrew package is installed and
-verified** (INV-01).
+verified** (INV-01, with a test named after it), and because of that ordering a
+failed step leaves the machine at least as usable as it was — *whenever that is
+technically possible*. That qualifier is load-bearing, and
+[Dependencies and Safety](Dependencies-and-Safety.md#what-is-guaranteed-and-what-is-not)
+says why in one place rather than four.
 
 ## Elevation, in this direction
 
@@ -139,4 +143,4 @@ before accepting a plan.
 - [Homebrew to MacPorts Migration](Homebrew-to-MacPorts-Migration.md).
 - [Understanding Bottles and Source Builds](Understanding-Bottles-and-Source-Builds.md)
   — the artifact question that often decides this direction.
-- [Undoing a Migration](Undoing-a-Migration.md).
+- [Restoring After a Migration](Restoring-After-a-Migration.md).

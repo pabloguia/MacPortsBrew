@@ -8,10 +8,14 @@
 MacPortsBrew is an open-source package-manager orchestrator for macOS. It
 analyses what you have installed under Homebrew and MacPorts, maps equivalent
 packages between them, explains which provider is the better choice for each
-package on *your* machine, and executes migrations in either direction without
-ever removing something before its replacement is installed and verified. The
-two providers are peers: neither is globally better, and neither direction is
-a special case.
+package on *your* machine, and builds a reviewable migration plan in either
+direction — one that never removes anything before its replacement is installed
+and verified. The two providers are peers: neither is globally better, and
+neither direction is a special case.
+
+**This version plans; it does not execute.** There is no `migrate` command yet,
+and nothing in the binary runs a mutating provider subcommand. See
+[What this build does *not* do](#what-this-build-does-not-do).
 
 ## Homebrew and MacPorts are peers here
 

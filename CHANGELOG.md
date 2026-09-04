@@ -117,6 +117,23 @@ to answer.
   the user that three MacPorts ports depended on a package when none did and the
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
+### Documentation
+- **The documentation said more than the design does, in three places, and each
+  was a qualifier the specification had written down and the reader never saw.**
+  The README's lead said the tool "executes migrations"; it builds a reviewable
+  plan, and this build executes nothing — which the lead now says, instead of
+  the correction sitting fifty lines below the fold. INV-03 guarantees the
+  machine is left at least as usable as before *whenever technically possible*,
+  and four wiki pages dropped that qualifier while heading the section "The
+  safety guarantees"; all four carry it now and say plainly that neither `brew`
+  nor `port` offers transactions, so a provider's own half-finished write is not
+  something any orchestrator above it can rewind. And the restore page —
+  formerly "Undoing a Migration" — now says why the command is `restore` and not
+  `undo`, and carries all three limits the specification mandates rather than
+  one. The limit that was missing and matters most is the ordinary one: upstream
+  moves on, so a restore usually gives you a **newer** version than the snapshot
+  recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
+
 ### Security
 - **This tool spawns six programs, and refuses everything else at the moment of
   spawning.** `brew`, `port`, `sw_vers`, `uname`, `sysctl`, `xcode-select` — each

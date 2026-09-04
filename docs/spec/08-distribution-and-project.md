@@ -188,7 +188,7 @@ automation simple enough that a contributor can edit a page without learning it.
 **SHOULD.** Wiki pages, at minimum: Home; Getting Started; Homebrew to MacPorts
 Migration; MacPorts to Homebrew Migration; Using Homebrew and MacPorts Together;
 Intel Mac Homebrew Support; Understanding Bottles and Source Builds; Package
-Mapping; Dependencies and Safety; Undoing a Migration; Primary Provider;
+Mapping; Dependencies and Safety; Restoring After a Migration; Primary Provider;
 Troubleshooting; CLI Reference; FAQ; Architecture; Contributing.
 
 Page titles use the words people search for and describe what the page contains.

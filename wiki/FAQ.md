@@ -19,18 +19,29 @@ order makes a better word.
 
 ## Will it break my setup?
 
-Not in this build — it executes nothing. When execution lands, the guarantees
-are:
+Not in this build — it executes nothing. When execution lands, these hold:
 
 - Nothing is removed until its replacement is installed **and verified**.
 - Every destructive action comes from a plan you have seen; nothing is derived
   at execution time.
-- If a step fails, the machine is left at least as usable as before, and
-  partial success is reported as partial success.
+- If a step fails, the machine is left at least as usable as before *whenever
+  that is technically possible*, and partial success is reported as partial
+  success — never as success.
 - Reverse dependencies are checked before any removal.
 - Packages that hold data or run as services are never migrated automatically.
 
-Each of those is an invariant with a test named after it.
+That third one carries a qualifier, and it is not padding. Neither provider
+documents a transactional install or uninstall, and MacPorts' `uninstall` is
+documented as two actions in one — *"Deactivate and uninstall portname"*
+(`port(1)`, read 2026-09-02) — so a step that dies in the middle of its own work
+can leave a port deactivated but still present. What MacPortsBrew guarantees is
+that it does not *create* that risk: the replacement is installed and verified
+before anything is removed. What it cannot guarantee is undoing a provider's own
+half-finished write. When that happens you are told which step and what it left,
+rather than being told it worked. There is more on this in
+[Dependencies and Safety](Dependencies-and-Safety.md#what-is-guaranteed-and-what-is-not).
+
+Each of the five above is an invariant with a test named after it.
 
 ## Do I need to give it my password?
 

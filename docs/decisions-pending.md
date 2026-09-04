@@ -73,6 +73,39 @@ are recorded.
 - **Default meanwhile:** unchanged, because it is Tier 2. Recorded as SE-044
   (`Status: proposed`) and finding F-11.
 
+### DP-013 — The charter is now the only surface that says the tool executes migrations (Tier 2)
+- **The question:** `docs/spec/00-charter.md:29` carries the identity sentence —
+  *"…and **executes migrations** in either direction…"* — and directs at `:33` that
+  it be used *"consistently across README, docs, wiki, CLI help, release artifacts
+  and repository metadata"*. Every one of those surfaces now says something else:
+  `crates/cli/src/app/mod.rs:32-35` says "builds reviewable migration plans… This
+  build is read-only"; `wiki/Home.md:5-10` says "builds a reviewable plan to move
+  it"; `README.md:10-18` now says the same, which is what finding F-13 asked for.
+  Does the charter's sentence change, or do the surfaces revert?
+- **Why it matters:** the charter is Tier 2, so no agent may touch it, and it is
+  the *only* place still carrying the wording. The next consistency audit will
+  find the same drift, correctly identify the charter as the outlier, and be
+  unable to act — or, worse, "fix" the README back to a sentence that says this
+  release executes migrations, which it does not. Recording the deviation in
+  SE-058 stops it being silent; it does not stop it recurring.
+- **Options:** (a) amend the identity to something true of the project across its
+  releases — *"…plans migrations in either direction, and executes them, without
+  ever removing something before its replacement is installed and verified"* keeps
+  the substance and stops reading as a claim about this build; (b) read the
+  charter as describing the finished product and add one sentence saying release
+  surfaces state what that release does — which is what every surface already
+  practises; (c) revert the surfaces, which would mean the README, the wiki and
+  the binary's own `--help` all telling a user the tool executes migrations when
+  it has no `migrate` command.
+- **Recommendation:** (b), and it costs one sentence. The charter's job is
+  identity; a landing page's job is what you get today. Option (a) is also fine
+  and stronger if you would rather the identity sentence be literally true at
+  every point in time.
+- **Default meanwhile:** the charter is unchanged and the surfaces say what the
+  build does. Recorded as SE-058; raised by the documentation audit of that
+  change, which judged the deviation legitimate and the *unfiled question* the
+  real gap.
+
 ### DP-012 — Do casks belong in the default top-level view?
 - **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
   that a cask carries no user-intent field, so its ownership is `UNKNOWN` and is
