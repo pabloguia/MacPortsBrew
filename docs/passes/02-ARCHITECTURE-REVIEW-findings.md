@@ -953,16 +953,17 @@ records.
   at least *recorded* as non-authoritative, which is good engineering — the defect is
   that documentation and code state different rules. See SE-046; scope change makes
   it the owner's call.
-- **Domain enums rendered to users through `{:?}`.** *Partly fixed — SE-064.*
+- **Domain enums rendered to users through `{:?}`.** *Fixed — SE-064.*
   The support tier goes through the catalogue at all three of its sites: the
   `status` column, `doctor`'s reason parameter — which was building a display
   string in the *application* layer — and every rule that hands `{tier}` a
   stable identifier, which `locales/en.toml:75-77` had claimed was substituted
   since it was written while nothing did it. The composed
   `"{} ({} top-level)"` goes through it too, and `check-i18n-parity.sh` now
-  checks the third direction. **Still open:** `human.rs` renders the machine's
-  translation state, `step.kind` and a verification check with `{:?}`
-  (originally cited as `:108`, `:353`, `:379`; the file has grown since). `locales/en.toml:143-146` already defines the four `support.*`
+  checks the third direction. The machine's translation state, a plan step's
+  kind, a verification check and a mapping's confidence go through the catalogue
+  as well — five sites, not the three cited here, which missed both `Confidence`
+  renderings. `locales/en.toml:143-146` already defines the four `support.*`
   keys — all unreferenced — so an `UNSUPPORTED` tier prints `unsupported` instead of
   the catalogue's deliberate "Not supported", and the column never pseudolocalises.
   `wiki/Architecture.md:101` claims *"Nothing is displayed from the lower layers"*.

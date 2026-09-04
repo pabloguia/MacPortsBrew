@@ -2951,6 +2951,17 @@ finding ids in each entry.
   check refuses an unmarked one, and it also refuses a *stale* marker on a key
   that is rendered. The reason lives next to the string, where a translator sees
   it, and adding a key without wiring it now forces you to say why.
+- **The rest of the `{:?}` bullet, closed here.** Five sites, not the three the
+  finding listed — it missed both `Confidence` renderings. A machine's
+  translation state, a plan step's kind, a verification check and a mapping's
+  confidence all reached a person as the Rust identifier written in the source.
+  Each now goes through an exhaustive `match` to a catalogue key, so adding a
+  variant is a compile error rather than a silent `{:?}`; the two checks that
+  carry data render it through the catalogue too, so a translation decides where
+  the executable name sits in the sentence. Thirty keys.
+  The test asserts the *property* — no CamelCase variant name survives into
+  human output, across `plan`, `status` and `explain` — rather than a list of
+  expected sentences, so it catches a sixth site nobody has written yet.
 - **And the tier reaches the user from two more places, which the first version
   of this entry did not mention.** `doctor.rs` passed `format!("{:?}", tier)` —
   a display string built in the *application* layer — and `labels::tier` hands

@@ -8,7 +8,7 @@ use crate::render::table::Table;
 use macportsbrew_application::{Analysis, DoctorReport, Explanation, PackageReport, Severity};
 use macportsbrew_domain::{
     ArtifactAvailability, MigrationPlan, Outcome, Ownership, PackageClass, ProviderPresence,
-    SourceBuildReason, StepKind, SupportTier,
+    SourceBuildReason, StepKind, SupportTier, Translation, VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -105,7 +105,7 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
             &params(&[
                 ("macos", m.macos.to_string()),
                 ("arch", m.architecture.to_string()),
-                ("translation", format!("{:?}", m.translation)),
+                ("translation", label(ctx, translation_key(m.translation)),),
             ])
         )
     );
@@ -324,9 +324,19 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.mappings_heading"));
     for m in &unit.mappings {
-        let _ = writeln!(out, "  -> {}: {:?}", m.destination, m.confidence);
+        let _ = writeln!(
+            out,
+            "  -> {}: {}",
+            m.destination,
+            label(ctx, confidence_key(m.confidence))
+        );
         for c in &m.candidates {
-            let _ = writeln!(out, "     {} ({:?})", c.package.name, c.confidence);
+            let _ = writeln!(
+                out,
+                "     {} ({})",
+                c.package.name,
+                label(ctx, confidence_key(c.confidence))
+            );
             for ev in &c.evidence {
                 let _ = writeln!(out, "       {}: {} (+{})", ev.kind, ev.detail, ev.weight);
             }
@@ -372,7 +382,7 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "plan.steps_heading"));
     for step in &plan.steps {
-        let kind = format!("{:?}", step.kind);
+        let kind = label(ctx, step_key(step.kind));
         let _ = writeln!(
             out,
             "  {}. {} - {}",
@@ -406,7 +416,7 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             );
         }
         for v in &step.verification {
-            let _ = writeln!(out, "       ? {v:?}");
+            let _ = writeln!(out, "       ? {}", verification_line(ctx, v));
         }
         if step.kind == StepKind::ManualReview {
             let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
@@ -456,6 +466,79 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
         );
     }
     out
+}
+
+/// The catalogue key for a machine's translation state.
+///
+/// An exhaustive `match` rather than a `Debug` rendering, so a new variant is a
+/// compile error here instead of a Rust identifier in front of a person (F-20).
+fn translation_key(value: Translation) -> &'static str {
+    match value {
+        Translation::Native => "translation.native",
+        Translation::Translated => "translation.translated",
+        Translation::Unknown => "translation.unknown",
+    }
+}
+
+/// The catalogue key for a plan step's kind. Same reasoning as
+/// [`translation_key`].
+fn step_key(value: StepKind) -> &'static str {
+    match value {
+        StepKind::SnapshotBefore => "step.snapshot_before",
+        StepKind::AddDestination => "step.add_destination",
+        StepKind::VerifyDestination => "step.verify_destination",
+        StepKind::SetPrimary => "step.set_primary",
+        StepKind::VerifyResolution => "step.verify_resolution",
+        StepKind::RemoveSource => "step.remove_source",
+        StepKind::VerifyRemoval => "step.verify_removal",
+        StepKind::CleanupReview => "step.cleanup_review",
+        StepKind::RecordHistory => "step.record_history",
+        StepKind::ManualReview => "step.manual_review",
+    }
+}
+
+/// The catalogue key for a mapping confidence. Same reasoning as
+/// [`translation_key`]; F-20 listed three `{:?}` sites and missed the two that
+/// render this one.
+fn confidence_key(value: macportsbrew_domain::Confidence) -> &'static str {
+    use macportsbrew_domain::Confidence;
+    match value {
+        Confidence::None => "confidence.none",
+        Confidence::Ambiguous => "confidence.ambiguous",
+        Confidence::Probable => "confidence.probable",
+        Confidence::Strong => "confidence.strong",
+        Confidence::Exact => "confidence.exact",
+    }
+}
+
+/// One verification check, rendered.
+///
+/// The two that carry data render it through the catalogue too, so a
+/// translation decides where the executable name sits in the sentence rather
+/// than this function deciding it in English.
+fn verification_line(ctx: &Context, value: &VerificationCheck) -> String {
+    match value {
+        VerificationCheck::ProviderReportsActive => {
+            label(ctx, "verification.provider_reports_active")
+        }
+        VerificationCheck::ProviderIntegrityCheck => {
+            label(ctx, "verification.provider_integrity_check")
+        }
+        VerificationCheck::ExecutablesOwnedByDestination { executables } => ctx.messages.render(
+            "verification.executables_owned_by_destination",
+            &params(&[("executables", executables.join(", "))]),
+        ),
+        VerificationCheck::LivenessProbe { executable, flag } => ctx.messages.render(
+            "verification.liveness_probe",
+            &params(&[("executable", executable.clone()), ("flag", flag.clone())]),
+        ),
+        VerificationCheck::NoCrossProviderLinkage => {
+            label(ctx, "verification.no_cross_provider_linkage")
+        }
+        VerificationCheck::PackageAbsent => label(ctx, "verification.package_absent"),
+        VerificationCheck::PackageNewlyPresent => label(ctx, "verification.package_newly_present"),
+        VerificationCheck::Unknown => label(ctx, "verification.unknown"),
+    }
 }
 
 /// `doctor`.

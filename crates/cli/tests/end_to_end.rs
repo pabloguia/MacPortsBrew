@@ -1753,6 +1753,53 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
 }
 
 #[test]
+fn no_rust_identifier_reaches_the_reader() {
+    // Five sites rendered a domain enumeration with `{:?}`, so `SnapshotBefore`
+    // and `ProviderReportsActive` reached a person as written in the source -
+    // seen by no catalogue and marked by no pseudolocale (F-20, which listed
+    // three of the five).
+    //
+    // The property, not the strings: no CamelCase variant name survives into
+    // human output. That catches a sixth site nobody has written yet, which a
+    // list of expected sentences would not.
+    let scratch = Scratch::new("no-debug-render");
+    let path = fixture(BOTH);
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let mut seen = 0usize;
+    for args in [
+        vec!["plan", "htop", "--to", "macports"],
+        vec!["status"],
+        vec!["explain", "htop"],
+    ] {
+        let mut argv = vec!["--replay", path];
+        argv.extend_from_slice(&args);
+        argv.extend_from_slice(&["--today", TODAY]);
+        let out = run(&scratch, &argv);
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(!text.is_empty(), "{args:?} printed nothing");
+        seen += 1;
+        for name in [
+            "SnapshotBefore",
+            "AddDestination",
+            "VerifyDestination",
+            "RemoveSource",
+            "ManualReview",
+            "ProviderReportsActive",
+            "LivenessProbe",
+            "NoCrossProviderLinkage",
+            "PackageAbsent",
+            "ExecutablesOwnedByDestination",
+        ] {
+            assert!(
+                !text.contains(name),
+                "{args:?} showed the reader the Rust identifier `{name}`"
+            );
+        }
+    }
+    assert_eq!(seen, 3, "all three surfaces were exercised");
+}
+
+#[test]
 fn the_status_table_renders_through_the_catalogue() {
     // Both columns were built in code: the tier as
     // `format!("{:?}", tier).to_ascii_lowercase()` and the count as

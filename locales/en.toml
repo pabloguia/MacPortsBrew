@@ -298,3 +298,38 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "snapshot.written" = "Snapshot written to {path}."
 "doctor.provider_support_ending" = "{provider} has announced the end of support for this machine in or after {endDate} (source: {source}, read {readOn}). This is dated data; re-check it before relying on it."
 reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but its provider will not replace it. Decide whether to move it or keep it deliberately."
+
+# --- Enumerations rendered to a person -------------------------------------
+# Each of these was `format!("{:?}", value)` until F-20: a Rust identifier
+# reaching the user, invisible to the catalogue and to the pseudolocale. The
+# renderer maps the variant to a key here; a variant with no key is a compile
+# error, not a silent fallback, because the `match` is exhaustive.
+translation.native = "Native"
+translation.translated = "Under Rosetta"
+translation.unknown = "Unknown"
+
+step.snapshot_before = "Take a snapshot"
+step.add_destination = "Add under the destination"
+step.verify_destination = "Verify the destination"
+step.set_primary = "Set the primary"
+step.verify_resolution = "Verify what resolves"
+step.remove_source = "Remove from the source"
+step.verify_removal = "Verify the removal"
+step.cleanup_review = "Review what is left behind"
+step.record_history = "Record the run"
+step.manual_review = "Needs a human decision"
+
+verification.provider_reports_active = "the provider reports it installed and active"
+verification.provider_integrity_check = "the provider's own integrity check passes"
+verification.executables_owned_by_destination = "the expected executables belong to the destination: {executables}"
+verification.liveness_probe = "{executable} {flag} exits successfully"
+verification.no_cross_provider_linkage = "no new cross-provider linkage"
+verification.package_absent = "the source no longer reports it installed"
+verification.package_newly_present = "the destination reports it installed and did not before"
+verification.unknown = "a check this build does not recognise, which can never count as satisfied"
+
+confidence.none = "None"
+confidence.ambiguous = "Ambiguous"
+confidence.probable = "Probable"
+confidence.strong = "Strong"
+confidence.exact = "Exact"

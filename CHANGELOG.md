@@ -171,8 +171,12 @@ to answer.
   lower-cased from the enum, which no catalogue sees and no pseudolocale marks.
   Beside it, `"{} ({} top-level)"` was composed in Rust — the plural of "package"
   is the catalogue's business, and not every language puts that qualifier in
-  parentheses. Both go through the catalogue now. The check that should have
-  caught them was missing its third direction: it verified that every key the
+  parentheses. Both go through the catalogue now — and so does everything else
+  that was reaching you as a Rust identifier: a plan step reads "Take a
+  snapshot" rather than `SnapshotBefore`, a verification check "the provider
+  reports it installed and active" rather than `ProviderReportsActive`, and a
+  mapping's confidence and the machine's translation state likewise. The check
+  that should have caught them was missing its third direction: it verified that every key the
   code references exists, and never that every key that exists is referenced.
   The same defect had two more sites, both fixed with it: `doctor` built the
   same `{:?}` string in the application layer, and the rules hand a stable
