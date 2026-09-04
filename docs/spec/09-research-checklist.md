@@ -209,6 +209,46 @@ that list and stays open above — whether the hardened runtime is required for 
 tool (C-1, C-3, C-4), and what container `notarytool` accepts for a standalone
 binary (C-2).
 
+### R-13 · What revocation actually does to a published artifact
+*Open. Raised 2026-09-04 by DP-009. Blocks nothing; it decides how much of
+`SECURITY.md`'s withdrawal plan is load-bearing.*
+ADR-0005 asserts that a revoked Developer ID certificate, or a revoked
+notarisation ticket, stops **previously published** artifacts from launching,
+and that the secure timestamp does not answer revocation the way it answers
+expiry. Nothing in this tree cites that. Checked on 2026-09-04 and found not to
+say it: Apple's Gatekeeper page
+(<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>)
+contains no occurrence of "revoke" or "revocation"; the notarisation page
+(<https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution>)
+is JavaScript-rendered and yielded no text.
+
+What an answer needs: whether Gatekeeper consults revocation state for a
+Developer ID signature and when — first launch only, or every launch; whether a
+**stapled** ticket keeps an artifact launching after the ticket is revoked, and
+whether it differs offline; whether an already-launched-once binary is
+re-evaluated; and whether any of it differs for a bare Mach-O run from a shell,
+which R-9 already found Apple does not document. The distinction that matters
+for the plan is *published-and-already-downloaded* versus *downloaded after
+revocation* — only the first makes the outbound channel urgent.
+
+### R-14 · What actually reaches a user of a published binary
+*Open. Raised 2026-09-04 by the security review of DP-009's plan. Decides how
+much of `SECURITY.md`'s runbook is a real channel and how much is a gesture.*
+The withdrawal plan originally claimed a repository security advisory
+"syndicates to the GitHub Advisory Database" and was therefore "the only
+outbound channel with reach". That is uncited, and doubtful in this project's
+shape: the global database is curated around packages in supported ecosystems,
+and MacPortsBrew publishes a signed binary through Releases and no ecosystem
+package. The claim is withdrawn until answered.
+
+What an answer needs, each with a source and a read date: whether a repository
+advisory for a project with no ecosystem package appears in the global database
+at all; what a "Watch → Releases only" subscriber actually receives, and when;
+whether `releases.atom` includes deleted or de-listed releases; and whether
+deleting a release leaves the tag, the `SHA256SUMS` asset and the build
+provenance attestations in place — the plan's step 2 depends on the last of
+these and states it without a citation.
+
 ---
 
 ## Non-blocking research

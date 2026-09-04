@@ -3315,3 +3315,72 @@ finding ids in each entry.
   instead of being shown three filenames.
 - Architectural impact: none. Nothing is built yet; this binds the release pass.
 - Compatibility impact: none. No release has been published.
+
+## SE-068 — The release design had an inbound security channel and no outbound one
+- Status: accepted (the project owner asked for the plan, 2026-09-04, DP-009)
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: ADR-0005 named the gap and left it — "that plan is not in
+  this record and is a task, not a solved problem" — and nothing scheduled it.
+- Change: `SECURITY.md` gains "If a release must be withdrawn": when to revoke and
+  when not to, who can, what must be recorded before the first release, a
+  six-step runbook, what a user can actually be told, and what the next release
+  looks like on a revoked identity. `08-distribution-and-project.md` gains one
+  MUST — record the signing identity as CI observed it, per release — because the
+  runbook's first question is unanswerable without it. R-13 is filed for the
+  premise the whole thing rests on.
+- Rationale: the asymmetry DP-009 identified was real and one-sided. Private
+  vulnerability reporting is a hard prerequisite of publication; the path *out* —
+  how a user learns a release was withdrawn, when the symptom is a binary that
+  silently stops launching — had no channel, no gate and no owner. Writing it
+  after the first release means writing it during an incident.
+- **The premise is unverified, and the plan says so.** ADR-0005 asserts that
+  revocation stops previously published artifacts from launching and that the
+  secure timestamp does not answer it. Nothing in this tree cites that. Checked
+  2026-09-04: Apple's Gatekeeper page contains no occurrence of "revoke" or
+  "revocation", and the notarisation page is JavaScript-rendered and returned no
+  text. The plan is therefore written to be cheap if the premise is false and
+  sufficient if it is true, and R-13 owns the answer. Writing a confident runbook
+  on an uncited vendor-behaviour claim would have been the same defect SE-044
+  records two entries earlier.
+- **The step that carries the plan is step 4, and it is not a technical one.**
+  A user hit by revocation sees a macOS dialog that names no project. The
+  advisory has to be titled in *their* words or the search that would find it
+  returns nothing. Everything else in the runbook is process; that one decides
+  whether any of it reaches a person.
+- **What the plan refuses to buy.** No telemetry, no auto-update, no required
+  network access — charter non-goals, and a notification channel is not worth
+  trading one for. The consequence is stated rather than engineered around:
+  every channel is pull, and someone who downloaded six months ago and never
+  came back learns nothing until it stops working.
+- **The security review of the plan found seven things, and the two that matter
+  are both about order and reach.** The trigger said "revoke only if the private
+  key may be in someone else's hands", which leaves the likelier case outside it:
+  an attacker who can *use* the identity in CI never needs to read the key, and
+  what they sign stays trusted until revocation. And the runbook revoked first —
+  the global irreversible step before the cheap local one — which at 3am means
+  every good release broken, the bad one still downloadable, and no replacement.
+  Contain first, revoke last, with an exception for an identity being actively
+  used. A third: step 2 deleted the release, and with it `SHA256SUMS`, which is
+  the only public record of the digests the attestations are looked up by — the
+  step justified by preserving evidence destroyed the lookup key. Digests are
+  written down before anything is deleted.
+- **And three claims about vendor behaviour asserted from memory, in the document
+  whose one virtue is flagging exactly that.** "It syndicates to the GitHub
+  Advisory Database" is uncited and doubtful for a project publishing no
+  ecosystem package; withdrawn, and R-14 now owns it. "Deleting a release leaves
+  the tag and the attestations" is the same class and is marked. And the
+  fingerprint cannot go "in the build provenance attestation" —
+  `actions/attest-build-provenance` emits a fixed SLSA predicate with no field
+  for it, so the MUST names the release notes and a sidecar instead. The review
+  also caught a miscitation of the charter: it lists **two** relevant non-goals,
+  no telemetry and no required network, and *not* the absence of auto-update.
+  "MacPortsBrew will never tell them" did not follow from what the charter says;
+  the pull-only conclusion does, and is now derived from the two sentences that
+  exist.
+- Evidence: ADR-0005 (the gap, verbatim); R-9 C-9 for the Account Holder
+  requirement, verified verbatim by the review; `docs/spec/00-charter.md`
+  "Non-goals", which has two of the three claimed; the two Apple pages re-read
+  2026-09-04 and found silent on revocation.
+- User impact: none today — nothing is published. It binds the release pass.
+- Architectural impact: none. One new release-pipeline MUST.
+- Compatibility impact: none.

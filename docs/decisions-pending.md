@@ -11,25 +11,6 @@ are recorded.
 
 ## Open
 
-### DP-009 — May the first public release ship before the revocation plan exists?
-- **The question:** ADR-0005 states that a revoked certificate — or a revoked
-  notarisation ticket — stops previously published artifacts from launching, on
-  the machines of the users this project exists for, and that the secure
-  timestamp does *not* answer revocation the way it answers expiry. It then says
-  the incident-response plan "is not in this record and is a task, not a solved
-  problem". Nobody has decided whether a release may precede that plan.
-- **Note:** the asymmetry is worth seeing. The **inbound** channel is already a
-  hard prerequisite of publication (`SECURITY.md`: private vulnerability
-  reporting enabled before the repository is public). The **outbound** path —
-  how a user learns a release was withdrawn, when the failure mode is a binary
-  that silently stops launching — has no channel, no gate and no owner.
-- **Recommendation:** write the plan first. It is four questions on one page —
-  who revokes, how a release is withdrawn, how users are told, what the next
-  release looks like on a revoked identity — and writing it after the first
-  release means writing it during an incident.
-- **Default meanwhile:** no public release. Nothing is published, so nothing is
-  at risk while this is open.
-
 ### DP-014 — Provider prefixes are compiled in, and INV-20 names prefixes (Tier 1 compliance, and a layering question)
 - **The question:** INV-20 says support tiers, deadlines, **prefixes** and
   known-package knowledge "live in versioned data files carrying a source and a
@@ -98,6 +79,30 @@ are recorded.
 ---
 
 ## Resolved
+
+### DP-009 — May the first public release ship before the revocation plan exists? — **RESOLVED 2026-09-04: the plan exists**
+The project owner asked for the plan rather than for a ruling, which is the
+recommendation's path and removes the question. It is `SECURITY.md`, "If a
+release must be withdrawn": when to revoke and — more usefully — when not to,
+who can, what must be recorded before the first release, the runbook, what a
+user can actually be told, and what the next release looks like on a revoked
+identity. Recorded in **SE-068**.
+
+Two things came out of writing it. The premise ADR-0005 rests on is **uncited**:
+no page in this tree, and neither Apple page checked on 2026-09-04, says that
+revocation stops previously published artifacts from launching. That is now
+R-13, and the plan is written to hold either way. And the runbook's first
+question — which artifacts carry the revoked identity — is unanswerable unless
+the release records the signing identity CI observed, which is now a MUST in
+`08-distribution-and-project.md`. Both were invisible while the plan was a
+sentence in an ADR saying a plan was owed.
+
+A security review of the plan then reordered it. Containment comes before
+revocation — revoking first breaks the good releases while the bad one is still
+downloadable — the trigger now covers an identity being *used* and not only a
+key being read, and the digests are written down before anything is deleted,
+because deleting a release deletes the `SHA256SUMS` the attestations are looked
+up by. SE-068 carries the rest.
 
 ### DP-008 — Is the `.pkg` also provisional pending R-11? — **RESOLVED 2026-09-04: neither is**
 Decided by the project owner: publish all three — bare binary, `.pkg`, `.dmg` —

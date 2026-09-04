@@ -89,6 +89,19 @@ only what binds:
   installer cannot make that call. The same exclusion binds the `.dmg`'s copy
   target and the documented `cp` line.
 
+**MUST.** Record, per release, what CI observed of the identity that signed it:
+the team identifier, the certificate fingerprint, and the notarisation
+submission identifier per artifact. Both halves are needed because both halves
+can be revoked — a certificate by its holder or by Apple, a notarisation ticket
+by Apple alone — and a record of only the first leaves one of the two revocation
+paths with no answer to "which artifacts are affected". CI already asserts
+Developer ID authority; what this adds is keeping what it saw. It goes in the
+release notes and in a sidecar published beside `SHA256SUMS`, **not** in the
+build provenance attestation: `actions/attest-build-provenance` emits a fixed
+SLSA predicate with no field for it, and saying otherwise would describe a
+mechanism that does not exist. `SECURITY.md`, "If a release must be withdrawn",
+is the plan that depends on this (DP-009).
+
 **MUST.** Publish a build provenance attestation for every release artifact, and
 one `SHA256SUMS` covering all of them, itself attested, **and a verification
 snippet users can run** — naming the repository predicate, since a command
