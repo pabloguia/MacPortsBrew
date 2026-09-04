@@ -947,7 +947,11 @@ records.
   at least *recorded* as non-authoritative, which is good engineering — the defect is
   that documentation and code state different rules. See SE-046; scope change makes
   it the owner's call.
-- **Domain enums rendered to users through `{:?}`.** `cli/src/app/human.rs:139`
+- **Domain enums rendered to users through `{:?}`.** *Partly fixed — SE-064:* the
+  support tier and the composed count go through the catalogue, and
+  `check-i18n-parity.sh` now checks the third direction. The remaining `{:?}`
+  sites — translation, `step.kind`, the verification struct — are open.
+ `cli/src/app/human.rs:139`
   (support tier), `:108` (translation), `:353` (`step.kind`), `:379` (a verification
   struct's `Debug`). `locales/en.toml:143-146` already defines the four `support.*`
   keys — all unreferenced — so an `UNSUPPORTED` tier prints `unsupported` instead of

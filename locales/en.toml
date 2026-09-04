@@ -30,6 +30,8 @@
 # --- Program identity -------------------------------------------------------
 
 cli.about = "Analyse, compare and migrate packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and migration runs in both directions."
+# unreferenced: written for `--help`, which clap renders from a Rust literal
+# (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
 
 # --- Errors -----------------------------------------------------------------
@@ -156,31 +158,56 @@ outcome.no_action = "Nothing to do"
 
 # --- Status dashboard -------------------------------------------------------
 
+# unreferenced: superseded by `status.machine_heading`. This block was written
+# for a table shape the renderer no longer uses; delete it or restore the shape,
+# but it should not sit here looking live.
 status.title = "Machine and providers"
+# unreferenced: see `status.title` above.
 status.machine = "Machine"
+# unreferenced: see `status.title` above.
 status.architecture = "Architecture"
+# unreferenced: see `status.title` above.
 status.macos_version = "macOS"
+# unreferenced: see `status.title` above.
 status.providers = "Providers"
+# unreferenced: see `status.title` above.
 status.primary_provider = "Primary provider"
+# unreferenced: see `status.title` above.
 status.support = "Support"
+# unreferenced: see `status.title` above.
 status.packages = "Packages"
+# unreferenced: see `status.title` above.
 status.cache = "Cache"
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.cache_fresh = "Fresh, taken {age}."
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.cache_stale = "Stale, taken {age}. Pass --refresh to take it again."
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.no_network = "Network use is off; facts that need it are shown as unknown."
 
 # --- Doctor -----------------------------------------------------------------
 
+# unreferenced: `doctor` prints findings without a heading. Add one or drop it.
 doctor.title = "Diagnosis"
 doctor.ok = "OK"
 doctor.warning = "Warning"
 doctor.error = "Error"
+# unreferenced: `doctor` prints nothing when it finds nothing, which is worse
+# than saying so. This is the string for saying so.
 doctor.no_findings = "No findings. Both providers answered as expected."
 doctor.report_written = "A redacted report was written to {path}. Read it before you share it; nothing is uploaded."
 
 # --- Counts -----------------------------------------------------------------
 
+# unreferenced: superseded at its one call site by
+# `count.packages_with_top_level`. Kept because a count without the top-level
+# figure is the obvious next caller.
 count.packages = "{count, plural, one {# package} other {# packages}}"
+count.packages_with_top_level = "{count, plural, one {# package} other {# packages}} ({top_level} top-level)"
+# unreferenced: no surface counts findings yet; `doctor` lists them.
 count.findings = "{count, plural, =0 {no findings} one {# finding} other {# findings}}"
 
 # --- Policy data ------------------------------------------------------------

@@ -135,6 +135,16 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Changed
+- **The support column showed a Rust identifier, and the package count was a
+  sentence built in code.** `locales/en.toml` has said "Not supported" for an
+  unsupported tier since it was written; the column printed `unsupported`,
+  lower-cased from the enum, which no catalogue sees and no pseudolocale marks.
+  Beside it, `"{} ({} top-level)"` was composed in Rust — the plural of "package"
+  is the catalogue's business, and not every language puts that qualifier in
+  parentheses. Both go through the catalogue now. The check that should have
+  caught them was missing its third direction: it verified that every key the
+  code references exists, and never that every key that exists is referenced.
+  SE-064, finding F-20.
 - **Six invariant tests that would not have failed if their invariant were
   violated.** The one for the sanitised environment skipped every `brew` and
   `port` invocation — which is what that invariant is about — and checked only

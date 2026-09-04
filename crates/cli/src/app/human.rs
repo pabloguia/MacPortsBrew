@@ -8,7 +8,7 @@ use crate::render::table::Table;
 use macportsbrew_application::{Analysis, DoctorReport, Explanation, PackageReport, Severity};
 use macportsbrew_domain::{
     ArtifactAvailability, MigrationPlan, Outcome, Ownership, PackageClass, ProviderPresence,
-    SourceBuildReason, StepKind,
+    SourceBuildReason, StepKind, SupportTier,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -136,8 +136,30 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
                 .prefix
                 .as_ref()
                 .map_or(String::from("-"), |x| x.display().to_string()),
-            format!("{:?}", p.support.tier).to_ascii_lowercase(),
-            format!("{} ({} top-level)", p.package_count, p.top_level_count),
+            // Not `{:?}`. `locales/en.toml` has said "Not supported" for
+            // `Unsupported` since it was written, and the column printed
+            // `unsupported` - a Rust identifier, lower-cased, that no catalogue
+            // sees and no pseudolocale marks (F-20).
+            label(
+                ctx,
+                match p.support.tier {
+                    SupportTier::Supported => "support.supported",
+                    SupportTier::Degraded => "support.degraded",
+                    SupportTier::Unsupported => "support.unsupported",
+                    SupportTier::Unknown => "support.unknown",
+                },
+            ),
+            // And not a sentence built here. `06-cli-and-ux.md` makes composing
+            // user-facing text in code a **MUST NOT**: the plural rule for
+            // "package" is the catalogue's business, and "(n top-level)" is not
+            // a phrase every language puts in parentheses after the count.
+            ctx.messages.render(
+                "count.packages_with_top_level",
+                &params(&[
+                    ("count", p.package_count.to_string()),
+                    ("top_level", p.top_level_count.to_string()),
+                ]),
+            ),
         ]);
     }
     out.push_str(&table.render(None));

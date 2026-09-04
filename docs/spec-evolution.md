@@ -2882,6 +2882,46 @@ finding ids in each entry.
 - Compatibility impact: a turn that changes code on a machine with no toolchain
   can no longer end silently. That is the point.
 
+## SE-064 — i18n parity checks the third direction, and two strings stop being built in code
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `check-i18n-parity.sh` fails on an orphaned key, as its
+  own header says.
+- Change: the check gains the direction it lacked — an English key nothing
+  renders — and the two strings that motivated it go through the catalogue: the
+  support tier, which reached the user as `format!("{:?}", tier)` lower-cased,
+  and `"{} ({} top-level)"`, which was a sentence composed in Rust.
+- Rationale: "orphaned" in that header meant a key a *translation* carries and
+  English does not. A key English carries that no code reads was invisible in
+  both remaining directions — which is how four deliberate `support.*` labels sat
+  unused while the column printed a Rust identifier no catalogue sees and no
+  pseudolocale marks. `06-cli-and-ux.md:121-122` makes composing user-facing text
+  in code a **MUST NOT**, and `"{} ({} top-level)"` is one: the plural of
+  "package" is the catalogue's business, and not every language puts the
+  qualifier in parentheses after the count.
+- **A gate does not delete a product's prose.** Seventeen English keys are
+  rendered by nothing, and they are not junk: three are written ahead of caching
+  and network support, which `README.md` lists as unimplemented; twelve are a
+  `status` table shape the renderer superseded; `cli.alias_note` is the alias
+  note the clap literal should be carrying (F-23). Deleting deliberate text is
+  the owner's call. So each carries a `# unreferenced:` line saying why, the
+  check refuses an unmarked one, and it also refuses a *stale* marker on a key
+  that is rendered. The reason lives next to the string, where a translator sees
+  it, and adding a key without wiring it now forces you to say why.
+- **The literal scan had to widen too.** Six call shapes were recognised;
+  `ErrorId::message_id` writes thirteen ids as bare `match` arms, and every one
+  of them looked orphaned under the new direction. Any string literal shaped like
+  a message id counts as a use, which is both simpler and harder to slip past
+  than a list of call shapes.
+- Evidence: finding F-20. Probed three ways, each reverted: a new key with no
+  reason fails; removing a marker from an existing one fails; a marker on a key
+  that *is* rendered fails. `status` now prints "Supported" where it printed
+  "supported", and "190 packages (57 top-level)" from one key.
+- User impact: the support column shows the catalogue's deliberate wording, and
+  both strings pseudolocalise.
+- Architectural impact: none.
+- Compatibility impact: `--json` untouched; this is the human renderer.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
