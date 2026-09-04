@@ -106,14 +106,32 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
 }
 
 /// A name no other writer will pick, next to the target.
+///
+/// The process id and the sequence keep two of *our* writers apart. The random
+/// component keeps somebody else's writer out: `create_new` means a temporary
+/// name an adversary has already taken makes the write fail, and with a
+/// predictable name they can take every one of them in advance. Inside the
+/// state directory that is impossible — it is `0700` and nobody else can create
+/// anything there — but `write_atomic` also serves `snapshot --out` and
+/// `doctor --report`, whose paths the user chooses and which are frequently in
+/// a shared directory. Denial of service only, because `create_new` and the
+/// ownership check mean the write refuses rather than being redirected; it is
+/// still a denial of service that costs one line to remove (F-20).
+///
+/// The randomness is `RandomState`, which `std` seeds from the operating
+/// system. Not a clock — a clock is guessable and this file is not a place to
+/// introduce nondeterminism — and not a new dependency, which would be an ADR.
 fn temporary_sibling(path: &Path, parent: &Path) -> PathBuf {
+    use std::hash::{BuildHasher, Hasher};
     let stem = path
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(SEQUENCE.fetch_add(1, Ordering::Relaxed));
     parent.join(format!(
-        ".{stem}.{}.{}.partial",
+        ".{stem}.{}.{:016x}.partial",
         std::process::id(),
-        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        hasher.finish()
     ))
 }
 
@@ -121,6 +139,45 @@ fn temporary_sibling(path: &Path, parent: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_temporary_name_is_not_predictable() {
+        // Two calls with identical inputs must not agree, or an adversary who
+        // can write to the target's directory can pre-create the name and make
+        // every write fail. `create_new` is what makes this a denial of service
+        // rather than a redirection, and it is also what makes the collision
+        // fatal rather than harmless.
+        let target = Path::new("/tmp/example/report.json");
+        let parent = Path::new("/tmp/example");
+        //
+        // "The names differ" is not the property, and asserting it was this
+        // test's first shape: the old `.{stem}.{pid}.{seq}.partial` satisfied
+        // it too, because the sequence advances. What distinguishes the two is
+        // *spread*. A counter starting at zero leaves the top bits of its field
+        // empty for the life of the process; an OS-seeded hash fills them. So
+        // the assertion is that the variable component ranges over the whole
+        // 64-bit space, which no counter this process could reach does.
+        let variable = |p: &Path| -> u64 {
+            let text = p.file_name().unwrap().to_string_lossy().into_owned();
+            let field = text
+                .strip_suffix(".partial")
+                .and_then(|t| t.rsplit('.').next().map(str::to_string))
+                .expect("the name has a variable field");
+            u64::from_str_radix(&field, 16).expect("the field is hexadecimal")
+        };
+        let names: Vec<PathBuf> = (0..64).map(|_| temporary_sibling(target, parent)).collect();
+        let values: std::collections::BTreeSet<u64> = names.iter().map(|p| variable(p)).collect();
+        assert_eq!(values.len(), 64, "every temporary name differs");
+        assert!(
+            values.iter().copied().max().unwrap() > u64::from(u32::MAX),
+            "the variable field is a counter, not a random value: {values:?}"
+        );
+        for name in &names {
+            let text = name.to_string_lossy();
+            assert!(text.starts_with("/tmp/example/.report.json."), "{text}");
+            assert!(text.ends_with(".partial"), "{text}");
+        }
+    }
 
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

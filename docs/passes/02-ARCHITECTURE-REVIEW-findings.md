@@ -931,7 +931,7 @@ records.
   `<operation>` strings. `check_ordering` never looks at commands, so a plan can
   serialise, diff, review and pass every check while containing commands no executor
   can run.
-- **Predictable temp-file name on user-supplied paths.** `atomic.rs:109-118` is
+- **Predictable temp-file name on user-supplied paths.** *Fixed — SE-061.* `atomic.rs:109-118` is
   `.{stem}.{pid}.{seq}.partial`; fine inside the `0700` state directory, but
   `write_atomic` also serves `snapshot --out` and `doctor --report`. Denial of service
   only — the code correctly refuses to delete a file that is not ours — and a

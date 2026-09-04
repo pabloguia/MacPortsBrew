@@ -152,6 +152,13 @@ to answer.
   check can never count as satisfied. SE-049, finding F-06.
 
 ### Security
+- **The temporary file a write goes through no longer has a guessable name.**
+  It was `.{name}.{pid}.{counter}.partial`, and the write refuses rather than
+  being redirected if that name is taken — so anyone able to create files in the
+  directory could make every `snapshot --out` and `doctor --report` fail. The
+  variable part is OS-seeded randomness now. Inside the state directory this
+  never mattered; those two commands write where you tell them to. SE-061,
+  finding F-20.
 - **A hostile tap can no longer put tens of megabytes into your snapshot.** The
   MacPorts parser has always capped output bytes, row counts and free text; the
   Homebrew one capped the document at 64 MiB and the values that become path

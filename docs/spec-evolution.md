@@ -2751,6 +2751,33 @@ finding ids in each entry.
   now parses with it trimmed; one with more than 8192 rows of either kind is
   refused with `ProviderOutputChanged`.
 
+## SE-061 — The temporary file's name is unpredictable
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `write_atomic`'s temporary sibling is safe because it is
+  created with `O_CREAT | O_EXCL` at `0600` and never follows a symlink.
+- Change: the name's variable component becomes a value from
+  `std::collections::hash_map::RandomState`, which `std` seeds from the operating
+  system, instead of a process-wide counter.
+- Rationale: all three of those properties hold and none of them is about the
+  *name*. `.{stem}.{pid}.{seq}.partial` is entirely predictable, and `create_new`
+  is what turns a name an adversary has already taken into a failed write. In the
+  state directory this costs nothing — `0700`, nobody else can create anything
+  there — but `write_atomic` also serves `snapshot --out` and `doctor --report`,
+  whose paths the user chooses and which are frequently in a shared directory.
+  Denial of service only, and one line to remove.
+- **Not a clock, and not a dependency.** A clock is guessable and this is not a
+  file to introduce nondeterminism into; `rand` would be an ADR. `RandomState` is
+  in `std`, is OS-seeded, and needs neither.
+- Evidence: finding F-20. **The first version of the test asserted the wrong
+  property** — that the 64 names differ, which the old counter satisfied too, so
+  the test passed against the defect it was written for. It asserts *spread* now:
+  a counter starting at zero leaves the top bits of its field empty for the life
+  of the process, and the mutation to a counter fails it.
+- User impact: none visible.
+- Architectural impact: none.
+- Compatibility impact: none — the name is never observed outside the write.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
