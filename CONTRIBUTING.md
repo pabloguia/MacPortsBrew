@@ -51,8 +51,10 @@ cargo clippy --all-targets --all-features --workspace -- -D warnings
 ## Validation
 
 [`scripts/validate.sh`](scripts/validate.sh) is the one implementation of
-"valid". CI runs it and is the authority; you run it before opening a pull
-request; the agent `Stop` gate runs it at the end of every turn. Do not add a
+"valid". CI is configured to run it and will be the authority; you run it before
+opening a pull request; the agent `Stop` gate runs it at the end of every turn.
+(No CI job has run yet — the repository has no remote — so today the local run
+and the `Stop` gate are the whole of it.) Do not add a
 check anywhere else.
 
 | Invocation | What it runs |

@@ -37,7 +37,7 @@ git-ignored.
 | `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths. |
 | `post-edit-checks.sh` | `PostToolUse(Edit\|Write)` | Per-file: shell format and lint, JSON validity, Markdown link resolution, SPDX header. Never blocks. |
 | `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh` (`--quick` on every turn; the test suite too when code, tests, fixtures, data or catalogues changed; `MPB_GATE_FULL=1` forces it). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
-| `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI runs it. |
+| `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI is configured to run it, and has never run. |
 
 Two layers, on purpose: the deny rules in `settings.json` are what Claude Code
 enforces; the hooks catch the forms rule syntax does not. Neither is a sandbox

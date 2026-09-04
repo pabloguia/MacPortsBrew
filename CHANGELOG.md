@@ -236,6 +236,13 @@ TUI, `doctor --deep`, the cache and its TTL, and translations for `pt-BR`,
 catalogue are in place, the translations are not.
 
 ### Known limitations
+- **No CI job has ever run.** The repository has no remote yet, so the workflow
+  in `.github/workflows/` has never been executed by a hosted runner. The
+  support matrix is generated from that workflow's `runner:` labels and from
+  nothing else, so every row in it — including the **tested** ones — states what
+  CI is configured to do, not what any run reported. The matrix says so at the
+  top, and will stop saying it when there is a remote and a green run. SE-052,
+  finding F-12.
 
 - `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted and are
   no-ops in a build that never uses the network, never caches, is always a dry

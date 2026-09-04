@@ -182,11 +182,14 @@ should not open by asking you to pipe an unreviewed remote script into a shell.
 
 ## Supported machines
 
-The published [support matrix](docs/support-matrix.md) distinguishes what CI
-actually exercises from what is merely believed to work, and it is generated
-from the CI configuration rather than written by hand. macOS 15 and 26 are
-**tested** natively on both architectures; macOS 11 through 14 on both
-architectures, and 10.12 through 10.15 on Intel, are **best-effort** — the
+The published [support matrix](docs/support-matrix.md) distinguishes what CI is
+configured to exercise from what is merely believed to work, and it is generated
+from the CI configuration rather than written by hand — which also means it
+states configuration and not results. **No CI job has ever run**: this
+repository has no remote yet, so nothing has executed the workflow, and the
+matrix says so at the top. macOS 15 and 26 are **tested** natively on both
+architectures; macOS 11 through 14 on both architectures, and 10.12 through
+10.15 on Intel, are **best-effort** — the
 deployment floor is met and asserted on every artifact, and nothing executes
 there, because GitHub keeps hosted images only for the latest two stable
 macOS versions (`docs/research/R-10-ci-runners.md`, read 2026-09-02).

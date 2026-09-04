@@ -2545,7 +2545,7 @@ finding ids in each entry.
   published.
 
 ## SE-052 — The support matrix states configuration until a CI run exists
-- Status: proposed
+- Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the generated matrix distinguishes tested from best-effort,
   and "tested" means a hosted runner runs the full suite natively.
@@ -2558,10 +2558,31 @@ finding ids in each entry.
   `08-distribution-and-project.md:236-237` names this failure mode in the project's
   own words. The best-effort rows are already handled correctly; it is the tested
   rows that claim an event that has not happened.
+- **The "until" is detected, not remembered.** A hand-flipped constant would go
+  stale the moment it mattered, so the generator asks `git remote`. That is a
+  one-way inference and it is the honest one: with no remote, nothing can have
+  run; with a remote, whether a run happened is not knowable from here, so the
+  notice disappears while the "this is generated from labels" qualifier stays.
+  The qualifier is the part that holds in both worlds, and it was the part
+  missing.
+- **The MUST itself said the thing the generator cannot do.**
+  `08-distribution-and-project.md:229` required the matrix to distinguish "what
+  CI actually exercises", which no parse of `runner:` labels can establish. It
+  now requires the matrix to distinguish what CI is *configured* to exercise and
+  to say which of the two it is reporting — a rule the generator can satisfy,
+  rather than one it was quietly failing. The paragraph two lines below, "claiming
+  tested support for an untested OS is the kind of dishonesty this project cannot
+  afford", is unchanged and is the reason.
 - Evidence: empty `git remote -v`; `scripts/support-matrix.sh`; finding F-12.
+  Five surfaces carried the claim, not the three the finding named:
+  `docs/support-matrix.md`, `README.md`, `CONTRIBUTING.md`, `wiki/Contributing.md`
+  — and `.claude/agents/docs-auditor.md`, which told the auditor to check
+  documentation against "what CI actually runs", so the reviewer most likely to
+  catch this was briefed with the error.
 - User impact: the matrix stops overstating what has been observed.
 - Architectural impact: none — the change is in the generator, not the artifact.
-- Compatibility impact: the checked-in matrix regenerates.
+- Compatibility impact: the checked-in matrix regenerates. The notice is removed
+  by adding a remote, so the first push changes this file's output.
 
 ## SE-053 — `doctor` gains an owner-writable finding kind
 - Status: accepted

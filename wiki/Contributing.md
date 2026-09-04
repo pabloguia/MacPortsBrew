@@ -29,7 +29,10 @@ scripts/validate.sh
 
 `scripts/validate.sh` is the one implementation of "valid" — format, clippy,
 layering, SPDX headers, dependency licences, i18n parity, and the test suite.
-CI runs it and is the authority; the same script is what you run locally.
+CI is configured to run it and will be the authority; the same script is what
+you run locally. No CI job has run yet — the repository has no remote — so for
+now your local run is the authority, which is a reason to run the full one
+rather than `--quick`.
 
 **You do not need Homebrew or MacPorts installed to contribute.** Tests run
 against captured fixtures and never touch a live installation. That is a rule,

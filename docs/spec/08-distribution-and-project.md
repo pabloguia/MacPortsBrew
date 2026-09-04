@@ -226,9 +226,15 @@ macOS that ran on that hardware. Recorded in
 dependency, not an aspiration. A dependency that raises the deployment floor is
 rejected the same way a GPLv2-only dependency is.
 
-**MUST.** The published support matrix distinguishes what CI actually exercises
-from what is merely believed to work. R-10 (answered 2026-09-02) settles which
-is which: hosted Intel runners exist for macOS 15 and 26, so those pairs are
+**MUST.** The published support matrix distinguishes what CI is configured to
+exercise from what is merely believed to work, **and says which of the two it is
+reporting**. It is generated from the workflow's `runner:` labels and from
+nothing else, so a row is configuration until a run says otherwise; while no
+hosted runner has executed the workflow at all — which is the case for as long
+as this repository has no remote — the matrix states that at the top, in those
+words. The earlier wording here said "what CI actually exercises", which is the
+claim the generator cannot make and the one this MUST exists to prevent
+(SE-052, finding F-12). R-10 (answered 2026-09-02) settles which row is which: hosted Intel runners exist for macOS 15 and 26, so those pairs are
 **tested** natively on both architectures, while macOS 10.12–10.15 has no
 hosted path and none is coming — GitHub keeps images only for the latest two
 stable macOS versions. Those versions are **best-effort** until someone
