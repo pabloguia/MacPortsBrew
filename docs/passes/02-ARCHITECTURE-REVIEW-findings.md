@@ -1223,3 +1223,93 @@ A test in `crates/cli/tests/` that renders `status` for
 block in `README.md` and `wiki/Getting-Started.md` equals it, keyed by a marker
 comment so the block is found rather than guessed at. It fails on the change
 that causes the drift, in the same run, which is the whole point.
+
+---
+
+## F-28 — A sourced claim was wider than its source, and six places repeated it
+
+**Severity: medium. Corrected 2026-09-04 in all six. The mechanism is the
+finding; the fact is a footnote.**
+
+`R-1` finding 4 read **"Casks carry no intent field at all"**, citing §E-11 and
+§E-12. Those sections established the shape of `brew info --json=v2 --cask`.
+They did not, and could not, establish anything about what Homebrew writes to
+disk — and Homebrew writes `installed_on_request` into each cask's
+`<Caskroom>/<token>/.metadata/.../INSTALL_RECEIPT.json`. Seven of the nine casks on
+this machine carry one, all `true`, the oldest from Homebrew 4.5.13 in August
+2025.
+
+The overgeneralisation then propagated, each time in good faith and each time
+citing the note above it:
+
+| Where | What it said |
+|---|---|
+| `AGENTS.md` | "casks carry no intent field, so ownership is `UNKNOWN`" |
+| `.claude/rules/adapters.md` | "Casks carry no user-intent field" |
+| SE-042 | "casks carry no intent field at all" |
+| SE-046 | built its whole options list on the premise |
+| `homebrew/mod.rs` | "A cask carries no record of user intent at all" |
+| `homebrew/json.rs` | "A cask carries no record of user intent" |
+| **`02-domain-model.md`** | "Casks carry no intent field at all" — **inside a MUST**, Tier 3, and the copy the five above are downstream of |
+| **`analysis.v1.md`** | the same sentence, in a published `--json` contract |
+| **`homebrew_contract.rs`** | "A cask has no intent field at all" |
+
+**This finding's first version said six places and claimed all six were
+corrected.** There were nine, and the three in bold above — including the Tier 3
+MUST that is the origin of the other five, and a published schema contract —
+were still stating the absolute while this paragraph asserted they were not.
+Found by `spec-guardian`, whose report puts it exactly right: the census was
+itself a claim wider than its source, inside the finding about claims wider than
+their source. The lesson is not that the author was careless. It is that
+"corrected everywhere" is a *quantified* claim like any other, and the only way
+to hold one is to enumerate mechanically rather than from the list you happened
+to be working from.
+
+**What the guard does not catch.** Every one of those carried a citation, and
+the citation was real. `source` and `read_on` are checked mechanically and they
+verify *provenance*, not *scope* — a claim can be perfectly sourced and still
+say more than the evidence behind it supports. That is what happened here, and
+nothing in the toolchain could have noticed, because the defect is a quantifier.
+
+**Why it went unnoticed for two passes.** The claim was load-bearing in the
+convenient direction: it justified the code's behaviour, it made a decision
+entry writable, and checking it required looking somewhere no read interface
+points. R-12 found it only because a question about *migrating* casks sent
+someone into the Caskroom for a different reason.
+
+**Corrected to what is true and no more:** the cask JSON carries no intent
+field — 41 keys on Homebrew 6.0.21, re-verified 2026-09-04 — and Homebrew
+records intent for casks on disk, outside any supported command-line interface.
+The distinction is not pedantry: it is the difference between "no such fact
+exists" and "the fact exists and the charter's Legal posture may forbid reading
+it", and DP-012 turns on which one is true.
+
+**What is still open, and one argument withdrawn.** Whether to read the receipt
+is DP-012 option (c). The first version of this finding called that a **Tier 2**
+question, on the reading that `00-charter.md` "Legal posture" — *"interacts with
+both projects only through their public, supported command-line interfaces"* —
+forbids reading provider state from disk. **That reading is wrong, and shipped
+code proves it.** `crates/adapters/src/macports/service.rs:62-66` reads
+`<prefix>/etc/LaunchDaemons` and derives "this port defines a background
+service" from MacPorts' internal directory layout, with no subprocess — for the
+stated reason that no CLI answers the question. `crates/adapters/src/homebrew/
+mod.rs:424-432` decides `Capability::OfflineMetadata` by stat'ing Homebrew's
+cache index. Both are provider-internal on-disk state read as a domain fact.
+Under the strong reading, two shipped features are charter violations; the
+clause is about the upstream relationship — vendoring, forking, patching,
+loading their infrastructure — and it governs none of this.
+
+Withdrawing it matters more than being wrong did. A recommendation that routes
+an engineering call to the owner and calls it deference costs them a decision
+they should never have seen, and it is harder to notice than an outright error
+because it looks like caution.
+
+**The real blocker is INV-15.** Reading the receipt adds a fifth unguarded
+live-filesystem read to the adapters — F-25's open class — so under `--replay` a
+cask's ownership would depend on the replaying developer's own Caskroom rather
+than on the recording. F-25 lands first, or option (c) breaks the invariant that
+makes every other fixture-based test meaningful.
+
+R-12 also leaves `UNRESOLVED` why two of the nine casks here — `gimp` and
+`adoptopenjdk` — have no `INSTALL_RECEIPT.json` at all. That fraction is the real
+cost of option (a) and it is unmeasured beyond one machine.

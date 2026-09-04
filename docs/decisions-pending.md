@@ -64,16 +64,81 @@ are recorded.
 - **In the code's favour:** the inference is *recorded* as non-authoritative rather
   than silently guessed, which is better than what the absolute rule would suggest
   the alternative is.
+- **What the research changed (R-12, 2026-09-04).** The premise under both
+  original options is false. Homebrew *does* record cask intent — it writes
+  `installed_on_request` into each cask's on-disk
+  `INSTALL_RECEIPT.json`, and **7 of the 9 casks here carry one, all `true`**
+  (R-12, 2026-09-04; re-verified independently the same day). What carries no
+  intent field is the **cask JSON**, which is what the adapter reads — 41 keys
+  on Homebrew 6.0.21. **Nine** places in the repository stated the absolute,
+  including a Tier 3 MUST in `02-domain-model.md` and the published
+  `analysis.v1.md` contract; all nine are corrected. F-28 is the narrative. The
+  two questions you also asked are answered below.
 - **Options:** (a) `None ⇒ Ownership::Unknown`, and decide separately whether
-  `UNKNOWN` rows are shown in normal mode; (b) relax the written rule to "never an
-  *unrecorded* graph inference" and keep the current behaviour.
-- **Recommendation:** (b) for the rule, (a) for the reachability of `Unknown` —
-  that is, keep casks visible, stop claiming they are `UNKNOWN`, and make
-  `Ownership::Unknown` reachable for the cases that genuinely are. Casks are
-  already classified out of scope for migration, so their presence in the count is
-  informative rather than dangerous.
-- **Default meanwhile:** unchanged. Recorded as SE-046 (`Status: proposed`) and
-  finding F-20.
+  `UNKNOWN` rows are shown in normal mode — nine rows leave the count;
+  (b) relax the written rule to "never an *unrecorded* graph inference" and keep
+  the current behaviour; **(c) read the receipt** — `true` ⇒ `TOP_LEVEL`,
+  `false` ⇒ `DEPENDENCY`, absent ⇒ `UNKNOWN` — which relaxes no document,
+  guesses nothing, and costs two rows rather than nine.
+- **Recommendation: (c) eventually, (a) if you want this settled now.** (b) is
+  the weakest of the three: its whole purpose was defending an inference that a
+  real record displaces.
+- **What is yours here, and what is not.** An earlier draft of this entry said
+  (c) needed *your* decision because `00-charter.md` "Legal posture" confines the
+  project to "public, supported command-line interfaces". `spec-guardian`
+  falsified that: `macports/service.rs` already reads
+  `<prefix>/etc/LaunchDaemons` to learn that a port defines a service, and
+  `homebrew/mod.rs` already stats Homebrew's cache index to decide a capability.
+  Both are provider-internal on-disk state read as a domain fact, both shipped,
+  and under that reading both are violations. The clause is about the upstream
+  relationship — vendoring, forking, patching, loading their servers. So (c) is
+  an **engineering** call and putting it in front of you was over-deference,
+  which costs you a decision you should never have seen. It is recorded here
+  because the correction is more useful than quietly deleting the paragraph.
+- **What actually blocks (c): INV-15, through F-25.** Reading the receipt adds a
+  fifth unguarded live-filesystem read to the adapters. Under `--replay` a
+  cask's ownership would then depend on the replaying developer's own Caskroom
+  rather than on the recording, which is the invariant that makes every
+  fixture-based test mean anything. F-25 lands first. The remaining risks are
+  ordinary and named: an undocumented private format with no stability promise,
+  no `ProviderOutputChanged`-equivalent contract to fail loudly against, and a
+  `security-reviewer` pass for parsing an untrusted file inside a provider
+  prefix. Also note `false ⇒ DEPENDENCY` is **unobserved** — the nine receipts
+  here are 7 `true` and 2 absent, so that arm of the mapping is reasoned, not
+  measured.
+- **So, concretely:** if you want the documentation and the code to agree today,
+  take **(a)** and nine casks leave the top-level count. If you would rather pay
+  two rows instead of nine, (c) is the better answer and it waits on F-25 —
+  nothing about it needs you.
+- **Can casks be migrated at all? Sometimes there is a destination; it is never
+  the same operation** (every figure in this bullet: R-12, 2026-09-04). MacPorts
+  does ship GUI applications — 1332 `aqua` ports of 41 655 — but at `/Applications/MacPorts/<Name>.app`, and origin is per-port
+  rather than per-provider: `openjdk26` builds from source, `openjdk26-temurin`
+  repackages Adoptium's binary, `copilot-cli` fetches the identical tarball with
+  the identical sha256 the cask fetches. Of the nine casks here, five have the
+  same software in MacPorts, two only the family, two nothing. Catalogue-wide a
+  strict token match yields 2.6%, which is a floor.
+  **But INV-01's verification would be dishonest for casks**: versions differ by
+  a major release (GIMP 3.2.4 against 2.10.38), vendors differ (Oracle JDK
+  against OpenJDK), 35.8% of casks use `sha256 :no_check` and 27.7% `version
+  :latest`, and Homebrew's own documentation says self-updating apps can replace
+  themselves outside Homebrew entirely. "Installed and verified" cannot mean
+  what it means for a formula. Casks staying out of migration scope is confirmed
+  by evidence rather than assumed.
+- **Can a cask consume MacPorts components? Mechanically yes, and it is not
+  worth building** (every figure in this bullet: R-12, 2026-09-04). Only
+  **25 of 7720 casks (0.32%)** declare `depends_on formula:`. One is installed here, and its launcher resolves the dependency by
+  `PATH`, so a MacPorts equivalent earlier on `PATH` would satisfy it. Three
+  things make it a dead end: the same cask bakes an absolute Homebrew path into
+  a virtualenv during postflight, and 75 casks name `HOMEBREW_PREFIX` in their
+  stanzas; the arrangement un-does itself, because the next `brew upgrade
+  --cask` reinstalls the Homebrew formula; and it is already out of bounds —
+  the charter's non-goals include "attempt to make one provider's libraries
+  satisfy the other's dependencies", and INV-07/INV-08 are the same boundary
+  seen from the other side. Measured, none of the 756 Mach-O files in the four
+  `.app` payloads here links anything under `/usr/local/`; they bundle.
+- **Default meanwhile:** unchanged. Recorded as SE-046 (`Status: proposed`),
+  findings F-20 and F-28, and `docs/research/R-12-cask-migratability.md`.
 
 
 ---

@@ -209,6 +209,20 @@ that list and stays open above — whether the hardened runtime is required for 
 tool (C-1, C-3, C-4), and what container `notarytool` accepts for a standalone
 binary (C-2).
 
+### R-12 · Cask migratability
+*Answered 2026-09-04 — `docs/research/R-12-cask-migratability.md`.*
+Whether a Homebrew cask has a MacPorts destination at all, and whether a cask
+can consume MacPorts components in place of the Homebrew formulae it declares.
+Answers: sometimes a destination exists and it is never the same operation, so
+INV-01's verification cannot mean for a cask what it means for a formula; and
+0.32% of casks declare a formula dependency, which a MacPorts equivalent on
+`PATH` can satisfy and the next `brew upgrade --cask` un-does. Raised by DP-012.
+
+Found on the way, and larger than the question: Homebrew records
+`installed_on_request` for casks in the on-disk `INSTALL_RECEIPT.json`, which
+falsifies the absolute six places in this repository stated (F-28) and gives
+DP-012 a third option the charter may forbid.
+
 ### R-13 · What revocation actually does to a published artifact
 *Open. Raised 2026-09-04 by DP-009. Blocks nothing; it decides how much of
 `SECURITY.md`'s withdrawal plan is load-bearing.*

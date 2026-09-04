@@ -409,8 +409,9 @@ impl Formula {
     }
 }
 
-/// A validated cask. A cask carries no record of user intent and no keg
-/// (R-1 finding 10), so it is a single row with no `requested` answer.
+/// A validated cask. This payload carries no record of user intent and no keg
+/// (R-1 finding 10), so it is a single row with no `requested` answer. Homebrew
+/// records cask intent on disk rather than here; see `mod.rs` and R-12.
 #[derive(Clone, Debug)]
 pub struct Cask {
     /// Validated token: the cask's identity.

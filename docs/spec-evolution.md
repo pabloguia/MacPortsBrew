@@ -429,8 +429,10 @@ change is made. Silent deviation remains the one unrecoverable error.
   2. Ownership names its mechanism per provider, and `ORPHAN_DEPENDENCY` is
      given one definition. Homebrew: `installed_on_request`, and nothing else —
      `installed_as_dependency` does not exist in Homebrew 6.0.21's JSON and is a
-     legacy receipt field, casks carry no intent field at all so a cask's
-     ownership is `UNKNOWN`, and `brew leaves` answers a different question.
+     legacy receipt field, the cask JSON carries no intent field so a cask's
+     ownership is `UNKNOWN` (R-12 corrects the absolute: Homebrew records it on
+     disk, outside any supported CLI), and `brew leaves` answers a different
+     question.
      MacPorts: the registry `requested` flag through the
      `requested`/`unrequested`/`leaves`/`rleaves` pseudo-portnames, a stored
      flag rather than a graph inference, user-mutable and therefore recording
@@ -2353,10 +2355,31 @@ finding ids in each entry.
   which is better engineering than silent guessing; the defect is that two
   documents and the code state different rules. Whichever way it goes, changing the
   default view's population is a scope decision.
-- Evidence: `crates/domain/src/ownership.rs:72-82`; observed distribution; F-20.
-- User impact: either nine casks leave the default top-level count, or the
-  documentation stops claiming a guarantee the code does not provide.
+- **Extended 2026-09-04 (R-12): the premise under both options was wrong.**
+  Homebrew records `installed_on_request` for casks in the on-disk
+  `INSTALL_RECEIPT.json` — 7 of the 9 here carry one, all `true`. Only the **cask
+  JSON** has no such field, which is all R-1 §E-11/§E-12 ever established. The
+  absolute had reached nine places including a Tier 3 MUST in
+  `02-domain-model.md` and the `analysis.v1.md` contract; all nine now state the
+  interface rather than the provider. **F-28 is the narrative** — how a sourced
+  claim came to be wider than its source, and why no gate here could catch
+  that — and this entry does not repeat it.
+- **So there is a third option: read the receipt** — `true` gives `TOP_LEVEL`,
+  `false` gives `DEPENDENCY`, absent gives `UNKNOWN`. It relaxes no document and
+  guesses nothing, and it costs two rows here rather than nine. **It is blocked
+  by INV-15, not by the charter.** The first version of this entry said the
+  charter's "public, supported command-line interfaces" clause made it a Tier 2
+  question; `spec-guardian` falsified that with shipped code. The full narrative
+  is F-28; this entry is the pointer.
+- Evidence: `crates/domain/src/ownership.rs:72-82`; observed distribution; F-20;
+  F-28; `docs/research/R-12-cask-migratability.md`.
+- User impact: unchanged in shape. The measured cost of option (a) is nine rows
+  without the receipt and two with it.
 - Architectural impact: `Ownership::Unknown` becomes reachable for installed rows.
+  The third option adds a **fifth** unguarded live-filesystem read to the
+  adapters — F-25's open class — so under `--replay` a cask's ownership would
+  depend on the replaying developer's own Caskroom. That is the invariant
+  problem, and F-25 has to land before option (c) can.
 - Compatibility impact: top-level counts and golden files change if the code moves.
 
 ## SE-049 — A verification check must be able to fail

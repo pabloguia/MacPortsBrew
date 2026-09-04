@@ -120,7 +120,7 @@ The unit is the *package across providers*, not the provider row.
 | `revision` | string, optional | |
 | `variants` | array of string, optional | MacPorts variants |
 | `active` | boolean | |
-| `requested` | boolean, optional | The provider's own record of user intent. Absent where the provider has none — casks carry no intent field, so a cask's ownership is `UNKNOWN` and is never inferred |
+| `requested` | boolean, optional | The provider's own record of user intent, as the read interface reports it. Absent for a cask, because the cask JSON carries no such field — Homebrew records one on disk, which this build does not read (R-12, 2026-09-04; DP-012). Absence is never an inference |
 | `installedFromPrebuilt` | boolean, optional | |
 | `installPath` | string, optional | |
 

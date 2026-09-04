@@ -66,8 +66,11 @@ question directly. The authoritative mechanism is named per provider, verified
 - **Homebrew** — `installed_on_request`, and nothing else. It is present on
   every keg in `brew info --json=v2`. `installed_as_dependency` does **not**
   exist in Homebrew 6.0.21's JSON — it is a legacy receipt field written by
-  older majors and must not be read. Casks carry no intent field at all, so a
-  cask's ownership is `UNKNOWN`, never inferred (R-1).
+  older majors and must not be read. The **cask JSON** carries no intent field,
+  so a cask's ownership is `UNKNOWN` here and is never inferred (R-1,
+  2026-09-02). Homebrew does record `installed_on_request` for casks in the
+  on-disk receipt, outside any documented read interface; whether to read it is
+  DP-012 (R-12, 2026-09-04).
 - **MacPorts** — the registry `requested` flag, read through the `requested`,
   `unrequested`, `leaves` and `rleaves` pseudo-portnames. It is a flag stored
   at install time, not a graph inference, and it is user-mutable, so it records

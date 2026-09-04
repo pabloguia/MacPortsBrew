@@ -54,8 +54,12 @@ one.
 as their favourable neighbour. An unknown is never a yes. The analysis degrades
 and says so; it does not guess, and it does not fail either.
 
-Casks carry no user-intent field, so a cask's ownership is `UNKNOWN` and is
-**never** inferred from a dependency graph (R-1, 2026-09-02).
+The cask JSON carries no user-intent field, so a cask's ownership is `UNKNOWN`
+here and is **never** inferred from a dependency graph (R-1, 2026-09-02).
+Homebrew *does* record `installed_on_request` for casks in the on-disk receipt
+(R-12, 2026-09-04). That file is not a supported command-line interface, and the
+charter's Legal posture confines this project to those, so reading it is DP-012
+and the owner's — not something an adapter adds.
 
 ## Resolve executables from the detected prefix, not from `PATH`
 

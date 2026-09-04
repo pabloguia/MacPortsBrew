@@ -600,7 +600,13 @@ fn cask_row(cask: &Cask, caskroom: &Path) -> InstalledPackage {
         revision: None,
         variants: BTreeSet::new(),
         active: true,
-        // A cask carries no record of user intent at all (R-1 finding 4).
+        // The cask JSON carries no intent field: 41 keys on Homebrew 6.0.21,
+        // none of them `installed_on_request` (R-1 finding 4, re-verified
+        // 2026-09-04). Homebrew *does* record it, in the cask's on-disk
+        // `INSTALL_RECEIPT.json` — 7 of 9 casks on the reviewer's machine — but that
+        // file is not a supported command-line interface and the charter says
+        // this project uses only those. Reading it is DP-012's third option
+        // and the owner's call, not an adapter's (R-12).
         requested: None,
         // Nor any record of how it was built; the vendor built it.
         installed_from_prebuilt: None,
