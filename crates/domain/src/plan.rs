@@ -234,6 +234,48 @@ impl MigrationPlan {
         self.steps.iter().any(|s| s.kind.is_mutating())
     }
 
+    /// Steps that carry a command known to need administrator rights.
+    ///
+    /// **Not the set to gate consent on.** That is [`Self::elevated_steps`],
+    /// which is Required ∪ Unknown: an elevation nobody has established is not
+    /// an elevation that will not happen, and the executor must ask before a
+    /// step it cannot vouch for. This set exists so that a *report* can say
+    /// "these need administrator rights" and be true — the sentence that used
+    /// to be said about the conservative set, which is how a plan came to tell
+    /// a user that `port -q installed` would ask for a password (F-10).
+    #[must_use]
+    pub fn steps_requiring_elevation(&self) -> Vec<u32> {
+        self.steps
+            .iter()
+            .filter(|s| {
+                s.commands
+                    .iter()
+                    .any(|c| matches!(c.elevation, Elevation::Required { .. }))
+            })
+            .map(|s| s.index)
+            .collect()
+    }
+
+    /// Steps carrying a command whose elevation nobody has established, and no
+    /// command that is known to need it.
+    ///
+    /// Disjoint from [`Self::steps_requiring_elevation`] by construction, and
+    /// together with it exactly [`Self::elevated_steps`].
+    #[must_use]
+    pub fn steps_with_unknown_elevation(&self) -> Vec<u32> {
+        let required = self.steps_requiring_elevation();
+        self.steps
+            .iter()
+            .filter(|s| {
+                !required.contains(&s.index)
+                    && s.commands
+                        .iter()
+                        .any(|c| matches!(c.elevation, Elevation::Unknown))
+            })
+            .map(|s| s.index)
+            .collect()
+    }
+
     /// Checks the ordering invariants a plan must satisfy (INV-01: the
     /// destination is added and verified before the source is removed) and
     /// returns the first violation as text.

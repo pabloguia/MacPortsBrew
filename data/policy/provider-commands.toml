@@ -15,8 +15,8 @@
 [[entry]]
 provider = "homebrew"
 executable = "bin/brew"
-source = "https://docs.brew.sh/Manpage (install, uninstall, link); docs/research/R-5-privilege-requirements.md"
-read_on = "2026-09-02"
+source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md"
+read_on = "2026-09-04"
 elevation_reason = "Homebrew refuses to run as root; its prefix subdirectories are owned by the user (docs.brew.sh/FAQ, read 2026-09-02)."
 
 [entry.verbs]
@@ -29,15 +29,32 @@ add = "none"
 remove = "none"
 add_gui_app = "unknown"
 remove_gui_app = "unknown"
+# A read, and not by inference: `list` is absent from the exemption list in
+# `check-run-command-as-root` in the shipped `Library/Homebrew/brew.sh`, so
+# `sudo brew list` aborts rather than merely being unnecessary. Homebrew 6.0.21,
+# `Homebrew/brew` HEAD 560147012b9678b42ef5e83b690f0895552d1366, observed
+# 2026-09-04 (R-5a). Note the entry-level `source` below cites the FAQ, which
+# names no subcommand; this cell's source is `brew.sh` at that revision.
+verify = "none"
+# Same command, same answer. Verifying a cask does not elevate either - but see
+# finding F-22: `brew list --versions` is formula-only once a name is given, so
+# the *verb* is wrong for a cask even though the elevation is right.
+verify_gui_app = "none"
 # Cross-provider primary goes through the MacPortsBrew-managed directory in
 # the user's home (SE-036), never through the provider.
 set_primary = "none"
+# A cask is selected the same way, through the same directory, so the answer is
+# the same. Stated because the loader refuses an operation that has an elevation
+# for one package kind and not the other, and because `set_primary` was the one
+# operation the first version of that check could not see: it is in this table
+# and not in `[entry.verbs]`, which is what the check was iterating.
+set_primary_gui_app = "none"
 
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall); docs/research/R-5-privilege-requirements.md"
-read_on = "2026-09-02"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md"
+read_on = "2026-09-04"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
 # called one of these is not a package: removing the set named `installed` is
@@ -69,7 +86,25 @@ remove = "required"
 # reaches an elevation value by omission.
 add_gui_app = "unknown"
 remove_gui_app = "unknown"
+# UNRESOLVED, and recorded as such rather than guessed. `port -q installed`
+# reads the registry at ${portdbpath}/registry/registry.db, whose *directory* is
+# root:admin 0755 (macports-base `doc/base.mtree.in`; guide.macports.org §6.5,
+# read 2026-09-04) - but the database file's own mode is documented nowhere and
+# is created by a bare `sqlite3_open` with no chmod, so it is umask-dependent.
+# `port(1)` makes no general privilege statement. The evidence points at "no
+# elevation" - the guide prints `port installed portname` unprefixed two lines
+# above a `sudo port activate`, and `action_installed` is not among the callers
+# of `prefix_unwritable` - but pointing is not stating. MacPorts is not
+# installed on this machine, so this is citation-only (R-5a). Runtime capability
+# detection is the real answer here; INV-20 says detection wins over stored
+# knowledge.
+verify = "unknown"
+# MacPorts has no GUI-application package kind, as `add_gui_app` above already
+# records. Stated so the planner never reaches a value by omission.
+verify_gui_app = "unknown"
 # Cross-provider primary goes through the MacPortsBrew-managed directory
 # (SE-036); the provider's own intra-provider selection mechanism needs
 # elevation and is proposed to the user, not run.
 set_primary = "none"
+# MacPorts has no GUI-application package kind, as the cells above record.
+set_primary_gui_app = "none"

@@ -31,7 +31,9 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-09** — `--from-snapshot` is an unvalidated source of plan argv | **Fixed.** SE-051 parts 2 and 3. What is refused depends on where a value goes: a name becomes an argument and takes the adapters' own predicate; the prefix becomes a command's `program` and takes the prefix shape rule; everything else reaches a reader and is only bounded and free of control characters. Getting that split wrong cost three attempts — a first version validated `detection.executable`, which no command uses, while leaving `detection.prefix`, which every command uses, unvalidated on the path that mattered, and refused two shapes a correct machine reports. Twelve MacPorts pseudo-portnames are refused from data, because a provider-neutral predicate can say "not a flag" but not "not a keyword". |
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
+| **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Open.** Honest as a value and satisfying INV-20 today, because nothing elevates yet. But three places say runtime detection is the real answer and nothing held the deferral. R-5a UNRESOLVED-1 names two read-only commands that settle it. |
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
+| **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
@@ -529,7 +531,18 @@ path or a flag"* — at a boundary the adapters do not guard.
 
 ## F-10 — A read-only command is enumerated as elevating
 
-**Severity: medium. INV-06 erosion by habituation.**
+**Severity: medium. INV-06 erosion by habituation. Fixed — SE-059.** The four
+missing cells are stated from R-5a, two as cited facts and two as `unknown`
+because MacPorts is not installed here and its documentation does not settle it.
+Stating them was only half: `unknown` rendered identically to `required`, so
+step 3 of the observed plan was unchanged until the human summary was split.
+(Step 2, which the finding also listed, emits no command on that fixture and so
+was never in `elevated_steps` at all.) The loader refuses an incomplete table
+now, which is what the file's comment had claimed all along — though its first
+build could not see `set_primary`, the one operation that is elevation-only, and
+therefore missed exactly the shape it forbids. `plan.v1.md` carried this
+finding's own sentence as the documented meaning of `elevatedSteps`; corrected
+there too. The deferral of MacPorts' cell is F-24.
 
 `data/policy/provider-commands.toml` defines elevation for `add`, `remove`,
 `*_gui_app` and `set_primary` — but not for `verify`. `planner.rs:382-390` falls
@@ -761,6 +774,38 @@ The work order asked which invariant tests would actually fail. Assessed individ
 | `invariant_15_a_replayed_reader_never_consults_the_live_filesystem` | Covers `which()` only. `canonicalize` at `homebrew/mod.rs:767, :885, :897`, `macports/mod.rs:730` and `read_dir` at `macports/service.rs:64` are unreached under replay by a coincidence of call order, not a guard. |
 | `invariant_17_symmetric_rules`, `invariant_17_every_rule_individually_follows_the_rename` | **The strongest tests in the repository** — rule-by-rule rename over neutral ids. They are also why F-02 and F-03 survived: they prove the *policy* layer is symmetric, which is not where the asymmetry is. |
 | `invariant_01`, `invariant_06`, `invariant_08` (policy), `invariant_12`, `invariant_14`, `invariant_16`, `invariant_18`, `invariant_19` | Sound. `invariant_16_idempotent_read_commands` (asserts the state dir stays empty) is particularly good. |
+
+---
+
+## F-24 — MacPorts' `verify` elevation is stored as `unknown` with no detection path
+
+**Severity: medium, and it must not survive the executor pass. Raised by
+`spec-guardian` while reviewing F-10.**
+
+`data/policy/provider-commands.toml` states `verify = "unknown"` for MacPorts
+because R-5a could not settle it from documentation and MacPorts is not
+installed on this machine. That is the honest value and it satisfies INV-20
+today, narrowly: this build ships no executor and never elevates, so there is no
+elevation behaviour to detect, and the clause "where behaviour can be detected at
+runtime, detection wins over stored knowledge" binds when a detection path
+exists.
+
+**What is not honest is the deferral.** Three places say runtime detection is the
+real answer — the TOML comment, SE-059, and R-5a's own UNRESOLVED-1 — and no
+artefact holds any of them. Intent stated three times and recorded nowhere is how
+a deferral becomes a decision nobody made.
+
+R-5a UNRESOLVED-1 names the exact test, and it is two read-only commands on a
+machine with MacPorts installed:
+
+```
+stat -f '%Su %Sg %Sp %N' /opt/local/var/macports/registry/registry.db
+port -q installed <someport>          # as a non-root user
+```
+
+Either answers it. Until one is run, `unknown` stands — and the executor must
+treat it as elevating, which
+`04-migration-and-safety.md`'s Privilege section now requires in those words.
 
 ---
 

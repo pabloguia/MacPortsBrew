@@ -1649,6 +1649,104 @@ fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() 
 }
 
 #[test]
+fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
+    // Finding F-10, reproduced exactly as it was observed: the plan for
+    // `htop --to macports` ended "Steps that would need administrator rights:
+    // 2, 3", where step 3 is `port -q installed htop` - a read. It said that
+    // because `verify` had no entry in `[entry.elevation]` and the planner maps
+    // a missing key to `Elevation::Unknown`, which the summary then rendered as
+    // "would need administrator rights".
+    //
+    // Two things fix it and this asserts both. The elevation is stated in the
+    // data now rather than reached by omission; and where the honest answer is
+    // `unknown` - MacPorts is not installed on the machine this was researched
+    // on and its documentation does not settle it - the summary says it is not
+    // known instead of saying you will be asked for a password. Under INV-06
+    // the harm was never the fold toward caution, it was training someone to
+    // approve a prompt for a read.
+    let scratch = Scratch::new("f10-elevation");
+    let path = fixture("both-providers-arm64-macos15");
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let out = run(
+        &scratch,
+        &[
+            "--replay", path, "plan", "htop", "--to", "macports", "--today", TODAY,
+        ],
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    let verify = text
+        .lines()
+        .find(|l| l.contains("-q installed htop"))
+        .expect("the verify step names its command");
+    assert!(
+        verify.contains("elevation unknown"),
+        "the verify command should carry the unknown elevation it was given: {verify}"
+    );
+
+    let summary: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("administrator rights"))
+        .collect();
+    assert_eq!(
+        summary.len(),
+        1,
+        "expected exactly one elevation summary line, got {summary:?}"
+    );
+    assert!(
+        summary[0].starts_with("Steps where it is not known"),
+        "a step whose elevation is unknown must not be summarised as needing \
+         administrator rights: {}",
+        summary[0]
+    );
+    assert!(
+        summary[0].contains('3'),
+        "the verify step is the one that is unknown here: {}",
+        summary[0]
+    );
+
+    // And the other direction, because the branch that reports a *real*
+    // elevation was rewritten by the same change and nothing asserted it. A bug
+    // that emptied `required` - an inverted `matches!`, an empty-command guard -
+    // would hide a genuine administrator prompt, which is the INV-06-relevant
+    // direction of failure, and the assertions above would still pass: they see
+    // one summary line either way. Running both directions also exercises
+    // INV-17: the same code renders both, and only the data differs.
+    let out = run(
+        &scratch,
+        &[
+            "--replay", path, "plan", "htop", "--to", "homebrew", "--today", TODAY,
+        ],
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    let reverse: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("administrator rights"))
+        .collect();
+    // Exactly one line here, and it is the other one. Removing from MacPorts
+    // elevates; the Homebrew destination's `verify` is a cited `none`, and the
+    // removal-verification step carries no command at all - so nothing in this
+    // direction is unknown. Asserting both lines appear was this test's first
+    // shape and it was wrong, which is the useful kind of wrong: the assertion
+    // was about what I expected rather than what the data says.
+    assert_eq!(
+        reverse.len(),
+        1,
+        "one summary line in this direction: {reverse:?}"
+    );
+    assert!(
+        reverse[0].starts_with("Steps that need administrator rights"),
+        "a step that genuinely elevates must be reported as one: {}",
+        reverse[0]
+    );
+    assert!(
+        reverse[0].chars().any(|c| c.is_ascii_digit()),
+        "the line names the step: {}",
+        reverse[0]
+    );
+}
+
+#[test]
 fn every_fixture_matches_its_committed_golden_analysis() {
     // The golden files are the committed proof of INV-15 across the matrix.
     // scripts/run-fixture-matrix.sh --update regenerates them; this fails when

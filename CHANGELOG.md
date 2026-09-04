@@ -25,8 +25,8 @@ output may change freely.
 The read-only slice. Nothing here executes anything, elevates anything, or
 writes into either provider's prefix.
 
-**Policy version: `2026.09.02-1`.** The provider facts it carries were read on
-2026-09-02 and are dated in `data/policy/*.toml`; the staleness threshold is
+**Policy version: `2026.09.04-1`.** The provider facts it carries were read on
+2026-09-02 and 2026-09-04 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
 
@@ -135,6 +135,20 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Security
+- **A plan no longer tells you a read needs administrator rights.** The plan for
+  `htop --to macports` ended *"Steps that would need administrator rights: 2,
+  3"*, and step 3 was `port -q installed htop` — a read. It said so because
+  `verify` had no elevation stated in `data/policy/provider-commands.toml`, and a
+  missing value folds to "unknown", which the summary rendered as "would need".
+  Folding toward caution is right; saying it is a known requirement is not, and
+  training someone to approve a password prompt for a read is exactly the habit
+  INV-06 exists to prevent. The four missing values are stated now — Homebrew's
+  `verify` is `none` on evidence, MacPorts' is `unknown` because its
+  documentation does not settle it and this machine has no MacPorts to observe —
+  and a step whose elevation is genuinely unknown is reported as unknown, on its
+  own line. The loader refuses a command table that leaves any verb's elevation
+  unstated, which is what that file's own comment had claimed all along.
+  SE-059, finding F-10.
 - **This tool spawns six programs, and refuses everything else at the moment of
   spawning.** `brew`, `port`, `sw_vers`, `uname`, `sysctl`, `xcode-select` — each
   absolute, free of `..`, and for the two providers only from a `bin` directory

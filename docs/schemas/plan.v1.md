@@ -27,7 +27,7 @@ is no code path in the binary that runs a mutating provider subcommand.
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
 | `steps` | array of `MigrationStep` | In execution order |
 | `risks` | array of `PlanRisk`, optional | |
-| `elevatedSteps` | array of integer, optional | The `index` of every step that would need administrator rights. Elevation is per-operation, enumerated and visible — never cached, never inherited |
+| `elevatedSteps` | array of integer, optional | The `index` of every step whose elevation is not `NONE` — that is, `REQUIRED` **or** `UNKNOWN`. Consult each command's own `elevation` to distinguish them: an `UNKNOWN` is not a known requirement, and rendering this set as "needs administrator rights" is the defect F-10 recorded. It is nonetheless the set to gate consent on, because an elevation nobody has established is not one that will not happen |
 | `policyVersion` | string | |
 | `dryRunOnly` | boolean | `true` in this build |
 
@@ -131,8 +131,9 @@ a provider invocation, or as neither.
 prefix subdirectories are user-owned so formula operations do not elevate,
 while MacPorts' default prefix is root-owned so its add, remove, select and
 service operations do; a Homebrew cask with a `sudo:` stanza does, which is why
-cask operations are `UNKNOWN` until the planner can read the cask's own
-metadata. All of that comes from `data/policy/provider-commands.toml`, with its
+cask *add* and *remove* are `UNKNOWN` until the planner can read the cask's own
+metadata. Verifying one is not: `brew list` is refused as root outright,
+whatever the package kind (R-5a, read 2026-09-04). All of that comes from `data/policy/provider-commands.toml`, with its
 sources and read dates, not from Rust
 ([`../research/R-5-privilege-requirements.md`](../research/R-5-privilege-requirements.md),
 2026-09-02).

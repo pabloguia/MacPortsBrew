@@ -382,21 +382,46 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
         }
     }
-    if !plan.elevated_steps.is_empty() {
+    // `plan.elevated_steps` is every step whose elevation is not `None`, which
+    // is the conservative set and the right one for a machine-readable field and
+    // for gating consent. Saying "these need administrator rights" about all of
+    // it is a different claim: a step is in there because a provider fact is
+    // *unknown* as often as because it is known to elevate, and telling someone
+    // a read will ask for a password is how they learn to approve prompts
+    // without reading them (INV-06, finding F-10).
+    //
+    // The split lives on the plan rather than here. A first version computed it
+    // inline, which made two copies of the definition of "elevating" - and a
+    // second copy of a definition is how the first one drifts.
+    let required = plan.steps_requiring_elevation();
+    let unknown = plan.steps_with_unknown_elevation();
+    let joined = |v: &[u32]| {
+        v.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if !required.is_empty() {
         let _ = writeln!(out);
         let _ = writeln!(
             out,
             "{}",
             ctx.messages.render(
                 "plan.elevated_summary",
-                &params(&[(
-                    "steps",
-                    plan.elevated_steps
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )])
+                &params(&[("steps", joined(&required))])
+            )
+        );
+    }
+    if !unknown.is_empty() {
+        if required.is_empty() {
+            let _ = writeln!(out);
+        }
+        let _ = writeln!(
+            out,
+            "{}",
+            ctx.messages.render(
+                "plan.unknown_elevation_summary",
+                &params(&[("steps", joined(&unknown))])
             )
         );
     }

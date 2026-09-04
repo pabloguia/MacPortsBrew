@@ -2544,6 +2544,105 @@ finding ids in each entry.
 - Compatibility impact: one wiki page is renamed. The wiki has never been
   published.
 
+## SE-059 — A read is not summarised as needing administrator rights
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `data/policy/provider-commands.toml`'s `_gui_app` keys
+  exist, in the file's own words, "so the planner never reaches an elevation value
+  by omission".
+- Change: state the four missing cells — `verify` and `verify_gui_app`, per
+  provider — from R-5a; make the loader refuse a table where any verb lacks an
+  elevation for either package kind, or states one that is not `none`, `required`
+  or `unknown`; and split the human summary so a step whose elevation is
+  *unknown* is reported as unknown rather than as needing administrator rights.
+  Policy version moves to `2026.09.04-1`.
+- Rationale: `verify` reached `Elevation::Unknown` by omission in both entries
+  while the comment said that could not happen, and the plan for
+  `htop --to macports` ended *"Steps that would need administrator rights: 2, 3"*
+  where step 3 is `port -q installed htop`, a read. Folding an unknown toward
+  caution is right; **saying** it is a known requirement is not, and under INV-06
+  the effect is to teach someone to approve a password prompt for a read. That is
+  the habit the invariant exists to prevent, and it is trained by exactly this
+  kind of sentence.
+- **Two of the four cells are `unknown`, and that is the answer, not a gap.**
+  Homebrew's `verify` is `none` on evidence rather than inference: `list` is
+  absent from the exemption list in `check-run-command-as-root` in the shipped
+  `brew.sh`, so `sudo brew list` *aborts* — Homebrew 6.0.21, `Homebrew/brew` HEAD
+  `560147012b9678b42ef5e83b690f0895552d1366`, observed 2026-09-04. MacPorts is not
+  installed on this machine and its documentation does not settle it: the registry
+  *directory* is `root:admin 0755`, but the database file's own mode is documented
+  nowhere and is created by a bare `sqlite3_open` with no `chmod`, so it is
+  umask-dependent. The evidence points at "no elevation" — the guide prints
+  `port installed portname` unprefixed two lines above a `sudo port activate`, and
+  `action_installed` is not among the callers of `prefix_unwritable` — but
+  pointing is not stating, and a confident `none` here would be a guess wearing a
+  citation. INV-20 already says runtime detection wins over stored knowledge; this
+  is a cell where it will have to — and F-24 is filed so that the executor pass
+  cannot ship without answering it, because three statements of intent and no
+  artefact is how a deferral becomes a decision nobody made.
+- **An `UNKNOWN` is described as unknown and *treated* as elevating.** Those are
+  different questions and the split answers only the first. `elevated_steps` is
+  unchanged — Required ∪ Unknown — and it is what an executor gates consent on,
+  because an elevation nobody has established is not one that will not happen.
+  `MigrationPlan::steps_requiring_elevation` is the narrower set and exists so a
+  *report* can make the narrower claim truthfully. Written into
+  `04-migration-and-safety.md`'s Privilege section as well as here, because a
+  reader meeting only the split reads it as a relaxation.
+- **The check as first written could not see the operation it was written for.**
+  It iterated `[entry.verbs]`, and `set_primary` appears only in
+  `[entry.elevation]` — with no `set_primary_gui_app` beside it, which is exactly
+  the shape being forbidden. Nothing routes `set_primary` through `command()`
+  today, so it was invisible rather than broken, but the guarantee claimed — that
+  the next operation added cannot repeat F-10 — was false for one added to the
+  elevation table. It keys off the union of both tables now, the missing cells are
+  stated, and the test removes each of them in turn.
+- **The finding's own symptom needed the second half.** Stating the value fixes
+  Homebrew and does nothing for MacPorts, because `unknown` was rendered the same
+  as `required`. `elevated_steps` stays as it is — every step whose elevation is
+  not `None`, which is the conservative set and the right one for a
+  machine-readable field, and a consumer reading it loses nothing. Only the human
+  line changes, and it changes because it was making a claim the data does not
+  support. No schema field moved; the per-command display and the JSON already
+  distinguished the two.
+- **The comment was the defect, not the missing keys.** A file that says "stated
+  so the planner never reaches a value by omission" and then omits two values is
+  worse than one that says nothing: it invites the next reader to trust the
+  property rather than check it. The loader refuses an incomplete table now, so
+  the next verb added cannot repeat it, and the same pass hardened `executable`
+  while it was there — `Path::join` discards the base when its argument is
+  absolute, so `/bin/sh` in that field would have been a program of the file's own
+  choosing (F-20).
+- Evidence: `planner.rs:598-606`; `docs/research/R-5a-verify-command-elevation.md`;
+  finding F-10. `invariant_06_a_read_is_never_summarised_as_needing_administrator_rights`
+  reproduces the verify step the finding observed, in both directions, and was
+  checked by restoring each defect in turn — emptying the unknown branch and
+  emptying the required branch each make it fail.
+  It reproduces *one* of the two steps F-10 listed. The finding recorded
+  "administrator rights: 2, 3"; step 2 is `AddDestination`, which on that fixture
+  emits no command at all ("already installed; nothing to add") and therefore
+  cannot have been in `elevated_steps` before this change either. An earlier draft
+  of this entry said the test reproduces "the exact plan", which claimed more than
+  the code does. The three loader tests each break the shipped table and
+  assert the refusal, so the validation cannot pass vacuously. Only the policy
+  version moved in the six golden analyses, which was inspected rather than
+  assumed.
+- User impact: a plan no longer tells you a read needs administrator rights. Where
+  the answer is genuinely unknown it says so, in a separate line.
+- Architectural impact: `provider-commands.toml` is now refused if incomplete,
+  which makes the `add-provider` recipe's elevation step mandatory rather than
+  conventional.
+- Compatibility impact: `policyVersion` changes, and the six golden analyses with
+  it. No `--json` field added, removed or renamed — but `plan.v1.md` described
+  `elevatedSteps` as "every step that would need administrator rights", which is
+  the F-10 sentence surviving verbatim in the compatibility surface: a consumer
+  implementing that faithfully reproduces the finding. Corrected there, which is a
+  clarification rather than a breaking change, and it had to land here rather than
+  later — shipping a change that declares a claim false while leaving the
+  authoritative statement of it standing is the worse half of both options. Both
+  entries' `read_on` move to 2026-09-04 and their `source` gains the
+  command-level citations, without which `2026.09.04-1` was a version no dated row
+  in `data/policy/` accounted for.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW

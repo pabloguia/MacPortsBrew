@@ -218,6 +218,18 @@ is requested per operation at the moment it is needed; the credential is never
 cached by MacPortsBrew; analysis and dry-run never elevate; the tool is never
 installed setuid and never asks to be run under `sudo` wholesale.
 
+**An `UNKNOWN` elevation is described as unknown and treated as elevating.**
+Those are different questions and the answers differ. A plan that tells you a
+read needs administrator rights teaches you to approve prompts without reading
+them, which is the habit this invariant exists to prevent — so the *description*
+says what is known. The *consent path* has no such latitude: an elevation nobody
+has established is not an elevation that will not happen, so an executor asks
+before any step whose elevation is not `NONE`. `elevatedSteps` is that
+conservative set and stays it; `MigrationPlan::steps_requiring_elevation` is the
+narrower one, and exists so a *report* can make the narrower claim truthfully.
+Recorded because the split reads as a relaxation to anyone who meets only half
+of it (SE-059, finding F-10).
+
 ## Process execution
 
 **MUST.** One centralised executor. Argv arrays only — no shell, no string
