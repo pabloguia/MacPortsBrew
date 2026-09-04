@@ -118,6 +118,25 @@ to answer.
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
 ### Security
+- **This tool spawns six programs, and refuses everything else at the moment of
+  spawning.** `brew`, `port`, `sw_vers`, `uname`, `sysctl`, `xcode-select` — each
+  absolute, free of `..`, and for the two providers only from a `bin` directory
+  under a detected prefix. The threat model had said command injection was
+  "structurally impossible … enforced by a lint rule"; the lint enforced *where*
+  a subprocess may be spawned, and the executor's only check on the program was
+  that it is absolute, which `/bin/sh` is.
+  A first attempt put the guarantee in the type instead, and a security review
+  took it apart: `CommandSpec`'s fields were public, so `spec.program = <anything>`
+  after construction reached the same place — and the same line would have undone
+  this release's own fix for the environment, by inserting `DYLD_INSERT_LIBRARIES`
+  after sanitisation. The fields are private now, and the check that matters runs
+  on the value about to reach the kernel, where no amount of cleverness upstream
+  can route around it.
+  Also corrected: a claim in `04-migration-and-safety.md` that no shell interprets
+  any of this. One does — `brew` is a bash script and `port` is a Tcl program.
+  What is true, and what is now written, is that no shell *command line* is ever
+  constructed: arguments are argv elements and nothing re-splits them.
+  SE-050, finding F-08.
 - **`doctor` now sees the commonest executable-shadowing directory on macOS.**
   A directory you own at `0755` — `~/bin`, `~/.local/bin`, whatever a
   `curl | sh` installer created — ahead of `/usr/bin` produced no finding at

@@ -51,28 +51,176 @@ pub use macportsbrew_domain::MAX_PATH_LEN;
 /// each carry their own idea of "safe".
 pub use macportsbrew_domain::is_safe_path;
 
+/// Every program this tool may spawn, by the name at the end of the path.
+///
+/// This is the control, and it is an allowlist on purpose. A review defeated
+/// every weaker version of it in one sitting: `Box::leak` was not the only way
+/// to manufacture a `&'static str` (a module-level `OnceLock` does it with no
+/// `leak`, no `unsafe`, and nothing a grep sees); the interpreter *denylist* in
+/// `check-no-shell.sh` was missing `tclsh` — which is what `port` itself is
+/// written in — along with `xcrun`, `arch`, `awk` and a dozen others; and the
+/// literal could be split with `concat!`, escaped as `"/bin/\x73h"`, or broken
+/// across lines past a line-oriented check.
+///
+/// None of that matters here. This runs on the `PathBuf` about to be handed to
+/// the kernel, whatever produced it, and there are exactly six programs this
+/// tool has any business running. A denylist of interpreters cannot be
+/// completed; this list can be read in one line.
+///
+/// Divergence from what the adapters actually name is caught by
+/// `invariant_10_every_program_an_adapter_names_is_on_the_allowlist`, not by
+/// whoever edits one of the two places remembering the other.
+pub(crate) const PERMITTED_PROGRAMS: &[&str] = &[
+    // The two providers, resolved as `<detected prefix>/bin/<name>`.
+    "brew",
+    "port",
+    // The four macOS probes, at absolute paths written out in `machine.rs`.
+    "sw_vers",
+    "uname",
+    "sysctl",
+    "xcode-select",
+];
+
+/// The programs the executor's own tests spawn, and only in a test build.
+///
+/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` spawns `/bin/sh -c`
+/// for the express purpose of proving the runner survives a process that
+/// outlives its parent; `timeout_kills_the_child` needs something that sleeps.
+/// A test that cannot name the thing it is testing is not a test.
+///
+/// This extends the list rather than bypassing the check, so the tests run the
+/// same code the shipped binary runs, and
+/// `the_shipped_binary_may_spawn_exactly_six_programs` asserts that the
+/// production list is untouched by it.
+#[cfg(test)]
+pub(crate) const PERMITTED_IN_TESTS: &[&str] = &[
+    "sh",
+    "sleep",
+    "env",
+    "false",
+    "yes",
+    "echo",
+    "mpb-test-program",
+];
+
+/// What the runner asks before it spawns: the shipped rule, plus - in a test
+/// build only - the handful of programs the executor's own tests name.
+///
+/// Kept separate from [`is_permitted_program`] so that
+/// `an_interpreter_is_refused_however_it_was_named` asserts the *shipped* rule
+/// rather than the widened one. A test that can only see the wider list cannot
+/// tell you anything about what ships.
+pub(in crate::process) fn may_spawn(program: &std::path::Path) -> bool {
+    if is_permitted_program(program) {
+        return true;
+    }
+    #[cfg(test)]
+    if program.is_absolute()
+        && program
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| PERMITTED_IN_TESTS.contains(&n))
+    {
+        return true;
+    }
+    false
+}
+
+/// Whether `program` is one this tool may spawn.
+///
+/// Absolute, no `..` anywhere in it, and a file name on
+/// [`PERMITTED_PROGRAMS`]. A provider's executable must additionally sit
+/// directly in a `bin` directory, which is where both providers put theirs and
+/// where a prefix-shaped path can be checked to lead.
+pub(crate) fn is_permitted_program(program: &std::path::Path) -> bool {
+    use std::path::Component;
+    if !program.is_absolute() || program.components().any(|c| c == Component::ParentDir) {
+        return false;
+    }
+    let Some(name) = program.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !PERMITTED_PROGRAMS.contains(&name) {
+        return false;
+    }
+    if matches!(name, "brew" | "port") {
+        return program
+            .parent()
+            .and_then(std::path::Path::file_name)
+            .is_some_and(|dir| dir == "bin");
+    }
+    true
+}
+
 /// What to run.
+///
+/// Every field is private to this module, and that is the point rather than
+/// tidiness. A constructor that cannot be called from outside controls only
+/// *construction*; with public fields, `spec.program = whatever` after the fact
+/// reaches the same place, and so does
+/// `spec.environment.insert("DYLD_INSERT_LIBRARIES", ..)` - which would undo
+/// INV-10 by one line that no lint, no clippy and no test would notice. That
+/// was measured, not imagined: a review built it and every gate stayed green.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandSpec {
     /// The program, as an absolute path resolved by the caller from a
     /// detected prefix - never a bare name looked up on `PATH` when
     /// correctness matters.
-    pub program: PathBuf,
+    pub(in crate::process) program: PathBuf,
     /// Arguments, one element each.
-    pub argv: Vec<String>,
+    pub(in crate::process) argv: Vec<String>,
     /// The complete environment. Nothing is inherited.
-    pub environment: BTreeMap<String, String>,
+    pub(in crate::process) environment: BTreeMap<String, String>,
     /// Working directory; `None` means the process's own.
-    pub cwd: Option<PathBuf>,
+    pub(in crate::process) cwd: Option<PathBuf>,
     /// Timeout.
-    pub timeout: Duration,
+    pub(in crate::process) timeout: Duration,
     /// Cap per output stream.
-    pub max_output_bytes: usize,
+    pub(in crate::process) max_output_bytes: usize,
 }
 
 impl CommandSpec {
+    /// A provider's own executable, resolved from the prefix it was detected
+    /// at.
+    ///
+    /// `executable` is `&'static str` on purpose: it is a literal in this
+    /// source, so nothing a provider said, nothing in a snapshot and nothing
+    /// off the machine can decide which program runs. The only variable part
+    /// is the prefix, which is validated where a snapshot enters
+    /// (`Snapshot::check`).
+    pub fn provider(
+        prefix: &std::path::Path,
+        executable: &'static str,
+        argv: Vec<String>,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
+        Self::new(prefix.join(executable), argv, environment)
+    }
+
+    /// A macOS system tool, named by a literal.
+    ///
+    /// Same reasoning as [`CommandSpec::provider`], with no prefix to join: the
+    /// four probes this tool runs are `sw_vers`, `uname`, `sysctl` and
+    /// `xcode-select`, at absolute paths written out here.
+    pub fn system(
+        program: &'static str,
+        argv: Vec<String>,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
+        Self::new(program, argv, environment)
+    }
+
     /// A spec with default timeout and output cap.
-    pub fn new(
+    ///
+    /// Private to this module. Everything above it goes through
+    /// [`CommandSpec::provider`] or [`CommandSpec::system`], which is what
+    /// makes "no value off the machine becomes a program" a property of the
+    /// type rather than of each adapter remembering. The threat model called
+    /// the no-shell guarantee "enforced by a lint rule, not by discipline",
+    /// and the lint enforced *where* a subprocess is spawned rather than
+    /// *what* - `/bin/sh` is absolute and would have passed every gate
+    /// (F-08).
+    pub(in crate::process) fn new(
         program: impl Into<PathBuf>,
         argv: Vec<String>,
         environment: BTreeMap<String, String>,
@@ -245,6 +393,122 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shipped_binary_may_spawn_exactly_six_programs() {
+        // Not a tautology: it is the assertion that makes PERMITTED_IN_TESTS
+        // safe to have. If a test name ever migrates into the production list,
+        // this is what says so.
+        assert_eq!(
+            PERMITTED_PROGRAMS,
+            ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
+        );
+        for name in PERMITTED_IN_TESTS {
+            assert!(
+                !PERMITTED_PROGRAMS.contains(name),
+                "{name} is a test-only program and has reached the shipped list"
+            );
+        }
+    }
+
+    #[test]
+    fn every_program_an_adapter_names_is_on_the_allowlist() {
+        // The comment above PERMITTED_PROGRAMS says divergence is caught here
+        // rather than by whoever edits one place remembering the other. This is
+        // that check, and it is the reason the list may be written out by hand:
+        // an adapter that starts naming a seventh program fails here rather
+        // than at run time on a user's machine, where the symptom would be a
+        // read that refuses itself.
+        let named = [
+            crate::homebrew::EXECUTABLE_RELATIVE,
+            crate::macports::EXECUTABLE_RELATIVE,
+            crate::system::machine::SW_VERS,
+            crate::system::machine::UNAME,
+            crate::system::machine::SYSCTL,
+            crate::system::machine::XCODE_SELECT,
+        ];
+        for program in named {
+            let leaf = std::path::Path::new(program)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a program constant names a file");
+            assert!(
+                PERMITTED_PROGRAMS.contains(&leaf),
+                "{program} is named by an adapter and is not on the allowlist"
+            );
+        }
+        assert_eq!(
+            named.len(),
+            PERMITTED_PROGRAMS.len(),
+            "the allowlist and the constants the adapters name have diverged"
+        );
+    }
+
+    #[test]
+    fn an_interpreter_is_refused_however_it_was_named() {
+        // Each of these defeated some earlier version of the control: a
+        // denylist that had never heard of `tclsh` - which `port` itself is
+        // written in - a lint that a `concat!` or a `\x73` escape walked
+        // straight past, and a `&'static str` manufactured at run time by a
+        // module-level `OnceLock`, with no `leak` and nothing to grep for. The
+        // check runs on the finished path, so none of that reaches it.
+        //
+        // The elevating binary is not in this list, and that is not an
+        // oversight: `invariant_06_reading_the_machine_needs_no_elevation`
+        // refuses its name anywhere in non-comment source, and it caught this
+        // test when the name was here. Rewording it to slip past would be the
+        // wrong answer twice over - the invariant is right, and an allowlist
+        // refuses every name not on it, so that one needs no separate case.
+        for bad in [
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/bin/tclsh",
+            "/usr/bin/xcrun",
+            "/usr/bin/arch",
+            "/usr/bin/awk",
+            "/usr/bin/perl5.34",
+            "/opt/homebrew/bin/bash",
+        ] {
+            assert!(
+                !is_permitted_program(std::path::Path::new(bad)),
+                "{bad} was permitted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_permitted_name_is_not_permitted_from_anywhere() {
+        // The name alone is not the rule. A provider's executable comes from a
+        // `bin` directory under a detected prefix, and nothing reaches the
+        // kernel by way of `..`.
+        for bad in [
+            "/tmp/brew",
+            "/usr/local/brew",
+            "/opt/local/sbin/port",
+            "brew",
+            "/opt/homebrew/bin/../../../tmp/bin/brew",
+        ] {
+            assert!(
+                !is_permitted_program(std::path::Path::new(bad)),
+                "{bad} was permitted"
+            );
+        }
+        for good in [
+            "/opt/homebrew/bin/brew",
+            "/usr/local/bin/brew",
+            "/opt/local/bin/port",
+            "/usr/bin/sw_vers",
+            "/usr/bin/uname",
+            "/usr/sbin/sysctl",
+            "/usr/bin/xcode-select",
+        ] {
+            assert!(
+                is_permitted_program(std::path::Path::new(good)),
+                "{good} was refused"
+            );
+        }
+    }
+
     use macportsbrew_domain::ErrorId;
 
     fn invocation(truncated: bool, code: i32) -> Invocation {

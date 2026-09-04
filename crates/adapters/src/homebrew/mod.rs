@@ -48,8 +48,12 @@ use std::path::{Path, PathBuf};
 /// The provider id this adapter answers for.
 pub const PROVIDER_ID: &str = "homebrew";
 
-/// The executable's name under `<prefix>/bin`.
-const EXECUTABLE_NAME: &str = "brew";
+/// Where the executable sits under the prefix.
+///
+/// One constant, not two. A separate `EXECUTABLE_NAME` used by the presence
+/// check while this one was used by the spawn would let the tool check one path
+/// and run another the day they diverged; MacPorts always had one.
+pub(crate) const EXECUTABLE_RELATIVE: &str = "bin/brew";
 
 /// The mechanism string recorded on [`RequestedSet`]: Homebrew's own record
 /// of user intent, and the only one that is authoritative (R-1 finding 4).
@@ -101,7 +105,7 @@ pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn executable_in(prefix: &Path) -> PathBuf {
-    prefix.join("bin").join(EXECUTABLE_NAME)
+    prefix.join(EXECUTABLE_RELATIVE)
 }
 
 /// The variables this adapter adds to a sanitised environment, and the only
@@ -262,7 +266,12 @@ impl<'r> HomebrewAdapter<'r> {
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
         }
-        let spec = CommandSpec::new(self.executable(), key.clone(), self.environment.clone());
+        let spec = CommandSpec::provider(
+            &self.prefix,
+            EXECUTABLE_RELATIVE,
+            key.clone(),
+            self.environment.clone(),
+        );
         let invocation = self.runner.run(&spec)?;
         self.runs.borrow_mut().insert(key, invocation.clone());
         Ok(invocation)

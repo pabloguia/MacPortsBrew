@@ -192,12 +192,25 @@ impl ProcessRunner for SystemRunner {
         // absolute path from a detected prefix, so a relative one here is a
         // programming error — refused before anything is spawned, and reported
         // through the same channel a missing program is.
-        if !spec.program.is_absolute() {
+        //
+        // Being absolute is necessary and not sufficient — `/bin/sh` is
+        // absolute — so the same guard asks the stronger question: is this one
+        // of the six programs this tool may run at all? That check is here, on
+        // the value about to reach the kernel, rather than upstream on the type
+        // or in a lint, because both of those were defeated in review: public
+        // fields let a spec be rewritten after construction, a module-level
+        // `OnceLock` manufactures the `&'static str` the constructors ask for,
+        // and a denylist of interpreters is missing `tclsh` — which `port`
+        // itself is written in — however long it grows.
+        if !crate::process::may_spawn(&spec.program) {
             return Ok(record(
                 ExitStatus::NotStarted {
                     error: format!(
-                        "refusing to run `{}`: the program must be an absolute path",
-                        spec.program.display()
+                        "refusing to run `{}`: this tool spawns only {}, each at an \
+                         absolute path, and a provider's own executable only from a \
+                         `bin` directory under a detected prefix",
+                        spec.program.display(),
+                        crate::process::PERMITTED_PROGRAMS.join(", ")
                     ),
                 },
                 String::new(),

@@ -2363,25 +2363,111 @@ finding ids in each entry.
 - Compatibility impact: plan JSON gains a value; `schemaVersion` may need a bump.
 
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
-- Status: proposed
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
-- Change: either add a check that no `CommandSpec` program is a shell literal
-  outside the executor's own tests — better, make `CommandSpec::program`
-  constructible only from a detected prefix plus a relative executable, so the type
-  carries the guarantee — or correct the sentence to say the control is a
-  per-adapter run-time allow-list.
+- Change: a run-time allowlist at the one spawn site, with three narrower
+  controls behind it.
+  `SystemRunner::run` refuses any program whose leaf name is not one of
+  `brew`, `port`, `sw_vers`, `uname`, `sysctl`, `xcode-select`, absolute, free of
+  `..`, and — for the two providers — directly inside a `bin` directory.
+  Behind it: `CommandSpec`'s fields and its `new` become private to the executor
+  module, so a spec can be neither built nor rewritten from outside it;
+  `check-layering.sh` continues to hold *where*; and `scripts/check-no-shell.sh`
+  asks the allowlist's question textually so a bad literal fails in review.
+  The sentence in `04-migration-and-safety.md` is rewritten to claim only that
+  no shell *command line* is constructed.
 - Rationale: the existing lint asserts *where* a subprocess is spawned, not *what*.
   The executor's only program check is `is_absolute()`, and a shell is absolute.
-  What actually holds the line today is an allow-list in each of the two adapters —
+  What actually held the line was an allow-list in each of the two adapters —
   good, and checked at run time rather than under `debug_assert!` — but that is
   discipline, which the sentence says it is not relying on. A third adapter added by
   a later pass would pass clippy, the layering check and every test.
-- Evidence: `check-layering.sh:58`, `process/system.rs:171`; finding F-08.
+- **The first build of this was wrong, and a security review took it apart in
+  one sitting. What follows is what it measured.** The shape it replaced was
+  "the type stops a value becoming a program, the lint stops a literal being a
+  shell". Both halves failed:
+  - **`CommandSpec`'s fields were `pub`.** A private constructor controls
+    construction, not assignment: `spec.program = <runtime value>` after the
+    fact reaches the same place, and `cargo check`, `clippy -D warnings`,
+    `check-layering.sh` and the new lint were all clean over it. The same line
+    defeats **SE-051**, this pass's own INV-10 fix, by inserting
+    `DYLD_INSERT_LIBRARIES` into `spec.environment` after `sanitised_environment`
+    has run. That is a Tier 1 exposure that the entry as first written would have
+    recorded as closed. The fields are private now.
+  - **`&'static str` does not mean "written in this source".** It means "lives
+    forever". A module-level `OnceLock<String>` initialised from
+    `std::env::var` yields one, with no `leak`, no `unsafe`, and nothing for a
+    grep to find; `LazyLock` is the same. `Box::leak` was measured too — it
+    compiles clean. Enumerating the routes to `'static` is a losing game, which
+    is the actual reason the control moved to run time.
+  - **A denylist of interpreters cannot be completed.** The first version was
+    missing `tclsh` — which `port` itself is written in, so it is the single
+    likeliest interpreter for this tool to be tempted into naming — along with
+    `xcrun`, `arch`, `awk`, `sed`, `find`, `expect`, `swift`, `login`, `lua`, and
+    every versioned name the pattern did not anticipate (`ruby2.7`, `perl5.34`,
+    `node22`; only Python was globbed). Three textual defeats besides:
+    `concat!("/bin/b", "ash")`, `"/bin/\x73h"`, and a literal broken across
+    lines past a line-oriented check.
+  - **The `#[cfg(test)]` exemption asserted the wrong property.** It checked
+    "at most one attribute" and relied on "test code is one trailing section",
+    which are different claims. In the ordinary two-file layout —
+    `#[cfg(test)] mod tests;` near the top, tests in a sibling file — the whole
+    file below line three went unscanned, for exactly the two thousand-line
+    adapters the check most exists to cover. Splitting those tests out is the
+    next obvious refactor, so this was not a contrived case.
+- **So the control is a run-time allowlist, and the rest is defence in depth.**
+  It runs on the `PathBuf` about to reach the kernel, whatever produced it, so it
+  survives public fields, `OnceLock`, escapes, `concat!` and any interpreter
+  nobody thought of. There are exactly six programs this tool has business
+  running; that list fits on one line, and a denylist of everything else does
+  not. `every_program_an_adapter_names_is_on_the_allowlist` ties it to the
+  constants the adapters actually use, so the two cannot drift apart silently.
+  The lint keeps its place because a run-time check cannot fail at commit time,
+  in front of a person; it now asks the same allowlist question rather than
+  maintaining a list of bad names.
+- **On the `leak` check that survives.** It is kept, and it is explicitly *not*
+  a proof of anything — an earlier draft of this entry called `Box::leak` "the
+  one way to manufacture a `&'static str` at runtime", which is the same species
+  of over-claim F-08 is a finding about, made while correcting it. It is one way
+  among several. It stays because it is the form that reads as ordinary code,
+  and the bare-name variant is matched because `let f = Box::leak;` was measured
+  walking past a version that required `leak(`. There is no legitimate use of it
+  here; every occurrence of the word in the source is prose about *information*
+  leaks.
+- **Test code may name a shell, and must.**
+  `a_grandchild_holding_the_pipe_does_not_hang_the_runner` spawns `/bin/sh -c` for
+  the express purpose of proving the runner survives a process that outlives its
+  parent; `is_system_path` and `which` are handed `/bin/sh` as data. A check that
+  forbade the tests from naming the thing they test would be answered by rewording
+  them, which is the failure mode this project treats as worse than the defect.
+  So the allowlist is extended under `#[cfg(test)]` — extended, not bypassed, so
+  the tests run the same code the shipped binary runs, with
+  `the_shipped_binary_may_spawn_exactly_six_programs` asserting the production
+  list is untouched by it. The lint's boundary is the `#[cfg(test)]` that opens
+  an inline `mod tests {` running to the end of the file; anything else, the
+  two-file split included, is scanned whole.
+- **One thing this pass will not evade.** `invariant_06_reading_the_machine_needs_
+  no_elevation` refused the elevating binary's name in a list of programs a test
+  asserts are *rejected*. The invariant is right and the case was dropped: an
+  allowlist refuses every name not on it, so that one needs no separate entry,
+  and rewording it to slip past a guard would have been the wrong answer twice.
+- Evidence: `check-layering.sh:58`, `process/system.rs:171`; finding F-08. The
+  allowlist has three tests in `process/mod.rs` covering the six shipped
+  programs, nine interpreters including `tclsh`, and five permitted names reached
+  from a directory that is not permitted. The lint was then probed by replaying
+  all fourteen defeats above and each of its own rules, every mutation reverted:
+  fourteen of fourteen are refused and the clean tree exits 0, the one that
+  escaped the first rewrite being the hex escape. There is no test harness for
+  the `check-*.sh` scripts — none of the other seven has one — so those probes
+  are evidence, not a regression test; the allowlist's are tests. The shebang and
+  the meaning of `bash -p` were read on this machine on 2026-09-04 and are cited
+  where they are stated.
 - User impact: none directly.
-- Architectural impact: a type-level guarantee is the stronger option and removes
-  the need for the grep.
+- Architectural impact: adding a provider is now one adapter, one registry entry
+  and a `&'static str`; there is no way for the new adapter to name its executable
+  from configuration, which is the point.
 - Compatibility impact: none.
 
 ## SE-052 — The support matrix states configuration until a CI run exists

@@ -92,7 +92,7 @@ pub const PROVIDER_ID: &str = "macports";
 pub const DEFAULT_PREFIX: &str = "/opt/local";
 
 /// The prefix-relative path of the `port` executable.
-pub const EXECUTABLE_RELATIVE: &str = "bin/port";
+pub(crate) const EXECUTABLE_RELATIVE: &str = "bin/port";
 
 /// How ownership is decided: the registry's `requested` flag, read through
 /// the `requested` pseudo-portname (R-3 Finding 3). Not an inference from the
@@ -242,8 +242,9 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     }
 
     fn spec(&self, argv: Vec<String>) -> CommandSpec {
-        CommandSpec::new(
-            self.executable(),
+        CommandSpec::provider(
+            &self.prefix,
+            EXECUTABLE_RELATIVE,
             argv,
             crate::process::sanitised_environment(&self.environment()),
         )

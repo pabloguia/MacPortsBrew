@@ -6,7 +6,7 @@
 # CI (authoritative), a contributor before pushing, and the agent's Stop
 # gate. Do not add a check anywhere else.
 #
-#   scripts/validate.sh --quick   format, lint, layering, SPDX, licences, i18n,
+#   scripts/validate.sh --quick   format, lint, layering, no-shell, SPDX, licences,
 #                                 action pins
 #   scripts/validate.sh           --quick plus the test suite
 #   scripts/validate.sh --full    everything, plus the release build for both
@@ -24,6 +24,7 @@ run()  { if ! "$@"; then fail=1; fi; }
 step "cargo fmt";    run cargo fmt --all --check
 step "cargo clippy"; run cargo clippy --locked --all-targets --all-features --workspace -- -D warnings
 step "layering";     run scripts/check-layering.sh
+step "no-shell";     run scripts/check-no-shell.sh
 step "spdx";         run scripts/check-spdx.sh
 step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh

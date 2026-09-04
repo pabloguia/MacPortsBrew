@@ -49,13 +49,13 @@ use std::time::Duration;
 
 /// `sw_vers`, absolute: correctness here must not depend on `PATH`
 /// (`04-migration-and-safety.md`, threat model, "Executable shadowing").
-const SW_VERS: &str = "/usr/bin/sw_vers";
+pub(crate) const SW_VERS: &str = "/usr/bin/sw_vers";
 /// `uname`, absolute.
-const UNAME: &str = "/usr/bin/uname";
+pub(crate) const UNAME: &str = "/usr/bin/uname";
 /// `sysctl`, absolute.
-const SYSCTL: &str = "/usr/sbin/sysctl";
+pub(crate) const SYSCTL: &str = "/usr/sbin/sysctl";
 /// `xcode-select`, absolute.
-const XCODE_SELECT: &str = "/usr/bin/xcode-select";
+pub(crate) const XCODE_SELECT: &str = "/usr/bin/xcode-select";
 
 /// These probes answer instantly or not at all; a long wait means something is
 /// wrong with the machine, not that the answer is coming.
@@ -243,8 +243,8 @@ impl SystemMachine {
 
     /// Runs one probe. A probe that could not be started is not an error here:
     /// each caller decides what a missing tool means for the fact it is after.
-    fn probe(&self, program: &str, argv: &[&str]) -> Result<Invocation, DomainError> {
-        let spec = CommandSpec::new(
+    fn probe(&self, program: &'static str, argv: &[&str]) -> Result<Invocation, DomainError> {
+        let spec = CommandSpec::system(
             program,
             argv.iter().map(|a| (*a).to_string()).collect(),
             sanitised_environment(&EnvironmentSpec::default()),

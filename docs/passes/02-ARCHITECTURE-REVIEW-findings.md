@@ -30,6 +30,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-07** — `doctor` cannot see the commonest shadowing directory | **Fixed.** SE-053. `PathFindingKind::OwnerWritable`, ownership being half the rule so it does not fire on every directory; a `PATH` with no system directory is a finding rather than the silent degradation it was; and `ERROR` is reserved for the shapes where somebody other than this user decides what runs. Escalating *every* writable kind, as SE-053 proposed, made `doctor` exit 5 on a stock Homebrew install and contradicted `prefix_not_on_path`; the deviation is recorded there. On the machine this was found on, four directories that produced no finding at all now do. |
 | **F-09** — `--from-snapshot` is an unvalidated source of plan argv | **Fixed.** SE-051 parts 2 and 3. What is refused depends on where a value goes: a name becomes an argument and takes the adapters' own predicate; the prefix becomes a command's `program` and takes the prefix shape rule; everything else reaches a reader and is only bounded and free of control characters. Getting that split wrong cost three attempts — a first version validated `detection.executable`, which no command uses, while leaving `detection.prefix`, which every command uses, unvalidated on the path that mattered, and refused two shapes a correct machine reports. Twelve MacPorts pseudo-portnames are refused from data, because a provider-neutral predicate can say "not a flag" but not "not a keyword". |
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
+| **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -453,7 +454,15 @@ provider prefix the tool manages into an error. The body is as written.**
 
 ## F-08 — "There is no shell to inject into … enforced by a lint rule" is not enforced
 
-**Severity: high as a claim; low as a live exposure.**
+**Severity: high as a claim; low as a live exposure. Fixed — SE-050.** A
+run-time allowlist at the one spawn site: six programs, absolute, no `..`, and
+for the two providers only from a `bin` directory. The first build of the fix
+put the guarantee in the type instead and a security review took it apart in one
+sitting — public fields, `OnceLock` in place of `Box::leak`, a denylist with no
+`tclsh` in it, and a `#[cfg(test)]` exemption that asserted a weaker property
+than the one it relied on. Every one of those is recorded in SE-050, because the
+shape of the mistake — an asserted rule wider than what is built — is the same
+shape as this finding.
 
 `04-migration-and-safety.md:257-258` states: *"Command injection — mitigated
 structurally by argv-only execution. There is no shell to inject into. Enforced by a

@@ -254,8 +254,47 @@ or environment variable values.
 Package management is privileged infrastructure work. Address these concretely;
 do not gold-plate beyond them.
 
-- **Command injection** — mitigated structurally by argv-only execution. There
-  is no shell to inject into. Enforced by a lint rule, not by discipline.
+- **Command injection** — no shell *command line* is ever constructed. That is
+  the claim, and it is narrower than the one this file used to make, because two
+  reviews measured the wider ones and found them false (F-08).
+
+  A shell does run. `/usr/local/bin/brew` begins `#!/bin/bash -pu` (read on this
+  machine, 2026-09-04) and `port` is a Tcl program, so every provider read this
+  tool performs starts an interpreter by way of the kernel's shebang handling.
+  What does not happen is a *string* being assembled and handed to one:
+  arguments are argv elements, they arrive as `"$@"`, and nothing re-splits
+  them. Two properties of that bash invocation are load-bearing and worth
+  naming rather than relying on quietly: `-p` is privileged mode, in which
+  `$ENV` and `$BASH_ENV` are not processed, shell functions are not inherited
+  from the environment, and `SHELLOPTS` is ignored (`bash(1)`, read 2026-09-04);
+  and the environment is allowlist-built by `sanitised_environment`, so those
+  variables are not present to be read in the first place.
+
+  **The control on *what* runs is a run-time allowlist at the one spawn site.**
+  `SystemRunner::run` refuses any program that is not, by the name at the end of
+  its path, one of the six this tool has business running — `brew`, `port`,
+  `sw_vers`, `uname`, `sysctl`, `xcode-select` — absolute, free of `..`, and for
+  the two providers directly inside a `bin` directory. It is there, on the value
+  about to reach the kernel, because everything upstream of it was defeated in
+  review: public fields let a spec be rewritten after construction, a
+  module-level `OnceLock` manufactures the `&'static str` the constructors ask
+  for with no `Box::leak` and nothing to grep, and a *denylist* of interpreters
+  had never heard of `tclsh`, which is what `port` is written in.
+
+  Three further controls stand behind it, each holding something the allowlist
+  does not. `check-layering.sh` keeps `std::process::Command` inside the
+  executor — **where**. `CommandSpec`'s fields and its `new` are private to that
+  module, so a spec cannot be built or rewritten from outside it, which is also
+  what keeps INV-10's sanitised environment from being amended after the fact.
+  And `check-no-shell.sh` asks the allowlist's question textually, so a program
+  literal that is not one of the six fails in review rather than at run time.
+
+  Note what is *not* claimed. The prefix a provider's executable is resolved
+  from is a run-time value, not a literal: the leaf is fixed, the directory is
+  detected. What holds there is separate and specific — a prefix is validated
+  where a snapshot enters, a `prefix_override` is honoured only under replay,
+  and `--from-snapshot` returns before any adapter is built, so a
+  recording-derived or snapshot-derived prefix never reaches a live spawn.
 - **Executable shadowing / PATH spoofing** — resolve provider executables from
   their detected prefix, not from `PATH`, when correctness matters. Report
   writable directories that precede system paths on `PATH`.
