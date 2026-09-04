@@ -151,7 +151,11 @@ to answer.
   parentheses. Both go through the catalogue now. The check that should have
   caught them was missing its third direction: it verified that every key the
   code references exists, and never that every key that exists is referenced.
-  SE-064, finding F-20.
+  The same defect had two more sites, both fixed with it: `doctor` built the
+  same `{:?}` string in the application layer, and the rules hand a stable
+  identifier like `DEGRADED` into sentences a person reads. The catalogue has
+  said since it was written that such a parameter is rendered through its own
+  key before substitution; now it is. SE-064, finding F-20.
 - **Six invariant tests that would not have failed if their invariant were
   violated.** The one for the sanitised environment skipped every `brew` and
   `port` invocation — which is what that invariant is about — and checked only

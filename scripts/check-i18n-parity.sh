@@ -35,8 +35,25 @@ def keys(path):
         m = re.match(r'^\s*"?([A-Za-z0-9_.-]+)"?\s*=', line)
         if m: ks.add(m.group(1))
     return ks
+def production(src):
+    """Everything above the trailing `#[cfg(test)] mod tests`.
+
+    Splitting on the first `#[cfg(test)]` is wrong: in
+    `adapters/src/process/mod.rs` that attribute sits on a `const` three
+    hundred lines above the test module, and everything below it - production
+    code in the only subprocess site in the repository - was being discarded.
+    Only the attribute that opens a test *module* ends the file.
+    """
+    m = re.search(r"^#\[cfg\(test\)\]\s*\nmod tests\b", src, re.M)
+    return src[: m.start()] if m else src
 def excused(path):
-    """Keys whose preceding line explains why nothing renders them."""
+    """Keys whose comment block explains why nothing renders them.
+
+    The marker applies to the key it sits *immediately* above, allowing
+    continuation lines. Anything else - a blank line, a section header, an
+    unrelated comment - clears it. Without that, a marker at the end of one
+    section excused the first key of the next, straight across a `# ---` header.
+    """
     out, marked = set(), False
     for line in open(path, encoding="utf-8"):
         m = re.match(r'^\s*"?([A-Za-z0-9_.-]+)"?\s*=', line)
@@ -45,6 +62,8 @@ def excused(path):
             marked = False
         elif line.startswith("# unreferenced:"):
             marked = True
+        elif not (marked and line.startswith("#")):
+            marked = False
     return out
 en = keys("locales/en.toml")
 bad = 0
@@ -61,8 +80,7 @@ for root, _, files in os.walk("crates"):
             src = open(os.path.join(root, fn), encoding="utf-8").read()
             if root.endswith("/tests") or "/tests/" in root or fn.endswith("_test.rs"):
                 continue
-            # Test modules inside a file reference deliberately missing ids.
-            src = src.split("#[cfg(test)]")[0]
+            src = production(src)
             used |= set(re.findall(r'\bmsg!\(\s*"([A-Za-z0-9_.-]+)"', src))
             used |= set(re.findall(r'MessageId::new\(\s*"([A-Za-z0-9_.-]+)"', src))
             used |= set(re.findall(r'render_id\(\s*"([A-Za-z0-9_.-]+)"', src))
@@ -74,14 +92,16 @@ for u in sorted(used - en):
 # Direction three. `used` above collects the six call shapes; a message id is
 # also written as a plain literal in a `match` arm - `ErrorId::message_id` is
 # thirteen of them - so any literal shaped like an identifier counts as a use.
-ID = re.compile(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"')
+# The same character set `keys()` accepts, or a key it allows and this rejects
+# would be a permanent false orphan.
+ID = re.compile(r'"([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+)"')
 literals = set()
 for root, _, files in os.walk("crates"):
     for fn in files:
         if not fn.endswith(".rs"): continue
         if root.endswith("/tests") or "/tests/" in root or fn.endswith("_test.rs"): continue
-        src = open(os.path.join(root, fn), encoding="utf-8").read().split("#[cfg(test)]")[0]
-        literals |= set(ID.findall(src))
+        literals |= set(ID.findall(production(
+            open(os.path.join(root, fn), encoding="utf-8").read())))
 excuses = excused("locales/en.toml")
 for o in sorted(en - literals - excuses):
     print(f"i18n: locales/en.toml has {o} and nothing renders it; wire it, delete it, "

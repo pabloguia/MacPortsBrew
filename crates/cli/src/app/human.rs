@@ -157,7 +157,7 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
                 "count.packages_with_top_level",
                 &params(&[
                     ("count", p.package_count.to_string()),
-                    ("top_level", p.top_level_count.to_string()),
+                    ("topLevel", p.top_level_count.to_string()),
                 ]),
             ),
         ]);

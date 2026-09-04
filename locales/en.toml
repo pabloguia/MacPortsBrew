@@ -202,11 +202,14 @@ doctor.report_written = "A redacted report was written to {path}. Read it before
 
 # --- Counts -----------------------------------------------------------------
 
-# unreferenced: superseded at its one call site by
-# `count.packages_with_top_level`. Kept because a count without the top-level
-# figure is the obvious next caller.
+# unreferenced: never had a call site. The renderer built
+# `"{} ({} top-level)"` in Rust from the beginning, which is the defect
+# `count.packages_with_top_level` was added to fix; this key was written for a
+# caller that was never wired. Kept because a count without the top-level figure
+# is the obvious next one. An earlier version of this comment said "superseded
+# at its one call site", which was not true of a key that had none.
 count.packages = "{count, plural, one {# package} other {# packages}}"
-count.packages_with_top_level = "{count, plural, one {# package} other {# packages}} ({top_level} top-level)"
+count.packages_with_top_level = "{count, plural, one {# package} other {# packages}} ({topLevel} top-level)"
 # unreferenced: no surface counts findings yet; `doctor` lists them.
 count.findings = "{count, plural, =0 {no findings} one {# finding} other {# findings}}"
 

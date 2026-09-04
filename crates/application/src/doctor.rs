@@ -129,7 +129,11 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                         Severity::Warning,
                         Reason::new("doctor.provider_support")
                             .with("provider", id)
-                            .with("tier", &format!("{:?}", support.tier))
+                            // The stable identifier, not a `Debug` rendering. `Messages::render`
+                            // turns it into the catalogue's wording; building the
+                            // display text here would be a display string in the
+                            // application layer (F-20).
+                            .with("tier", &macportsbrew_policy::labels::tier(support.tier))
                             .with("source", &support.fact.source)
                             .with("readOn", &support.fact.read_on),
                         Some(id.clone()),

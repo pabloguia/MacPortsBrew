@@ -197,10 +197,45 @@ impl Messages {
     /// Renders an identifier with parameters.
     pub fn render(&self, id: &str, params: &BTreeMap<String, String>) -> String {
         if let Some(template) = self.catalogue.get(id) {
+            let params = &self.resolve_identifiers(params);
             return format::format_message(&self.locale, template, params);
         }
         self.missing.borrow_mut().insert(id.to_string());
         format!("[{id}]")
+    }
+
+    /// Parameters whose value is a stable domain identifier, rendered through
+    /// the catalogue key for that identifier before substitution.
+    ///
+    /// The families are named in `locales/en.toml`, which has described this
+    /// mechanism since it was written while nothing implemented it: a rule
+    /// emitting `labels::tier(SupportTier::Degraded)` put the literal
+    /// `DEGRADED` into a sentence a person reads, and `doctor` put
+    /// `format!("{:?}", tier)` there - a `Debug` rendering built in the
+    /// *application* layer, which is a display string above the layer allowed to
+    /// have one (F-20).
+    ///
+    /// A value that names no key is left exactly as it is. That is deliberate
+    /// and not a fallback to be tidied away: `{state}` also carries values from
+    /// families this does not cover, and silently blanking one would be worse
+    /// than showing an identifier.
+    fn resolve_identifiers(&self, params: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+        const FAMILIES: &[(&str, &str)] = &[
+            ("tier", "support"),
+            ("class", "class"),
+            ("cause", "source_build"),
+        ];
+        let mut out = params.clone();
+        for (name, family) in FAMILIES {
+            let Some(value) = out.get_mut(*name) else {
+                continue;
+            };
+            let key = format!("{family}.{}", value.to_ascii_lowercase());
+            if let Some(template) = self.catalogue.get(&key) {
+                *value = format::format_message(&self.locale, template, &BTreeMap::new());
+            }
+        }
+        out
     }
 
     /// Renders an identifier that takes no parameters.
@@ -251,6 +286,47 @@ impl Messages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_stable_identifier_parameter_is_rendered_through_its_catalogue_key() {
+        // `locales/en.toml` has described this since it was written and nothing
+        // implemented it, so a rule emitting `labels::tier(Unsupported)` put the
+        // literal `UNSUPPORTED` into a sentence a person reads — while
+        // `support.unsupported = "Not supported"` sat in the catalogue unused
+        // (F-20).
+        let messages = Messages::english();
+        let with = |name: &str, value: &str| {
+            let mut p = BTreeMap::new();
+            p.insert(name.to_string(), value.to_string());
+            p
+        };
+        let rendered = messages.render("doctor.provider_support", &with("tier", "UNSUPPORTED"));
+        assert!(
+            rendered.contains("Not supported"),
+            "the catalogue's wording, not the identifier: {rendered}"
+        );
+        assert!(
+            !rendered.contains("UNSUPPORTED"),
+            "and the identifier does not survive: {rendered}"
+        );
+        // Every variant the domain has.
+        for (identifier, text) in [
+            ("SUPPORTED", "Supported"),
+            ("DEGRADED", "Degraded"),
+            ("UNSUPPORTED", "Not supported"),
+            ("UNKNOWN", "Unknown"),
+        ] {
+            let out = messages.render("doctor.provider_support", &with("tier", identifier));
+            assert!(
+                out.contains(text),
+                "{identifier} should render {text}: {out}"
+            );
+        }
+        // A value naming no key is left exactly as it is, rather than blanked.
+        // `{state}` and friends carry values from families this does not cover.
+        let out = messages.render("doctor.provider_support", &with("tier", "SOMETHING_NEW"));
+        assert!(out.contains("SOMETHING_NEW"), "{out}");
+    }
+
     use super::*;
     use macportsbrew_domain::ErrorId;
 

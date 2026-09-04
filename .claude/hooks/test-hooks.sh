@@ -177,6 +177,81 @@ rm -rf "$tmp"
 # --- stop gate --------------------------------------------------------------
 # On this repository the gate must pass; a deliberately broken tree must block.
 assert "stop gate passes on a clean tree"     stop-gate.sh exit0 '{"stop_hook_active":false}'
+
+# The branches SE-063 added, none of which the seventy cases above reach. Each
+# is about the *state of a repository*, so each gets one: the live tree is dirty
+# whenever anyone is working in it, which is precisely when the gate runs.
+scratch_repo() {
+  local dir; dir="$(mktemp -d)"
+  mkdir -p "$dir/scripts" "$dir/crates" "$dir/.claude"
+  printf '[workspace]\nmembers = []\n' > "$dir/Cargo.toml"
+  printf '#!/bin/sh\nexit 0\n' > "$dir/scripts/validate.sh"
+  chmod +x "$dir/scripts/validate.sh"
+  git -C "$dir" init -q 2>/dev/null
+  git -C "$dir" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
+  # A second commit touching nothing the checks cover, so `HEAD@{1}` exists and
+  # names a real previous position. With one commit it does not, and the gate
+  # answers "unknown" - which it treats as "assume the worst", correctly, and
+  # which is not the state these cases are about.
+  printf 'notes\n' > "$dir/README.md"
+  git -C "$dir" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm notes >/dev/null 2>&1
+  printf '%s' "$dir"
+}
+gate_in() {  # gate_in <dir> [env assignments...]
+  local dir="$1"; shift
+  printf '{"stop_hook_active":false}' \
+    | env CLAUDE_PROJECT_DIR="$dir" "$@" "$HERE/stop-gate.sh" 2>&1
+}
+gate_case() {  # gate_case <label> <expected rc> <needle> <dir> [env...]
+  local label="$1" want="$2" needle="$3"; shift 3
+  local out rc
+  out="$(gate_in "$@")"; rc=$?
+  if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -q "$needle"; then
+    pass=$((pass + 1))
+  else
+    failures+=("$label: expected rc=$want and \"$needle\", got rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)")
+  fi
+}
+
+# `HOME` points at an empty directory because the gate prepends
+# `$HOME/.cargo/bin` itself: a stripped `PATH` alone does not hide a toolchain.
+nohome="$(mktemp -d)"
+
+# 1. No toolchain, and this turn touched code. The checks did not run, which is
+#    not the same as passing.
+d="$(scratch_repo)"; : > "$d/crates/changed.rs"
+gate_case "stop gate fails when code changed and cargo is absent" 2 \
+  "cargo is not on PATH, and this turn" "$d" PATH=/usr/bin:/bin HOME="$nohome"
+rm -rf "$d"
+
+# 2. The same, after committing it. A committed change is still a change this
+#    turn made, and reading only `git status` called that "nothing changed".
+d="$(scratch_repo)"; : > "$d/crates/changed.rs"
+git -C "$d" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+git -C "$d" -c user.email=t@t -c user.name=t commit -qm work >/dev/null 2>&1
+gate_case "stop gate sees a change committed mid-turn" 2 \
+  "cargo is not on PATH, and this turn" "$d" PATH=/usr/bin:/bin HOME="$nohome"
+rm -rf "$d"
+
+# 3. No toolchain and nothing touched: a documentation turn is not held
+#    hostage, and nothing may be reported as verified either.
+d="$(scratch_repo)"
+gate_case "stop gate warns when nothing changed and cargo is absent" 0 \
+  "do not report anything as verified" "$d" PATH=/usr/bin:/bin HOME="$nohome"
+
+# 4. And an explicit request for the tests is not answered with a warning.
+gate_case "stop gate honours MPB_GATE_FULL when cargo is absent" 2 \
+  "cargo is not on PATH" "$d" PATH=/usr/bin:/bin HOME="$nohome" MPB_GATE_FULL=1
+rm -rf "$d"
+rm -rf "$nohome"
+
+# 5. The one implementation of "valid" is not runnable: fail rather than skip.
+d="$(scratch_repo)"; chmod -x "$d/scripts/validate.sh"
+gate_case "stop gate fails when validate.sh is not executable" 2 \
+  "not executable" "$d"
+rm -rf "$d"
 broken="$(mktemp -d)"
 mkdir -p "$broken/.claude" "$broken/docs"
 printf 'see [missing](nowhere.md)\n' > "$broken/docs/broken.md"

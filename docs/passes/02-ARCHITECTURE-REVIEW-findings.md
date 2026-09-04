@@ -947,18 +947,21 @@ records.
   at least *recorded* as non-authoritative, which is good engineering — the defect is
   that documentation and code state different rules. See SE-046; scope change makes
   it the owner's call.
-- **Domain enums rendered to users through `{:?}`.** *Partly fixed — SE-064:* the
-  support tier and the composed count go through the catalogue, and
-  `check-i18n-parity.sh` now checks the third direction. The remaining `{:?}`
-  sites — translation, `step.kind`, the verification struct — are open.
- `cli/src/app/human.rs:139`
-  (support tier), `:108` (translation), `:353` (`step.kind`), `:379` (a verification
-  struct's `Debug`). `locales/en.toml:143-146` already defines the four `support.*`
+- **Domain enums rendered to users through `{:?}`.** *Partly fixed — SE-064.*
+  The support tier goes through the catalogue at all three of its sites: the
+  `status` column, `doctor`'s reason parameter — which was building a display
+  string in the *application* layer — and every rule that hands `{tier}` a
+  stable identifier, which `locales/en.toml:75-77` had claimed was substituted
+  since it was written while nothing did it. The composed
+  `"{} ({} top-level)"` goes through it too, and `check-i18n-parity.sh` now
+  checks the third direction. **Still open:** `human.rs` renders the machine's
+  translation state, `step.kind` and a verification check with `{:?}`
+  (originally cited as `:108`, `:353`, `:379`; the file has grown since). `locales/en.toml:143-146` already defines the four `support.*`
   keys — all unreferenced — so an `UNSUPPORTED` tier prints `unsupported` instead of
   the catalogue's deliberate "Not supported", and the column never pseudolocalises.
   `wiki/Architecture.md:101` claims *"Nothing is displayed from the lower layers"*.
   Plus **18 orphaned English keys** and `human.rs:140` composing
-  `"{} ({} top-level)"` in code, which `06-cli-and-ux.md:121-122` forbids as a MUST.
+  `"{} ({} top-level)"` in code, which `06-cli-and-ux.md:122-123` forbids as a MUST.
   `check-i18n-parity.sh` passes because it checks two of three directions, never
   `en.toml → code`, though its header claims it fails on an orphaned key.
 - **The `Stop` gate degrades silently, and it misled the previous pass.** *Fixed — SE-063.*

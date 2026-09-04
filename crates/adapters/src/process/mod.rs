@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn every_program_an_adapter_names_is_on_the_allowlist() {
+    fn invariant_10_every_program_an_adapter_names_is_on_the_allowlist() {
         // The comment above PERMITTED_PROGRAMS says divergence is caught here
         // rather than by whoever edits one place remembering the other. This is
         // that check, and it is the reason the list may be written out by hand:

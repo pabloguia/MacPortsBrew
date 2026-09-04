@@ -1753,6 +1753,39 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
 }
 
 #[test]
+fn the_status_table_renders_through_the_catalogue() {
+    // Both columns were built in code: the tier as
+    // `format!("{:?}", tier).to_ascii_lowercase()` and the count as
+    // `"{} ({} top-level)"` (F-20). Nothing asserted either, so swapping two
+    // catalogue keys or reverting to `{:?}` would pass clippy, pass the parity
+    // check - the keys exist and are referenced either way - and pass the suite.
+    let scratch = Scratch::new("status-render");
+    let path = fixture(BOTH);
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let out = run(&scratch, &["--replay", path, "status", "--today", TODAY]);
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        text.contains("Supported"),
+        "the tier comes from the catalogue, capitalised as it writes it: {text}"
+    );
+    assert!(
+        !text.contains(" supported ") && !text.lines().any(|l| l.contains("  supported")),
+        "and not lower-cased from the enum: {text}"
+    );
+    assert!(
+        text.contains("packages (") && text.contains("top-level)"),
+        "the count is one catalogue string with a plural rule: {text}"
+    );
+    // The plural rule is the catalogue's, not a format string's: a provider
+    // holding one package says "package", not "1 packages".
+    assert!(
+        !text.contains("1 packages"),
+        "the plural rule did not apply: {text}"
+    );
+}
+
+#[test]
 fn every_fixture_matches_its_committed_golden_analysis() {
     // The golden files are the committed proof of INV-15 across the matrix.
     // scripts/run-fixture-matrix.sh --update regenerates them; this fails when

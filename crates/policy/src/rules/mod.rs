@@ -25,7 +25,7 @@ use macportsbrew_domain::{Outcome, Reason};
 mod destination_unsupported_here;
 mod keep_both_healthy;
 mod keep_source_default;
-pub(crate) mod labels;
+pub mod labels;
 mod manual_review_availability_unknown;
 mod manual_review_class;
 mod manual_review_destination_deprecated;

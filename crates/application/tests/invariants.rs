@@ -596,40 +596,74 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
     // "Choosing which `git` runs does not change which provider owns `git`'s
     // dependencies." The policy crate's test argues this from the types -
     // `Outcome::KeepBoth` carries a `primary` and nothing else - which is true
-    // and is not where selection is implemented. `SetPrimary` and
-    // `primary_after` are here, and were untested (F-19).
+    // and is not where selection is implemented (F-19).
+    //
+    // Nothing persists a primary in this build, so there is no before-and-after
+    // to compare; asserting one against an unchanged snapshot is a tautology,
+    // and the first version of this test did exactly that. What *can* fail is
+    // the plan itself: the mechanism by which a primary is selected is the
+    // reason ownership cannot move, and a change to that mechanism is the way
+    // this invariant would actually break.
     let snap = both_present();
-    let before = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
-    let unit_before = before.packages.iter().find(|p| p.name == "tool").unwrap();
-
-    // A plan that only changes which copy runs: the source keeps the package.
     let plan = plan_for(&snap, "tool", MP, true);
     assert_eq!(plan.primary_after, ProviderId::new(MP));
     assert!(
-        plan.steps.iter().any(|s| s.kind == StepKind::SetPrimary),
-        "this plan is the one that selects a primary"
-    );
-    assert!(
         !plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource),
-        "`--retain-source` keeps the source copy, so nothing is removed"
+        "`--retain-source` keeps the source copy, so ownership cannot move by removal"
     );
 
-    // Planning is a pure function of the snapshot, so the ownership facts are
-    // the same objects; what this asserts is that the *plan* claims no change
-    // to them. Nothing in it names ownership, and the dependency counts it was
-    // built from still say what they said.
-    let after = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
-    let unit_after = after.packages.iter().find(|p| p.name == "tool").unwrap();
-    for id in [ProviderId::new(HB), ProviderId::new(MP)] {
+    let primary = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::SetPrimary)
+        .expect("this plan is the one that selects a primary");
+
+    // The load-bearing assertion. Selection goes through MacPortsBrew's own
+    // managed directory (SE-036), never through a provider's mechanism - so
+    // neither provider's record of what it owns is touched. A `SetPrimary` that
+    // ran `brew link` or `port select` instead would transfer exactly what
+    // INV-11 forbids, and this is what would catch it.
+    assert!(!primary.commands.is_empty(), "the step names its command");
+    for c in &primary.commands {
         assert_eq!(
-            unit_before.rows[&id].dependency_count, unit_after.rows[&id].dependency_count,
-            "{id}: selecting a primary changed a dependency count"
+            c.target,
+            macportsbrew_domain::CommandTarget::Tool,
+            "selection is this tool's own operation, not a provider's: {c:?}"
         );
         assert_eq!(
-            unit_before.rows[&id].reverse_dependency_count,
-            unit_after.rows[&id].reverse_dependency_count,
-            "{id}: selecting a primary changed a reverse-dependency count"
+            c.elevation,
+            macportsbrew_domain::Elevation::None,
+            "and it stays off the elevating path (SE-036): {c:?}"
         );
+    }
+
+    // No step touches anything but the package named. `dep` is a dependency of
+    // `tool` under Homebrew, and a plan that reached for it would be moving
+    // ownership by the back door. It is visible only under `advanced`, which is
+    // why the first version of this assertion - written against the default
+    // options - never ran at all.
+    let advanced = AnalysisOptions {
+        advanced: true,
+        ..options()
+    };
+    let seen = analyze(&snap, &policy(), &advanced, AnalysisSource::Snapshot);
+    let dep = seen
+        .packages
+        .iter()
+        .find(|p| p.name == "dep")
+        .expect("advanced mode shows the dependency; the default view does not");
+    assert_eq!(
+        dep.source,
+        ProviderId::new(HB),
+        "the dependency belongs to Homebrew before any of this"
+    );
+    for step in &plan.steps {
+        for c in &step.commands {
+            assert!(
+                !c.argv.iter().any(|a| a == "dep"),
+                "a plan for `tool` named `dep`: {step:?}"
+            );
+        }
     }
 
     // And the serialised plan says nothing about ownership - the same assertion
@@ -640,17 +674,6 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
         !json.contains("ownership") && !json.contains("requested"),
         "a plan that selects a primary must not restate ownership: {json}"
     );
-
-    // The dependency the invariant names: `dep` belongs to Homebrew, and
-    // making MacPorts primary for `tool` leaves it there.
-    let dep = before.packages.iter().find(|p| p.name == "dep");
-    if let Some(dep) = dep {
-        assert_eq!(
-            dep.source,
-            ProviderId::new(HB),
-            "the dependency's owner is not a function of which copy of `tool` runs"
-        );
-    }
 }
 
 #[test]

@@ -2783,8 +2783,12 @@ finding ids in each entry.
 - Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
 - Original assumption: an invariant with a test named after it is an invariant
   that is defended.
-- Change: six of the tests F-19 assessed are strengthened, one is confirmed
-  already closed, and one is not fixed and is filed as F-25.
+- Change: of the tests F-19 assessed, **four are strengthened** (INV-10,
+  INV-07/08, INV-17's swap, INV-20), **one is new** (INV-11, which had no test
+  where it is implemented), **one is confirmed already closed** by the F-03 fix
+  (INV-13), and **one is not fixed** and is filed as F-25 (INV-15). An earlier
+  draft of this line, and the commit subject that carries it, said "six
+  strengthened", which the entry's own list contradicts.
   - **INV-10** — the test `continue`d past every program that was not one of the
     four macOS probes, which is to say past every `brew` and `port` invocation.
     INV-10 is about `brew` and `port`. It checks every invocation now, asserts
@@ -2844,11 +2848,31 @@ finding ids in each entry.
   INV-17 and INV-11 additions were written against a passing tree, so what they
   buy is coverage of a shape nothing asserted rather than a caught defect —
   stated because "the test passes" is not evidence that it would have failed.
+  **And the INV-11 test as first written could not have failed**, which is F-19's
+  defect committed inside F-19's fix. Its one assertion about the invariant's
+  actual statement sat inside `if let Some(dep) = ...find(|p| p.name == "dep")`,
+  and `dep` is a dependency: absent from the default view, as a test two hundred
+  lines away in the same file asserts. The block never ran. Beside it, a
+  comparison of `analyze(snap)` with `analyze(snap)` restated INV-14's
+  determinism. It asserts the *mechanism* now — selection goes through this
+  tool's own directory, `CommandTarget::Tool`, at `Elevation::None`, which is
+  precisely why no provider's record of what it owns can move — and a
+  `SetPrimary` rewritten to `CommandTarget::Provider` fails it.
 - User impact: none. No behaviour changed except the removal of an unused
   constant.
 - Architectural impact: `registry.rs` is now genuinely the only place naming a
-  provider prefix, which INV-20 already required.
-- Compatibility impact: none.
+  provider prefix, which is **`AGENTS.md`'s provider-neutrality rule** — not
+  INV-20's. An earlier draft of this line said INV-20 "already required" it,
+  substituting one rule for the other and closing a finding on the wrong one.
+  INV-20 says prefixes live in versioned *data files* with a source and a read
+  date; `registry.rs` holds them in a `match` with the provenance in a doc
+  comment, which is F-20's open bullet and is not closed here. The check exempts
+  that one file and holds the rest of the workspace; **DP-014** puts the
+  substantive question — moving them into `data/policy/` crosses a layer — to
+  the owner.
+- Compatibility impact: no external consumer exists yet. `DEFAULT_PREFIX` and
+  `default_candidates` were `pub` items of the `adapters` crate, so this would be
+  a breaking removal for one; there is none, and no release.
 
 ## SE-063 — The `Stop` gate fails where it used to pass having checked nothing
 - Status: accepted
@@ -2867,6 +2891,18 @@ finding ids in each entry.
   CLAUDE.md's own argument for this hook is that "give the agent a way to check
   its work" beats "tell the agent to be careful"; a way to check that can quietly
   not run is neither.
+- **And the scoping did not fire in the case that occurs here.**
+  `git status --porcelain` reports what is *uncommitted*, and this repository
+  commits mid-turn constantly — the commits closing these findings are the
+  evidence. Edit `crates/`, commit, end the turn: clean tree, "nothing changed",
+  warn, exit 0. The same defect sat in the mode decision above it, silently
+  downgrading the full suite to `--quick`. Both now ask whether the turn touched
+  a watched path, which is uncommitted work *or* anything committed since the
+  previous position of `HEAD`; with no reflog to consult they answer "unknown",
+  which is treated as "assume the worst". `scripts` and `.claude` joined the
+  pathspec — they are the gates themselves, which `AGENTS.md` lists first under
+  "dangerous to change" — and `MPB_GATE_FULL=1` is honoured, because answering an
+  explicit request for the tests with a warning is the same failure in miniature.
 - **Scoped, so it is not a hostage.** A documentation turn on a machine without a
   toolchain is not blocked: the failure fires only when the working tree has
   changes under the paths the checks cover, which is the same set the gate
@@ -2876,7 +2912,11 @@ finding ids in each entry.
   the hook's own `$HOME/.cargo/bin` prepend cannot find a toolchain: with a
   modified `crates/` file the gate exits 2 and names the reason, with a clean
   tree it exits 0 and warns. Removing `validate.sh`'s executable bit exits 2.
-  Hook tests 70/70.
+  Those were manual probes, and an earlier draft listed "hook tests 70/70"
+  beside them as though the suite covered the change: 70/70 was 70/70 before it,
+  and none of the seventy touched a branch this added. There are five cases now,
+  each in a scratch repository of its own, because the live tree is dirty
+  whenever anyone is working in it — which is exactly when the gate runs.
 - User impact: none — this is agent tooling.
 - Architectural impact: none.
 - Compatibility impact: a turn that changes code on a machine with no toolchain
@@ -2895,27 +2935,46 @@ finding ids in each entry.
   English does not. A key English carries that no code reads was invisible in
   both remaining directions — which is how four deliberate `support.*` labels sat
   unused while the column printed a Rust identifier no catalogue sees and no
-  pseudolocale marks. `06-cli-and-ux.md:121-122` makes composing user-facing text
+  pseudolocale marks. `06-cli-and-ux.md:122-123` makes composing user-facing text
   in code a **MUST NOT**, and `"{} ({} top-level)"` is one: the plural of
   "package" is the catalogue's business, and not every language puts the
   qualifier in parentheses after the count.
 - **A gate does not delete a product's prose.** Seventeen English keys are
   rendered by nothing, and they are not junk: three are written ahead of caching
-  and network support, which `README.md` lists as unimplemented; twelve are a
-  `status` table shape the renderer superseded; `cli.alias_note` is the alias
-  note the clap literal should be carrying (F-23). Deleting deliberate text is
+  and network support, which `README.md` lists as unimplemented; nine are a
+  `status` table shape the renderer superseded; two belong to a `doctor` heading
+  and empty-state line it does not print; two are plural forms with no caller;
+  and `cli.alias_note` is the alias note the clap literal should be carrying
+  (F-23). An earlier draft of this sentence said "twelve" for the `status` group
+  and accounted for thirteen of the seventeen. Deleting deliberate text is
   the owner's call. So each carries a `# unreferenced:` line saying why, the
   check refuses an unmarked one, and it also refuses a *stale* marker on a key
   that is rendered. The reason lives next to the string, where a translator sees
   it, and adding a key without wiring it now forces you to say why.
+- **And the tier reaches the user from two more places, which the first version
+  of this entry did not mention.** `doctor.rs` passed `format!("{:?}", tier)` —
+  a display string built in the *application* layer — and `labels::tier` hands
+  `DEGRADED` to rules whose sentences a person reads. `locales/en.toml:75-77` has
+  claimed since it was written that a parameter carrying a stable domain
+  identifier is "rendered through the matching key before substitution", and
+  nothing did it. `Messages::render` does now, for `{tier}`, `{class}` and
+  `{cause}`; a value naming no key passes through unchanged, because blanking one
+  silently would be worse than showing an identifier.
 - **The literal scan had to widen too.** Six call shapes were recognised;
   `ErrorId::message_id` writes thirteen ids as bare `match` arms, and every one
   of them looked orphaned under the new direction. Any string literal shaped like
   a message id counts as a use, which is both simpler and harder to slip past
   than a list of call shapes.
-- Evidence: finding F-20. Probed three ways, each reverted: a new key with no
+- **The gate cannot check that a reason is true, and the first batch proved
+  it.** `count.packages` was marked "superseded at its one call site" — it never
+  had one; the renderer built the string in Rust from the beginning. The check
+  verifies a marker exists and is not stale, never that its sentence is honest,
+  so a marker is prose and gets reviewed as prose. Corrected.
+- Evidence: finding F-20. Probed four ways, each reverted: a new key with no
   reason fails; removing a marker from an existing one fails; a marker on a key
-  that *is* rendered fails. `status` now prints "Supported" where it printed
+  that *is* rendered fails; and a marker at the end of one section no longer
+  excuses the first key of the next, which it did until a review pointed at the
+  `# --- header ---` lines between them. `status` now prints "Supported" where it printed
   "supported", and "190 packages (57 top-level)" from one key.
 - User impact: the support column shows the catalogue's deliberate wording, and
   both strings pseudolocalise.

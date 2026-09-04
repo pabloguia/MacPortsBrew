@@ -487,10 +487,26 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     //
     // Two of the four things INV-20 names are checkable this way, and the test
     // used to check one of them, in one crate of five (F-19). A **deadline** is
-    // a year a provider published. A **prefix** is a path only `registry.rs` may
-    // know: `04-migration-and-safety.md` and `AGENTS.md` both make it the single
-    // site, and a prefix compiled in anywhere else is the same defect as a date
-    // compiled in — re-checking it means re-releasing.
+    // a year a provider published. A **prefix** is a path that, by `AGENTS.md`'s
+    // provider-neutrality rule, only `registry.rs` may know - and a prefix
+    // compiled in anywhere else is the same defect as a date compiled in:
+    // re-checking it means re-releasing.
+    //
+    // **The exemption below is not INV-20 compliance and must not be read as
+    // it.** INV-20 says prefixes "live in versioned data files carrying a source
+    // and a read date". `registry.rs` carries them in a `match`, with the source
+    // and read date in a doc comment - which is provenance, and is not a data
+    // file, and is not re-checkable without a release. That is F-20's own bullet
+    // and it is open; moving them into `data/policy/` crosses a layer, because
+    // that directory is read by `application` and `registry.rs` is in
+    // `adapters`. DP-014 puts the question to the owner. Until it is answered,
+    // this check holds the *rest* of the workspace to the rule and exempts the
+    // one place the finding already names, rather than pretending the finding is
+    // closed.
+    //
+    // An earlier version of this comment cited `04-migration-and-safety.md` for
+    // the single-site rule. That file contains no occurrence of the word
+    // "registry", and no file under `docs/spec/` names `registry.rs` at all.
     //
     // The other two are not checkable textually and this test does not pretend
     // to. A **support tier** appears in source only as the neutral `SupportTier`
@@ -513,7 +529,8 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
         files.len()
     );
 
-    // The one place that is allowed to know where a provider installs itself.
+    // The one place that is allowed to know where a provider installs itself —
+    // by AGENTS.md's rule, and pending DP-014 under INV-20's.
     let registry = std::path::Path::new("adapters")
         .join("src")
         .join("registry.rs");
@@ -521,12 +538,20 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     for path in files {
         let exempt = path.ends_with(&registry);
         let text = std::fs::read_to_string(&path).expect("readable source file");
+        // Where test code begins, and only where it *begins as a module*. The
+        // first version latched on any `#[cfg(test)]`, which in
+        // `adapters/src/process/mod.rs` is a `const` three hundred lines above
+        // the test module - so the whole of the only subprocess site in the
+        // repository went unread, silently. A review measured 27% of the
+        // workspace excluded that way.
         let mut in_tests = false;
+        let mut previous_was_cfg_test = false;
         for (number, line) in text.lines().enumerate() {
             let code = line.trim_start();
-            if code.starts_with("#[cfg(test)]") {
+            if previous_was_cfg_test && code.starts_with("mod tests") {
                 in_tests = true;
             }
+            previous_was_cfg_test = code.starts_with("#[cfg(test)]");
             if in_tests || code.starts_with("//") {
                 continue;
             }
@@ -552,6 +577,7 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
             }
         }
     }
+    offenders.sort();
     assert!(
         offenders.is_empty(),
         "a dated provider fact appears in source; it belongs in data/policy/ with its \

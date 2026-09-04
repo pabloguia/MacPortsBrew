@@ -117,13 +117,43 @@ fi
 #    how much of it to run: --quick (format, lint, layering, SPDX, licences,
 #    i18n parity) on every turn end; the test suite too when code, tests,
 #    fixtures or catalogues changed, or when MPB_GATE_FULL=1.
+# Whether this turn touched anything the code checks cover.
+#
+# The working tree alone is not the answer: this repository commits mid-turn, so
+# an edit under `crates/` followed by a commit leaves a clean tree, and a check
+# keyed on `git status` reads that as "nothing changed". A committed change is
+# still a change this turn made. So: uncommitted work *or* anything committed
+# since the previous position of HEAD.
+#
+# `scripts` and `.claude` are in the pathspec because they are the gates
+# themselves, which `AGENTS.md` lists first under "dangerous to change". An edit
+# to `validate.sh` that runs no checks is the shape of defect this whole gate
+# exists to refuse.
+touched_paths() {
+  local spec=(crates src tests fixtures locales data scripts .claude Cargo.lock Cargo.toml)
+  command -v git >/dev/null 2>&1 || { echo unknown; return; }
+  git rev-parse --git-dir >/dev/null 2>&1 || { echo unknown; return; }
+  if [ -n "$(git status --porcelain -- "${spec[@]}" 2>/dev/null | head -1)" ]; then
+    echo yes; return
+  fi
+  # `HEAD@{1}` is where HEAD was before the most recent move. Absent on a fresh
+  # clone or a repository with no reflog, in which case say so rather than
+  # guessing "no".
+  if git rev-parse --verify --quiet 'HEAD@{1}' >/dev/null 2>&1; then
+    if [ -n "$(git diff --name-only 'HEAD@{1}' HEAD -- "${spec[@]}" 2>/dev/null | head -1)" ]; then
+      echo yes; return
+    fi
+    echo no; return
+  fi
+  echo unknown
+}
+
 if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
   PATH="$HOME/.cargo/bin:$PATH"
+  touched="$(touched_paths)"
   if command -v cargo >/dev/null 2>&1; then
     run_tests="${MPB_GATE_FULL:-0}"
-    if [ "$run_tests" != "1" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-      [ -n "$(git status --porcelain -- crates src tests fixtures locales data Cargo.lock 2>/dev/null | head -1)" ] && run_tests=1
-    fi
+    [ "$run_tests" != "1" ] && [ "$touched" != "no" ] && run_tests=1
     mode=--quick
     [ "$run_tests" = "1" ] && mode=default
     if ! validate_out="$(scripts/validate.sh "$mode" 2>&1)"; then
@@ -139,14 +169,10 @@ if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
     # without a toolchain is not held hostage to one. A change under `crates/`,
     # `tests/`, `fixtures/`, `locales/`, `data/` or `Cargo.lock` needs them, and
     # that is the same set the mode decision uses above.
-    touched_code=0
-    if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-      [ -n "$(git status --porcelain -- crates src tests fixtures locales data Cargo.lock 2>/dev/null | head -1)" ] && touched_code=1
-    else
-      # No git either: assume the worst rather than the convenient.
-      touched_code=1
-    fi
-    if [ "$touched_code" = "1" ]; then
+    # `MPB_GATE_FULL=1` is an explicit request for the tests. Honouring it only
+    # when they can run, and warning otherwise, would answer "run everything"
+    # with silence.
+    if [ "$touched" != "no" ] || [ "${MPB_GATE_FULL:-0}" = "1" ]; then
       fail+=("cargo is not on PATH, and this turn changed code, tests, fixtures, \
 locales or data. The checks that would have run did not run - which is not the \
 same as passing. Install the pinned toolchain, or say plainly in the turn's \

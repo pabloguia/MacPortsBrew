@@ -73,6 +73,43 @@ are recorded.
 - **Default meanwhile:** unchanged, because it is Tier 2. Recorded as SE-044
   (`Status: proposed`) and finding F-11.
 
+### DP-014 — Provider prefixes are compiled in, and INV-20 names prefixes (Tier 1 compliance, and a layering question)
+- **The question:** INV-20 says support tiers, deadlines, **prefixes** and
+  known-package knowledge "live in versioned data files carrying a source and a
+  read date, and are re-checkable". `crates/adapters/src/registry.rs:32-38`
+  holds `/opt/homebrew`, `/usr/local` and `/opt/local` in a `match`, with the
+  sources and read dates in a doc comment above it. Provenance is there; a data
+  file is not, and re-checking still means re-releasing — which is the cost
+  INV-20 exists to remove. Move them, or record why a doc comment satisfies
+  INV-20 for prefixes?
+- **Why it is not simply "move them":** `data/policy/` is loaded by the
+  `application` crate, and `registry.rs` is in `adapters`, which sits *below*
+  it — the Cargo edges are the layering rule and `scripts/check-layering.sh`
+  asserts them. Moving the prefixes into `data/policy/provider-commands.toml`
+  therefore needs one of: a second loader in `adapters`, a data file owned by
+  `adapters`, or the prefixes being handed down from `application` at
+  construction. Each is a real design choice about where "what a provider is"
+  lives, and none is an obvious default.
+- **Why it matters more than three strings:** the doc comment says the prefixes
+  were read on 2026-09-02. Homebrew's Intel and Apple Silicon defaults have
+  moved once in living memory. When they move again, a data file is a one-line
+  edit with a new `read_on`; a `match` is a release. `prefix_override` mitigates
+  it for anyone who knows to pass one.
+- **Options:** (a) a small `data/policy/provider-prefixes.toml` read by a loader
+  in `adapters`, keeping the layering intact and giving prefixes the same shape
+  as every other dated fact; (b) `application` reads them and passes them to the
+  registry, which makes `adapters` unable to detect anything on its own;
+  (c) an explicit ruling that a doc comment carrying `source` and `read_on` next
+  to a `match` satisfies INV-20 for this one category, recorded as an entry.
+- **Recommendation:** (a). It is the smallest change that makes the invariant
+  true rather than argued around, and it keeps detection where it belongs.
+- **Default meanwhile:** unchanged, and the INV-20 test exempts `registry.rs`
+  *explicitly*, with a comment saying the exemption is not compliance. Raised by
+  `spec-guardian`, which found the first version of that comment citing
+  `04-migration-and-safety.md` for a single-site rule that file does not contain
+  — and SE-062 reporting the exemption as INV-20 compliance, which it is not.
+  Recorded there and here rather than silently.
+
 ### DP-013 — The charter is now the only surface that says the tool executes migrations (Tier 2)
 - **The question:** `docs/spec/00-charter.md:29` carries the identity sentence —
   *"…and **executes migrations** in either direction…"* — and directs at `:33` that
