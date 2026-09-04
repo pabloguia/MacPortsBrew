@@ -484,35 +484,79 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     // Rule metadata dates are not that — they say when a rule was reviewed,
     // not what a provider promised — so the check names the deadline years
     // rather than every date-shaped literal.
-    let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    //
+    // Two of the four things INV-20 names are checkable this way, and the test
+    // used to check one of them, in one crate of five (F-19). A **deadline** is
+    // a year a provider published. A **prefix** is a path only `registry.rs` may
+    // know: `04-migration-and-safety.md` and `AGENTS.md` both make it the single
+    // site, and a prefix compiled in anywhere else is the same defect as a date
+    // compiled in — re-checking it means re-releasing.
+    //
+    // The other two are not checkable textually and this test does not pretend
+    // to. A **support tier** appears in source only as the neutral `SupportTier`
+    // enumeration, which is the shape INV-20 asks for; the dated values are in
+    // `provider-support.toml`. **Known-package knowledge** is a package name,
+    // and a package name is indistinguishable from an ordinary identifier by
+    // grep. Saying so here is better than a check that looks complete.
     let mut offenders: Vec<String> = Vec::new();
     let mut files: Vec<std::path::PathBuf> = Vec::new();
-    collect_rust_files(std::path::Path::new(src), &mut files);
-    assert!(files.len() > 5, "expected to find the crate's sources");
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .to_path_buf();
+    for crate_name in ["domain", "policy", "application", "adapters", "cli"] {
+        collect_rust_files(&workspace.join(crate_name).join("src"), &mut files);
+    }
+    assert!(
+        files.len() > 30,
+        "expected the whole workspace, found {} files",
+        files.len()
+    );
+
+    // The one place that is allowed to know where a provider installs itself.
+    let registry = std::path::Path::new("adapters")
+        .join("src")
+        .join("registry.rs");
 
     for path in files {
+        let exempt = path.ends_with(&registry);
         let text = std::fs::read_to_string(&path).expect("readable source file");
+        let mut in_tests = false;
         for (number, line) in text.lines().enumerate() {
             let code = line.trim_start();
-            if code.starts_with("//") {
+            if code.starts_with("#[cfg(test)]") {
+                in_tests = true;
+            }
+            if in_tests || code.starts_with("//") {
                 continue;
             }
+            let mut hit = |what: &str| {
+                offenders.push(format!(
+                    "{}:{}: {what}: {}",
+                    path.display(),
+                    number + 1,
+                    line.trim()
+                ));
+            };
             for year in ["2027", "2028", "2029", "2030"] {
                 if code.contains(year) {
-                    offenders.push(format!(
-                        "{}:{}: {}",
-                        path.display(),
-                        number + 1,
-                        line.trim()
-                    ));
+                    hit("a provider deadline");
+                }
+            }
+            if !exempt {
+                for prefix in ["/opt/homebrew", "/usr/local", "/opt/local"] {
+                    if code.contains(prefix) {
+                        hit("a provider prefix");
+                    }
                 }
             }
         }
     }
     assert!(
         offenders.is_empty(),
-        "a provider deadline appears in source; it belongs in data/policy/ with its \
-         source and read date (INV-20):\n{}",
+        "a dated provider fact appears in source; it belongs in data/policy/ with its \
+         source and read date, or - for a prefix - in registry.rs, which is the one \
+         place that may know one (INV-20):\n{}",
         offenders.join("\n")
     );
 }

@@ -421,6 +421,12 @@ fn invariant_13_dependency_units_appear_only_with_advanced() {
         hidden as u64
     );
     assert!(units(&advanced).len() > units(&normal).len());
+
+    // The subset property F-19 asks for is not asserted here, and deliberately:
+    // `invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view` already
+    // does it, across four fixtures, comparing the top-level sets themselves and
+    // each unit's `source`. Restating it here would be a second copy to keep
+    // true. What this test owns is the count and the flag.
 }
 
 // ---------------------------------------------------------------------------

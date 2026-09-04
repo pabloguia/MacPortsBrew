@@ -87,10 +87,6 @@ pub use availability::{archive_query_url, ARCHIVE_QUERY_URL_FORMAT};
 /// The provider id this adapter answers for.
 pub const PROVIDER_ID: &str = "macports";
 
-/// The documented default prefix (R-3 E-11, `guide.macports.org`
-/// "MacPorts Configuration Files": `prefix` "Default: /opt/local").
-pub const DEFAULT_PREFIX: &str = "/opt/local";
-
 /// The prefix-relative path of the `port` executable.
 pub(crate) const EXECUTABLE_RELATIVE: &str = "bin/port";
 
@@ -203,11 +199,6 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             .iter()
             .find(|p| p.join(EXECUTABLE_RELATIVE).is_file())
             .cloned()
-    }
-
-    /// The prefixes to try when the caller has no preference.
-    pub fn default_candidates() -> Vec<PathBuf> {
-        vec![PathBuf::from(DEFAULT_PREFIX)]
     }
 
     /// The prefix this adapter reads.
@@ -933,9 +924,14 @@ mod tests {
             )]),
             None
         );
+        // The registry is the only place that knows where a provider installs
+        // itself, and this adapter held a second, unused copy of that path -
+        // found by the widened INV-20 check rather than by anyone noticing
+        // (F-19). The assertion it replaced compared that copy to itself.
         assert_eq!(
-            MacPortsAdapter::<ReplayRunner>::default_candidates(),
-            vec![PathBuf::from(DEFAULT_PREFIX)]
+            crate::registry::candidate_prefixes(&ProviderId::new(PROVIDER_ID)),
+            vec![PathBuf::from("/opt/local")],
+            "the documented default prefix (R-3 E-11, guide.macports.org, read 2026-09-02)"
         );
     }
 

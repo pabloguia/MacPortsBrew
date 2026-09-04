@@ -186,3 +186,62 @@ fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot 
         resolutions: BTreeMap::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use macportsbrew_domain::{
+        Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
+        ProviderPresence,
+    };
+
+    #[test]
+    fn a_capability_reason_is_redacted_like_any_other_free_text() {
+        // `redact_provider`'s own comment names this case: the offline-metadata
+        // reason quotes the cache file it looked for, which is under the home on
+        // every machine, and a redaction rule keyed on field names would miss
+        // it. It was covered only through a live-filesystem read that INV-15
+        // forbids under replay; guarding that read took the coverage with it
+        // (F-19), so the rule is asserted here directly.
+        let home = HomeRedaction::Known("/Users/someone".into());
+        let mut snap = ProviderSnapshot {
+            detection: ProviderDetection {
+                provider: ProviderId::new("homebrew"),
+                presence: ProviderPresence::Present,
+                version: None,
+                prefix: None,
+                executable: None,
+                architecture: None,
+            },
+            capabilities: ProviderCapabilities {
+                capabilities: [(
+                    Capability::OfflineMetadata,
+                    CapabilityState::Unavailable {
+                        reason: "no cached index at /Users/someone/Library/Caches/Homebrew/api"
+                            .into(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            },
+            inventory: macportsbrew_domain::ProviderInventory::default(),
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+        };
+        redact_provider(&mut snap, &home);
+        let CapabilityState::Unavailable { reason } =
+            &snap.capabilities.capabilities[&Capability::OfflineMetadata]
+        else {
+            panic!("the state is unchanged in kind");
+        };
+        assert!(
+            !reason.contains("/Users/someone"),
+            "the home path survived redaction: {reason}"
+        );
+        assert!(
+            reason.contains("~/Library/Caches/Homebrew/api"),
+            "and the rest of the path is kept, or the reason stops being useful: {reason}"
+        );
+    }
+}

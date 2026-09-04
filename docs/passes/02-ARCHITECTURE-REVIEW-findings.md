@@ -33,6 +33,8 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
 | **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Open.** Honest as a value and satisfying INV-20 today, because nothing elevates yet. But three places say runtime detection is the real answer and nothing held the deferral. R-5a UNRESOLVED-1 names two read-only commands that settle it. |
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
+| **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
+| **F-25** — four unguarded live-filesystem calls under replay | **Open.** Named by F-19 and confirmed. The obvious guard, `runner.is_replay()`, answers "are subprocess results recorded" and not "does this filesystem describe the machine being read"; built that way it breaks three contract tests that are correct. Needs a constructor parameter, in the layer marked dangerous. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
@@ -769,7 +771,12 @@ a fork PR gets a red check the contributor cannot fix.
 
 ## F-19 — Several invariant tests would not fail if their invariant were violated
 
-**Severity: medium, and it is the reason F-01 to F-04 survived a green suite.**
+**Severity: medium, and it is the reason F-01 to F-04 survived a green suite.
+Fixed — SE-062, with one exception.** Six tests strengthened, one confirmed
+already closed by the F-03 fix, and INV-15's left open as **F-25**: the calls it
+names are real, and the obvious guard keys off `is_replay()`, which answers a
+different question and breaks three contract tests that are right. The widened
+INV-20 check found a second copy of a provider prefix on its first run.
 
 The work order asked which invariant tests would actually fail. Assessed individually:
 
@@ -786,6 +793,46 @@ The work order asked which invariant tests would actually fail. Assessed individ
 | `invariant_15_a_replayed_reader_never_consults_the_live_filesystem` | Covers `which()` only. `canonicalize` at `homebrew/mod.rs:767, :885, :897`, `macports/mod.rs:730` and `read_dir` at `macports/service.rs:64` are unreached under replay by a coincidence of call order, not a guard. |
 | `invariant_17_symmetric_rules`, `invariant_17_every_rule_individually_follows_the_rename` | **The strongest tests in the repository** — rule-by-rule rename over neutral ids. They are also why F-02 and F-03 survived: they prove the *policy* layer is symmetric, which is not where the asymmetry is. |
 | `invariant_01`, `invariant_06`, `invariant_08` (policy), `invariant_12`, `invariant_14`, `invariant_16`, `invariant_18`, `invariant_19` | Sound. `invariant_16_idempotent_read_commands` (asserts the state dir stays empty) is particularly good. |
+
+---
+
+## F-25 — Under replay, four live-filesystem calls are unguarded, and `is_replay()` is the wrong signal for guarding them
+
+**Severity: medium. INV-15. Raised while closing F-19, which named the calls;
+this records why the obvious fix is not one.**
+
+`SystemMachine::which` is guarded and returns `None` under replay. These are
+not:
+
+- `homebrew/mod.rs` `resolution()` — `std::fs::canonicalize`
+- `homebrew/mod.rs` `offline_metadata_state()` — `path.is_file()`
+- `macports/mod.rs` `resolution()` — `std::fs::canonicalize`
+- `macports/service.rs` `scan()` — `read_dir`, and the `is_file` below it
+
+They are unreached under `--replay` today because `which` returns `None` and
+nothing else supplies a path — a property of the caller. INV-15 is a property of
+the reader.
+
+**Guarding them on `runner.is_replay()` does not work, and this was built and
+measured rather than reasoned about.** That flag answers *are subprocess results
+recorded*. The question these calls raise is *does this filesystem describe the
+machine being read*. The two coincide under `--replay` from the CLI and come
+apart in a contract test, which uses a `ReplayRunner` so as not to spawn `brew`
+while genuinely testing the adapter against a scratch tree it just created.
+Built that way, `the_offline_metadata_capability_follows_the_cached_index`,
+`ownership_comes_from_the_resolved_path_not_the_containing_prefix` and
+`a_capture_carries_no_home_path_and_no_user_name` all failed — correctly. The
+third is the most telling: its subject, an `Unavailable { reason }` naming a
+cache path under the home, existed *because* the adapter stat'd the replaying
+host's disk. The redaction it tested is real; the route it took to reach it was
+the violation. That rule has its own test now
+(`capture::tests::a_capability_reason_is_redacted_like_any_other_free_text`).
+
+**What the fix needs:** a constructor parameter saying whether the filesystem
+corresponds to the machine being described — the registry knows, because it is
+what honours `prefix_override` under replay. That is a signature change across
+every adapter call site, in the layer `AGENTS.md` marks dangerous to change, and
+it belongs in a change of its own with a review.
 
 ---
 

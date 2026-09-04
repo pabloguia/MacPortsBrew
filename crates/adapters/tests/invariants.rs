@@ -211,20 +211,26 @@ fn invariant_16_ensuring_the_state_directory_is_idempotent() {
 }
 
 #[test]
-fn invariant_10_reading_the_machine_leaks_no_build_flag_into_a_probe() {
-    // Every invocation runs in an environment built from scratch. A probe that
-    // inherited `PKG_CONFIG_PATH` would be the contamination INV-10 forbids,
-    // and these probes have no reason to carry one.
+fn invariant_10_no_invocation_in_a_recording_carries_a_build_flag() {
+    // Every invocation runs in an environment built from scratch. Anything that
+    // inherited `PKG_CONFIG_PATH` would be the contamination INV-10 forbids -
+    // and INV-10 is about the *provider* invocations most of all, which is what
+    // the earlier name and the earlier filter both missed.
     let fixture = workspace().join("fixtures/recordings/homebrew-only-intel-macos26.json");
     let recording =
         macportsbrew_adapters::persistence::load_recording(&fixture).expect("fixture must load");
+    // Every invocation, not the four probes. This used to `continue` past
+    // anything that was not `sw_vers`, `uname`, `sysctl` or `xcode-select` -
+    // which is to say, past every `brew` and `port` invocation in the
+    // recording. INV-10 is about `brew` and `port`; the probes are the part it
+    // was not written for (F-19).
+    let mut checked = 0usize;
+    let mut providers = 0usize;
     for recorded in &recording.invocations {
         let invocation = &recorded.invocation;
-        if !matches!(
-            invocation.program.as_str(),
-            "sw_vers" | "uname" | "sysctl" | "xcode-select"
-        ) {
-            continue;
+        checked += 1;
+        if matches!(invocation.program.as_str(), "brew" | "port") {
+            providers += 1;
         }
         for name in invocation.environment.keys() {
             assert!(
@@ -234,6 +240,11 @@ fn invariant_10_reading_the_machine_leaks_no_build_flag_into_a_probe() {
             );
         }
     }
+    assert!(checked > 4, "the fixture has more than the four probes");
+    assert!(
+        providers > 0,
+        "a fixture with no provider invocation cannot exercise INV-10 at all"
+    );
 }
 
 #[test]

@@ -674,7 +674,7 @@ fn prefix_discovery_looks_for_the_executable_under_each_candidate() {
         None
     );
     assert_eq!(
-        MacPortsAdapter::<ReplayRunner>::default_candidates(),
+        macportsbrew_adapters::registry::candidate_prefixes(&ProviderId::new("macports")),
         vec![PathBuf::from(PREFIX)]
     );
 }

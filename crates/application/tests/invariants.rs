@@ -592,6 +592,68 @@ fn invariant_05_an_absent_provider_is_never_installed_implicitly() {
 }
 
 #[test]
+fn invariant_11_setting_the_primary_transfers_no_ownership() {
+    // "Choosing which `git` runs does not change which provider owns `git`'s
+    // dependencies." The policy crate's test argues this from the types -
+    // `Outcome::KeepBoth` carries a `primary` and nothing else - which is true
+    // and is not where selection is implemented. `SetPrimary` and
+    // `primary_after` are here, and were untested (F-19).
+    let snap = both_present();
+    let before = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
+    let unit_before = before.packages.iter().find(|p| p.name == "tool").unwrap();
+
+    // A plan that only changes which copy runs: the source keeps the package.
+    let plan = plan_for(&snap, "tool", MP, true);
+    assert_eq!(plan.primary_after, ProviderId::new(MP));
+    assert!(
+        plan.steps.iter().any(|s| s.kind == StepKind::SetPrimary),
+        "this plan is the one that selects a primary"
+    );
+    assert!(
+        !plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource),
+        "`--retain-source` keeps the source copy, so nothing is removed"
+    );
+
+    // Planning is a pure function of the snapshot, so the ownership facts are
+    // the same objects; what this asserts is that the *plan* claims no change
+    // to them. Nothing in it names ownership, and the dependency counts it was
+    // built from still say what they said.
+    let after = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
+    let unit_after = after.packages.iter().find(|p| p.name == "tool").unwrap();
+    for id in [ProviderId::new(HB), ProviderId::new(MP)] {
+        assert_eq!(
+            unit_before.rows[&id].dependency_count, unit_after.rows[&id].dependency_count,
+            "{id}: selecting a primary changed a dependency count"
+        );
+        assert_eq!(
+            unit_before.rows[&id].reverse_dependency_count,
+            unit_after.rows[&id].reverse_dependency_count,
+            "{id}: selecting a primary changed a reverse-dependency count"
+        );
+    }
+
+    // And the serialised plan says nothing about ownership - the same assertion
+    // the policy crate makes about a recommendation, at the layer that emits
+    // the step.
+    let json = serde_json::to_string(&plan).unwrap();
+    assert!(
+        !json.contains("ownership") && !json.contains("requested"),
+        "a plan that selects a primary must not restate ownership: {json}"
+    );
+
+    // The dependency the invariant names: `dep` belongs to Homebrew, and
+    // making MacPorts primary for `tool` leaves it there.
+    let dep = before.packages.iter().find(|p| p.name == "dep");
+    if let Some(dep) = dep {
+        assert_eq!(
+            dep.source,
+            ProviderId::new(HB),
+            "the dependency's owner is not a function of which copy of `tool` runs"
+        );
+    }
+}
+
+#[test]
 fn invariant_07_08_dependencies_never_cross_providers() {
     let snap = both_present();
     let analysis = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
@@ -602,9 +664,26 @@ fn invariant_07_08_dependencies_never_cross_providers() {
     assert_eq!(unit.rows[&ProviderId::new(MP)].reverse_dependency_count, 1);
     assert_eq!(unit.rows[&ProviderId::new(HB)].dependency_count, 1);
     assert_eq!(unit.rows[&ProviderId::new(MP)].dependency_count, 0);
-    // Facts fed to the engine count the source side only.
-    let plan = plan_for(&snap, "tool", MP, false);
-    assert!(!plan.risks.iter().any(|r| r.id == "reverse_dependencies"));
+    // And the direction decides which count is consulted, which is the part
+    // the assertion here used to miss: it checked one direction against the
+    // planner's own value and called that "facts fed to the engine count the
+    // source side only" (F-19). The fixture makes the two directions differ, so
+    // asserting both pins the claim.
+    let risk = |to: &str| -> bool {
+        plan_for(&snap, "tool", to, false)
+            .risks
+            .iter()
+            .any(|r| r.id == "reverse_dependencies")
+    };
+    assert!(
+        !risk(MP),
+        "moving to macports removes from homebrew, where nothing depends on `tool`"
+    );
+    assert!(
+        risk(HB),
+        "moving to homebrew removes from macports, where `other` does - and a \
+         count that crossed providers would make these two agree"
+    );
 }
 
 #[test]
@@ -989,6 +1068,41 @@ fn invariant_17_swapping_the_providers_swaps_the_analysis() {
         unit_b.recommendation.outcome
     );
     assert_eq!(unit_a.rows.len(), unit_b.rows.len());
+    // The assertion this test was missing. Renaming the *contents* of the two
+    // providers leaves the map keys alone, so iteration order never changes and
+    // anything that silently depends on it is unexercised - which is how a
+    // whole class of direction asymmetry hid behind a passing INV-17 test
+    // (F-19). `source` is the field that class lands on: which provider the
+    // unit is considered to be *on*.
+    assert_eq!(
+        flip(&unit_a.source),
+        unit_b.source,
+        "swapping the two providers must swap which one the unit is sourced from"
+    );
+    // And the same for what each row says, not merely how many there are. The
+    // provider id *inside* an installed package is excluded deliberately: the
+    // homebrew row names homebrew in both analyses, which is the one thing that
+    // must not mirror.
+    for (id, row_a) in &unit_a.rows {
+        let row_b = &unit_b.rows[&flip(id)];
+        let shape = |r: &macportsbrew_application::ProviderRow| {
+            (
+                r.installed
+                    .iter()
+                    .map(|p| (p.identity.name.clone(), p.version.clone(), p.active))
+                    .collect::<Vec<_>>(),
+                r.dependency_count,
+                r.reverse_dependency_count,
+                r.availability.clone(),
+            )
+        };
+        assert_eq!(
+            shape(row_a),
+            shape(row_b),
+            "the row for {id} must mirror the row for {}",
+            flip(id)
+        );
+    }
 }
 
 fn flip(id: &ProviderId) -> ProviderId {

@@ -2778,6 +2778,78 @@ finding ids in each entry.
 - Architectural impact: none.
 - Compatibility impact: none — the name is never observed outside the write.
 
+## SE-062 — Six invariant tests that would not have failed
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: an invariant with a test named after it is an invariant
+  that is defended.
+- Change: six of the tests F-19 assessed are strengthened, one is confirmed
+  already closed, and one is not fixed and is filed as F-25.
+  - **INV-10** — the test `continue`d past every program that was not one of the
+    four macOS probes, which is to say past every `brew` and `port` invocation.
+    INV-10 is about `brew` and `port`. It checks every invocation now, asserts
+    the fixture contains at least one provider invocation so it cannot pass
+    vacuously, and is renamed for what it covers rather than for the four probes
+    it was written against.
+  - **INV-07/08** — the comment said "facts fed to the engine count the source
+    side only" and the assertion checked the planner's own value in one
+    direction. The fixture makes the two directions genuinely differ, so both are
+    asserted: moving to MacPorts raises no reverse-dependency risk, moving to
+    Homebrew does, and a count that crossed providers would make them agree.
+  - **INV-17 (swap)** — the test renamed provider *contents* and kept the map
+    keys, so nothing about iteration order was exercised. It asserts the unit's
+    `source` flips and that each row mirrors the other in shape — deliberately
+    excluding the provider id *inside* an installed package, which is the one
+    thing that must not mirror.
+  - **INV-20** — scanned one crate of five for one of the four things the
+    invariant names. It scans all five for two of them, deadlines and prefixes,
+    and says plainly why the other two are not checkable this way: a support tier
+    appears in source only as the neutral enumeration, and a package name is
+    indistinguishable from any other identifier by grep. A check that looks
+    complete is worse than one that states its limit.
+  - **INV-11** — the only test named after it argues from the types in the policy
+    crate, which is sound and is not where primary selection is implemented. A
+    planner-side test now asserts that a plan carrying `SetPrimary` changes no
+    dependency count, names no ownership in its JSON, and leaves the dependency
+    with its own provider.
+  - **INV-13** — F-19 asked for a subset assertion. It already exists:
+    `invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view` compares
+    the top-level sets themselves across four fixtures and checks each unit's
+    `source`, which is strictly more than the one line requested. A second copy
+    was written and then removed; a pointer to the test that owns the property is
+    what stays.
+- **The widened INV-20 check found something on its first run**, which is the
+  argument for widening it: `crates/adapters/src/macports/mod.rs` held
+  `DEFAULT_PREFIX = "/opt/local"`, a second copy of what `registry.rs` is
+  documented as the only place to know. It was unused outside tests, and the one
+  test using it compared the copy to itself. Removed; both call sites go through
+  the registry. The Homebrew adapter never had one, so this was a peer asymmetry
+  as well.
+- **INV-15 is not fixed here, and the attempt is worth recording.** F-19 says the
+  replayed-reader test covers `which()` only, and that the other live-filesystem
+  calls are unreached "by a coincidence of call order, not a guard" — which is
+  right. Guarding them on `runner.is_replay()` was the obvious move and it is
+  wrong: that flag answers "are subprocess results recorded", and the question
+  here is "does this filesystem describe the machine being read". Those coincide
+  under `--replay` and come apart in a contract test, which uses a recorded
+  runner precisely so it does not spawn `brew` while genuinely testing against a
+  scratch tree it created. Built that way, three contract tests failed — not
+  because they were wrong, but because the guard was. The right signal is a
+  constructor parameter, which is a design change in the layer `AGENTS.md` marks
+  dangerous. Reverted, and filed as F-25 with the analysis.
+- Evidence: finding F-19. Each strengthened test was probed by reintroducing the
+  defect it now covers: a build flag injected into a `brew` invocation in the
+  fixture fails INV-10; a prefix in `crates/application` and a deadline in
+  `crates/domain` each fail INV-20, in crates the old check never read. The
+  INV-17 and INV-11 additions were written against a passing tree, so what they
+  buy is coverage of a shape nothing asserted rather than a caught defect —
+  stated because "the test passes" is not evidence that it would have failed.
+- User impact: none. No behaviour changed except the removal of an unused
+  constant.
+- Architectural impact: `registry.rs` is now genuinely the only place naming a
+  provider prefix, which INV-20 already required.
+- Compatibility impact: none.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW

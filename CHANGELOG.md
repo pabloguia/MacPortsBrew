@@ -135,6 +135,19 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Changed
+- **Six invariant tests that would not have failed if their invariant were
+  violated.** The one for the sanitised environment skipped every `brew` and
+  `port` invocation — which is what that invariant is about — and checked only
+  the four macOS probes. The one for cross-provider dependency counts asserted
+  one direction, against the planner's own value, under a comment describing
+  something else. The one that swaps the two providers renamed their *contents*
+  and kept the map keys, so iteration order was never exercised. The one for
+  dated provider facts read one crate of five for one of the four things the
+  invariant names — and on being widened to the rest, immediately found a second
+  copy of a provider prefix in the MacPorts adapter, unused outside a test that
+  compared it to itself. The one for primary-provider selection argues from types
+  in the crate where selection is not implemented. None of this changes
+  behaviour; it changes what a green suite means. SE-062, finding F-19.
 - **Two verification steps in a plan said something other than their name, and
   now say what they mean.** `VERIFY_REMOVAL` carried "the provider reports the
   package installed and active" — as data, *verify the removal by confirming the
