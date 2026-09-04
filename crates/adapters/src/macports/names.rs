@@ -20,7 +20,12 @@ pub const MAX_NAME_LEN: usize = 128;
 
 /// Cap on a free-text field (description, licence) kept from provider
 /// output.
-pub const MAX_TEXT_LEN: usize = 4096;
+///
+/// The domain's number, not a second copy of it: `is_safe_provider_text`
+/// enforces the same bound where a snapshot enters, so a value this parser
+/// keeps is one that boundary accepts. Two constants holding the same number is
+/// how they come to hold different ones.
+pub const MAX_TEXT_LEN: usize = macportsbrew_domain::MAX_TEXT_LEN;
 
 /// Cap on a path this adapter is willing to hand to `port` as an argument.
 ///

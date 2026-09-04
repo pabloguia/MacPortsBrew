@@ -46,6 +46,40 @@ pub const MAX_INPUT_BYTES: usize = DEFAULT_MAX_OUTPUT_BYTES;
 /// components under the Cellar and the Caskroom.
 const MAX_COMPONENT_LEN: usize = 128;
 
+/// Cap on a free-text field a provider reports - a description, a caveat, a
+/// licence string.
+///
+/// The domain's constant, not a third copy: `is_safe_provider_text` enforces
+/// the same number where a snapshot enters, so a value this parser lets through
+/// is one that boundary will accept. MacPorts' parser has bounded these since
+/// it was written; this one did not (F-20).
+const MAX_TEXT_LEN: usize = macportsbrew_domain::MAX_TEXT_LEN;
+
+/// Cap on how many formulae or casks one document may describe.
+///
+/// The same 8192 the MacPorts parser uses. `brew info --json=v2 --installed`
+/// describes what is installed, and an installation of more than eight thousand
+/// formulae is not a machine this tool is being asked about - it is a document
+/// that should be refused before the analysis walks it.
+const MAX_ROWS: usize = 8192;
+
+/// Trims a free-text field and bounds it, keeping whole characters.
+///
+/// Truncation rather than refusal, matching `macports::names::bounded_text`:
+/// an over-long description is a nuisance, not evidence the output format
+/// changed, and refusing the whole document over one would turn a cosmetic
+/// oddity into an unusable machine.
+fn bounded_text(raw: Option<String>) -> Option<String> {
+    raw.map(|text| {
+        let trimmed = text.trim();
+        if trimmed.len() <= MAX_TEXT_LEN {
+            trimmed.to_string()
+        } else {
+            trimmed.chars().take(MAX_TEXT_LEN).collect()
+        }
+    })
+}
+
 /// Characters a package name may contain, beyond ASCII alphanumerics.
 const NAME_EXTRA: &[char] = &['@', '+', '.', '_', '-'];
 
@@ -463,6 +497,13 @@ pub fn parse_installed_json(text: &str) -> Result<Parsed, DomainError> {
     let raw_casks = raw
         .casks
         .ok_or_else(|| changed("`info --json=v2` document has no `casks` key"))?;
+    for (what, rows) in [("formulae", raw_formulae.len()), ("casks", raw_casks.len())] {
+        if rows > MAX_ROWS {
+            return Err(changed(format!(
+                "document describes {rows} {what}, over the {MAX_ROWS} limit"
+            )));
+        }
+    }
 
     let mut parsed = Parsed {
         formulae: Vec::with_capacity(raw_formulae.len()),
@@ -523,25 +564,28 @@ impl Parsed {
             installed,
             versions,
             bottle,
-            tap: raw.tap,
-            desc: raw.desc,
-            license: raw.license,
-            homepage: raw.homepage,
+            tap: bounded_text(raw.tap),
+            desc: bounded_text(raw.desc),
+            license: bounded_text(raw.license),
+            homepage: bounded_text(raw.homepage),
             revision: raw.revision,
             linked_keg: raw.linked_keg,
             pinned: raw.pinned,
             keg_only: raw.keg_only,
-            keg_only_reason: raw.keg_only_reason,
+            keg_only_reason: raw.keg_only_reason.map(|r| KegOnlyReason {
+                reason: bounded_text(Some(r.reason)).unwrap_or_default(),
+                explanation: bounded_text(Some(r.explanation)).unwrap_or_default(),
+            }),
             aliases: raw.aliases,
             versioned_formulae: raw.versioned_formulae,
             dependencies,
             build_dependencies,
-            caveats: raw.caveats,
+            caveats: bounded_text(raw.caveats),
             has_service,
             deprecated: raw.deprecated,
-            deprecation_reason: raw.deprecation_reason,
+            deprecation_reason: bounded_text(raw.deprecation_reason),
             disabled: raw.disabled,
-            disable_reason: raw.disable_reason,
+            disable_reason: bounded_text(raw.disable_reason),
             replaced_by,
         });
         Ok(())
@@ -634,9 +678,9 @@ impl Parsed {
             version: raw.version,
             auto_updates: raw.auto_updates,
             deprecated: raw.deprecated,
-            deprecation_reason: raw.deprecation_reason,
+            deprecation_reason: bounded_text(raw.deprecation_reason),
             disabled: raw.disabled,
-            disable_reason: raw.disable_reason,
+            disable_reason: bounded_text(raw.disable_reason),
             pinned: raw.pinned,
         });
         Ok(())
@@ -670,6 +714,66 @@ mod tests {
         assert!(!parsed.saw(Observed::ServiceMetadata));
         assert_eq!(parsed.formulae[0].bottle_tags(), vec!["sonoma"]);
         assert_eq!(parsed.formulae[0].active_keg().unwrap().version, "1.25.0");
+    }
+
+    #[test]
+    fn a_free_text_field_is_bounded_rather_than_trusted() {
+        // The MacPorts parser has bounded these since it was written; this one
+        // did not, so a third-party tap could put tens of megabytes of
+        // `caveats` into a snapshot the user is invited to share (F-20). The
+        // whole document is capped at 64 MiB, which one such field fits inside
+        // comfortably.
+        let huge = "x".repeat(MAX_TEXT_LEN + 5_000);
+        let text = MINIMAL.replace(
+            r#""name": "wget""#,
+            &format!(r#""name": "wget", "caveats": "{huge}", "desc": "{huge}""#),
+        );
+        let parsed =
+            parse_installed_json(&text).expect("an over-long field is trimmed, not refused");
+        let formula = &parsed.formulae[0];
+        assert_eq!(
+            formula.caveats.as_deref().map(str::len),
+            Some(MAX_TEXT_LEN),
+            "caveats is bounded"
+        );
+        assert_eq!(
+            formula.desc.as_deref().map(str::len),
+            Some(MAX_TEXT_LEN),
+            "desc is bounded"
+        );
+    }
+
+    #[test]
+    fn a_document_describing_more_rows_than_a_machine_has_is_refused() {
+        // Truncation is right for a description and wrong for a row count: a
+        // document claiming a hundred thousand formulae is not a machine this
+        // tool is being asked about, and quietly analysing the first 8192 of
+        // them would answer a question nobody asked.
+        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"installed":[]}"#;
+        let rows: Vec<String> = (0..=MAX_ROWS)
+            .map(|i| one.replace("{i}", &i.to_string()))
+            .collect();
+        let text = format!(r#"{{"formulae":[{}],"casks":[]}}"#, rows.join(","));
+        let err = parse_installed_json(&text).unwrap_err();
+        assert_eq!(err.id, macportsbrew_domain::ErrorId::ProviderOutputChanged);
+        assert!(err.detail.contains("over the"), "{}", err.detail);
+        assert!(err.detail.contains("formulae"), "{}", err.detail);
+    }
+
+    #[test]
+    fn a_document_at_the_row_limit_still_parses() {
+        // The boundary in the direction that matters: a cap that refuses the
+        // legitimate case is worse than no cap, and this project has spent this
+        // pass refusing correct machines.
+        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"installed":[]}"#;
+        let rows: Vec<String> = (0..MAX_ROWS)
+            .map(|i| one.replace("{i}", &i.to_string()))
+            .collect();
+        let text = format!(r#"{{"formulae":[{}],"casks":[]}}"#, rows.join(","));
+        assert_eq!(
+            parse_installed_json(&text).unwrap().formulae.len(),
+            MAX_ROWS
+        );
     }
 
     #[test]

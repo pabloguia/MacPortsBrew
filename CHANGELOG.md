@@ -135,6 +135,15 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Security
+- **A hostile tap can no longer put tens of megabytes into your snapshot.** The
+  MacPorts parser has always capped output bytes, row counts and free text; the
+  Homebrew one capped the document at 64 MiB and the values that become path
+  components, and nothing else — so `caveats` and `desc` were unbounded and there
+  was no limit on how many formulae one document could describe. Both are bounded
+  now, at the numbers MacPorts already used, and free text is trimmed rather than
+  refused because an over-long description is a nuisance and not evidence that
+  the output format changed. Path traversal through a package name was already
+  closed on both sides. SE-060, finding F-20.
 - **A plan no longer tells you a read needs administrator rights.** The plan for
   `htop --to macports` ended *"Steps that would need administrator rights: 2,
   3"*, and step 3 was `port -q installed htop` — a read. It said so because

@@ -871,7 +871,7 @@ records.
 - **No single-instance lock, no stub, no failing test.** `04-migration-and-safety.md:201`
   is a MUST. Nothing mutates yet, which is exactly how a MUST gets lost between
   passes — every other deferred capability at least has a type in place.
-- **The Homebrew parser lacks bounds the MacPorts parser has.** MacPorts caps output
+- **The Homebrew parser lacks bounds the MacPorts parser has.** *Fixed — SE-060.* MacPorts caps output
   bytes, rows (8192), name length and free text; Homebrew has **no row cap** and
   **unbounded free text** (`desc`, `caveats`, `homepage`, `license`, `tap` —
   `json.rs:527, :539, :626, :631`). A hostile third-party tap can put 60 MiB of

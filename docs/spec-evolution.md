@@ -2643,6 +2643,43 @@ finding ids in each entry.
   command-level citations, without which `2026.09.04-1` was a version no dated row
   in `data/policy/` accounted for.
 
+## SE-060 — The Homebrew parser gains the bounds the MacPorts parser always had
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: both provider parsers apply the same defensive bounds to
+  what a provider says.
+- Change: the Homebrew parser bounds free text at `MAX_TEXT_LEN` (`desc`,
+  `caveats`, `homepage`, `license`, `tap`, and the three reason fields) and
+  refuses a document describing more than `MAX_ROWS` formulae or casks. Both
+  numbers are the MacPorts parser's, and `MAX_TEXT_LEN` is now the domain's
+  single constant rather than a copy in each adapter.
+- Rationale: MacPorts capped output bytes, rows and free text; Homebrew capped
+  the document at 64 MiB and the values that become *path components*, and
+  nothing else. So a third-party tap could put tens of megabytes of `caveats`
+  into a snapshot the user is then invited to share, and an arbitrary number of
+  rows into one the analysis walks. Path traversal through a name was already
+  closed on both sides by `checked_component`, which is the half that would have
+  been a vulnerability; this is the resource half, and it is the half that reaches
+  a user's file.
+- **Truncation for text, refusal for rows, and the asymmetry is the point.** An
+  over-long description is a nuisance, not evidence the output format changed;
+  refusing a whole document over one would turn a cosmetic oddity into an
+  unusable machine, and `bounded_text` on the MacPorts side has always truncated.
+  A row count is different: a document claiming a hundred thousand formulae is
+  not a machine this tool is being asked about, and quietly analysing the first
+  8192 would answer a question nobody asked.
+- Evidence: finding F-20. Three tests, each probed by removing the bound it
+  asserts — both fail. The third is the boundary in the direction this pass has
+  got wrong repeatedly: a document *at* the row limit still parses, because a cap
+  that refuses the legitimate case is worse than no cap.
+- User impact: none on a normal machine. A pathological document is refused or
+  trimmed instead of being carried into a snapshot.
+- Architectural impact: one definition of the text bound, in `domain`, where the
+  snapshot boundary already enforced it.
+- Compatibility impact: a document that previously parsed with an over-long field
+  now parses with it trimmed; one with more than 8192 rows of either kind is
+  refused with `ProviderOutputChanged`.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
