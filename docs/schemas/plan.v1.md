@@ -79,6 +79,22 @@ a single candidate, `destinationPackage` a single value, and `1→many` resolves
 `invariant_01_a_verification_step_asserts_what_its_name_says` are the tests that
 defend it.
 
+### What an executor inherits
+
+Three obligations are recorded in this document and enforced by nothing today,
+because nothing executes. They are listed together so the executor pass inherits
+a list rather than three doc comments:
+
+1. **Refuse a plan carrying a `placeholder` command.** It cannot be run; see
+   `PlanCommand.placeholder` above.
+2. **Refuse a plan carrying a `check` this build does not recognise.** An
+   unknown check can never count as satisfied
+   (`MigrationPlan::verification_is_performable`).
+3. **`PACKAGE_ABSENT` needs a command and a success semantic.** The step carries
+   none, and "nonzero exit means absent" is verification by exit status with the
+   sign flipped — `brew list --versions` exits 1 for a correctly installed cask
+   (F-06, F-22).
+
 A plan containing a `MANUAL_REVIEW` step exits **4** when executed, naming the
 step. `plan --json` exits 4 for the same reason while still printing the plan:
 the plan is the useful output even when it cannot be run unattended.
@@ -92,6 +108,7 @@ the plan is the useful output even when it cannot be run unattended.
 | `argv` | array of string | The full argument vector. **There is no shell and no string interpolation**: package names and paths are arguments, never fragments of a command line |
 | `environment` | map of string to string, optional | The sanitised environment the command would run in. Omitted when empty, so its absence does not by itself mean `TOOL`: a `PROVIDER` command whose source snapshot carried no environment is written without it too (see F-21) |
 | `elevation` | tagged union, tag `elevation` | `NONE`, `REQUIRED` (with a `reason` — the provider's own statement or a stable identifier), `UNKNOWN` |
+| `placeholder` | boolean, always present | The command is an **illustration**, not something an executor could run. A plan built for a provider that was not detected has no prefix to resolve, so the program reads `<macports prefix>/bin/macports` and the verb `<verify>`. Until this field existed nothing distinguished those from a real command, and `check_ordering` never looks at commands at all (F-20). **An executor refuses a plan carrying one** rather than running the steps around it. **Read this field before executing anything.** It is always written, but `false` is the permissive value, so a reader that ignores it — or a document produced before the field existed — sees a real command where an illustration is. Unlike an unrecognised `check`, which deserialises to a value that cannot be satisfied, a boolean has no shape that fails closed on a reader who never looks |
 
 **`TOOL` is not a provider invocation.** Exactly one step can carry one —
 `SET_PRIMARY`, because the shim directory is MacPortsBrew's own (SE-036) — and

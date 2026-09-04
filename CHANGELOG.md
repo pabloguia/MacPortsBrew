@@ -118,6 +118,16 @@ to answer.
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
 ### Documentation
+- **Four claims about Homebrew and MacPorts carried no source and no read date**,
+  on a page where everything else carried both — including the strong negative
+  "`HOMEBREW_BUILD_FROM_SOURCE` does not exist". Two were checked here on
+  2026-09-04 (it has zero occurrences in the shipped tree and zero in the manual
+  page; and every mention of a bottle tag in that manual page is a flag that
+  *takes* one, never a subcommand that prints it). Two were already answered in
+  `docs/research/` and simply not cited. Also: a published GitHub wiki is a
+  separate repository, so every `../docs/...` link in `wiki/` breaks on
+  publication — the constraint `wiki/README.md` did not list, and the one that
+  will bite. SE-066, finding F-20.
 - **The documentation said more than the design does, in three places, and each
   was a qualifier the specification had written down and the reader never saw.**
   The README's lead said the tool "executes migrations"; it builds a reviewable
@@ -135,6 +145,19 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Changed
+- **A command in a plan that no executor could run now says so.** A plan built
+  for a provider that was not detected has no prefix to resolve, so its commands
+  read `<macports prefix>/bin/macports` and `<verify>` — illustrations that
+  looked exactly like the real thing, in a document that serialised, diffed and
+  passed every check. They are marked now, in the human output and in `--json`.
+  Nothing executes in this build; `plan.v1.md` records refusing such a plan as
+  an obligation the executor pass inherits, alongside two others.
+  SE-066, finding F-20.
+- **A machine where both providers answered about the same executable is read
+  from the answer that names an owner**, not from whichever provider sorts first
+  alphabetically. Nothing observed does this — a capture files each executable
+  under one provider — but the answer should not have depended on the providers'
+  names. SE-066, finding F-20.
 - **A policy rule is named for what it means.** `NO_ACTION_ALREADY_THERE` fires
   when a package exists under only one provider — that is, when there is nowhere
   to move it to, not when it has arrived somewhere. Its reason has said

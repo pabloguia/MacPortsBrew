@@ -677,6 +677,149 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
 }
 
 #[test]
+fn invariant_17_which_answer_wins_never_depends_on_the_providers_names() {
+    // `resolution_for` asks every provider who owns an executable, because that
+    // is a machine-wide question. Each answers for itself, so two can disagree
+    // — and returning the first hit in map order made provider *id order*
+    // decide (F-20).
+    //
+    // The first fix promoted `Provider` and left every other pair falling
+    // through to that order. A review ran the mirror and it was not one:
+    // MacPorts answers `System` for a `/usr/bin` path where Homebrew answers
+    // `Unknown`, so those two swapped answers when the providers swapped roles.
+    // This test therefore asserts *both orientations of every pair*, which is
+    // what the single-orientation version could not do.
+    let resolution = |owner: ExecutableOwner, authoritative: bool| Resolution {
+        executable: "tool".into(),
+        path: Some(PathBuf::from("/usr/local/bin/tool")),
+        canonical_path: None,
+        owner,
+        authoritative,
+    };
+    let owned = || {
+        (
+            ExecutableOwner::Provider {
+                provider: ProviderId::new(MP),
+                package: Some("tool".into()),
+            },
+            true,
+        )
+    };
+    let heuristic = || {
+        (
+            ExecutableOwner::Provider {
+                provider: ProviderId::new(HB),
+                package: None,
+            },
+            false,
+        )
+    };
+
+    // Each pair is (stronger, weaker). The stronger answer must win whichever
+    // provider carries it.
+    let pairs: Vec<((ExecutableOwner, bool), (ExecutableOwner, bool))> = vec![
+        (owned(), (ExecutableOwner::Unknown, false)),
+        (owned(), (ExecutableOwner::System, false)),
+        // The one that matters most: a prefix heuristic marked as one must not
+        // outrank a provider's own record just by sorting first.
+        (owned(), heuristic()),
+        (
+            (ExecutableOwner::System, false),
+            (ExecutableOwner::Unknown, false),
+        ),
+        (
+            (ExecutableOwner::MacportsbrewShim, false),
+            (ExecutableOwner::Unknown, false),
+        ),
+    ];
+
+    for (stronger, weaker) in pairs {
+        for (first, second) in [(HB, MP), (MP, HB)] {
+            let mut snap = both_present();
+            for (id, (owner, authoritative)) in
+                [(first, stronger.clone()), (second, weaker.clone())]
+            {
+                snap.providers
+                    .get_mut(&ProviderId::new(id))
+                    .unwrap()
+                    .resolutions
+                    .insert("tool".into(), resolution(owner, authoritative));
+            }
+            let analysis = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
+            let unit = analysis.packages.iter().find(|p| p.name == "tool").unwrap();
+            let got = &unit
+                .resolution
+                .as_ref()
+                .expect("the unit resolves `tool`")
+                .owner;
+            assert_eq!(
+                got, &stronger.0,
+                "with {stronger:?} under {first} and {weaker:?} under {second}, the \
+                 stronger answer must win - `homebrew` sorting before `macports` is \
+                 not a fact about the machine"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_command_no_executor_could_run_says_so() {
+    // A plan is the contract. A provider with no detected prefix yields
+    // `<macports prefix>/bin/macports` as the program and `<verify>` as the
+    // verb - illustrations that read exactly like commands, in a plan that
+    // serialised, diffed, reviewed and passed `check_ordering`, which never
+    // looks at commands (F-20).
+    //
+    // Unreachable through the CLI today, because a destination that is not
+    // installed halts at `MANUAL_REVIEW` first. "Unreachable today" is a
+    // property of the caller; this is a property of the plan.
+    let mut snap = both_present();
+    snap.providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .detection
+        .prefix = None;
+    let plan = plan_for(&snap, "tool", MP, true);
+
+    let marked = plan.steps_with_placeholders();
+    assert!(
+        !marked.is_empty(),
+        "a plan built against a provider with no prefix carries illustrations"
+    );
+    for step in &plan.steps {
+        for c in &step.commands {
+            let looks_like_one =
+                c.program.starts_with('<') || c.argv.iter().any(|a| a.starts_with('<'));
+            assert_eq!(
+                c.placeholder, looks_like_one,
+                "the flag and the text must agree, or the flag is decoration: {c:?}"
+            );
+        }
+    }
+
+    // And the ordinary plan carries none, so the flag means something.
+    let real = plan_for(&both_present(), "tool", MP, true);
+    assert!(
+        real.steps_with_placeholders().is_empty(),
+        "a plan against detected providers has no illustrations"
+    );
+
+    // It survives the round trip, and is written even when false - the default
+    // is the permissive value, so a reader that looks must never find it
+    // missing.
+    let json = serde_json::to_string(&plan).unwrap();
+    let back: macportsbrew_domain::MigrationPlan = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.steps_with_placeholders(), marked);
+    assert!(json.contains("\"placeholder\":true"), "{json}");
+    let ordinary = serde_json::to_string(&real).unwrap();
+    assert!(
+        ordinary.contains("\"placeholder\":false"),
+        "the safe reading of this flag is `true`, so `false` is stated rather \
+         than left to a default: {ordinary}"
+    );
+}
+
+#[test]
 fn invariant_07_08_dependencies_never_cross_providers() {
     let snap = both_present();
     let analysis = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);

@@ -69,19 +69,27 @@ platform-independent
 ([`../docs/research/R-2-homebrew-artifact-availability.md`](../docs/research/R-2-homebrew-artifact-availability.md),
 2026-09-02, from Homebrew's own source).
 
-There is **no `brew` subcommand that prints the tag.** MacPortsBrew detects it
-from Homebrew's own API cache filename, which is capability detection rather
-than a version table it would have to maintain.
+There is **no `brew` subcommand that prints the tag.** Every mention of one in
+`brew`'s manual page is a flag that *takes* a tag — `--bottle-tag <tag>`,
+`--tag <tag>` — and none prints the current one (Homebrew 6.0.21, `man brew`,
+read 2026-09-04). MacPortsBrew detects it from Homebrew's own API cache
+filename, which is capability detection rather than a version table it would
+have to maintain.
 
 Homebrew also has a documented **older-macOS fallback**: a bottle for an older
-macOS with the same architecture is accepted on a newer one. This is why Intel
+macOS with the same architecture is accepted on a newer one
+([`R-2`](../docs/research/R-2-homebrew-artifact-availability.md) §E4, read
+2026-09-02). This is why Intel
 machines on macOS 26 still install `sonoma` bottles and why Intel coverage has
 not visibly collapsed despite the tier — see
 [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md).
 
 One thing worth knowing if you have read it elsewhere:
-**`HOMEBREW_BUILD_FROM_SOURCE` does not exist.** It is absent from Homebrew's
-tree and from the 6.0.21 manual page, and setting it changes nothing. The real
+**`HOMEBREW_BUILD_FROM_SOURCE` does not exist.** Zero occurrences in the shipped
+`Library/Homebrew` tree and zero in the manual page (Homebrew 6.0.21, read
+2026-09-04), so setting it changes nothing. This is a negative claim and it is
+the one on this page most worth re-checking: an environment variable can be
+added in a release. The real
 switches are per-invocation flags — `--build-from-source`, `--build-bottle`,
 `--interactive`, `--cc`, `--HEAD`, and any `--with-*`/`--without-*` option.
 
@@ -99,7 +107,9 @@ as "Builds from source (non-default options were requested)", which is a
 different situation from "no artifact exists" and is reported as such.
 
 Licence restrictions are the other common cause: some ports cannot be
-distributed prebuilt and must be compiled locally.
+distributed prebuilt and must be compiled locally
+([`R-4`](../docs/research/R-4-macports-binary-archives.md) §E-6, read
+2026-09-02).
 
 ## If you need to compile
 

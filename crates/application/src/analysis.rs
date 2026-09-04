@@ -423,11 +423,64 @@ fn resolution_for(snapshot: &Snapshot, provider: &ProviderId, name: &str) -> Opt
             || vec![name],
             |m| m.executables.iter().map(String::as_str).collect(),
         );
+    // Ask every provider, and rank the answers by how much each one settles.
+    //
+    // Each provider records what *it* found for a name, so two can answer
+    // differently about the same executable — and returning whichever came
+    // first in map order made a cross-provider outcome depend on provider
+    // *name*, which is the shape INV-17 exists to keep out of this layer
+    // (F-20).
+    //
+    // Preferring `Provider` alone was not enough, and a review showed it by
+    // running the mirror rather than by arguing: MacPorts answers `System` for
+    // a `/usr/bin` path where Homebrew answers `Unknown`, and with only
+    // `Provider` promoted those two swap answers when the providers swap roles.
+    // The worse pair was `Provider` against `Provider`, where the
+    // *non-authoritative* one — a prefix heuristic, marked as one exactly so it
+    // can be weighed — beat an authoritative one on alphabetical order, and
+    // `source_for` then drove the whole unit from it.
+    //
+    // So the rank is what each answer establishes, and `authoritative` is read
+    // rather than merely recorded.
+    //
+    // `capture::owner_of` implements the same preference over the registry's
+    // order rather than this map's. Two implementations of one rule is a place
+    // for them to diverge; they are cross-referenced until one of them wins. Within a rank the two providers agree, or
+    // they contradict each other about a canonical path, which no ordering here
+    // can resolve.
+    // Ranked within each candidate name and not across the list: the first
+    // name any provider answers about at all wins, even with `Unknown`, before
+    // a later name that would have been settled. The candidate order is the
+    // package's own metadata, so no provider name enters it - which is why this
+    // is a note and not the defect above.
     for exe in candidates {
+        let mut best: Option<(u8, &Resolution)> = None;
         for ps in snapshot.providers.values() {
-            if let Some(r) = ps.resolutions.get(exe) {
-                return Some(r.clone());
+            let Some(r) = ps.resolutions.get(exe) else {
+                continue;
+            };
+            let rank = match (&r.owner, r.authoritative) {
+                // The provider named the package, from its own records.
+                (ExecutableOwner::Provider { .. }, true) => 4,
+                // The provider claims it by prefix, and says the claim is a
+                // heuristic (`.claude/rules/adapters.md`).
+                (ExecutableOwner::Provider { .. }, false) => 3,
+                // Settled, and not a provider's package.
+                (
+                    ExecutableOwner::System
+                    | ExecutableOwner::External
+                    | ExecutableOwner::MacportsbrewShim,
+                    _,
+                ) => 2,
+                // An unknown is never a yes (`.claude/rules/domain.md`).
+                (ExecutableOwner::Unknown, _) => 1,
+            };
+            if best.is_none_or(|(seen, _)| rank > seen) {
+                best = Some((rank, r));
             }
+        }
+        if let Some((_, r)) = best {
+            return Some(r.clone());
         }
     }
     None

@@ -381,6 +381,14 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             ctx.messages.render_reason(&step.reason)
         );
         for c in &step.commands {
+            // An illustration is marked where it is read. A plan built against
+            // a provider that was not detected carries commands no executor
+            // could run, and they read exactly like the real ones (F-20).
+            let illustrative = if c.placeholder {
+                format!("  [{}]", label(ctx, "plan.placeholder"))
+            } else {
+                String::new()
+            };
             let elevation = match &c.elevation {
                 macportsbrew_domain::Elevation::None => String::new(),
                 macportsbrew_domain::Elevation::Required { reason } => {
@@ -392,7 +400,7 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             };
             let _ = writeln!(
                 out,
-                "       $ {} {}{elevation}",
+                "       $ {} {}{elevation}{illustrative}",
                 c.program,
                 c.argv.join(" ")
             );

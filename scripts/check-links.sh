@@ -14,6 +14,13 @@
 # Scope: relative links between markdown files in this repository, and `#`
 # fragments within them. External URLs are not fetched - a gate that needs the
 # network is a gate that fails on a train.
+#
+# It also counts, without failing on, the links in `wiki/` that point outside
+# it. Those resolve here and break on publication, because a GitHub wiki is a
+# separate repository; rewriting them needs an absolute URL and the repository
+# has no remote yet (DP-007). Failing would block work that is correct today, so
+# the number is reported instead - and a number nobody prints is a number that
+# grows.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -54,10 +61,28 @@ for f in files:
             if fragment and resolved in headings and fragment not in headings[resolved]:
                 broken.append(f"{f}:{line_no}: no such heading: {target}")
 
+# Links that leave `wiki/`. They work in this repository and will not work in a
+# published wiki, which is a separate repository (F-20).
+escaping = []
+for f in files:
+    if not f.startswith("wiki/"):
+        continue
+    for line_no, line in enumerate(open(f).read().splitlines(), 1):
+        for _text, target in re.findall(r"\[([^\]]*)\]\(([^)\s]+)\)", line):
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            path = target.partition("#")[0]
+            if path and not os.path.normpath(os.path.join("wiki", path)).startswith("wiki/"):
+                escaping.append(f"{f}:{line_no}: {target}")
+
 if broken:
     print("links: %d broken reference(s):" % len(broken), file=sys.stderr)
     for b in broken:
         print("  " + b, file=sys.stderr)
     raise SystemExit(1)
-print(f"links: {len(files)} files, every relative link and anchor resolves")
+note = ""
+if escaping:
+    note = (f"; {len(escaping)} wiki link(s) point outside wiki/ and will break "
+            f"when the wiki is published (F-20, DP-007)")
+print(f"links: {len(files)} files, every relative link and anchor resolves{note}")
 PY

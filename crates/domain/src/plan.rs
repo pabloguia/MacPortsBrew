@@ -95,6 +95,35 @@ pub struct PlanCommand {
     pub environment: BTreeMap<String, String>,
     /// Elevation this command needs.
     pub elevation: Elevation,
+    /// Whether this command is an illustration rather than something an
+    /// executor could run.
+    ///
+    /// A plan is built for a provider that is not installed too — showing what
+    /// *would* happen is the point of a planning-only build — and the program
+    /// then reads `<macports prefix>/bin/macports`, with the verb as
+    /// `<verify>`. Those are placeholders, and until this field existed nothing
+    /// distinguished them from a real command: a plan carrying them serialised,
+    /// diffed, reviewed and passed `check_ordering`, which never looks at
+    /// commands at all (F-20).
+    ///
+    /// An executor must refuse a plan containing one rather than run the steps
+    /// around it, for the same reason an unrecognised verification check cannot
+    /// count as satisfied: what it cannot perform is exactly the part that was
+    /// unknown when the plan was built.
+    ///
+    /// **Always written, never skipped, and the default is the unsafe one.**
+    /// That is worth stating because it is the weak point of this shape and not
+    /// a detail: `false` means runnable, so a reader that ignores the field, or
+    /// a document written before it existed, treats an illustration as a real
+    /// command. [`VerificationCheck::Unknown`] does not have this problem — an
+    /// input a reader cannot parse *becomes* the refusing value. There is no
+    /// equivalent trick for a boolean without inverting its sense, which would
+    /// make every real command carry a field saying so. So it is always
+    /// serialised, so that a reader which looks never finds it missing, and
+    /// `plan.v1.md` states the hazard in the same row rather than leaving it to
+    /// be discovered.
+    #[serde(default)]
+    pub placeholder: bool,
 }
 
 /// What a [`PlanCommand`] invokes.
@@ -326,6 +355,21 @@ impl MigrationPlan {
                         .iter()
                         .any(|c| matches!(c.elevation, Elevation::Unknown))
             })
+            .map(|s| s.index)
+            .collect()
+    }
+
+    /// Steps carrying a command that is an illustration rather than something
+    /// an executor could run.
+    ///
+    /// Empty for a plan built against providers that were all detected. A plan
+    /// with any entry here describes what *would* happen and cannot be
+    /// executed; see [`PlanCommand::placeholder`].
+    #[must_use]
+    pub fn steps_with_placeholders(&self) -> Vec<u32> {
+        self.steps
+            .iter()
+            .filter(|s| s.commands.iter().any(|c| c.placeholder))
             .map(|s| s.index)
             .collect()
     }

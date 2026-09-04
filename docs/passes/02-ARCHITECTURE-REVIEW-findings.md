@@ -970,17 +970,25 @@ records.
   no toolchain and that no coverage figure was observed; today `cargo`, `rustc 1.98.0`
   and the pin are all present and `validate.sh` passes in full. A gate whose silent
   path and successful path are indistinguishable is not a gate.
-- **Hardcoded prefixes in `registry.rs:31-36`** — `/opt/homebrew`, `/usr/local`,
+- **Hardcoded prefixes in `registry.rs:31-36`** *— now DP-014, the owner's.* The
+  widened INV-20 check exempts this one file *explicitly*, with a comment saying
+  the exemption is not compliance; moving them into `data/policy/` crosses a
+  layer, because that directory is read by `application` and this is `adapters`.
+  The paths are `/opt/homebrew`, `/usr/local`,
   `/opt/local` in a `match`, with source and read date in a doc comment rather than in
   `data/policy/*.toml`. INV-20 names *prefixes* explicitly. Mitigated by
   `prefix_override`, and no current test could catch it.
-- **`provider-commands.toml`'s `executable` can escape its prefix.** `planner.rs:372`
+- **`provider-commands.toml`'s `executable` can escape its prefix.** *Fixed — SE-059:*
+  the loader refuses an `executable` that is absolute, empty or contains `..`. `planner.rs:372`
   does `prefix.join(&e.executable)`, and `join` with an absolute argument discards the
   base. `load()` validates only that `source` and `read_on` are non-empty. The file is
   `include_str!`-embedded so it is not runtime-attacker-controlled — but it is exactly
   the file where a plausible edit would read as a fix, and three lines of validation
   turn a code-review question into a test.
 - **Plan placeholders are indistinguishable from executable commands.**
+  *Fixed — SE-066:* `PlanCommand::placeholder`, reported by
+  `steps_with_placeholders`, rendered as "illustration only", and documented in
+  `plan.v1.md` as something an executor refuses.
   `planner.rs:268` emits a relative program; `:371` and `:376` emit `<prefix>` and
   `<operation>` strings. `check_ordering` never looks at commands, so a plan can
   serialise, diff, review and pass every check while containing commands no executor
@@ -993,21 +1001,30 @@ records.
 - **Timeout kills the child, not the process group.** Documented honestly at
   `system.rs:198-209` and mitigated by `READER_DRAIN_TIMEOUT`. Acceptable, but it is a
   dependency decision (`libc`) and belongs in an ADR rather than a code comment.
-- **`resolution_for` reads across providers.** `analysis.rs:383-389` scans every
+- **`resolution_for` reads across providers.** *Fixed — SE-066:* it still asks
+  every provider, which is the right question, but the answer that names an owner
+  wins rather than the one whose provider sorts first. `analysis.rs:383-389` scans every
   provider's resolutions and returns the first hit in map order. Safe today only
   because capture files each executable under exactly one provider — and `source_for`
   consumes the result.
 - **`NO_ACTION_ALREADY_THERE` is misnamed** *(fixed — SE-065)* — its reason id is
   `NO_ALTERNATIVE_PROVIDER_PRESENT`, which is what it means. Behaviour correct, name
   misleading in `explain`, whose job is clarity.
-- **`explain` lists non-fired rules by identifier only**, with no indication of which
-  fact stopped each. Useful as far as it goes; a user debugging an unexpected
+- **`explain` lists non-fired rules by identifier only** *— deferred, SE-066,*
+  with the reasoning recorded: the version asked for changes `Rule::evaluate`'s
+  contract across every rule, and the cheap alternative answers a different
+  question. The finding: they are listed with no indication of which fact
+  stopped each. Useful as far as it goes; a user debugging an unexpected
   recommendation still has to read the rule source. Judgement call.
-- **Four undated provider claims**, all in
+- **Four undated provider claims** *— fixed, SE-066; two observed here on
+  2026-09-04, two already answered in `docs/research/` and simply not cited*, all in
   `wiki/Understanding-Bottles-and-Source-Builds.md:72, 76, 83, 101`, including the
   strong negative *"`HOMEBREW_BUILD_FROM_SOURCE` does not exist"*. Everything else in
   the wiki carries source and read date.
-- **Wiki `../docs/...` links will break on publication** — a GitHub wiki is a separate
+- **Wiki `../docs/...` links will break on publication** *— fixed, SE-066:* the
+  constraint is the fourth in `wiki/README.md` and `check-links.sh` counts them.
+  Rewriting needs an absolute URL, so it is a publication step (DP-007). The
+  reason: a GitHub wiki is a separate
   repository. `wiki/README.md:52-61` lists three publishing constraints and not this
   one, which is the one that will bite.
 - **Two guard false-positives hit during this review.** A `plan` invocation was blocked

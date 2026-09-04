@@ -3010,6 +3010,94 @@ finding ids in each entry.
   and `explain.v1.md` moves with it. Doing it before the first release is the
   cheapest this ever gets.
 
+## SE-066 — Four things F-20 recorded without ceremony, and one deferred with reasons
+- Status: accepted
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the smaller findings are small enough to carry as a list.
+- Change: four of them are closed.
+  - **`resolution_for` let provider name decide a cross-provider answer.** It
+    asks every provider who owns an executable, which is a machine-wide
+    question, and returned the first hit in map order. Each provider answers for
+    itself, so two can disagree, and `source_for` acts only on an answer that
+    names an owner — so an `Unknown` from the alphabetically earlier provider
+    discarded the answer that had one, and drove the unit from the wrong row.
+    Answers are ranked now: a provider's own record, then a prefix heuristic
+    marked as one, then a settled non-provider owner, then `Unknown`.
+  - **A plan could carry commands no executor can run and pass every check.**
+    `PlanCommand::placeholder` marks them, `MigrationPlan::steps_with_placeholders`
+    reports them, the renderer says "illustration only", and `plan.v1.md` says an
+    executor refuses such a plan.
+  - **Four provider claims with no source and no read date**, in a page where
+    everything else carries both. Two were observable here and are now observed
+    — every mention of a bottle tag in `brew`'s manual page is a flag that
+    *takes* one, and `HOMEBREW_BUILD_FROM_SOURCE` has zero occurrences in the
+    shipped tree and zero in the manual page, Homebrew 6.0.21, read 2026-09-04.
+    Two were already answered in `docs/research/` and simply not cited.
+  - **A published wiki is a separate repository**, so every `../docs/...` link in
+    `wiki/` breaks on publication. `wiki/README.md` listed three publishing
+    constraints and not the one that will bite; it lists four now, and
+    `check-links.sh` counts the escaping links on every run.
+- **Promoting `Provider` alone was not the fix, and a review demonstrated that
+  by running it rather than arguing.** `System`, `External` and
+  `MacportsbrewShim` are named owners too and still lost to an `Unknown` from
+  the earlier provider — MacPorts answers `System` for a `/usr/bin` path where
+  Homebrew answers `Unknown`, so those two swapped answers when the providers
+  swapped roles. Worse, `authoritative` was recorded and not read: a prefix
+  heuristic marked `authoritative: false` beat a provider's own record on
+  alphabetical order, and my change had newly promoted that heuristic above an
+  `Unknown` it previously lost to. Four ranks now, and `authoritative` decides
+  between two `Provider` answers. Within a rank the providers agree, or they
+  contradict each other about a canonical path, which no ordering here settles.
+  The test asserts **both orientations of every pair**; the single-orientation
+  version passed with the defect restored, because `homebrew` sorts first.
+- **`placeholder` failed open, against the precedent set three commits earlier.**
+  `VerificationCheck::Unknown` makes an input a reader cannot parse *become* the
+  refusing value; `skip_serializing_if` made the safe value the one never
+  written, so absent meant runnable. It is always serialised now — a reader that
+  looks never finds it missing — and `plan.v1.md` states the residual hazard in
+  the same row, because a boolean has no shape that fails closed on a reader who
+  never looks. Inverting its sense would make every real command carry a field
+  saying so.
+- **Two executor obligations existed only in doc comments**, and this change
+  would have added a third. `plan.v1.md` lists all three under "What an executor
+  inherits", so the executor pass gets a list rather than three comments to
+  find.
+- **Why the wiki links are counted and not failed.** They resolve today and the
+  pages say to read them here. Rewriting them needs the repository's absolute
+  URL, which does not exist (DP-007), so failing would block work that is
+  correct. This is not the `Stop` gate's silent degradation in another costume:
+  that hid a check that did not run, and this is a check that ran and found a
+  future condition. The count is printed because a number nobody prints is a
+  number that grows — and the first draft of `wiki/README.md` hardcoded "45",
+  which was stale within the hour, so the tool owns the number now.
+- **`explain` naming the fact that stopped each non-fired rule is deferred, and
+  the reasoning is the deliverable.** The finding calls it a judgement call. The
+  version it asks for changes `Rule::evaluate`'s contract — `None` would have to
+  carry a reason — across every rule in the crate `AGENTS.md` flags for its total
+  order, for a debugging aid. The cheap alternative, rendering a one-line
+  description per rule from the catalogue, answers "what is this rule about" and
+  not "why did it not fire", which is the question asked. Neither is built; half
+  an answer dressed as the answer is worse than a recorded no.
+- Evidence: finding F-20. Each change has a test, and each test was checked by
+  restoring the defect: first-hit ordering fails
+  `invariant_17_an_unknown_owner_does_not_outrank_a_named_one_by_provider_name`,
+  and a hardcoded `placeholder = false` fails
+  `a_command_no_executor_could_run_says_so` — which is unnumbered on purpose: it
+  was `invariant_02_*` until a review pointed out that INV-02 is neither
+  violated by deleting the marking nor defended by keeping it, and a name in the
+  Tier-1 registry that defends nothing makes the registry unreliable. Two ranks
+  were probed by inversion as well: a heuristic promoted above a provider's own
+  record fails, and `System` demoted below `Unknown` fails. The placeholder path is
+  unreachable through the CLI today, because a destination that is not installed
+  halts at `MANUAL_REVIEW` first — which is a property of the caller, so the test
+  builds the plan directly.
+- User impact: an illustrative command is labelled as one. A machine where two
+  providers both answered about the same executable is analysed from the answer
+  that names an owner rather than from the alphabetically first.
+- Architectural impact: none.
+- Compatibility impact: `plan.v1.md` gains an optional boolean, absent meaning
+  false, so a reader that ignores it behaves as before.
+
 ## SE-052 — The support matrix states configuration until a CI run exists
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW

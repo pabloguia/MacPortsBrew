@@ -449,6 +449,8 @@ pub fn build_plan(
             // searching `PATH` for this one, which is the hazard `doctor` exists
             // to warn about.
             vec![PlanCommand {
+                // This tool's own command; it is always the real one.
+                placeholder: false,
                 target: CommandTarget::Tool,
                 program: "macportsbrew".into(),
                 argv: vec!["primary".into(), unit.name.clone(), request.to.to_string()],
@@ -556,7 +558,12 @@ fn command(
     kind: PackageKind,
 ) -> Result<PlanCommand, DomainError> {
     let entry = table.get(id.as_str());
-    let program = provider.detection.prefix.as_ref().zip(entry).map_or_else(
+    // A provider that was not detected has no prefix, so the program and the
+    // verb are both written as illustrations. They read like a command, and
+    // until `placeholder` existed nothing said otherwise (F-20).
+    let resolved = provider.detection.prefix.as_ref().zip(entry);
+    let placeholder = resolved.is_none();
+    let program = resolved.map_or_else(
         || format!("<{id} prefix>/bin/{id}"),
         |(prefix, e)| prefix.join(&e.executable).to_string_lossy().into_owned(),
     );
@@ -634,6 +641,7 @@ fn command(
         _ => Elevation::Unknown,
     };
     Ok(PlanCommand {
+        placeholder,
         target: CommandTarget::Provider,
         program,
         argv,

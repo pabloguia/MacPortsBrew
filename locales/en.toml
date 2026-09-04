@@ -254,6 +254,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "plan.steps_heading" = "Steps, in order"
 "plan.elevation_required" = "elevation required"
 "plan.elevation_unknown" = "elevation unknown"
+"plan.placeholder" = "illustration only; this provider was not detected, so no executable path is known"
 "plan.stops_here" = "Execution would stop here for a human decision (exit code 4)."
 "plan.elevated_summary" = "Steps that need administrator rights: {steps}."
 "plan.unknown_elevation_summary" = "Steps where it is not known whether administrator rights are needed: {steps}."
