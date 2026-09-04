@@ -49,9 +49,9 @@ Machine
 
 Providers
 Provider  Presence  Version  Prefix      Support    Packages
-homebrew  Present   6.0.21   /usr/local  degraded   189 (56 top-level)
-macports  Absent    -        -           supported  0 (0 top-level)
-56 top-level packages analysed; 15 need manual review. Policy 2026.09.02-1.
+homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (56 top-level)
+macports  Absent    -        -           Supported  0 packages (0 top-level)
+56 top-level packages analysed; 15 need manual review. Policy 2026.09.04-1.
 ```
 
 Three things to read here:

@@ -1189,3 +1189,37 @@ value without re-reading destroys exactly the property that let this be caught.
 **Note what worked.** The prose was wrong and the data was right in DP-011; here
 the data is dated-correct and the world moved. Both were found by reading the
 data's own citation, which is the return on `source` + `read_on` being mandatory.
+
+---
+
+## F-27 — Documented CLI samples drift from the binary and nothing notices
+
+**Severity: medium. Found by the DP-011 audit, one commit after the drift was
+introduced by this project's own work.**
+
+`README.md:130-132` and `wiki/Getting-Started.md:46-48` carried a `status`
+sample that no longer matched the program in three ways at once:
+
+| Sample said | Binary prints | Introduced by |
+|---|---|---|
+| `degraded`, `supported` | `Degraded`, `Supported` | F-20's catalogue keys |
+| `189 (56 top-level)` | `189 packages (56 top-level)` | the `count.packages_with_top_level` key |
+| `Policy 2026.09.02-1` | `Policy 2026.09.04-1` | the R-5a data change |
+
+Every one is a change this project made deliberately and correctly, and every
+one left a documented sample asserting the old behaviour. Both samples are
+fixed; nothing stops the next one.
+
+**Why it is worth a check rather than a habit.** These are the first output a
+reader ever sees, they are the surface an i18n or renderer change touches most,
+and they are invisible to `check-i18n-parity.sh` (the keys are all present and
+rendered), to `check-links.sh` and to the test suite. The project's own rule —
+give the agent a way to check its work rather than telling it to be careful —
+has no instrument here.
+
+**Suggested shape.** The samples are already produced from a shipped fixture.
+A test in `crates/cli/tests/` that renders `status` for
+`fixtures/recordings/homebrew-only-intel-macos26.json` and asserts the fenced
+block in `README.md` and `wiki/Getting-Started.md` equals it, keyed by a marker
+comment so the block is found rather than guessed at. It fails on the change
+that causes the drift, in the same run, which is the whole point.
