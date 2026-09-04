@@ -242,7 +242,10 @@ impl ProcessRunner for SystemRunner {
         // `scripts/check-layering.sh` would not catch it here, because this
         // module is the one place the grep exempts. So a grandchild that
         // outlives its parent is handled by bounding the reads instead — see
-        // [`READER_DRAIN_TIMEOUT`]. Group kill needs a `libc`-free mechanism
+        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
+        // dependency decision does not belong in a comment (F-20); what is left
+        // here is what someone editing this line needs. Group kill needs a
+        // `libc`-free mechanism
         // or an ADR admitting the dependency.
         command.process_group(0);
 

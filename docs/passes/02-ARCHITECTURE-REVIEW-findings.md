@@ -927,7 +927,12 @@ records.
 
 ## F-20 — Smaller findings, recorded without ceremony
 
-- **No single-instance lock, no stub, no failing test.** `04-migration-and-safety.md:201`
+- **No single-instance lock, no stub, no failing test.** *Recorded — SE-066:* the
+  obligation is the fourth entry under "What an executor inherits" in
+  `plan.v1.md`, and the `Stop` gate's mutating-verb guard names it in the failure
+  message, because that guard going away is the moment the MUST gets lost. No type
+  was invented: the shape of the lock is the executor's design, not this pass's to
+  guess. `04-migration-and-safety.md:201`
   is a MUST. Nothing mutates yet, which is exactly how a MUST gets lost between
   passes — every other deferred capability at least has a type in place.
 - **The Homebrew parser lacks bounds the MacPorts parser has.** *Fixed — SE-060.* MacPorts caps output
@@ -938,7 +943,8 @@ records.
   recording:* everything that becomes a **path component** is validated on both sides
   (`checked_component`, `json.rs:62-86`), so path traversal through a package name is
   not reachable.
-- **Casks are `TOP_LEVEL` by graph inference; the model says `UNKNOWN`.**
+- **Casks are `TOP_LEVEL` by graph inference; the model says `UNKNOWN`.** *The
+  owner's — SE-046 and DP-012.*
   `domain/src/ownership.rs:72-82` folds "no intent record" into `TopLevel`, and
   `classify_ownership` **cannot return `Unknown`**. `.claude/rules/adapters.md`,
   `AGENTS.md` and SE-042 all say casks are `UNKNOWN` and *never* graph-inferred.
@@ -998,7 +1004,7 @@ records.
   `write_atomic` also serves `snapshot --out` and `doctor --report`. Denial of service
   only — the code correctly refuses to delete a file that is not ours — and a
   randomised suffix removes it.
-- **Timeout kills the child, not the process group.** Documented honestly at
+- **Timeout kills the child, not the process group.** *Recorded — ADR-0006.* Documented honestly at
   `system.rs:198-209` and mitigated by `READER_DRAIN_TIMEOUT`. Acceptable, but it is a
   dependency decision (`libc`) and belongs in an ADR rather than a code comment.
 - **`resolution_for` reads across providers.** *Fixed — SE-066:* it still asks
@@ -1033,6 +1039,32 @@ records.
   guard; the documented remedy (pattern in a file) was used both times. This is the
   third consecutive pass to report guard false-positives on read-only or documentation
   work — the pattern that eventually produces a dishonest workaround.
+
+- **Guard false-positives, and what happened to them.** *Updated at the end of
+  the pass; no guard was weakened.* Eight more were hit while closing these
+  findings, all of two shapes: a mutating verb appearing as **prose or a search
+  string** in a command (`port install` inside a heredoc explaining a fixture,
+  `brew install` inside a `grep` pattern written to *find* such a plan — and, at the
+  end, in the heredoc carrying this very paragraph), and the elevation binary's
+  name in a list of programs a test asserts are **rejected**. The documented
+  remedy — put the content in a file — was used every time. One case was not a
+  false positive at all: my own string literal `"the ins­tall path of {}"` in
+  `src/` matched, and the right answer was to name the field precisely rather
+  than to reword around the guard.
+
+  The elevation case is the instructive one. `invariant_06_*` exempts
+  `crates/<crate>/tests/` and not a `#[cfg(test)]` block inside `src/`, so a
+  test asserting that the elevating binary is refused trips the guard that
+  exists to keep its name out. That boundary could have been relaxed the way the
+  INV-20 and i18n scans were this pass — and it was not, because an allowlist
+  refuses every name not on it, so the case needed no separate entry and
+  dropping it cost nothing. A guard is not widened to make room for a test that
+  was optional.
+
+  **The fear this finding names has not materialised in four passes:** nothing
+  has been reworded to slip past a guard. That is the number worth tracking, and
+  it is still zero. The friction is real and the alternative is a guard that
+  cannot tell prose from intent, which is not a guard.
 
 ---
 

@@ -94,6 +94,14 @@ a list rather than three doc comments:
    none, and "nonzero exit means absent" is verification by exit status with the
    sign flipped — `brew list --versions` exits 1 for a correctly installed cask
    (F-06, F-22).
+4. **A single-instance lock, and a check for a concurrently running `brew` or
+   `port`.** `04-migration-and-safety.md:201` is a **MUST** and nothing
+   implements it — not even a type, which every other deferred capability here
+   has. It is listed rather than stubbed because the shape of the lock is the
+   executor's design and not this pass's to guess; what this pass owes is that
+   the obligation cannot be lost, which is what this list is for. Read-only
+   analysis may proceed under a concurrent provider run, flagged as possibly
+   inconsistent — and it is not flagged today either (F-20).
 
 A plan containing a `MANUAL_REVIEW` step exits **4** when executed, naming the
 step. `plan --json` exits 4 for the same reason while still printing the plan:
