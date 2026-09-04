@@ -578,7 +578,14 @@ invariant exists to prevent.
 
 ## F-11 — The charter and README misstate Homebrew's own tier vocabulary, in the project's favour
 
-**Severity: medium-high. Tier 2 document; the project's central justification.**
+**Severity: medium-high. Fixed — DP-011 decided by the owner 2026-09-04, SE-044
+now accepted.** `00-charter.md`, `README.md` and
+`wiki/Intel-Mac-Homebrew-Support.md` each name Tier 3 as Homebrew names it and
+say that the *Unsupported* category is a different, harsher one that Intel is not
+in. The charter is Tier 2 and this needed the owner; what it did not need was the
+wording SE-044 proposed, which said "with bottle builds stopped" and would have
+traded this overstatement for the one `README.md` had already corrected to
+*frozen and eroding*. The substance landed; SE-044 records why the words did not.
 
 **Re-verified live 2026-09-02** at <https://docs.brew.sh/Support-Tiers>:
 
@@ -604,7 +611,8 @@ than the prose: `status` on this machine prints Homebrew support as `degraded`.
 concludes Homebrew is already unsupported for them, and migrates under an urgency the
 cited source does not support. For a migration tool the error runs in the
 self-serving direction, which is the direction that costs credibility when someone
-checks. The charter is Tier 2, so this is proposed (SE-044), not applied.
+checks. The charter was Tier 2, so this waited for the owner rather than being
+applied — DP-011, decided 2026-09-04.
 
 ---
 
@@ -1145,3 +1153,39 @@ passes for other purposes and survived being leaned on by decisions they were no
 written for. The `source` + `read_on` requirement on every `data/policy/*.toml` entry
 is what let this review re-verify the Intel timeline in one fetch and find the
 discrepancy in the prose rather than in the data.
+
+---
+
+## F-26 — Homebrew's own timeline has moved past the row `provider-support.toml` cites, and Catalina is the package
+
+**Severity: medium. INV-20 working exactly as designed, which is why this is a
+re-read and not a bug.** Raised 2026-09-04 by the audit of the DP-011 change.
+
+`data/policy/provider-support.toml` entry `hb-x86_64-tier3-with-stated-end` maps
+Intel `x86_64` from `macos_min = "10.15"` to `DEGRADED`, and its note cites the
+Support-Tiers timeline row **"As of September 2026"**, read 2026-09-02.
+
+The next row on the same page reads **"Expected in or after September 2026"**,
+and it moves Catalina 10.15 into **Unsupported** while starting Tier 3 at Big
+Sur 11 (`docs/research/F-1-homebrew-support-tiers.md` E1, verbatim). That row's
+condition is satisfied from 2026-09-01 onward. The data was read on 2026-09-02
+and is faithful to the row it cites; what has changed is which row is current,
+and the page may since have been rewritten to say so.
+
+**Failure scenario.** A user on Intel Catalina 10.15 runs `status` and is told
+Homebrew support is `Degraded`. If Homebrew's page now classifies that machine
+Unsupported, the tool reports a state gentler than the provider's own, on the
+population with the least time left — the direction that favours inaction and
+the one the DP-011 correction was about.
+
+**What it needs, and what it must not be.** A dated re-read of
+<https://docs.brew.sh/Support-Tiers> and, if the row has turned, a new
+`hb-x86_64-unsupported-catalina` entry with its own `source` and `read_on`, plus
+a policy-version bump. It must **not** be an agent editing `macos_min` from
+memory of this finding: the entry's honesty is its read date, and changing the
+value without re-reading destroys exactly the property that let this be caught.
+`provider-researcher` is the right instrument.
+
+**Note what worked.** The prose was wrong and the data was right in DP-011; here
+the data is dated-correct and the world moved. Both were found by reading the
+data's own citation, which is the return on `source` + `read_on` being mandatory.

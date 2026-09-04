@@ -15,10 +15,29 @@ notarisation ticket and a bare Mach-O cannot; they are alternatives to the
 leading path, never a replacement for it. All three MUST embed byte-identical
 executables — one build produces one signed Mach-O per architecture, and CI
 asserts that the payload extracted from each container hashes to the published
-bare-binary checksum. The `.dmg` is **provisional pending R-11**: if a stapled
-`.dmg` turns out not to cover a binary copied out of it, it buys nothing the
-bare binary does not and is dropped rather than maintained. `brew install` / `port install` may exist
-later as conveniences; neither may ever be the only route.
+bare-binary checksum.
+
+**Decided (DP-008, 2026-09-04): all three are published unconditionally, and
+which one to take is the user's choice.** The `.dmg` was previously provisional
+pending R-11, on the reasoning that a stapled container which does not cover an
+extracted binary buys nothing the bare binary does not. That reasoning weighed
+only the notarisation ticket. The three also differ in how they install — one
+file to place by hand, an installer that places it, a window to drag it out of —
+and that difference is real whatever R-11 answers. So R-11 now decides what the
+documentation may *claim* for the containers, not whether they are published.
+`brew install` / `port install` may exist later as conveniences; neither may
+ever be the only route.
+
+**MUST.** Each artifact carries a description wherever a user chooses between
+them — the installation documentation and the release notes. Each description
+names the artifact in a technical reader's vocabulary, so the title alone is
+enough for them, and says what happens when it is used in terms that assume no
+knowledge of signing, quarantine or `PATH`. The three differ in installation
+experience and in notarisation-ticket handling and **not** in payload; a
+description that lists three filenames without saying which to take has not met
+this. Because the `.pkg` is forbidden below from editing `PATH`, that
+documentation also states the directory it installs into and the single line
+that puts it on `PATH`.
 
 **MUST.** Confront macOS Gatekeeper explicitly, and state the mechanism
 accurately. The blocker is the **quarantine attribute**, not the absence of a

@@ -11,28 +11,6 @@ are recorded.
 
 ## Open
 
-### DP-008 — Is the `.pkg` also provisional pending R-11?
-- **The question:** `08-distribution-and-project.md` marks the `.dmg`
-  **provisional pending R-11** and the `.pkg` unconditional — but the same
-  premise carries both. R-11's first item is whether stapling a container covers
-  a binary copied out of it. If it does not, the `.dmg` is dropped, and the
-  `.pkg`'s stated reason for existing ("they can carry a stapled ticket") is
-  falsified for the installed tool too.
-- **Options:** mark both provisional, symmetric with the premise; **or** state in
-  the chapter what the `.pkg` buys *independently* of stapling and keep it
-  unconditional. There is a real independent benefit — Apple's Installer verifies
-  the package's signature at install time, which is a different guarantee from a
-  stapled ticket on an extracted binary — but it is not written down anywhere,
-  and an unconditional MUST resting on an unstated benefit is the same defect in
-  a different place.
-- **Recommendation:** write the independent benefit into the chapter, then keep
-  the `.pkg` unconditional. That is the answer that survives either outcome of
-  R-11, and it makes the asymmetry deliberate instead of accidental.
-- **Default meanwhile:** the chapter is left as written. This is safe rather than
-  lucky: the only thing that could act on the `.pkg` MUST is the release
-  workflow, and R-11 blocks that workflow anyway, so the question cannot be
-  reached before it is answered.
-
 ### DP-009 — May the first public release ship before the revocation plan exists?
 - **The question:** ADR-0005 states that a revoked certificate — or a revoked
   notarisation ticket — stops previously published artifacts from launching, on
@@ -51,27 +29,6 @@ are recorded.
   release means writing it during an incident.
 - **Default meanwhile:** no public release. Nothing is published, so nothing is
   at risk while this is open.
-
-### DP-011 — The charter states a provider fact its own data contradicts (Tier 2)
-- **The question:** `docs/spec/00-charter.md:37` says Homebrew classifies Intel
-  x86_64 macOS as "**Tier 3 — not supported**". Re-verified 2026-09-02, the source
-  treats Tier 3 and Unsupported as distinct: Intel on Catalina 10.15 through Tahoe
-  26 is **Tier 3**, and "Unsupported" — defined as a configuration where Homebrew
-  "will not run without third-party patches" — is Mojave 10.14 and earlier. The
-  charter is Tier 2, so an agent may not change it.
-- **Why it matters more than a wording nit:** this sentence is the project's stated
-  reason for existing, it is copied into `README.md:31`, and the error runs in the
-  direction that favours the tool. The repository's own data model already gets it
-  right (`provider-support.toml` maps Intel Tier 3 to `DEGRADED`), so the binary is
-  more honest than the prose — `status` prints `degraded` on an Intel machine.
-- **Options:** amend the charter to "Tier 3 — degraded, with bottle builds stopped
-  and an announced end date", and `README.md` with it; **or** keep the wording and
-  record why the conflation is deliberate.
-- **Recommendation:** amend. The timeline claim and the September 2027 date are
-  correct and re-verified; only the tier vocabulary is wrong, and it is the part a
-  sceptical reader can check in one click.
-- **Default meanwhile:** unchanged, because it is Tier 2. Recorded as SE-044
-  (`Status: proposed`) and finding F-11.
 
 ### DP-014 — Provider prefixes are compiled in, and INV-20 names prefixes (Tier 1 compliance, and a layering question)
 - **The question:** INV-20 says support tiers, deadlines, **prefixes** and
@@ -110,39 +67,6 @@ are recorded.
   — and SE-062 reporting the exemption as INV-20 compliance, which it is not.
   Recorded there and here rather than silently.
 
-### DP-013 — The charter is now the only surface that says the tool executes migrations (Tier 2)
-- **The question:** `docs/spec/00-charter.md:29` carries the identity sentence —
-  *"…and **executes migrations** in either direction…"* — and directs at `:33` that
-  it be used *"consistently across README, docs, wiki, CLI help, release artifacts
-  and repository metadata"*. Every one of those surfaces now says something else:
-  `crates/cli/src/app/mod.rs:32-35` says "builds reviewable migration plans… This
-  build is read-only"; `wiki/Home.md:5-10` says "builds a reviewable plan to move
-  it"; `README.md:10-18` now says the same, which is what finding F-13 asked for.
-  Does the charter's sentence change, or do the surfaces revert?
-- **Why it matters:** the charter is Tier 2, so no agent may touch it, and it is
-  the *only* place still carrying the wording. The next consistency audit will
-  find the same drift, correctly identify the charter as the outlier, and be
-  unable to act — or, worse, "fix" the README back to a sentence that says this
-  release executes migrations, which it does not. Recording the deviation in
-  SE-058 stops it being silent; it does not stop it recurring.
-- **Options:** (a) amend the identity to something true of the project across its
-  releases — *"…plans migrations in either direction, and executes them, without
-  ever removing something before its replacement is installed and verified"* keeps
-  the substance and stops reading as a claim about this build; (b) read the
-  charter as describing the finished product and add one sentence saying release
-  surfaces state what that release does — which is what every surface already
-  practises; (c) revert the surfaces, which would mean the README, the wiki and
-  the binary's own `--help` all telling a user the tool executes migrations when
-  it has no `migrate` command.
-- **Recommendation:** (b), and it costs one sentence. The charter's job is
-  identity; a landing page's job is what you get today. Option (a) is also fine
-  and stronger if you would rather the identity sentence be literally true at
-  every point in time.
-- **Default meanwhile:** the charter is unchanged and the surfaces say what the
-  build does. Recorded as SE-058; raised by the documentation audit of that
-  change, which judged the deviation legitimate and the *unfiled question* the
-  real gap.
-
 ### DP-012 — Do casks belong in the default top-level view?
 - **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
   that a cask carries no user-intent field, so its ownership is `UNKNOWN` and is
@@ -174,6 +98,51 @@ are recorded.
 ---
 
 ## Resolved
+
+### DP-008 — Is the `.pkg` also provisional pending R-11? — **RESOLVED 2026-09-04: neither is**
+Decided by the project owner: publish all three — bare binary, `.pkg`, `.dmg` —
+unconditionally, and let the user choose. Recorded in **SE-067**;
+`08-distribution-and-project.md` carries the decision and a new MUST that each
+artifact be described where a user picks between them, and ADR-0005's "drop the
+`.dmg`" bullet is marked superseded.
+
+The question as filed had a false premise, and the answer that fixed it was not
+one of the options offered. Both options — "mark both provisional" and "state
+what the `.pkg` buys independently" — accepted the original clause's reasoning
+that a container without a usable stapled ticket "buys nothing the bare binary
+does not". It buys the installation experience, which no R-11 outcome touches.
+What R-11 still decides is what the documentation may *claim*, and that is now
+what the chapter says it decides.
+
+### DP-011 — The charter's Intel tier vs. its own data — **RESOLVED 2026-09-04: amend**
+Decided by the project owner. `00-charter.md`, `README.md` and
+`wiki/Intel-Mac-Homebrew-Support.md` now name Tier 3 as Homebrew names it, quote
+what Homebrew's separate *Unsupported* category means — "will not run without
+third-party patches or modifications" — and state that it is Mojave 10.14 and
+earlier, which Intel is not. Recorded in **SE-044**, now accepted. Finding F-11
+is closed.
+
+**The recommendation on file was itself wrong, in the same direction.** It
+proposed the wording "Tier 3 — degraded, with bottle builds stopped", and
+*stopped* is the claim `README.md` had already corrected to *frozen and eroding*
+and that `provider-support.toml` records as `prebuilt_artifacts = true`.
+Implemented literally, it would have removed one overstatement from a Tier 2
+document by restoring another, under an approval given for the substance. The
+substance landed and the words did not; SE-044 carries the reasoning. Two
+entries proposing a correction is not two independent checks of it.
+
+### DP-013 — Charter identity vs. what a release does — **RESOLVED 2026-09-04: option (b)**
+Decided by the project owner. One sentence in `00-charter.md`, in the same
+paragraph that asks for consistency: the identity describes the finished
+product, a release surface describes that release, and where the two differ the
+surface states what the build does. "Executes migrations" stays in the identity,
+because it is true of the project and not of this build. Recorded in **SE-058**;
+no other surface changed, because they were already right.
+
+The sentence also names the failure mode it exists to stop. The risk DP-013
+identified was never the drift itself — it was the next consistency audit
+correctly finding the charter to be the outlier and "fixing" the README back to
+a claim the binary cannot support.
 
 ### DP-010 — Reverse-dependency counts — **RESOLVED 2026-09-02: the invariant stands**
 Decided by the project owner: INV-04 and INV-08 hold as written, and the count

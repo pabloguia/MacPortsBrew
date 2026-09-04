@@ -32,10 +32,18 @@ choose. See [Using Homebrew and MacPorts Together](wiki/Using-Homebrew-and-MacPo
 
 ## Why it exists
 
-Homebrew classifies Intel x86_64 macOS as **Tier 3 — not supported**, and
-states it will **remove the ability to run Homebrew on Intel systems in or
-after September 2027** (source: <https://docs.brew.sh/Support-Tiers>, read
-2026-09-02). Homebrew also states it has stopped building new bottles for Intel
+Homebrew lists "Intel x86_64 systems running macOS" under **Tier 3**, and states
+it will **remove the ability to run Homebrew on Intel systems in or after
+September 2027** (source: <https://docs.brew.sh/Support-Tiers>, read
+2026-09-02). Tier 3 is *not supported* in Homebrew's words, and it is **not**
+Homebrew's *Unsupported* category — that one means Homebrew "will not run
+without third-party patches or modifications", and the macOS versions in it are
+Mojave 10.14 and earlier. So on 2026-09-02 an Intel Mac above Mojave ran
+Homebrew: what it had was a deadline and eroding coverage, which is what
+`macportsbrew status` reports as `Degraded`. Which versions sit in which
+category is a timeline on that page and it moves — the row after the current one
+expects Catalina 10.15 to become Unsupported — so check the source rather than
+this paragraph. Homebrew also states it has stopped building new bottles for Intel
 systems; measured against the actual `homebrew/core` artifacts on 2026-09-02,
 the more accurate description is *frozen and eroding* rather than *stopped* —
 6680 of 8586 formulae still carried an Intel `sonoma` bottle at their current
@@ -139,6 +147,28 @@ will ever be the only route.
 publicly on GitHub ([DP-007](docs/decisions-pending.md), decided 2026-09-02) but
 the remote does not exist yet, so the only way to get it today is to build from
 source as above.
+
+### Three downloads, and how to choose
+
+Every release will publish all three per architecture, and they contain the
+**same executable** — one build, one signed binary, and CI asserts that the
+payload extracted from each container hashes to the published bare-binary
+checksum. Choose on how you like to install things, not on what you get.
+
+| | |
+|---|---|
+| **The bare binary** — one executable file | Download it, make it executable, and put it wherever you keep programs. Nothing else on your Mac changes. |
+| **`.pkg`** — a macOS installer package | Double-click it and macOS puts the tool in place for you, without asking for a password. It deliberately does not edit your `PATH` or your shell configuration, so that last step is yours, and the release will state the directory it used and the one line that puts it on your `PATH`. |
+| **`.dmg`** — a macOS disk image | Double-click it, a window opens, and you drag the file out to wherever you want it. You choose where it goes. |
+
+**If you are not sure, take the `.pkg`.** It is the one that asks you the fewest
+questions.
+
+**If you live in a terminal, take the bare binary.** Fetching it with `curl`
+sets no quarantine attribute, so nothing gets in your way.
+
+The one difference that is not about convenience is what happens the very first
+time you run it, and the next section is about that.
 
 ### Gatekeeper, honestly
 

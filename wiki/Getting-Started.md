@@ -8,6 +8,12 @@ repository will be public on GitHub
 decided 2026-09-02) but the remote does not exist yet — so this is currently
 the only route.
 
+When there is one, each release will publish three downloads per architecture —
+a bare binary, a `.pkg` and a `.dmg` — carrying the same executable and
+differing only in how you install it. Which one to take, and why, is in the
+[README's install section](../README.md#three-downloads-and-how-to-choose)
+(DP-008, decided 2026-09-04).
+
 ```sh
 git clone <repository-url> macportsbrew
 cd macportsbrew

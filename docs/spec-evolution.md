@@ -2293,13 +2293,18 @@ Evidence for all eleven is in
 [`passes/02-ARCHITECTURE-REVIEW-findings.md`](passes/02-ARCHITECTURE-REVIEW-findings.md),
 finding ids in each entry.
 
-## SE-044 — Homebrew's "Tier 3" and "Unsupported" are different things, and the charter conflates them
-- Status: proposed (Tier 2 — needs the owner)
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
+## SE-044 — Homebrew's "Tier 3" and "Unsupported" are different things, and the charter conflated them
+- Status: accepted (Tier 2 — decided by the project owner, 2026-09-04, DP-011)
+- Date / Pass: 2026-09-02, decided 2026-09-04 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `00-charter.md:37` and `README.md:31` — "Homebrew
   classifies Intel x86_64 macOS as **Tier 3 — not supported**".
-- Change: say "Tier 3 — degraded, with bottle builds stopped and an announced end
-  date", and reserve "not supported" for what Homebrew labels Unsupported.
+- Change: `00-charter.md`, `README.md` and `wiki/Intel-Mac-Homebrew-Support.md`
+  now name Tier 3 as Homebrew names it, quote what Homebrew's separate
+  *Unsupported* category means, and state that Intel is not in it — Mojave 10.14
+  and earlier is. All three keep the September 2027 date and its citation
+  unchanged, and the charter adds the sentence the data always implied: this
+  project's policy data says `DEGRADED` and `status` prints `degraded`, so the
+  chapter says the same.
 - Rationale: the source treats them as distinct categories. Intel on Catalina
   10.15 through Tahoe 26 is Tier 3 and Homebrew runs there today; "Unsupported" is
   Mojave 10.14 and earlier, defined as a configuration where Homebrew "will not run
@@ -2308,9 +2313,25 @@ finding ids in each entry.
   `macos_max = "10.14"` to `UNSUPPORTED` — so the binary is more honest than the
   prose. The error runs in the direction that favours the tool, which is the
   direction that costs credibility when a reader checks the citation.
-- Evidence: <https://docs.brew.sh/Support-Tiers>, re-read 2026-09-02. The timeline
-  sentence and the September 2027 date are unchanged and remain correctly cited.
-  Finding F-11.
+- **The recommendation this entry carried was itself wrong, in the same
+  direction.** It said to write "Tier 3 — degraded, with bottle builds stopped
+  and an announced end date". *Stopped* is the second half of the same defect:
+  `README.md` had already corrected it to *frozen and eroding* after F-1 finding 4
+  observed new Intel bottles published in August 2026, and
+  `provider-support.toml` records `prebuilt_artifacts = true` with a note saying
+  in terms that "stopped" is not the honest characterisation. Implementing the
+  recommendation literally would have removed one overstatement by restoring
+  another, in a Tier 2 document, under an owner's approval given for the
+  substance. What landed is the substance — the prose agrees with the data — and
+  not the words. Two entries proposing a correction is not two independent
+  checks of it.
+- Evidence: <https://docs.brew.sh/Support-Tiers>, re-read 2026-09-02: "A Tier 3
+  configuration is not supported. These configurations fall far outside
+  Homebrew's testing infrastructure"; "An unsupported configuration is one in
+  which: Homebrew will not run without third-party patches or modifications".
+  Both verbatim in `docs/research/F-1-homebrew-support-tiers.md` (E1). The
+  timeline sentence and the September 2027 date are unchanged and remain
+  correctly cited. Finding F-11.
 - User impact: a reader on an Intel Mac is no longer told their installation is
   already unsupported when it is degraded.
 - Architectural impact: none. Data already models it correctly.
@@ -2592,6 +2613,17 @@ finding ids in each entry.
   saying "use this consistently" is not something to route around silently. If the
   owner reads it as the wording rather than the substance, this is the entry to
   reverse.
+- **Resolved 2026-09-04 (DP-013), and the charter now carries the rule itself.**
+  The owner chose option (b): the identity describes the finished product, a
+  release surface describes that release, and `00-charter.md` says so in the same
+  paragraph that asks for consistency. It also names the failure mode the sentence
+  exists to stop — an audit that finds the charter claiming more than the README
+  has found the two doing their jobs, and should leave both alone. "Executes
+  migrations" stays in the identity, because it is true of the project and not of
+  this build, which is precisely the distinction the new sentence draws. On this
+  entry's own topic — the identity lead — nothing in `README.md`, `wiki/` or the
+  CLI help changed, because they were already right. The same commit does change
+  `README.md` and `wiki/Intel-Mac-Homebrew-Support.md`, for DP-011 (SE-044).
 - Evidence: `01-invariants.md:22-25`; `04-migration-and-safety.md:83-84, 144-152`;
   findings F-13, F-14, F-15. Audited after the fact, which found two things this
   entry had got wrong. The four new provider claims carried no source and no read
@@ -3240,3 +3272,46 @@ finding ids in each entry.
   `snapshot.v1.md` because an unknown kind is now tolerated — without that it
   would have been a version bump. `doctor.v1.md` listed two of the eleven `path_*`
   ids, one of which was `path_order`; it now lists all of them.
+
+## SE-067 — All three release artifacts are unconditional, and each one says what it is
+- Status: accepted (decided by the project owner, 2026-09-04, DP-008)
+- Date / Pass: 2026-09-04 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `08-distribution-and-project.md:18-20` — the `.dmg` is
+  "provisional pending R-11": if a stapled container turns out not to cover a
+  binary copied out of it, the `.dmg` "buys nothing the bare binary does not and
+  is dropped rather than maintained". DP-008 asked whether the `.pkg`, resting on
+  the same premise, was provisional too.
+- Change: neither is. All three artifacts — bare binary, `.pkg`, `.dmg` — are
+  published unconditionally per architecture and the choice is the user's.
+  R-11 now decides what the documentation may **claim** for a stapled container,
+  not whether one is published. A new MUST requires each artifact to carry a
+  description wherever a user chooses between them, naming it in a technical
+  reader's vocabulary and saying what happens in terms that assume no knowledge
+  of signing, quarantine or `PATH` — and, because the `.pkg` is forbidden from
+  editing `PATH`, requires the documentation to state the directory it installs
+  into and the line that puts it there. `README.md` carries the three
+  descriptions; `wiki/Getting-Started.md` links to them rather than repeating
+  them.
+- Rationale: the provisional clause weighed exactly one property, the
+  notarisation ticket, and concluded that without it a container "buys nothing".
+  That is false on its face: the three differ in how they install — a file to
+  place by hand, an installer that places it, a window to drag it out of — and
+  that difference survives any R-11 outcome. The original question was posed as
+  "is the `.pkg` provisional too?", and answering it either way in the original
+  frame would have kept the error; the owner's answer changes the frame.
+- **What the descriptions had to be honest about.** The `.pkg` is a user-domain
+  install requiring no administrator password, which is the reason to recommend
+  it to an unsure reader — and it is forbidden from editing `PATH`, which means
+  "it installs it for you" is not the whole truth. The description says both, and
+  the new MUST makes the missing line an obligation on the release rather than a
+  gap the reader discovers.
+- Evidence: `08-distribution-and-project.md:63-71` (the `.pkg` install target,
+  user-domain, no password, no `PATH` edit); ADR-0005, whose "Revisit when"
+  bullet instructing that the `.dmg` be dropped is now marked superseded;
+  R-9 C-2 for "Although tickets are created for standalone binaries, it's not
+  currently possible to staple tickets to them" (Apple, read 2026-09-02); R-11
+  for the open question.
+- User impact: a reader choosing a download is told which one to take and why,
+  instead of being shown three filenames.
+- Architectural impact: none. Nothing is built yet; this binds the release pass.
+- Compatibility impact: none. No release has been published.

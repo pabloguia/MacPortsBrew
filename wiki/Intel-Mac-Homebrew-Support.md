@@ -9,8 +9,12 @@ read three years late is worse than no page at all.
 As of **2026-09-02**, reading <https://docs.brew.sh/Support-Tiers> (the page's
 own `last_review_date` was 2026-08-27):
 
-- **Intel x86_64 systems running macOS are listed under Tier 3 — not
-  supported.**
+- **Intel x86_64 systems running macOS are listed under Tier 3**, which
+  Homebrew defines as *not supported* — "far outside Homebrew's testing
+  infrastructure". Tier 3 is **not** Homebrew's *Unsupported* category, which
+  means Homebrew "will not run without third-party patches or modifications"
+  and covers Mojave 10.14 and earlier. Intel is not in that category today,
+  which is why `doctor` says `Degraded` below and not `Unsupported`.
 - Homebrew states it **has stopped building new bottles for Intel systems**.
 - Homebrew states it **will remove the ability to run Homebrew on Intel systems
   in or after September 2027**, and its timeline shows Intel x86_64 as
