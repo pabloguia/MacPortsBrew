@@ -119,12 +119,16 @@ fn a_path_with_no_system_directory_at_all_cannot_be_preceded() {
 
 #[test]
 fn group_writable_missing_relative_and_duplicate_are_warnings() {
+    // The writable entry sits *after* the system directories here. Before
+    // them it is an error now, which is the case below: this fixture used to
+    // put `/usr/local/bin` first and still call it a warning, which is the
+    // Intel Homebrew machine and the defect F-07 named.
     let snap = snapshot(
-        &["/usr/local/bin", "/nowhere", "bin", "/usr/bin", "/usr/bin"],
+        &["/usr/bin", "/usr/local/bin", "/nowhere", "bin", "/usr/bin"],
         vec![
-            finding("/usr/local/bin", 0, PathFindingKind::GroupWritable),
-            finding("/nowhere", 1, PathFindingKind::Missing),
-            finding("bin", 2, PathFindingKind::Relative),
+            finding("/usr/local/bin", 1, PathFindingKind::GroupWritable),
+            finding("/nowhere", 2, PathFindingKind::Missing),
+            finding("bin", 3, PathFindingKind::Relative),
             finding("/usr/bin", 4, PathFindingKind::Duplicate),
         ],
     );
@@ -140,6 +144,156 @@ fn group_writable_missing_relative_and_duplicate_are_warnings() {
             "{id} should be reported as a warning"
         );
     }
+}
+
+#[test]
+fn an_error_is_a_search_path_somebody_else_decides() {
+    // `ERROR` is reserved, here and in `doctor.v1.md`, for a setup that will
+    // produce wrong answers. Two shapes qualify: a directory *anyone on the
+    // machine* can write to, ahead of the system ones, and an entry whose
+    // meaning changes with the working directory.
+    let world = snapshot(
+        &["/opt/open", "/usr/bin"],
+        vec![finding("/opt/open", 0, PathFindingKind::WorldWritable)],
+    );
+    assert_eq!(
+        severity_of(&world, "path_world_writable_precedes_system"),
+        Some(Severity::Error)
+    );
+    let empty = snapshot(
+        &["", "/usr/bin"],
+        vec![finding("", 0, PathFindingKind::Relative)],
+    );
+    assert_eq!(
+        severity_of(&empty, "path_relative_precedes_system"),
+        Some(Severity::Error),
+        "an empty entry is the working directory, and any repository you clone \
+         can carry a `git`"
+    );
+}
+
+#[test]
+fn a_directory_you_own_is_reported_but_is_not_an_error() {
+    // The finding is that this produced *nothing at all* before, not that it
+    // is a broken machine. `~/bin` ahead of `/usr/bin` is how developers
+    // arrange their machines, and `/usr/local/bin` is `admin`-writable because
+    // that is how Homebrew installs itself - on the very prefix `doctor`
+    // separately warns you about *not* having on your `PATH`. Escalating these
+    // made `doctor` exit 5 on a stock install, and an error everybody has is an
+    // error nobody reads.
+    for kind in [
+        PathFindingKind::OwnerWritable,
+        PathFindingKind::GroupWritable,
+    ] {
+        let before = snapshot(&["~/bin", "/usr/bin"], vec![finding("~/bin", 0, kind)]);
+        let after = snapshot(&["/usr/bin", "~/bin"], vec![finding("~/bin", 1, kind)]);
+        for snap in [&before, &after] {
+            let id = if kind == PathFindingKind::OwnerWritable {
+                "path_owner_writable"
+            } else {
+                "path_group_writable"
+            };
+            assert_eq!(
+                severity_of(snap, id),
+                Some(Severity::Warning),
+                "{id} is reported wherever it sits, and is not an error"
+            );
+        }
+    }
+}
+
+#[test]
+fn one_directory_yields_one_writable_finding() {
+    // `/usr/local/bin` on a stock Intel Homebrew is owned by the installing
+    // user *and* group-writable by `admin`, so the audit reports both kinds for
+    // one entry. One directory with one remedy counted twice is how a finding
+    // count stops meaning anything; the strongest writer is the one reported.
+    let snap = snapshot(
+        &["/usr/bin", "/usr/local/bin"],
+        vec![
+            finding("/usr/local/bin", 1, PathFindingKind::GroupWritable),
+            finding("/usr/local/bin", 1, PathFindingKind::OwnerWritable),
+        ],
+    );
+    assert_eq!(
+        severity_of(&snap, "path_group_writable"),
+        Some(Severity::Warning)
+    );
+    assert_eq!(
+        severity_of(&snap, "path_owner_writable"),
+        None,
+        "the weaker writer is not reported a second time for the same entry"
+    );
+}
+
+#[test]
+fn a_trailing_slash_is_still_a_system_directory() {
+    // `/usr/bin/` works, and matching by string equality meant one character
+    // bypassed the escalation and fired a no-system-directory error while all
+    // four were present and searched.
+    let snap = snapshot(
+        &["/opt/open", "/usr/bin/", "/bin/"],
+        vec![finding("/opt/open", 0, PathFindingKind::WorldWritable)],
+    );
+    assert_eq!(severity_of(&snap, "path_has_no_system_directory"), None);
+    assert_eq!(
+        severity_of(&snap, "path_world_writable_precedes_system"),
+        Some(Severity::Error)
+    );
+}
+
+#[test]
+fn a_finding_kind_from_a_newer_build_is_reported_rather_than_refused() {
+    // Adding a kind must stay additive. Without the unknown-tolerant variant
+    // the whole snapshot is rejected on an older build and no analysis happens
+    // at all, which is a breaking schema change wearing an additive face.
+    let snap = snapshot(
+        &["/opt/whatever", "/usr/bin"],
+        vec![finding("/opt/whatever", 0, PathFindingKind::Unknown)],
+    );
+    assert_eq!(
+        severity_of(&snap, "path_finding_unknown"),
+        Some(Severity::Warning)
+    );
+}
+
+#[test]
+fn an_owner_writable_entry_after_the_system_directories_is_a_warning() {
+    let snap = snapshot(
+        &["/usr/bin", "/bin", "~/bin"],
+        vec![finding("~/bin", 2, PathFindingKind::OwnerWritable)],
+    );
+    assert_eq!(
+        severity_of(&snap, "path_owner_writable_precedes_system"),
+        None
+    );
+    assert_eq!(
+        severity_of(&snap, "path_owner_writable"),
+        Some(Severity::Warning)
+    );
+}
+
+#[test]
+fn a_path_with_no_system_directory_is_itself_reported() {
+    // The other half of "before nothing is not before position zero": the
+    // escalations below correctly do not fire, and that used to be the end of
+    // it, so the machine with the strangest search path got the quietest
+    // report. It is a finding in its own right now.
+    let snap = snapshot(
+        &["/opt/open"],
+        vec![finding("/opt/open", 0, PathFindingKind::WorldWritable)],
+    );
+    assert_eq!(
+        severity_of(&snap, "path_has_no_system_directory"),
+        Some(Severity::Error)
+    );
+    let ordinary = snapshot(&["/usr/bin", "/bin"], vec![]);
+    assert_eq!(severity_of(&ordinary, "path_has_no_system_directory"), None);
+    // And an empty `PATH` is not this finding: there is nothing to be wrong
+    // about, and a snapshot from a machine that reported none should not grow
+    // an error out of an absence.
+    let empty = snapshot(&[], vec![]);
+    assert_eq!(severity_of(&empty, "path_has_no_system_directory"), None);
 }
 
 #[test]

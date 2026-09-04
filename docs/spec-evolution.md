@@ -2404,13 +2404,15 @@ finding ids in each entry.
 - Compatibility impact: the checked-in matrix regenerates.
 
 ## SE-053 — `doctor` gains an owner-writable finding kind
-- Status: proposed
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
+- Status: accepted
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-03
 - Original assumption: the path audit reports world-writable and group-writable
   directories, escalating world-writable ones that precede a system path.
-- Change: add `PathFindingKind::OwnerWritable`; escalate *any* writable kind to
-  `Error` when it precedes a system path; emit a finding when no system directory
-  appears on `PATH` at all.
+- Change: add `PathFindingKind::OwnerWritable`, reported wherever it sits; emit a
+  finding when no system directory appears on `PATH` at all; escalate to `Error`
+  the two shapes that mean somebody other than this user decides what runs — a
+  world-writable directory before the system ones, and an entry that is not
+  absolute. Add `PathFindingKind::Unknown` so a kind stays additive.
 - Rationale: the common shadowing directory on macOS is `~/bin` at `0755`, owned by
   the user — currently no finding at all, though it is verbatim the threat-model
   item at `04-migration-and-safety.md:260-261`. On Intel, `/usr/local/bin` is
@@ -2423,4 +2425,72 @@ finding ids in each entry.
 - User impact: `doctor` detects the shadowing case the tool exists to detect.
 - Architectural impact: `PathFindingKind` gains a variant; uid comparison without
   `libc` already exists in `state_dir.rs:164-185`.
-- Compatibility impact: `--json` gains a finding kind; more machines report findings.
+- **The proposal said escalate *any* writable kind, and that was wrong.** Built
+  that way, `doctor` exited 5 on this machine and would on every developer Mac:
+  `/usr/local/bin` and `/usr/local/sbin` are `admin`-writable because that is how
+  Homebrew installs itself, `~/bin`, `~/.local/bin` and `~/.bun/bin` are owned by
+  the user because that is what those directories are for. It also contradicted
+  the check next to it — `prefix_not_on_path` is a *warning for not having the
+  provider prefix on `PATH`*, and this made having it there an error, so no
+  configuration satisfied both. An error every machine reports is an error nobody
+  reads, and this project's bar for `ERROR` is "broken in a way that will produce
+  wrong answers".
+  So `ERROR` is now the two shapes where the decider is not this user: a
+  world-writable directory ahead of the system ones, and a non-absolute entry,
+  whose meaning changes with the working directory. Owner- and group-writable are
+  *reported* — which is the finding, since they produced nothing at all before —
+  as warnings. This is a deviation from what this entry proposed, recorded rather
+  than quietly taken.
+- **Ownership is half the rule, and the half that makes it mean anything.**
+  `OwnerWritable` is not "the owner-write bit is set" — nearly every directory
+  has that, `/usr/bin` at `0755 root:wheel` included, and a check that fires on
+  every entry says nothing about any of them. It is "writable by *this* user",
+  which needs the process's own uid. Reading that from `$HOME` was the first
+  attempt and was wrong in both directions, which a review demonstrated: with
+  `HOME=/private/var` the tool reported `/usr/bin` as "belongs to you" and missed
+  the one directory that really was plantable, and a `HOME` that cannot be
+  stat'd switched the check off silently — one line in a shell profile away for
+  exactly the adversary who put `~/bin` on the `PATH`. It is the owner of a file
+  the process just created instead, which *is* the euid by construction and no
+  variable can redirect; the technique is the one `persistence::state_dir`
+  already uses. `std` exposes no `getuid`, and `libc` would be a dependency
+  decision (ADR-0004), not something to take in passing.
+- **The no-system-directory finding is a `DoctorFinding`, not a `PathFinding`.**
+  It is a fact about the whole search path rather than about one entry, and
+  `PathFinding` carries an entry and an index it would have to invent.
+- **A trailing slash used to defeat the whole thing.** `/usr/bin/` is an ordinary
+  entry that works, and the system directories were matched by string equality,
+  so one character bypassed every escalation *and* fired the new
+  no-system-directory error while all four were present and being searched — a
+  quiet miss replaced by a loud wrong answer. Compared with trailing slashes
+  trimmed now, with a test.
+- **Adding a kind was a breaking change wearing an additive face.** A snapshot
+  from the new build was refused outright by the old one — "unknown variant
+  `OWNER_WRITABLE`", whole file, no analysis. `docs/schemas/README.md` allows an
+  added enumeration value without a version bump only where consumers handle an
+  unknown one, so `PathFindingKind::Unknown` is that consumer, and
+  `snapshot.v1.md` now documents `pathFindings`, which it never did — which is
+  why the compatibility question was never asked.
+- **What the tests had encoded.** `group_writable_missing_relative_and_duplicate_are_warnings`
+  put `/usr/local/bin` first and asserted a warning — the Intel Homebrew machine,
+  and the defect itself written down as expected behaviour. The fixture now puts
+  the writable entry after the system directories, and the escalation has a test
+  of its own covering all three kinds. `a_path_with_no_system_directory_at_all_cannot_be_preceded`
+  still passes unchanged: its concern was that "before nothing" must not read as
+  "before position zero", which remains true, and the new finding has its own id.
+- Evidence: run live on the machine this was found on. Four entries that produced
+  no finding of any kind before — `~/bin`, `~/.local/bin`, `~/.bun/bin`,
+  `~/.grok/bin` — are now reported; `/usr/local/bin` and `/usr/local/sbin` were
+  group-writable warnings and, having both bits, were briefly reported twice each
+  until one entry was made to yield one finding. `doctor` exits 0 on this machine,
+  as it should. An earlier draft of this bullet said "six errors, none of which
+  produced a finding of any kind before", which was false twice over and
+  contradicted its own next clause. With `HOME` redirected to a root-owned
+  directory the check now still names the real user-owned entry and does not name
+  `/usr/bin`; with an empty `PATH` element ahead of the system directories the
+  refusal is an error. Home paths reach the report as `~`.
+- Compatibility impact: `--json` gains two finding kinds and three finding ids;
+  more machines report findings, all but two of them warnings. Additive to
+  `snapshot.v1.md` because an unknown kind is now tolerated — without that it
+  would have been a version bump. `doctor.v1.md` listed two of the eleven `path_*`
+  ids, one of which was `path_order`; it now lists all of them.

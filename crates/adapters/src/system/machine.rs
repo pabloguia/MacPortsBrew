@@ -43,6 +43,7 @@ use macportsbrew_domain::{
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -135,6 +136,37 @@ pub fn from_process_environment() -> (Option<String>, BTreeMap<String, String>, 
 pub fn usable_home(value: &str) -> Option<PathBuf> {
     let trimmed = PathBuf::from(value.trim_end_matches('/'));
     (trimmed.is_absolute() && trimmed.components().count() > 1).then_some(trimmed)
+}
+
+/// This process's effective uid, read as the owner of a file it just created.
+///
+/// Not from `$HOME`, which was the first attempt and was wrong in both
+/// directions: the environment decides what `$HOME` says, so a home the process
+/// does not own makes every directory this user *cannot* write look writable —
+/// a run with `HOME=/private/var` reported `/usr/bin` as "belongs to you" —
+/// while a home that cannot be stat'd silently switches the check off, which is
+/// one line in a shell profile away for exactly the adversary who put `~/bin`
+/// on the `PATH` in the first place. It is also not this process under `sudo`,
+/// where the euid is 0 and `$HOME` still names the invoking user.
+///
+/// The owner of a file this process just made is this process, and no variable
+/// can redirect that. `std` exposes no `getuid`; it does expose the owner of a
+/// file. The technique is the one `persistence::state_dir` already uses. A
+/// directory that will not take the probe yields `None`, and the caller reports
+/// that the check did not run rather than reporting nothing.
+fn effective_uid() -> Option<u32> {
+    let probe = std::env::temp_dir().join(format!(".macportsbrew-uid.{}", std::process::id()));
+    std::fs::remove_file(&probe).ok();
+    let uid = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&probe)
+        .and_then(|f| f.metadata())
+        .map(|m| m.uid())
+        .ok();
+    std::fs::remove_file(&probe).ok();
+    uid
 }
 
 /// Reads the locale preference variables in the order `06-cli-and-ux.md`
@@ -395,7 +427,8 @@ impl MachineRead for SystemMachine {
             reported,
             path_findings: Vec::new(),
         };
-        let path_findings = crate::system::path_audit::audit_path(&raw)
+        let me = effective_uid();
+        let path_findings = crate::system::path_audit::audit_path(&raw, me)
             .into_iter()
             .map(|f| PathFinding {
                 entry: redact_home(&f.entry, home),

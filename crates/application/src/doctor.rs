@@ -199,11 +199,60 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
     // what `git` means? — is a comparison of positions, and it is answered
     // here (`04-migration-and-safety.md`, "Threat model": executable
     // shadowing).
-    let first_system = path
-        .iter()
-        .position(|e| matches!(e.as_str(), "/usr/bin" | "/bin" | "/usr/sbin" | "/sbin"));
+    // Compared with trailing slashes trimmed. `/usr/bin/` is an ordinary entry
+    // that works, and matching it by string equality meant one character
+    // bypassed every escalation below *and* fired the no-system-directory
+    // error while all four were present and searched.
+    let system = |e: &str| {
+        let e = e.trim_end_matches('/');
+        macportsbrew_domain::SYSTEM_PATH
+            .iter()
+            .any(|s| s.trim_end_matches('/') == e)
+    };
+    let first_system = path.iter().position(|e| system(e));
+    // A `PATH` with no system directory on it at all is a finding in its own
+    // right, and it used to be the quietest kind of gap: `precedes_system` is
+    // `false` for every entry when there is nothing to precede, so every
+    // escalation below silently degraded to a warning on exactly the machine
+    // whose search path is most unusual.
+    if first_system.is_none() && !path.is_empty() {
+        add(
+            "path_has_no_system_directory",
+            Severity::Error,
+            Reason::new("doctor.path_has_no_system_directory"),
+            None,
+        );
+    }
+    // One entry yields one writable finding. `/usr/local/bin` is both
+    // group-writable and owner-writable on a stock Intel Homebrew, and
+    // reporting it twice for one directory with one remedy is how a count
+    // stops meaning anything. The strongest writer decides which is reported.
+    let strongest = |index: usize| {
+        [
+            PathFindingKind::WorldWritable,
+            PathFindingKind::GroupWritable,
+            PathFindingKind::OwnerWritable,
+        ]
+        .into_iter()
+        .find(|kind| {
+            snapshot
+                .environment
+                .path_findings
+                .iter()
+                .any(|f| f.index == index && f.kind == *kind)
+        })
+    };
     for finding in &snapshot.environment.path_findings {
         let precedes_system = first_system.is_some_and(|system| finding.index < system);
+        let writable = matches!(
+            finding.kind,
+            PathFindingKind::WorldWritable
+                | PathFindingKind::GroupWritable
+                | PathFindingKind::OwnerWritable
+        );
+        if writable && strongest(finding.index) != Some(finding.kind) {
+            continue;
+        }
         // The message identifiers are written out as literals so that
         // `scripts/check-i18n-parity.sh`, which greps for `Reason::new("…")`,
         // sees every one of them.
@@ -211,10 +260,32 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
             // Anyone on the machine may drop a binary here, and the shell
             // finds it before the real one. That is the shadowing attack, not
             // a tidiness problem.
+            // `ERROR` is reserved for a search path somebody *other than this
+            // user* can decide the contents of, and for one whose meaning
+            // changes with the working directory. Both are broken in the sense
+            // this project reserves the word for: they produce wrong answers.
+            //
+            // A directory this user owns, ahead of the system ones, is not.
+            // It is how every developer machine is arranged and how Homebrew
+            // installs itself - `/usr/local/bin` is `admin`-writable by the
+            // installer's design, and MacPortsBrew's own analysis needs that
+            // prefix on the `PATH` it warns you about not having it on. Making
+            // it an error meant `doctor` exited 5 on a stock install and on
+            // every machine with a `~/bin`, and an error everybody has is an
+            // error nobody reads. It is reported - which is the finding, since
+            // it produced nothing at all before - as a warning.
             PathFindingKind::WorldWritable if precedes_system => (
                 "path_world_writable_precedes_system",
                 Severity::Error,
                 Reason::new("doctor.path_world_writable_precedes_system"),
+            ),
+            // An empty entry is the working directory, so what runs depends on
+            // where the user is standing and any repository they clone can
+            // carry a `git`. Nobody arranges this deliberately.
+            PathFindingKind::Relative if precedes_system => (
+                "path_relative_precedes_system",
+                Severity::Error,
+                Reason::new("doctor.path_relative_precedes_system"),
             ),
             PathFindingKind::WorldWritable => (
                 "path_world_writable",
@@ -226,6 +297,11 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                 Severity::Warning,
                 Reason::new("doctor.path_group_writable"),
             ),
+            PathFindingKind::OwnerWritable => (
+                "path_owner_writable",
+                Severity::Warning,
+                Reason::new("doctor.path_owner_writable"),
+            ),
             PathFindingKind::Missing => (
                 "path_missing",
                 Severity::Warning,
@@ -235,6 +311,14 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                 "path_relative",
                 Severity::Warning,
                 Reason::new("doctor.path_relative"),
+            ),
+            // A snapshot from a newer build naming a kind this one does not
+            // know. Reported rather than dropped: the reader can see that
+            // something was found and that this build cannot name it.
+            PathFindingKind::Unknown => (
+                "path_finding_unknown",
+                Severity::Warning,
+                Reason::new("doctor.path_finding_unknown"),
             ),
             PathFindingKind::Duplicate => (
                 "path_duplicate",

@@ -89,6 +89,33 @@ pub enum PathFindingKind {
     /// where Homebrew's Intel prefix lives, so every admin account on the
     /// machine can place a binary there.
     GroupWritable,
+    /// The directory is writable by the user this tool is running as, because
+    /// they own it and the owner bit is set.
+    ///
+    /// This is the *ordinary* shadowing shape on macOS, and the one the other
+    /// two kinds miss entirely: `~/bin` at `0755`, owned by the user, ahead of
+    /// `/usr/bin`. A `curl | sh` installer, an `npm` postinstall or a
+    /// compromised dev dependency that drops `~/bin/git` needs no unusual
+    /// permissions at all — it is already writable by the account it is
+    /// running in. `04-migration-and-safety.md` ("Threat model") names it in
+    /// those words.
+    ///
+    /// Ownership is part of the condition, not decoration. Nearly every
+    /// directory has the owner-write bit set, `/usr/bin` at `0755 root:wheel`
+    /// included; what distinguishes this one is that the owner is *this* user,
+    /// so this user — or anything running as them — can plant a binary in it.
+    OwnerWritable,
+    /// A kind this build does not know, from a snapshot a newer one wrote.
+    ///
+    /// Without it, adding a variant is a *breaking* schema change and not the
+    /// additive one it looks like: the whole snapshot is rejected on the older
+    /// build with "unknown variant", and no analysis happens at all. Adding
+    /// `OwnerWritable` did exactly that before this variant existed.
+    /// `docs/schemas/README.md` permits adding an enumeration value without a
+    /// version bump only where consumers already handle an unknown one — so
+    /// here is the consumer handling it.
+    #[serde(other)]
+    Unknown,
 }
 
 /// One finding about one `PATH` entry.

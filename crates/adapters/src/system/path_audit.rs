@@ -42,19 +42,19 @@
 
 use macportsbrew_domain::{EnvironmentSnapshot, PathFinding, PathFindingKind};
 use std::collections::BTreeSet;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 
 /// Audits the entries of a redacted `PATH`, in order.
 ///
 /// One entry may produce several findings. They come back in entry order and,
 /// within an entry, in the order the checks run: `Duplicate`, then `Relative`,
-/// then `Missing`, then `WorldWritable` and `GroupWritable`. A repeat is
+/// then `Missing`, then `WorldWritable`, `GroupWritable` and `OwnerWritable`. A repeat is
 /// reported before the entry is resolved, because a repeated relative entry is
 /// both things. An entry that is not absolute is reported and then left alone:
 /// resolving it is the attack. The same input on the same machine always
 /// produces the same list.
-pub fn audit_path(environment: &EnvironmentSnapshot) -> Vec<PathFinding> {
+pub fn audit_path(environment: &EnvironmentSnapshot, me: Option<u32>) -> Vec<PathFinding> {
     let mut findings = Vec::new();
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     for (index, entry) in environment.path.iter().enumerate() {
@@ -97,6 +97,21 @@ pub fn audit_path(environment: &EnvironmentSnapshot) -> Vec<PathFinding> {
         if mode & 0o020 != 0 {
             push(PathFindingKind::GroupWritable);
         }
+        // Owner-writable is only a finding when the owner is *this* user.
+        // Without the ownership half it would fire on `/usr/bin`, which is
+        // `0755 root:wheel` and owner-writable like almost everything else, and
+        // a check that fires on every entry says nothing about any of them.
+        // With it, the entry is one this account can plant a binary in - which
+        // is the shadowing case the other two kinds miss, because it needs no
+        // unusual permissions at all.
+        //
+        // `me` is `None` when the home could not be resolved, and then this
+        // check is skipped rather than guessed: reporting every owner-writable
+        // directory, or none, would both be wrong, and a run with no `HOME`
+        // already carries `HomeRedaction::Unresolved` through the report.
+        if me.is_some_and(|me| meta.uid() == me) && mode & 0o200 != 0 {
+            push(PathFindingKind::OwnerWritable);
+        }
     }
     findings
 }
@@ -105,6 +120,7 @@ pub fn audit_path(environment: &EnvironmentSnapshot) -> Vec<PathFinding> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -125,6 +141,42 @@ mod tests {
             reported: BTreeMap::new(),
             path_findings: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_directory_this_user_owns_is_the_shadowing_case_the_other_kinds_miss() {
+        // `~/bin` at 0755 owned by the user. No unusual permission is involved,
+        // which is exactly why it produced no finding at all: a `curl | sh`
+        // installer or an npm postinstall already runs as this account.
+        let dir = scratch("owner-writable");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let entry = dir.to_string_lossy().into_owned();
+        let me = std::fs::metadata(&dir).unwrap().uid();
+
+        assert_eq!(
+            kinds(&audit_path(&environment(&[&entry]), Some(me)), &entry),
+            vec![PathFindingKind::OwnerWritable],
+        );
+        // Owned by somebody else, so this account cannot plant anything: the
+        // ownership half is the whole check. Without it every entry on every
+        // machine would report, `/usr/bin` at 0755 root:wheel included.
+        assert!(kinds(&audit_path(&environment(&[&entry]), Some(me + 1)), &entry).is_empty());
+        // And with no home to read a uid from, the check is skipped rather than
+        // guessed in either direction.
+        assert!(kinds(&audit_path(&environment(&[&entry]), None), &entry).is_empty());
+    }
+
+    #[test]
+    fn a_directory_the_user_owns_but_cannot_write_is_not_reported() {
+        let dir = scratch("owner-readonly");
+        let me = std::fs::metadata(&dir).unwrap().uid();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let entry = dir.to_string_lossy().into_owned();
+        let found = kinds(&audit_path(&environment(&[&entry]), Some(me)), &entry);
+        // Put it back before asserting, so a failure does not leave an
+        // unwritable directory behind in the temporary tree.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(found.is_empty(), "{found:?}");
     }
 
     fn kinds(findings: &[PathFinding], entry: &str) -> Vec<PathFindingKind> {
@@ -163,7 +215,7 @@ mod tests {
             good.to_string_lossy().into_owned(),
         ];
         let refs: Vec<&str> = entries.iter().map(String::as_str).collect();
-        let findings = audit_path(&environment(&refs));
+        let findings = audit_path(&environment(&refs), None);
 
         assert_eq!(
             kinds(&findings, &open.to_string_lossy()),
@@ -206,7 +258,7 @@ mod tests {
 
     #[test]
     fn a_repeated_relative_entry_is_both_things_in_the_documented_order() {
-        let findings = audit_path(&environment(&["bin", "bin"]));
+        let findings = audit_path(&environment(&["bin", "bin"]), None);
         let kinds: Vec<PathFindingKind> = findings.iter().map(|f| f.kind).collect();
         assert_eq!(
             kinds,
@@ -223,8 +275,8 @@ mod tests {
         let dir = scratch("audit-clean");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         let entry = dir.to_string_lossy().into_owned();
-        assert!(audit_path(&environment(&[&entry])).is_empty());
-        assert!(audit_path(&environment(&[])).is_empty());
+        assert!(audit_path(&environment(&[&entry]), None).is_empty());
+        assert!(audit_path(&environment(&[]), None).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -248,7 +300,7 @@ mod tests {
 
         // A raw absolute entry is inspected, and the mode is seen.
         assert!(
-            kinds(&audit_path(&environment(&[&raw])), &raw)
+            kinds(&audit_path(&environment(&[&raw]), None), &raw)
                 .contains(&PathFindingKind::WorldWritable),
             "a raw entry must be stat'd, not classified as relative"
         );
@@ -256,7 +308,7 @@ mod tests {
         // A redacted entry is not something this function can inspect, and it
         // says so rather than guessing. Handing it one is the caller's bug.
         assert_eq!(
-            kinds(&audit_path(&environment(&["~/bin"])), "~/bin"),
+            kinds(&audit_path(&environment(&["~/bin"]), None), "~/bin"),
             vec![PathFindingKind::Relative]
         );
         std::fs::remove_dir_all(&home).ok();

@@ -45,10 +45,38 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `prefix_not_on_path` | `WARNING` | `doctor.prefix_not_on_path` | `provider`, `prefix` |
 | `path_order` | `OK` or `WARNING` | `doctor.path_order` | `order` |
 | `path_duplicate` | `WARNING` | `doctor.path_duplicate` | `entry` |
+| `path_missing` | `WARNING` | `doctor.path_missing` | `entry` |
+| `path_relative` | `WARNING` | `doctor.path_relative` | `entry` |
+| `path_world_writable` | `WARNING` | `doctor.path_world_writable` | `entry` |
+| `path_group_writable` | `WARNING` | `doctor.path_group_writable` | `entry` |
+| `path_owner_writable` | `WARNING` | `doctor.path_owner_writable` | `entry` |
+| `path_world_writable_precedes_system` | `ERROR` | `doctor.path_world_writable_precedes_system` | `entry` |
+| `path_relative_precedes_system` | `ERROR` | `doctor.path_relative_precedes_system` | `entry` |
+| `path_finding_unknown` | `WARNING` | `doctor.path_finding_unknown` | `entry` |
+| `path_has_no_system_directory` | `ERROR` | `doctor.path_has_no_system_directory` | — |
 | `build_variable_names_prefix` | `WARNING` | `doctor.build_variable_names_prefix` | `variable`, `provider` |
 | `running_translated` | `WARNING` | `doctor.running_translated` | — |
 | `command_line_tools` | `OK`, `WARNING` or `ERROR` | `doctor.command_line_tools_present` / `_missing` / `_unknown` | — |
 | `policy_stale` | `WARNING` | (policy staleness) | the read date and the threshold |
+
+**An `ERROR` is a search path somebody other than this user decides.** A
+world-writable directory ahead of the system ones means any account on the
+machine chooses what `git` means; an entry that is not absolute means the
+working directory does, and any repository you clone can carry one. Both produce
+wrong answers, which is what this project reserves `ERROR` for.
+
+**A directory you own, or one your admin group owns, is reported as a
+`WARNING` wherever it sits.** It is worth knowing — anything running as you can
+plant a binary there, which is how a `curl | sh` installer or a package
+postinstall would do it — but it is not a broken machine: `~/bin` ahead of
+`/usr/bin` is how developer machines are arranged, and `/usr/local/bin` is
+`admin`-writable because that is how Homebrew installs itself, on the very
+prefix `prefix_not_on_path` warns you about *not* having on your `PATH`. An
+error every developer machine reports is an error nobody reads.
+
+**One entry yields one writable finding.** A directory that is both
+group-writable and owner-writable is one directory with one remedy; the
+strongest writer is the one named.
 
 **A dated provider policy is a `WARNING`, never an `ERROR`.** A support tier or
 an announced end-of-support date is something the user should know about and

@@ -118,6 +118,18 @@ to answer.
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
 
 ### Security
+- **`doctor` now sees the commonest executable-shadowing directory on macOS.**
+  A directory you own at `0755` — `~/bin`, `~/.local/bin`, whatever a
+  `curl | sh` installer created — ahead of `/usr/bin` produced no finding at
+  all, though it is verbatim the threat-model case: anything running as you can
+  plant a `git` there. It is reported now, as a warning — a directory you own
+  ahead of `/usr/bin` is how developer machines are arranged, not a broken one.
+  `ERROR` is reserved for the shapes where somebody else decides what runs: a
+  world-writable directory before the system ones, and an entry that is not
+  absolute, whose meaning changes with the working directory. A `PATH` with no
+  system directory on it is a finding rather than a silent degradation of every
+  escalation, and `/usr/bin/` with a trailing slash is recognised as one.
+  SE-053, finding F-07.
 - **A snapshot can no longer put a flag where a package name belongs.** The
   adapters validate every name a provider reports; `--from-snapshot` read the same
   fields out of a file that never met one, and the planner turns them into argv

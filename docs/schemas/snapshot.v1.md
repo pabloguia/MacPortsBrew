@@ -49,6 +49,7 @@ output format, which is why the fields are not optional.
 |---|---|---|
 | `path` | array of string, optional | `PATH` entries in order, redacted — the home directory becomes `~` |
 | `reported` | map of string to string, optional | The build and provider variables that were **named**, for the leaked-variable check. Values that could carry secrets are not recorded |
+| `pathFindings` | array of `{entry, index, kind}`, optional | What was wrong with each `PATH` entry at capture time, in entry order. `kind` is `DUPLICATE`, `RELATIVE`, `MISSING`, `WORLD_WRITABLE`, `GROUP_WRITABLE` or `OWNER_WRITABLE`; **a reader that meets a value it does not know reports it as unknown rather than refusing the snapshot**, which is what keeps adding one additive. `entry` is redacted like every other path |
 
 ## `ProviderSnapshot`
 
