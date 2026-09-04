@@ -143,6 +143,60 @@ pub enum VerificationCheck {
     },
     /// No new cross-provider linkage was introduced.
     NoCrossProviderLinkage,
+    /// The source provider reports the package **no longer** installed.
+    ///
+    /// `VERIFY_REMOVAL` used to carry `ProviderReportsActive`, which is
+    /// documented as "reports the package installed and active" - so as data the
+    /// plan said: verify the removal by confirming the package is still there.
+    /// Nothing executes yet, so nothing acted on it; an executor would have had
+    /// to either silently invert it or find nothing to run (F-06). The plan is
+    /// the contract (INV-02), and a contract that says the opposite of what it
+    /// means is not one.
+    PackageAbsent,
+    /// The destination reports the package installed **and did not at plan
+    /// time**.
+    ///
+    /// The distinction is what makes `VERIFY_DESTINATION` a gate rather than a
+    /// formality. All five contract checks are satisfied by state that predates
+    /// the plan, so for a package already present at the destination a failed or
+    /// no-op install still cleared the gate INV-01 depends on. This variant is
+    /// emitted only where the destination was absent when the plan was built,
+    /// which is exactly when "the provider now reports it" proves the install
+    /// happened. Where it was already present, the plan says so instead of
+    /// implying a proof it cannot give.
+    PackageNewlyPresent,
+    /// A check written by a build newer than this one, or a name that did not
+    /// survive whatever produced this plan.
+    ///
+    /// **Tolerated on the way in, never satisfied.** Reading a plan that names
+    /// a check this build does not know must not refuse the whole document —
+    /// that is what keeps adding a variant additive. But a verification step is
+    /// the gate INV-01 rests on, and `.claude/rules/domain.md` states the rule
+    /// this variant would otherwise break: *an unknown is never a yes*. An
+    /// executor that iterated the checks it recognised, found them satisfied
+    /// and cleared the gate would re-open F-06's own defect through the door
+    /// opened to make F-06's fix additive — an older build reading a newer
+    /// plan, missing `PackageNewlyPresent`, and treating pre-existing state as
+    /// proof of an install.
+    ///
+    /// So [`VerificationCheck::is_satisfiable`] is `false` here, and a step
+    /// carrying one cannot pass. The precedent this variant follows is
+    /// `PathFindingKind::Unknown`, and the difference matters: that one labels
+    /// a `doctor` finding, where the worst case is a mislabelled warning.
+    #[serde(other)]
+    Unknown,
+}
+
+impl VerificationCheck {
+    /// Whether this check is one an executor could ever report as passing.
+    ///
+    /// `false` only for [`VerificationCheck::Unknown`]. A step carrying an
+    /// unrecognised check fails closed: see that variant for why a union used
+    /// as a safety gate cannot treat "not understood" as "not applicable".
+    #[must_use]
+    pub fn is_satisfiable(&self) -> bool {
+        !matches!(self, Self::Unknown)
+    }
 }
 
 /// A risk the planner detected, with the reason.
@@ -276,11 +330,59 @@ impl MigrationPlan {
             .collect()
     }
 
+    /// Whether every step's verification is one this build can perform.
+    ///
+    /// `false` when any step carries a check this build does not recognise. An
+    /// executor must refuse such a plan rather than run the steps it does
+    /// understand: the checks it cannot read are exactly the ones a newer build
+    /// added because the older set was insufficient (F-06 is the worked
+    /// example). Reported separately from [`Self::check_ordering`] because it is
+    /// a different failure — the plan is well-formed and this build is too old
+    /// for it.
+    #[must_use]
+    pub fn verification_is_performable(&self) -> bool {
+        self.steps
+            .iter()
+            .all(|s| s.verification.iter().all(VerificationCheck::is_satisfiable))
+    }
+
     /// Checks the ordering invariants a plan must satisfy (INV-01: the
     /// destination is added and verified before the source is removed) and
     /// returns the first violation as text.
     pub fn check_ordering(&self) -> Result<(), String> {
         let pos = |k: StepKind| self.steps.iter().position(|s| s.kind == k);
+        let count = |k: StepKind| self.steps.iter().filter(|s| s.kind == k).count();
+
+        // This check compares *positions*, which is only the same thing as
+        // "the guard for this removal" while a plan carries one package. A
+        // `MigrationPlan` does today - it names a single `package` - and the
+        // planner emits one of each mutating step. But `.position()` is the
+        // first occurrence, so an interleaved plan like
+        // `[Snapshot, Add(A), Verify(A), Remove(A), Remove(B), Add(B), Verify(B)]`
+        // would pass this while removing B before B was ever added (F-06).
+        //
+        // A step does not carry the package it acts on, so the pairwise check
+        // that would catch it cannot be written yet. What can be written is the
+        // assumption this one silently rests on. A batch plan then fails here,
+        // loudly, at INV-01's enforcement point - rather than passing quietly
+        // and being discovered by whatever it removes.
+        for kind in [
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::RemoveSource,
+        ] {
+            if count(kind) > 1 {
+                // Short on purpose: this reaches a user through
+                // `ErrorId::Internal`, outside the i18n catalogue. The reasoning
+                // is above, where a maintainer reads it; a person who sees this
+                // needs to know it is a defect in the build, which the error
+                // identifier's own remediation text already says.
+                return Err(format!(
+                    "a plan carries {} {kind:?} steps and can only be ordered for one (INV-01)",
+                    count(kind)
+                ));
+            }
+        }
         if let Some(remove) = pos(StepKind::RemoveSource) {
             let add = pos(StepKind::AddDestination)
                 .ok_or("RemoveSource without AddDestination (INV-01)")?;
@@ -302,6 +404,121 @@ impl MigrationPlan {
 
 #[cfg(test)]
 mod tests {
+
+    /// The module's own `plan` and `step`, over a list of kinds.
+    fn plan_of(kinds: &[StepKind]) -> MigrationPlan {
+        plan(
+            kinds
+                .iter()
+                .enumerate()
+                .map(|(i, k)| step(u32::try_from(i).unwrap() + 1, *k))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn invariant_01_an_interleaved_plan_is_refused_rather_than_mis_ordered() {
+        // `check_ordering` compares *positions*, which is only "the guard for
+        // this removal" while a plan carries one package. A step does not name
+        // the package it acts on, so the pairwise check cannot be written yet —
+        // and the first-position comparison would pass a plan that removes B
+        // before B was ever added (F-06).
+        //
+        // What can be written is the assumption the check silently rested on.
+        let interleaved = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::RemoveSource,
+            StepKind::RemoveSource,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+        ]);
+        let err = interleaved
+            .check_ordering()
+            .expect_err("a batch plan cannot be ordered by first position");
+        assert!(err.contains("INV-01"), "{err}");
+
+        // And the single-package plan this project emits still passes.
+        let ordinary = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::SetPrimary,
+            StepKind::RemoveSource,
+            StepKind::VerifyRemoval,
+        ]);
+        ordinary
+            .check_ordering()
+            .expect("the ordinary plan is fine");
+
+        // The original defect, unchanged: a removal before its guard.
+        let inverted = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::RemoveSource,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+        ]);
+        assert!(inverted.check_ordering().is_err());
+    }
+
+    #[test]
+    fn an_unrecognised_check_is_read_and_never_satisfied() {
+        // The tolerance added to keep a new variant additive is also a way to
+        // re-open the defect the variant was added to close: an executor that
+        // skipped what it did not recognise, found the rest satisfied by state
+        // predating the plan, and cleared INV-01's gate. An unknown is never a
+        // yes (`.claude/rules/domain.md`).
+        for known in [
+            VerificationCheck::ProviderReportsActive,
+            VerificationCheck::PackageAbsent,
+            VerificationCheck::PackageNewlyPresent,
+            VerificationCheck::NoCrossProviderLinkage,
+        ] {
+            assert!(known.is_satisfiable(), "{known:?}");
+        }
+        assert!(!VerificationCheck::Unknown.is_satisfiable());
+
+        let mut plan = plan_of(&[StepKind::SnapshotBefore, StepKind::VerifyDestination]);
+        plan.steps[1].verification = vec![
+            VerificationCheck::ProviderReportsActive,
+            VerificationCheck::Unknown,
+        ];
+        assert!(
+            !plan.verification_is_performable(),
+            "a plan this build cannot fully verify is not one it may execute"
+        );
+        plan.steps[1].verification = vec![VerificationCheck::ProviderReportsActive];
+        assert!(plan.verification_is_performable());
+    }
+
+    #[test]
+    fn a_verification_check_from_a_newer_build_is_read_rather_than_refused() {
+        // Adding a variant must stay additive. Without the unknown-tolerant
+        // variant the whole plan is rejected by an older build and no analysis
+        // happens at all — a breaking change wearing an additive face, which
+        // this project has already made once (SE-053).
+        let json = r#"{"check":"SOMETHING_A_LATER_BUILD_ADDED"}"#;
+        let check: VerificationCheck = serde_json::from_str(json).expect("tolerated");
+        assert_eq!(check, VerificationCheck::Unknown);
+
+        // And the ones that exist round-trip by name.
+        for (value, text) in [
+            (VerificationCheck::PackageAbsent, "PACKAGE_ABSENT"),
+            (
+                VerificationCheck::PackageNewlyPresent,
+                "PACKAGE_NEWLY_PRESENT",
+            ),
+        ] {
+            let encoded = serde_json::to_string(&value).unwrap();
+            assert!(encoded.contains(text), "{encoded}");
+            assert_eq!(
+                serde_json::from_str::<VerificationCheck>(&encoded).unwrap(),
+                value
+            );
+        }
+    }
+
     use super::*;
 
     fn step(index: u32, kind: StepKind) -> MigrationStep {

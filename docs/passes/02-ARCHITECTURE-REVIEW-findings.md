@@ -33,6 +33,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
 | **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Open.** Honest as a value and satisfying INV-20 today, because nothing elevates yet. But three places say runtime detection is the real answer and nothing held the deferral. R-5a UNRESOLVED-1 names two read-only commands that settle it. |
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
+| **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
@@ -396,7 +397,18 @@ is the underlying defect.
 
 ## F-06 — Verification steps that cannot verify what they are named for
 
-**Severity: high for the executor pass. INV-01 depends on these.**
+**Severity: high for the executor pass. INV-01 depends on these. Fixed —
+SE-049, now accepted.** `VERIFY_REMOVAL` asserts `PACKAGE_ABSENT`;
+`VERIFY_DESTINATION` carries `PACKAGE_NEWLY_PRESENT` only where the destination
+was absent at plan time, so its absence now says "already there" rather than
+hiding it; and `check_ordering` refuses a plan it cannot order pairwise instead
+of comparing first positions across one. All 494 tests passed with the first two
+steps already changed and nothing written to notice — which is F-19's thesis, and
+why the tests are the deliverable here rather than the code. Two clauses stay
+open and are recorded in SE-049 rather than implied: `PACKAGE_ABSENT` carries no
+command, so what an executor runs to establish absence is owed; and the ordering
+guard refuses one shape of the ambiguity, not the ambiguity — the pairwise check
+needs a package on the step.
 
 Two of the verification steps in a plan assert something other than what their name
 says. Because the plan is the contract (INV-02) and the executor runs plan steps and

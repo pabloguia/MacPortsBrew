@@ -14,7 +14,8 @@ use macportsbrew_domain::{
     EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan,
     Outcome, PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
     ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
-    RequestedSet, Resolution, Snapshot, StepKind, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    RequestedSet, Resolution, Snapshot, StepKind, Translation, VerificationCheck, Version,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -372,6 +373,18 @@ fn invariant_17_a_dual_held_package_plans_in_either_direction() {
         kinds(&to_hb),
         "the two directions must be the same plan with the providers swapped"
     );
+    // And what each step *asserts*, not only which steps there are. The
+    // verification a step carries became conditional (F-06), and the mirror
+    // compared kinds alone - so an asymmetry introduced into that condition
+    // would have been caught by nothing here.
+    let checks = |p: &macportsbrew_domain::MigrationPlan| -> Vec<Vec<VerificationCheck>> {
+        p.steps.iter().map(|s| s.verification.clone()).collect()
+    };
+    assert_eq!(
+        checks(&to_mp),
+        checks(&to_hb),
+        "each step asserts the same thing in both directions"
+    );
 }
 
 #[test]
@@ -414,6 +427,111 @@ fn invariant_01_destination_is_added_and_verified_before_the_source_is_removed()
     assert!(pos(StepKind::AddDestination) < pos(StepKind::VerifyDestination));
     assert!(pos(StepKind::VerifyDestination) < pos(StepKind::RemoveSource));
     assert_eq!(kinds[0], StepKind::SnapshotBefore);
+}
+
+#[test]
+fn invariant_01_a_verification_step_asserts_what_its_name_says() {
+    // `VERIFY_REMOVAL` used to carry `ProviderReportsActive`, documented as
+    // "the destination provider reports the package installed and active". As
+    // data, the plan said: verify the removal by confirming the package is
+    // still there. Nothing executes yet so nothing acted on it — an executor
+    // would have had to either silently invert it or find nothing to run — but
+    // the plan is the contract (INV-02) and INV-01 rests on these steps meaning
+    // what they say (F-06).
+    let mut snap = both_present();
+    let hb = snap.providers.get_mut(&ProviderId::new(HB)).unwrap();
+    hb.inventory
+        .installed
+        .retain(|p| p.identity.name.as_str() != "postgresql@17");
+    let plan = plan_for(&snap, "tool", MP, false);
+    let removal = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyRemoval)
+        .expect("a plan that removes verifies the removal");
+    assert_eq!(
+        removal.verification,
+        vec![VerificationCheck::PackageAbsent],
+        "verifying a removal is asserting absence, not presence"
+    );
+    assert!(
+        !removal
+            .verification
+            .contains(&VerificationCheck::ProviderReportsActive),
+        "the check that asserts the opposite must not be here"
+    );
+}
+
+#[test]
+fn invariant_01_a_destination_already_holding_the_package_claims_no_proof_it_cannot_give() {
+    // Every check in the contract is satisfiable by state that predates the
+    // plan. Where the destination already has the package, all of them are true
+    // before a single step runs — so a failed or no-op install cleared the gate
+    // INV-01 depends on, and nothing in the plan distinguished the two (F-06).
+    //
+    // Where the destination was absent, `PackageNewlyPresent` is a check a
+    // no-op install cannot satisfy. Where it was present, the plan asserts only
+    // what is true. A weaker guard stated beats a stronger one implied.
+    let checks = |snap: &Snapshot| {
+        plan_for(snap, "tool", MP, true)
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::VerifyDestination)
+            .map(|s| s.verification.clone())
+    };
+
+    let present = both_present();
+    let present = checks(&present).expect("a plan verifies its destination");
+    assert!(
+        !present.contains(&VerificationCheck::PackageNewlyPresent),
+        "the destination already holds it; nothing here proves an install happened"
+    );
+
+    // `install_needed(HB)` is the destination-absent case with a mapping strong
+    // enough to plan on: `gnu-sed` under Homebrew, `gsed` under MacPorts, paired
+    // by the curated table rather than by both sides being installed. Removing
+    // the destination copy from `both_present()` does not work — the mapping
+    // evidence there *is* the MacPorts side, so the plan halts at manual review
+    // and there is no verification step to inspect.
+    let absent = install_needed(HB);
+    // The whole contract, not only the conditional member. Four of these six
+    // appear in no other test in the workspace, so deleting one from the
+    // planner would have been caught by nothing - which is F-06's own thesis
+    // applied to F-06's own fix. Making the set conditional is what raised the
+    // cost of that gap enough to close it here.
+    let contract = |extra: Option<VerificationCheck>| -> Vec<VerificationCheck> {
+        let mut v = vec![VerificationCheck::ProviderReportsActive];
+        v.extend(extra);
+        v.extend([
+            VerificationCheck::ProviderIntegrityCheck,
+            // The *destination's* name. `gnu-sed` under Homebrew maps to
+            // `gsed` under MacPorts, and what gets verified is what will be
+            // installed - which this pinned by getting it wrong first.
+            VerificationCheck::ExecutablesOwnedByDestination {
+                executables: vec!["gsed".into()],
+            },
+            VerificationCheck::LivenessProbe {
+                executable: "gsed".into(),
+                flag: "--version".into(),
+            },
+            VerificationCheck::NoCrossProviderLinkage,
+        ]);
+        v
+    };
+    let checks = plan_for(&absent, "gnu-sed", MP, true)
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyDestination)
+        .map_or_else(
+            || panic!("this fixture is the one that plans a real install"),
+            |s| s.verification.clone(),
+        );
+    assert_eq!(
+        checks,
+        contract(Some(VerificationCheck::PackageNewlyPresent)),
+        "the destination was absent, so presence afterwards is the proof - and \
+         the rest of the contract is unchanged, not replaced"
+    );
 }
 
 #[test]

@@ -394,18 +394,43 @@ pub fn build_plan(
                 &dest_name,
                 kind,
             )?],
-            vec![
-                VerificationCheck::ProviderReportsActive,
-                VerificationCheck::ProviderIntegrityCheck,
-                VerificationCheck::ExecutablesOwnedByDestination {
-                    executables: vec![dest_name.clone()],
-                },
-                VerificationCheck::LivenessProbe {
-                    executable: dest_name.clone(),
-                    flag: "--version".into(),
-                },
-                VerificationCheck::NoCrossProviderLinkage,
-            ],
+            {
+                // Every one of the contract's checks is satisfiable by state
+                // that predates the plan. For a package the destination already
+                // holds, all five are true before a single step runs - so a
+                // failed or no-op install cleared the gate INV-01 depends on,
+                // and nothing in the plan said which of the two had happened
+                // (F-06).
+                //
+                // The planner knows which case this is, and now says so. Where
+                // the destination was absent, `PackageNewlyPresent` is a check
+                // an install that did nothing cannot satisfy.
+                //
+                // Where it was already there, nothing is dropped: the full
+                // contract of `04-migration-and-safety.md` still applies, and
+                // the step simply makes no claim about *this run* having caused
+                // the package to be present, because it did not. The contract is
+                // a list of necessary conditions, so the absent case is a
+                // strengthening of it rather than a different contract - and the
+                // add step above already reads "already installed; nothing to
+                // add". A weaker guard stated beats a stronger one implied.
+                let mut checks = vec![VerificationCheck::ProviderReportsActive];
+                if !destination_holds_it {
+                    checks.push(VerificationCheck::PackageNewlyPresent);
+                }
+                checks.extend([
+                    VerificationCheck::ProviderIntegrityCheck,
+                    VerificationCheck::ExecutablesOwnedByDestination {
+                        executables: vec![dest_name.clone()],
+                    },
+                    VerificationCheck::LivenessProbe {
+                        executable: dest_name.clone(),
+                        flag: "--version".into(),
+                    },
+                    VerificationCheck::NoCrossProviderLinkage,
+                ]);
+                checks
+            },
             Reason::new("reason.verify_destination"),
         ));
         // The primary is set through the MacPortsBrew-managed directory in
@@ -462,7 +487,11 @@ pub fn build_plan(
                 StepKind::VerifyRemoval,
                 Some(source.clone()),
                 vec![],
-                vec![VerificationCheck::ProviderReportsActive],
+                // Not `ProviderReportsActive`, which is documented as "reports
+                // the package installed and active" - as data, that told an
+                // executor to verify a removal by confirming the package is
+                // still there (F-06).
+                vec![VerificationCheck::PackageAbsent],
                 Reason::new("reason.verify_removal"),
             ));
             steps.push(next(

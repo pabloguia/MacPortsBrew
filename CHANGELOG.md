@@ -134,6 +134,23 @@ to answer.
   moves on, so a restore usually gives you a **newer** version than the snapshot
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
+### Changed
+- **Two verification steps in a plan said something other than their name, and
+  now say what they mean.** `VERIFY_REMOVAL` carried "the provider reports the
+  package installed and active" — as data, *verify the removal by confirming the
+  package is still there*. It carries `PACKAGE_ABSENT`. And every check in the
+  contract was satisfiable by state that predated the plan, so for a package the
+  destination already held, a failed or no-op install cleared the gate that keeps
+  anything from being removed before its replacement is verified; where the
+  destination was absent, the step now also asserts `PACKAGE_NEWLY_PRESENT`,
+  which a no-op cannot satisfy. Nothing executes in this build, so nothing acted
+  on either — but the plan is the contract, and it has to be right before there
+  is an executor to read it.
+  Plan JSON gains two `check` values and a reader that tolerates a third it does
+  not recognise, so `schemaVersion` stays 1 — see `docs/schemas/plan.v1.md`,
+  which also records the rule that makes that tolerance safe: an unrecognised
+  check can never count as satisfied. SE-049, finding F-06.
+
 ### Security
 - **A hostile tap can no longer put tens of megabytes into your snapshot.** The
   MacPorts parser has always capped output bytes, row counts and free text; the

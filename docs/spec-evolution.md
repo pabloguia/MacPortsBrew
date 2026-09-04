@@ -2339,7 +2339,7 @@ finding ids in each entry.
 - Compatibility impact: top-level counts and golden files change if the code moves.
 
 ## SE-049 — A verification check must be able to fail
-- Status: proposed
+- Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: the verification contract is expressed by the
   `VerificationCheck` values a plan carries.
@@ -2356,11 +2356,82 @@ finding ids in each entry.
   None of this is reachable today because nothing executes and every plan holds one
   of each step — which is precisely why it should be fixed before the executor pass
   rather than during it.
+- **`PACKAGE_NEWLY_PRESENT` is emitted conditionally, and its absence is the
+  message.** Where the destination already holds the package the plan does not
+  claim a proof it cannot give: it asserts presence and says, in the add step,
+  "already installed; nothing to add". A weaker guard stated is worth more than a
+  stronger one implied, and the executor pass can then decide what a no-op
+  install is allowed to clear.
+- **The pairwise ordering check is deferred, and the guard refuses one shape of
+  the ambiguity rather than the ambiguity.** `check_ordering` compares positions;
+  matching a removal to *its* guard needs the step to name the package it acts
+  on. It now refuses any plan carrying more than one `ADD_DESTINATION`,
+  `VERIFY_DESTINATION` or `REMOVE_SOURCE`, so a batch plan fails loudly at
+  INV-01's enforcement point instead of passing quietly. **It does not close the
+  question**: a plan with exactly one of each whose removal concerns a different
+  package than the verification would still pass. None is expressible today —
+  `selected` is a single candidate, `destination_package` a single value, `1→many`
+  resolves to `MANUAL_REVIEW` — and no specification text commits to a batch
+  plan.
+  Adding `package: Option<String>` to `MigrationStep` was available and would
+  have been additive under the same rule; the executor will need it regardless.
+  Asserting the precondition is a reversible interim at a gate INV-01 rests on,
+  which is the right instinct there, but it is an interim: the pairwise check
+  stays owed, and the residual is recorded here rather than only in a pass plan
+  while the finding reads "fixed".
+- **The tolerant reader is prospective, and saying otherwise was wrong.**
+  `VerificationCheck` is internally tagged, so a reader meeting `PACKAGE_ABSENT`
+  without `#[serde(other)] Unknown` refuses the whole plan. An earlier draft of
+  this entry said that is what makes the change additive under
+  `docs/schemas/README.md` — it is not: that rule says a value may be added to an
+  enumeration whose consumers **already** handle an unknown one, and this change
+  adds both in the same commit, which protects nothing built before it. What
+  actually makes no bump owed is narrower and was unstated: nothing in this
+  workspace deserialises a `MigrationPlan`, so plan JSON is write-only output
+  with no reader to break, and nothing has been released. The tolerant reader
+  earns its place for the *next* value, which is reason enough to add it now.
+- **And tolerance in this union needed a rule, which it did not have.** An
+  unrecognised check was read and then nothing said what to do with it — so an
+  executor could iterate the checks it knew, find them satisfied by state
+  predating the plan, and clear INV-01's gate. That is F-06's own defect
+  re-entering through the door opened to make F-06's fix additive.
+  `VerificationCheck::is_satisfiable` is `false` for `Unknown` and
+  `MigrationPlan::verification_is_performable` refuses a plan carrying one:
+  tolerated on the way in, never satisfied. `.claude/rules/domain.md` already
+  said it — *an unknown is never a yes* — and the precedent cited,
+  `PathFindingKind::Unknown`, labels a `doctor` finding where the worst case is a
+  mislabelled warning. This one is a gate.
 - Evidence: `planner.rs:301-307`, `plan.rs:93-94`, `plan.rs:206-216`; finding F-06.
+  Four tests: the removal step asserts absence and not presence; the destination
+  step carries the newly-present check only where the destination was absent;
+  the interleaved plan is refused while the ordinary one passes and the original
+  inversion still fails; and an unrecognised check deserialises to `Unknown`.
+  Note that the whole suite passed *before* any of these were written, with the
+  two verification steps already changed: 494 by
+  `cargo test --locked --all-features --workspace`, which is what
+  `scripts/validate.sh` runs, against 498 after. (An earlier draft said 493, which
+  is not a number either that command or the plain one produces — a wrong figure
+  in the sentence whose whole point is evidence.) That is F-19's thesis exactly,
+  and the reason these tests are the deliverable here rather than the code.
 - User impact: none until execution exists.
-- Architectural impact: `VerificationCheck` gains a variant; INV-01's enforcement
-  point becomes pairwise.
-- Compatibility impact: plan JSON gains a value; `schemaVersion` may need a bump.
+- Architectural impact: `VerificationCheck` gains three variants, one of them the
+  tolerant reader. INV-01's enforcement point states its own precondition rather
+  than resting on it.
+- **`PACKAGE_ABSENT` says the right thing and still cannot be performed.** The
+  step carries no command, so an executor handed it must derive the query itself
+  — and F-06's own words were "either silently invert it **or have nothing to
+  run**". The first clause is closed here; the second is not, and the obvious
+  implementation is a trap: "nonzero exit means absent" is verification by exit
+  status with the sign flipped, and F-22 already records `brew list --versions`
+  exiting 1 for a correctly installed cask. The executor pass owes this a
+  source-side command and a defined success semantic. Recorded rather than
+  implied, because the finding's row now reads "fixed".
+- Compatibility impact: plan JSON gains two check values and a tolerant reader,
+  so no `schemaVersion` bump — for the reasons above, which are not the ones the
+  first draft gave. Noted in `CHANGELOG.md`, which `docs/schemas/README.md`
+  requires for a backward-compatible schema change and which the first version of
+  this change omitted. `plan.v1.md` documents all three values, the fail-closed
+  rule and the `PACKAGE_NEWLY_PRESENT` semantic.
 
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
 - Status: accepted

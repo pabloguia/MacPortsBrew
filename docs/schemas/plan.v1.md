@@ -56,16 +56,28 @@ the order they occur:
 | `SET_PRIMARY` | yes | Make the destination's copy the one that resolves |
 | `VERIFY_RESOLUTION` | no | Confirm it actually does |
 | `REMOVE_SOURCE` | yes | Only reachable after `VERIFY_DESTINATION` passed (INV-01) |
-| `VERIFY_REMOVAL` | no | |
+| `VERIFY_REMOVAL` | no | Carries `PACKAGE_ABSENT`. It carries **no command**: what an executor should run to establish absence, and what exit status means it, is owed to the executor pass (F-06, F-22) |
 | `CLEANUP_REVIEW` | no | What is left behind, for a human to decide about |
 | `RECORD_HISTORY` | no | |
 | `MANUAL_REVIEW` | no | A human must look. Execution stops here |
 
 **Ordering is part of the contract, not a rendering detail.**
 `MigrationPlan::check_ordering` asserts that no `REMOVE_SOURCE` precedes the
-`VERIFY_DESTINATION` that guards it, and
-`invariant_01_destination_is_added_and_verified_before_the_source_is_removed`
-is the test that defends it.
+`VERIFY_DESTINATION` that guards it. It establishes that by comparing
+*positions*, which is the same thing only while a plan carries one package — a
+step does not name the package it acts on — so it also refuses outright any plan
+carrying more than one `ADD_DESTINATION`, `VERIFY_DESTINATION` or
+`REMOVE_SOURCE`.
+
+That refuses one *shape* of the ambiguity, not the ambiguity: a plan with
+exactly one of each kind whose removal concerns a different package than the
+verification would still pass. No such plan is expressible today — `selected` is
+a single candidate, `destinationPackage` a single value, and `1→many` resolves to
+`MANUAL_REVIEW` — and the pairwise check is owed when one is, and
+`invariant_01_destination_is_added_and_verified_before_the_source_is_removed`,
+`invariant_01_an_interleaved_plan_is_refused_rather_than_mis_ordered` and
+`invariant_01_a_verification_step_asserts_what_its_name_says` are the tests that
+defend it.
 
 A plan containing a `MANUAL_REVIEW` step exits **4** when executed, naming the
 step. `plan --json` exits 4 for the same reason while still printing the plan:
@@ -149,6 +161,35 @@ Tagged union on `check`:
 | `EXECUTABLES_OWNED_BY_DESTINATION` | `executables` | The expected executables exist at paths the destination owns, confirmed by asking the provider |
 | `LIVENESS_PROBE` | `executable`, `flag` | A non-mutating flag (`--version` by default) exits successfully |
 | `NO_CROSS_PROVIDER_LINKAGE` | — | No new cross-provider linkage was introduced (INV-07) |
+| `PACKAGE_ABSENT` | — | The source provider reports the package **no longer** installed. `VERIFY_REMOVAL` carries this; it used to carry `PROVIDER_REPORTS_ACTIVE`, which asserts the opposite (F-06) |
+| `PACKAGE_NEWLY_PRESENT` | — | The destination reports the package installed **and did not at plan time**. Present only where the destination was absent when the plan was built — which is exactly when presence afterwards proves the install happened rather than predating it. Its *absence* from a `VERIFY_DESTINATION` therefore says something: the destination already held the package, and the step cannot prove more than that it still does (F-06) |
+
+**A reader that meets a `check` it does not recognise treats it as unknown
+rather than refusing the plan — and can never treat it as satisfied.** Both
+halves matter, and the second is the one with teeth. Tolerance is what lets a
+later build add a check without every earlier one rejecting the whole document.
+But this union is the gate INV-01 rests on: a reader that skipped what it did
+not recognise, found the rest satisfied and cleared the gate would re-open the
+very defect the new checks were added to close — a build that does not know
+`PACKAGE_NEWLY_PRESENT` treating state that predates the plan as proof of an
+install. So a `VERIFY_*` step carrying an unrecognised check **fails closed**,
+and an executor refuses a plan it cannot fully verify rather than running the
+part it understands. An unknown is never a yes.
+
+`PACKAGE_NEWLY_PRESENT` means: absent in the state `SNAPSHOT_BEFORE` records,
+present after `ADD_DESTINATION`. If the package is installed by some other means
+between the plan being built and being run, the check is unsatisfiable and the
+run stops — which is the correct outcome for a plan whose premise no longer
+holds, not a fault to work around.
+
+**On the version.** No bump, and not because of the tolerance above: that
+tolerance is *prospective*, added in the same change as the values it protects,
+so it does nothing for a reader built earlier. What makes it safe is narrower and
+worth stating plainly — nothing in this workspace deserialises a
+`MigrationPlan`, so plan JSON is write-only output with no reader to break, and
+nothing has been released. `docs/schemas/README.md`'s rule (a value may be added
+to an enumeration whose consumers *already* handle an unknown one) will apply to
+the *next* value added, which is the point of adding the tolerant reader now.
 
 ### `PlanRisk`
 
