@@ -41,99 +41,6 @@ are recorded.
   gate fails on them, and no report has claimed otherwise. A gap being named,
   not a regression.
 
-### DP-012 — Do casks belong in the default top-level view?
-- **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
-  that a cask carries no user-intent field, so its ownership is `UNKNOWN` and is
-  **never** inferred from a dependency graph. `crates/domain/src/ownership.rs:72-82`
-  instead folds "no intent record" into `TOP_LEVEL`, and `classify_ownership`
-  cannot return `Unknown` at all. On the reviewer's machine that is 9 casks — 16%
-  of 56 top-level rows — inside the population INV-13 reserves for default views
-  and destructive workflows, on evidence the code itself marks
-  `authoritative: false`.
-- **Why it is the owner's:** either answer changes what the default view contains,
-  which is a scope decision rather than a bug fix. Making it `UNKNOWN` removes nine
-  rows from the headline count on a typical machine; leaving it means the
-  documentation stops promising `UNKNOWN`.
-- **In the code's favour:** the inference is *recorded* as non-authoritative rather
-  than silently guessed, which is better than what the absolute rule would suggest
-  the alternative is.
-- **What the research changed (R-12, 2026-09-04).** The premise under both
-  original options is false. Homebrew *does* record cask intent — it writes
-  `installed_on_request` into each cask's on-disk
-  `INSTALL_RECEIPT.json`, and **7 of the 9 casks here carry one, all `true`**
-  (R-12, 2026-09-04; re-verified independently the same day). What carries no
-  intent field is the **cask JSON**, which is what the adapter reads — 41 keys
-  on Homebrew 6.0.21. **Nine** places in the repository stated the absolute,
-  including a Tier 3 MUST in `02-domain-model.md` and the published
-  `analysis.v1.md` contract; all nine are corrected. F-28 is the narrative. The
-  two questions you also asked are answered below.
-- **Options:** (a) `None ⇒ Ownership::Unknown`, and decide separately whether
-  `UNKNOWN` rows are shown in normal mode — nine rows leave the count;
-  (b) relax the written rule to "never an *unrecorded* graph inference" and keep
-  the current behaviour; **(c) read the receipt** — `true` ⇒ `TOP_LEVEL`,
-  `false` ⇒ `DEPENDENCY`, absent ⇒ `UNKNOWN` — which relaxes no document,
-  guesses nothing, and costs two rows rather than nine.
-- **Recommendation: (c) eventually, (a) if you want this settled now.** (b) is
-  the weakest of the three: its whole purpose was defending an inference that a
-  real record displaces.
-- **What is yours here, and what is not.** An earlier draft of this entry said
-  (c) needed *your* decision because `00-charter.md` "Legal posture" confines the
-  project to "public, supported command-line interfaces". `spec-guardian`
-  falsified that: `macports/service.rs` already reads
-  `<prefix>/etc/LaunchDaemons` to learn that a port defines a service, and
-  `homebrew/mod.rs` already stats Homebrew's cache index to decide a capability.
-  Both are provider-internal on-disk state read as a domain fact, both shipped,
-  and under that reading both are violations. The clause is about the upstream
-  relationship — vendoring, forking, patching, loading their servers. So (c) is
-  an **engineering** call and putting it in front of you was over-deference,
-  which costs you a decision you should never have seen. It is recorded here
-  because the correction is more useful than quietly deleting the paragraph.
-- **What actually blocks (c): INV-15, through F-25.** Reading the receipt adds a
-  fifth unguarded live-filesystem read to the adapters. Under `--replay` a
-  cask's ownership would then depend on the replaying developer's own Caskroom
-  rather than on the recording, which is the invariant that makes every
-  fixture-based test mean anything. F-25 lands first. The remaining risks are
-  ordinary and named: an undocumented private format with no stability promise,
-  no `ProviderOutputChanged`-equivalent contract to fail loudly against, and a
-  `security-reviewer` pass for parsing an untrusted file inside a provider
-  prefix. Also note `false ⇒ DEPENDENCY` is **unobserved** — the nine receipts
-  here are 7 `true` and 2 absent, so that arm of the mapping is reasoned, not
-  measured.
-- **So, concretely:** if you want the documentation and the code to agree today,
-  take **(a)** and nine casks leave the top-level count. If you would rather pay
-  two rows instead of nine, (c) is the better answer and it waits on F-25 —
-  nothing about it needs you.
-- **Can casks be migrated at all? Sometimes there is a destination; it is never
-  the same operation** (every figure in this bullet: R-12, 2026-09-04). MacPorts
-  does ship GUI applications — 1332 `aqua` ports of 41 655 — but at `/Applications/MacPorts/<Name>.app`, and origin is per-port
-  rather than per-provider: `openjdk26` builds from source, `openjdk26-temurin`
-  repackages Adoptium's binary, `copilot-cli` fetches the identical tarball with
-  the identical sha256 the cask fetches. Of the nine casks here, five have the
-  same software in MacPorts, two only the family, two nothing. Catalogue-wide a
-  strict token match yields 2.6%, which is a floor.
-  **But INV-01's verification would be dishonest for casks**: versions differ by
-  a major release (GIMP 3.2.4 against 2.10.38), vendors differ (Oracle JDK
-  against OpenJDK), 35.8% of casks use `sha256 :no_check` and 27.7% `version
-  :latest`, and Homebrew's own documentation says self-updating apps can replace
-  themselves outside Homebrew entirely. "Installed and verified" cannot mean
-  what it means for a formula. Casks staying out of migration scope is confirmed
-  by evidence rather than assumed.
-- **Can a cask consume MacPorts components? Mechanically yes, and it is not
-  worth building** (every figure in this bullet: R-12, 2026-09-04). Only
-  **25 of 7720 casks (0.32%)** declare `depends_on formula:`. One is installed here, and its launcher resolves the dependency by
-  `PATH`, so a MacPorts equivalent earlier on `PATH` would satisfy it. Three
-  things make it a dead end: the same cask bakes an absolute Homebrew path into
-  a virtualenv during postflight, and 75 casks name `HOMEBREW_PREFIX` in their
-  stanzas; the arrangement un-does itself, because the next `brew upgrade
-  --cask` reinstalls the Homebrew formula; and it is already out of bounds —
-  the charter's non-goals include "attempt to make one provider's libraries
-  satisfy the other's dependencies", and INV-07/INV-08 are the same boundary
-  seen from the other side. Measured, none of the 756 Mach-O files in the four
-  `.app` payloads here links anything under `/usr/local/`; they bundle.
-- **Default meanwhile:** unchanged. Recorded as SE-046 (`Status: proposed`),
-  findings F-20 and F-28, and `docs/research/R-12-cask-migratability.md`.
-
-
 ---
 
 ## Resolved
@@ -176,6 +83,36 @@ that a container without a usable stapled ticket "buys nothing the bare binary
 does not". It buys the installation experience, which no R-11 outcome touches.
 What R-11 still decides is what the documentation may *claim*, and that is now
 what the chapter says it decides.
+
+### DP-012 — Do casks belong in the default top-level view? — **RESOLVED 2026-09-05: yes, and labelled honestly**
+Decided by the project owner, in two parts. The ownership *source* is option
+(c): the adapter reads the cask's on-disk receipt, so a cask Homebrew recorded
+as requested is `TOP_LEVEL` and one with no receipt is `UNKNOWN` — never the
+inferred `TOP_LEVEL` the code produced on evidence it marked non-authoritative.
+The *visibility* half, which this entry always reserved for the owner, is that
+an `UNKNOWN` row **appears in the default view**. Recorded in **SE-046**, now
+accepted.
+
+**Why the visibility half needed deciding, with the number that made it
+decidable.** Implementing (c) alone was measured first: under `--replay` the
+recording carries no receipt, so every cask becomes `UNKNOWN`, and the default
+view lost nine rows and manual review fell from 15 to 6. The recommendation this
+entry carried had priced (c) at "two rows rather than nine" — true of a live
+run, wrong of a replayed one, and the approval had been given for the smaller
+number. Showing `UNKNOWN` keeps the population intact and changes only the
+label: 56 units in the default view, of which nine now say "not known" instead
+of a false "requested".
+
+**What that separated.** `topLevelCount` and `topLevelUnits` had coincided by
+accident. The schema defined the first — "those the provider's own record says
+the user asked for" — and left the second's Notes cell **empty**; "units shown in
+normal mode" was a Rust doc comment, and an earlier draft of this entry quoted it
+as though the schema said it. The schema says it now. They diverge, 47 and 56,
+each matching its own definition.
+
+The research behind it, including both questions you asked about migrating
+casks, is `docs/research/R-12-cask-migratability.md`; the absolute it falsified
+is F-28.
 
 ### DP-014 — Provider prefixes were compiled in — **RESOLVED 2026-09-05: option (a)**
 `data/policy/provider-prefixes.toml` holds the three prefixes with their sources

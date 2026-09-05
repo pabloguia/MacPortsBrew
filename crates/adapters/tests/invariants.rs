@@ -276,6 +276,29 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         "a symlink on this host was followed for another machine"
     );
 
+    // --- the cask receipt ---------------------------------------------------
+    // Added when the receipt read landed (DP-012). The point of this test is
+    // that it enumerates *every* guarded read; F-25 exists because one was
+    // missed, and a new one arriving unlisted is the same failure again.
+    let caskroom = root.join("Caskroom");
+    let meta = caskroom.join("meld").join(".metadata");
+    std::fs::create_dir_all(&meta).unwrap();
+    std::fs::write(
+        meta.join("INSTALL_RECEIPT.json"),
+        br#"{"installed_on_request": true}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        homebrew::cask_requested(&caskroom, "meld", FilesystemScope::Elsewhere),
+        None,
+        "a cask receipt on this host was read for another machine"
+    );
+    assert_eq!(
+        homebrew::cask_requested(&caskroom, "meld", FilesystemScope::ThisMachine),
+        Some(true),
+        "the same receipt on the same tree, declared as the machine"
+    );
+
     // --- and the same tree, declared as the machine, answers everything ---
     // Without this half the assertions above would pass on a reader that had
     // simply stopped working.

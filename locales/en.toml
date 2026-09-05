@@ -226,14 +226,18 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "status.machine_heading" = "Machine"
 "status.machine_line" = "macOS {macos}, {arch}, {translation}"
 "status.providers_heading" = "Providers"
-"status.summary_line" = "{topLevel} top-level packages analysed; {manualReview} need manual review. Policy {policyVersion}."
+# `topLevel` here is the default-view population, which since DP-012 includes
+# packages whose ownership is `UNKNOWN` — not only those a provider records as
+# requested. `count.packages_with_top_level` below counts the narrower set and
+# still says "top-level", because that one is fed by `topLevelCount`.
+"status.summary_line" = "{topLevel} packages in the default view; {manualReview} need manual review. Policy {policyVersion}."
 "table.presence" = "Presence"
 "table.prefix" = "Prefix"
 "table.packages" = "Packages"
 "row.not_installed" = "not present"
 
 # --- analyze / list -------------------------------------------------------
-"analysis.nothing_to_show" = "No top-level packages found. Use --advanced to include dependencies, or check `macportsbrew doctor`."
+"analysis.nothing_to_show" = "Nothing in the default view. Use --advanced to include dependencies, or check `macportsbrew doctor`."
 "analysis.mapped_row_note" = "Rows marked * are mapping candidates that are not installed under that provider."
 "analysis.advanced_hint" = "Dependency-level packages are hidden; --advanced shows them."
 

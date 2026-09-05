@@ -25,7 +25,7 @@ output may change freely.
 The read-only slice. Nothing here executes anything, elevates anything, or
 writes into either provider's prefix.
 
-**Policy version: `2026.09.04-1`.** The provider facts it carries were read on
+**Policy version: `2026.09.04-2`.** The provider facts it carries were read on
 2026-09-02 and 2026-09-04 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
@@ -145,6 +145,29 @@ to answer.
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
 ### Changed
+- **A cask's ownership comes from the provider's own record, and an unknown one
+  is shown rather than hidden.** Homebrew's cask JSON carries no
+  `installed_on_request`; it writes one into the cask's on-disk receipt, and the
+  adapter reads it (DP-012, R-12). A cask with no receipt is `UNKNOWN` — never
+  the inferred `TOP_LEVEL` the code used to produce on evidence it marked
+  non-authoritative. `--replay` answers `UNKNOWN` for every cask, because a
+  recording carries no receipt.
+
+  Two counts that used to coincide now differ. `topLevelCount`'s schema
+  definition always implied it; `topLevelUnits` had an empty Notes cell and is
+  documented now. **`topLevelCount`** is "those the provider's own
+  record says the user asked for" and no longer counts a cask without a receipt
+  — it drops from 56 to 47 on the shipped fixture. **`topLevelUnits`** is "units
+  shown in normal mode" and is unchanged, because an `UNKNOWN` row appears in
+  the default view: a package whose ownership is unknown is not a package known
+  to be a dependency, and hiding it would make normal mode quietest about the
+  rows nobody has established anything about. No `--json` field is renamed, no
+  value is removed, and `UNKNOWN` was already a documented `ownership` value —
+  so `schemaVersion` does not move. What changes is which rows carry it.
+
+  The human summary line reads "N packages in the default view" where it said
+  "N top-level packages analysed", because the population it counts is now
+  wider than that phrase.
 - **A command in a plan that no executor could run now says so.** A plan built
   for a provider that was not detected has no prefix to resolve, so its commands
   read `<macports prefix>/bin/macports` and `<verify>` — illustrations that

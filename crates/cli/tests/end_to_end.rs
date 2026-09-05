@@ -218,6 +218,74 @@ fn the_machine_facts_are_the_ones_each_fixture_records() {
 }
 
 #[test]
+fn an_unknown_ownership_is_shown_in_the_default_view_and_not_counted_as_requested() {
+    // DP-012, decided by the owner 2026-09-05, and until now held only by
+    // golden files - which the next fixture recapture would rewrite without
+    // anyone noticing the decision had been reversed.
+    //
+    // Two halves. A package whose ownership is `UNKNOWN` is **shown**: it is
+    // not a package known to be a dependency, and hiding it would make normal
+    // mode quietest about the rows nobody has established anything about,
+    // which is the opposite of INV-13. And it is **not counted** as one the
+    // provider's own record claims, because that is what `topLevelCount`
+    // means.
+    let scratch = Scratch::new("unknown-ownership");
+    let a = json_ok(&scratch, HOMEBREW_ONLY, &["analyze"]);
+
+    // Ownership is per provider row, not per unit: one unit can be recorded by
+    // one provider and unknown to another.
+    let listed = units(&a);
+    let unknown: Vec<&Value> = listed
+        .iter()
+        .filter(|u| {
+            u["rows"].as_object().is_some_and(|rows| {
+                rows.values()
+                    .any(|r| r["ownershipEvidence"]["mechanism"] == "no_provider_record")
+            })
+        })
+        .collect();
+    assert!(
+        !unknown.is_empty(),
+        "this fixture must carry an UNKNOWN ownership or the assertions below \
+         prove nothing - the casks in it have no receipt under replay"
+    );
+    for unit in &unknown {
+        assert_eq!(
+            unit["advancedOnly"], false,
+            "an UNKNOWN ownership was hidden behind --advanced: {}",
+            unit["name"]
+        );
+        for row in unit["rows"].as_object().expect("rows").values() {
+            if row["ownershipEvidence"]["mechanism"] != "no_provider_record" {
+                // `not_installed` is the other route to `UNKNOWN` and is a
+                // different fact: the package is not there at all.
+                continue;
+            }
+            assert_eq!(
+                row["ownership"], "UNKNOWN",
+                "an absent record produced something other than UNKNOWN"
+            );
+            assert_eq!(
+                row["ownershipEvidence"]["authoritative"], false,
+                "an absent record was reported as authoritative"
+            );
+        }
+    }
+
+    let counted: u64 = a["providers"]["homebrew"]["topLevelCount"]
+        .as_u64()
+        .expect("topLevelCount");
+    let shown: u64 = a["summary"]["topLevelUnits"]
+        .as_u64()
+        .expect("topLevelUnits");
+    assert!(
+        counted < shown,
+        "topLevelCount ({counted}) must be narrower than topLevelUnits ({shown}) \
+         while any unit is UNKNOWN - they mean different things (DP-012)"
+    );
+}
+
+#[test]
 fn counts_match_the_units_the_analysis_lists() {
     let scratch = Scratch::new("counts");
     for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED, NEITHER, BROKEN] {

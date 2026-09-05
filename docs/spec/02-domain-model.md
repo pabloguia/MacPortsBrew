@@ -66,11 +66,20 @@ question directly. The authoritative mechanism is named per provider, verified
 - **Homebrew** — `installed_on_request`, and nothing else. It is present on
   every keg in `brew info --json=v2`. `installed_as_dependency` does **not**
   exist in Homebrew 6.0.21's JSON — it is a legacy receipt field written by
-  older majors and must not be read. The **cask JSON** carries no intent field,
-  so a cask's ownership is `UNKNOWN` here and is never inferred (R-1,
-  2026-09-02). Homebrew does record `installed_on_request` for casks in the
-  on-disk receipt, outside any documented read interface; whether to read it is
-  DP-012 (R-12, 2026-09-04).
+  older majors and must not be read. The **cask JSON** carries no intent field
+  (R-1, 2026-09-02); Homebrew records `installed_on_request` in the cask's
+  on-disk receipt and the adapter reads that (R-12, DP-012). A cask with no
+  receipt is `UNKNOWN`, never an inferred `TOP_LEVEL`.
+
+  **An `UNKNOWN` row appears in the default view.** A package whose ownership is
+  unknown is not a package known to be a dependency, and hiding it behind
+  `--advanced` would make normal mode quietest about the rows nobody has
+  established anything about — the opposite of INV-13. `Ownership::is_top_level`
+  is therefore strictly `TOP_LEVEL` and answers "the provider's own record says
+  the user asked for this", which is what `topLevelCount` reports;
+  `Ownership::shown_in_normal_mode` is the wider predicate and is what
+  `topLevelUnits` counts. The two coincided until `UNKNOWN` became reachable
+  (DP-012, decided 2026-09-05).
 - **MacPorts** — the registry `requested` flag, read through the `requested`,
   `unrequested`, `leaves` and `rleaves` pseudo-portnames. It is a flag stored
   at install time, not a graph inference, and it is user-mutable, so it records

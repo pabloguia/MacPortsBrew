@@ -2340,7 +2340,7 @@ finding ids in each entry.
 - Compatibility impact: none.
 
 ## SE-046 — Ownership with no provider record is `UNKNOWN`, not an inferred `TOP_LEVEL`
-- Status: proposed
+- Status: accepted (DP-012, decided by the project owner 2026-09-05)
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW
 - Original assumption: `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
   that casks carry no intent field, so ownership is `UNKNOWN` and is never inferred
@@ -2380,7 +2380,45 @@ finding ids in each entry.
   adapters — F-25's open class — so under `--replay` a cask's ownership would
   depend on the replaying developer's own Caskroom. That is the invariant
   problem, and F-25 has to land before option (c) can.
-- Compatibility impact: top-level counts and golden files change if the code moves.
+- **Built 2026-09-05, both halves.** The adapter reads the cask receipt
+  (`cask_requested`), `classify_ownership` answers `Unknown` where no record
+  exists, and the owner decided the half this entry left open: an `UNKNOWN` row
+  is **shown** in the default view. So `Ownership::is_top_level` is now strictly
+  `TOP_LEVEL` — "the provider's own record says the user asked for this", which
+  is what `topLevelCount` reports — and `Ownership::shown_in_normal_mode` is the
+  wider predicate behind `topLevelUnits`. One method had been doing both jobs
+  because their answers coincided until `Unknown` became reachable.
+- **Every way the receipt read can fail answers `None`.** Absent, oversized,
+  symlinked, unreadable, not JSON, or a field that is not a boolean. `false`
+  would say the user did not ask for the package, which makes a dependency out
+  of a file the reader could not open. Four tests cover the seven cases and the
+  `Elsewhere` scope, where the answer is `None` because the recording is the
+  machine (INV-15).
+- Measured: 27 ownership values across six golden fixtures move to `UNKNOWN`
+  with mechanism `no_provider_record`; `topLevelCount` drops 56 → 47;
+  `topLevelUnits` does not move, which is the owner's decision working — nothing
+  left the default view.
+- **The security review found one thing that mattered and it was mine.** The
+  first version of `cask_requested` stat'd the path and then opened it again by
+  name — so the size cap applied to an object that need not be the one read, a
+  FIFO or `/dev/zero` swapped in between the two calls would hang or exhaust
+  `analyze`, and a file that grew defeated the bound outright. This crate
+  already contains the correct shape *and its reasoning*, in
+  `persistence::snapshot_store::read_bounded`'s doc comment. The rule was
+  written down three modules away and did not reach the second implementation,
+  which is now F-30. Fixed: pre-check refuses a symlink or FIFO before the
+  open, then the name is resolved once and `dev`/`ino`, `nlink`, the size and
+  the read are all tested against the handle. Two more tests, and the three
+  reversals of the owner's decision were probed and refused.
+- **And two claims wider than their evidence.** The prose said the reader
+  refuses "something pointing outside the prefix", which it never checked; and
+  DP-012 and the CHANGELOG said "the schema already defined them differently",
+  quoting "units shown in normal mode" — a Rust doc comment, not the schema,
+  whose Notes cell for `topLevelUnits` was empty. The schema says it now.
+- Compatibility impact: no `--json` field renamed, no value removed, and
+  `UNKNOWN` was already a documented `ownership` value, so `schemaVersion` does
+  not move. `topLevelCount` changes meaning for casks — narrower, and matching
+  the definition it always carried. Golden files change.
 
 ## SE-049 — A verification check must be able to fail
 - Status: accepted

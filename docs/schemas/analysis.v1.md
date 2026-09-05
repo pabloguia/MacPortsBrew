@@ -120,7 +120,7 @@ The unit is the *package across providers*, not the provider row.
 | `revision` | string, optional | |
 | `variants` | array of string, optional | MacPorts variants |
 | `active` | boolean | |
-| `requested` | boolean, optional | The provider's own record of user intent, as the read interface reports it. Absent for a cask, because the cask JSON carries no such field — Homebrew records one on disk, which this build does not read (R-12, 2026-09-04; DP-012). Absence is never an inference |
+| `requested` | boolean, optional | The provider's own record of user intent. For a formula or a port it comes from the read interface; for a cask the JSON carries no such field, so it comes from the cask's on-disk receipt (R-12; DP-012). Absent where no record was found — under `--replay` that is every cask, because a recording carries no receipt. Absence is never an inference |
 | `installedFromPrebuilt` | boolean, optional | |
 | `installPath` | string, optional | |
 
@@ -195,7 +195,7 @@ is a supported end state, not a failure to decide (INV-18).
 
 | Field | Type | Notes |
 |---|---|---|
-| `topLevelUnits` | integer | |
+| `topLevelUnits` | integer | Units shown in normal mode: ownership `TOP_LEVEL` **or** `UNKNOWN`. Wider than `topLevelCount`, which counts only what a provider's own record claims (DP-012) |
 | `dependencyUnits` | integer | |
 | `byOutcome` | map of outcome name to integer | Ordered by key |
 | `manualReview` | integer | |
@@ -249,12 +249,12 @@ abridged to the shape rather than the whole package list:
         "entry": "homebrew-intel-tier3"
       },
       "packageCount": 189,
-      "topLevelCount": 56,
+      "topLevelCount": 47,
       "guiAppCount": 0
     }
   },
   "packages": [],
-  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 14 }
+  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 15 }
 }
 ```
 

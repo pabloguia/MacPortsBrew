@@ -287,8 +287,9 @@ fn casks_are_reported_as_applications_and_carry_no_record_of_intent() {
     assert_eq!(gimp.version.as_str(), "3.2.4");
     // The cask JSON has no intent field (R-1 finding 4, re-verified
     // 2026-09-04). Homebrew records one in the on-disk receipt, which this
-    // adapter does not read: `gimp` is in fact one of the two casks on the
-    // captured machine that has no `INSTALL_RECEIPT.json` at all (R-12).
+    // adapter reads only where the filesystem is the machine, and this test
+    // replays: the recording carries no receipt. `gimp` is also one of the two
+    // casks on the captured machine that has no receipt at all (R-12).
     assert_eq!(gimp.requested, None);
     assert_eq!(
         gimp.install_path.as_deref(),

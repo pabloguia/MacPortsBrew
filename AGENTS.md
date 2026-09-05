@@ -107,11 +107,12 @@ runs) · `SupportState` (always carrying a `DatedFact`) · `MigrationPlan`.
 
 **Ownership model.** Use the provider's *own* record of intent, never a graph
 inference: Homebrew's `installed_on_request`, MacPorts' registry `requested`
-flag. `brew leaves` is a different set and is never substituted; the cask JSON
-carries no intent field, so a cask's ownership is `UNKNOWN` here — Homebrew does
-record it on disk, in a file that is not a supported command-line interface and
-is therefore not read (R-12, DP-012). Ownership is a fact about a provider, not
-about the machine.
+flag. `brew leaves` is a different set and is never substituted. The cask JSON
+carries no intent field; Homebrew records it in the cask's on-disk receipt, and
+the adapter reads that (R-12, DP-012) — no receipt means `UNKNOWN`, never an
+inferred `TOP_LEVEL`. Ownership is a fact about a provider, not about the
+machine, and an `UNKNOWN` row appears in the default view rather than being
+hidden behind `--advanced`.
 
 **Mapping model.** Never by name alone. `1→1`, `1→many`, `many→1` and *no
 equivalent* are all first-class. Every candidate records evidence — a mapping

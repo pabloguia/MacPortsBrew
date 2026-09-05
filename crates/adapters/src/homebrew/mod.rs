@@ -476,7 +476,7 @@ impl HomebrewAdapter<'_> {
             availability.insert(formula.name.clone(), self.formula_availability(formula));
         }
         for cask in &document.casks {
-            installed.push(cask_row(cask, &caskroom));
+            installed.push(cask_row(cask, &caskroom, self.filesystem));
             metadata.insert(cask.token.clone(), cask_metadata(cask));
             availability.insert(cask.token.clone(), cask_availability());
         }
@@ -613,7 +613,82 @@ fn cask_availability() -> AvailabilityAssessment {
     AvailabilityAssessment::unknown("cask", "cask: prebuilt by vendor, out of migration scope")
 }
 
-fn cask_row(cask: &Cask, caskroom: &Path) -> InstalledPackage {
+/// The bytes of a cask receipt this reader will look at.
+///
+/// Provider output is untrusted input and a receipt is a file inside a
+/// provider's prefix, which is a directory this tool does not own. The one
+/// observed here was 1268 bytes; a megabyte is four hundred times that and
+/// still cheap to refuse.
+const MAX_RECEIPT_BYTES: u64 = 1024 * 1024;
+
+/// The cask's own record of whether the user asked for it.
+///
+/// `brew info --json=v2 --cask` carries no intent field — 41 keys on Homebrew
+/// 6.0.21, re-verified 2026-09-04 — but Homebrew writes `installed_on_request`
+/// into `<caskroom>/<token>/.metadata/INSTALL_RECEIPT.json`, and 7 of the 9 casks
+/// on the machine this was measured on carry one (R-12, DP-012).
+///
+/// **Every failure answers `None`, which is `UNKNOWN` upstream.** Absent, a
+/// symlink or a FIFO, hardlinked, swapped between the check and the open, grown
+/// past the cap while being read, unreadable, not JSON, or JSON whose
+/// `installed_on_request` is missing or is not a boolean: none of those is
+/// evidence that the user did not ask for the package, and folding them into
+/// `false` would make a dependency out of a file this reader could not open.
+pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope) -> Option<bool> {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
+    if !filesystem.is_this_machine() {
+        // The recording is the machine, and it carries no receipt: a
+        // filesystem answer here would describe the replaying host (INV-15).
+        return None;
+    }
+    let path = caskroom
+        .join(token)
+        .join(".metadata")
+        .join("INSTALL_RECEIPT.json");
+
+    // Refuse a symlink or a FIFO *before* opening: `File::open` on a FIFO
+    // blocks, and nothing on this path carries a timeout, so a hang here is a
+    // hang in `analyze`.
+    let before = std::fs::symlink_metadata(&path).ok()?;
+    if !before.is_file() {
+        return None;
+    }
+
+    // From here the name is resolved exactly once. The first version of this
+    // read stat'd the path and then opened it again by name, which is the
+    // shape `persistence::snapshot_store::read_bounded` already documents as
+    // wrong: the bound then applies to an object that need not be the one
+    // read, and a file that grows, a device or a FIFO swapped in between the
+    // two calls defeats it entirely. The Caskroom is a directory this tool
+    // does not own.
+    let file = std::fs::File::open(&path).ok()?;
+    let opened = file.metadata().ok()?;
+    if !opened.is_file() {
+        return None;
+    }
+    // The same object the pre-check inspected, not one swapped in since.
+    if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
+        return None;
+    }
+    // More than one name for these bytes is not something a receipt needs.
+    if opened.nlink() > 1 || opened.len() > MAX_RECEIPT_BYTES {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(MAX_RECEIPT_BYTES + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    if text.len() as u64 > MAX_RECEIPT_BYTES {
+        // It grew while being read.
+        return None;
+    }
+
+    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    document.get("installed_on_request")?.as_bool()
+}
+
+fn cask_row(cask: &Cask, caskroom: &Path, filesystem: FilesystemScope) -> InstalledPackage {
     InstalledPackage {
         identity: PackageIdentity::new(ProviderId::new(PROVIDER_ID), cask.token.clone()),
         kind: PackageKind::GuiApp,
@@ -623,12 +698,10 @@ fn cask_row(cask: &Cask, caskroom: &Path) -> InstalledPackage {
         active: true,
         // The cask JSON carries no intent field: 41 keys on Homebrew 6.0.21,
         // none of them `installed_on_request` (R-1 finding 4, re-verified
-        // 2026-09-04). Homebrew *does* record it, in the cask's on-disk
-        // `INSTALL_RECEIPT.json` — 7 of 9 casks on the reviewer's machine — but that
-        // file is not a supported command-line interface and the charter says
-        // this project uses only those. Reading it is DP-012's third option
-        // and the owner's call, not an adapter's (R-12).
-        requested: None,
+        // 2026-09-04). Homebrew records it on disk instead, and since DP-012
+        // this reads it — `None` where there is no receipt, which is `UNKNOWN`
+        // upstream and never an inferred `TOP_LEVEL`.
+        requested: cask_requested(caskroom, &cask.token, filesystem),
         // Nor any record of how it was built; the vendor built it.
         installed_from_prebuilt: None,
         install_path: Some(caskroom.join(&cask.token).join(&cask.installed)),
@@ -975,6 +1048,152 @@ impl HomebrewAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scratch Caskroom holding one cask, with whatever receipt bytes the
+    /// case wants — or none.
+    fn caskroom_with(token: &str, receipt: Option<&[u8]>) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "mpb-caskroom-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let meta = root.join(token).join(".metadata");
+        std::fs::create_dir_all(&meta).expect("scratch caskroom");
+        if let Some(bytes) = receipt {
+            std::fs::write(meta.join("INSTALL_RECEIPT.json"), bytes).expect("receipt");
+        }
+        root
+    }
+
+    #[test]
+    fn a_cask_receipt_answers_the_intent_the_json_does_not_carry() {
+        // DP-012 / R-12. `brew info --json=v2 --cask` has no
+        // `installed_on_request`; the on-disk receipt does, and 7 of the 9
+        // casks measured carried one.
+        for (recorded, expected) in [("true", Some(true)), ("false", Some(false))] {
+            let body = format!(r#"{{"installed_on_request": {recorded}}}"#);
+            let root = caskroom_with("meld", Some(body.as_bytes()));
+            assert_eq!(
+                cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+                expected,
+                "a receipt saying {recorded}"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn every_way_a_receipt_can_fail_is_unknown_and_never_false() {
+        // `false` would mean "the user did not ask for this", which makes a
+        // dependency out of a file this reader could not open. Each of these
+        // must be `None`, which is `UNKNOWN` upstream.
+        let oversized = vec![b' '; usize::try_from(MAX_RECEIPT_BYTES + 1).expect("64-bit")];
+        let cases: Vec<(&str, Option<&[u8]>)> = vec![
+            ("no receipt at all", None),
+            ("not JSON", Some(b"this is not json")),
+            ("JSON without the field", Some(br#"{"arch": "x86_64"}"#)),
+            (
+                "the field is not a boolean",
+                Some(br#"{"installed_on_request": "yes"}"#),
+            ),
+            (
+                "the field is null",
+                Some(br#"{"installed_on_request": null}"#),
+            ),
+            ("empty file", Some(b"")),
+            ("oversized", Some(oversized.as_slice())),
+        ];
+        for (what, bytes) in cases {
+            let root = caskroom_with("meld", bytes);
+            assert_eq!(
+                cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+                None,
+                "{what} must be unknown, not a negative"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn a_receipt_is_not_read_for_a_machine_this_disk_does_not_describe() {
+        // INV-15. The recording carries no receipt, so reading this host's
+        // would answer about the wrong machine (F-25).
+        let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::Elsewhere),
+            None
+        );
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            Some(true),
+            "the same tree, declared as the machine, must answer"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_receipt_with_a_second_name_is_refused() {
+        // A hardlink means these bytes are reachable under a name this tool
+        // did not check. One boolean is an oracle rather than a disclosure,
+        // but the cheap refusal is the right default in a directory the tool
+        // does not own.
+        let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
+        let receipt = root
+            .join("meld")
+            .join(".metadata")
+            .join("INSTALL_RECEIPT.json");
+        std::fs::hard_link(&receipt, root.join("second-name")).expect("hard link");
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            None,
+            "a receipt with more than one name was read"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_receipt_that_grew_past_the_cap_is_refused() {
+        // `metadata.len()` is a snapshot. The read is capped independently, so
+        // a file that grows between the two does not defeat the bound - the
+        // failure the first version of this reader had.
+        let root = caskroom_with("meld", None);
+        let receipt = root
+            .join("meld")
+            .join(".metadata")
+            .join("INSTALL_RECEIPT.json");
+        let oversized = vec![b' '; usize::try_from(MAX_RECEIPT_BYTES + 2).expect("64-bit")];
+        std::fs::write(&receipt, &oversized).expect("oversized receipt");
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            None
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_receipt_reached_through_a_symlink_is_refused() {
+        // The Caskroom is a directory this tool does not own.
+        let real = caskroom_with("real", Some(br#"{"installed_on_request": true}"#));
+        let root = caskroom_with("meld", None);
+        let target = real
+            .join("real")
+            .join(".metadata")
+            .join("INSTALL_RECEIPT.json");
+        let link = root
+            .join("meld")
+            .join(".metadata")
+            .join("INSTALL_RECEIPT.json");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            None,
+            "a symlinked receipt was followed"
+        );
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&real).ok();
+    }
 
     #[test]
     fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {

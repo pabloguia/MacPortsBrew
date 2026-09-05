@@ -217,10 +217,10 @@
             }
           ],
           "name": "adoptopenjdk",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -741,10 +741,10 @@
             }
           ],
           "name": "copilot-cli",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -1279,10 +1279,10 @@
             }
           ],
           "name": "gcloud-cli",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -1716,10 +1716,10 @@
             }
           ],
           "name": "gimp",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -2761,10 +2761,10 @@
             }
           ],
           "name": "meld",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -3628,10 +3628,10 @@
             }
           ],
           "name": "oracle-jdk",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -5389,10 +5389,10 @@
             }
           ],
           "name": "visualdiffer",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -5503,10 +5503,10 @@
             }
           ],
           "name": "wailbrew",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -5920,10 +5920,10 @@
             }
           ],
           "name": "wireshark-chmodbpf",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -6092,7 +6092,7 @@
         "providerLabel": "tier3",
         "tier": "DEGRADED"
       },
-      "topLevelCount": 56
+      "topLevelCount": 47
     },
     "macports": {
       "capabilities": {

@@ -242,7 +242,7 @@ pub fn analyze(
                 // dependency into the view INV-13 reserves for what the user
                 // asked for.
                 !r.installed.is_empty()
-                    && r.ownership.is_top_level()
+                    && r.ownership.shown_in_normal_mode()
                     && (provider == id
                         || mappings
                             .iter()

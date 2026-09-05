@@ -46,6 +46,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
 | **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open.** `ServiceScan::Unreadable` renders as `defines_service == false`, which `classify.rs` reads as "not a service", so INV-19's `MANUAL_REVIEW` will not fire under replay. The adapter reports `ServiceMetadata: Unknown` correctly and no consumer reads it. Raised by the F-25 review; belongs with the executor pass. |
+| **F-30** — the bounded-read mechanism is implemented twice | **Open.** `snapshot_store::read_bounded` and `homebrew::cask_requested` carry the same open-once/cap-the-read logic. The rule was written in a doc comment three modules away and did not reach the second implementation — which is how the receipt reader shipped its first version stat-then-read. Raised by the DP-012 security review. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -1478,3 +1479,39 @@ second is real work in the application layer and is where this belongs.
 **Until then it is written down in three places rather than none:** here,
 in `crates/adapters/src/filesystem.rs`'s type documentation, and in
 `ServiceScan::Unreadable`'s own comment.
+
+---
+
+## F-30 — "Read a file, bounded, resolving the name once" is now implemented twice
+
+**Severity: low as a defect, medium as a drift risk. Raised by the security
+review of DP-012's receipt reader.**
+
+`persistence::snapshot_store::read_bounded` and `homebrew::cask_requested` now
+carry the same security-critical mechanism: open once, test `is_file` and the
+size against the *handle*, cap the read independently, refuse a file that grew.
+Neither can be changed without the other, and nothing says so except this
+finding.
+
+**Why it matters more than ordinary duplication.** The first version of
+`cask_requested` did stat-then-read — the exact shape `read_bounded`'s doc
+comment already describes as wrong, in the same crate: *"Checking a path and
+then opening it again would leave the bound applying to an object that need not
+be the one read — and an unbounded read of a file that grew, or of a device or a
+FIFO, is the threat-model item this cap exists for."* The rule was written down,
+in prose, three modules away, and did not reach the second implementation. A
+shared function would have.
+
+**Why it was not unified in that change.** `read_bounded` is private, returns
+`DomainError` with `ErrorId::SnapshotUnusable`, and sits on the snapshot load
+path, which INV-15 and the state-integrity tests cover. Extracting it is a
+refactor of a security-critical function nobody asked to touch, in a change that
+already had a HIGH to fix. Doing it separately is the right order, not a smaller
+scope.
+
+**Shape.** A `pub(crate)` reader in `crates/adapters/src/persistence/`, taking a
+cap and returning a small error enum; `snapshot_store` keeps its message mapping
+as a thin wrapper so its existing text does not move; `cask_requested` maps
+everything to `None`. The symlink and FIFO pre-check stays with the caller,
+because only the receipt reader needs it — a snapshot path the user named is a
+different trust question.
