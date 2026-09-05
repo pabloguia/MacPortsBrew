@@ -43,7 +43,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
 | **F-20** — smaller findings, recorded without ceremony | **All seventeen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. |
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
-| **F-27** — documented CLI samples drift from the binary and nothing notices | **Open.** Both `status` samples fixed; nothing stops the next drift. Invisible to `check-i18n-parity.sh`, `check-links.sh` and the test suite. The finding carries the shape a check would take. |
+| **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
 | **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open.** `ServiceScan::Unreadable` renders as `defines_service == false`, which `classify.rs` reads as "not a service", so INV-19's `MANUAL_REVIEW` will not fire under replay. The adapter reports `ServiceMetadata: Unknown` correctly and no consumer reads it. Raised by the F-25 review; belongs with the executor pass. |
 
@@ -1305,8 +1305,11 @@ and only because someone asked.
 
 ## F-27 — Documented CLI samples drift from the binary and nothing notices
 
-**Severity: medium. Found by the DP-011 audit, one commit after the drift was
-introduced by this project's own work.**
+**Severity: medium. Fixed — SE-070.** Found by the DP-011 audit, one commit
+after the drift was introduced by this project's own work — and then it drifted a
+**fourth** time, inside the same session, between the commit that fixed the two
+blocks and the one that moved the policy version. That fourth time is the
+argument: the discipline was being applied deliberately and still lost.
 
 `README.md:130-132` and `wiki/Getting-Started.md:46-48` carried a `status`
 sample that no longer matched the program in three ways at once:
@@ -1328,12 +1331,20 @@ rendered), to `check-links.sh` and to the test suite. The project's own rule —
 give the agent a way to check its work rather than telling it to be careful —
 has no instrument here.
 
-**Suggested shape.** The samples are already produced from a shipped fixture.
-A test in `crates/cli/tests/` that renders `status` for
-`fixtures/recordings/homebrew-only-intel-macos26.json` and asserts the fenced
-block in `README.md` and `wiki/Getting-Started.md` equals it, keyed by a marker
-comment so the block is found rather than guessed at. It fails on the change
-that causes the drift, in the same run, which is the whole point.
+**Fixed as `crates/cli/tests/documented_samples.rs`.** Each sample declares its
+own invocation in a marker comment — `<!-- sample: --replay <fixture> status -->`
+— so the test finds blocks rather than guessing at them, and adding a documented
+sample is enough to have it checked. A marker without `--replay` is refused, so
+no sample can ever depend on the machine the suite runs on. A leading `$ …`
+prompt line is presentation and is ignored.
+
+Two things make it able to fail. The scan carries a **floor**: fewer than two
+samples found is itself a failure, because a scan that finds nothing passes every
+assertion in it — F-19's catalogue entry, applied to a test written the same week.
+And it was probed against the three drifts that actually happened (stale policy
+version, lower-cased support state, the dropped word in the package count) plus
+the case of deleting a marker so a block quietly stops being checked. Four of
+four caught.
 
 ---
 

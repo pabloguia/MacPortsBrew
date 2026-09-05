@@ -43,6 +43,7 @@ reports what it finds, including "neither".
 The dashboard: your machine, and each provider's presence, version, prefix,
 support state and package count.
 
+<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json status -->
 ```
 Machine
   macOS 26.6.2, x86_64, Native
@@ -51,7 +52,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (56 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 top-level packages analysed; 15 need manual review. Policy 2026.09.04-1.
+56 top-level packages analysed; 15 need manual review. Policy 2026.09.04-2.
 ```
 
 Three things to read here:

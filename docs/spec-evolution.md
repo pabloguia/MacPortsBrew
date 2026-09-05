@@ -3457,3 +3457,37 @@ finding ids in each entry.
   except the CLI, which owns the decision.
 - Compatibility impact: none. `--json` payloads change only where a capability
   that was wrongly `Unavailable` under replay is now `Unknown`.
+
+## SE-070 — A documented sample of the program's output is now the program's output
+- Status: accepted
+- Date / Pass: 2026-09-05 / 02-ARCHITECTURE-REVIEW
+- Original assumption: the samples in `README.md` and `wiki/Getting-Started.md`
+  show what the binary prints, kept true by whoever changes the renderer.
+- Change: `crates/cli/tests/documented_samples.rs`. A sample is marked
+  `<!-- sample: --replay <fixture> <command> -->` and the test replays exactly
+  that, comparing stdout with the fenced block below the marker. Markers without
+  `--replay` are refused; a leading `$ …` prompt line is ignored; a scan finding
+  fewer than two samples fails.
+- Rationale: three deliberate, correct changes — F-20's catalogue keys, the
+  `count.packages_with_top_level` key, and the R-5a data read — each left a
+  documented sample asserting the behaviour it replaced, and nothing in the
+  toolchain could see it. `check-i18n-parity.sh` passes because every key is
+  present and rendered, `check-links.sh` has nothing to resolve, and no test read
+  a markdown file.
+- **The fourth drift is the argument.** F-27 was filed, both blocks were fixed and
+  committed, and the policy version then moved in the very next commit of the
+  same session — leaving the samples stale again within the hour, while the
+  person who had just written the finding was watching for exactly this. A rule
+  that loses to its own author on the same day is not a rule, it is a wish. The
+  project's own line, that giving the agent a way to check its work beats telling
+  it to be careful, is what this entry is.
+- **Probed, not assumed.** The three drifts that actually happened were replayed
+  as mutations and each failed the test; so did deleting a marker, which the
+  minimum-count floor catches. That floor exists because a scan that finds
+  nothing satisfies every assertion after it, which is F-19's whole finding
+  applied to a test written days later.
+- Evidence: F-27; the commits `7f6827c` (blocks fixed) and `e502955` (policy
+  version moved, blocks stale again).
+- User impact: none directly. The first output a reader sees is now the output.
+- Architectural impact: none. One test, no source change.
+- Compatibility impact: none.
