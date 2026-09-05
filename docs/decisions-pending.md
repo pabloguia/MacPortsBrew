@@ -11,42 +11,54 @@ are recorded.
 
 ## Open
 
-### DP-014 — Provider prefixes are compiled in, and INV-20 names prefixes (Tier 1 compliance, and a layering question)
-- **The question:** INV-20 says support tiers, deadlines, **prefixes** and
-  known-package knowledge "live in versioned data files carrying a source and a
-  read date, and are re-checkable". `crates/adapters/src/registry.rs:32-38`
-  holds `/opt/homebrew`, `/usr/local` and `/opt/local` in a `match`, with the
-  sources and read dates in a doc comment above it. Provenance is there; a data
-  file is not, and re-checking still means re-releasing — which is the cost
-  INV-20 exists to remove. Move them, or record why a doc comment satisfies
-  INV-20 for prefixes?
-- **Why it is not simply "move them":** `data/policy/` is loaded by the
-  `application` crate, and `registry.rs` is in `adapters`, which sits *below*
-  it — the Cargo edges are the layering rule and `scripts/check-layering.sh`
-  asserts them. Moving the prefixes into `data/policy/provider-commands.toml`
-  therefore needs one of: a second loader in `adapters`, a data file owned by
-  `adapters`, or the prefixes being handed down from `application` at
-  construction. Each is a real design choice about where "what a provider is"
-  lives, and none is an obvious default.
-- **Why it matters more than three strings:** the doc comment says the prefixes
-  were read on 2026-09-02. Homebrew's Intel and Apple Silicon defaults have
-  moved once in living memory. When they move again, a data file is a one-line
-  edit with a new `read_on`; a `match` is a release. `prefix_override` mitigates
-  it for anyone who knows to pass one.
-- **Options:** (a) a small `data/policy/provider-prefixes.toml` read by a loader
-  in `adapters`, keeping the layering intact and giving prefixes the same shape
-  as every other dated fact; (b) `application` reads them and passes them to the
-  registry, which makes `adapters` unable to detect anything on its own;
-  (c) an explicit ruling that a doc comment carrying `source` and `read_on` next
-  to a `match` satisfies INV-20 for this one category, recorded as an entry.
-- **Recommendation:** (a). It is the smallest change that makes the invariant
-  true rather than argued around, and it keeps detection where it belongs.
-- **Default meanwhile:** unchanged, and the INV-20 test exempts `registry.rs`
-  *explicitly*, with a comment saying the exemption is not compliance. Raised by
-  `spec-guardian`, which found the first version of that comment citing
-  `04-migration-and-safety.md` for a single-site rule that file does not contain
-  — and SE-062 reporting the exemption as INV-20 compliance, which it is not.
-  Recorded there and here rather than silently.
+### DP-015 — The coverage floors have never been measured, and the toolchain policy is why
+- **The question:** `07-quality-and-testing.md` sets coverage floors — 95% for
+  `domain`, `policy` and planning, 80% for `adapters` plus a contract test per
+  parsed command, `cli` reported. None has ever been measured. `cargo-llvm-cov`
+  is not installed, and `cargo install` is denied by this repository's own tooling
+  policy because the pinned toolchain holds the macOS floor (ADR-0002). So the
+  floors are prose, and the rule that would let an agent verify them is the rule
+  that stops it.
+- **Why it is yours:** every route out spends something. Relaxing the denial
+  trades away part of what ADR-0002 bought; vendoring the tool adds a dependency
+  to a project that checks every dependency's licence, deployment floor and
+  `unsafe` surface; measuring only in CI leaves the floor unverifiable locally
+  and waits on R-11's runner questions; and withdrawing the numbers is a real
+  option that costs a stated quality bar.
+- **Options:** (a) allow that one tool by name, as an exception with its own
+  entry, and measure locally and in CI; (b) a CI-only step, accepting that a
+  contributor cannot check the floor before pushing; (c) pin it as a workspace
+  dev-dependency and take it through the dependency gate every other crate
+  passes; (d) withdraw the numeric floors and state a weaker rule the project
+  can actually hold.
+- **Recommendation:** (a). It is the smallest exception that makes a stated
+  requirement checkable; the tool is developer-only and never reaches a released
+  artifact; and ADR-0002's concern is the *compiler* toolchain rather than a
+  coverage harness. If you would rather not touch the denial at all, (c) is the
+  honest second.
+- **Default meanwhile:** the floors stand as written and are unverified. That is
+  the state this entry exists to stop being invisible — nothing measures them, no
+  gate fails on them, and no report has claimed otherwise. A gap being named,
+  not a regression.
+
+### DP-014 — Provider prefixes were compiled in — **RESOLVED 2026-09-05: option (a)**
+`data/policy/provider-prefixes.toml` holds the three prefixes with their sources
+and read dates, and `crates/adapters/src/prefixes.rs` reads it — embedded with
+`include_str!`, exactly as `crates/policy` embeds its own data. The layering
+objection was real and is answered by the loader living in `adapters` rather
+than reaching up into `application`. Recorded in **SE-071**.
+
+**The INV-20 test's exemption is gone, which is the proof.** It used to excuse
+`registry.rs` with a comment saying the exemption was not compliance; the check
+now holds the whole workspace, and putting a prefix back into that file was
+replayed as a mutation and refused.
+
+**One line of this entry's own rationale was wrong.** It said "a data file is a
+one-line edit with a new `read_on`; a `match` is a release". Both are a release:
+every policy file in this project arrives through `include_str!`. What INV-20
+asks for is that a fact be stated as versioned data beside the source it came
+from and the date it was read, where a person can compare the two — not that it
+be changeable without rebuilding, which nothing here does.
 
 ### DP-012 — Do casks belong in the default top-level view?
 - **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state

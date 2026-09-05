@@ -24,18 +24,14 @@ pub fn known_provider_ids() -> Vec<ProviderId> {
     ]
 }
 
-/// Candidate prefixes per provider, in detection order. Homebrew's default
-/// prefix is `/opt/homebrew` on Apple Silicon and `/usr/local` on Intel
-/// (<https://docs.brew.sh/Installation>, read 2026-09-02); MacPorts installs
-/// to `/opt/local` (<https://guide.macports.org>, read 2026-09-02). Both
-/// candidates are probed on every machine so a migrated Mac carrying an
-/// Intel Homebrew under Rosetta is found and reported, not missed.
+/// Candidate prefixes per provider, in detection order.
+///
+/// The values, their sources and their read dates are in
+/// `data/policy/provider-prefixes.toml`; INV-20 names prefixes as dated data
+/// and this was the last category held in a `match` (DP-014). See
+/// [`crate::prefixes`] for why the loader lives in this layer.
 pub fn candidate_prefixes(provider: &ProviderId) -> Vec<PathBuf> {
-    match provider.as_str() {
-        "homebrew" => vec![PathBuf::from("/opt/homebrew"), PathBuf::from("/usr/local")],
-        "macports" => vec![PathBuf::from("/opt/local")],
-        _ => Vec::new(),
-    }
+    crate::prefixes::candidates(provider.as_str())
 }
 
 /// What each provider's adapter could have put in an invocation environment.

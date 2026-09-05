@@ -492,17 +492,21 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     // compiled in anywhere else is the same defect as a date compiled in:
     // re-checking it means re-releasing.
     //
-    // **The exemption below is not INV-20 compliance and must not be read as
-    // it.** INV-20 says prefixes "live in versioned data files carrying a source
-    // and a read date". `registry.rs` carries them in a `match`, with the source
-    // and read date in a doc comment - which is provenance, and is not a data
-    // file, and is not re-checkable without a release. That is F-20's own bullet
-    // and it is open; moving them into `data/policy/` crosses a layer, because
-    // that directory is read by `application` and `registry.rs` is in
-    // `adapters`. DP-014 puts the question to the owner. Until it is answered,
-    // this check holds the *rest* of the workspace to the rule and exempts the
-    // one place the finding already names, rather than pretending the finding is
-    // closed.
+    // **There is no exemption any more, and that is the point.** This check
+    // used to excuse `registry.rs`, because it held the prefixes in a `match`
+    // with the provenance in a doc comment beside it - which is provenance, and
+    // is not a data file. DP-014 resolved it: the values live in
+    // `data/policy/provider-prefixes.toml` and `crates/adapters/src/prefixes.rs`
+    // reads them, embedded the same way `crates/policy` embeds its own data.
+    // The layering objection was real and is answered by the loader sitting in
+    // `adapters` rather than by reaching up into `application`.
+    //
+    // What that did *not* buy is a prefix editable without a rebuild. No policy
+    // file in this project is; `include_str!` is how all of them arrive. INV-20
+    // asks that a fact be stated as versioned data with a source and a read
+    // date, where a person can re-check it against the source - not that it be
+    // hot-swappable, which nothing here claims and DP-014's own rationale
+    // overstated.
     //
     // An earlier version of this comment cited `04-migration-and-safety.md` for
     // the single-site rule. That file contains no occurrence of the word
@@ -529,14 +533,7 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
         files.len()
     );
 
-    // The one place that is allowed to know where a provider installs itself —
-    // by AGENTS.md's rule, and pending DP-014 under INV-20's.
-    let registry = std::path::Path::new("adapters")
-        .join("src")
-        .join("registry.rs");
-
     for path in files {
-        let exempt = path.ends_with(&registry);
         let text = std::fs::read_to_string(&path).expect("readable source file");
         // Where test code begins, and only where it *begins as a module*. The
         // first version latched on any `#[cfg(test)]`, which in
@@ -568,11 +565,9 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
                     hit("a provider deadline");
                 }
             }
-            if !exempt {
-                for prefix in ["/opt/homebrew", "/usr/local", "/opt/local"] {
-                    if code.contains(prefix) {
-                        hit("a provider prefix");
-                    }
+            for prefix in ["/opt/homebrew", "/usr/local", "/opt/local"] {
+                if code.contains(prefix) {
+                    hit("a provider prefix");
                 }
             }
         }
@@ -581,8 +576,8 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     assert!(
         offenders.is_empty(),
         "a dated provider fact appears in source; it belongs in data/policy/ with its \
-         source and read date, or - for a prefix - in registry.rs, which is the one \
-         place that may know one (INV-20):\n{}",
+         source and read date - a prefix in provider-prefixes.toml, which \
+         crates/adapters/src/prefixes.rs reads (INV-20, DP-014):\n{}",
         offenders.join("\n")
     );
 }

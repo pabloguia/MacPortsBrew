@@ -85,7 +85,8 @@ layering rule; `scripts/check-layering.sh` asserts them from `cargo metadata`.
 ## Provider neutrality and the isolation boundary
 
 **Nothing above `crates/adapters/` names a provider.** `registry.rs` is the only
-place that knows which providers exist and where their prefixes are; everything
+place that knows which providers exist, and it reads where they install from
+`data/policy/provider-prefixes.toml` rather than holding it (DP-014); everything
 else works with `dyn ProviderRead`. Adding a provider is an adapter plus one
 registry entry.
 

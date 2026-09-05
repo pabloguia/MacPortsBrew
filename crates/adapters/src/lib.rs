@@ -16,6 +16,7 @@ pub mod filesystem;
 pub mod homebrew;
 pub mod macports;
 pub mod persistence;
+pub mod prefixes;
 pub mod process;
 pub mod registry;
 pub mod system;

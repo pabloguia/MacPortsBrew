@@ -3491,3 +3491,45 @@ finding ids in each entry.
 - User impact: none directly. The first output a reader sees is now the output.
 - Architectural impact: none. One test, no source change.
 - Compatibility impact: none.
+
+## SE-071 — Provider prefixes are dated data, and the INV-20 exemption is gone
+- Status: accepted (decided by the project owner, 2026-09-05, DP-014)
+- Date / Pass: 2026-09-05 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `registry.rs` held `/opt/homebrew`, `/usr/local` and
+  `/opt/local` in a `match`, with the sources and read dates in a doc comment
+  above it, and the INV-20 test carried an explicit exemption for that file
+  whose comment said the exemption was not compliance.
+- Change: `data/policy/provider-prefixes.toml` states the prefixes per provider
+  in detection order, each entry with `source`, `read_on` and a note quoting
+  what the source said. `crates/adapters/src/prefixes.rs` reads it and
+  `registry::candidate_prefixes` is now one line. The exemption is removed and
+  the INV-20 source scan holds every crate.
+- Rationale: INV-20 names **prefixes** alongside support tiers and deadlines.
+  The doc comment was provenance, and provenance is not what the invariant asks
+  for: nothing held the comment to the values beside it, and the check that
+  exists to catch a compiled-in provider fact was excusing the one file that had
+  one.
+- **Why the loader is in `adapters` and not `application`.** `data/policy/` is
+  otherwise read by `application`, which sits above `adapters`; the Cargo edges
+  are the layering rule and `scripts/check-layering.sh` asserts them. A second
+  loader in `adapters`, reading its own file, keeps the edge and also keeps
+  provider detection working without anything above this layer being present —
+  which is what detection is for.
+- **What this does not buy, said plainly.** A prefix is still not editable
+  without a rebuild. No policy file in this project is; `include_str!` is how
+  all of them arrive. DP-014's own rationale claimed "a data file is a one-line
+  edit; a `match` is a release", and that half was wrong. What INV-20 asks is
+  that a fact be stated as versioned data with its source and read date, where a
+  person can re-check one against the other.
+- **Probed.** Reintroducing `/opt/homebrew` into `registry.rs` was replayed as a
+  mutation and the INV-20 scan refused it. Without that, removing an exemption
+  only proves the check no longer skips a file, not that it would catch
+  anything in it.
+- Evidence: INV-20's text; DP-014; F-19, whose widening of this scan found a
+  second copy of a prefix in the MacPorts adapter; `crates/policy/src/data.rs`
+  for the embedding precedent.
+- User impact: none. The same three paths, probed in the same order.
+- Architectural impact: a second policy-data reader, in `adapters`. Adding a
+  provider now touches a data file as well as the registry, which the
+  `add-provider` recipe should say.
+- Compatibility impact: none.

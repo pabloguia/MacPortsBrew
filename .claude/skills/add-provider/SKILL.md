@@ -28,9 +28,11 @@ the same steps. If you change one, change the other.
    reported as `Available`; the analysis degrades and says so rather than
    guessing.
 4. **Add one entry to `crates/adapters/src/registry.rs`:** the provider id in
-   `known_provider_ids()`, and its candidate prefixes in detection order in
-   `candidate_prefixes()`. That file is the only place above the adapter which
-   knows a provider exists.
+   `known_provider_ids()`. That file is the only place above the adapter which
+   knows a provider exists. Its **candidate prefixes go in
+   `data/policy/provider-prefixes.toml`**, in detection order, with a `source`
+   and a `read_on` like every other provider fact — INV-20 names prefixes, and
+   the INV-20 test refuses one written into source (DP-014).
 5. **Add the provider's data with `source` and `read_on` on every entry:** its
    verbs and per-operation elevation in `data/policy/provider-commands.toml`,
    and its support state per architecture and macOS range in
