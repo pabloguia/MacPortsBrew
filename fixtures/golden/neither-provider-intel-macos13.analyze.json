@@ -13,9 +13,9 @@
     "translation": "NATIVE"
   },
   "packages": [],
-  "policyReadOn": "2026-09-02",
+  "policyReadOn": "2026-09-04",
   "policyStale": false,
-  "policyVersion": "2026.09.04-1",
+  "policyVersion": "2026.09.04-2",
   "providers": {
     "homebrew": {
       "capabilities": {
@@ -37,7 +37,7 @@
         "endDate": "2027-09-01",
         "entry": "hb-x86_64-tier3-with-stated-end",
         "fact": {
-          "readOn": "2026-09-02",
+          "readOn": "2026-09-04",
           "source": "https://docs.brew.sh/Support-Tiers"
         },
         "prebuiltArtifacts": true,

@@ -1158,8 +1158,9 @@ discrepancy in the prose rather than in the data.
 
 ## F-26 — Homebrew's own timeline has moved past the row `provider-support.toml` cites, and Catalina is the package
 
-**Severity: medium. INV-20 working exactly as designed, which is why this is a
-re-read and not a bug.** Raised 2026-09-04 by the audit of the DP-011 change.
+**Severity: none. Re-read 2026-09-04 and the finding is wrong — the data was
+right and I misread the source.** Raised the same day by the audit of the
+DP-011 change, and closed by doing the thing it asked for.
 
 `data/policy/provider-support.toml` entry `hb-x86_64-tier3-with-stated-end` maps
 Intel `x86_64` from `macos_min = "10.15"` to `DEGRADED`, and its note cites the
@@ -1186,9 +1187,51 @@ memory of this finding: the entry's honesty is its read date, and changing the
 value without re-reading destroys exactly the property that let this be caught.
 `provider-researcher` is the right instrument.
 
-**Note what worked.** The prose was wrong and the data was right in DP-011; here
-the data is dated-correct and the world moved. Both were found by reading the
-data's own citation, which is the return on `source` + `read_on` being mandatory.
+### Resolution — the world did not move, and the reading was wrong
+
+Re-read 2026-09-04 at 21:09 -03. The "Future macOS support" section is verbatim
+unchanged from 2026-09-02, and `macos_min = "10.15"` stays. Three things settle
+it, and the finding missed all three:
+
+1. **The normative section says Mojave.** "Unsupported configurations include:
+   ... macOS Mojave 10.14 and earlier". That list is the definition. Catalina is
+   not in it, and no user on Catalina is being told anything gentler than
+   Homebrew's own word.
+2. **The timeline is explicitly a forecast.** Its lead-in: "The following
+   timeline outlines **expected** Tier classifications based on Apple's release
+   cycle and Homebrew's CI coverage." The finding read a forecast as a schedule
+   of effective dates.
+3. **The row is keyed to a macOS release, not to the calendar.** "Expected in or
+   after September 2026" lists, on its Apple Silicon half, "Tier 1: macOS 27,
+   Tahoe 26, Sequoia 15" — and macOS 27 is absent from the current row. The row
+   turns when 27 ships. The finding asserted "that row's condition is satisfied
+   from 2026-09-01 onward", which was never checked against the row's contents.
+
+**The pattern is worth more than the correction.** This is the second time in
+one night that Homebrew's Intel status was stated wrongly in the direction that
+makes migrating more urgent: F-11 in the charter, where the tool's own data was
+the more honest of the two, and F-26 here, where the data was right and a
+*finding against it* was the overstatement. The self-serving direction does not
+stop being self-serving when it appears in a document criticising the project.
+A conclusion that flatters the tool's reason for existing is the one to re-read
+before filing, not after.
+
+**What the re-read bought anyway**, since it happened: four Homebrew entries in
+`provider-support.toml` carry `read_on = "2026-09-04"`; the Unsupported quote in
+`hb-any-unsupported-below-10.15` no longer drops "or modifications" inside its
+quotation marks; `hb-arm64-tier1-current`'s `last_review_date 2026-08-27` is now
+attributed to the earlier read, because that field is absent from the served
+HTML today; F-1 carries the forecast-versus-normative distinction that would
+have prevented this; and `policy.toml` is `2026.09.04-2`, which exposed a gap in
+the version rule — a read date that moves without moving the *newest* read date
+left two data sets sharing one version string. The manifest now says so.
+
+**Note what worked, and what did not.** In DP-011 the prose was wrong and the
+data was right; here the data was right and the finding was wrong. Both were
+reached by following the data's own citation, which is the return on `source`
+and `read_on` being mandatory. What no gate could do was stop a plausible
+misreading of a source from being filed as a defect — only re-reading it did,
+and only because someone asked.
 
 ---
 

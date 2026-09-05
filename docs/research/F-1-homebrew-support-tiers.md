@@ -306,6 +306,31 @@ counting the documented older-macOS fallback and `:all`): **7808 of 8586
    pre-seeded summary in `09-research-checklist.md` remains an accurate
    *summary* of the tier names and their meanings.
 
+1b. **Re-verified 2026-09-04 (F-26), and the "Future macOS support" section is
+   verbatim unchanged.** Fetched 21:09 -03 from the same URL. The three timeline
+   rows, the September 2027 sentence, the Tier 3 definition and membership list,
+   and the Unsupported list are byte-identical to what E1 records for
+   2026-09-02. Two things this re-read establishes that E1 did not spell out,
+   and that a later reader needs:
+
+   - **The timeline is a forecast, not a schedule of effective dates.** Its
+     lead-in reads "The following timeline outlines **expected** Tier
+     classifications based on Apple's release cycle and Homebrew's CI
+     coverage." The row headed "Expected in or after September 2026" is
+     therefore not in force merely because the calendar reached September 2026 —
+     and its own content confirms this, since its Apple Silicon half is keyed to
+     "macOS 27", which the current row does not list among Tier 1 systems.
+   - **The normative statement is the Unsupported *list*, not the timeline.**
+     "Unsupported configurations include: ... macOS Mojave 10.14 and earlier" —
+     Catalina is not in it. Where the two could be read against each other, the
+     definitional section governs and the timeline describes what Homebrew
+     expects to do next.
+
+   One thing E1 recorded that this re-read could **not** confirm: no
+   `last_review_date` appears anywhere in the served HTML on 2026-09-04. The
+   2026-08-27 value stays attributed to the 2026-09-02 read rather than being
+   carried forward.
+
 2. **"Intel x86_64 systems running macOS" is still listed under Tier 3
    verbatim** (E1). Confirmed.
 

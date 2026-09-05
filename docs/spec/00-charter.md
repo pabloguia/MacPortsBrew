@@ -50,13 +50,17 @@ new bottles for Intel, and that it will **remove the ability to run Homebrew on
 Intel systems in or after September 2027**
 (source: <https://docs.brew.sh/Support-Tiers>, read 2026-09-02).
 
-**Which macOS versions that covers is a timeline, and the timeline moves.** The
-same page's row "As of September 2026" puts Intel Tier 3 at Catalina 10.15
-through Tahoe 26; its next row, "Expected in or after September 2026", moves
-Catalina 10.15 into Unsupported and starts Tier 3 at Big Sur 11; the row after
-that expects Intel to be Unsupported at every macOS version. Quote a row, never
-the range on its own — the range without its row is the kind of undated fact
-this project exists to hold as data.
+**Which macOS versions that covers is a timeline, the timeline is a forecast,
+and the forecast is keyed to Apple's releases rather than to the calendar.** The
+page says so — "expected Tier classifications based on Apple's release cycle and
+Homebrew's CI coverage". Its row "As of September 2026" puts Intel Tier 3 at
+Catalina 10.15 through Tahoe 26; the next row, "Expected in or after September
+2026", would move Catalina into Unsupported, and is keyed to a macOS the current
+row does not yet list; the row after that expects Intel to be Unsupported at
+every version. Quote a row and say which, never the range on its own. And where
+the timeline and the page's own *Unsupported* list could be read against each
+other, the list governs: it is the definition, the timeline is a plan (F-26,
+re-read 2026-09-04).
 
 **Tier 3 is degradation with a deadline, not a machine Homebrew refuses to run
 on**, and the distinction is not pedantry: it separates a reader whose

@@ -37,12 +37,14 @@ macos_max = "10.14"
 tier = "UNSUPPORTED"
 provider_label = "unsupported"
 source = "https://docs.brew.sh/Support-Tiers"
-read_on = "2026-09-02"
+read_on = "2026-09-04"
 note = """
 "Unsupported configurations include: ... macOS Mojave 10.14 and earlier."
-An unsupported configuration is one in which Homebrew will not run without \
-third-party patches, and the page names MacPorts as a migration target. \
-Recorded in docs/research/F-1-homebrew-support-tiers.md E1.\
+An unsupported configuration is one in which "Homebrew will not run without \
+third-party patches or modifications", and the page names MacPorts as a \
+migration target. Recorded in docs/research/F-1-homebrew-support-tiers.md E1. \
+Re-read 2026-09-04 (F-26): the list is verbatim unchanged and still names \
+Mojave 10.14 and earlier, not Catalina.\
 """
 
 [[entry]]
@@ -55,7 +57,7 @@ tier = "SUPPORTED"
 provider_label = "tier1"
 prebuilt_artifacts = true
 source = "https://docs.brew.sh/Support-Tiers"
-read_on = "2026-09-02"
+read_on = "2026-09-04"
 note = """
 Timeline, "As of September 2026", Apple Silicon: "Tier 1: macOS Tahoe 26, \
 Sequoia 15, Sonoma 14". Tier 1 additionally requires official Apple Silicon \
@@ -65,7 +67,9 @@ conditions this table cannot encode and the adapter must detect. \
 https://docs.brew.sh/Installation (read 2026-09-02) separately states the \
 requirement "macOS Sonoma (14) (or higher) installed on officially supported \
 hardware"; F-1 finding 6 records that this is a stated requirement and not an \
-enforced floor. Page last_review_date 2026-08-27.\
+enforced floor. Page last_review_date 2026-08-27, as read 2026-09-02: on the \
+2026-09-04 re-read no last_review_date appears anywhere in the served HTML, \
+so that value is not re-confirmed and is left attributed to the earlier read.\
 """
 
 [[entry]]
@@ -78,7 +82,7 @@ tier = "DEGRADED"
 provider_label = "tier3"
 prebuilt_artifacts = false
 source = "https://docs.brew.sh/Support-Tiers"
-read_on = "2026-09-02"
+read_on = "2026-09-04"
 note = """
 Timeline, "As of September 2026", Apple Silicon: "Tier 3: macOS Big Sur 11 \
 through Ventura 13". Tier 3 is "not supported": "CI coverage is unavailable; \
@@ -97,7 +101,7 @@ provider_label = "tier3"
 end_date = "2027-09-01"
 prebuilt_artifacts = true
 source = "https://docs.brew.sh/Support-Tiers"
-read_on = "2026-09-02"
+read_on = "2026-09-04"
 note = """
 "Intel x86_64 systems running macOS" is listed verbatim under Tier 3, and the \
 timeline reads "As of September 2026 ... Intel x86_64: Tier 3: macOS Catalina \
@@ -110,7 +114,16 @@ building new bottles for Intel systems", but F-1 finding 4 observed new Intel \
 artifacts published in August 2026 and F-1 finding 5 measured coverage at \
 90.9% on an Intel macOS 26 machine against 98.1% on Apple Silicon. The honest \
 characterisation is "frozen at the macOS 14 tag and eroding", not "stopped". \
-Per-package availability is detected and always wins over this flag.\
+Per-package availability is detected and always wins over this flag.
+Re-read 2026-09-04 (F-26): the section is verbatim unchanged, and macos_min \
+stays 10.15. The timeline's next row does move Catalina 10.15 to Unsupported, \
+but it is headed "Expected in or after September 2026" under a sentence \
+calling the whole table "expected Tier classifications based on Apple's \
+release cycle" - a forecast, not an effective date - and its Apple Silicon \
+half is keyed to "macOS 27", which the current row does not list. The \
+normative "Unsupported configurations include" list still names only "macOS \
+Mojave 10.14 and earlier". Re-check when macOS 27 ships, not on a calendar \
+date.\
 """
 
 # ---------------------------------------------------------------- macports
