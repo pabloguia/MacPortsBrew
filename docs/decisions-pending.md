@@ -41,25 +41,6 @@ are recorded.
   gate fails on them, and no report has claimed otherwise. A gap being named,
   not a regression.
 
-### DP-014 — Provider prefixes were compiled in — **RESOLVED 2026-09-05: option (a)**
-`data/policy/provider-prefixes.toml` holds the three prefixes with their sources
-and read dates, and `crates/adapters/src/prefixes.rs` reads it — embedded with
-`include_str!`, exactly as `crates/policy` embeds its own data. The layering
-objection was real and is answered by the loader living in `adapters` rather
-than reaching up into `application`. Recorded in **SE-071**.
-
-**The INV-20 test's exemption is gone, which is the proof.** It used to excuse
-`registry.rs` with a comment saying the exemption was not compliance; the check
-now holds the whole workspace, and putting a prefix back into that file was
-replayed as a mutation and refused.
-
-**One line of this entry's own rationale was wrong.** It said "a data file is a
-one-line edit with a new `read_on`; a `match` is a release". Both are a release:
-every policy file in this project arrives through `include_str!`. What INV-20
-asks for is that a fact be stated as versioned data beside the source it came
-from and the date it was read, where a person can compare the two — not that it
-be changeable without rebuilding, which nothing here does.
-
 ### DP-012 — Do casks belong in the default top-level view?
 - **The question:** `AGENTS.md`, `.claude/rules/adapters.md` and SE-042 all state
   that a cask carries no user-intent field, so its ownership is `UNKNOWN` and is
@@ -195,6 +176,25 @@ that a container without a usable stapled ticket "buys nothing the bare binary
 does not". It buys the installation experience, which no R-11 outcome touches.
 What R-11 still decides is what the documentation may *claim*, and that is now
 what the chapter says it decides.
+
+### DP-014 — Provider prefixes were compiled in — **RESOLVED 2026-09-05: option (a)**
+`data/policy/provider-prefixes.toml` holds the three prefixes with their sources
+and read dates, and `crates/adapters/src/prefixes.rs` reads it — embedded with
+`include_str!`, exactly as `crates/policy` embeds its own data. The layering
+objection was real and is answered by the loader living in `adapters` rather
+than reaching up into `application`. Recorded in **SE-071**.
+
+**The INV-20 test's exemption is gone, which is the proof.** It used to excuse
+`registry.rs` with a comment saying the exemption was not compliance; the check
+now holds the whole workspace, and putting a prefix back into that file was
+replayed as a mutation and refused.
+
+**One line of this entry's own rationale was wrong.** It said "a data file is a
+one-line edit with a new `read_on`; a `match` is a release". Both are a release:
+every policy file in this project arrives through `include_str!`. What INV-20
+asks for is that a fact be stated as versioned data beside the source it came
+from and the date it was read, where a person can compare the two — not that it
+be changeable without rebuilding, which nothing here does.
 
 ### DP-011 — The charter's Intel tier vs. its own data — **RESOLVED 2026-09-04: amend**
 Decided by the project owner. `00-charter.md`, `README.md` and
