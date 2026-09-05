@@ -40,6 +40,11 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
+| **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
+| **F-20** — smaller findings, recorded without ceremony | **All seventeen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. |
+| **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
+| **F-27** — documented CLI samples drift from the binary and nothing notices | **Open.** Both `status` samples fixed; nothing stops the next drift. Invisible to `check-i18n-parity.sh`, `check-links.sh` and the test suite. The finding carries the shape a check would take. |
+| **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -100,7 +105,9 @@ deployment target `10.12`. Everything marked *observed* below was run here — I
 
 ## F-01 — One provider's dependency graph decides the other provider's recommendation, and the user is told a false number
 
-**Severity: highest. INV-04 and INV-08. This one stops at the human.**
+**Severity: highest. INV-04 and INV-08. Fixed on the owner's ruling —
+DP-010 resolved, SE-045: the count is per-provider and SE-042(2) is
+withdrawn.** The body below is the finding as written.
 
 `crates/application/src/analysis.rs:167-180` takes the **maximum** reverse-dependency
 count across providers:
@@ -162,7 +169,9 @@ in `PackageFacts.per_provider`, where availability already lives correctly
 
 ## F-02 — A package held by both providers can only be migrated one way, and the direction is chosen by alphabetical order
 
-**Severity: high. INV-17 — "Neither direction is a special case in code."**
+**Severity: high. INV-17 — "Neither direction is a special case in code."
+Fixed — SE-047:** `--to` names the destination, mirrored tests exist, and a
+plan no longer proposes installing what the destination already has.
 
 `planner.rs:78-84` refuses when the unit's attributed `source` equals the requested
 destination. There is no `--from` flag. For a package installed under **both**
@@ -206,7 +215,9 @@ destination's actual contents. Plus a mirrored test for every existing
 
 ## F-03 — `--advanced` changes the answer, not just the view
 
-**Severity: high. INV-13, and it makes two commands disagree about one input.**
+**Severity: high. INV-13, and it made two commands disagree about one input.
+Fixed — SE-048:** unit identity is decided before visibility, and a top-level
+package that was invisible in the default view is back.
 
 `--advanced` is specified as additive revelation: transitive dependencies are hidden
 by default and *"reachable only through an explicitly entered advanced mode"*. In
@@ -367,7 +378,10 @@ and its limit.
 
 ## F-05 — `doctor --report` leaks the user's home path when `HOME` is unset
 
-**Severity: high. Demonstrated, reproducible, affects users today.**
+**Severity: high; it was demonstrated, reproducible and affected users.
+Fixed — SE-054, now accepted:** `HomeRedaction` distinguishes the two absences,
+measured back to zero on `doctor --report` and `snapshot --out`. One residual
+is retained deliberately; the table row says which.
 
 `06-cli-and-ux.md:134-137` describes this file as something a user will *"attach to
 an issue"*; `wiki/Troubleshooting.md:23` repeats it. `redact_home`
@@ -715,7 +729,8 @@ deliverable; the documentation of its limits is not yet honest.
 
 ## F-16 — `cargo-deny` never checks advisories, while `deny.toml` declares an advisories policy
 
-**Severity: medium.**
+**Severity: medium. Fixed — SE-055.** The command is
+`check advisories licenses bans sources`.
 
 `.github/workflows/repository-validation.yml:75` runs
 `command: check licenses bans sources`. **`advisories` is absent.** `deny.toml:16-17`
@@ -735,7 +750,9 @@ promise.
 
 ## F-17 — Every GitHub Action is unpinned; four are mutable refs, not one
 
-**Severity: medium. Blast radius bounded, but the job is load-bearing.**
+**Severity: medium. Blast radius bounded, but the job is load-bearing. Fixed —
+SE-055:** every `uses:` carries a 40-hex SHA, and `scripts/check-action-pins.sh`
+runs inside `validate.sh`, verified to fail on an unpinned ref.
 
 Twelve `uses:` references, **none** pinned to a SHA:
 
@@ -759,7 +776,8 @@ remembered.
 
 ## F-18 — `claude-code-review.yml` cannot post the comments it is configured to make, and has no author guard
 
-**Severity: medium. Two defects in one file.**
+**Severity: medium. Two defects in one file. Fixed — SE-055:** the workflow has
+`pull-requests: write` and an `author_association` guard.
 
 1. **It will silently never work.** The job declares `permissions: pull-requests: read`
    (line 21) while granting an inline-comment tool and asking for `--comment`
