@@ -10,6 +10,7 @@
 //! live installation), and the numbers come from `docs/research/R-1` and
 //! `docs/research/R-2`, which were written from the same machine.
 
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::homebrew::{detect_prefix, HomebrewAdapter, PROVIDER_ID};
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, ProcessRunner, RecordedInvocation, Recording, RecordingProvenance,
@@ -46,7 +47,14 @@ fn recording() -> Recording {
 }
 
 fn adapter(runner: &dyn ProcessRunner) -> HomebrewAdapter<'_> {
-    HomebrewAdapter::new(runner, prefix(), None, platform_tags())
+    // The fixture recording is the machine; this host's disk is not it.
+    HomebrewAdapter::new(
+        runner,
+        prefix(),
+        None,
+        platform_tags(),
+        FilesystemScope::Elsewhere,
+    )
 }
 
 fn machine() -> Machine {
@@ -161,7 +169,13 @@ fn the_offline_metadata_capability_follows_the_cached_index() {
     std::fs::create_dir_all(&index).unwrap();
     let runner = ReplayRunner::new(recording());
 
-    let absent = HomebrewAdapter::new(&runner, prefix(), Some(home.clone()), platform_tags());
+    let absent = HomebrewAdapter::new(
+        &runner,
+        prefix(),
+        Some(home.clone()),
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
     assert!(matches!(
         absent.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
         CapabilityState::Unavailable { .. }
@@ -169,7 +183,13 @@ fn the_offline_metadata_capability_follows_the_cached_index() {
 
     std::fs::write(index.join("packages.tahoe.jws.json"), "{}").unwrap();
     let runner = ReplayRunner::new(recording());
-    let present = HomebrewAdapter::new(&runner, prefix(), Some(home.clone()), platform_tags());
+    let present = HomebrewAdapter::new(
+        &runner,
+        prefix(),
+        Some(home.clone()),
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
     assert_eq!(
         present.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
         CapabilityState::Available
@@ -631,7 +651,13 @@ fn ownership_comes_from_the_resolved_path_not_the_containing_prefix() {
         (&["--cellar"], &cellar.display().to_string(), ok()),
         (&["--caskroom"], &caskroom.display().to_string(), ok()),
     ]));
-    let adapter = HomebrewAdapter::new(&runner, root.clone(), None, platform_tags());
+    let adapter = HomebrewAdapter::new(
+        &runner,
+        root.clone(),
+        None,
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
 
     let owned = adapter.resolution(&keg.join("wget")).unwrap();
     assert_eq!(owned.executable, "wget");
@@ -680,8 +706,17 @@ fn a_prefix_is_detected_only_where_an_executable_exists() {
     std::fs::create_dir_all(root.join("bin")).unwrap();
     std::fs::write(root.join("bin/brew"), "").unwrap();
     let candidates = vec![PathBuf::from("/nonexistent-prefix"), root.clone()];
-    assert_eq!(detect_prefix(&candidates), Some(root.clone()));
-    assert_eq!(detect_prefix(&[PathBuf::from("/nonexistent-prefix")]), None);
+    assert_eq!(
+        detect_prefix(&candidates, FilesystemScope::ThisMachine),
+        Some(root.clone())
+    );
+    assert_eq!(
+        detect_prefix(
+            &[PathBuf::from("/nonexistent-prefix")],
+            FilesystemScope::ThisMachine
+        ),
+        None
+    );
     std::fs::remove_dir_all(&root).ok();
 }
 

@@ -6,6 +6,7 @@
 
 use super::Cli;
 use crate::i18n::{resolve, Messages};
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::persistence::{
     load_recording, load_snapshot, save_snapshot as persist_snapshot, snapshot_to_json,
     state_dir::StateDir, time, write_atomic,
@@ -115,6 +116,14 @@ impl Context {
             let policy_ref = &policy;
             let providers = registry::build(&RegistryContext {
                 runner: &*runner,
+                // Set here, next to every other decision `--replay` drives, so
+                // the one place that knows the machine is a recording is the
+                // one place that says so (INV-15, F-25).
+                filesystem: if replay {
+                    FilesystemScope::Elsewhere
+                } else {
+                    FilesystemScope::ThisMachine
+                },
                 home: if replay { None } else { home.clone() },
                 platform_tags: Box::new(move |id| policy_ref.artifact_tags_for(id, &machine_facts)),
                 prefix_override,

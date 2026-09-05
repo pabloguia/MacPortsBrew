@@ -3407,3 +3407,53 @@ finding ids in each entry.
 - User impact: none today — nothing is published. It binds the release pass.
 - Architectural impact: none. One new release-pipeline MUST.
 - Compatibility impact: none.
+
+## SE-069 — A replayed reader needed a signal `is_replay()` could not carry
+- Status: accepted
+- Date / Pass: 2026-09-05 / 02-ARCHITECTURE-REVIEW
+- Original assumption: INV-15 was upheld in the adapters because nothing reached
+  the live filesystem under `--replay`.
+- Change: `crates/adapters/src/filesystem.rs` introduces `FilesystemScope`,
+  threaded through `HomebrewAdapter::new`, `MacPortsAdapter::new`, both
+  `detect_prefix` functions, `macports::service::scan` and `RegistryContext`.
+  Nine filesystem reads in the adapters now answer from recorded evidence or not
+  at all. The CLI sets the scope beside every other `--replay` decision;
+  `registry::effective_scope` refuses the one pair that cannot mean anything.
+- Rationale: the property held only because `SystemMachine::which` returned
+  `None` and nothing else supplied a path — a property of the *caller*. INV-15 is
+  a property of the reader. F-25 recorded why the obvious guard is not one:
+  `is_replay()` answers "are subprocess results recorded", and what a filesystem
+  read raises is "does this filesystem describe the machine being described".
+  The two coincide under `--replay` and come apart in a contract test, which
+  replays subprocesses while genuinely reading a scratch tree it created.
+- **What is deliberately not changed.** `registry::override_for` still gates
+  `prefix_override` on `is_replay()`. Its question is whether a real executable
+  could be spawned, which is the runner's; answering it with the new type would
+  let a caller holding a live runner choose which binary runs, reopening what
+  SE-051 closed. The comment there says so, because the inconsistency looks like
+  an oversight and is not. `system::machine`'s `which` keeps the old signal too
+  — safe, because it errs toward not reading — and moving it is the remaining
+  half of F-25.
+- **Where the line actually falls.** Only *following a symlink* needs this host's
+  disk. A prefix, a Cellar, a Caskroom and a `port provides` answer all come from
+  the recording, so classifying against them is pure computation over recorded
+  evidence and stays correct. The first version of this change refused to
+  classify at all under `Elsewhere`, and four correct MacPorts contract tests
+  rejected it. What must not survive is the `authoritative` claim, which rested
+  on having followed the link.
+- **Every guard was probed by removal**, and the first run caught three of six.
+  Each miss was a hole in the test, not the code: an assertion made vacuous by a
+  scratch tree missing `bin/port`; a path never exercised; and a case that could
+  not discriminate because macOS puts `temp_dir()` under `/var`, a symlink to
+  `/private/var`, so the compared paths were never equal. That last one is worth
+  remembering — a test can be defeated by the filesystem it is testing.
+- Evidence: F-25; the `security-reviewer` pass on this change, which found the
+  live-runner pair and the peer asymmetry; F-19, which named the calls.
+- User impact: none today; the binary sets the scope the same way it always
+  behaved. Under `--replay` a capability that was answered from the replaying
+  host is now honestly `Unknown`.
+- Architectural impact: a new public type in `adapters`, and a signature change
+  across every adapter construction site. Nothing above `adapters` names it
+  except the CLI, which owns the decision.
+- Compatibility impact: none. `--json` payloads change only where a capability
+  that was wrongly `Unavailable` under replay is now `Unknown`.

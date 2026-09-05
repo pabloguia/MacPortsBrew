@@ -29,6 +29,7 @@
 
 pub mod json;
 
+use crate::filesystem::FilesystemScope;
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
 };
@@ -97,7 +98,12 @@ fn changed(detail: impl Into<String>) -> DomainError {
 /// `/opt/homebrew` then `/usr/local`. Resolving the prefix here and the
 /// executable from it is what keeps a shadowing entry on `PATH` out of the
 /// picture.
-pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
+pub fn detect_prefix(candidates: &[PathBuf], filesystem: FilesystemScope) -> Option<PathBuf> {
+    if !filesystem.is_this_machine() {
+        // The recording is the machine, and this host's disk says nothing
+        // about which prefix it has. The caller supplies one (INV-15, F-25).
+        return None;
+    }
     candidates
         .iter()
         .find(|prefix| executable_in(prefix).is_file())
@@ -204,6 +210,10 @@ struct Analysis {
 pub struct HomebrewAdapter<'r> {
     runner: &'r dyn ProcessRunner,
     id: ProviderId,
+    /// Whether this host's disk describes the machine being read. Separate
+    /// from `runner.is_replay()`, which answers a different question; see
+    /// [`crate::filesystem`] (F-25).
+    filesystem: FilesystemScope,
     prefix: PathBuf,
     home: Option<PathBuf>,
     platform_tags: Vec<String>,
@@ -222,16 +232,21 @@ impl<'r> HomebrewAdapter<'r> {
     /// `platform_tags` are the artifact tags that satisfy this machine, most
     /// specific first (for example `tahoe`, `sequoia`, `sonoma`, `all`);
     /// they come from dated policy data, never from this adapter (R-2).
+    /// `filesystem` says whether this host's disk describes the machine being
+    /// read; where it does not, every filesystem answer is the unknown one
+    /// (INV-15, F-25).
     pub fn new(
         runner: &'r dyn ProcessRunner,
         prefix: PathBuf,
         home: Option<PathBuf>,
         platform_tags: Vec<String>,
+        filesystem: FilesystemScope,
     ) -> Self {
         let environment = quiet_environment(&prefix, home.clone());
         Self {
             runner,
             id: ProviderId::new(PROVIDER_ID),
+            filesystem,
             prefix,
             home,
             platform_tags,
@@ -422,6 +437,12 @@ impl<'r> HomebrewAdapter<'r> {
     }
 
     fn offline_metadata_state(&self) -> CapabilityState {
+        if !self.filesystem.is_this_machine() {
+            // Stat'ing the replaying host's cache would answer a question
+            // about the wrong machine, and the answer would differ between
+            // two hosts replaying one recording (INV-15, F-25).
+            return CapabilityState::Unknown;
+        }
         match self.offline_index_path() {
             None => CapabilityState::Unknown,
             Some(path) if path.is_file() => CapabilityState::Available,
@@ -785,21 +806,38 @@ impl ProviderRead for HomebrewAdapter<'_> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let Ok(canonical) = std::fs::canonicalize(executable) else {
-            return Ok(Resolution {
-                executable: name,
-                path: Some(executable.to_path_buf()),
-                canonical_path: None,
-                owner: ExecutableOwner::Unknown,
-                authoritative: false,
-            });
+        let unresolved = || Resolution {
+            executable: name.clone(),
+            path: Some(executable.to_path_buf()),
+            canonical_path: None,
+            owner: ExecutableOwner::Unknown,
+            authoritative: false,
         };
-        let owner = self.owner_of(&canonical)?;
+        // Only following the symlink needs this host's disk. The Cellar and
+        // the Caskroom come from the recording, so where the disk is not the
+        // machine the classification is still answerable and is still done -
+        // refusing it threw away recorded evidence and made this adapter
+        // degrade differently from its peer, which is the INV-17 shape the
+        // F-25 review caught.
+        let canonical = if self.filesystem.is_this_machine() {
+            let Ok(resolved) = std::fs::canonicalize(executable) else {
+                return Ok(unresolved());
+            };
+            Some(resolved)
+        } else {
+            None
+        };
+        let target = canonical.as_deref().unwrap_or(executable);
+        let owner = self.owner_of(target)?;
         Ok(Resolution {
             executable: name,
             path: Some(executable.to_path_buf()),
-            canonical_path: (canonical != executable).then(|| canonical.clone()),
-            authoritative: matches!(owner, ExecutableOwner::Provider { .. }),
+            // A Cellar hit is authoritative only when the link was actually
+            // followed. Computed from the path as written it is a heuristic,
+            // and `analysis::resolution_for` ranks the two differently on
+            // purpose.
+            authoritative: canonical.is_some() && matches!(owner, ExecutableOwner::Provider { .. }),
+            canonical_path: canonical.filter(|c| c != executable),
             owner,
         })
     }
@@ -853,10 +891,13 @@ impl ProviderRead for HomebrewAdapter<'_> {
 
 impl HomebrewAdapter<'_> {
     fn detect_uncached(&self) -> Result<ProviderDetection, DomainError> {
-        // Against the live machine an absent executable is answered without
-        // spawning anything. Against a recording the recording is the
-        // machine, so the local filesystem is not consulted at all.
-        if !self.runner.is_replay() && !self.executable().is_file() {
+        // Where this host's disk is the machine, an absent executable is
+        // answered without spawning anything. Where it is not, the recording
+        // is the machine and the local filesystem is not consulted at all.
+        // This asks the filesystem question, not `runner.is_replay()`: a
+        // contract test replays subprocesses while reading a scratch tree
+        // that really is its subject (F-25).
+        if self.filesystem.is_this_machine() && !self.executable().is_file() {
             return Ok(self.absent());
         }
         let invocation = self.run(ARGV_VERSION)?;
@@ -903,7 +944,11 @@ impl HomebrewAdapter<'_> {
     /// a package, and only that answer is marked authoritative.
     fn owner_of(&self, canonical: &Path) -> Result<ExecutableOwner, DomainError> {
         for root in [self.cellar()?, self.caskroom()?] {
-            let root = std::fs::canonicalize(&root).unwrap_or(root);
+            let root = if self.filesystem.is_this_machine() {
+                std::fs::canonicalize(&root).unwrap_or(root)
+            } else {
+                root
+            };
             if let Ok(rest) = canonical.strip_prefix(&root) {
                 let package = rest
                     .components()
@@ -915,7 +960,11 @@ impl HomebrewAdapter<'_> {
                 });
             }
         }
-        let prefix = std::fs::canonicalize(&self.prefix).unwrap_or_else(|_| self.prefix.clone());
+        let prefix = if self.filesystem.is_this_machine() {
+            std::fs::canonicalize(&self.prefix).unwrap_or_else(|_| self.prefix.clone())
+        } else {
+            self.prefix.clone()
+        };
         if canonical.starts_with(&prefix) {
             return Ok(ExecutableOwner::External);
         }
@@ -946,8 +995,13 @@ mod tests {
             },
             invocations: Vec::new(),
         });
-        let adapter =
-            HomebrewAdapter::new(&runner, PathBuf::from("/opt/homebrew"), None, Vec::new());
+        let adapter = HomebrewAdapter::new(
+            &runner,
+            PathBuf::from("/opt/homebrew"),
+            None,
+            Vec::new(),
+            FilesystemScope::ThisMachine,
+        );
         let error = adapter
             .run(&["outdated"])
             .expect_err("nothing outside the allow-list reaches the executor");
@@ -1030,7 +1084,13 @@ mod tests {
 
     #[test]
     fn an_absent_prefix_detects_as_none() {
-        assert_eq!(detect_prefix(&[PathBuf::from("/nonexistent-prefix")]), None);
-        assert_eq!(detect_prefix(&[]), None);
+        assert_eq!(
+            detect_prefix(
+                &[PathBuf::from("/nonexistent-prefix")],
+                FilesystemScope::ThisMachine
+            ),
+            None
+        );
+        assert_eq!(detect_prefix(&[], FilesystemScope::ThisMachine), None);
     }
 }

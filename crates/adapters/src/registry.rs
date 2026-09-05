@@ -7,6 +7,7 @@
 //! Adding a provider (`08-distribution-and-project.md`, contributor recipe)
 //! means an adapter module plus one entry here.
 
+use crate::filesystem::FilesystemScope;
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
 use crate::process::ProcessRunner;
@@ -77,6 +78,13 @@ pub struct RegistryContext<'r> {
     /// The prebuilt-artifact tags that satisfy this machine, per provider
     /// id, from the policy data.
     pub platform_tags: PlatformTags<'r>,
+    /// Whether this host's filesystem describes the machine being read.
+    ///
+    /// Deliberately **not** derived from `runner.is_replay()` inside this
+    /// function: they are different questions, and `override_for` below still
+    /// asks the runner because its question really is the runner's. See
+    /// [`crate::filesystem`] (F-25).
+    pub filesystem: FilesystemScope,
     /// Prefix overrides for tests and fixtures; `None` probes the defaults.
     ///
     /// Honoured **only** when the runner is a replay. A prefix decides which
@@ -93,6 +101,15 @@ pub struct RegistryContext<'r> {
 /// found is still constructed (over its first candidate prefix) so that it
 /// reports `Absent` through the same contract.
 pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
+    // A live runner spawns real commands on this host, so this host *is* the
+    // machine being read: `Elsewhere` alongside it is not a configuration, it
+    // is a contradiction. Collapsing it here rather than trusting the caller
+    // is what keeps the pair from disabling `detect_uncached`'s no-spawn
+    // check in front of an unprobed prefix — the fallback `candidates[N]`,
+    // which on a Mac that once had an Intel Homebrew is a writable
+    // `/usr/local`. A runtime check and not a `debug_assert!`, for the reason
+    // the executor's own allowlist is one (F-25 review).
+    let filesystem = effective_scope(ctx.runner, ctx.filesystem);
     let mut out: Vec<Box<dyn ProviderRead + 'r>> = Vec::new();
     for id in known_provider_ids() {
         let candidates = candidate_prefixes(&id);
@@ -100,13 +117,7 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
         match id.as_str() {
             "homebrew" => {
                 let prefix = overridden
-                    .or_else(|| {
-                        if ctx.runner.is_replay() {
-                            None
-                        } else {
-                            crate::homebrew::detect_prefix(&candidates)
-                        }
-                    })
+                    .or_else(|| crate::homebrew::detect_prefix(&candidates, filesystem))
                     .unwrap_or_else(|| candidates[1].clone());
                 let tags = (ctx.platform_tags)(id.as_str());
                 out.push(Box::new(HomebrewAdapter::new(
@@ -114,19 +125,21 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
                     prefix,
                     ctx.home.clone(),
                     tags,
+                    filesystem,
                 )));
             }
             "macports" => {
                 let prefix = overridden
                     .or_else(|| {
-                        if ctx.runner.is_replay() {
-                            None
-                        } else {
-                            MacPortsAdapter::<&dyn ProcessRunner>::detect_prefix(&candidates)
-                        }
+                        MacPortsAdapter::<&dyn ProcessRunner>::detect_prefix(
+                            &candidates,
+                            filesystem,
+                        )
                     })
                     .unwrap_or_else(|| candidates[0].clone());
-                out.push(Box::new(MacPortsAdapter::new(ctx.runner, prefix)));
+                out.push(Box::new(MacPortsAdapter::new(
+                    ctx.runner, prefix, filesystem,
+                )));
             }
             _ => {}
         }
@@ -134,7 +147,33 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
     out
 }
 
+/// The filesystem scope an adapter is actually built with.
+///
+/// A live runner spawns real commands on this host, so this host **is** the
+/// machine being read. `Elsewhere` beside it is not a configuration but a
+/// contradiction, and it is collapsed here rather than trusted: left standing
+/// it would switch off `detect_uncached`'s no-spawn check in front of a prefix
+/// nobody probed — the fallback candidate, which on a Mac that once carried an
+/// Intel Homebrew is a writable `/usr/local` (F-25 review).
+///
+/// The converse pair is legitimate and stays: a contract test replays
+/// subprocesses while reading a scratch tree that really is its subject.
+fn effective_scope(runner: &dyn ProcessRunner, requested: FilesystemScope) -> FilesystemScope {
+    if runner.is_replay() {
+        requested
+    } else {
+        FilesystemScope::ThisMachine
+    }
+}
+
 /// The prefix override that applies to `id`, if any.
+///
+/// **This asks `runner.is_replay()` on purpose, and must keep asking it.** Its
+/// question is whether a real executable could be spawned, which is the
+/// runner's question and not [`FilesystemScope`]'s. Answering it with the
+/// filesystem scope instead would let a caller holding a live runner supply a
+/// prefix and so choose which binary the tool runs (F-25 changed the reads
+/// around this guard and deliberately not the guard).
 ///
 /// The replay test is the whole of it. A prefix decides which executable is
 /// run, so against the live machine it must come from probing the documented
@@ -155,6 +194,41 @@ fn override_for(ctx: &RegistryContext<'_>, id: &ProviderId) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use super::effective_scope;
+    use crate::filesystem::FilesystemScope;
+    use crate::process::SystemRunner;
+
+    #[test]
+    fn a_live_runner_is_always_reading_this_machine() {
+        // The incoherent pair, refused. A runner that can spawn on this host
+        // is reading this host, whatever the caller says (F-25 review).
+        let live = SystemRunner::new();
+        assert!(!live.is_replay());
+        assert_eq!(
+            effective_scope(&live, FilesystemScope::Elsewhere),
+            FilesystemScope::ThisMachine
+        );
+        assert_eq!(
+            effective_scope(&live, FilesystemScope::ThisMachine),
+            FilesystemScope::ThisMachine
+        );
+    }
+
+    #[test]
+    fn a_replay_runner_keeps_whichever_scope_it_was_given() {
+        // Both halves are legitimate: `--replay` reads a recording, and a
+        // contract test replays subprocesses over a tree that is its subject.
+        let runner = replay();
+        assert_eq!(
+            effective_scope(&runner, FilesystemScope::Elsewhere),
+            FilesystemScope::Elsewhere
+        );
+        assert_eq!(
+            effective_scope(&runner, FilesystemScope::ThisMachine),
+            FilesystemScope::ThisMachine
+        );
+    }
+
     use super::*;
     use crate::process::{CommandSpec, Invocation, Recording, RecordingProvenance, ReplayRunner};
     use macportsbrew_domain::DomainError;
@@ -187,6 +261,7 @@ mod tests {
 
     fn context(runner: &dyn ProcessRunner) -> RegistryContext<'_> {
         RegistryContext {
+            filesystem: FilesystemScope::Elsewhere,
             runner,
             home: None,
             platform_tags: Box::new(|_| Vec::new()),

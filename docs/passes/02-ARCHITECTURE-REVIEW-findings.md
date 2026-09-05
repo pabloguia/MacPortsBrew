@@ -34,7 +34,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Open.** Honest as a value and satisfying INV-20 today, because nothing elevates yet. But three places say runtime detection is the real answer and nothing held the deferral. R-5a UNRESOLVED-1 names two read-only commands that settle it. |
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
-| **F-25** — four unguarded live-filesystem calls under replay | **Open.** Named by F-19 and confirmed. The obvious guard, `runner.is_replay()`, answers "are subprocess results recorded" and not "does this filesystem describe the machine being read"; built that way it breaks three contract tests that are correct. Needs a constructor parameter, in the layer marked dangerous. |
+| **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
@@ -45,6 +45,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Open.** Both `status` samples fixed; nothing stops the next drift. Invisible to `check-i18n-parity.sh`, `check-links.sh` and the test suite. The finding carries the shape a check would take. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
+| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open.** `ServiceScan::Unreadable` renders as `defines_service == false`, which `classify.rs` reads as "not a service", so INV-19's `MANUAL_REVIEW` will not fire under replay. The adapter reports `ServiceMetadata: Unknown` correctly and no consumer reads it. Raised by the F-25 review; belongs with the executor pass. |
 
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -824,8 +825,13 @@ The work order asked which invariant tests would actually fail. Assessed individ
 
 ## F-25 — Under replay, four live-filesystem calls are unguarded, and `is_replay()` is the wrong signal for guarding them
 
-**Severity: medium. INV-15. Raised while closing F-19, which named the calls;
-this records why the obvious fix is not one.**
+**Severity: medium. INV-15. Fixed — SE-069.** The constructor parameter this
+finding asked for exists, as `FilesystemScope`; eight guards rest on it and each
+was probed by removal. The finding named four calls; a mechanical census found
+**nine**, and the first census missed two of those because its regex used `\b`
+before a literal `.`, which is not a boundary after `)` — the same
+narrower-than-believed enumeration F-28 is about, in the tool written to avoid
+it.
 
 `SystemMachine::which` is guarded and returns `None` under replay. These are
 not:
@@ -859,6 +865,50 @@ corresponds to the machine being described — the registry knows, because it is
 what honours `prefix_override` under replay. That is a signature change across
 every adapter call site, in the layer `AGENTS.md` marks dangerous to change, and
 it belongs in a change of its own with a review.
+
+### Resolution — SE-069, and what the review of it cost
+
+`crates/adapters/src/filesystem.rs` holds `FilesystemScope { ThisMachine,
+Elsewhere }`, threaded through both adapters' constructors, both `detect_prefix`
+functions, `service::scan` and `RegistryContext`. The CLI sets it beside every
+other `--replay` decision. `registry::override_for` deliberately keeps asking
+`runner.is_replay()`, because *its* question really is the runner's — whether a
+real executable could be spawned — and the comment there now says so, so the
+next reader does not "fix" the inconsistency and reopen SE-051.
+
+**`security-reviewer` found four things, and two were mine to be wrong about.**
+
+*The incoherent pair was representable.* `Elsewhere` with a **live** runner made
+`detect_prefix` return `None`, so the prefix fell to the first candidate — on a
+Mac that once carried an Intel Homebrew, a writable `/usr/local` — and the
+same flag switched off `detect_uncached`'s no-spawn check in front of it.
+`registry::effective_scope` now collapses it: a runner that spawns on this host
+*is* reading this host. A runtime check, for the reason the executor's allowlist
+is one, with its own unit test.
+
+*And the two peers degraded differently.* Homebrew answered `Unknown` under
+`Elsewhere` while MacPorts kept classifying and emitted `Provider`, which
+outranks it in `analysis::resolution_for` — the INV-17 shape. My first answer
+was to refuse in both, and four correct MacPorts contract tests said no: the
+prefix, the Cellar, the Caskroom and `port provides` all come from the
+*recording*, so classifying from them is pure computation over recorded evidence
+and stays right. Only following a symlink needs this host's disk. Both adapters
+now skip exactly that, classify from what the recording carries, and never claim
+`authoritative` for an answer that canonicalisation would have been needed to
+make.
+
+**The probe is the part worth keeping.** Each guard was removed in turn and the
+invariant test had to fail. The first run caught three of six, and every miss was
+a hole in the *test*: a scratch tree with `bin/brew` and no `bin/port`, so the
+MacPorts probe assertion was vacuous; MacPorts resolution never exercised at
+all; and — after two more rounds — a Cellar-symlink case that could not
+discriminate because `temp_dir()` on macOS lives under `/var`, a symlink to
+`/private/var`, so the two paths never compared equal. Eight of eight now.
+
+One consequence is recorded rather than fixed: under `Elsewhere` a MacPorts
+service scan cannot answer, `defines_service` renders that as `false`, and
+`classify.rs` reads `false` as "not a service" — so INV-19's `MANUAL_REVIEW`
+will not fire under replay. That is **F-29**.
 
 ---
 
@@ -1374,3 +1424,46 @@ makes every other fixture-based test meaningful.
 R-12 also leaves `UNRESOLVED` why two of the nine casks here — `gimp` and
 `adoptopenjdk` — have no `INSTALL_RECEIPT.json` at all. That fraction is the real
 cost of option (a) and it is unmeasured beyond one machine.
+
+---
+
+## F-29 — A replayed analysis classifies fewer packages as services than a live one, and nothing says so
+
+**Severity: medium. Raised by `security-reviewer` while reviewing the F-25 fix,
+and made systematic by it.** Belongs with the executor pass, because INV-19 is
+what it eventually bites.
+
+`macports::service::scan` answers `ServiceScan::Unreadable` where this host's
+filesystem is not the machine being described (F-25). `defines_service` renders
+that as `false`, `macports/mod.rs` puts the `false` into a bool field, and
+`application/src/classify.rs` reads `false` as **not a service** — so no
+`PackageClass::Service`, and the strictest-member rule never sees it. INV-19
+forces `MANUAL_REVIEW` on a service package; under replay it will not fire.
+
+**The adapter already tells the truth and nobody listens.** Beside that scan it
+reports `Capability::ServiceMetadata: Unknown`, which is exactly the right
+answer — and a grep across `application`, `policy` and `cli` finds no reader.
+An unknown that no consumer distinguishes from a no is an unknown in name only,
+which is the shape `.claude/rules/adapters.md` warns about in the sentence "an
+unknown is never a yes".
+
+**What F-25 changed and what it did not.** Before, the same `Unreadable` arose
+whenever the replaying host had no `<prefix>/etc/LaunchDaemons` — which is every
+machine without MacPorts, including the one this project is developed on. So
+the outcome is not new. What is new is that it is now *uniform and deliberate*
+rather than incidental, which is the moment it becomes recordable instead of
+invisible. On a developer's machine that *does* run MacPorts, the old code read
+that machine's services into an analysis of a recorded one, which was the
+INV-15 violation.
+
+**Two ways out, and the second is the honest one.** Split `ServiceScan` so "did
+not look" is distinguishable from "could not read" — cheap, but it adds a
+variant every consumer treats identically, which is a distinction with no
+difference. Or make the analysis degrade on `ServiceMetadata: Unknown` and say
+so in the output: a package whose service status is unknown is not a package
+known not to be a service, and a plan touching it should say which it is. The
+second is real work in the application layer and is where this belongs.
+
+**Until then it is written down in three places rather than none:** here,
+in `crates/adapters/src/filesystem.rs`'s type documentation, and in
+`ServiceScan::Unreadable`'s own comment.

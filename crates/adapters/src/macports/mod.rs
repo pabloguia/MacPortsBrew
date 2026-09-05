@@ -71,6 +71,7 @@ pub mod names;
 pub mod parse;
 pub mod service;
 
+use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
     ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState, DependencyEdge,
@@ -160,6 +161,9 @@ pub struct MacPortsAdapter<R: ProcessRunner> {
     runner: R,
     prefix: PathBuf,
     id: ProviderId,
+    /// Whether this host's disk describes the machine being read. Separate
+    /// from `runner.is_replay()`; see [`crate::filesystem`] (F-25).
+    filesystem: FilesystemScope,
     machine: Option<Machine>,
     detection: RefCell<Option<ProviderDetection>>,
     inventory: RefCell<Option<ProviderInventory>>,
@@ -171,11 +175,15 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// The executable is always `<prefix>/bin/port`, resolved from the
     /// prefix and never looked up on `PATH` (threat model: executable
     /// shadowing).
-    pub fn new(runner: R, prefix: PathBuf) -> Self {
+    /// `filesystem` says whether this host's disk describes the machine being
+    /// read; where it does not, every filesystem answer is the unknown one
+    /// (INV-15, F-25).
+    pub fn new(runner: R, prefix: PathBuf, filesystem: FilesystemScope) -> Self {
         Self {
             runner,
             prefix,
             id: ProviderId::new(PROVIDER_ID),
+            filesystem,
             machine: None,
             detection: RefCell::new(None),
             inventory: RefCell::new(None),
@@ -194,7 +202,12 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     ///
     /// Filesystem only: no subprocess runs, so this is safe to call before
     /// anything is known about the installation.
-    pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
+    pub fn detect_prefix(candidates: &[PathBuf], filesystem: FilesystemScope) -> Option<PathBuf> {
+        if !filesystem.is_this_machine() {
+            // The recording is the machine; this host's disk says nothing
+            // about which prefix it has. The caller supplies one (INV-15).
+            return None;
+        }
         candidates
             .iter()
             .find(|p| p.join(EXECUTABLE_RELATIVE).is_file())
@@ -375,7 +388,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )?;
 
         let dependencies = edges(&names, &depends_lib, &depends_run, &depends_build);
-        let services = service::scan(&self.prefix);
+        let services = service::scan(&self.prefix, self.filesystem);
         let metadata = metadata(&names, &index, &homepage, &description, &services);
         let availability = availability(&names, &index, &active_variants, self.machine.as_ref());
 
@@ -657,7 +670,7 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         capabilities.insert(Capability::DeprecationState, CapabilityState::Available);
         capabilities.insert(
             Capability::ServiceMetadata,
-            if service::scan(&self.prefix).is_known() {
+            if service::scan(&self.prefix, self.filesystem).is_known() {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unknown
@@ -719,7 +732,20 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let canonical = std::fs::canonicalize(executable).ok();
+        // Resolving a symlink reads this host's disk, so where that disk is
+        // not the machine being described there is no link to follow (INV-15).
+        // Classifying anyway from the *uncanonicalised* path is what the first
+        // version of this fix did, and it is wrong twice: canonicalising is
+        // precisely what stops `<prefix>/bin/x -> /usr/bin/x` from being called
+        // MacPorts-owned, and it made this adapter answer `Provider` where the
+        // Homebrew adapter, given the same input and the same scope, answers
+        // `Unknown` - two peers degrading differently in one situation, which
+        // is the INV-17 shape (F-25 review).
+        let canonical = self
+            .filesystem
+            .is_this_machine()
+            .then(|| std::fs::canonicalize(executable).ok())
+            .flatten();
         let target = canonical.as_deref().unwrap_or(executable);
         let (owner, authoritative) = if target.starts_with(&self.prefix) {
             // R-3: `port provides <file>` answers from the registry's file
@@ -868,7 +894,11 @@ mod tests {
     fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {
         // A runtime check and not a `debug_assert!`: the release binary is
         // where the guarantee has to hold.
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            FilesystemScope::ThisMachine,
+        );
         let error = adapter
             .run_argv(vec!["-q".into(), "not-a-read".into()])
             .expect_err("nothing outside the allow-list reaches the executor");
@@ -879,7 +909,11 @@ mod tests {
     fn a_path_that_is_not_safe_is_never_asked_about() {
         // `provides` validates its own argument rather than trusting the
         // caller to have done it.
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            FilesystemScope::ThisMachine,
+        );
         for bad in ["relative/bin/curl", "/opt/local/../etc/passwd"] {
             assert_eq!(
                 adapter.provides(Path::new(bad)),
@@ -891,7 +925,11 @@ mod tests {
 
     #[test]
     fn the_executable_comes_from_the_prefix_and_never_from_path() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            FilesystemScope::ThisMachine,
+        );
         assert_eq!(adapter.executable(), PathBuf::from("/opt/local/bin/port"));
         assert_eq!(adapter.prefix(), Path::new("/opt/local"));
         assert_eq!(adapter.id().as_str(), PROVIDER_ID);
@@ -899,7 +937,11 @@ mod tests {
 
     #[test]
     fn the_environment_is_prefix_scoped_and_carries_no_variables() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            FilesystemScope::ThisMachine,
+        );
         let spec = adapter.environment();
         assert_eq!(
             spec.leading_path,
@@ -919,9 +961,10 @@ mod tests {
     #[test]
     fn prefix_detection_looks_for_the_executable() {
         assert_eq!(
-            MacPortsAdapter::<ReplayRunner>::detect_prefix(&[PathBuf::from(
-                "/nonexistent-prefix-for-a-test"
-            )]),
+            MacPortsAdapter::<ReplayRunner>::detect_prefix(
+                &[PathBuf::from("/nonexistent-prefix-for-a-test")],
+                FilesystemScope::ThisMachine
+            ),
             None
         );
         // The registry is the only place that knows where a provider installs
@@ -937,7 +980,11 @@ mod tests {
 
     #[test]
     fn environment_info_reports_the_documented_paths() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            FilesystemScope::ThisMachine,
+        );
         let info = adapter.environment_info().unwrap();
         assert_eq!(info["prefix"], "/opt/local");
         assert_eq!(info["bin"], "/opt/local/bin");

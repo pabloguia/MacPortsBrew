@@ -17,6 +17,7 @@
 //! per port; this adapter does not spend that.
 
 use super::names::MAX_ROWS;
+use crate::filesystem::FilesystemScope;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -32,8 +33,10 @@ pub enum ServiceScan {
     /// The directory was read; these names define a service. An empty set
     /// means "read, and none of them do".
     Scanned(BTreeSet<String>),
-    /// The directory could not be read, so nothing is known either way.
-    /// Never collapsed into an empty set.
+    /// No answer: the directory could not be read, or it was not looked at
+    /// because this host's filesystem is not the machine being described
+    /// (INV-15, F-25). Never collapsed into an empty set — a scan that did
+    /// not happen is not a scan that found nothing.
     Unreadable,
 }
 
@@ -59,7 +62,10 @@ impl ServiceScan {
 /// One directory read, no subprocess and no network. A directory counts only
 /// when it also holds the plist the cited path pair names, so a leftover
 /// empty directory is not read as a service.
-pub fn scan(prefix: &Path) -> ServiceScan {
+pub fn scan(prefix: &Path, filesystem: FilesystemScope) -> ServiceScan {
+    if !filesystem.is_this_machine() {
+        return ServiceScan::Unreadable;
+    }
     let root = prefix.join(SERVICE_DIRECTORY);
     let Ok(entries) = std::fs::read_dir(&root) else {
         return ServiceScan::Unreadable;
@@ -94,7 +100,10 @@ mod tests {
 
     #[test]
     fn an_unreadable_directory_is_not_an_empty_one() {
-        let scan = scan(&PathBuf::from("/nonexistent-prefix-for-a-test"));
+        let scan = scan(
+            &PathBuf::from("/nonexistent-prefix-for-a-test"),
+            FilesystemScope::ThisMachine,
+        );
         assert_eq!(scan, ServiceScan::Unreadable);
         assert!(!scan.is_known());
         assert!(!scan.defines_service("nginx"));

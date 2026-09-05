@@ -9,6 +9,7 @@
 //! observed bytes. Each fixture says so in its provenance, and this file
 //! asserts that it does.
 
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::macports::{
     archive_query_url, availability, service, MacPortsAdapter, ARCHIVE_QUERY_URL_FORMAT,
     PROVIDER_ID, REQUESTED_MECHANISM, REVERSE_DEPENDENCY_MECHANISM,
@@ -44,8 +45,12 @@ fn fixture_text(name: &str) -> String {
 
 fn adapter(name: &str) -> MacPortsAdapter<ReplayRunner> {
     let recording = Recording::from_json(&fixture_text(name)).expect("fixture parses");
-    MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX))
-        .with_machine(machine())
+    MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        FilesystemScope::Elsewhere,
+    )
+    .with_machine(machine())
 }
 
 fn machine() -> Machine {
@@ -586,7 +591,11 @@ fn an_installed_line_without_a_version_tuple_fails_loudly() {
     let broken = fixture_text(MACPORTS_FIXTURE)
         .replace("wget @1.25.0_1+gnutls (active)", "wget 1.25.0_1 (active)");
     let recording = Recording::from_json(&broken).unwrap();
-    let adapter = MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX));
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        FilesystemScope::Elsewhere,
+    );
     let error = adapter.inventory().unwrap_err();
     assert_eq!(error.id, ErrorId::ProviderOutputChanged);
     assert!(error.detail.contains("wget"));
@@ -602,7 +611,11 @@ fn an_installed_listing_that_disagrees_with_the_active_set_fails_loudly() {
         "  wget @1.25.0_1+gnutls",
     );
     let recording = Recording::from_json(&broken).unwrap();
-    let adapter = MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX));
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        FilesystemScope::Elsewhere,
+    );
     let error = adapter.inventory().unwrap_err();
     assert_eq!(error.id, ErrorId::ProviderOutputChanged);
     assert!(error.detail.contains("wget"));
@@ -646,7 +659,7 @@ fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
     // A directory with no plist is not a service.
     std::fs::create_dir_all(daemons.join("org.macports.leftover")).unwrap();
 
-    let scan = service::scan(&root);
+    let scan = service::scan(&root, FilesystemScope::ThisMachine);
     assert!(scan.is_known());
     assert!(scan.defines_service("nginx"));
     assert!(!scan.defines_service("leftover"));
@@ -657,7 +670,10 @@ fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
 
 #[test]
 fn an_unreadable_service_directory_is_unknown_not_empty() {
-    let scan = service::scan(Path::new("/opt/local-that-does-not-exist"));
+    let scan = service::scan(
+        Path::new("/opt/local-that-does-not-exist"),
+        FilesystemScope::ThisMachine,
+    );
     assert!(!scan.is_known());
     assert!(!scan.defines_service("nginx"));
 }
@@ -667,10 +683,13 @@ fn an_unreadable_service_directory_is_unknown_not_empty() {
 #[test]
 fn prefix_discovery_looks_for_the_executable_under_each_candidate() {
     assert_eq!(
-        MacPortsAdapter::<ReplayRunner>::detect_prefix(&[
-            PathBuf::from("/opt/local-that-does-not-exist"),
-            PathBuf::from("/another-that-does-not-exist"),
-        ]),
+        MacPortsAdapter::<ReplayRunner>::detect_prefix(
+            &[
+                PathBuf::from("/opt/local-that-does-not-exist"),
+                PathBuf::from("/another-that-does-not-exist"),
+            ],
+            FilesystemScope::ThisMachine,
+        ),
         None
     );
     assert_eq!(

@@ -16,6 +16,7 @@
 //! *and* the application's capture, and the layering
 //! (`scripts/check-layering.sh`) lets only this crate see both.
 
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{
     RecordedInvocation, Recording, RecordingProvenance, ReplayRunner,
 };
@@ -141,6 +142,7 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
     let providers = registry::build(&RegistryContext {
         runner: &runner,
         home: Some(PathBuf::from(HOME)),
+        filesystem: FilesystemScope::Elsewhere,
         platform_tags: Box::new(|_| vec!["tahoe".to_string()]),
         prefix_override: Some(vec![(
             ProviderId::new("homebrew"),
@@ -174,16 +176,25 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
         homebrew.environment.contains_key("cache"),
         "the `--cache` answer is the field this test exists for"
     );
+    // This assertion used to require `Unavailable { reason }`, and the reason
+    // named a cache file under the home — the free-text case this test found.
+    // That value only existed because the adapter stat'd the *replaying host's*
+    // disk to answer a question about the recorded machine, which is the INV-15
+    // violation F-25 named. With the read guarded the honest answer is
+    // `Unknown`, and asserting that is what keeps the violation from coming
+    // back: an `Unavailable` here would mean something looked at this host
+    // again. The redaction rule the old assertion was reaching for has its own
+    // test, `capture::tests::a_capability_reason_is_redacted_like_any_other_free_text`.
     assert!(
         matches!(
             homebrew
                 .capabilities
                 .capabilities
                 .get(&macportsbrew_domain::Capability::OfflineMetadata),
-            Some(macportsbrew_domain::CapabilityState::Unavailable { .. })
+            Some(macportsbrew_domain::CapabilityState::Unknown)
         ),
-        "the offline-metadata reason names a cache file under the home, which is \
-         the free-text case this test found"
+        "a replayed reader answered the offline-metadata capability from this \
+         host's filesystem (INV-15, F-25)"
     );
 
     let text = serde_json::to_string_pretty(&snapshot).expect("a snapshot serialises");
@@ -213,6 +224,7 @@ fn a_resolution_taken_from_path_is_redacted_too() {
         PathBuf::from(format!("{HOME}/homebrew")),
         Some(PathBuf::from(HOME)),
         vec!["tahoe".to_string()],
+        FilesystemScope::Elsewhere,
     );
     let machine = HomeMachine;
     let snapshot = capture(&CaptureContext {
@@ -255,6 +267,7 @@ fn a_recorded_capture_is_not_rewritten() {
         PathBuf::from(format!("{HOME}/homebrew")),
         None,
         vec!["tahoe".to_string()],
+        FilesystemScope::Elsewhere,
     );
     let machine = HomeMachine;
     let snapshot = capture(&CaptureContext {
@@ -300,6 +313,7 @@ fn a_live_capture_whose_home_is_unresolvable_still_carries_no_home_path() {
         PathBuf::from(format!("{HOME}/homebrew")),
         Some(PathBuf::from(HOME)),
         vec!["tahoe".to_string()],
+        FilesystemScope::Elsewhere,
     );
     let machine = HomeMachine;
     let snapshot = capture(&CaptureContext {

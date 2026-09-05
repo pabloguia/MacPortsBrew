@@ -14,10 +14,15 @@
 //! kind of claim that cannot fail a test, so it is asserted against the source
 //! text instead.
 
+use macportsbrew_adapters::filesystem::FilesystemScope;
+use macportsbrew_adapters::homebrew::{self, HomebrewAdapter};
+use macportsbrew_adapters::macports::MacPortsAdapter;
 use macportsbrew_adapters::persistence::StateDir;
 use macportsbrew_adapters::process::ReplayRunner;
 use macportsbrew_adapters::system::{is_reported, SystemMachine};
-use macportsbrew_domain::{HomeRedaction, MachineRead};
+use macportsbrew_domain::{
+    Capability, CapabilityState, ExecutableOwner, HomeRedaction, MachineRead, ProviderRead,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -159,6 +164,214 @@ fn invariant_15_a_replayed_reader_never_consults_the_live_filesystem() {
 }
 
 #[test]
+fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
+    // The companion to the test above, and the one that would have caught
+    // F-25. Every read guarded there is given a filesystem that *would* answer
+    // it: a cache index that exists, a real symlink to follow, a service
+    // directory holding a valid plist, an executable where the prefix probe
+    // looks. Then the reader is told the disk is not the machine, and every
+    // answer must be the unknown one — not the negative one, which would be a
+    // different lie (`02-domain-model.md`, "an unknown is never a yes").
+    //
+    // It is deliberately *not* guarded on `runner.is_replay()`: the runner
+    // below replays, and the sibling assertions at the end use the same
+    // recording over the same tree with `ThisMachine` and must all answer.
+    // That is the distinction F-25 is about, and a test that used one flag for
+    // both would pass with the bug restored.
+    // Canonicalised up front: on macOS `temp_dir()` sits under `/var`, which is
+    // a symlink to `/private/var`, so a path built here and a path this code
+    // canonicalises would never compare equal — and the probe found that made
+    // the root-canonicalisation case below silently vacuous.
+    let root = scratch("elsewhere");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let bin = root.join("bin");
+    let cellar = root.join("Cellar/wget/1.25.0/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&cellar).unwrap();
+    std::fs::write(cellar.join("wget"), b"").unwrap();
+    std::fs::write(bin.join("brew"), b"#!/bin/sh\n").unwrap();
+    // Both providers' probes look for their own executable, so the tree
+    // must answer both or one assertion below is vacuous — which is what
+    // removing the MacPorts guard proved before this line existed.
+    std::fs::write(bin.join("port"), b"#!/bin/sh\n").unwrap();
+    std::os::unix::fs::symlink(cellar.join("wget"), bin.join("wget")).unwrap();
+
+    let home = root.join("home");
+    // The exact path `offline_index_path` builds, keyed on the first platform
+    // tag, so the control half below is a real Available and not an accident.
+    let index = home.join("Library/Caches/Homebrew/api/internal");
+    std::fs::create_dir_all(&index).unwrap();
+    std::fs::write(index.join("packages.tahoe.jws.json"), b"{}").unwrap();
+
+    let services = root.join("etc/LaunchDaemons/org.macports.nginx");
+    std::fs::create_dir_all(&services).unwrap();
+    std::fs::write(services.join("org.macports.nginx.plist"), b"<plist/>").unwrap();
+
+    let fixture = workspace().join("fixtures/recordings/homebrew-only-intel-macos26.json");
+    let recording =
+        macportsbrew_adapters::persistence::load_recording(&fixture).expect("fixture must load");
+    let runner = ReplayRunner::new(recording);
+
+    // --- the prefix probe -------------------------------------------------
+    assert_eq!(
+        homebrew::detect_prefix(std::slice::from_ref(&root), FilesystemScope::Elsewhere),
+        None,
+        "a prefix was probed on a disk that is not the machine"
+    );
+    assert_eq!(
+        MacPortsAdapter::<&ReplayRunner>::detect_prefix(
+            std::slice::from_ref(&root),
+            FilesystemScope::Elsewhere
+        ),
+        None,
+        "a prefix was probed on a disk that is not the machine"
+    );
+
+    // --- the service scan -------------------------------------------------
+    let scanned = macportsbrew_adapters::macports::service::scan(&root, FilesystemScope::Elsewhere);
+    assert!(
+        !scanned.is_known(),
+        "a service directory on this host was read for another machine"
+    );
+
+    // --- the capability probe and the resolution --------------------------
+    let elsewhere = HomebrewAdapter::new(
+        &runner,
+        root.clone(),
+        Some(home.clone()),
+        vec!["tahoe".to_string()],
+        FilesystemScope::Elsewhere,
+    );
+    assert_eq!(
+        elsewhere.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
+        CapabilityState::Unknown,
+        "the cached index on this host answered for another machine"
+    );
+    let resolved = elsewhere.resolution(&bin.join("wget")).unwrap();
+    assert_eq!(
+        resolved.canonical_path, None,
+        "a symlink on this host was followed for another machine"
+    );
+    // Not `Unknown`: classifying a path against the *recorded* prefix is pure
+    // computation over recorded evidence and stays correct. What must not
+    // happen is a `Provider` claim, which here is only reachable by following
+    // the symlink into the Cellar — that is the live-disk read (F-25 review).
+    assert!(
+        !matches!(resolved.owner, ExecutableOwner::Provider { .. }),
+        "a symlink on this host was followed into a Cellar for another machine"
+    );
+    assert!(
+        !resolved.authoritative,
+        "an answer reached without following the link claimed to be authoritative"
+    );
+
+    let mp_elsewhere = MacPortsAdapter::new(&runner, root.clone(), FilesystemScope::Elsewhere);
+    assert_eq!(
+        mp_elsewhere
+            .resolution(&bin.join("wget"))
+            .unwrap()
+            .canonical_path,
+        None,
+        "a symlink on this host was followed for another machine"
+    );
+
+    // --- and the same tree, declared as the machine, answers everything ---
+    // Without this half the assertions above would pass on a reader that had
+    // simply stopped working.
+    assert_eq!(
+        homebrew::detect_prefix(std::slice::from_ref(&root), FilesystemScope::ThisMachine),
+        Some(root.clone()),
+        "the same probe on the same tree, declared as the machine"
+    );
+    assert!(
+        macportsbrew_adapters::macports::service::scan(&root, FilesystemScope::ThisMachine)
+            .defines_service("nginx"),
+        "the same scan on the same tree, declared as the machine"
+    );
+    let here = HomebrewAdapter::new(
+        &runner,
+        root.clone(),
+        Some(home.clone()),
+        vec!["tahoe".to_string()],
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(
+        here.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
+        CapabilityState::Available,
+        "the same index on the same tree, declared as the machine"
+    );
+    assert!(
+        here.resolution(&bin.join("wget"))
+            .unwrap()
+            .canonical_path
+            .is_some(),
+        "the same symlink on the same tree, declared as the machine"
+    );
+    assert_eq!(
+        MacPortsAdapter::<&ReplayRunner>::detect_prefix(
+            std::slice::from_ref(&root),
+            FilesystemScope::ThisMachine
+        ),
+        Some(root.clone()),
+        "the same probe on the same tree, declared as the machine"
+    );
+    let mp_here = MacPortsAdapter::new(&runner, root.clone(), FilesystemScope::ThisMachine);
+    assert!(
+        mp_here
+            .resolution(&bin.join("wget"))
+            .unwrap()
+            .canonical_path
+            .is_some(),
+        "the same symlink on the same tree, declared as the machine"
+    );
+
+    // --- the root canonicalisation, on its own -----------------------------
+    // The guard above is invisible with a recorded Cellar that is nowhere near
+    // this tree, which is how the probe caught it undefended. Here the
+    // recording's `--cellar` is a *symlink* into the tree, and the executable
+    // is asked about by its real path, so the only thing that can change the
+    // answer is whether the root itself is resolved.
+    let cellar_link = root.join("cellar-link");
+    std::os::unix::fs::symlink(root.join("Cellar"), &cellar_link).unwrap();
+    let linked = ReplayRunner::new(synthetic_cellar(
+        &cellar_link.display().to_string(),
+        &root.join("Caskroom").display().to_string(),
+    ));
+    let keg = root.join("Cellar/wget/1.25.0/bin/wget");
+    let via_link_elsewhere = HomebrewAdapter::new(
+        &linked,
+        root.clone(),
+        None,
+        vec!["tahoe".to_string()],
+        FilesystemScope::Elsewhere,
+    );
+    assert!(
+        !matches!(
+            via_link_elsewhere.resolution(&keg).unwrap().owner,
+            ExecutableOwner::Provider { .. }
+        ),
+        "a Cellar symlink on this host was resolved for another machine"
+    );
+    let via_link_here = HomebrewAdapter::new(
+        &linked,
+        root.clone(),
+        None,
+        vec!["tahoe".to_string()],
+        FilesystemScope::ThisMachine,
+    );
+    assert!(
+        matches!(
+            via_link_here.resolution(&keg).unwrap().owner,
+            ExecutableOwner::Provider { .. }
+        ),
+        "the same symlinked Cellar, declared as the machine, must resolve"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn invariant_16_ensuring_the_state_directory_is_idempotent() {
     // Re-running a successful operation changes nothing further: same tree,
     // same modes, same contents, nothing accumulated. The ownership probe
@@ -276,4 +489,37 @@ fn invariant_06_reading_the_machine_needs_no_elevation() {
         HomeRedaction::Recorded,
     );
     reader.machine().expect("the machine reads unprivileged");
+}
+
+/// A two-answer recording: just `--cellar` and `--caskroom`, which is all
+/// `owner_of` consults. Built in-test for one case, not a machine capture.
+fn synthetic_cellar(cellar: &str, caskroom: &str) -> macportsbrew_adapters::process::Recording {
+    use macportsbrew_adapters::process::{
+        ExitStatus, Invocation, RecordedInvocation, Recording, RecordingProvenance,
+    };
+    let one = |argv: &[&str], stdout: &str| RecordedInvocation {
+        invocation: Invocation {
+            program: "brew".into(),
+            argv: argv.iter().map(ToString::to_string).collect(),
+            environment: BTreeMap::new(),
+            status: ExitStatus::Exited { code: 0 },
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+            truncated: false,
+            duration_ms: 0,
+        },
+    };
+    Recording {
+        schema_version: 1,
+        provenance: RecordingProvenance {
+            macos: "26.6.2".into(),
+            architecture: "x86_64".into(),
+            provider_versions: vec![],
+            captured_at: "2026-09-05T00:00:00Z".into(),
+            captured_by: "crates/adapters/tests/invariants.rs".into(),
+            origin: "synthesised".into(),
+            note: Some("two answers for the owner_of root guard; not a capture".into()),
+        },
+        invocations: vec![one(&["--cellar"], cellar), one(&["--caskroom"], caskroom)],
+    }
 }
