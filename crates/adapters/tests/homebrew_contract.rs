@@ -11,7 +11,7 @@
 //! `docs/research/R-2`, which were written from the same machine.
 
 use macportsbrew_adapters::filesystem::FilesystemScope;
-use macportsbrew_adapters::homebrew::{detect_prefix, HomebrewAdapter, PROVIDER_ID};
+use macportsbrew_adapters::homebrew::{self, detect_prefix, HomebrewAdapter, PROVIDER_ID};
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, ProcessRunner, RecordedInvocation, Recording, RecordingProvenance,
     ReplayRunner,
@@ -804,4 +804,71 @@ impl ProcessRunner for CountingRunner {
     fn is_replay(&self) -> bool {
         true
     }
+}
+
+// -- the cask receipt, where the reader must refuse ------------------------
+//
+// These two live here rather than beside the other receipt tests in
+// `homebrew/mod.rs` because they name `symlink` and `hard_link`, and the stop
+// gate refuses those tokens anywhere under `src/` — a Rust module inside `src/`
+// is compiled into the shipped binary whatever the directory is called. An
+// integration test is a separate binary that no release carries, which is the
+// placement the guard's own message points at. Not a workaround: the guard is
+// right about where this code belongs.
+
+/// A scratch Caskroom holding one cask, with whatever receipt bytes the case
+/// wants — or none.
+fn caskroom_with(token: &str, receipt: Option<&[u8]>) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "mpb-caskroom-contract-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let meta = root.join(token).join(".metadata");
+    std::fs::create_dir_all(&meta).expect("scratch caskroom");
+    if let Some(bytes) = receipt {
+        std::fs::write(meta.join("INSTALL_RECEIPT.json"), bytes).expect("receipt");
+    }
+    root
+}
+
+fn receipt_path(root: &std::path::Path, token: &str) -> PathBuf {
+    root.join(token)
+        .join(".metadata")
+        .join("INSTALL_RECEIPT.json")
+}
+
+#[test]
+fn a_receipt_with_a_second_name_is_refused() {
+    // A hard link means these bytes are reachable under a name this tool did
+    // not check. One boolean is an oracle rather than a disclosure, but the
+    // cheap refusal is the right default in a directory the tool does not own.
+    let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
+    std::fs::hard_link(receipt_path(&root, "meld"), root.join("second-name"))
+        .expect("a second name");
+    assert_eq!(
+        homebrew::cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+        None,
+        "a receipt with more than one name was read"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_receipt_reached_through_a_link_is_refused() {
+    // The pre-check refuses a non-regular file before the open, because
+    // `File::open` on a FIFO blocks and nothing on this path has a timeout.
+    let real = caskroom_with("real", Some(br#"{"installed_on_request": true}"#));
+    let root = caskroom_with("meld", None);
+    std::os::unix::fs::symlink(receipt_path(&real, "real"), receipt_path(&root, "meld"))
+        .expect("a link");
+    assert_eq!(
+        homebrew::cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+        None,
+        "a linked receipt was followed"
+    );
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::remove_dir_all(&real).ok();
 }

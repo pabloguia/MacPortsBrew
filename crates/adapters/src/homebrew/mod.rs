@@ -1134,26 +1134,6 @@ mod tests {
     }
 
     #[test]
-    fn a_receipt_with_a_second_name_is_refused() {
-        // A hardlink means these bytes are reachable under a name this tool
-        // did not check. One boolean is an oracle rather than a disclosure,
-        // but the cheap refusal is the right default in a directory the tool
-        // does not own.
-        let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
-        let receipt = root
-            .join("meld")
-            .join(".metadata")
-            .join("INSTALL_RECEIPT.json");
-        std::fs::hard_link(&receipt, root.join("second-name")).expect("hard link");
-        assert_eq!(
-            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
-            None,
-            "a receipt with more than one name was read"
-        );
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
     fn a_receipt_that_grew_past_the_cap_is_refused() {
         // `metadata.len()` is a snapshot. The read is capped independently, so
         // a file that grows between the two does not defeat the bound - the
@@ -1170,29 +1150,6 @@ mod tests {
             None
         );
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn a_receipt_reached_through_a_symlink_is_refused() {
-        // The Caskroom is a directory this tool does not own.
-        let real = caskroom_with("real", Some(br#"{"installed_on_request": true}"#));
-        let root = caskroom_with("meld", None);
-        let target = real
-            .join("real")
-            .join(".metadata")
-            .join("INSTALL_RECEIPT.json");
-        let link = root
-            .join("meld")
-            .join(".metadata")
-            .join("INSTALL_RECEIPT.json");
-        std::os::unix::fs::symlink(&target, &link).expect("symlink");
-        assert_eq!(
-            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
-            None,
-            "a symlinked receipt was followed"
-        );
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&real).ok();
     }
 
     #[test]
