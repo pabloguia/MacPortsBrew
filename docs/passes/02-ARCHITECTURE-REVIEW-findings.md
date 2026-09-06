@@ -41,7 +41,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
 | **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
-| **F-20** — smaller findings, recorded without ceremony | **All seventeen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. |
+| **F-20** — smaller findings, recorded without ceremony | **Seventeen of eighteen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. **The eighteenth is open** and was found on 2026-09-06 while resolving DP-015: `session-start.sh` renders an empty Open section as `(none parsed - read the file)`, so "no open decisions" and "the parser broke" are one message. Emptying that section today made the branch reachable for the first time. Needs `MPB_ALLOW_GUARD_EDIT=1`. |
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
@@ -1143,6 +1143,34 @@ records.
   has been reworded to slip past a guard. That is the number worth tracking, and
   it is still zero. The friction is real and the alternative is a guard that
   cannot tell prose from intent, which is not a guard.
+
+- **"No open decisions" and "the parser broke" are the same message.** *Found
+  2026-09-06 while resolving DP-015; open, and out of this pass's reach.*
+  `.claude/hooks/session-start.sh:20-21` extracts open decisions with
+  `awk '/^## Open/,/^## Resolved/'` piped into `grep -oE '^### DP-[0-9]+'`, and
+  line 33 renders an empty result as `(none parsed - read the file)`. Empty has
+  two causes — the section genuinely holds nothing, or the headings changed
+  shape and the grep matched nothing — and the message asserts the second.
+
+  Until today the branch was unreachable: `docs/decisions-pending.md` has never
+  had an empty Open section. DP-015 was the last item, so from now on every
+  session opens by telling the agent its own decision list failed to parse. The
+  blast radius is one wasted read, and the message does point at the file, which
+  is the honest half of it.
+
+  It is the same shape as F-12, and as the `cargo`-absent hole in
+  `stop-gate.sh` that `344c4ca` closed: **a path that did nothing is
+  indistinguishable from a path that succeeded.** Three of them now, all in the
+  enforcement layer, which makes it a pattern rather than three bugs. The rule
+  worth stating once: a hook that cannot tell "nothing to report" from "I could
+  not look" must say which. Here that is two lines — emit `(none)` when the
+  section parses and is empty, and keep the present text only when the `## Open`
+  heading itself is missing.
+
+  Not fixed here, for two reasons that both hold independently: `.claude/` is
+  outside section 3, and it is guard-protected, so the edit needs
+  `MPB_ALLOW_GUARD_EDIT=1` — the same key the DP-015 floors are waiting on. It
+  belongs in that batch.
 
 ---
 
