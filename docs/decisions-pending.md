@@ -11,6 +11,60 @@ are recorded.
 
 ## Open
 
+*None.* DP-015 was the last open item; it was ruled on 2026-09-06
+and moved below.
+
+---
+
+## Resolved
+
+### DP-015 — The coverage floors had never been measured — **RESOLVED 2026-09-06: option (a), with the floors raised**
+
+**The owner's ruling, given in session:** install the tool — "pode instalar a
+ferramenta, tem minha autorização" — and hold **90% overall**, with **95% for
+`domain`, `policy`, `adapters` and planning**. That is option (a) plus a change
+to the numbers themselves: `adapters` rises from 80 to 95, and a workspace-wide
+backstop is added where none existed. `cli` is deliberately not given a floor;
+it is covered by the 90%.
+
+**Measured the same day, for the first time in this repository's history:**
+
+| Crate | Lines | Old floor | New floor |
+|---|---|---|---|
+| `domain` | 96.65% | 95 | 95 |
+| `policy` | 97.46% | 95 | 95 |
+| `application` | 95.27% | 95 | 95 |
+| `adapters` | 95.29% | 80 | 95 |
+| `cli` | 88.82% | none | none |
+
+Overall **94.86%** (11300/11912). Every floor the owner set is met, and
+`adapters` cleared its raise with no work — it was already at 95.29% under an
+80 floor, which is the pleasant half of never having measured.
+
+The unpleasant half: **`application` was at 89.47%**, under a floor its own gate
+had demanded since 2026-09-02, and nothing said so because no CI job has ever run
+(F-12). Nineteen tests closed it. `planner.rs` had zero unit tests.
+
+**What is not done, and why.** The new floors are not written into
+`scripts/check-coverage.sh` or `docs/spec/07-quality-and-testing.md`. Both are
+guard-protected, and the disclosed escape is the human setting
+`MPB_ALLOW_GUARD_EDIT=1` at session start (`docs/spec/11-agentic-sdlc.md`).
+Writing 95 into the specification while the gate still enforces 80 would be the
+same defect this pass corrected three times over — documentation promising what
+the code does not do — so it waits rather than being half-applied. **This is the
+one outstanding owner action from DP-015**, and it is mechanical, not a decision.
+
+Two limits carried forward from the entry below and still true. **Branch coverage
+is unenforced**: `--branch` needs nightly, the pin is stable (ADR-0002), so the
+spec's "95% line *and* branch" stays half-enforced and the numbers above are
+lines only. And **`check-coverage.sh` counts test code living in `src/` in its own
+denominator** — in-module tests moved `application`'s total from 1851 to 1902
+lines, diluting the figure they were raising. Worth fixing in the same edit as
+the floors.
+
+<details>
+<summary>The original entry, as filed</summary>
+
 ### DP-015 — The coverage floors have never been measured, and the toolchain policy is why
 - **The question:** `07-quality-and-testing.md` sets coverage floors — 95% for
   `domain`, `policy` and planning, 80% for `adapters` plus a contract test per
@@ -53,9 +107,7 @@ are recorded.
   gate fails on them, and no report has claimed otherwise. A gap being named,
   not a regression.
 
----
-
-## Resolved
+</details>
 
 ### DP-009 — May the first public release ship before the revocation plan exists? — **RESOLVED 2026-09-04: the plan exists**
 The project owner asked for the plan rather than for a ruling, which is the

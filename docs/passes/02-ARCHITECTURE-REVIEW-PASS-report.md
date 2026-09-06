@@ -35,9 +35,15 @@ the `validate.sh` call with `command -v cargo` and **still exits 0** when the gu
 fails. A gate whose skipped path is indistinguishable from its successful path is
 not a gate. That is finding F-20 and it is on the task list.
 
-**Not verified, and honestly so:** the coverage floors. `cargo-llvm-cov` is absent,
-so `scripts/check-coverage.sh` cannot run. The foundation pass said this and it is
-still true.
+**Both paragraphs above have since been overtaken, and the second was wrong to
+call permanent.** The cargo hole is closed (`344c4ca`): a turn that changes code
+while `cargo` is off `PATH` now fails the gate instead of passing it having checked
+nothing, and only a turn that changed no code gets a warning. And the coverage
+floors are no longer unverified — the owner installed `cargo-llvm-cov` and the
+first measurement in this repository's history is in "Tests and coverage" below.
+It found `application` sitting under a floor its own gate had demanded since
+2026-09-02, which is the concrete cost of the two passes that reported coverage
+without running it.
 
 ## What was verified rather than inherited
 
@@ -137,6 +143,26 @@ the factual corrections available here are in a Tier 2 document (F-11) and in
 user-facing text whose wording is a judgement call, so they went to DP-011 and to
 the task list rather than into this diff.
 
+**That paragraph describes the review diff, and the pass did not stop there.** It
+was written at the third commit of thirty-eight. The owner then asked, in the same
+session, for the findings to be resolved rather than filed — and afterwards for a
+coverage floor to be measured and met. Both instructions supersede section 3,
+because the owner wrote section 3; neither was silent, and this is where that is
+recorded. From `19b0c7a` onward the pass has been writing `src/`, tests, CI and
+`.claude/`, which section 3 forbids a reviewer to touch. The count is
+thirty-five commits, most of them `fix(...)`.
+
+Two things follow, and both matter more than the bookkeeping. **The review's
+separation of argument from diff is gone for the later findings**: F-01 to F-04
+were argued in one commit and fixed in another, so the argument survives
+independently of the fix, but F-25 onward were found and fixed together and the
+finding text is the only place the reasoning exists. **And a reviewer who fixes
+what it finds stops being an independent reviewer of it** — which is why every
+fix in this pass went through `spec-guardian` and `security-reviewer` before being
+called done, and why three of them were rebuilt after those reviews defeated the
+first attempt. That substitution is a weaker control than a separate pass, and
+naming it is the point of this paragraph.
+
 **Nothing was rejected in this pass.** The previous report observed that a review
 rejecting nothing has probably not reviewed anything. The honest answer here is that
 the design decisions this pass examined were mostly *right* and the defects were
@@ -185,6 +211,12 @@ a *failing* test to demonstrate a finding, and the findings that would warrant o
 the first task of the implementation pass, where the fix and its test land together.
 That is a judgement call and it is named as one.
 
+**Both numbers are now stale, and the second sentence is no longer true.** The suite
+is **541** and tests were added throughout, because the pass went on to fix what it
+found (see "Specification changes"). The judgement call above was overtaken rather
+than reversed: the fix and its test did land together, just in this pass instead of
+the next one.
+
 The more useful number is not 456. It is that **F-01 through F-04 all survived a
 fully green suite**, and F-19 explains why for each: a test that filters out its own
 exception, a test that skips every program the invariant is about, a test that
@@ -192,7 +224,36 @@ asserts on the planner's correct value instead of the engine's incorrect one, a
 symmetry test that renames provider contents but keeps the map keys so iteration
 order never changes, and a subset assertion that was never written.
 
-Coverage floors: unverified, `cargo-llvm-cov` absent.
+**Coverage was measured for the first time in this repository's history** (DP-015),
+after the owner installed `cargo-llvm-cov` and raised the floors to 95% for
+`domain`, `policy`, `adapters` and planning with a 90% overall backstop.
+
+| Crate | Lines | Gate's floor | Owner's floor |
+|---|---|---|---|
+| `domain` | 96.65% | 95 | 95 |
+| `policy` | 97.46% | 95 | 95 |
+| `application` | 95.27% | 95 | 95 |
+| `adapters` | 95.29% | 80 | 95 |
+| `cli` | 88.82% | none | none |
+
+Overall **94.86%** (11300/11912), against the owner's 90.
+
+Three things this measurement produced that no amount of reading would have.
+`application` was at **89.47%** — below the floor its own gate already demanded —
+and nobody knew, because `scripts/check-coverage.sh` has existed since 2026-09-02
+and no CI job has ever run it (F-12). `planner.rs`, the file `AGENTS.md` calls
+dangerous to change because step ordering *is* INV-01, had **zero** unit tests.
+And four argv guards in that file turn out to be unreachable through `build_plan`,
+which halts at `ManualReview` with no commands before the command builder runs.
+
+Two limits stand. **Branch coverage is still unmeasured** — `--branch` needs
+nightly and the pin is stable (ADR-0002), so every percentage here is lines only.
+And **`check-coverage.sh` counts test code that lives in `src/` in its own
+denominator**: adding in-module tests to `provider_commands.rs` moved
+`application`'s total from 1851 to 1902 lines, diluting the very number it was
+raising. The owner's new floors are not written into the gate or the
+specification yet; both files are guard-protected and that needs
+`MPB_ALLOW_GUARD_EDIT=1`.
 
 ## CI
 
