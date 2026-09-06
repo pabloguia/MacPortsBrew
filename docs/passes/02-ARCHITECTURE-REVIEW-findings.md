@@ -45,8 +45,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
-| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open.** `ServiceScan::Unreadable` renders as `defines_service == false`, which `classify.rs` reads as "not a service", so INV-19's `MANUAL_REVIEW` will not fire under replay. The adapter reports `ServiceMetadata: Unknown` correctly and no consumer reads it. Raised by the F-25 review; belongs with the executor pass. |
-| **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
+| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open, and now a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c). || **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
 | **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Open, pre-existing.** The `lstat`→`open` gap is compensated by a dev/ino check that runs *after* the open has already blocked on a FIFO. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters` — an ADR decision, not a refactor. Raised by the F-30 review. |
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -1222,10 +1221,16 @@ where it is: unrouted, and now at least not contradicting the charter.
   shape and the grep matched nothing — and the message asserts the second.
 
   Until today the branch was unreachable: `docs/decisions-pending.md` has never
-  had an empty Open section. DP-015 was the last item, so from now on every
-  session opens by telling the agent its own decision list failed to parse. The
-  blast radius is one wasted read, and the message does point at the file, which
-  is the honest half of it.
+  had an empty Open section. DP-015 was the last item, so for a few hours every
+  session would have opened by telling the agent its own decision list failed to
+  parse. The blast radius is one wasted read, and the message does point at the
+  file, which is the honest half of it.
+
+  **Filing DP-016 the same day refilled the section, so the branch is dormant
+  again — and that is the argument for fixing it rather than against.** It was
+  unreachable for four passes, reachable for one afternoon, and is unreachable
+  again for reasons that have nothing to do with the bug. The next time the
+  decision list empties, nobody will remember this.
 
   It is the same shape as F-12, and as the `cargo`-absent hole in
   `stop-gate.sh` that `344c4ca` closed: **a path that did nothing is

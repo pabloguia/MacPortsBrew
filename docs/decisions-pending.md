@@ -11,8 +11,57 @@ are recorded.
 
 ## Open
 
-*None.* DP-015 was the last open item; it was ruled on 2026-09-06
-and moved below.
+### DP-016 — Under replay, no package is known to be a service, and `MANUAL_REVIEW` will not fire
+
+- **The question:** F-29. `macports::service::scan` answers `Unreadable`
+  wherever the running host is not the machine being described — which is every
+  `--replay` run, by design (INV-15, F-25). `defines_service` renders that as
+  `false`, and `classify.rs` reads `false` as *not a service*. So no
+  `PackageClass::Service`, and **INV-19's `MANUAL_REVIEW` does not fire on a
+  replayed service package.** The adapter already reports
+  `Capability::ServiceMetadata: Unknown`, which is the correct answer, and a
+  grep across `application`, `policy` and `cli` finds **no reader** — re-checked
+  2026-09-06. An unknown nothing distinguishes from a no is an unknown in name
+  only, which is the exact shape `.claude/rules/adapters.md` forbids in the
+  sentence "an unknown is never a yes".
+- **Why the field is wrong regardless of the ruling:** `AGENTS.md` states the
+  principle already — "`ArtifactAvailability` (`UNKNOWN` is a first-class
+  answer, never a silent 'no')" — and `defines_service: bool` cannot hold it.
+  Making it a tri-state implements a rule this project already has and is not
+  what this entry is asking. **The question is only what `Unknown` should
+  *do*.**
+- **Why it is yours:** it trades a safety property against the usefulness of the
+  feature that exists to demonstrate safety. Every option below is defensible and
+  none is reversible cheaply once `--replay` output is something people rely on.
+- **Options:**
+  (a) **`Unknown` forces `MANUAL_REVIEW`, like a known service.** Safe and
+  simple. Cost: *every* replayed MacPorts plan becomes `MANUAL_REVIEW`, so
+  `--replay` can no longer show what a real plan looks like — and `--replay` is
+  how a contributor without MacPorts exercises the planner at all.
+  (b) **`Unknown` does not force review, but the plan says the status is
+  unknown and which packages it could not classify.** Keeps replay useful;
+  leaves the INV-19 hole open, now labelled instead of silent.
+  (c) **Refuse to build a migration plan at all from a recording whose service
+  metadata is unknown**, while `analyze`, `status` and `explain` keep working.
+  The hole cannot be reached because the path that needs the answer is closed.
+  (d) **Record service status in the recording itself**, so a replay of a
+  machine that *had* MacPorts carries real data and `Unknown` means only "this
+  recording predates the field". Best long-term, largest change, and it makes
+  every existing fixture stale.
+- **Recommendation: (c), then (d).** (c) is the honest reading of INV-01's
+  spirit — do not produce a plan you cannot verify the safety of — and it costs
+  only the one command that actually depends on the missing fact, where (a)
+  costs all of them and (b) keeps a Tier 1 invariant unenforced by design. (d)
+  is where this should end up, and (c) does not block it: when recordings carry
+  service data, the refusal stops triggering on its own.
+- **Default meanwhile:** unchanged. `Unknown` reads as `false`, `MANUAL_REVIEW`
+  does not fire under replay, and it is written down in four places — F-29,
+  `filesystem.rs`'s type documentation, `ServiceScan::Unreadable`'s comment, and
+  here. Nothing executes plans in this build, so the hole cannot yet cost
+  anything; it becomes live with the executor.
+
+---
+
 
 ---
 
