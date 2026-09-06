@@ -39,8 +39,8 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and the four `*_gui_app` elevation cells are dead. `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
-| **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
-| **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
+| **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Drift corrected; the routing stays open.** `cli.about` said the tool migrates in both directions and disagreed with the charter's own tagline (Tier 2, and carried identically by README, wiki and clap). It now opens with that sentence and states the read-only limit. The routing is not a substitution: `--help` renders before `--language` is parsed, and the string is Tier 2 anyway, so it buys translation only — a CLI-pass decision. The finding's stated reason for going unnoticed was itself wrong and is corrected: see F-32. |
+| **F-32** — the i18n gate counts a test fixture as a rendered string | **Open.** `check-i18n-parity.sh` excludes `crates/*/tests/` but cannot exclude a `#[cfg(test)]` module inside `src/`, so `cli.about` counts as rendered on the strength of a doc example and two existence assertions. Fourth instance this pass of a check that cannot fail on the state it tests for. Needs `MPB_ALLOW_GUARD_EDIT=1`. || **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
 | **F-20** — smaller findings, recorded without ceremony | **Seventeen of eighteen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. **The eighteenth is open** and was found on 2026-09-06 while resolving DP-015: `session-start.sh` renders an empty Open section as `(none parsed - read the file)`, so "no open decisions" and "the parser broke" are one message. Emptying that section today made the branch reachable for the first time. Needs `MPB_ALLOW_GUARD_EDIT=1`. |
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
@@ -1029,6 +1029,46 @@ nothing renders it. It is also why `check-i18n-parity.sh` did not notice — it
 checks two of three directions and never `en.toml → code`, which F-20 already
 records.
 
+### Corrected and part-closed, 2026-09-06
+
+**The last sentence above is no longer true, and its replacement is worse.**
+`66d96f5` added the third direction: `check-i18n-parity.sh` now asserts that
+every English key is referenced from code or carries an `# unreferenced:` marker
+saying why. `cli.about` passes it — and renders nowhere.
+
+It passes on three references, all of them inside `crates/cli/src/`: a doc-comment
+example at `i18n/mod.rs:47`, and two `#[cfg(test)]` assertions at `i18n/mod.rs:401`
+and `catalogue.rs:243` that exist only to prove the key is *present*. The script
+excludes `crates/*/tests/` but cannot exclude a test module living in `src/`,
+because textually it is the same thing. Demonstrated rather than reasoned:
+adding an `# unreferenced:` marker above the key makes the gate fail with
+`cli.about is marked unreferenced and is referenced`.
+
+**So a key used only as a test fixture is indistinguishable from a key the
+program shows a user** — the fourth instance this pass of a check that cannot
+tell two states apart, after F-12, the `cargo`-absent stop gate, and
+`session-start.sh`. Recorded as F-32.
+
+**What was corrected here.** The catalogue's text, which said *"Analyse, compare
+and migrate packages … migration runs in both directions"* — wrong twice over.
+Every other copy of the project's one-line identity carries the charter's exact
+sentence (`00-charter.md:22`, and Tier 2, so it is not the drifting party):
+README, `wiki/Home.md` and clap's own `about` all agree, and only the catalogue
+differed. And "migration runs in both directions" describes a build that
+migrates; this one executes nothing, which is the same overstatement F-13, F-14
+and F-15 corrected elsewhere. `cli.about` now opens with the charter sentence,
+keeps the peer statement as a claim about *plans*, and states the read-only
+limit.
+
+**What is not fixed, and why it is not just laziness.** Routing clap's `about`
+through the catalogue is not a substitution. `--help` must render before
+`--language` has been parsed — the flag that chooses the locale is itself part
+of the grammar being described — so a translated help text needs a decision about
+which locale to use for the message that tells you how to choose a locale. And
+the string clap holds is fixed by Tier 2 anyway, so the routing buys translation
+and nothing else. That is a design question for the CLI pass, and the key stays
+where it is: unrouted, and now at least not contradicting the charter.
+
 ---
 
 ## F-20 — Smaller findings, recorded without ceremony
@@ -1642,3 +1682,39 @@ the Homebrew Caskroom, which is to say an attacker who can already write where
 Homebrew installs — at which point the receipt's contents are theirs to choose
 anyway, and the worst outcome here is a hang rather than a wrong answer. That is
 why it is recorded at low severity rather than fixed under time pressure.
+
+---
+
+## F-32 — The i18n gate counts a test fixture as a rendered string
+
+**Severity: low. Found 2026-09-06 while correcting F-23.**
+
+`check-i18n-parity.sh`'s third direction — every English key is referenced from
+code, or says why not — excludes `crates/*/tests/`, and cannot exclude a
+`#[cfg(test)]` module inside `crates/*/src/`, because textually a reference is a
+reference. `cli.about` is the live example: three references, all of them a doc
+example or a test asserting the key *exists*, and nothing renders it. The gate
+reports it among the "rendered".
+
+Demonstrated, not argued: put an `# unreferenced:` marker above the key and the
+gate fails with `cli.about is marked unreferenced and is referenced`.
+
+**The shape, for the fourth time this pass.** F-12 (a CI job that has never run,
+documented as though it had), the stop gate exiting 0 when `cargo` was absent
+(`344c4ca`), `session-start.sh` rendering an empty decision list as a parse
+failure, and now this. Each is *a check that cannot distinguish the state it is
+testing for from a state that merely looks like it*. Worth one rule rather than
+four fixes: **a gate must be able to fail.** If no input produces a failure, or
+if the failing input is indistinguishable from a passing one, the gate is
+decoration.
+
+**Shape of a fix**, if the owner wants one: strip `#[cfg(test)]` blocks and
+`///` doc comments before scanning for `msg!` and `render_id` literals — a
+tokeniser is overkill, but the block boundaries are findable. The cheaper
+alternative is to accept the gap and require that any key with no non-test
+reference carry the marker, which needs the "marked unreferenced and is
+referenced" check to ignore test-only references first, so it is the same work.
+
+Not fixed here: `scripts/` is the enforcement layer, guard-protected, and needs
+`MPB_ALLOW_GUARD_EDIT=1`. It belongs with the DP-015 floors and the
+`session-start.sh` item.

@@ -29,7 +29,7 @@
 
 # --- Program identity -------------------------------------------------------
 
-cli.about = "Analyse, compare and migrate packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and migration runs in both directions."
+cli.about = "Safely migrate and manage packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and plans are built in both directions. This build is read-only: it inventories, analyses and plans, and executes nothing."
 # unreferenced: written for `--help`, which clap renders from a Rust literal
 # (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
