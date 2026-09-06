@@ -186,8 +186,33 @@ Current availability of hosted Intel macOS runners on GitHub Actions, and the
 fallback if there are none.
 
 ### R-11 · Apple signing and notarisation toolchain
-*Open. Blocks the implementation pass that writes the release workflow, not
-ADR-0005, which is decided.*
+*Partially answered 2026-09-06 — `docs/research/R-11-apple-signing-toolchain.md`.
+Three of the five closed from official documentation; two remain open and need
+something other than reading. Still blocks the implementation pass that writes
+the release workflow, not ADR-0005, which is decided.*
+
+**One premise below is wrong and is left in place so the correction is
+visible.** `macos-15-intel` is not a free standard runner: GitHub's
+`runner-images` README lists it as an alias of `macos-15-large`, and GitHub Docs
+says larger runners "are always charged for, even when used by public
+repositories". Bare `macos-15` is the free arm64 image. An Intel release job
+costs money on a public repository, which is a cost DP-007 did not weigh.
+
+**Answered:** a standalone binary **cannot be stapled at all** ("Although
+tickets are created for standalone binaries, it's not currently possible to
+staple tickets to them"), so the `.dmg` is the only staplable container that
+delivers a single binary and is the *only* offline-verifiable path — the
+opposite of what the question below supposes. And the `.pkg` is signed by a
+**Developer ID Installer** identity, a different certificate from the Developer
+ID Application identity that signs the Mach-O and the `.dmg`, so shipping all
+three needs two.
+
+**Still open:** whether the hardened runtime wants an entitlement for a tool
+that spawns `brew` and `port` (needs one notarisation attempt), and what a
+quarantined, notarised, unstapled binary does offline (needs a machine with the
+quarantine attribute set and the network off).
+
+The original five, as filed:
 Five things the signing decision assumes and this repository has not verified:
 **whether stapling a `.pkg` or `.dmg` covers a binary copied out of it or only
 the container** — if only the container, the `.dmg` buys nothing the bare binary
