@@ -35,6 +35,25 @@ the `validate.sh` call with `command -v cargo` and **still exits 0** when the gu
 fails. A gate whose skipped path is indistinguishable from its successful path is
 not a gate. That is finding F-20 and it is on the task list.
 
+**What every "validate.sh ok" in this report and its commits actually means.**
+The gate this pass ran is **not the gate the repository defines.** Sixteen files
+of enforcement-layer work — `.claude/hooks/`, `.claude/settings.json`,
+`scripts/validate.sh`, three `scripts/check-*.sh`, the workflows, `AGENTS.md`,
+`docs/spec/11-agentic-sdlc.md` — sit uncommitted in the working tree, 387 lines
+of them, all predating this session. One consequence is concrete:
+`scripts/validate.sh:33` runs `scripts/check-memory-files.sh`, and **that file is
+untracked**. `HEAD`'s `validate.sh` does not call it, so a fresh clone is not
+broken — it simply runs a weaker gate, without the memory-files check.
+
+The direction is the safe one: local checks are a *superset* of what the
+repository would run, so nothing passed here that `HEAD`'s gate would have
+caught. The risk is the other way round, and it arrives with CI: the pipeline
+will enforce less than this pass believed it was enforcing, and the difference
+is invisible from inside a session where the stronger gate is the one that runs.
+Not fixed here — this is the owner's in-progress work, it is guard-protected,
+and committing the script alone would achieve nothing while its caller's change
+is also uncommitted. It is one `git add` plus a review, and it is theirs.
+
 **Both paragraphs above have since been overtaken, and the second was wrong to
 call permanent.** The cargo hole is closed (`344c4ca`): a turn that changes code
 while `cargo` is off `PATH` now fails the gate instead of passing it having checked
