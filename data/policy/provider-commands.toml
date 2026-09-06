@@ -39,6 +39,19 @@ verify = "none"
 # Same command, same answer. Verifying a cask does not elevate either - but see
 # finding F-22: `brew list --versions` is formula-only once a name is given, so
 # the *verb* is wrong for a cask even though the elevation is right.
+#
+# F-22 asked whether that matters, and the answer is: not today. A cask carries
+# `PackageClass::GuiApp`, which forces `MANUAL_REVIEW` (INV-19), and a plan that
+# halts there emits no commands at all - so this cell, and the three other
+# `_gui_app` cells in this file, are read by nothing. Pinned by
+# `crates/application/tests/planner_casks.rs`, which also fails if a cask ever
+# reaches a `--versions` argv.
+#
+# They stay rather than being deleted for two reasons. The loader refuses an
+# operation that has an elevation for one package kind and not the other (F-10),
+# so removing them breaks that check; and the wrong verb becomes live the moment
+# casks are made plannable, at which point `[entry.verbs]` needs a kind-aware
+# form it does not currently have. The comment is the handover.
 verify_gui_app = "none"
 # Cross-provider primary goes through the MacPortsBrew-managed directory in
 # the user's home (SE-036), never through the provider.

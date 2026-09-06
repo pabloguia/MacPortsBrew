@@ -623,6 +623,17 @@ fn command(
             ),
         ));
     }
+    // F-22: the verb comes from `verbs[operation]` and the *elevation* from the
+    // package kind, so a cask would be verified with a formula-only command
+    // (`list --versions <cask>` exits 1 on a correctly installed cask). That is
+    // latent, not live: `PackageClass::GuiApp` forces `MANUAL_REVIEW`, a plan
+    // that halts there emits no command, and this function is never reached for
+    // a cask. `tests/planner_casks.rs` pins that and fails if it changes.
+    //
+    // Making casks plannable therefore requires a kind-aware *verb* here, which
+    // `[entry.verbs]` cannot express today. Do not read the `GuiApp` arm below
+    // as evidence that the rest of this function handles casks — only the
+    // elevation lookup is kind-aware, and that asymmetry is the defect.
     let mut argv: Vec<String> = entry
         .and_then(|e| e.verbs.get(operation).cloned())
         .unwrap_or_else(|| vec![format!("<{operation}>")]);

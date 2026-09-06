@@ -38,7 +38,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
-| **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Open.** `brew list --versions <cask>` exits 1 with no output; `--cask` is required once a name is given. The verbs table can express a kind-dependent elevation and not a kind-dependent verb. Found while sourcing F-10. |
+| **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and the four `*_gui_app` elevation cells are dead. `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Open.** `cli.about` is rendered by nothing and now says "migrate" where the clap literal says "plan". Found while auditing F-13. |
 | **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
 | **F-20** — smaller findings, recorded without ceremony | **Seventeen of eighteen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. **The eighteenth is open** and was found on 2026-09-06 while resolving DP-015: `session-start.sh` renders an empty Open section as `(none parsed - read the file)`, so "no open decisions" and "the parser broke" are one message. Emptying that section today made the branch reachable for the first time. Needs `MPB_ALLOW_GUARD_EDIT=1`. |
@@ -980,6 +980,35 @@ MacPorts' `*_gui_app` cells. Either `PackageClass::GuiApp` forces
 `*_gui_app` elevation cells are dead and should say so — or it does, and the
 verbs table needs to be kind-aware. It cannot be both, and nothing currently
 tests which.
+
+### Closed, 2026-09-06: the first branch, measured rather than argued
+
+A cask plan is **one step, `ManualReview`, with zero commands**. `MANUAL_REVIEW`
+halts before the command builder runs, so `build_command` is never called for a
+cask and the wrong verb is never emitted. **F-22 is latent, not live.** The four
+`*_gui_app` elevation cells are read by nothing.
+
+Three tests in `crates/application/tests/planner_casks.rs` hold it there. One
+asserts the halt and the zero commands. One is a control — the *same* package,
+same fixture, `PackageKind::Package` instead of `GuiApp`, must reach
+`VERIFY_DESTINATION` and emit commands — because without it the first test would
+pass for any reason at all, including no counterpart being found, and would keep
+passing after casks became plannable. The third states the property rather than
+the mechanism: no command in a cask plan may carry `--versions`, so a refactor
+that changes *why* casks halt still fails if it lets one through.
+
+**Nothing was fixed, deliberately.** Making the verb kind-aware means giving
+`[entry.verbs]` a per-kind form it does not have — a schema change to
+`provider-commands.toml` — and doing that for a path nothing reaches would be
+building a mechanism against a hypothetical. The cells stay too: the F-10 loader
+check refuses an operation with an elevation for one kind and not the other, so
+deleting them breaks a guard that exists for a reason.
+
+What replaces the fix is a handover at all three sites — the table cell, the
+`elevation_key` match in `planner.rs`, and the test module — each saying the same
+thing: only the *elevation* lookup is kind-aware, that asymmetry is the defect,
+and whoever makes casks plannable owns the verb in the same change. The tests
+are what make that more than a comment; they fail the moment it stops being true.
 
 ---
 
