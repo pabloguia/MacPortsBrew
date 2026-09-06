@@ -635,7 +635,6 @@ const MAX_RECEIPT_BYTES: u64 = 1024 * 1024;
 /// evidence that the user did not ask for the package, and folding them into
 /// `false` would make a dependency out of a file this reader could not open.
 pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope) -> Option<bool> {
-    use std::io::Read;
     use std::os::unix::fs::MetadataExt;
     if !filesystem.is_this_machine() {
         // The recording is the machine, and it carries no receipt: a
@@ -649,41 +648,40 @@ pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope)
 
     // Refuse a symlink or a FIFO *before* opening: `File::open` on a FIFO
     // blocks, and nothing on this path carries a timeout, so a hang here is a
-    // hang in `analyze`.
+    // hang in `analyze`. This stays here rather than in the shared reader: a
+    // snapshot path the user named is a different trust question, and the
+    // Caskroom is a directory this tool does not own.
     let before = std::fs::symlink_metadata(&path).ok()?;
     if !before.is_file() {
         return None;
     }
 
-    // From here the name is resolved exactly once. The first version of this
-    // read stat'd the path and then opened it again by name, which is the
-    // shape `persistence::snapshot_store::read_bounded` already documents as
-    // wrong: the bound then applies to an object that need not be the one
-    // read, and a file that grows, a device or a FIFO swapped in between the
-    // two calls defeats it entirely. The Caskroom is a directory this tool
-    // does not own.
-    let file = std::fs::File::open(&path).ok()?;
-    let opened = file.metadata().ok()?;
-    if !opened.is_file() {
-        return None;
-    }
-    // The same object the pre-check inspected, not one swapped in since.
-    if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
-        return None;
-    }
-    // More than one name for these bytes is not something a receipt needs.
-    if opened.nlink() > 1 || opened.len() > MAX_RECEIPT_BYTES {
-        return None;
-    }
-    let mut text = String::new();
-    file.take(MAX_RECEIPT_BYTES + 1)
-        .read_to_string(&mut text)
-        .ok()?;
-    if text.len() as u64 > MAX_RECEIPT_BYTES {
-        // It grew while being read.
-        return None;
-    }
+    // From here the name is resolved exactly once, by `read_bounded`. The first
+    // version of this function stat'd the path and then opened it again by
+    // name — the shape that reader's documentation already called wrong, three
+    // modules away, in this same crate. Prose did not reach here; the shared
+    // function does (F-30).
+    //
+    // Both checks below run on the *opened* handle, before any byte is read.
+    let text = crate::persistence::bounded_read::read_bounded(&path, MAX_RECEIPT_BYTES, |opened| {
+        if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
+            // Not the object the pre-check inspected: something was swapped
+            // in between the two calls.
+            return Err("the receipt changed between the pre-check and the open");
+        }
+        if opened.nlink() > 1 {
+            // More than one name for these bytes is not something a receipt
+            // needs, and is a signal the file is not what it appears to be.
+            return Err("the receipt has more than one name");
+        }
+        Ok(())
+    })
+    .ok()?;
 
+    // Every refusal is `None`, deliberately: an unreadable receipt is not
+    // evidence that the user did not ask for the package, so it must not
+    // become `false`. The reasons are distinguished inside `read_bounded` for
+    // the caller that reports them; this one has nothing to report them to.
     let document: serde_json::Value = serde_json::from_str(&text).ok()?;
     document.get("installed_on_request")?.as_bool()
 }

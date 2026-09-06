@@ -46,8 +46,8 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
 | **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open.** `ServiceScan::Unreadable` renders as `defines_service == false`, which `classify.rs` reads as "not a service", so INV-19's `MANUAL_REVIEW` will not fire under replay. The adapter reports `ServiceMetadata: Unknown` correctly and no consumer reads it. Raised by the F-25 review; belongs with the executor pass. |
-| **F-30** — the bounded-read mechanism is implemented twice | **Open.** `snapshot_store::read_bounded` and `homebrew::cask_requested` carry the same open-once/cap-the-read logic. The rule was written in a doc comment three modules away and did not reach the second implementation — which is how the receipt reader shipped its first version stat-then-read. Raised by the DP-012 security review. |
-
+| **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
+| **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Open, pre-existing.** The `lstat`→`open` gap is compensated by a dev/ino check that runs *after* the open has already blocked on a FIFO. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters` — an ADR decision, not a refactor. Raised by the F-30 review. |
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
 changed the answer, and the gate that was green by exception. F-04's write-up
@@ -1572,3 +1572,73 @@ as a thin wrapper so its existing text does not move; `cask_requested` maps
 everything to `None`. The symlink and FIFO pre-check stays with the caller,
 because only the receipt reader needs it — a snapshot path the user named is a
 different trust question.
+
+### Closed, 2026-09-06: unified, and the security review found a defect in the unification
+
+`crates/adapters/src/persistence/bounded_read.rs` is the shape above, with one
+addition the finding did not anticipate: an `accept` predicate that runs on the
+*opened* handle, after the regular-file test and before the size test. That is
+what lets `cask_requested` keep its dev/ino identity and `nlink` checks — both
+of which must refuse an object before a byte of it is read — without the reader
+knowing anything about receipts. Its signature is `FnOnce(&Metadata) -> Result<(),
+&'static str>`, so a predicate is handed metadata and *cannot* re-resolve the
+name even by accident; the inline version had `path` in scope.
+
+`security-reviewer` confirmed the refactor is behaviour-preserving operation by
+operation — no gate removed, none moved past the read, every one of
+`snapshot_store`'s five user-facing strings byte-identical — and found a defect
+**introduced by the unification itself**:
+
+> `file.take(cap + 1)` — release builds have overflow checks off, so a caller
+> passing `cap = u64::MAX` gets `take(0)`, an empty string, and both size tests
+> pass. `Ok("")` for a non-empty file.
+
+Silent truncation, in the one primitive whose purpose is to make truncation
+impossible, through the single arithmetic operation the boundary test did not
+exercise. Unreachable from either caller — both pass code-level constants — and
+that is exactly why it mattered: a `pub(crate)` reader exists for the callers it
+does not have yet, and the finding's own argument is that a rule which lives in
+one place survives and a rule which lives in prose does not. Fixed with
+`cap.saturating_add(1)` and a test that was checked to fail without it.
+
+**What the review declined to blame on this diff**, and it is right: the
+name is still resolved twice *across* the caller and the reader — `lstat` in
+`cask_requested`, `File::open` inside `read_bounded`. Same count as before. See
+F-31.
+
+---
+
+## F-31 — The receipt reader's FIFO guard cannot prevent the hang it exists to prevent
+
+**Severity: low, and structural. Raised by `security-reviewer` while reviewing
+the F-30 refactor; pre-existing, unchanged by it.**
+
+`homebrew::cask_requested` refuses a symlink or a FIFO with `symlink_metadata`
+*before* opening, because `File::open` on a FIFO blocks and nothing on this path
+carries a timeout — a hang here is a hang in `analyze`. The dev/ino identity
+check is the compensation for the gap between that `lstat` and the `open`.
+
+**It runs too late to compensate for the case that matters.** An attacker with
+write access to `<caskroom>/<token>/.metadata/` replaces the receipt with a FIFO
+between the two calls; `File::open` blocks; the identity check never executes,
+because it is on the other side of the open. The check can detect a swap that
+*completed*. It cannot prevent the one that hangs.
+
+**Why it is not fixed here.** The structural answer is
+`O_NOFOLLOW | O_NONBLOCK` on the open, which closes the symlink follow and the
+FIFO hang together and demotes the caller's pre-check from load-bearing to
+belt-and-braces. `macportsbrew-adapters` has no `libc` — its dependencies are
+`macportsbrew-domain`, `serde`, `serde_json` and `toml` — and adding one is an
+ADR-0001/ADR-0002 decision about the deployment floor and the dependency gate,
+not a refactor. Hardcoding the two Darwin constants is the alternative and is
+also a decision.
+
+**What F-30 changed about it:** nothing, except that there is now exactly one
+`File::open` to harden instead of two. That is the whole return on the
+unification, arriving earlier than expected.
+
+**Reachability is genuinely low.** It needs write access to a directory inside
+the Homebrew Caskroom, which is to say an attacker who can already write where
+Homebrew installs — at which point the receipt's contents are theirs to choose
+anyway, and the worst outcome here is a hang rather than a wrong answer. That is
+why it is recorded at low severity rather than fixed under time pressure.

@@ -20,6 +20,7 @@
 //! an account that has no `~/Library/Application Support` yet.
 
 pub mod atomic;
+pub(crate) mod bounded_read;
 pub mod snapshot_store;
 pub mod state_dir;
 pub mod time;

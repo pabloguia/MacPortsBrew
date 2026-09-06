@@ -19,8 +19,6 @@
 use crate::persistence::atomic::write_atomic;
 use crate::process::Recording;
 use macportsbrew_domain::{DomainError, ErrorId, Snapshot};
-use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The largest snapshot or recording that will be read. A snapshot of a very
@@ -144,33 +142,35 @@ pub fn load_recording(path: &Path) -> Result<Recording, DomainError> {
 /// of a file that grew, or of a device or a FIFO, is the threat-model item
 /// this cap exists for.
 fn read_bounded(path: &Path) -> Result<String, DomainError> {
+    use crate::persistence::bounded_read::{any_regular_file, BoundedReadError};
     let unusable = |detail: String| DomainError::new(ErrorId::SnapshotUnusable, detail);
-    let file = File::open(path)
-        .map_err(|e| unusable(format!("{} could not be read: {e}", path.display())))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| unusable(format!("{} could not be inspected: {e}", path.display())))?;
-    if !meta.is_file() {
-        return Err(unusable(format!("{} is not a file", path.display())));
-    }
-    if meta.len() > MAX_DOCUMENT_BYTES {
-        return Err(unusable(format!(
-            "{} is {} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit",
-            path.display(),
-            meta.len()
-        )));
-    }
-    let mut text = String::new();
-    file.take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|e| unusable(format!("{} could not be read: {e}", path.display())))?;
-    if text.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(unusable(format!(
-            "{} grew past the {MAX_DOCUMENT_BYTES}-byte limit while being read",
-            path.display()
-        )));
-    }
-    Ok(text)
+    // The mechanism moved to `bounded_read` so the receipt reader could share it
+    // (F-30); this wrapper exists to keep every message below exactly where it
+    // was, because they are what a user sees when a snapshot will not load.
+    crate::persistence::bounded_read::read_bounded(path, MAX_DOCUMENT_BYTES, any_regular_file)
+        .map_err(|e| match e {
+            BoundedReadError::Open(e) | BoundedReadError::Read(e) => {
+                unusable(format!("{} could not be read: {e}", path.display()))
+            }
+            BoundedReadError::Inspect(e) => {
+                unusable(format!("{} could not be inspected: {e}", path.display()))
+            }
+            BoundedReadError::NotAFile => unusable(format!("{} is not a file", path.display())),
+            BoundedReadError::TooLarge { len } => unusable(format!(
+                "{} is {len} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit",
+                path.display()
+            )),
+            BoundedReadError::Grew => unusable(format!(
+                "{} grew past the {MAX_DOCUMENT_BYTES}-byte limit while being read",
+                path.display()
+            )),
+            // This caller passes `any_regular_file`, so nothing reaches here.
+            // Mapped rather than panicked: a snapshot that will not load is a
+            // diagnostic, never a crash.
+            BoundedReadError::Rejected(reason) => {
+                unusable(format!("{} was refused: {reason}", path.display()))
+            }
+        })
 }
 
 #[cfg(test)]
