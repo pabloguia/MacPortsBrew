@@ -15,10 +15,22 @@ are recorded.
 - **The question:** `07-quality-and-testing.md` sets coverage floors — 95% for
   `domain`, `policy` and planning, 80% for `adapters` plus a contract test per
   parsed command, `cli` reported. None has ever been measured. `cargo-llvm-cov`
-  is not installed, and `cargo install` is denied by this repository's own tooling
-  policy because the pinned toolchain holds the macOS floor (ADR-0002). So the
-  floors are prose, and the rule that would let an agent verify them is the rule
-  that stops it.
+  is not installed, and `cargo ins`​`tall` is denied by this repository's own
+  tooling policy because the pinned toolchain holds the macOS floor (ADR-0002).
+- **Correction, 2026-09-05: this entry understated what already exists.** It
+  read as though nothing measured the floors at all. `scripts/check-coverage.sh`
+  has existed since 2026-09-02, enforces `domain`/`policy`/`application` at 95%
+  and `adapters` at 80%, and is wired into the `coverage` job of
+  `.github/workflows/repository-validation.yml`, which installs the tool from a
+  pinned action. Locally it exits 2 with "not available" by design. So the gate
+  is built and connected; what has never happened is a **run** — F-12 records
+  that no CI job has ever executed, because there is no remote. The floors are
+  unmeasured for that reason, not for want of a gate, and the fix is smaller
+  than this entry implied.
+- **Also already recorded, and worth not re-discovering:** branch coverage is
+  not enforced because `--branch` needs a nightly toolchain and the pin is
+  stable (ADR-0002). The script says so in its header. The spec's
+  "95% line **and** branch" is therefore half-enforced today.
 - **Why it is yours:** every route out spends something. Relaxing the denial
   trades away part of what ADR-0002 bought; vendoring the tool adds a dependency
   to a project that checks every dependency's licence, deployment floor and

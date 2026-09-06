@@ -157,6 +157,50 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_table_that_is_not_toml_is_refused_as_invalid_policy_data() {
+        // The first thing `parse` does, and the only branch of it that had no
+        // test: a malformed file must name itself rather than panic or fall
+        // back to an empty table, which would leave the planner with no verbs
+        // and no explanation (DP-015).
+        let err = parse("this is not [ toml").expect_err("malformed TOML must be refused");
+        assert_eq!(err.id, ErrorId::PolicyDataInvalid);
+        assert!(
+            err.detail.contains("provider-commands.toml"),
+            "the error must name the file: {}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn an_entry_without_provenance_is_refused_however_complete_the_rest_is() {
+        // INV-20 in the loader: a row with no `source` or no `read_on` is a
+        // claim from memory, and this file is where that is caught. The entry
+        // below is otherwise well-formed, so the refusal can only be about the
+        // missing provenance.
+        for (label, source, read_on) in [
+            ("no source", "", "2026-09-05"),
+            ("no read_on", "https://example.org", ""),
+        ] {
+            let text = format!(
+                "[[entry]]\n\
+                 provider = \"example\"\n\
+                 executable = \"bin/example\"\n\
+                 verbs = {{}}\n\
+                 elevation = {{}}\n\
+                 source = \"{source}\"\n\
+                 read_on = \"{read_on}\"\n"
+            );
+            let err = parse(&text).expect_err(&format!("{label} must be refused, not loaded"));
+            assert_eq!(err.id, ErrorId::PolicyDataInvalid, "{label}");
+            assert!(
+                err.detail.contains("lacks source or read_on"),
+                "{label}: the refusal must say what is missing: {}",
+                err.detail
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

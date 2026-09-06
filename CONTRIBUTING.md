@@ -33,6 +33,18 @@ go in [`docs/research/`](docs/research/README.md); dated facts go in
 - **`jq` and `python3`** — required by `scripts/capture-fixture.sh` and by the
   validation scripts.
 - **`shellcheck`** — for the hook and script checks.
+- **`cargo-llvm-cov`** — for `scripts/check-coverage.sh`, which enforces the
+  floors in [`docs/spec/07-quality-and-testing.md`](docs/spec/07-quality-and-testing.md).
+  CI installs it from a pinned action; locally it is one command:
+
+  ```sh
+  cargo install cargo-llvm-cov --locked
+  ```
+
+  An agent session cannot run that — it writes into `~/.cargo/bin`, which is
+  the developer's environment rather than this repository, and the guard says
+  so. That is why the tool is listed here rather than installed on demand
+  (DP-015).
 - **macOS**, for anything that reads a real provider. The domain and policy
   crates are pure and build anywhere.
 

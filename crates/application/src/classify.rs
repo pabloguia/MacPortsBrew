@@ -70,6 +70,65 @@ pub fn family_of(name: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_formula_kept_off_the_default_path_for_being_versioned_is_a_runtime() {
+        // The second of the two routes to `RUNTIME`, and the one no test
+        // reached (DP-015). Homebrew keeps a versioned formula out of the
+        // default `PATH` and says so in its own words; that sentence is the
+        // evidence, so the class is recorded with the reason rather than
+        // inferred from the name.
+        //
+        // It matters because `RUNTIME` is what makes the policy engine suggest
+        // a runtime manager instead of a plain migration — the wrong class
+        // here is the wrong recommendation, not a wrong label.
+        let meta = PackageMetadata {
+            not_on_default_path_reason: Some(
+                "this is a versioned_formula and is keg-only".to_string(),
+            ),
+            ..PackageMetadata::default()
+        };
+        let set = classify(
+            &ProviderId::new("homebrew"),
+            "someformula",
+            PackageKind::Package,
+            Some(&meta),
+            &policy(),
+        );
+        assert!(
+            set.has(PackageClass::Runtime),
+            "a versioned-formula reason must reach RUNTIME"
+        );
+    }
+
+    #[test]
+    fn a_keg_only_formula_for_another_reason_is_not_made_a_runtime_by_it() {
+        // The negative half: keg-only is not the same fact as versioned, and
+        // without this the test above would pass on a rule that fired for any
+        // reason string at all.
+        let meta = PackageMetadata {
+            not_on_default_path_reason: Some("macOS already provides this software".to_string()),
+            ..PackageMetadata::default()
+        };
+        let set = classify(
+            &ProviderId::new("homebrew"),
+            "someformula",
+            PackageKind::Package,
+            Some(&meta),
+            &policy(),
+        );
+        assert!(!set.has(PackageClass::Runtime));
+    }
+
+    #[test]
+    fn a_name_that_is_only_digits_keeps_its_head_as_the_family() {
+        // `family_of` trims trailing digits, so a name made entirely of them
+        // would trim to nothing. The guard returns the head instead, and this
+        // is the case that reaches it.
+        assert_eq!(family_of("312"), "312");
+        assert_eq!(family_of("python@3.12"), "python");
+        assert_eq!(family_of("python312"), "python");
+    }
+
     fn policy() -> PolicyData {
         PolicyData::load_embedded().unwrap()
     }
