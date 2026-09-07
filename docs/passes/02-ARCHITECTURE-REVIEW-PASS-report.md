@@ -323,6 +323,78 @@ every object inside every rlib rather than trusting the build.
 
 ## Recommended next tasks, in priority order
 
+**Rewritten 2026-09-06.** The original list is preserved below because it is the
+record of what the review recommended; almost all of it has since shipped, and a
+stale to-do list is worse than none. What follows is what is actually left.
+
+### 1. Owner, mechanical — one session-start flag unblocks four things
+
+Start a session with `MPB_ALLOW_GUARD_EDIT=1` (the disclosed escape,
+`11-agentic-sdlc.md`) and these land together, because they are all the
+enforcement layer:
+
+- **The DP-015 coverage floors** — `adapters` 80→95 and a 90% overall backstop,
+  into `scripts/check-coverage.sh` and `07-quality-and-testing.md`. Measured and
+  met already; only the gate and the specification do not say so yet.
+- **The test-lines-in-`src/` denominator** in the same script, which dilutes the
+  number it is checking.
+- **F-32** — the i18n gate counting a test fixture as a rendered string.
+- **`session-start.sh`** rendering an empty decision list as a parse failure.
+
+The last two are the same bug as F-12 and as the `cargo`-absent stop gate, which
+is why they belong in one change with the rule written once: **a gate must be
+able to fail.**
+
+### 2. Owner, decisions — four, three of them new tonight
+
+- **DP-016** (F-29) — what an *unknown* service status should do to
+  `MANUAL_REVIEW`. Trades INV-19 against whether `--replay` can still show a real
+  plan. Four options, recommendation (c).
+- **Immutable releases** (R-14) — strictly good for supply-chain integrity,
+  strictly bad for withdrawal manoeuvrability, and a withdrawal permanently burns
+  the version number. Belongs in ADR-0005 or its own entry.
+- **The Intel runner costs money** (R-11) — `macos-15-intel` is an alias of
+  `macos-15-large`, and larger runners are billed even on public repositories.
+  Either pay, cross-compile from the free arm64 standard runner, or ship arm64
+  first and say so.
+- **A second certificate** (R-11) — the `.pkg` needs Developer ID *Installer*,
+  distinct from the Developer ID *Application* identity that signs the Mach-O and
+  the `.dmg`. Re-read DP-008 with that cost attached.
+
+### 3. Owner, housekeeping
+
+Sixteen files of enforcement-layer work sit uncommitted, including
+`scripts/check-memory-files.sh`, which `validate.sh:33` calls and git does not
+have. See "Gate status" above for what that means for every result in this pass.
+`.agents/` and `.codex/` are untracked and un-ignored.
+
+### 4. Implementation, in dependency order
+
+- **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists
+  to prevent. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters`,
+  which is an ADR-0001/ADR-0002 decision first.
+- **F-29's implementation**, once DP-016 is ruled. The tri-state field itself
+  needs no ruling — `AGENTS.md` already requires it.
+- **F-23's routing** — clap's `about` through the catalogue. A CLI-pass design
+  question, because `--help` renders before `--language` is parsed.
+- **F-22** — nothing to do until casks are made plannable, at which point the
+  verb must become kind-aware in the same change. Three tests fail if it is not.
+
+### 5. Blocked on a machine or a remote, not on effort
+
+**MacPorts has still never been observed** — `port` is not on this machine and
+`/opt/local` does not exist, so F-24 and every MacPorts-side assertion in this
+repository remain documentation-derived. Also waiting: R-11's hardened-runtime
+and offline-quarantine questions (one notarisation attempt, one offline machine),
+R-13's behavioural half (needs a real certificate and a real revocation, so
+possibly not answerable before the first release), R-14's Q2 and Q3 (minutes,
+once a remote exists), an Apple Silicon capture, and coverage in CI.
+
+<details>
+<summary>The original list, as the review filed it</summary>
+
+## Recommended next tasks, in priority order
+
 **Owner, before anything else.** DP-010 — the Tier 1 ruling. Every other planner
 task is cheaper once it is answered, and the fix for F-01 depends on it. DP-011 and
 DP-012 can follow at leisure; neither blocks work.
@@ -360,6 +432,8 @@ and the wiki's `../docs/...` links, which break the day the wiki is published.
 **Then the foundation pass's own list, unchanged and still right.** Capture a real
 MacPorts fixture; capture on Apple Silicon; destination catalogues offline; the
 executor; locales; coverage in CI once a remote exists.
+
+</details>
 
 ## What is right about the foundation
 
