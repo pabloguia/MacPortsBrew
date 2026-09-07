@@ -185,6 +185,16 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
             ])
         )
     );
+    if s.ownership_unknown > 0 {
+        let _ = writeln!(
+            out,
+            "{}",
+            ctx.messages.render(
+                "status.ownership_unknown",
+                &params(&[("count", s.ownership_unknown.to_string())])
+            )
+        );
+    }
     if analysis.policy_stale {
         let _ = writeln!(
             out,

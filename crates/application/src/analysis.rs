@@ -520,6 +520,17 @@ fn source_for(
 fn summarise(packages: &[PackageReport]) -> Summary {
     let mut s = Summary::default();
     for p in packages {
+        // Counted across every row, not just the source row: the question is
+        // "how much of this analysis rests on evidence that was not
+        // available", and a dependency row's unknown ownership is as much a
+        // gap as a top-level one (F-39).
+        s.ownership_unknown += u32::try_from(
+            p.rows
+                .values()
+                .filter(|r| r.ownership == macportsbrew_domain::Ownership::Unknown)
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
         if p.advanced_only {
             s.dependency_units += 1;
         } else {

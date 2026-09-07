@@ -108,4 +108,14 @@ pub struct Summary {
     pub by_outcome: BTreeMap<String, u32>,
     /// Units needing manual review.
     pub manual_review: u32,
+    /// Rows whose ownership could not be established, counted so the
+    /// top-level figure above is never the only clue that it is smaller than
+    /// it would be on the machine itself.
+    ///
+    /// A cask's `installed_on_request` lives in an on-disk receipt, and a
+    /// replayed reader must not consult this host's filesystem (INV-15). It
+    /// therefore answers `UNKNOWN` where a live run answers `TOP_LEVEL`, and
+    /// the same capture analysed live and replayed reported 56 top-level
+    /// packages and 49 with nothing saying why (F-39).
+    pub ownership_unknown: u32,
 }

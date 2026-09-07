@@ -163,36 +163,52 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
         path.iter()
             .position(|e| e == &format!("{prefix}/bin") || e == &format!("{prefix}/sbin"))
     };
-    let mut ordered: Vec<(usize, &ProviderId)> = prefixes
-        .iter()
-        .filter_map(|(id, prefix)| position(prefix).map(|pos| (pos, id)))
-        .collect();
-    ordered.sort();
-    if ordered.len() >= 2 {
+    // F-34: an empty `PATH` here means the capture could not record one, not
+    // that the user's `PATH` is empty. A `Recording` carries no environment at
+    // all, so a replayed `doctor` used to emit "<provider>'s prefix is not on
+    // PATH" for every present provider - a confident warning invented from
+    // absent input, which a user would act on by editing a `PATH` that is
+    // already correct. Both checks below read the same missing thing, so both
+    // are skipped and the absence is reported once.
+    if path.is_empty() {
         add(
-            "path_order",
-            Severity::Ok,
-            Reason::new("doctor.path_order").with(
-                "order",
-                &ordered
-                    .iter()
-                    .map(|(_, id)| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" > "),
-            ),
+            "path_unknown",
+            Severity::Warning,
+            Reason::new("doctor.path_unknown"),
             None,
         );
-    }
-    for (id, prefix) in &prefixes {
-        if position(prefix).is_none() {
+    } else {
+        let mut ordered: Vec<(usize, &ProviderId)> = prefixes
+            .iter()
+            .filter_map(|(id, prefix)| position(prefix).map(|pos| (pos, id)))
+            .collect();
+        ordered.sort();
+        if ordered.len() >= 2 {
             add(
-                "prefix_not_on_path",
-                Severity::Warning,
-                Reason::new("doctor.prefix_not_on_path")
-                    .with("provider", id)
-                    .with("prefix", prefix),
-                Some(id.clone()),
+                "path_order",
+                Severity::Ok,
+                Reason::new("doctor.path_order").with(
+                    "order",
+                    &ordered
+                        .iter()
+                        .map(|(_, id)| id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" > "),
+                ),
+                None,
             );
+        }
+        for (id, prefix) in &prefixes {
+            if position(prefix).is_none() {
+                add(
+                    "prefix_not_on_path",
+                    Severity::Warning,
+                    Reason::new("doctor.prefix_not_on_path")
+                        .with("provider", id)
+                        .with("prefix", prefix),
+                    Some(id.clone()),
+                );
+            }
         }
     }
     // What was wrong with the `PATH` entries themselves, audited at capture

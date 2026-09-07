@@ -236,6 +236,16 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # requested. `count.packages_with_top_level` below counts the narrower set and
 # still says "top-level", because that one is fed by `topLevelCount`.
 "status.summary_line" = "{topLevel} packages in the default view; {manualReview} need manual review. Policy {policyVersion}."
+# Printed only when the count is non-zero. A replayed analysis cannot read a
+# cask's on-disk receipt, so it reports fewer top-level packages than the same
+# machine does live; without this line the count is the only clue (F-39).
+#
+# It names both causes and asserts neither. The first draft said "a replayed or
+# snapshot analysis cannot read evidence on the machine's own disk", which is
+# false on a live run - there, an unknown row means the provider genuinely kept
+# no record. A summary line that explains the wrong cause is worse than one that
+# explains none; `doctor` is where a diagnosis belongs.
+"status.ownership_unknown" = "Ownership is unknown for {count} row(s): the provider kept no record, or this analysis could not read one."
 "table.presence" = "Presence"
 "table.prefix" = "Prefix"
 "table.packages" = "Packages"
@@ -287,6 +297,10 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."
 "doctor.prefix_not_on_path" = "{provider}'s prefix {prefix} is not on PATH."
+# A snapshot with no recorded PATH is a capture that could not read one, not
+# a machine with an empty PATH. Emitted instead of one false
+# `prefix_not_on_path` per provider (F-34).
+"doctor.path_unknown" = "This analysis carries no PATH, so nothing can be said about which provider's executables win. A recording does not capture the environment; run `doctor` live for the real answer."
 "doctor.path_duplicate" = "PATH contains {entry} more than once."
 "doctor.path_world_writable_precedes_system" = "PATH entry {entry} can be written by any user on this machine and is searched before the system directories, so anybody with an account here can decide what a command means for you."
 "doctor.path_world_writable" = "PATH entry {entry} can be written by any user on this machine."

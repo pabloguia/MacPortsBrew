@@ -214,3 +214,72 @@ fn policy_data_older_than_the_staleness_window_warns_and_says_when_it_was_read()
         "the data must not be stale on the day it was read, or this asserts nothing"
     );
 }
+
+#[test]
+fn an_absent_path_is_reported_as_unknown_rather_than_as_a_missing_prefix() {
+    // F-34. A `Recording` carries no environment at all, so a replayed
+    // `doctor` saw an empty `PATH` and concluded that every present provider's
+    // prefix was missing from it. On the machine that produced the recording
+    // both prefixes were on `PATH`; live `doctor` said so and emitted the real
+    // findings instead. The warning was invented from absent input, and a user
+    // would act on it by editing a `PATH` that is already correct.
+    //
+    // The mirror of F-29 rather than a copy of it: that one turns an unknown
+    // into a silent "no", this one turned it into a confident warning.
+    let empty = snapshot(
+        Architecture::X86_64,
+        installed(),
+        &[],
+        vec![
+            (
+                "homebrew",
+                provider("homebrew", "/usr/local", Architecture::X86_64),
+            ),
+            (
+                "macports",
+                provider("macports", "/opt/local", Architecture::X86_64),
+            ),
+        ],
+    );
+    assert_eq!(
+        findings(&empty, TODAY, "prefix_not_on_path"),
+        vec![],
+        "with no PATH recorded, nothing may be claimed about a prefix's absence from it"
+    );
+    let unknown = findings(&empty, TODAY, "path_unknown");
+    assert_eq!(
+        unknown.len(),
+        1,
+        "the absence is reported once, not once per provider: {unknown:?}"
+    );
+    assert_eq!(unknown[0].0, Severity::Warning);
+
+    // The control. With a PATH that genuinely omits one prefix, the original
+    // finding must still fire — otherwise this fix would have replaced a false
+    // warning with no warning at all.
+    let partial = snapshot(
+        Architecture::X86_64,
+        installed(),
+        &["/usr/local/bin", "/usr/bin"],
+        vec![
+            (
+                "homebrew",
+                provider("homebrew", "/usr/local", Architecture::X86_64),
+            ),
+            (
+                "macports",
+                provider("macports", "/opt/local", Architecture::X86_64),
+            ),
+        ],
+    );
+    let missing = findings(&partial, TODAY, "prefix_not_on_path");
+    assert_eq!(
+        missing.len(),
+        1,
+        "macports really is absent from this PATH and must still be named: {missing:?}"
+    );
+    assert!(
+        findings(&partial, TODAY, "path_unknown").is_empty(),
+        "a PATH that exists is not an unknown one"
+    );
+}

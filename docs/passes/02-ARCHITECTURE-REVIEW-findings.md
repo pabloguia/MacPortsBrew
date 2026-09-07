@@ -2166,6 +2166,27 @@ print it in `--json` as `"source": "SNAPSHOT"`. Saying "cask ownership is not
 recoverable from a recording" alongside the count costs one line and removes the
 whole class of confusion.
 
+### Fixed 2026-09-07, and the first attempt explained the wrong cause
+
+`Summary` now carries `ownership_unknown`, counted across every row rather than
+only the source row: the question is how much of the analysis rests on evidence
+that was unavailable, and a dependency row's gap is as real as a top-level one.
+On this machine it reads **10** replayed against **3** live, so the seven casks
+are visible instead of inferred.
+
+**The first wording was wrong and `documented_samples` caught it.** It read "a
+replayed or snapshot analysis cannot read evidence that lives on the machine's
+own disk" — true under replay, false live, where an unknown row means the
+provider genuinely kept no record. The line now names both causes and asserts
+neither: *"the provider kept no record, or this analysis could not read one."*
+A summary line that explains the wrong cause is worse than one that explains
+none; a diagnosis belongs in `doctor`.
+
+Worth recording how it surfaced. The line changed `status` output, which broke
+the two documented samples in `README.md` and `wiki/Getting-Started.md` — F-27's
+test doing exactly its job, and the reason the wrong cause was read carefully
+instead of shipped.
+
 **It also bounds what fixtures can test.** No recording can exercise a cask's
 `TOP_LEVEL` path, so DP-012's receipt reader is reachable only in a live run.
 Its unit tests cover it directly; nothing end-to-end does. That is the same
@@ -2204,6 +2225,39 @@ contains `::tests::` in its name, which reads as strong evidence that
 `cargo-llvm-cov` already excludes test code. It does not; the function names
 simply are not shaped that way. The segments settle it, and they are the thing
 the summary is computed from.
+
+### Measured across the workspace, 2026-09-07 — and it resizes the finding
+
+Counting instrumented lines at or beyond each file's trailing
+`#[cfg(test)] mod tests`:
+
+| crate | instrumented lines | inside a test module | share |
+|---|---|---|---|
+| `domain` | 989 | 269 | 27.2% |
+| `policy` | 2113 | 940 | **44.5%** |
+| `application` | 1435 | 236 | 16.4% |
+| `adapters` | 4008 | 1532 | 38.2% |
+| `cli` | 1692 | 501 | 29.6% |
+| **total** | **10237** | **3478** | **34.0%** |
+
+**A third of the measured surface is test code, and the share is uneven** — from
+16% in `application` to 45% in `policy`. So the correction does not shift the
+figures by a common amount; it reorders which crate is closest to its floor.
+
+**This is why the finding was mis-sized as small.** Producing the *corrected*
+percentages means recomputing line coverage from the segment array, which is
+reimplementing `llvm-cov`'s own line-coverage algorithm — a region is not a
+line, and the summary's line count (2364 for `policy`) does not equal the
+distinct instrumented lines above (2113), so the two cannot simply be
+subtracted. A gate is the wrong place for a reimplementation nobody has
+validated against the tool it replaces.
+
+**Two routes, and the second is probably right.** Either post-process the
+segments faithfully — feasible, and it needs its own tests against known
+inputs — or move in-`src/` test modules to `crates/*/tests/`, which this project
+has already done once deliberately (`f770318`) and which makes the question
+disappear rather than measuring around it. The second is a large mechanical
+change and leaves nothing to get subtly wrong.
 
 **Why it is not fixed here.** Excluding those lines lowers every percentage at
 once, by different amounts per crate, and the floors were just raised against
