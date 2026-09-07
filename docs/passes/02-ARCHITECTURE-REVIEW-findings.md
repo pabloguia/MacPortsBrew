@@ -40,6 +40,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Open.** Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
+| **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -47,7 +48,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and the four `*_gui_app` elevation cells are dead. `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Drift corrected; the routing stays open.** `cli.about` said the tool migrates in both directions and disagreed with the charter's own tagline (Tier 2, and carried identically by README, wiki and clap). It now opens with that sentence and states the read-only limit. The routing is not a substitution: `--help` renders before `--language` is parsed, and the string is Tier 2 anyway, so it buys translation only — a CLI-pass decision. The finding's stated reason for going unnoticed was itself wrong and is corrected: see F-32. |
-| **F-32** — the i18n gate counts a test fixture as a rendered string | **Open.** `check-i18n-parity.sh` excludes `crates/*/tests/` but cannot exclude a `#[cfg(test)]` module inside `src/`, so `cli.about` counts as rendered on the strength of a doc example and two existence assertions. Fourth instance this pass of a check that cannot fail on the state it tests for. Needs `MPB_ALLOW_GUARD_EDIT=1`.
+| **F-32** — the i18n gate counted a **doc comment** as a rendered string | **Fixed 2026-09-07 — and the finding as first written was wrong.** It claimed the gate cannot exclude a `#[cfg(test)]` module inside `src/`. It can: `production()` strips the trailing test module, deliberately. What it did not strip was doc comments, so `cli.about` satisfied the gate on an `assert!` inside a `///` example and on prose naming the key. `production()` now strips `///` and `//!` too; `cli.about` gets the marker it always needed. SE-075. |
 | **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
 | **F-20** — smaller findings, recorded without ceremony | **Seventeen of eighteen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. **The eighteenth is open** and was found on 2026-09-06 while resolving DP-015: `session-start.sh` renders an empty Open section as `(none parsed - read the file)`, so "no open decisions" and "the parser broke" are one message. Emptying that section today made the branch reachable for the first time. Needs `MPB_ALLOW_GUARD_EDIT=1`. |
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
@@ -2170,3 +2171,49 @@ whole class of confusion.
 Its unit tests cover it directly; nothing end-to-end does. That is the same
 shape as F-37 — a path no fixture can reach — and worth remembering before
 trusting a green suite about cask behaviour.
+
+---
+
+## F-40 — The coverage denominator counts test code that lives in `src/`
+
+**Severity: medium. Measured 2026-09-07 while writing the owner's new floors,
+and deliberately not fixed in the same change.**
+
+`scripts/check-coverage.sh` sums `summary.lines` per file under
+`crates/<layer>/src/`. That summary includes lines inside `#[cfg(test)]`
+modules, and this repository puts a great many tests there.
+
+Measured directly from the coverage segments rather than inferred:
+
+| | `crates/domain/src/plan.rs` |
+|---|---|
+| lines in the file | 689 |
+| instrumented lines counted toward the floor | 213 |
+| of those, at or beyond the test module's first line (449) | **91 — 43%** |
+
+**Why it flatters rather than merely dilutes.** Test code is executed by the
+test run almost in its entirety, so those 91 lines arrive at close to 100%
+covered and pull the file's percentage up. Every floor in
+`07-quality-and-testing.md` is therefore met against a number that is too kind
+by an unknown amount, and the amount grows each time a test is added inside
+`src/` — which is the direction this project has been moving.
+
+**A false lead worth recording**, because it nearly produced the opposite
+conclusion. The coverage JSON's `functions` array has 3017 entries and **none**
+contains `::tests::` in its name, which reads as strong evidence that
+`cargo-llvm-cov` already excludes test code. It does not; the function names
+simply are not shaped that way. The segments settle it, and they are the thing
+the summary is computed from.
+
+**Why it is not fixed here.** Excluding those lines lowers every percentage at
+once, by different amounts per crate, and the floors were just raised against
+the current figures. Shipping both in one edit — to a file the agent cannot
+iterate on, since it is guard-protected — would mean guessing whether the result
+is green. It needs a measurement first, then the floors adjusted to what is
+actually there.
+
+**Shape of a fix.** Post-process the JSON: for each file, drop the segments at
+or beyond the first line of a trailing `#[cfg(test)] mod tests`, and recompute.
+`scripts/check-i18n-parity.sh`'s `production()` already locates exactly that
+boundary, with a comment explaining why the bare attribute is the wrong anchor —
+the same logic, reused rather than re-derived.

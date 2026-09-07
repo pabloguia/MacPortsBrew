@@ -43,9 +43,20 @@ def production(src):
     hundred lines above the test module, and everything below it - production
     code in the only subprocess site in the repository - was being discarded.
     Only the attribute that opens a test *module* ends the file.
+
+    Doc comments go too, and that is the second half of the same rule. A `///`
+    line is documentation, not a render site: `cli.about` satisfied direction
+    three for months on an `assert!` inside a `///` example and on prose that
+    merely named the key, while nothing in the program rendered it. A gate that
+    counts a comment as a call site cannot see the drift it exists to catch
+    (F-32). Stripping whole lines is deliberately crude and correct here - a
+    `///` never carries code the program runs.
     """
     m = re.search(r"^#\[cfg\(test\)\]\s*\nmod tests\b", src, re.M)
-    return src[: m.start()] if m else src
+    src = src[: m.start()] if m else src
+    return "\n".join(
+        l for l in src.splitlines() if not l.lstrip().startswith(("///", "//!"))
+    )
 def excused(path):
     """Keys whose comment block explains why nothing renders them.
 

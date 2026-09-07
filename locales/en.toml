@@ -29,6 +29,11 @@
 
 # --- Program identity -------------------------------------------------------
 
+# unreferenced: written for `--help`, which clap renders from a Rust literal
+# (F-23). It stopped counting as referenced when the i18n gate stopped treating
+# a doc comment as a render site (F-32) - the only three references were a
+# `///` example and prose naming the key. Wire it or delete it; it is not dead
+# text, it is unrouted.
 cli.about = "Safely migrate and manage packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and plans are built in both directions. This build is read-only: it inventories, analyses and plans, and executes nothing."
 # unreferenced: written for `--help`, which clap renders from a Rust literal
 # (F-23). Wire it there or delete it; it is not dead text, it is unrouted.

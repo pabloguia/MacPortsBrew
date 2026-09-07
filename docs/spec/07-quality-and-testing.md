@@ -67,8 +67,10 @@ provider install.
 
 ## Coverage
 
-**MUST NOT.** No single blanket percentage across the repository — it produces
-test padding in adapters and UI while the parts that matter stay thin.
+**MUST NOT.** No single blanket percentage *in place of* differentiated floors
+— that produces test padding in adapters and UI while the parts that matter
+stay thin. A backstop **below** every named floor is a different thing and is
+allowed; see the last row (SE-074, owner ruling 2026-09-06, DP-015).
 
 **MUST.** Differentiated floors, enforced in CI:
 
@@ -76,8 +78,21 @@ test padding in adapters and UI while the parts that matter stay thin.
 |---|---|---|
 | `domain`, `policy` | 95% line **and** branch | Pure, cheap to test, where correctness lives |
 | planning, verification, safety logic | 95% | This is the code that can destroy a machine |
-| `adapters` | 80%, plus a contract test per parsed command | Value is in real fixtures, not line count |
+| `adapters` | 95%, plus a contract test per parsed command | Was 80%. It measured 95.29% at the first measurement ever taken, so the raise cost nothing and removed a floor nobody was near |
 | `ui` | reported, no floor | Cover behaviour, not rendering |
+| workspace overall | 90%, as a backstop | Sits below every floor above, so the only layer it can bite is `ui`. It stops the unnamed layer sliding without becoming the target the MUST NOT is about |
+
+**Branch coverage is not enforced.** `cargo-llvm-cov`'s `--branch` needs a
+nightly toolchain and the pin is stable (ADR-0002), so the "line **and** branch"
+above is half-enforced today. Stated here rather than left to be rediscovered.
+
+**The denominator counts test code that lives in `src/`.** Measured directly:
+of the 213 instrumented lines `llvm-cov` attributes to
+`crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%.
+Test code is near-fully covered, so every percentage above is flattered by an
+unknown amount, and the flattery grows as in-module tests are added. Correcting
+it moves every number at once and so needs its own change with a fresh
+measurement, not an edit to the floors (F-40).
 
 **SHOULD.** Spot-check the domain and policy layers with mutation testing when
 the ecosystem offers a usable tool. A surviving mutant in a safety path is a

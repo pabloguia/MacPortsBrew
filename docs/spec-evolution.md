@@ -3775,3 +3775,82 @@ finding ids in each entry.
 - Evidence: each claim checked against the file it describes; counts and line
   numbers taken by running the check, not by reading.
 - User impact: none. Architectural impact: none.
+
+## SE-074 — Coverage floors: `adapters` to 95%, a 90% backstop, and the MUST NOT narrowed
+
+- Status: accepted
+- Date / Pass: 2026-09-07 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `07-quality-and-testing.md` set `adapters` at 80% and
+  forbade "a single blanket percentage across the repository", on the reasoning
+  that a blanket number produces padding in adapters and UI while the parts that
+  matter stay thin.
+- Change: `adapters` rises to 95%; a **90% workspace backstop** is added; the
+  MUST NOT is narrowed from "no blanket percentage" to "no blanket percentage
+  *in place of* differentiated floors". Owner ruling of 2026-09-06, DP-015.
+  Enforced in `scripts/check-coverage.sh`; the spec's table carries both.
+- Rationale: the floors had never been measured. The first measurement this
+  repository has taken put `adapters` at **95.29%** under an 80% floor, so the
+  raise costs nothing and removes a floor nobody was near — the opposite of the
+  padding hazard the MUST NOT was written against. The backstop sits *below*
+  every named floor, so the only layer it can bite is `ui`, which has none by
+  design. That is why narrowing the MUST NOT is not a reversal of it: the
+  differentiated floors still do all the work, and the blanket number only stops
+  the unnamed layer sliding. Measured: domain 96.65, policy 97.46, application
+  95.27, adapters 95.29, cli 88.82, overall 94.86.
+- **Two limits are written into the spec rather than left to be rediscovered.**
+  Branch coverage is unenforced — `--branch` needs nightly and the pin is stable
+  (ADR-0002) — so "95% line **and** branch" is half true. And the denominator
+  counts test code living in `src/`: of the 213 instrumented lines in
+  `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module**,
+  measured from the coverage segments rather than inferred. Test code is
+  near-fully covered, so every figure above is flattered by an unknown amount.
+  Correcting it moves every number at once, which is why it is F-40 with its own
+  measurement rather than a line in this change.
+- Evidence: `scripts/check-coverage.sh` run against the recorded
+  `target/llvm-cov.json`, printing the new `overall` row and exiting 0; the
+  91-of-213 figure taken by counting instrumented line numbers at or beyond the
+  test module's first line.
+- User impact: none. Architectural impact: none; CI enforces one more number.
+
+## SE-075 — The i18n gate counted a doc comment as a render site
+
+- Status: accepted
+- Date / Pass: 2026-09-07 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `check-i18n-parity.sh`'s third direction — every English
+  key is referenced from code or says why not — was believed to be defeated by
+  `#[cfg(test)]` modules inside `src/`, which the script cannot exclude the way
+  it excludes `crates/*/tests/` (F-32, as first written).
+- Change: `production()` now strips `///` and `//!` lines as well as the
+  trailing test module. `cli.about` consequently needs, and gets, an
+  `# unreferenced:` marker.
+- Rationale: **the original finding was wrong and checking it is what found the
+  real one.** `production()` already strips the trailing `#[cfg(test)] mod
+  tests`, deliberately and with its reasoning recorded. What survived were two
+  doc comments — an `assert!` inside a `///` example, and prose that merely
+  named the key — so a key nothing renders satisfied the gate on documentation
+  alone. A `///` line never carries code the program runs, which is why
+  stripping whole lines is both crude and correct here.
+- Evidence: simulated before shipping. With doc comments stripped, `cli.about`
+  is the only newly-orphaned key and the gate demands a marker; with the marker,
+  `i18n: ok (188 keys, 170 rendered, 18 unreferenced with a stated reason)`.
+- User impact: none. Architectural impact: none.
+
+## SE-076 — A session-start hook that could not tell "nothing" from "I could not look"
+
+- Status: accepted
+- Date / Pass: 2026-09-07 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `session-start.sh` rendered an empty decision list as
+  `(none parsed - read the file)`, on the assumption that empty meant the parse
+  had failed.
+- Change: the `## Open` section is read first. Missing section → say so; present
+  and empty → `(none)`; otherwise the list.
+- Rationale: empty has two causes and the message asserted the second. The
+  branch had never fired in four passes because the file had never had an empty
+  Open section; resolving DP-015 emptied it, and every session then opened by
+  telling the agent its own decision list had failed to parse. Same shape as
+  F-12 and as the stop gate's `cargo`-absent hole: **a path that did nothing was
+  indistinguishable from a path that succeeded.**
+- Evidence: all three states exercised — a live DP listed, `(none)` on an empty
+  section, and the explicit message when the heading is absent.
+- User impact: agents get a true statement at session start. Architectural
+  impact: none.
