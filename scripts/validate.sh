@@ -30,6 +30,7 @@ step "spdx";         run scripts/check-spdx.sh
 step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh
 step "action pins";  run scripts/check-action-pins.sh
+step "memory files"; run scripts/check-memory-files.sh
 
 if [ "$mode" != "--quick" ]; then
   step "cargo test"; run cargo test --locked --all-features --workspace

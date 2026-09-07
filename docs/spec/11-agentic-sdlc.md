@@ -24,7 +24,9 @@ actions come from a reviewed plan, not from good intentions — turned inward.
 The project's own three-source rule applies to the tools it is built with.
 Everything specified below was verified against Anthropic's Claude Code
 documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**
-(re-verified the same day at the start of the Foundation Pass). The
+(re-verified the same day at the start of the Foundation Pass; the
+permissions, hooks, skills and github-actions pages re-read **2026-09-05**
+during the security review that produced SE-072). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -89,11 +91,13 @@ paths exist.
 |---|---|
 | All elevation (`sudo`, `doas`) | INV-06. Nothing in this repository's agent workflow needs root. |
 | Every mutating `brew` and `port` subcommand | INV-05 and `07-quality-and-testing.md`: tests never touch the developer's real installation. |
-| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew` | INV-07, INV-08, and the rule against ever patching a binary. Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. |
+| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew`, `~/.homebrew` | `04-migration-and-safety.md`, "never rewrite, re-link or patch a binary" — that is the rule this defends. (INV-07 and INV-08 are about one provider satisfying the other's dependency, which is a different claim; citing them here would leave the rule orphaned the day either is reworded.) Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. Enforced for `Bash` too — a deny rule on a path does not reach a subprocess, and `cp target/release/… /opt/homebrew/bin/` was the way in. |
 | Writes to shell configuration files | `05-environment-and-primary-provider.md`: shell files are written only through the managed-block procedure. |
-| `launchctl`, `chsh`, and system security tools | INV-19. |
+| `launchctl`, `chsh`, `csrutil`, `spctl`, `systemsetup` | INV-19 for launch machinery; `05-environment-and-primary-provider.md` for the login shell; the threat model in `04-migration-and-safety.md` for the security tools. Three different rules, not one. |
 | `rustup default|override|toolchain`, `cargo install` | ADR-0002. The pinned toolchain is what holds the macOS floor. |
-| `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet. |
+| `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet, so the first push is the owner's act of publishing. Both a bare `git push` and `git push <args>`: a rule ending in ` *` needs the argument. |
+| `rust-toolchain.toml`, `docs/spec/01-invariants.md` | ADR-0002 and Tier 1. The `rustup` rule tells the agent to change the pin in the file instead of the active toolchain, which made the file the unguarded path to the same outcome. |
+| The enforcement layer itself — `.claude/hooks/`, `.claude/settings.json`, `scripts/validate.sh`, `scripts/check-*.sh`, `.github/workflows/` | A control that a session can edit is a control that session can switch off, and the gate can only detect that its own path changed, never prevent it. `MPB_ALLOW_GUARD_EDIT=1` is the disclosed escape, on the same terms as `MPB_SKIP_STOP_GATE`. |
 
 **MUST.** Read-only provider subcommands are explicitly *allowed*. Observing
 the live system is how provider facts are meant to be established
@@ -190,7 +194,7 @@ reviewers:
 
 | Subagent | Why it is separate |
 |---|---|
-| `provider-researcher` | Read-only by construction. One research item per invocation; independent items run in parallel without polluting the main context. |
+| `provider-researcher` | Read-only *toward the machine and the specification*: it observes with read-only commands and writes only its research note. It holds `Write` and `Edit` because writing that note is its job, so the property is a discipline stated in its brief, not one the frontmatter enforces — unlike the three reviewers below. One research item per invocation; independent items run in parallel without polluting the main context. |
 | `spec-guardian` | Reviews a change against the invariants and the authority tiers. |
 | `security-reviewer` | Reviews against the threat model in `04-migration-and-safety.md`. |
 | `docs-auditor` | Links, dated claims, support-matrix honesty, peer-provider balance, i18n parity. |
@@ -341,6 +345,13 @@ truth.
 **SHOULD.** Claude Code runs in CI for review, not for authorship: pull-request
 review and `@claude` mentions on issues and pull requests. Anthropic publishes
 `anthropics/claude-code-action` for this.
+
+**MUST.** An unattended run identifies itself: both Claude workflows set
+`MPB_UNATTENDED=1`, and `guard-protected-paths.sh` reads it and refuses edits
+to `decisions-pending.md` and `docs/adr/` under it. Interactive sessions keep
+the documented `/decision-pending` flow. Until 2026-09-05 the rule below was
+asserted in a workflow comment and enforced nowhere, which is the exact shape
+of defect this chapter's governing sentence is about.
 
 **MUST NOT.** No unattended agent run holds write access to the default branch,
 merges a pull request, publishes a release, or resolves an item in

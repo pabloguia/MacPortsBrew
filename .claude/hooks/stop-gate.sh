@@ -30,9 +30,23 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-cd "$ROOT" || exit 0
+# Fail closed. This used to be `|| exit 0`, which meant a bad CLAUDE_PROJECT_DIR
+# skipped the entire gate silently - the same defect the Cargo.toml branch below
+# already reasons about, in the one place that decides whether the gate runs.
+if ! cd "$ROOT"; then
+  echo "MacPortsBrew stop gate: cannot enter '$ROOT', so no check ran. That is not" >&2
+  echo "the same as passing. Fix CLAUDE_PROJECT_DIR and try again." >&2
+  exit 2
+fi
 
-[ "${MPB_SKIP_STOP_GATE:-0}" = "1" ] && exit 0
+# The escape hatch leaves a trace. It is legitimate - a gate with none gets
+# deleted wholesale the first time it is wrong - but a silent skip is
+# indistinguishable from a pass to the human watching, and the obligation to
+# disclose it fell entirely on the report the agent writes itself.
+if [ "${MPB_SKIP_STOP_GATE:-0}" = "1" ]; then
+  mpb_message "Stop gate skipped: MPB_SKIP_STOP_GATE=1. Nothing was verified this turn, and the end-of-pass report must say so."
+  exit 0
+fi
 
 # The gate does not depend on its input, so unreadable input is not a reason
 # to skip it; it only loses the re-entry flag.
@@ -157,7 +171,10 @@ if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
     mode=--quick
     [ "$run_tests" = "1" ] && mode=default
     if ! validate_out="$(scripts/validate.sh "$mode" 2>&1)"; then
-      fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60)")
+      # Redact the home path before this reaches the transcript: the same rule
+      # `doctor --report` follows in docs/spec/06-cli-and-ux.md, applied to the
+      # agent's own output.
+      fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60 | sed "s#${HOME}#~#g")")
     fi
   else
     # A warning here, and the previous pass concluded from it that this machine

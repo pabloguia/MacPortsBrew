@@ -8,7 +8,7 @@ docs/research/.scratch/
 # macOS
 .DS_Store
 
-# Build output (path confirmed once the implementation language is; ADR-0002)
+# Build output (Rust; ADR-0002)
 /target/
 /dist/
 

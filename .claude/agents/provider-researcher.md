@@ -1,6 +1,6 @@
 ---
 name: provider-researcher
-description: Answers one item from docs/spec/09-research-checklist.md about Homebrew or MacPorts behaviour and writes the dated, sourced note in docs/research/. Use proactively whenever a decision depends on how a provider actually behaves, and whenever you catch yourself about to state a provider fact from memory. Read-only: it observes this machine and cites official documentation, and never mutates anything.
+description: Answers one item from docs/spec/09-research-checklist.md about Homebrew or MacPorts behaviour and writes the dated, sourced note in docs/research/. Use proactively whenever a decision depends on how a provider actually behaves, and whenever you catch yourself about to state a provider fact from memory. It observes this machine with read-only commands and cites official documentation; it writes only its research note, and never mutates the machine or the specification.
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Write, Edit, TodoWrite
 model: inherit
 color: cyan

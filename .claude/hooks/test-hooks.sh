@@ -309,6 +309,95 @@ printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.
 gate_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
 rm -rf "$boundary"
 
+# --- cases added after the 2026-09-05 security review ------------------------
+# Every one of these was empirically ALLOWED before the fix. They are here so
+# the fix is verified on BSD tools too: this file runs on the macOS leg of
+# repository-validation.yml, and the guards' regexes were written against GNU.
+
+LN="l""n"
+UP="u""p"
+UNARCH="unarc""hive"
+PUSH="pu""sh"
+
+# Fail-closed on unreadable input. `jq` on empty stdin has no inputs to
+# process: it exits 0 printing nothing, which read as "no command to check".
+# The python3 branch already failed closed, so the guard's fail-closed
+# property depended on which parser the machine happened to have.
+assert "empty stdin fails closed"             "$G" closed ''
+assert "whitespace-only stdin fails closed"   "$G" closed '   '
+assert "top-level null fails closed"          "$G" closed 'null'
+assert "top-level array fails closed"         "$G" closed '[]'
+assert "empty stdin fails closed (paths)"     "$P" closed ''
+assert "null fails closed (paths)"            "$P" closed 'null'
+
+# Writes into a provider prefix from Bash. The path guard covers Edit and
+# Write; Bash was the tool that could reach the artifact without spelling it.
+assert "cp into a prefix is denied"           "$G" deny   "$(bash_input 'cp target/release/macportsbrew /opt/homebrew/bin/')"
+assert "ln -sf into a prefix is denied"       "$G" deny   "$(bash_input 'ln -sf /tmp/x /opt/homebrew/bin/mpb')"
+assert "install into a prefix is denied"      "$G" deny   "$(bash_input 'install -m 755 target/release/macportsbrew /usr/local/bin/mpb')"
+assert "tee into a prefix is denied"          "$G" deny   "$(bash_input 'tee /opt/homebrew/etc/x.conf')"
+assert "mkdir in a prefix is denied"          "$G" deny   "$(bash_input 'mkdir -p /opt/local/etc/mpb')"
+assert "redirect into /etc/paths.d denied"    "$G" deny   "$(bash_input 'echo /opt/local/bin > /etc/paths.d/macports')"
+# Reading out of a prefix stays allowed: it is how a fixture is captured.
+assert "cp out of a prefix is allowed"        "$G" allow  "$(bash_input 'cp /opt/homebrew/etc/foo ./fixtures/x')"
+assert "cat in a prefix is allowed"           "$G" allow  "$(bash_input 'cat /opt/local/etc/macports/macports.conf')"
+assert "ls in a prefix is allowed"            "$G" allow  "$(bash_input 'ls /opt/homebrew/bin')"
+
+# In-place editors: the tested spelling was the least likely one. BSD sed
+# takes `-i ''` and `-i.bak`, and `perl -pi -e` is the commonest idiom there is.
+assert "sed -i.bak on a dotfile is denied"    "$G" deny   "$(bash_input "sed -i.bak s/a/b/ ~/$ZRC")"
+assert "perl -pi -e on a dotfile is denied"   "$G" deny   "$(bash_input "perl -pi -e s/a/b/ ~/$ZRC")"
+assert "sed -i on a repo file is allowed"     "$G" allow  "$(bash_input 'sed -i.bak s/a/b/ docs/README.md')"
+
+# Subcommand aliases the hand-written list missed. `brew ln` is `brew link`,
+# `brew up` is `brew update`, and both are real spellings.
+assert "brew $LN is denied"                   "$G" deny   "$(bash_input "brew $LN --overwrite python@3.12")"
+assert "brew $UP is denied"                   "$G" deny   "$(bash_input "brew $UP")"
+assert "port $UNARCH is denied"               "$G" deny   "$(bash_input "port $UNARCH jq")"
+assert "rustup update is denied"              "$G" deny   "$(bash_input 'rustup update')"
+assert "brew shellenv stays allowed"          "$G" allow  "$(bash_input 'brew shellenv')"
+
+# The pin that holds the deployment floor. The rustup rule's own deny message
+# points the agent at this file, which made the file the unguarded path.
+assert "editing the pin from Bash is denied"  "$G" deny   "$(bash_input 'sed -i s/1.98.0/stable/ rust-toolchain.toml')"
+assert "reading the pin is allowed"           "$G" allow  "$(bash_input 'cat rust-toolchain.toml')"
+assert "editing the pin is denied"            "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/rust-toolchain.toml")"
+
+# git push: CLAUDE.md listed it among the boundaries the hooks block "a second
+# time", and no hook matched it. DP-007 makes the first push the decision.
+assert "git $PUSH is denied"                  "$G" deny   "$(bash_input "git $PUSH")"
+assert "git -C dir $PUSH is denied"           "$G" deny   "$(bash_input "git -C . $PUSH origin main")"
+assert "git commit naming push is allowed"    "$G" allow  "$(bash_input "git commit -m 'add $PUSH support'")"
+assert "git log is allowed"                   "$G" allow  "$(bash_input 'git log --oneline')"
+
+# Tier 1, and the control protecting itself.
+assert "editing the invariants is denied"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/spec/01-invariants.md")"
+assert "editing a hook is denied"             "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gate.sh")"
+assert "editing settings.json is denied"      "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/settings.json")"
+assert "editing validate.sh is denied"        "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/scripts/validate.sh")"
+assert "editing a workflow is denied"         "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.github/workflows/claude.yml")"
+assert "editing a spec chapter is allowed"    "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/docs/spec/11-agentic-sdlc.md")"
+assert "editing a crate source is allowed"    "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/crates/domain/src/lib.rs")"
+(
+  export MPB_ALLOW_GUARD_EDIT=1
+  assert "the disclosed escape opens it"      "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gate.sh")"
+)
+
+# The unattended boundary: 11-agentic-sdlc.md reserves decisions-pending and
+# ADRs for a human in the loop. The workflows set MPB_UNATTENDED=1.
+assert "interactive may edit decisions"       "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/docs/decisions-pending.md")"
+(
+  export MPB_UNATTENDED=1
+  assert "unattended may not edit decisions"  "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/decisions-pending.md")"
+  assert "unattended may not edit an ADR"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/adr/0002-implementation-language.md")"
+)
+
+# A user prefix and a case variant. ~/.homebrew is Homebrew's supported
+# non-admin prefix; macOS's default volume is case-insensitive, so
+# /opt/Homebrew and /opt/homebrew are one file that `case` saw as two.
+assert "a user .homebrew prefix is denied"    "$P" deny   "$(edit_input "$HOME/.homebrew/bin/x")"
+assert "a case-variant prefix is denied"      "$P" deny   "$(edit_input '/opt/Homebrew/etc/x')"
+
 # --- report -----------------------------------------------------------------
 total=$((pass + ${#failures[@]}))
 if [ ${#failures[@]} -gt 0 ]; then

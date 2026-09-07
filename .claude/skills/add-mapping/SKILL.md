@@ -2,7 +2,7 @@
 name: add-mapping
 description: Add a curated package equivalence to data/policy/curated-mappings.toml. Use when the mapping heuristics miss an equivalence between a Homebrew formula and a MacPorts port, when explain shows no candidate or a wrong one, and whenever a package name needs a human decision with a citation rather than a name match.
 argument-hint: "[source package name]"
-allowed-tools: Read, Grep, Glob, Edit, Bash(cargo test:*), Bash(cargo fmt:*), Bash(cargo clippy:*), Bash(${CLAUDE_PROJECT_DIR}/scripts/validate.sh*), Bash(${CLAUDE_PROJECT_DIR}/target/debug/macportsbrew*), WebFetch
+allowed-tools: Read, Grep, Glob, Edit, Bash(cargo test:*), Bash(cargo fmt:*), Bash(cargo clippy:*), Bash(${CLAUDE_PROJECT_DIR}/scripts/validate.sh*), Bash(${CLAUDE_PROJECT_DIR}/target/debug/macportsbrew*), WebFetch(domain:formulae.brew.sh), WebFetch(domain:ports.macports.org), WebFetch(domain:docs.brew.sh), WebFetch(domain:trac.macports.org), WebFetch(domain:guide.macports.org)
 license: Apache-2.0
 ---
 

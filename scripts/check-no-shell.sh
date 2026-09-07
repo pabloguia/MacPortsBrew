@@ -132,4 +132,31 @@ if sed -n '/^pub struct CommandSpec {/,/^}/p' crates/adapters/src/process/mod.rs
   status=1
 fi
 
+# A test never spawns a program named by a string literal.
+#
+# The string-literal scan above deliberately exempts `crates/*/tests/`, so a
+# fixture may name a mutating subcommand in its recorded data. That exemption
+# was about *data*; it silently covered *spawning* too, and the one directory
+# permitted to contain the word "install" is the one whose code `cargo test`
+# executes against the developer's real machine - with `cargo test*` on the
+# allow list, so no guard sees anything but the eleven characters `cargo test`.
+# 07-quality-and-testing.md: "Tests never touch the developer's real Homebrew
+# or MacPorts installation. Any test that could is a build failure."
+#
+# The rule is shaped by what legitimate tests actually do: every end-to-end
+# test spawns the crate's own binary through `env!("CARGO_BIN_EXE_...")`, bound
+# to a constant or passed as a parameter - never a literal. So a literal in
+# program position is the signal, and it costs no false positives today.
+hits="$(grep -RIn --include='*.rs' -E '(process::)?Command::new\([[:space:]]*"' crates/*/tests/ 2>/dev/null \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true)"
+if [ -n "$hits" ]; then
+  echo "no-shell: a test spawns a program named by a string literal:" >&2
+  printf '  %s\n' "$hits" >&2
+  echo "  A test spawns only this crate's own binary, through" >&2
+  echo "  env!(\"CARGO_BIN_EXE_<name>\"). Anything else risks reaching the" >&2
+  echo "  developer's real Homebrew or MacPorts install, which" >&2
+  echo "  07-quality-and-testing.md makes a build failure. Use a fixture." >&2
+  status=1
+fi
+
 exit "$status"

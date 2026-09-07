@@ -49,6 +49,12 @@ jobs:
       contents: read
       pull-requests: write
       issues: read
+      # Required by the action's default GitHub App authentication.
+      id-token: write
+    env:
+      # See claude.yml. This job holds a secret and reads untrusted
+      # pull-request content, so it is an unattended run by any definition.
+      MPB_UNATTENDED: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -56,6 +62,21 @@ jobs:
       - uses: anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Parity with claude.yml. Without this, the project's deny rules and
+          # hooks do not apply to this job at all. Nothing is exposed today,
+          # because --allowedTools below grants exactly one tool - but the next
+          # tool added here would land with no deny net under it.
+          settings: .claude/settings.json
+          # KNOWN GAP, left visible rather than papered over. Every `uses:` in
+          # this repository is pinned to a commit SHA and
+          # scripts/check-action-pins.sh enforces it. These two inputs are the
+          # one supply-chain input that escapes the rule: a git URL and a
+          # floating plugin name, both resolved at run time, in a job holding
+          # ANTHROPIC_API_KEY. `/plugin marketplace add` accepts a `#<ref>`
+          # suffix in a session; whether this action input does is NOT
+          # verified, and guessing here would be a claim the repository cannot
+          # support. Settle it in the next /tooling-recheck and pin it, or drop
+          # the plugin and inline the review prompt.
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"

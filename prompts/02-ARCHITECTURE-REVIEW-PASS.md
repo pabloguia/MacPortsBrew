@@ -56,6 +56,11 @@ documentation, which is a correction, not a design change.
   the slice runs; run it. It says coverage floors are met; check them. It cites
   a provider fact; open the source and check the date. A review that trusts the
   report is a summary of the report.
+- **Run `/tooling-recheck` first.** `docs/spec/11-agentic-sdlc.md` makes it a
+  MUST at the start of every pass, and this work order was the one that omitted
+  it — so the 02 pass ran without it and chapter 11's read date went stale. The
+  hooks assert their own decisions, not the harness's delivery of input to them:
+  a renamed field would leave every test green while the guards matched nothing.
 - **Re-verify the time-sensitive facts.** Homebrew's Intel timeline, support
   tiers, toolchain minimum macOS versions. They are dated data precisely because
   they move.

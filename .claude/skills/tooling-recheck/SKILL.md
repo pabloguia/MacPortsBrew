@@ -2,7 +2,7 @@
 name: tooling-recheck
 description: Re-verify the Claude Code facts this repository's agent configuration depends on against the current official documentation, in parallel subagents, and record any drift. Use at the start of every pass, before changing anything under .claude/ or .github/workflows/, and whenever a hook, permission rule, subagent or skill behaves unexpectedly.
 argument-hint: "[optional: pages to limit to, e.g. hooks permissions]"
-allowed-tools: Read, Grep, Glob, Agent, Edit
+allowed-tools: Read, Grep, Glob, Agent, Edit(docs/research/tooling/**), Write(docs/research/tooling/**)
 license: Apache-2.0
 ---
 

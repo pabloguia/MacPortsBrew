@@ -4,22 +4,21 @@ MacPortsBrew is evolved largely by coding agents. That is a design constraint,
 not a footnote, and this file is the entry point.
 
 **Read `docs/spec/01-invariants.md` and `docs/spec-evolution.md` before any
-significant work.** The invariants are not changeable by you; the evolution file
-records what was already argued, so you do not spend a pass re-litigating
-settled ground. Then `docs/spec/00-charter.md`, `docs/spec/11-agentic-sdlc.md`
-(once), and the work order for your pass in `prompts/`.
+significant work.** The invariants are not yours to change; the evolution file
+records what was already argued, so a pass is not spent re-litigating settled
+ground. Then `docs/spec/00-charter.md`, `docs/spec/11-agentic-sdlc.md` (once),
+and your pass's work order in `prompts/`.
 
 ## What MacPortsBrew is
 
 An open-source package-manager orchestrator for macOS. It analyses what is
 installed under Homebrew and MacPorts, maps equivalent packages, explains which
-provider is the better choice for each package *on this machine*, and migrates
-in either direction without ever removing something before its replacement is
-installed and verified. Homebrew and MacPorts are **peer providers**: neither is
-globally better, and MacPorts-to-Homebrew is a first-class direction with the
-same planner and the same executor (INV-17). Homebrew's Intel timeline is why
-the project started and is not what it is; it is dated data (INV-20), never
-architecture. Full identity and non-goals: `docs/spec/00-charter.md`.
+provider suits each package *on this machine*, and migrates in either direction
+without ever removing something before its replacement is installed and
+verified. The two are **peer providers**: MacPorts-to-Homebrew is first-class,
+same planner and executor (INV-17). Homebrew's Intel timeline is why the project
+started, not what it is - dated data (INV-20), never architecture. Identity and
+non-goals: `docs/spec/00-charter.md`.
 
 ## The authority tiers
 
@@ -75,11 +74,9 @@ layering rule; `scripts/check-layering.sh` asserts them from `cargo metadata`.
 | Path | What it holds |
 |---|---|
 | `docs/spec/` | The specification. Its `README.md` is the reading order |
-| `docs/spec-evolution.md` · `docs/adr/` | Current rationale per topic |
-| `docs/decisions-pending.md` · `docs/research/` | The owner's decisions; dated provider facts |
-| `docs/schemas/` · `docs/passes/` · `prompts/` | `--json` contracts; pass reports; work orders |
-| `data/policy/` | Provider facts as data, every entry with `source` and `read_on` |
-| `locales/` · `fixtures/recordings/` | The English catalogue; captured provider recordings |
+| `docs/spec-evolution.md` · `docs/adr/` · `docs/decisions-pending.md` | Current rationale per topic; the owner's open decisions |
+| `docs/research/` · `docs/schemas/` · `docs/passes/` · `prompts/` | Dated provider facts; `--json` contracts; pass reports; work orders |
+| `data/policy/` · `locales/` · `fixtures/recordings/` | Provider facts as data, every entry with `source` and `read_on`; the English catalogue; captured provider recordings |
 | `scripts/` · `.claude/` | `validate.sh` is the one "valid"; permissions, hooks, subagents, skills, and `rules/*.md`, which load the relevant specification chapter when you touch a subtree |
 
 ## Provider neutrality and the isolation boundary
@@ -196,7 +193,7 @@ ships. **`crates/domain/src/error.rs`** — exit codes are a documented contract
 
 ## Project language
 
-Everything internal is English: source, identifiers, comments, test names, log
-messages, configuration keys, error identifiers, commit messages, ADRs,
-specification, this file. Only text presented to a user is translated, and only
+Everything internal is English — source, identifiers, comments, test names, log
+messages, configuration keys, error identifiers, commit messages, ADRs, the
+specification, this file. Only text shown to a user is translated, and only
 through the i18n layer.

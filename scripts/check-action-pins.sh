@@ -98,7 +98,30 @@ if [ "$found" -eq 0 ]; then
   bad=1
 fi
 
+# The pinned toolchain is written in two kinds of file, and one of them is
+# under a step named "pinned by rust-toolchain.toml" - which is exactly the
+# shape of duplication 11-agentic-sdlc.md warns about: "a rule that exists in
+# both places will drift". Bump the file and CI silently tests a different
+# compiler than the pin ADR-0002 says holds the macOS floor.
+pinned="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml | head -1)"
+if [ -z "$pinned" ]; then
+  echo "action-pins: no channel found in rust-toolchain.toml" >&2
+  bad=1
+else
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    file="${line%%:*}"
+    value="$(printf '%s' "$line" | sed -E 's/.*toolchain:[[:space:]]*//; s/[[:space:]]*$//')"
+    if [ "$value" != "$pinned" ]; then
+      echo "action-pins: $file pins toolchain '$value' but rust-toolchain.toml says '$pinned'." >&2
+      echo "  ADR-0002 makes the toolchain the mechanism that holds the macOS floor;" >&2
+      echo "  two spellings of it is one spelling that will be wrong." >&2
+      bad=1
+    fi
+  done < <(grep -rn '^[[:space:]]*toolchain:' .github/workflows/ 2>/dev/null || true)
+fi
+
 if [ "$bad" = 0 ]; then
-  echo "action-pins: ok ($found pinned)"
+  echo "action-pins: ok ($found pinned, toolchain $pinned)"
 fi
 exit "$bad"

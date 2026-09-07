@@ -25,6 +25,15 @@ jobs:
     # documented at
     # https://docs.github.com/en/graphql/reference/enums#commentauthorassociation
     # (read 2026-09-02).
+    #
+    # Two caveats, so nobody reads this gate as stronger than it is. `MEMBER`
+    # means organisation membership, not write access. `COLLABORATOR` is
+    # weaker still: GitHub assigns it to anyone *invited* to the repository,
+    # including read-only and triage-only collaborators - so an invitee who
+    # cannot push can nonetheless start a job holding the API key and
+    # `contents: write`. Acceptable for a repository with no collaborators,
+    # and a decision to revisit the day one is added: narrow to `OWNER`, or
+    # gate on a maintainers team.
     if: >-
       contains(github.event.comment.body, '@claude') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
@@ -34,9 +43,17 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      # Required by the action's default GitHub App authentication, not left
+      # over from an OIDC step - https://code.claude.com/docs/en/github-actions
+      # (read 2026-09-05), whose own example carries it.
       id-token: write
       actions: read
     env:
+      # Marks the run as unattended. guard-protected-paths.sh reads it and
+      # refuses edits to docs/decisions-pending.md and docs/adr/ - the
+      # MUST NOT in docs/spec/11-agentic-sdlc.md that until now was asserted
+      # in this comment and enforced nowhere.
+      MPB_UNATTENDED: "1"
       # The Stop gate would run cargo clippy/test on the checked-out head
       # with this job's secrets in the environment. Disabled here on purpose;
       # the same gate runs in repository-validation.yml with no secret. Per
