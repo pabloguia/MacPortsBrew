@@ -261,6 +261,36 @@ contains no occurrence of "revoke" or "revocation"; the notarisation page
 (<https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution>)
 is JavaScript-rendered and yielded no text.
 
+**Read rendered on 2026-09-06, and the page does say something.** The
+JavaScript-rendering obstacle above is a tooling limit, not a fact about Apple:
+the page reads fine in a browser, and anyone continuing R-13 or R-11 should
+render rather than fetch. What it says, in full, on revocation:
+
+> Notarization also protects your users if your Developer ID signing key is
+> exposed. The notary service maintains an audit trail of the software
+> distributed using your signing key. **If you discover unauthorized versions of
+> your software, you can work with Apple to revoke the tickets associated with
+> those versions.**
+
+That is the first citation in this tree for ticket revocation existing at all,
+and it establishes two things: revocation is of **tickets**, not only of
+certificates, and it is **Apple-mediated** — "work with Apple" is not a button
+the owner presses, so any runbook step that assumes same-day self-service
+revocation is wrong about the mechanism.
+
+Also relevant, from the same page: "When the user **first** installs or runs
+your macOS software, the presence of a ticket (either online or attached to the
+executable) tells Gatekeeper that Apple notarized the software." That is
+suggestive of a first-launch evaluation but is prose about the happy path, not a
+statement about re-evaluation, and it must not be read as one.
+
+**Everything behavioural in the paragraph below remains open**, and none of it
+looks documented: whether a stapled ticket keeps an artifact launching after
+revocation, whether that differs offline, whether an already-launched binary is
+re-evaluated, and the bare-Mach-O-from-a-shell case. These need observation, and
+observing them needs a real certificate and a real revocation — which is to say
+R-13's behavioural half may simply not be answerable before the first release.
+
 What an answer needs: whether Gatekeeper consults revocation state for a
 Developer ID signature and when — first launch only, or every launch; whether a
 **stapled** ticket keeps an artifact launching after the ticket is revoked, and
