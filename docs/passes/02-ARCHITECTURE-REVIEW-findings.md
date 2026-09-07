@@ -31,8 +31,12 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-09** — `--from-snapshot` is an unvalidated source of plan argv | **Fixed.** SE-051 parts 2 and 3. What is refused depends on where a value goes: a name becomes an argument and takes the adapters' own predicate; the prefix becomes a command's `program` and takes the prefix shape rule; everything else reaches a reader and is only bounded and free of control characters. Getting that split wrong cost three attempts — a first version validated `detection.executable`, which no command uses, while leaving `detection.prefix`, which every command uses, unvalidated on the path that mattered, and refused two shapes a correct machine reports. Twelve MacPorts pseudo-portnames are refused from data, because a provider-neutral predicate can say "not a flag" but not "not a keyword". |
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
-| **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Open.** Honest as a value and satisfying INV-20 today, because nothing elevates yet. But three places say runtime detection is the real answer and nothing held the deferral. R-5a UNRESOLVED-1 names two read-only commands that settle it. |
+| **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Value closed by observation 2026-09-06; the deferral is not.** MacPorts 2.12.6 installed here: `port -q installed` runs as a non-root user, exit 0, and `registry.db` is `0644`. `verify = "none"`, sourced to the observation. R-5a's UNRESOLVED-1 and -2 answered. But the finding's actual complaint — three places name runtime detection and no artefact holds it — still stands; one machine fixes the default, not the mechanism (INV-20). |
+| **F-33** — a MacPorts `VERIFY_DESTINATION` cannot fail on exit status | **Open, and reachable.** `port installed` exits **0** for a port that is not installed, and for one that does not exist. `plan.v1.md` warns an executor about exit-status semantics for `PACKAGE_ABSENT` and says nothing for `PROVIDER_REPORTS_ACTIVE`, which is what `VERIFY_DESTINATION` carries — the step guarding `REMOVE_SOURCE` under INV-01. Unlike F-22 this path is reachable: MacPorts packages are plannable. Observed 2026-09-06.
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
+| **F-34** — a replayed `doctor` invents a `PATH` warning from data the recording does not carry | **Open, and it fires on every fixture.** `--replay` reports "<provider>'s prefix … is not on PATH" for each present provider. On this machine both prefixes *are* on `PATH`: live `doctor` says so and emits correct detailed findings instead, and `--from-snapshot` on a fresh capture emits none. The `Recording` format has no environment section at all — only the sanitised per-invocation `PATH` the executor builds. Mirror of F-29: that one turns an unknown into a silent no, this one turns an absent input into a confident warning a user would act on. Observed 2026-09-06.
+| **F-35** — verify elevation is a stored fact where three places say it must be detected | **Open. Carried to the executor pass.** The surviving half of F-24: the TOML comment, SE-059 and R-5a all name runtime capability detection as the real answer, and no artefact implements it. The 2026-09-06 observation makes the stored default right, which removes the urgency and not the obligation — INV-20 says detection wins over stored knowledge. Also carries the per-cell provenance want: two cells now need a source of their own and the schema has none. |
+| **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Open. Raised by `spec-guardian` reviewing the F-24 change.** `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -40,12 +44,14 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
 | **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and the four `*_gui_app` elevation cells are dead. `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Drift corrected; the routing stays open.** `cli.about` said the tool migrates in both directions and disagreed with the charter's own tagline (Tier 2, and carried identically by README, wiki and clap). It now opens with that sentence and states the read-only limit. The routing is not a substitution: `--help` renders before `--language` is parsed, and the string is Tier 2 anyway, so it buys translation only — a CLI-pass decision. The finding's stated reason for going unnoticed was itself wrong and is corrected: see F-32. |
-| **F-32** — the i18n gate counts a test fixture as a rendered string | **Open.** `check-i18n-parity.sh` excludes `crates/*/tests/` but cannot exclude a `#[cfg(test)]` module inside `src/`, so `cli.about` counts as rendered on the strength of a doc example and two existence assertions. Fourth instance this pass of a check that cannot fail on the state it tests for. Needs `MPB_ALLOW_GUARD_EDIT=1`. || **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
+| **F-32** — the i18n gate counts a test fixture as a rendered string | **Open.** `check-i18n-parity.sh` excludes `crates/*/tests/` but cannot exclude a `#[cfg(test)]` module inside `src/`, so `cli.about` counts as rendered on the strength of a doc example and two existence assertions. Fourth instance this pass of a check that cannot fail on the state it tests for. Needs `MPB_ALLOW_GUARD_EDIT=1`.
+| **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
 | **F-20** — smaller findings, recorded without ceremony | **Seventeen of eighteen dispositioned.** Nine fixed, four recorded as an obligation or a decision, one deferred with its reasoning, three the owner's. SE-060, SE-063, SE-064. **The eighteenth is open** and was found on 2026-09-06 while resolving DP-015: `session-start.sh` renders an empty Open section as `(none parsed - read the file)`, so "no open decisions" and "the parser broke" are one message. Emptying that section today made the branch reachable for the first time. Needs `MPB_ALLOW_GUARD_EDIT=1`. |
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
-| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open, and now a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c). || **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
+| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open, and now a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c).
+| **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
 | **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Open, pre-existing.** The `lstat`→`open` gap is compensated by a dev/ino check that runs *after* the open has already blocked on a FIFO. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters` — an ADR decision, not a refactor. Raised by the F-30 review. |
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
@@ -942,6 +948,38 @@ Either answers it. Until one is run, `unknown` stands — and the executor must
 treat it as elevating, which
 `04-migration-and-safety.md`'s Privilege section now requires in those words.
 
+### Closed, 2026-09-06 — one was run
+
+The owner installed MacPorts 2.12.6 on this machine (macOS 26.6.2 build 25G83,
+x86_64, default `/opt/local`, zero ports installed), and both commands ran as
+the non-root user:
+
+```
+stat -f '%Su %Sg %Sp %N' .../registry .../registry/registry.db
+  root wheel drwxr-xr-x registry
+  root wheel -rw-r--r-- registry.db
+port -q installed        -> exit 0, no output
+port -q installed zlib   -> exit 0, no output
+```
+
+`verify = "none"` for MacPorts, with the observation as the cell's own source
+and the entry-level documentation marked as what it supersedes. R-5a's
+UNRESOLVED-1 and UNRESOLVED-2 are both answered — the second only for the
+default case, since the mode comes from a bare `sqlite3_open` with no `chmod`
+and stays umask-dependent.
+
+**The deferral this finding was really about is not closed by that, and it now
+has its own identifier: F-35.** F-24's complaint was that three places named
+runtime detection as the real answer and no artefact held any of them. An
+observation on one machine improves the *default*; it does not build the
+detection path, and INV-20 still says detection wins over stored knowledge.
+Leaving that obligation inside a section headed "Closed" is how a gate stops
+being a gate — SE-059's evidence line says F-24 exists "so that the executor
+pass cannot ship without answering it", and a reader who sees "closed" stops
+looking. Split, so the value is closed and the obligation is not.
+
+**Found while answering it**, and larger than the question — see F-33.
+
 ---
 
 ## F-22 — A cask's verify step would emit a command that fails on a correctly installed cask
@@ -1393,7 +1431,7 @@ before filing, not after.
 quotation marks; `hb-arm64-tier1-current`'s `last_review_date 2026-08-27` is now
 attributed to the earlier read, because that field is absent from the served
 HTML today; F-1 carries the forecast-versus-normative distinction that would
-have prevented this; and `policy.toml` is `2026.09.04-2`, which exposed a gap in
+have prevented this; and `policy.toml` was `2026.09.04-2`, which exposed a gap in
 the version rule — a read date that moves without moving the *newest* read date
 left two data sets sharing one version string. The manifest now says so.
 
@@ -1723,3 +1761,206 @@ referenced" check to ignore test-only references first, so it is the same work.
 Not fixed here: `scripts/` is the enforcement layer, guard-protected, and needs
 `MPB_ALLOW_GUARD_EDIT=1`. It belongs with the DP-015 floors and the
 `session-start.sh` item.
+
+---
+
+## F-33 — A MacPorts `VERIFY_DESTINATION` cannot fail on exit status, and the executor contract does not say so
+
+**Severity: medium-high, and it is a data-loss path. Observed 2026-09-06 while
+closing F-24 — the first finding in this repository produced by having MacPorts
+actually installed.**
+
+`port installed` **always exits 0.** Observed on MacPorts 2.12.6, as a non-root
+user, with nothing installed:
+
+| command | exit | stdout |
+|---|---|---|
+| `port installed` | 0 | `No ports are installed.` |
+| `port installed zlib` | 0 | `None of the specified ports are installed.` |
+| `port installed nao-existe-mesmo` | 0 | `None of the specified ports are installed.` |
+| `port -q installed zlib` | 0 | *(empty)* |
+
+The third row matters as much as the second: a portname that does not exist at
+all is indistinguishable from one that exists and is not installed.
+
+**Homebrew is the opposite, which is how this stayed invisible.** On the same
+machine, `brew list --versions actionlint` exits **0** with
+`actionlint 1.7.12`; `brew list --versions nao-existe-mesmo` exits **1** with no
+output. So on the Homebrew side an executor that checks exit status is correct,
+and on the MacPorts side it is *always satisfied*.
+
+**Why that is a safety defect and not a parsing detail.** `VERIFY_DESTINATION`
+carries `PROVIDER_REPORTS_ACTIVE`, and `MigrationPlan::check_ordering` exists to
+guarantee that no `REMOVE_SOURCE` precedes the `VERIFY_DESTINATION` guarding it
+(INV-01). An executor that implements `PROVIDER_REPORTS_ACTIVE` as "run the
+command, succeed on exit 0" would pass verification for a package that was never
+installed, and then remove the source. The ordering invariant would hold
+perfectly while the thing it orders proved nothing.
+
+**The contract already knows the shape of this and covers the other direction
+only.** `docs/schemas/plan.v1.md` item 3 tells the executor that `PACKAGE_ABSENT`
+"needs a command and a success semantic", that "nonzero exit means absent is
+verification by exit status with the sign flipped", and cites F-06 and F-22 —
+using Homebrew's cask as the example. Nothing says the same for
+`PROVIDER_REPORTS_ACTIVE`, where MacPorts' verb makes exit status carry no
+information at all. The `VerificationCheck` table (line 184) defines
+`PROVIDER_REPORTS_ACTIVE` as "The destination provider reports the package
+installed and active" and leaves *how* entirely to the executor.
+
+**Unlike F-22, this is reachable.** F-22's defective verb sits behind
+`MANUAL_REVIEW` and is never emitted, which is what made it latent. MacPorts
+packages carry no such halt: a plain `port`-installed package is exactly what
+this tool is for.
+
+**What is observed and what is not.** Observed: the negative cases above, all
+exit 0. **Not observed:** what `port -q installed <name>` prints and exits for a
+port that *is* installed. Nothing is installed on this machine, and installing a
+port is an elevating, mutating action the guards refuse and which is the owner's
+to take. The finding does not depend on it: if *not installed* already exits 0,
+then exit 0 cannot prove installed, whatever the positive case does.
+
+**Shape of a fix**, for the executor pass. `PROVIDER_REPORTS_ACTIVE` needs a
+per-provider success semantic in the plan data — the same debt `plan.v1.md`
+already records for `PACKAGE_ABSENT` — expressed as what to match in the output
+rather than as an exit code, because for MacPorts only the output carries the
+answer. It is the same missing capability as F-22's kind-dependent verb: the
+verbs table can say *what to run* and cannot say *what success looks like*.
+
+---
+
+## F-34 — A replayed `doctor` invents a `PATH` warning from data the recording does not carry
+
+**Severity: medium. Observed 2026-09-06, on the first capture of a real
+dual-provider machine. Pre-existing and universal to `--replay`; what was new
+was being able to see that it is wrong.**
+
+Replaying the new `both-providers-intel-macos26` fixture:
+
+```
+[Warning] homebrew's prefix /usr/local is not on PATH.
+[Warning] macports's prefix /opt/local is not on PATH.
+```
+
+Both are false. On the machine that produced the recording, `/usr/local/bin` and
+`/opt/local/bin` are both on `PATH`. Three runs discriminate it:
+
+| path | "not on PATH" warnings |
+|---|---|
+| `--replay <the fixture>` | **2** |
+| live `doctor`, same machine | **0** — and it emits the real findings instead, including `/usr/local/bin` being group-writable (F-07 working) |
+| `--from-snapshot <fresh capture>` | **0** |
+
+**The cause is a missing field, not a broken check.** The `Recording` format
+carries exactly three keys — `invocations`, `provenance`, `schemaVersion`. There
+is no environment section, and the only `PATH` strings anywhere in the file are
+the *sanitised* per-invocation ones the executor builds
+(`/usr/bin:/bin:/usr/sbin:/sbin`, plus a prefix-specific one per provider). The
+user's `PATH` is not recorded, so a replayed `doctor` has nothing to check
+against and reports absence as a negative.
+
+`Snapshot` gets this right, deliberately. `EnvironmentSnapshot` carries
+`path: Vec<String>` with the home directory redacted to `~`, *and* the `PATH`
+findings as computed at capture time — with a comment saying why: "Recorded
+rather than recomputed: deciding that a directory is world-writable means asking
+a filesystem, and the filesystem that has the answer is the captured machine's,
+not the one replaying." That is the F-25 fix, applied correctly. The Recording
+format never received the same treatment.
+
+**It is not new, and every fixture shows it.** `both-providers-arm64-macos15`
+gives 2, `homebrew-only-intel-macos26` gives 1, `macports-only-intel-macos12`
+gives 1 — one per present provider. Four passes replayed these fixtures without
+anyone noticing, because on a synthesised recording of a machine nobody has,
+"the prefix is not on `PATH`" is not obviously false. It became obvious the
+moment the recording described *this* machine.
+
+**Why it is worse than a missing warning.** F-29 turns an unknown into a silent
+"no" — an omission. This turns an absent input into a **confident warning the
+user would act on**, and the action is editing shell configuration to fix a
+`PATH` that is already correct. `.claude/rules/adapters.md` says "an unknown is
+never a yes"; the rule is symmetric and this is the other half.
+
+It also undercuts a claim the architecture rests on. `AGENTS.md` says
+`--from-snapshot` "runs the same function as a live run" and that a recorded
+runner "substitutes for the real one with every layer above unchanged". For
+`doctor` that is true of `--from-snapshot` and false of `--replay`, and the
+difference is in the *inputs*, not the analysis.
+
+**Shape of a fix.** Give `Recording` an environment section captured the same
+way `Snapshot` has one, written by `scripts/capture-fixture.sh` and read by the
+replaying reader. That is a schema change to the recording format and
+invalidates the existing fixtures, which is the real cost. Until then a replayed
+`doctor` should report `PATH` findings as **unknown** rather than as negatives —
+which is a small change and stops the tool asserting something it cannot know.
+
+---
+
+## F-35 — Verify elevation is a stored fact where three places say it must be detected
+
+**Severity: medium, and it is the half of F-24 that mattered. Split out
+2026-09-06 when the other half closed.**
+
+F-24 said MacPorts' `verify` elevation was `unknown` with no detection path, and
+that the deferral — not the value — was the defect: the TOML comment, SE-059 and
+R-5a's UNRESOLVED-1 all name runtime capability detection as the real answer,
+and no artefact holds any of them. Intent stated three times and recorded
+nowhere is how a deferral becomes a decision nobody made.
+
+Installing MacPorts settled the **value** (`verify = "none"`, observed). It did
+not build the detection path. INV-20 is unchanged: "where behaviour can be
+detected at runtime, detection wins over stored knowledge" — and now that
+something *executes* is on the horizon, a detection path exists to be built.
+
+**Why it needed its own identifier.** The observation closed F-24's headline,
+and the obligation was left inside a section headed "Closed, 2026-09-06". A gate
+a reader believes is discharged is not a gate. SE-059's evidence line says F-24
+exists "so that the executor pass cannot ship without answering it"; that
+sentence now needs a finding that is actually open to attach to.
+
+**It also carries a schema want.** The 2026-09-06 observation is entry-level
+provenance for a cell-level fact: `source` and `read_on` on the MacPorts entry
+now describe a mixture of documentation dated 2026-09-04 and one observation
+dated 2026-09-06, with a comment explaining which is which. Homebrew's `verify`
+cell has the same shape for a different reason — its elevation is cited to
+`brew.sh` while the entry cites the FAQ. Two cells wanting per-cell provenance
+is the point at which the schema should grow one, rather than a third comment
+being written.
+
+**What discharges it:** an adapter that attempts the read and reports
+`CapabilityState::Unknown` rather than `Available` when it cannot, with the
+stored value as the fallback — plus a test that the fallback is used and a test
+that detection overrides it.
+
+---
+
+## F-36 — `Elevation::Unknown` is unreachable by today's data and one recipe away from being live
+
+**Severity: medium. Raised by `spec-guardian` while reviewing the F-24 change,
+which is what removed the last reachable `unknown`.**
+
+Closing F-24 made MacPorts' `verify` a `none`. The only `unknown` cells left are
+the four `*_gui_app` ones, and F-22 established that casks halt at
+`MANUAL_REVIEW` before the command builder runs. So no plan built from today's
+data can carry `Elevation::Unknown`, and the renderer's "Steps where it is not
+known" arm, its locale key, and `MigrationPlan::steps_with_unknown_elevation`
+are exercised by nothing.
+
+**That is not the same as unreachable.** `planner.rs` looks the provider up with
+`table.get(id.as_str())`; a `None` falls through to `Elevation::Unknown` with
+`placeholder = true` on every command. **Nothing asserts that each provider in
+`registry.rs` has a row in `provider-commands.toml`** — and `AGENTS.md` tells a
+contributor that adding a provider is "an adapter plus one registry entry". Do
+exactly that and the first plan is a wall of `[elevation unknown]` placeholders,
+with no test anywhere turning red.
+
+**Two consequences, one of them measurable.** `steps_with_unknown_elevation` is
+a public method of `domain` with zero references outside `human.rs`, in a crate
+carrying a 95% coverage floor — so the floor is being met with an untested public
+method in it. And the failure mode for the next provider author is a bad plan
+rather than a red test, which is the wrong end to discover it from.
+
+**What resolves it:** a `domain` unit test on `steps_with_unknown_elevation`
+built from a constructed `MigrationPlan` — pure, no fixture, nothing that reaches
+a user — to stop the renderer arm and the locale key rotting; and a check that
+every registry provider id resolves to a `provider-commands.toml` entry, which is
+the actual fix. The first is done in this change; the second is the executor
+pass's, because that is when a placeholder command stops being harmless.

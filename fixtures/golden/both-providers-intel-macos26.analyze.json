@@ -1,0 +1,6063 @@
+{
+  "machine": {
+    "architecture": "x86_64",
+    "commandLineTools": {
+      "path": "/Applications/Xcode.app/Contents/Developer",
+      "state": "INSTALLED"
+    },
+    "macos": {
+      "major": 26,
+      "minor": 6,
+      "patch": 2
+    },
+    "translation": "NATIVE"
+  },
+  "packages": [
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "actionlint",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "actionlint",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "actionlint",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.7.12",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "actionlint",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/actionlint/1.7.12",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.7.12"
+            }
+          ],
+          "name": "actionlint",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "adoptopenjdk",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "adoptopenjdk",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "adoptopenjdk",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "adoptopenjdk",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "adoptopenjdk"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "16.0.1,9",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "adoptopenjdk",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/adoptopenjdk/16.0.1,9",
+              "kind": "GUI_APP",
+              "version": "16.0.1,9"
+            }
+          ],
+          "name": "adoptopenjdk",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "bvi",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "bvi",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "bvi",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.5.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "bvi",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/bvi/1.5.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.5.0"
+            }
+          ],
+          "name": "bvi",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "cask",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "cask",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "cask",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "all",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "0.9.1",
+          "dependencyCount": 16,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "cask",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/cask/0.9.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.9.1"
+            }
+          ],
+          "name": "cask",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "cloc",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "cloc",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "cloc",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.10",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "cloc",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/cloc/2.10",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.10"
+            }
+          ],
+          "name": "cloc",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "codeburn",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "codeburn",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "codeburn",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "0.9.24",
+          "dependencyCount": 25,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "codeburn",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/codeburn/0.9.20",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.9.20"
+            }
+          ],
+          "name": "codeburn",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "copilot-cli",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "copilot-cli",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "copilot-cli",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "copilot-cli",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "copilot-cli"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "1.0.83",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "copilot-cli",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/copilot-cli/1.0.70",
+              "kind": "GUI_APP",
+              "version": "1.0.70"
+            }
+          ],
+          "name": "copilot-cli",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "coreutils",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "coreutils",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "coreutils",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.reverse_dependencies_present",
+            "params": {
+              "count": "1",
+              "provider": "homebrew"
+            },
+            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "tahoe",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "9.11",
+          "dependencyCount": 1,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "coreutils",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/coreutils/9.11",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "9.11"
+            }
+          ],
+          "name": "coreutils",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 1
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "curl",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "curl",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "curl",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.reverse_dependencies_present",
+            "params": {
+              "count": "2",
+              "provider": "homebrew"
+            },
+            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "8.22.0",
+          "dependencyCount": 12,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "curl",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/curl/8.21.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "8.21.0"
+            }
+          ],
+          "name": "curl",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 2
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "espeak-ng",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "espeak-ng",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "espeak-ng",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.52.0",
+          "dependencyCount": 3,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "espeak-ng",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/espeak-ng/1.52.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.52.0"
+            }
+          ],
+          "name": "espeak-ng",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "RUNTIME"
+        ],
+        "evidence": [
+          {
+            "class": "RUNTIME",
+            "detail": "ffmpeg@2.8,ffmpeg@4,ffmpeg@5,ffmpeg@6,ffmpeg@7,ffmpeg@8",
+            "rule": "versioned_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "ffmpeg",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "ffmpeg",
+      "recommendation": {
+        "outcome": {
+          "kind": "USE_RUNTIME_MANAGER"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "ffmpeg",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.runtime_family_managed_elsewhere",
+            "params": {
+              "family": "ffmpeg",
+              "managers": ""
+            },
+            "rule": "RUNTIME_USE_MANAGER"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "9.0.1",
+          "dependencyCount": 15,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "ffmpeg",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/ffmpeg/9.0.1_1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "1",
+              "version": "9.0.1_1"
+            }
+          ],
+          "name": "ffmpeg",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "findutils",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "findutils",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "findutils",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "4.11.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "findutils",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/findutils/4.11.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "4.11.0"
+            }
+          ],
+          "name": "findutils",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "firebase-cli",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "firebase-cli",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "firebase-cli",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "15.29.0",
+          "dependencyCount": 25,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "firebase-cli",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/firebase-cli/15.28.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "15.28.1"
+            }
+          ],
+          "name": "firebase-cli",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "gcloud-cli",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "gcloud-cli",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "gcloud-cli",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gcloud-cli",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "gcloud-cli"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "583.0.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gcloud-cli",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/gcloud-cli/581.0.0",
+              "kind": "GUI_APP",
+              "version": "581.0.0"
+            }
+          ],
+          "name": "gcloud-cli",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "gemini-cli",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "gemini-cli",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gemini-cli",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.source_withdrawn",
+            "params": {
+              "package": "gemini-cli",
+              "provider": "homebrew",
+              "replacedBy": "antigravity-cli",
+              "state": "DEPRECATED"
+            },
+            "rule": "MANUAL_REVIEW_SOURCE_WITHDRAWN"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "DEPRECATED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "unsupported",
+                "offline": true,
+                "source": "deprecated"
+              },
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "0.46.0",
+          "dependencyCount": 25,
+          "deprecated": true,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gemini-cli",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/gemini-cli/0.46.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.46.0"
+            }
+          ],
+          "name": "gemini-cli",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "gh",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "gh",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gh",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "2.100.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gh",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/gh/2.98.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.98.0"
+            }
+          ],
+          "name": "gh",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "ghidra",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "ghidra",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "ghidra",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "12.1.3",
+          "dependencyCount": 31,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "ghidra",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/ghidra/12.1.3",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "12.1.3"
+            }
+          ],
+          "name": "ghidra",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "gimp",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "gimp",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "gimp",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gimp",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "gimp"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "3.2.4",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gimp",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/gimp/3.2.4",
+              "kind": "GUI_APP",
+              "version": "3.2.4"
+            }
+          ],
+          "name": "gimp",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "git",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "git",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "git",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.55.0",
+          "dependencyCount": 4,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "git",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/git/2.55.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.55.0"
+            }
+          ],
+          "name": "git",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "git-lfs",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "git-lfs",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "git-lfs",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "3.8.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "git-lfs",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/git-lfs/3.7.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.7.1"
+            }
+          ],
+          "name": "git-lfs",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "gitleaks",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "gitleaks",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "gitleaks",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "8.30.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "gitleaks",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/gitleaks/8.30.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "8.30.1"
+            }
+          ],
+          "name": "gitleaks",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "go-task",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "go-task",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "go-task",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "3.53.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "go-task",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/go-task/3.53.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.53.1"
+            }
+          ],
+          "name": "go-task",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "graphviz",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "graphviz",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "graphviz",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "16.0.0",
+          "dependencyCount": 45,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "graphviz",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/graphviz/15.1.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "15.1.1"
+            }
+          ],
+          "name": "graphviz",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "htop",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "htop",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "htop",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "3.5.3",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "htop",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/htop/3.5.3",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.5.3"
+            }
+          ],
+          "name": "htop",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "SERVICE"
+        ],
+        "evidence": [
+          {
+            "class": "SERVICE",
+            "detail": "jupyterlab",
+            "rule": "provider_service_definition"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "jupyterlab",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "jupyterlab",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "jupyterlab",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "SERVICE",
+              "package": "jupyterlab"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "4.6.3",
+          "dependencyCount": 37,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "jupyterlab",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/jupyterlab/4.6.3",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "4.6.3"
+            }
+          ],
+          "name": "jupyterlab",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "just",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "just",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "just",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "1.58.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "just",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/just/1.58.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.58.0"
+            }
+          ],
+          "name": "just",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "links",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "links",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "links",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.30",
+          "dependencyCount": 3,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "links",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/links/2.30_1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "1",
+              "version": "2.30_1"
+            }
+          ],
+          "name": "links",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "meld",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "meld",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "meld",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "meld",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "meld"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "3.22.3+105",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "meld",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/meld/3.22.3+105",
+              "kind": "GUI_APP",
+              "version": "3.22.3+105"
+            }
+          ],
+          "name": "meld",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "mise",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "mise",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "mise",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "2026.9.1",
+          "dependencyCount": 3,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": false,
+              "identity": {
+                "name": "mise",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/mise/2026.8.12",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2026.8.12"
+            },
+            {
+              "active": true,
+              "identity": {
+                "name": "mise",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/mise/2026.9.0",
+              "installedFromPrebuilt": false,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2026.9.0"
+            }
+          ],
+          "name": "mise",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "moreutils",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "moreutils",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "moreutils",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "0.70",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "moreutils",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/moreutils/0.70",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.70"
+            }
+          ],
+          "name": "moreutils",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "nmap",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "nmap",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "nmap",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "7.991",
+          "dependencyCount": 13,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "nmap",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/nmap/7.991",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "7.991"
+            }
+          ],
+          "name": "nmap",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "RUNTIME"
+        ],
+        "evidence": [
+          {
+            "class": "RUNTIME",
+            "detail": "node@18,node@20,node@22,node@24",
+            "rule": "versioned_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "node",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "node",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "node",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.reverse_dependencies_present",
+            "params": {
+              "count": "4",
+              "provider": "homebrew"
+            },
+            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
+          },
+          {
+            "id": "reason.runtime_family_managed_elsewhere",
+            "params": {
+              "family": "node",
+              "managers": "asdf,mise,nvm"
+            },
+            "rule": "RUNTIME_USE_MANAGER"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "26.8.1",
+          "dependencyCount": 26,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "node",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/node/26.7.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "26.7.0"
+            }
+          ],
+          "name": "node",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 4
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "nvm",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "nvm",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "nvm",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "all",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "0.40.7",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "nvm",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/nvm/0.40.7",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.40.7"
+            }
+          ],
+          "name": "nvm",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "nvtop",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "nvtop",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "nvtop",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "3.3.2",
+          "dependencyCount": 1,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "nvtop",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/nvtop/3.3.2",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.3.2"
+            }
+          ],
+          "name": "nvtop",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "opentofu",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "opentofu",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "opentofu",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.12.6",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "opentofu",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/opentofu/1.12.6",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.12.6"
+            }
+          ],
+          "name": "opentofu",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "oracle-jdk",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "oracle-jdk",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "oracle-jdk",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "oracle-jdk",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "oracle-jdk"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "26.0.2.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "oracle-jdk",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/oracle-jdk/26.0.2.1",
+              "kind": "GUI_APP",
+              "version": "26.0.2.1"
+            }
+          ],
+          "name": "oracle-jdk",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "osv-scanner",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "osv-scanner",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "osv-scanner",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.5.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "osv-scanner",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/osv-scanner/2.5.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.5.1"
+            }
+          ],
+          "name": "osv-scanner",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "p7zip",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "p7zip",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "p7zip",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "17.06",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "p7zip",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/p7zip/17.06",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "17.06"
+            }
+          ],
+          "name": "p7zip",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "phpbrew",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "phpbrew",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "phpbrew",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.2.0",
+          "dependencyCount": 54,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "phpbrew",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/phpbrew/2.2.0_1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "1",
+              "version": "2.2.0_1"
+            }
+          ],
+          "name": "phpbrew",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "pipx",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "pipx",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "pipx",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "all",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.17.2",
+          "dependencyCount": 9,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": false,
+              "identity": {
+                "name": "pipx",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/pipx/1.16.7",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.16.7"
+            },
+            {
+              "active": true,
+              "identity": {
+                "name": "pipx",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/pipx/1.17.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.17.1"
+            }
+          ],
+          "name": "pipx",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "RUNTIME"
+        ],
+        "evidence": [
+          {
+            "class": "RUNTIME",
+            "detail": "python@3.10,python@3.11,python@3.13,python@3.14,python@3.9",
+            "rule": "versioned_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [
+            {
+              "confidence": "EXACT",
+              "evidence": [
+                {
+                  "detail": "python@3.12 -> python312",
+                  "kind": "curated",
+                  "weight": 100
+                }
+              ],
+              "package": {
+                "name": "python312",
+                "provider": "macports"
+              }
+            }
+          ],
+          "confidence": "EXACT",
+          "destination": "macports",
+          "selected": {
+            "confidence": "EXACT",
+            "evidence": [
+              {
+                "detail": "python@3.12 -> python312",
+                "kind": "curated",
+                "weight": 100
+              }
+            ],
+            "package": {
+              "name": "python312",
+              "provider": "macports"
+            }
+          },
+          "source": {
+            "name": "python@3.12",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "python@3.12",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "python@3.12",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.availability_unknown",
+            "params": {
+              "package": "python@3.12",
+              "provider": "macports"
+            },
+            "rule": "MANUAL_REVIEW_AVAILABILITY_UNKNOWN"
+          },
+          {
+            "id": "reason.runtime_family_managed_elsewhere",
+            "params": {
+              "family": "python",
+              "managers": "asdf,mise,pyenv"
+            },
+            "rule": "RUNTIME_USE_MANAGER"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "3.12.14",
+          "dependencyCount": 7,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "python@3.12",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/python@3.12/3.12.14",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.12.14"
+            }
+          ],
+          "name": "python@3.12",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        },
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "the destination's catalogue is not consulted offline in this pass",
+                "offline": true,
+                "source": "destination_catalogue"
+              }
+            ]
+          },
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [],
+          "name": "python312",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "not_installed"
+          },
+          "presence": "MAPPED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "RUNTIME"
+        ],
+        "evidence": [
+          {
+            "class": "RUNTIME",
+            "detail": "python@3.10,python@3.11,python@3.12,python@3.14,python@3.9",
+            "rule": "versioned_family"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "python@3.13",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "python@3.13",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "python@3.13",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.reverse_dependencies_present",
+            "params": {
+              "count": "5",
+              "provider": "homebrew"
+            },
+            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
+          },
+          {
+            "id": "reason.runtime_family_managed_elsewhere",
+            "params": {
+              "family": "python",
+              "managers": "asdf,mise,pyenv"
+            },
+            "rule": "RUNTIME_USE_MANAGER"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "tahoe",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "3.13.15",
+          "dependencyCount": 7,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "python@3.13",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/python@3.13/3.13.15",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.13.15"
+            }
+          ],
+          "name": "python@3.13",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 5
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "sem-cli",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "sem-cli",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "sem-cli",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "0.24.0",
+          "dependencyCount": 6,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "sem-cli",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/sem-cli/0.23.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.23.1"
+            }
+          ],
+          "name": "sem-cli",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "semgrep",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "semgrep",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "semgrep",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "1.176.0",
+          "dependencyCount": 21,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "semgrep",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/semgrep/1.174.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.174.0"
+            }
+          ],
+          "name": "semgrep",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "sonar-scanner",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "sonar-scanner",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "sonar-scanner",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "all",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "8.1.0.6389",
+          "dependencyCount": 28,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "sonar-scanner",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/sonar-scanner/8.1.0.6389",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "8.1.0.6389"
+            }
+          ],
+          "name": "sonar-scanner",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "swiftformat",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "swiftformat",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "swiftformat",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "0.63.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "swiftformat",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/swiftformat/0.62.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.62.1"
+            }
+          ],
+          "name": "swiftformat",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "swiftlint",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "swiftlint",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "swiftlint",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "0.65.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "swiftlint",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/swiftlint/0.65.1",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.65.1"
+            }
+          ],
+          "name": "swiftlint",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "tmux",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "tmux",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "tmux",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "3.7c",
+          "dependencyCount": 7,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "tmux",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/tmux/3.7c",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "3.7c"
+            }
+          ],
+          "name": "tmux",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "tree",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "tree",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "tree",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.3.2",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "tree",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/tree/2.3.2",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.3.2"
+            }
+          ],
+          "name": "tree",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "unzip",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "unzip",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "unzip",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "6.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "unzip",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/unzip/6.0_8",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "8",
+              "version": "6.0_8"
+            }
+          ],
+          "name": "unzip",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "uv",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "uv",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "uv",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
+              "state": "SOURCE_BUILD_REQUIRED"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "no tag offered for this machine",
+                "offline": true,
+                "source": "bottle.stable.files"
+              },
+              {
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
+                "offline": true,
+                "source": "cached metadata index"
+              }
+            ]
+          },
+          "availableVersion": "0.12.10",
+          "dependencyCount": 1,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "uv",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/uv/0.12.5",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "0.12.5"
+            }
+          ],
+          "name": "uv",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "visualdiffer",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "visualdiffer",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "visualdiffer",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "visualdiffer",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "visualdiffer"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "2.2.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "visualdiffer",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/visualdiffer/2.1.21",
+              "kind": "GUI_APP",
+              "version": "2.1.21"
+            }
+          ],
+          "name": "visualdiffer",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "wailbrew",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "wailbrew",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "wailbrew",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "wailbrew",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "wailbrew"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "0.12.1",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "wailbrew",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/wailbrew/0.10.4",
+              "kind": "GUI_APP",
+              "version": "0.10.4"
+            }
+          ],
+          "name": "wailbrew",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "watch",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "watch",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "watch",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "4.0.7",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "watch",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/watch/4.0.7",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "4.0.7"
+            }
+          ],
+          "name": "watch",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "wget",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "wget",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "wget",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "1.25.0",
+          "dependencyCount": 6,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "wget",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/wget/1.25.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "1.25.0"
+            }
+          ],
+          "name": "wget",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "wireshark",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "wireshark",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "wireshark",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "4.6.8",
+          "dependencyCount": 27,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "wireshark",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/wireshark/4.6.8",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "4.6.8"
+            }
+          ],
+          "name": "wireshark",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [
+          "GUI_APP"
+        ],
+        "evidence": [
+          {
+            "class": "GUI_APP",
+            "detail": "wireshark-chmodbpf",
+            "rule": "kind_gui_app"
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "wireshark-chmodbpf",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "wireshark-chmodbpf",
+      "recommendation": {
+        "outcome": {
+          "kind": "MANUAL_REVIEW"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "wireshark-chmodbpf",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          },
+          {
+            "id": "reason.class_requires_review",
+            "params": {
+              "class": "GUI_APP",
+              "package": "wireshark-chmodbpf"
+            },
+            "rule": "MANUAL_REVIEW_CLASS"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "cask: prebuilt by vendor, out of migration scope",
+                "offline": true,
+                "source": "cask"
+              }
+            ]
+          },
+          "availableVersion": "4.6.8",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "wireshark-chmodbpf",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Caskroom/wireshark-chmodbpf/4.6.8",
+              "kind": "GUI_APP",
+              "version": "4.6.8"
+            }
+          ],
+          "name": "wireshark-chmodbpf",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": false,
+            "mechanism": "no_provider_record"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "macports",
+          "source": {
+            "name": "xcodegen",
+            "provider": "homebrew"
+          }
+        }
+      ],
+      "name": "xcodegen",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "homebrew"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "xcodegen",
+              "provider": "homebrew"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "homebrew": {
+          "availability": {
+            "availability": {
+              "state": "BINARY_AVAILABLE"
+            },
+            "cached": true,
+            "evidence": [
+              {
+                "detail": "sonoma",
+                "offline": true,
+                "source": "bottle.stable.files"
+              }
+            ]
+          },
+          "availableVersion": "2.46.0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "xcodegen",
+                "provider": "homebrew"
+              },
+              "installPath": "/usr/local/Cellar/xcodegen/2.46.0",
+              "installedFromPrebuilt": true,
+              "kind": "PACKAGE",
+              "requested": true,
+              "version": "2.46.0"
+            }
+          ],
+          "name": "xcodegen",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "homebrew"
+    }
+  ],
+  "policyReadOn": "2026-09-04",
+  "policyStale": false,
+  "policyVersion": "2026.09.06-1",
+  "providers": {
+    "homebrew": {
+      "capabilities": {
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "state": "AVAILABLE"
+          },
+          "DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "DEPRECATION_STATE": {
+            "state": "AVAILABLE"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "UNKNOWN"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "AVAILABLE"
+          },
+          "OFFLINE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "REQUESTED_RECORD": {
+            "state": "AVAILABLE"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "SERVICE_METADATA": {
+            "state": "AVAILABLE"
+          }
+        }
+      },
+      "detection": {
+        "architecture": "x86_64",
+        "executable": "/usr/local/bin/brew",
+        "prefix": "/usr/local",
+        "presence": {
+          "state": "PRESENT"
+        },
+        "provider": "homebrew",
+        "version": "6.0.22"
+      },
+      "guiAppCount": 9,
+      "packageCount": 201,
+      "support": {
+        "endDate": "2027-09-01",
+        "entry": "hb-x86_64-tier3-with-stated-end",
+        "fact": {
+          "readOn": "2026-09-04",
+          "source": "https://docs.brew.sh/Support-Tiers"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "tier3",
+        "tier": "DEGRADED"
+      },
+      "topLevelCount": 49
+    },
+    "macports": {
+      "capabilities": {
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "reason": "network_required_ports_macports_builds_api",
+            "state": "UNAVAILABLE"
+          },
+          "DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "DEPRECATION_STATE": {
+            "state": "AVAILABLE"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "AVAILABLE"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "AVAILABLE"
+          },
+          "OFFLINE_METADATA": {
+            "state": "AVAILABLE"
+          },
+          "REQUESTED_RECORD": {
+            "state": "AVAILABLE"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "AVAILABLE"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          }
+        }
+      },
+      "detection": {
+        "architecture": null,
+        "executable": "/opt/local/bin/port",
+        "prefix": "/opt/local",
+        "presence": {
+          "state": "PRESENT"
+        },
+        "provider": "macports",
+        "version": "2.12.6"
+      },
+      "guiAppCount": 0,
+      "packageCount": 0,
+      "support": {
+        "entry": "mp-x86_64-build-farm-with-installer",
+        "fact": {
+          "readOn": "2026-09-02",
+          "source": "https://guide.macports.org/chunked/installing.macports.html"
+        },
+        "prebuiltArtifacts": true,
+        "providerLabel": "build-farm",
+        "tier": "SUPPORTED"
+      },
+      "topLevelCount": 0
+    }
+  },
+  "schemaVersion": 1,
+  "snapshotProvenance": {
+    "capturedAt": "<captured-at>",
+    "capturedBy": "macportsbrew --replay",
+    "origin": "captured"
+  },
+  "source": "SNAPSHOT",
+  "summary": {
+    "byOutcome": {
+      "KEEP": 41,
+      "MANUAL_REVIEW": 16,
+      "USE_RUNTIME_MANAGER": 1
+    },
+    "dependencyUnits": 0,
+    "manualReview": 16,
+    "topLevelUnits": 58
+  },
+  "today": "2026-09-02",
+  "toolVersion": "0.1.0"
+}

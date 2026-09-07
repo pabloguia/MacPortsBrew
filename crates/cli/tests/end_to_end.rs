@@ -1731,13 +1731,37 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // a missing key to `Elevation::Unknown`, which the summary then rendered as
     // "would need administrator rights".
     //
-    // Two things fix it and this asserts both. The elevation is stated in the
-    // data now rather than reached by omission; and where the honest answer is
-    // `unknown` - MacPorts is not installed on the machine this was researched
-    // on and its documentation does not settle it - the summary says it is not
-    // known instead of saying you will be asked for a password. Under INV-06
-    // the harm was never the fold toward caution, it was training someone to
+    // Two things fixed it. The elevation is stated in the data rather than
+    // reached by omission; and where the answer is not known, the summary says
+    // so instead of saying you will be asked for a password. Under INV-06 the
+    // harm was never the fold toward caution, it was training someone to
     // approve a prompt for a read.
+    //
+    // **Updated 2026-09-06.** This test used to assert that step 3 carried
+    // `elevation unknown`, because MacPorts was not installed on the machine
+    // the research was done on and its documentation did not settle it. It is
+    // installed now: `port -q installed` runs as a non-root user and exits 0,
+    // the registry is world-readable, and the data says `none` with that
+    // observation as its source (F-24). So the honest answer changed, and the
+    // assertion has to change with it or it asserts the old world.
+    //
+    // **This test is the rendering check and nothing more.** An earlier version
+    // of this rewrite claimed it asserted INV-06 "more strongly than before".
+    // That was false, and `spec-guardian` proved it by mutation: flipping one
+    // provider's `verify` cell to `required` makes the binary print "Steps that
+    // need administrator rights: 3, 6" with step 3 a read, and every test in
+    // the repository stayed green. The invariant itself is now asserted where
+    // it is a property of the plan rather than of a string - in
+    // `macportsbrew-application`, `invariant_06_a_step_whose_job_is_to_read_
+    // never_elevates`, which fails under that mutation. What remains here is
+    // that the *renderer* does not turn a non-elevating read into a password
+    // prompt, and that a genuine elevation is still reported.
+    //
+    // One thing was lost and is recorded rather than papered over: with the
+    // last reachable `unknown` gone, the renderer's "Steps where it is not
+    // known" branch is no longer reachable through any plan, so nothing
+    // exercises it. Manufacturing an `unknown` to keep that green would test a
+    // path no user can reach. See F-24's closure note and F-35.
     let scratch = Scratch::new("f10-elevation");
     let path = fixture("both-providers-arm64-macos15");
     let path = path.to_str().expect("fixture path is UTF-8");
@@ -1754,30 +1778,17 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
         .find(|l| l.contains("-q installed htop"))
         .expect("the verify step names its command");
     assert!(
-        verify.contains("elevation unknown"),
-        "the verify command should carry the unknown elevation it was given: {verify}"
+        !verify.contains("elevation required"),
+        "a read must never be annotated as elevating: {verify}"
     );
 
-    let summary: Vec<&str> = text
-        .lines()
-        .filter(|l| l.contains("administrator rights"))
-        .collect();
-    assert_eq!(
-        summary.len(),
-        1,
-        "expected exactly one elevation summary line, got {summary:?}"
-    );
-    assert!(
-        summary[0].starts_with("Steps where it is not known"),
-        "a step whose elevation is unknown must not be summarised as needing \
-         administrator rights: {}",
-        summary[0]
-    );
-    assert!(
-        summary[0].contains('3'),
-        "the verify step is the one that is unknown here: {}",
-        summary[0]
-    );
+    // Deliberately *not* `summary.is_empty()`. That was this rewrite's second
+    // mistake: this direction happens to have no elevating step only because
+    // htop is already installed under MacPorts in this fixture, so
+    // ADD_DESTINATION emits no command at all. Recapture the fixture with htop
+    // absent and the destination's add verb appears, `required` with it, and a
+    // test named after INV-06 fails on a plan that is entirely correct. The
+    // property is about the verify step's own annotation, asserted above.
 
     // And the other direction, because the branch that reports a *real*
     // elevation was rewritten by the same change and nothing asserted it. A bug
@@ -1808,15 +1819,17 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
         1,
         "one summary line in this direction: {reverse:?}"
     );
-    assert!(
-        reverse[0].starts_with("Steps that need administrator rights"),
-        "a step that genuinely elevates must be reported as one: {}",
-        reverse[0]
-    );
-    assert!(
-        reverse[0].chars().any(|c| c.is_ascii_digit()),
-        "the line names the step: {}",
-        reverse[0]
+    // The **exact** line, not "starts with the right words and contains some
+    // digit". Those two assertions passed unchanged under the mutation that
+    // added a read to this list, because "3, 6" starts identically and still
+    // contains a digit. Step 6 is REMOVE_SOURCE and is the only step in this
+    // direction that genuinely elevates; naming it is what makes the assertion
+    // able to fail.
+    assert_eq!(
+        reverse[0].trim(),
+        "Steps that need administrator rights: 6.",
+        "only the removal elevates in this direction; any other step appearing \
+         here is a read being presented as a password prompt (INV-06)"
     );
 }
 

@@ -66,8 +66,8 @@ set_primary_gui_app = "none"
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md"
-read_on = "2026-09-04"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local, zero ports installed: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24)"
+read_on = "2026-09-06"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
 # called one of these is not a package: removing the set named `installed` is
@@ -99,19 +99,46 @@ remove = "required"
 # reaches an elevation value by omission.
 add_gui_app = "unknown"
 remove_gui_app = "unknown"
-# UNRESOLVED, and recorded as such rather than guessed. `port -q installed`
-# reads the registry at ${portdbpath}/registry/registry.db, whose *directory* is
-# root:admin 0755 (macports-base `doc/base.mtree.in`; guide.macports.org §6.5,
-# read 2026-09-04) - but the database file's own mode is documented nowhere and
-# is created by a bare `sqlite3_open` with no chmod, so it is umask-dependent.
-# `port(1)` makes no general privilege statement. The evidence points at "no
-# elevation" - the guide prints `port installed portname` unprefixed two lines
-# above a `sudo port activate`, and `action_installed` is not among the callers
-# of `prefix_unwritable` - but pointing is not stating. MacPorts is not
-# installed on this machine, so this is citation-only (R-5a). Runtime capability
-# detection is the real answer here; INV-20 says detection wins over stored
-# knowledge.
-verify = "unknown"
+# Observed 2026-09-06, and no longer a citation. MacPorts 2.12.6 was installed
+# on this machine (macOS 26.6.2 build 25G83, x86_64, default prefix /opt/local,
+# zero ports installed), and R-5a UNRESOLVED-1's two commands were run as the
+# non-root user:
+#
+#   stat -f '%Su %Sg %Sp %N' .../registry .../registry/registry.db
+#     -> root wheel drwxr-xr-x  registry
+#     -> root wheel -rw-r--r--  registry.db
+#   port -q installed          -> exit 0, empty
+#   port -q installed <port>   -> exit 0, empty
+#
+# So reading the registry needs no elevation, and R-5a UNRESOLVED-2 - the
+# database file's mode, undocumented and umask-dependent - is 0644 on a default
+# install. The evidence R-5a called "pointing but not stating" pointed the right
+# way.
+#
+# One divergence worth keeping: R-5a cites the registry *directory* as
+# root:admin 0755 from macports-base `doc/base.mtree.in`. Observed here it is
+# root:**wheel**. The mode matches; the group does not. Only one machine, so
+# this is recorded rather than generalised.
+#
+# The observation is carried in this entry's `source` field and `read_on`, not
+# only in this comment: INV-20 wants provenance in a field, and the loader checks
+# fields. `read_on` is the newest read in the entry, which is now this
+# observation; the documentation citations beside it are still dated 2026-09-04
+# and the `source` string says which part is which. Per-cell provenance would be
+# better - Homebrew's `verify` cell wants it too - and is a schema change, so it
+# is recorded rather than improvised (F-35).
+#
+# **The positive case was not observed.** With zero ports installed, every
+# command above exercised the *not-installed* path. What `port -q installed
+# <name>` prints and exits for a port that is installed is unknown here, and
+# F-33 is the finding that turns on it. The file-mode evidence carries the
+# elevation answer regardless: reading a 0644 file owned by root needs no
+# privilege whatever the output says.
+#
+# Runtime capability detection remains the real answer (INV-20: detection wins
+# over stored knowledge). One machine is a better default than `unknown`, not a
+# substitute for detecting.
+verify = "none"
 # MacPorts has no GUI-application package kind, as `add_gui_app` above already
 # records. Stated so the planner never reaches a value by omission.
 verify_gui_app = "unknown"

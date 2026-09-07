@@ -2279,19 +2279,29 @@ change is made. Silent deviation remains the one unrecoverable error.
 
 ---
 
-# Proposed by 02-ARCHITECTURE-REVIEW, not yet accepted
+# Raised by 02-ARCHITECTURE-REVIEW — accepted, awaiting filing under SE-032
 
-These six entries are `Status: proposed`. SE-051 was a seventh and has moved
-to *Domain and safety*: one of its three parts is built, and this section's own
-rule is that an accepted entry merges into its topical section keeping its
-identifier. They are grouped rather than filed
-under their topics **deliberately and temporarily**: a proposal that sits beside
-accepted rationale reads as settled, and these need triaging as a set. On
-acceptance each merges into its topical section above under SE-032, keeping its
-identifier. On rejection the entry stays, because a rejection is the current
-rationale for something's absence.
+**All 20 entries below are `Status: accepted`.** None is proposed.
 
-Evidence for all eleven is in
+The heading and the two counts said otherwise until 2026-09-05: it read
+"not yet accepted", claimed "these six entries are `Status: proposed`", and
+then cited "all eleven". Four mutually inconsistent statements about the same
+block — and the harm ran the wrong way from the section's stated purpose. That
+purpose was that "a proposal that sits beside accepted rationale reads as
+settled"; what had happened was the inverse. Twenty settled decisions, four of
+them owner Tier-2 rulings (SE-044/DP-011, SE-046/DP-012, SE-067/DP-008,
+SE-071/DP-014), sat under a heading announcing they were not. An agent
+following `CLAUDE.md`'s instruction to read this file "so you do not reopen
+settled ground" would have reopened exactly that ground.
+
+**Outstanding, and deliberately visible rather than silently done:** SE-032
+requires each of these to merge into its topical section above, keeping its
+identifier. That merge has not happened for any of the twenty. It is a
+mechanical edit across a long file, so it belongs to a pass that can verify the
+result rather than to the correction that found the discrepancy. Until it does,
+read this section as part of the accepted record, not as a queue.
+
+Evidence for all twenty is in
 [`passes/02-ARCHITECTURE-REVIEW-findings.md`](passes/02-ARCHITECTURE-REVIEW-findings.md),
 finding ids in each entry.
 
@@ -2728,22 +2738,57 @@ finding ids in each entry.
   the effect is to teach someone to approve a password prompt for a read. That is
   the habit the invariant exists to prevent, and it is trained by exactly this
   kind of sentence.
-- **Two of the four cells are `unknown`, and that is the answer, not a gap.**
-  Homebrew's `verify` is `none` on evidence rather than inference: `list` is
+- **Homebrew's `verify` is `none` on evidence rather than inference:** `list` is
   absent from the exemption list in `check-run-command-as-root` in the shipped
-  `brew.sh`, so `sudo brew list` *aborts* — Homebrew 6.0.21, `Homebrew/brew` HEAD
-  `560147012b9678b42ef5e83b690f0895552d1366`, observed 2026-09-04. MacPorts is not
-  installed on this machine and its documentation does not settle it: the registry
-  *directory* is `root:admin 0755`, but the database file's own mode is documented
-  nowhere and is created by a bare `sqlite3_open` with no `chmod`, so it is
-  umask-dependent. The evidence points at "no elevation" — the guide prints
-  `port installed portname` unprefixed two lines above a `sudo port activate`, and
-  `action_installed` is not among the callers of `prefix_unwritable` — but
-  pointing is not stating, and a confident `none` here would be a guess wearing a
-  citation. INV-20 already says runtime detection wins over stored knowledge; this
-  is a cell where it will have to — and F-24 is filed so that the executor pass
-  cannot ship without answering it, because three statements of intent and no
-  artefact is how a deferral becomes a decision nobody made.
+  `brew.sh`, so running it as root *aborts* — Homebrew 6.0.21, `Homebrew/brew`
+  HEAD `560147012b9678b42ef5e83b690f0895552d1366`, observed 2026-09-04.
+- **MacPorts' `verify` was `unknown`, and is now `none` on an observation.**
+  *Merged 2026-09-06 under SE-032; the paragraph this replaces is kept in
+  summary because the reasoning is what makes the change legible.* This entry
+  used to argue, at length and in the present tense, that `unknown` was "the
+  answer, not a gap" — MacPorts was not installed on the machine, its
+  documentation did not settle whether reading the registry elevates, the
+  database file's mode was undocumented and umask-dependent, and "a confident
+  `none` here would be a guess wearing a citation". Every one of those sentences
+  was true when written and three of them are no longer.
+
+  MacPorts 2.12.6 was installed on 2026-09-06 (macOS 26.6.2 build 25G83,
+  `/opt/local`, zero ports installed), and R-5a's UNRESOLVED-1 named exactly
+  what would settle it. As the non-root user, `port -q installed` exits 0 with
+  no output, and `registry.db` is `-rw-r--r-- root wheel` — 0644. So the
+  evidence that "pointed but did not state" pointed the right way, the cell is
+  `none`, and the observation lives in the entry's `source` and `read_on`
+  fields rather than in a comment, because INV-20 wants provenance in a field.
+  Policy version moves to `2026.09.06-1`.
+
+  Two things did **not** change and are the reason F-24 was split rather than
+  closed. INV-20 still says runtime detection wins over stored knowledge, and no
+  artefact implements detection for this cell — that obligation is now **F-35**,
+  so it keeps an identifier that is actually open instead of living inside a
+  section headed "closed". And the observation was of an *empty* registry: what
+  the verify command prints for a port that **is** installed is still unknown,
+  which is **F-33** — `port installed` exits 0 whether or not the port is there,
+  so a `VERIFY_DESTINATION` cannot fail on exit status.
+
+  One divergence recorded on the way: R-5a cites the registry directory as
+  `root:admin 0755`; observed it is `root:wheel`. Mode matches, group does not.
+- **The invariant test named in this entry was rewritten, and the first rewrite
+  was wrong.** *2026-09-06.* Making the cell `none` removed the last reachable
+  `Elevation::Unknown`, so `invariant_06_a_read_is_never_summarised_as_needing_administrator_rights`
+  could no longer assert the rendering it was built around. The replacement
+  claimed in its own comment to assert INV-06 "more strongly than before";
+  `spec-guardian` disproved that by mutation — flipping Homebrew's `verify` to
+  `required` makes the binary print "Steps that need administrator rights: 3, 6"
+  with step 3 a read, and the whole suite stayed green, before *and* after the
+  rewrite. The hole was pre-existing; documenting it as fixed was not.
+
+  INV-06 is now asserted where it is a property of the plan rather than of a
+  string: `invariant_06_a_step_whose_job_is_to_read_never_elevates` in
+  `macportsbrew-application` walks both directions and refuses any
+  `Elevation::Required` or `Unknown` on a command inside a verification step.
+  The CLI test keeps the rendering half and pins the **exact** summary line,
+  because "starts with the right words and contains a digit" passed the mutation
+  unchanged. Both were confirmed red under it rather than reasoned about.
 - **An `UNKNOWN` is described as unknown and *treated* as elevating.** Those are
   different questions and the split answers only the first. `elevated_steps` is
   unchanged — Required ∪ Unknown — and it is what an executor gates consent on,
@@ -3571,3 +3616,162 @@ finding ids in each entry.
   provider now touches a data file as well as the registry, which the
   `add-provider` recipe should say.
 - Compatibility impact: none.
+
+---
+
+# Raised by the 2026-09-05 security and specification review
+
+## SE-072 — The enforcement layer was enforced against the tool call's spelling, not against the artifact
+- Status: accepted
+- Date / Pass: 2026-09-05 / out-of-pass review (Cowork), applied the same day
+- Original assumption: `.claude/settings.json` and the two `PreToolUse` guards
+  enforce chapter 11's four stated purposes — no elevation, no mutating
+  `brew`/`port`, no writes into a provider prefix or shell configuration, no
+  silent toolchain change.
+- Change: eleven defects fixed, each with a case in
+  `.claude/hooks/test-hooks.sh` (44 new assertions, all of which failed before
+  the fix). The load-bearing ones:
+
+  1. **The parser failed open on unreadable input.** `jq` on empty or
+     whitespace-only stdin has no inputs to process: it exits 0 printing
+     nothing, which `mpb_json_field` returned as "the field is absent" and the
+     guards read as "no command to check". The `python3` branch already failed
+     closed, so the fail-closed property this chapter states as a MUST
+     depended on which parser the machine happened to have — and `jq` is
+     preferred, so the common case was the failing one. `null` and a top-level
+     array had the same shape.
+  2. **Writes into a provider prefix were enforced for `Edit` and `Write` only.**
+     A deny rule on a path does not reach a subprocess, and the Bash guard had
+     no prefix rule at all, so `cp target/release/macportsbrew
+     /opt/homebrew/bin/` — the obvious way to try a fresh build against the
+     real system — was allowed, as were `ln -sf`, `install -m 755`, `mkdir -p`,
+     `tee` and a redirect into `/etc/paths.d`. Reading *out* of a prefix stays
+     allowed: it is how a fixture is captured, so the rule matches a prefix in
+     a destination position rather than anywhere in the command.
+  3. **The toolchain pin had no guard at all.** Every defence was a matcher on
+     the `rustup` command, and that rule's own deny message tells the agent to
+     "change the pin in the file" instead. Editing `channel` makes the next
+     `cargo` invocation fetch and use a different compiler, so the macOS floor
+     ADR-0002 calls a product commitment moved with no denied command anywhere.
+  4. **The control did not protect itself.** `.claude/hooks/`,
+     `.claude/settings.json`, `scripts/validate.sh`, `scripts/check-*.sh` and
+     `.github/workflows/` were all editable from inside the session they
+     constrain. The gate can detect that its own path changed; it cannot
+     prevent it. `MPB_ALLOW_GUARD_EDIT=1` is now the disclosed escape, on the
+     same terms as `MPB_SKIP_STOP_GATE`.
+  5. **In-place editors were matched on their least likely spelling.**
+     `sed -i ''` was tested; `sed -i.bak` — the form chosen when a backup is
+     wanted, i.e. the safety-minded instinct — and `perl -pi -e`, the commonest
+     idiom there is, both walked past.
+  6. **Subcommand aliases.** `brew ln` (that is `link`), `brew up` (`update`),
+     `brew instal`, `port unarchive` and `rustup update` are all real
+     spellings the hand-written alternation missed.
+  7. **`crates/*/tests/` was exempt from every static scan, and `cargo test*`
+     is allow-listed.** The one directory permitted to contain the word
+     "install" was the one whose code runs against the developer's real
+     machine. `check-no-shell.sh` now refuses a test that spawns a program
+     named by a string literal: every legitimate end-to-end test spawns this
+     crate's own binary through `env!("CARGO_BIN_EXE_…")`, never a literal.
+  8. **`mpb_realpath` fell back to returning its input**, which is an identity
+     function wearing a guard's name: on a jq-only machine with BSD `readlink`
+     — this project's own target — a symlinked parent directory reached the
+     caller unresolved.
+  9. **The unattended boundary was a comment.** Chapter 11's MUST NOT about
+     unattended runs resolving a `decisions-pending` item was asserted in
+     `claude.yml` and enforced nowhere. Both workflows now set
+     `MPB_UNATTENDED=1` and the path guard reads it; interactive sessions keep
+     the documented `/decision-pending` flow.
+  10. **`Bash(git push *)` needed an argument**, so a bare `git push` — the form
+      that pushes to a tracked upstream, and the likeliest accident — matched
+      nothing, while `CLAUDE.md` listed it among the boundaries the hooks block
+      "a second time" and no hook matched it either. SE-025 applied exactly this
+      reasoning to `su`; it was not carried across.
+  11. **`Bash(brew sh*)` is a prefix glob**, so it also denied `brew shellenv` —
+      read-only, and the documented way to discover the prefix. Deny cannot be
+      overridden by allow, so it was permanently blocked.
+
+  Also: `~/.homebrew` (Homebrew's supported non-admin prefix, present on this
+  developer's machine) was not a prefix to the path guard, and `case` was
+  case-sensitive on a case-insensitive volume; the Stop gate's `cd "$ROOT" ||
+  exit 0` skipped every check silently on a bad `CLAUDE_PROJECT_DIR`; the
+  `MPB_SKIP_STOP_GATE` escape left no trace at all; and the gate's failure
+  message embedded absolute `/Users/<name>/…` paths that reach a committed pass
+  report, which `06-cli-and-ux.md` forbids for `doctor --report`.
+
+- Rationale: chapter 11's governing sentence is that anything an agent must not
+  do is enforced by a mechanism rather than a sentence. These are the places
+  where a mechanism existed and did not reach. The pattern across all eleven is
+  one thing: the layer was written against *how a tool call is spelled* and the
+  artifacts it protects are reachable by spellings nobody enumerated —
+  `Bash` being the tool that reaches an artifact without naming it. Nothing here
+  changes what the chapter promises; it closes the distance between the promise
+  and the configuration.
+- Evidence: every case was executed against the guards before and after, on the
+  real repository, and each is now an assertion in `test-hooks.sh`, which runs
+  on both the Linux and macOS legs of `repository-validation.yml`. Claude Code's
+  permissions, hooks, skills and github-actions pages re-read 2026-09-05 to
+  settle three syntax questions the review raised: `Bash(cargo test:*)` and
+  `Bash(cargo test *)` are equivalent (the `:*` suffix is a documented trailing
+  wildcard), `${CLAUDE_PROJECT_DIR}` does expand inside an `allowed-tools` Bash
+  rule, and `id-token: write` is required by the action's default GitHub App
+  authentication — so the review's proposal to remove it as unused is
+  **rejected**, and the reason is now recorded in the workflow.
+- User impact: none. The product is unchanged.
+- Architectural impact: none on the product. Two new disclosed escape hatches
+  (`MPB_ALLOW_GUARD_EDIT`, `MPB_UNATTENDED`) and two new checks
+  (`scripts/check-memory-files.sh`; a toolchain-pin consistency check in
+  `check-action-pins.sh`, because the pin was written in four places under a CI
+  step named "pinned by rust-toolchain.toml").
+- Cost accepted, and the one to watch: a session can no longer edit its own
+  guards without the human starting it with `MPB_ALLOW_GUARD_EDIT=1`. That is
+  friction on real maintenance, and it is deliberate — but it is also the third
+  guard-friction item in a row (see the false positives reported by three
+  consecutive passes), and the pattern that eventually produces a workaround
+  that is not honest about itself. If it bites, the answer is a narrower rule
+  discussed with the owner, not a reworded command.
+
+## SE-073 — Four documentation claims that were not true, and one section that contradicted itself
+- Status: accepted
+- Date / Pass: 2026-09-05 / out-of-pass review (Cowork)
+- Original assumption: the specification describes the configuration.
+- Change:
+  - The `Raised by 02-ARCHITECTURE-REVIEW` section header said "not yet
+    accepted", claimed "these six entries are `Status: proposed`", and then
+    cited "all eleven". It holds **twenty** entries and **every one is
+    accepted**, four of them owner Tier-2 rulings. The harm ran opposite to the
+    section's stated purpose: settled decisions read as unsettled, so an agent
+    following `CLAUDE.md`'s instruction to read this file "so you do not reopen
+    settled ground" would reopen exactly that ground. Header and counts
+    corrected; the outstanding SE-032 merge of all twenty into their topical
+    sections is named there as outstanding rather than done quietly.
+  - Chapter 11 claimed `.claude/settings.json` denies "system security tools";
+    it denied `launchctl` and `chsh` only, with `csrutil`, `spctl` and
+    `systemsetup` living in the hook alone. Added.
+  - Two rows of the deny→invariant table were justified by invariants that do
+    not say what the row needs: prefix writes cited INV-07/INV-08, which are
+    about one provider satisfying the other's dependency, and `chsh` cited
+    INV-19, which is about stateful packages. `10-first-pass-work-order.md`
+    step 21 makes "the deny rules still map to live invariants" an acceptance
+    item, so a rule justified by the wrong invariant is a rule that gets deleted
+    when that invariant is reworded. Both now cite the rule they actually defend.
+  - `provider-researcher` was described as "read-only by construction" in
+    chapter 11 and "never mutates anything" in its own brief, while holding
+    `Write` and `Edit` — necessarily, since writing the note is its job. The
+    grant is right; the words were not, in a project whose standard is that a
+    claim about a mechanism must be true.
+  - `AGENTS.md` was 202 lines against a MUST of "under 200" — trivial in
+    consequence, and the point is that the number was stated to be checkable
+    and nothing checked it. `scripts/check-memory-files.sh` now does, and also
+    asserts that `CLAUDE.md` still imports `@AGENTS.md`, without which the
+    tool-neutral document is authoritative in the specification and nowhere else.
+  - `prompts/02-ARCHITECTURE-REVIEW-PASS.md` §4 was missing the
+    `/tooling-recheck` bullet that the template and the other work orders
+    carry, so the 02 pass ran without it and chapter 11's read date went stale.
+    Both fixed.
+- Rationale: each of these is small. Together they are the failure mode this
+  repository is most exposed to — documentation that describes an intention as
+  though it were a mechanism — and the one it can least afford, because the
+  documents are how the next agent decides what it may rely on.
+- Evidence: each claim checked against the file it describes; counts and line
+  numbers taken by running the check, not by reading.
+- User impact: none. Architectural impact: none.

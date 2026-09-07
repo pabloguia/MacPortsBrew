@@ -1298,3 +1298,52 @@ fn invariant_19_stateful_and_service_packages_are_never_planned_blind() {
         .unwrap();
     assert_eq!(unit.recommendation.outcome, Outcome::ManualReview);
 }
+
+#[test]
+fn invariant_06_a_step_whose_job_is_to_read_never_elevates() {
+    // INV-06 stated where it is a property of the *plan*, not of a rendering,
+    // and asserted in both directions because the data differs per provider
+    // while the code does not (INV-17).
+    //
+    // The CLI test of the same name checks that the summary does not *present*
+    // a read as elevating. `spec-guardian` showed by mutation that this is not
+    // enough: flip one provider's `verify` elevation cell to `required` and the
+    // binary prints "Steps that need administrator rights: 3, 6" with step 3 a
+    // read - INV-06's exact failure, rendered to a user - while every test in
+    // the repository stays green. This assertion fails on that mutation, which
+    // was confirmed by making it and watching this test go red rather than by
+    // reasoning that it would.
+    //
+    // The property is about a step's *job*, not about the plan as a whole. A
+    // plan may legitimately contain elevating steps, so "nothing here elevates"
+    // would be a claim about the fixture. A verification step reads, and a read
+    // never needs administrator rights.
+    let mut checked = 0usize;
+    for (source, to, package) in [(HB, MP, "gnu-sed"), (MP, HB, "gsed")] {
+        let plan = plan_for(&install_needed(source), package, to, false);
+        for step in &plan.steps {
+            if !matches!(
+                step.kind,
+                StepKind::VerifyDestination | StepKind::VerifyResolution | StepKind::VerifyRemoval
+            ) {
+                continue;
+            }
+            for command in &step.commands {
+                checked += 1;
+                assert!(
+                    matches!(command.elevation, Elevation::None),
+                    "{source} -> {to}: {:?} runs `{}` and claims elevation {:?}; a step whose \
+                     job is to read must never need administrator rights (INV-06)",
+                    step.kind,
+                    command.argv.join(" "),
+                    command.elevation
+                );
+            }
+        }
+    }
+    assert!(
+        checked >= 2,
+        "a verification command must have been examined in each direction, or \
+         this test passes by looking at nothing: {checked}"
+    );
+}

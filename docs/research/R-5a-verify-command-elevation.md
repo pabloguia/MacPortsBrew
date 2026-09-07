@@ -701,24 +701,60 @@ Editing `data/policy/provider-commands.toml` also means bumping `version` in
 `data/policy/policy.toml` per `.claude/rules/policy-data.md`; this note does not
 do either.
 
+## Answered since this note was written
+
+- **UNRESOLVED-1 — ANSWERED 2026-09-06 by observation. `port -q installed` needs
+  no elevation.** MacPorts 2.12.6 was installed on this machine (macOS 26.6.2
+  build 25G83, x86_64, default prefix `/opt/local`, zero ports installed), and
+  the two commands this note named were run verbatim as the non-root user:
+
+  ```
+  stat -f '%Su %Sg %Sp %N' /opt/local/var/macports/registry \
+      /opt/local/var/macports/registry/registry.db
+    root wheel drwxr-xr-x /opt/local/var/macports/registry
+    root wheel -rw-r--r-- /opt/local/var/macports/registry/registry.db
+
+  port -q installed          -> exit 0, no output
+  port -q installed zlib     -> exit 0, no output
+  ```
+
+  `data/policy/provider-commands.toml` now carries `verify = "none"` for
+  MacPorts, with the observation in the entry's `source` field and `read_on`
+  rather than only in a comment. The evidence this note called "pointing but not
+  stating" pointed the right way.
+
+  **F-24 is closed for the stored value and not for what it was about.** The
+  finding's complaint was that three places name runtime capability detection as
+  the real answer and no artefact implements any of them. An observation on one
+  machine improves the default; it does not build the detection path, and INV-20
+  still says detection wins over stored knowledge. That surviving obligation is
+  **F-35**, so it keeps an identifier of its own instead of living inside a
+  section headed "closed". The recommendation below therefore stands unchanged
+  and is not superseded.
+
+  **The positive case was not observed.** Zero ports were installed, so every
+  command above exercised the *not-installed* path. What `port -q installed
+  <name>` prints and exits for a port that *is* installed is still unknown here
+  — see F-33, which turns on exactly that. The elevation answer does not depend
+  on it: reading a 0644 file owned by root needs no privilege whatever the
+  output says.
+
+- **UNRESOLVED-2 — ANSWERED for the default case, 2026-09-06: `registry.db` is
+  `0644`.** Observed above. The note's own caveat survives rather than being
+  dropped: the mode comes from a bare `sqlite3_open` with no `chmod`, so it is
+  umask-dependent and one machine does not generalise. What is established is
+  that the *default* install is world-readable, which is the case the adapter
+  meets on an ordinary machine. The general question — an upstream change fixing
+  the mode, or documentation of it — stays open below.
+
+  **One divergence found while answering it.** This note cites the registry
+  *directory* as `root:admin 0755` from macports-base `doc/base.mtree.in`.
+  Observed here it is `root:`**`wheel`**` 0755`. The mode matches; the group does
+  not. Recorded rather than generalised — one machine, one MacPorts version —
+  but it is the sort of citation that goes stale silently, exactly as this
+  note's last section warns about the MacPorts guide carrying no review date.
+
 ## Cannot determine
-
-- **UNRESOLVED-1 — whether `port -q installed <portname>` needs elevation.**
-  No MacPorts document states it (E6, E8), and MacPorts is not installed here.
-  *What would settle it:* on a machine with a default MacPorts install, as a
-  non-root user — `stat -f '%Su %Sg %Sp %N' /opt/local/var/macports/registry
-  /opt/local/var/macports/registry/registry.db`, then
-  `port -q installed <someport>` and its exit status. Alternatively an official
-  sentence saying which actions require root. Until then the adapter should
-  answer this by runtime capability detection (attempt the read, report
-  `CapabilityState::Unknown` rather than `Available` if it cannot), and the
-  data file should say `unknown`.
-
-- **UNRESOLVED-2 — the mode of `registry.db`.** Not documented (E7), not set by
-  MacPorts' code (E9), therefore umask-dependent. Even a single observation on
-  one machine would not generalise; this is a per-machine fact and belongs to
-  detection. *What would settle the general question:* an upstream change that
-  fixes the mode explicitly, or documentation of it.
 
 - **Apple Silicon not observed.** Findings 1–4 are `/usr/local` on Intel. The
   root refusal (E5) is architecture-independent source, so finding 1 and 3

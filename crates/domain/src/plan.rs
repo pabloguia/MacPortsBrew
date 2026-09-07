@@ -576,6 +576,76 @@ mod tests {
         }
     }
 
+    /// A command carrying one elevation and nothing else that matters here.
+    fn cmd(elevation: Elevation) -> PlanCommand {
+        PlanCommand {
+            target: CommandTarget::Provider,
+            program: "/p/bin/x".into(),
+            argv: vec!["read".into()],
+            environment: BTreeMap::new(),
+            elevation,
+            placeholder: false,
+        }
+    }
+
+    #[test]
+    fn an_unknown_elevation_is_reported_separately_from_a_required_one() {
+        // `steps_with_unknown_elevation` had **no test at all** - zero
+        // references outside its one call site in the renderer - in a crate
+        // carrying a 95% coverage floor (F-36, raised by `spec-guardian`).
+        //
+        // It became untested rather than started that way: the only reachable
+        // `unknown` in the shipped data was MacPorts' `verify`, and observing
+        // that it needs no elevation turned it into a `none` (F-24). No plan
+        // built from today's data can produce an `Unknown`, so the renderer arm
+        // and its locale key are now exercised by nothing. They are not
+        // unreachable: a provider present in `registry.rs` with no row in
+        // `provider-commands.toml` yields `Unknown` on every command, and
+        // nothing asserts that cannot happen.
+        //
+        // Constructed rather than planned, deliberately. A test that had to
+        // manufacture a fake provider entry to reach this would be asserting
+        // the planner's behaviour; this asserts the domain's, which is where
+        // the method lives and where the property is total.
+        let mut required = step(1, StepKind::AddDestination);
+        required.commands = vec![cmd(Elevation::Required {
+            reason: "the prefix is not user-writable".into(),
+        })];
+        let mut unknown = step(2, StepKind::VerifyDestination);
+        unknown.commands = vec![cmd(Elevation::Unknown)];
+        let mut plain = step(3, StepKind::RecordHistory);
+        plain.commands = vec![cmd(Elevation::None)];
+
+        let p = plan(vec![required, unknown, plain]);
+
+        assert_eq!(
+            p.steps_with_unknown_elevation(),
+            vec![2],
+            "only the step whose command is Unknown belongs here"
+        );
+        assert_eq!(
+            p.steps_requiring_elevation(),
+            vec![1],
+            "and it must not appear among the steps that definitely elevate"
+        );
+
+        // The disjointness the doc comment claims, asserted rather than
+        // described: a step whose commands are *both* is required, not unknown,
+        // because "we know this one elevates" outranks "we do not know about
+        // that one" when deciding what to warn a user about.
+        let mut both = step(1, StepKind::AddDestination);
+        both.commands = vec![
+            cmd(Elevation::Unknown),
+            cmd(Elevation::Required { reason: "r".into() }),
+        ];
+        let p = plan(vec![both]);
+        assert_eq!(p.steps_requiring_elevation(), vec![1]);
+        assert!(
+            p.steps_with_unknown_elevation().is_empty(),
+            "the two lists are disjoint by construction"
+        );
+    }
+
     fn plan(steps: Vec<MigrationStep>) -> MigrationPlan {
         MigrationPlan {
             schema_version: PLAN_SCHEMA_VERSION,
