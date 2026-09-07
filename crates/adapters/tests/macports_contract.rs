@@ -14,7 +14,7 @@ use macportsbrew_adapters::macports::{
     archive_query_url, availability, service, MacPortsAdapter, ARCHIVE_QUERY_URL_FORMAT,
     PROVIDER_ID, REQUESTED_MECHANISM, REVERSE_DEPENDENCY_MECHANISM,
 };
-use macportsbrew_adapters::process::{Recording, ReplayRunner};
+use macportsbrew_adapters::process::{sanitised_environment, Recording, ReplayRunner};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::ownership::classify_ownership;
 use macportsbrew_domain::{
@@ -48,6 +48,7 @@ fn adapter(name: &str) -> MacPortsAdapter<ReplayRunner> {
     MacPortsAdapter::new(
         ReplayRunner::new(recording),
         PathBuf::from(PREFIX),
+        None,
         FilesystemScope::Elsewhere,
     )
     .with_machine(machine())
@@ -594,6 +595,7 @@ fn an_installed_line_without_a_version_tuple_fails_loudly() {
     let adapter = MacPortsAdapter::new(
         ReplayRunner::new(recording),
         PathBuf::from(PREFIX),
+        None,
         FilesystemScope::Elsewhere,
     );
     let error = adapter.inventory().unwrap_err();
@@ -614,6 +616,7 @@ fn an_installed_listing_that_disagrees_with_the_active_set_fails_loudly() {
     let adapter = MacPortsAdapter::new(
         ReplayRunner::new(recording),
         PathBuf::from(PREFIX),
+        None,
         FilesystemScope::Elsewhere,
     );
     let error = adapter.inventory().unwrap_err();
@@ -708,4 +711,56 @@ fn a_variant_set_alone_does_not_prove_a_source_build() {
     assert!(availability::forced_source_build(&universal).is_some());
     let negated: BTreeSet<String> = ["-x11".to_string()].into_iter().collect();
     assert!(availability::forced_source_build(&negated).is_some());
+}
+
+#[test]
+fn the_environment_carries_home_because_port_cannot_start_without_it() {
+    // F-37, and the most expensive assumption in this adapter's history.
+    //
+    // `environment()` used to hardcode `home: None`, reasoning that "no read
+    // here is documented to need it". `port` runs `mportinit` before any
+    // subcommand, and `mportinit` resolves the user's home through
+    // `dscl . -read /Users/$(id -un) NFSHomeDirectory`. With no `HOME` that
+    // pipeline fails and **every** `port` invocation exits 1 — so live
+    // detection reported a healthy MacPorts 2.12.6 as `Broken`, and had done
+    // since the adapter was written. Nothing caught it because no test and no
+    // fixture ever ran the real binary under the real executor environment:
+    // `scripts/capture-fixture.sh` sets `HOME`, so recordings show a MacPorts
+    // that works and the live path could not reproduce them.
+    //
+    // Asserted on the *sanitised environment*, not on the spec field, because
+    // the defect is what reaches the process. `EnvironmentSpec::home` being
+    // `Some` is worth nothing if `sanitised_environment` drops it.
+    let with_home = MacPortsAdapter::new(
+        ReplayRunner::new(
+            Recording::from_json(&fixture_text("macports-only-intel-macos12"))
+                .expect("fixture parses"),
+        ),
+        PathBuf::from(PREFIX),
+        Some(PathBuf::from("/Users/example")),
+        FilesystemScope::Elsewhere,
+    );
+    let env = sanitised_environment(&with_home.environment());
+    assert_eq!(
+        env.get("HOME").map(String::as_str),
+        Some("/Users/example"),
+        "port cannot initialise without HOME, so the environment must carry it: {env:?}"
+    );
+
+    // And the replay case, which is the reason the field is an `Option` at all:
+    // under replay nothing is executed and there is no user whose home it would
+    // be, so omitting it is correct rather than a smaller version of the bug.
+    let replayed = MacPortsAdapter::new(
+        ReplayRunner::new(
+            Recording::from_json(&fixture_text("macports-only-intel-macos12"))
+                .expect("fixture parses"),
+        ),
+        PathBuf::from(PREFIX),
+        None,
+        FilesystemScope::Elsewhere,
+    );
+    assert!(
+        !sanitised_environment(&replayed.environment()).contains_key("HOME"),
+        "with no home known, HOME is omitted rather than invented"
+    );
 }

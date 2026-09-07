@@ -37,6 +37,8 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-34** — a replayed `doctor` invents a `PATH` warning from data the recording does not carry | **Open, and it fires on every fixture.** `--replay` reports "<provider>'s prefix … is not on PATH" for each present provider. On this machine both prefixes *are* on `PATH`: live `doctor` says so and emits correct detailed findings instead, and `--from-snapshot` on a fresh capture emits none. The `Recording` format has no environment section at all — only the sanitised per-invocation `PATH` the executor builds. Mirror of F-29: that one turns an unknown into a silent no, this one turns an absent input into a confident warning a user would act on. Observed 2026-09-06.
 | **F-35** — verify elevation is a stored fact where three places say it must be detected | **Open. Carried to the executor pass.** The surviving half of F-24: the TOML comment, SE-059 and R-5a all name runtime capability detection as the real answer, and no artefact implements it. The 2026-09-06 observation makes the stored default right, which removes the urgency and not the obligation — INV-20 says detection wins over stored knowledge. Also carries the per-cell provenance want: two cells now need a source of their own and the schema has none. |
 | **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Open. Raised by `spec-guardian` reviewing the F-24 change.** `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
+| **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
+| **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -1812,8 +1814,30 @@ installed and active" and leaves *how* entirely to the executor.
 packages carry no such halt: a plain `port`-installed package is exactly what
 this tool is for.
 
-**What is observed and what is not.** Observed: the negative cases above, all
-exit 0. **Not observed:** what `port -q installed <name>` prints and exits for a
+### Positive case observed, 2026-09-07 — the finding holds on both sides
+
+While MacPorts was installing `htop`, its dependencies landed one by one, which
+gave the installed case this finding had been reasoning about:
+
+| command | exit | stdout |
+|---|---|---|
+| `port -q installed ncurses` (**installed**) | **0** | `  ncurses @6.6_0 (active)` |
+| `port installed ncurses` (**installed**) | **0** | `The following ports are currently installed:` + the row |
+| `port -q installed htop` (**not installed**) | **0** | *(empty)* |
+
+**Exit 0 either way.** The only discriminator is whether stdout is empty, which
+is what the finding predicted and could not previously prove. An executor
+implementing `PROVIDER_REPORTS_ACTIVE` as "exit 0" would verify a package that
+was never installed, and `VERIFY_DESTINATION` guards `REMOVE_SOURCE` (INV-01).
+
+Noted on the way, because it bears on the single-instance lock that
+`04-migration-and-safety.md:201` makes a MUST and nothing implements: these
+reads ran **during a concurrent `port` installation** and neither blocked nor
+failed. So MacPorts does not lock out readers while it builds — one fewer reason
+for the lock, and not an argument against it.
+
+**What was observed and when.** Originally the negative cases only; the positive
+case above closes it. **Previously not observed:** what `port -q installed <name>` prints and exits for a
 port that *is* installed. Nothing is installed on this machine, and installing a
 port is an elevating, mutating action the guards refuse and which is the owner's
 to take. The finding does not depend on it: if *not installed* already exits 0,
@@ -1964,3 +1988,110 @@ a user — to stop the renderer arm and the locale key rotting; and a check that
 every registry provider id resolves to a `provider-commands.toml` entry, which is
 the actual fix. The first is done in this change; the second is the executor
 pass's, because that is when a placeholder command stops being harmless.
+
+---
+
+## F-37 — Every live MacPorts read failed, and the tool reported a healthy install as `Broken`
+
+**Severity: high — it broke the core function for one of the two providers.
+Observed 2026-09-07, minutes after MacPorts was installed on this machine for
+the first time in the project's history. Fixed in the same change.**
+
+`macports status` on a working MacPorts 2.12.6:
+
+```
+macports  Broken ({reason})  -  /opt/local  Supported  0 packages (0 top-level)
+```
+
+**The cause.** `MacPortsAdapter::environment()` hardcoded `home: None`, with this
+reasoning in a doc comment: *"`home` is `None` because no read here is documented
+to need it, and `~/.macports/macports.conf` is a file this adapter reads directly
+rather than through `port`."* Every clause is true and the conclusion is false.
+`port` runs `mportinit` before dispatching **any** subcommand, and `mportinit`
+resolves the user's home itself:
+
+```
+exec -ignorestderr dscl -q . -read /Users/[exec -ignorestderr id -un] NFSHomeDirectory | cut -d ' ' -f 2
+```
+
+With `HOME` unset that pipeline fails and `port` exits 1 — reproduced directly:
+
+| environment | `port version` |
+|---|---|
+| `PATH` only | exit 1, `Failed to initialize MacPorts` |
+| `PATH` + `USER` | exit 1, same |
+| `PATH` + `HOME` | **exit 0, `Version: 2.12.6`** |
+
+So it was never about which subcommand: the executor's sanitised environment
+(INV-10) could not start `port` at all. Detection saw a non-zero exit and
+reported `Broken`. Every MacPorts read in a live run failed the same way.
+
+**Why four passes of tests never saw it.** `scripts/capture-fixture.sh` builds
+its own environment — `{PATH, LANG, LC_ALL, TERM, NO_COLOR, HOME}` — and it
+**includes `HOME`**. The executor's `EnvironmentSpec` did not. So every recording
+in `fixtures/recordings/` shows a MacPorts that answers correctly, and every
+contract test passes against output the tool's own executor could never have
+produced. `AGENTS.md` says a recorded runner "substitutes for the real one with
+every layer above unchanged" — that holds only if the capture harness and the
+executor build the same environment, and they did not. **A fixture is only
+evidence about the executor if it was produced by one.**
+
+**The fix was five lines and used plumbing that already existed.**
+`registry.rs` already carries `ctx.home` — documented as *"The user's home, for
+the provider cache probe. `None` under replay"* — and already passed it to the
+Homebrew adapter. MacPorts simply was not given it. The `Option` is right: under
+replay nothing is executed and there is no user whose home it would be.
+
+Verified after the fix, live on this machine:
+`macports Present 2.12.6 /opt/local Supported`.
+
+**The test that would have caught it** asserts on the *sanitised environment*
+rather than on `EnvironmentSpec::home`, because the defect is what reaches the
+process, and it was confirmed red by reverting the fix. What it cannot assert is
+the class: nothing checks that the capture harness and the executor agree, and
+that gap is what made a one-line inference survive four passes. Worth its own
+check — a capture that replays into a *different* answer than a live run is the
+signal, and this pass now has the machine to test it on.
+
+---
+
+## F-38 — A message identifier and an unsubstituted placeholder both reached the user
+
+**Severity: medium. Found 2026-09-07 while F-37 made the `Broken` path
+reachable for the first time on a real machine.**
+
+Three defects around one field, in the same afternoon:
+
+1. **`status` printed the placeholder.** `presence.broken` read `"Broken
+   ({reason})"` while `human.rs` matched `Broken { .. }` and called `label()`,
+   which renders without parameters. The user saw `Broken ({reason})`.
+2. **Filling it made things worse, and this was measured rather than assumed.**
+   Rendering the reason through the catalogue put *"The provider is present but
+   did not answer correctly: {detail}. Run `macportsbrew doctor` …"* inside a
+   table cell — a paragraph in a column, with `{detail}` now leaking instead.
+3. **`doctor` prints the raw identifier.** `macports is present but not working:
+   **error.provider_unhealthy**. See the troubleshooting page.` That is F-20's
+   rule — "no Rust identifier reaches the reader" — violated from the other end,
+   and it is still there.
+
+**The root cause is the type, not the call sites.**
+`ProviderPresence::Broken { reason: String }` holds a *message identifier*, and
+every consumer has to know to resolve it. Three consumers, none correct. The
+identifier it holds resolves to a full remediation sentence with its own
+parameter, so it cannot be embedded anywhere a short reason belongs.
+
+**Fixed here:** `presence.broken` is now `"Broken"`, matching `presence.present`
+and `presence.absent`, and the table cell is a table cell again. That is not a
+wording judgement — the placeholder was never fillable in that position.
+
+**Not fixed here:** `doctor`'s raw identifier. Fixing it means deciding what the
+sentence should say when the only machine-readable reason is an error id whose
+text does not fit, and `06-cli-and-ux.md` makes user-facing wording the owner's.
+The options are to drop `{reason}` and point at the troubleshooting page, or to
+give `Broken` a short reason the domain can carry alongside the error id.
+
+**And a gap this exposes.** `check-i18n-parity.sh` checks that keys exist in
+every catalogue and that referenced ids exist. Nothing checks that a message's
+**placeholders are supplied at its call sites** — which is why `{reason}` shipped
+unsubstituted through a gate that runs on every turn. Same family as F-32: the
+i18n gate cannot see the defect it exists to prevent.

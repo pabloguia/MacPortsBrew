@@ -134,7 +134,10 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
                     })
                     .unwrap_or_else(|| candidates[0].clone());
                 out.push(Box::new(MacPortsAdapter::new(
-                    ctx.runner, prefix, filesystem,
+                    ctx.runner,
+                    prefix,
+                    ctx.home.clone(),
+                    filesystem,
                 )));
             }
             _ => {}

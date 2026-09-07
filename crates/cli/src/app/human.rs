@@ -123,6 +123,14 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
         let presence = match &p.detection.presence {
             ProviderPresence::Present => label(ctx, "presence.present"),
             ProviderPresence::Absent => label(ctx, "presence.absent"),
+            // F-38: `presence.broken` used to read "Broken ({reason})" while
+            // this site called `label`, which renders without parameters - so
+            // the placeholder reached the user verbatim. Filling it is not the
+            // fix: `reason` holds a message *identifier* whose catalogue text
+            // is a full remediation sentence carrying its own `{detail}`, so
+            // rendering it here put a paragraph in a table cell and leaked
+            // `{detail}` instead. The cell now says "Broken", like its
+            // `Present`/`Absent` siblings, and `doctor` carries the diagnosis.
             ProviderPresence::Broken { .. } => label(ctx, "presence.broken"),
         };
         table.push([

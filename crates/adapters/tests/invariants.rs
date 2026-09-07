@@ -266,7 +266,8 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         "an answer reached without following the link claimed to be authoritative"
     );
 
-    let mp_elsewhere = MacPortsAdapter::new(&runner, root.clone(), FilesystemScope::Elsewhere);
+    let mp_elsewhere =
+        MacPortsAdapter::new(&runner, root.clone(), None, FilesystemScope::Elsewhere);
     assert_eq!(
         mp_elsewhere
             .resolution(&bin.join("wget"))
@@ -339,7 +340,7 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         Some(root.clone()),
         "the same probe on the same tree, declared as the machine"
     );
-    let mp_here = MacPortsAdapter::new(&runner, root.clone(), FilesystemScope::ThisMachine);
+    let mp_here = MacPortsAdapter::new(&runner, root.clone(), None, FilesystemScope::ThisMachine);
     assert!(
         mp_here
             .resolution(&bin.join("wget"))

@@ -165,6 +165,9 @@ pub struct MacPortsAdapter<R: ProcessRunner> {
     /// from `runner.is_replay()`; see [`crate::filesystem`] (F-25).
     filesystem: FilesystemScope,
     machine: Option<Machine>,
+    /// The user's home, or `None` under replay. `port` cannot start without
+    /// `HOME`; see [`Self::environment`].
+    home: Option<PathBuf>,
     detection: RefCell<Option<ProviderDetection>>,
     inventory: RefCell<Option<ProviderInventory>>,
 }
@@ -178,13 +181,19 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// `filesystem` says whether this host's disk describes the machine being
     /// read; where it does not, every filesystem answer is the unknown one
     /// (INV-15, F-25).
-    pub fn new(runner: R, prefix: PathBuf, filesystem: FilesystemScope) -> Self {
+    pub fn new(
+        runner: R,
+        prefix: PathBuf,
+        home: Option<PathBuf>,
+        filesystem: FilesystemScope,
+    ) -> Self {
         Self {
             runner,
             prefix,
             id: ProviderId::new(PROVIDER_ID),
             filesystem,
             machine: None,
+            home,
             detection: RefCell::new(None),
             inventory: RefCell::new(None),
         }
@@ -234,13 +243,23 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     ///
     /// `extra` is empty on purpose: R-3 Finding 12 found no `MACPORTS_*`
     /// variable in the documentation read, and quieting is argv (`-q`, which
-    /// implies `-N`). `home` is `None` because no read here is documented to
-    /// need it, and `~/.macports/macports.conf` is a file this adapter reads
-    /// directly rather than through `port`.
+    /// implies `-N`).
+    ///
+    /// **`home` was `None` and that broke every MacPorts read.** The reason
+    /// given was that "no read here is documented to need it" — a
+    /// documentation-derived inference, and false. `port` runs `mportinit`
+    /// before any subcommand, and `mportinit` resolves the user's home through
+    /// `dscl . -read /Users/$(id -un) NFSHomeDirectory`. Without `HOME` that
+    /// pipeline fails and **`port` exits 1 whatever you asked it for**, so
+    /// detection reported a healthy MacPorts as `Broken` (F-37, observed
+    /// 2026-09-07 — the first time this repository had MacPorts installed).
+    ///
+    /// It is `Option` rather than required because it is `None` under replay,
+    /// where no process runs; `registry.rs` says so at `ctx.home`.
     pub fn environment(&self) -> EnvironmentSpec {
         EnvironmentSpec {
             leading_path: vec![self.prefix.join("bin"), self.prefix.join("sbin")],
-            home: None,
+            home: self.home.clone(),
             extra: BTreeMap::new(),
         }
     }
@@ -897,6 +916,7 @@ mod tests {
         let adapter = MacPortsAdapter::new(
             empty_runner(),
             PathBuf::from("/opt/local"),
+            None,
             FilesystemScope::ThisMachine,
         );
         let error = adapter
@@ -912,6 +932,7 @@ mod tests {
         let adapter = MacPortsAdapter::new(
             empty_runner(),
             PathBuf::from("/opt/local"),
+            None,
             FilesystemScope::ThisMachine,
         );
         for bad in ["relative/bin/curl", "/opt/local/../etc/passwd"] {
@@ -928,6 +949,7 @@ mod tests {
         let adapter = MacPortsAdapter::new(
             empty_runner(),
             PathBuf::from("/opt/local"),
+            None,
             FilesystemScope::ThisMachine,
         );
         assert_eq!(adapter.executable(), PathBuf::from("/opt/local/bin/port"));
@@ -940,6 +962,7 @@ mod tests {
         let adapter = MacPortsAdapter::new(
             empty_runner(),
             PathBuf::from("/opt/local"),
+            None,
             FilesystemScope::ThisMachine,
         );
         let spec = adapter.environment();
@@ -983,6 +1006,7 @@ mod tests {
         let adapter = MacPortsAdapter::new(
             empty_runner(),
             PathBuf::from("/opt/local"),
+            None,
             FilesystemScope::ThisMachine,
         );
         let info = adapter.environment_info().unwrap();
