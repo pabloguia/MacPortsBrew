@@ -39,6 +39,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Open. Raised by `spec-guardian` reviewing the F-24 change.** `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
 | **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
+| **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Open.** Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -1814,6 +1815,23 @@ installed and active" and leaves *how* entirely to the executor.
 packages carry no such halt: a plain `port`-installed package is exactly what
 this tool is for.
 
+### Demonstrated on the plan's own commands, 2026-09-07
+
+With `htop`, `tree` and `jq` installed under MacPorts, this machine finally had a
+dual-held package, and `plan htop` builds nine symmetrical steps in **both**
+directions. Its step 3 is the verification this finding is about, and the
+commands it emits behave like this on that very machine:
+
+| step 3, exactly as the plan writes it | package installed | package absent |
+|---|---|---|
+| `port -q installed htop` | exit **0**, `  htop @3.5.2_0 (active)` | exit **0**, *(empty)* |
+| `brew list --versions htop` | exit **0**, `htop 3.5.3` | exit **1**, *(empty)* |
+
+Toward Homebrew, `VERIFY_DESTINATION` can fail. Toward MacPorts it cannot — not
+for a package that was never installed, and not for a name that does not exist.
+Same step, same invariant behind it (INV-01: nothing is removed before its
+replacement is verified), and one of the two directions cannot discharge it.
+
 ### Positive case observed, 2026-09-07 — the finding holds on both sides
 
 While MacPorts was installing `htop`, its dependencies landed one by one, which
@@ -2095,3 +2113,60 @@ every catalogue and that referenced ids exist. Nothing checks that a message's
 **placeholders are supplied at its call sites** — which is why `{reason}` shipped
 unsubstituted through a gate that runs on every turn. Same family as F-32: the
 i18n gate cannot see the defect it exists to prevent.
+
+---
+
+## F-39 — A replayed analysis reports fewer top-level packages than the machine it recorded, and the number is the only clue
+
+**Severity: medium. Observed 2026-09-07 on the first machine that could show it —
+one with both providers, real packages, and a recording of itself.**
+
+Capture this machine, then analyse it twice:
+
+| | Homebrew top-level |
+|---|---|
+| live | **56** |
+| `--replay` of a recording of *this machine, this minute* | **49** |
+
+Seven rows differ, and they are all casks:
+
+```
+copilot-cli  gcloud-cli  meld  oracle-jdk  visualdiffer  wailbrew  wireshark-chmodbpf
+  live:   TOP_LEVEL, evidence installed_on_request
+  replay: UNKNOWN,   evidence no_provider_record
+```
+
+**The mechanism is correct and is not the defect.** A cask's `installed_on_request`
+is not in the JSON; Homebrew records it in the cask's on-disk
+`INSTALL_RECEIPT.json` (R-12, DP-012). A replayed reader must not consult this
+host's filesystem — that is INV-15, and F-25 is the change that made the refusal
+uniform and deliberate. `UNKNOWN` with `no_provider_record` is the honest answer
+to "what does this recording say about cask intent": nothing.
+
+**The defect is that the answer is presented as the answer.** `status` prints
+"49 top-level" with the same confidence it prints 56, and nothing in the output
+says a class of evidence was unavailable. A user comparing a replayed analysis
+with a live one sees two different machines. A contributor testing against
+fixtures sees a world where casks are never top-level.
+
+**Third instance, and the pattern is now the finding.** F-29: service status
+degrades to "not a service" under replay. F-34: `PATH` degrades to "prefix not on
+`PATH`". F-39: cask ownership degrades to `UNKNOWN`. In each case the degradation
+is correct, the *reporting* of it is silent, and each was found separately as
+though it were its own bug. The rule worth stating once: **when a replayed
+analysis cannot see a class of evidence, the output says so — the count is not
+the place to discover it.**
+
+Two of the three degrade toward caution (`UNKNOWN`, a warning); F-29 degrades
+toward a silent "no", which is why it is the one with a decision attached
+(DP-016). This one is the mildest of the three and the easiest to fix: a replayed
+`status` and `analyze` already know their source is a recording, and already
+print it in `--json` as `"source": "SNAPSHOT"`. Saying "cask ownership is not
+recoverable from a recording" alongside the count costs one line and removes the
+whole class of confusion.
+
+**It also bounds what fixtures can test.** No recording can exercise a cask's
+`TOP_LEVEL` path, so DP-012's receipt reader is reachable only in a live run.
+Its unit tests cover it directly; nothing end-to-end does. That is the same
+shape as F-37 — a path no fixture can reach — and worth remembering before
+trusting a green suite about cask behaviour.

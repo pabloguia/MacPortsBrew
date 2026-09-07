@@ -2330,9 +2330,48 @@
       },
       "mappings": [
         {
-          "candidates": [],
-          "confidence": "NONE",
+          "candidates": [
+            {
+              "confidence": "STRONG",
+              "evidence": [
+                {
+                  "detail": "https://htop.dev/",
+                  "kind": "homepage",
+                  "weight": 30
+                },
+                {
+                  "detail": "htop",
+                  "kind": "normalised_name",
+                  "weight": 40
+                }
+              ],
+              "package": {
+                "name": "htop",
+                "provider": "macports"
+              }
+            }
+          ],
+          "confidence": "STRONG",
           "destination": "macports",
+          "selected": {
+            "confidence": "STRONG",
+            "evidence": [
+              {
+                "detail": "https://htop.dev/",
+                "kind": "homepage",
+                "weight": 30
+              },
+              {
+                "detail": "htop",
+                "kind": "normalised_name",
+                "weight": 40
+              }
+            ],
+            "package": {
+              "name": "htop",
+              "provider": "macports"
+            }
+          },
           "source": {
             "name": "htop",
             "provider": "homebrew"
@@ -2342,11 +2381,20 @@
       "name": "htop",
       "recommendation": {
         "outcome": {
-          "kind": "KEEP",
-          "provider": "homebrew"
+          "kind": "KEEP_BOTH",
+          "primary": "homebrew"
         },
         "policyVersion": "2026.09.06-1",
         "reasons": [
+          {
+            "id": "reason.present_under_both_providers",
+            "params": {
+              "criterion": "PREBUILT_ARTIFACT",
+              "other": "macports",
+              "primary": "homebrew"
+            },
+            "rule": "KEEP_BOTH_HEALTHY"
+          },
           {
             "id": "reason.keep_source_default",
             "params": {
@@ -2358,7 +2406,6 @@
         ],
         "rulesNotFired": [
           "DESTINATION_UNSUPPORTED_HERE",
-          "KEEP_BOTH_HEALTHY",
           "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
           "MANUAL_REVIEW_CLASS",
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
@@ -2413,9 +2460,143 @@
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
+        },
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "3.5.2_0",
+          "dependencyCount": 2,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "htop",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "3.5.2"
+            }
+          ],
+          "name": "htop",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
         }
       },
       "source": "homebrew"
+    },
+    {
+      "advancedOnly": false,
+      "class": {
+        "classes": [],
+        "evidence": []
+      },
+      "mappings": [
+        {
+          "candidates": [],
+          "confidence": "NONE",
+          "destination": "homebrew",
+          "source": {
+            "name": "jq",
+            "provider": "macports"
+          }
+        }
+      ],
+      "name": "jq",
+      "recommendation": {
+        "outcome": {
+          "kind": "KEEP",
+          "provider": "macports"
+        },
+        "policyVersion": "2026.09.06-1",
+        "reasons": [
+          {
+            "id": "reason.keep_source_default",
+            "params": {
+              "package": "jq",
+              "provider": "macports"
+            },
+            "rule": "KEEP_SOURCE_DEFAULT"
+          }
+        ],
+        "rulesNotFired": [
+          "DESTINATION_UNSUPPORTED_HERE",
+          "KEEP_BOTH_HEALTHY",
+          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "MANUAL_REVIEW_CLASS",
+          "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
+          "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
+          "MANUAL_REVIEW_SOURCE_WITHDRAWN",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
+          "SOURCE_SUPPORT_ENDING"
+        ]
+      },
+      "rows": {
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "1.8.2_0",
+          "dependencyCount": 1,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "jq",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "1.8.2"
+            }
+          ],
+          "name": "jq",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        }
+      },
+      "source": "macports"
     },
     {
       "advancedOnly": false,
@@ -4936,9 +5117,48 @@
       },
       "mappings": [
         {
-          "candidates": [],
-          "confidence": "NONE",
+          "candidates": [
+            {
+              "confidence": "STRONG",
+              "evidence": [
+                {
+                  "detail": "https://oldmanprogrammer.net/source.php?dir=projects/tree",
+                  "kind": "homepage",
+                  "weight": 30
+                },
+                {
+                  "detail": "tree",
+                  "kind": "normalised_name",
+                  "weight": 40
+                }
+              ],
+              "package": {
+                "name": "tree",
+                "provider": "macports"
+              }
+            }
+          ],
+          "confidence": "STRONG",
           "destination": "macports",
+          "selected": {
+            "confidence": "STRONG",
+            "evidence": [
+              {
+                "detail": "https://oldmanprogrammer.net/source.php?dir=projects/tree",
+                "kind": "homepage",
+                "weight": 30
+              },
+              {
+                "detail": "tree",
+                "kind": "normalised_name",
+                "weight": 40
+              }
+            ],
+            "package": {
+              "name": "tree",
+              "provider": "macports"
+            }
+          },
           "source": {
             "name": "tree",
             "provider": "homebrew"
@@ -4948,11 +5168,20 @@
       "name": "tree",
       "recommendation": {
         "outcome": {
-          "kind": "KEEP",
-          "provider": "homebrew"
+          "kind": "KEEP_BOTH",
+          "primary": "homebrew"
         },
         "policyVersion": "2026.09.06-1",
         "reasons": [
+          {
+            "id": "reason.present_under_both_providers",
+            "params": {
+              "criterion": "PREBUILT_ARTIFACT",
+              "other": "macports",
+              "primary": "homebrew"
+            },
+            "rule": "KEEP_BOTH_HEALTHY"
+          },
           {
             "id": "reason.keep_source_default",
             "params": {
@@ -4964,7 +5193,6 @@
         ],
         "rulesNotFired": [
           "DESTINATION_UNSUPPORTED_HERE",
-          "KEEP_BOTH_HEALTHY",
           "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
           "MANUAL_REVIEW_CLASS",
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
@@ -5016,6 +5244,46 @@
           "ownershipEvidence": {
             "authoritative": true,
             "mechanism": "installed_on_request"
+          },
+          "presence": "INSTALLED",
+          "reverseDependencyCount": 0
+        },
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "offline": true,
+                "source": "archive_sites"
+              }
+            ]
+          },
+          "availableVersion": "2.3.2_0",
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [
+            {
+              "active": true,
+              "identity": {
+                "name": "tree",
+                "provider": "macports"
+              },
+              "kind": "PACKAGE",
+              "requested": true,
+              "revision": "0",
+              "version": "2.3.2"
+            }
+          ],
+          "name": "tree",
+          "ownership": "TOP_LEVEL",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "requested_pseudo_portname"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -6027,7 +6295,7 @@
         "version": "2.12.6"
       },
       "guiAppCount": 0,
-      "packageCount": 0,
+      "packageCount": 18,
       "support": {
         "entry": "mp-x86_64-build-farm-with-installer",
         "fact": {
@@ -6038,7 +6306,7 @@
         "providerLabel": "build-farm",
         "tier": "SUPPORTED"
       },
-      "topLevelCount": 0
+      "topLevelCount": 3
     }
   },
   "schemaVersion": 1,
@@ -6050,13 +6318,14 @@
   "source": "SNAPSHOT",
   "summary": {
     "byOutcome": {
-      "KEEP": 41,
+      "KEEP": 40,
+      "KEEP_BOTH": 2,
       "MANUAL_REVIEW": 16,
       "USE_RUNTIME_MANAGER": 1
     },
     "dependencyUnits": 0,
     "manualReview": 16,
-    "topLevelUnits": 58
+    "topLevelUnits": 59
   },
   "today": "2026-09-02",
   "toolVersion": "0.1.0"
