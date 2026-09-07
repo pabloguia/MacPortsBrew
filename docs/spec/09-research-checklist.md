@@ -271,8 +271,35 @@ for the plan is *published-and-already-downloaded* versus *downloaded after
 revocation* — only the first makes the outbound channel urgent.
 
 ### R-14 · What actually reaches a user of a published binary
-*Open. Raised 2026-09-04 by the security review of DP-009's plan. Decides how
-much of `SECURITY.md`'s runbook is a real channel and how much is a gesture.*
+*Partially answered 2026-09-06 — `docs/research/R-14-what-reaches-a-user.md`.
+Two of four closed; two need a remote rather than a reading. Raised 2026-09-04
+by the security review of DP-009's plan.*
+
+**The withdrawn claim was nearer right than its withdrawal.** A published
+repository advisory *is* added to the GitHub Advisory Database — "GitHub will
+review each published security advisory, add it to the GitHub Advisory
+Database" — unconditionally, subject to review. The ecosystem-package condition
+the review reasoned from applies to **forks** and to **Dependabot alerts**, not
+to inclusion. The reach is still near zero, but for a different reason: nothing
+can declare a dependency on a binary shipped through Releases, so there is
+nothing for Dependabot to alert. An advisory is a public record, not a push
+channel, and `SECURITY.md` should say that rather than either the original claim
+or its blanket withdrawal.
+
+**And a feature the plan was written without: immutable releases.** Assets
+"cannot be modified or deleted", and deleting the release permits deleting the
+tag but "you cannot reuse the same tag name" — not even in a same-named
+successor repository. Withdrawing one bad artifact therefore means deleting the
+whole release and permanently burning that version number. Attestations are
+generated automatically. Whether the attestation survives deletion — which the
+runbook's step 2 leans on — is still uncited. This is an owner decision, not a
+release-workflow detail.
+
+**Still open:** what a "Watch → Releases only" subscriber actually receives and
+when, and whether `releases.atom` includes deleted releases. Both are minutes of
+observation once a remote exists, and neither should be guessed at first.
+
+The original four, as filed:
 The withdrawal plan originally claimed a repository security advisory
 "syndicates to the GitHub Advisory Database" and was therefore "the only
 outbound channel with reach". That is uncited, and doubtful in this project's
