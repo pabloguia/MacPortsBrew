@@ -66,8 +66,8 @@ set_primary_gui_app = "none"
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local, zero ports installed: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24)"
-read_on = "2026-09-06"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24). Re-observed 2026-09-08 with three ports installed, which the 2026-09-06 read could not do: the elevation answer is unchanged, and `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33)"
+read_on = "2026-09-08"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
 # called one of these is not a package: removing the set named `installed` is
@@ -128,12 +128,20 @@ remove_gui_app = "unknown"
 # better - Homebrew's `verify` cell wants it too - and is a schema change, so it
 # is recorded rather than improvised (F-35).
 #
-# **The positive case was not observed.** With zero ports installed, every
-# command above exercised the *not-installed* path. What `port -q installed
-# <name>` prints and exits for a port that is installed is unknown here, and
-# F-33 is the finding that turns on it. The file-mode evidence carries the
-# elevation answer regardless: reading a 0644 file owned by root needs no
-# privilege whatever the output says.
+# **Both cases are now observed** (2026-09-08, this machine, MacPorts 2.12.6
+# with three ports installed; R-5 E22). The earlier note here said the positive
+# case was unknown because nothing was installed. It is now known, and the
+# answer is worse than the gap it replaced:
+#
+#   port -q installed htop                     -> exit 0, "  htop @3.5.2_0 (active)"
+#   port -q installed wireshark                -> exit 0, no output
+#   port -q installed definitely-not-a-port    -> exit 0, no output
+#
+# Installed, real-but-absent, and *not a port at all* are one exit status. The
+# elevation answer is unchanged and confirmed - reading a 0644 file owned by
+# root needs no privilege - but `verify` cannot be driven by exit status on this
+# provider, which is F-33 and is now recorded as executor debt in
+# `docs/schemas/plan.v1.md`.
 #
 # Runtime capability detection remains the real answer (INV-20: detection wins
 # over stored knowledge). One machine is a better default than `unknown`, not a

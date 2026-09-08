@@ -94,7 +94,19 @@ a list rather than three doc comments:
    none, and "nonzero exit means absent" is verification by exit status with the
    sign flipped — `brew list --versions` exits 1 for a correctly installed cask
    (F-06, F-22).
-4. **A single-instance lock, and a check for a concurrently running `brew` or
+4. **`PROVIDER_REPORTS_ACTIVE` needs a per-provider success semantic.** Item 3
+   is the same defect with the sign flipped; this is the direction that is worse,
+   because it fails *open*. Observed on this machine 2026-09-08:
+   `port -q installed <name>` exits **0** for an installed port, for a real port
+   that is absent, and for a name that does not exist at all — three cases, one
+   exit status. So a `VERIFY_DESTINATION` toward MacPorts cannot fail on exit
+   status, and under INV-01 that step is precisely what guards a
+   `REMOVE_SOURCE`. Homebrew's `brew list --versions` does exit 1 when absent,
+   so the two providers cannot share one rule and the check must read output.
+   The success semantic belongs beside the verb in `provider-commands.toml`,
+   which is a schema change and therefore the executor's, not this pass's
+   (F-33).
+5. **A single-instance lock, and a check for a concurrently running `brew` or
    `port`.** `04-migration-and-safety.md:201` is a **MUST** and nothing
    implements it — not even a type, which every other deferred capability here
    has. It is listed rather than stubbed because the shape of the lock is the
