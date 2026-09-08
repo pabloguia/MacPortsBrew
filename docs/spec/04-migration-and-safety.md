@@ -206,13 +206,26 @@ inconsistent.
 ## Privilege
 
 **MUST.** The design assumes MacPorts operations generally require elevation
-and Homebrew's normally do not; R-5 (2026-09-02) confirms that in outline and
-sharpens it in two places, which is why the plan asks the adapter **per step**
-rather than per provider. Elevation varies by *package*, not only by provider:
-a Homebrew cask whose `pkg` artifact or `installer script:` carries `sudo: true`
-elevates on an otherwise unprivileged provider, and `brew services` at system
-level elevates even to *list*, so an unprivileged services inventory is
-necessarily incomplete and must say so. Therefore:
+and Homebrew's normally do not; R-5 confirms that in outline and sharpens it in
+three places, which is why the plan asks the adapter **per step** rather than
+per provider.
+
+Elevation varies by *package*: a Homebrew cask whose `pkg` artifact or
+`installer script:` carries `sudo: true` elevates on an otherwise unprivileged
+provider, and `brew services` at system level elevates even to *list*, so an
+unprivileged services inventory is necessarily incomplete and must say so.
+
+Elevation also varies by *prefix*, and on MacPorts that is the whole mechanism.
+Observed 2026-09-08 in the shipped 2.12.6 Tcl (R-5 E29): all four of its
+elevation guards are conditional, and `portinstall.tcl:100` reads
+`if {![file writable $prefix_frozen] || ([getuid] == 0 && [geteuid] != 0)}`
+before `elevateToRoot`. MacPorts elevates because `/opt/local` is `root:wheel`,
+not because it is MacPorts — and `data/policy/provider-prefixes.toml` already
+contemplates a `--prefix` install, where it would not. So "generally requires
+elevation" is a dated fact about the default installation, scoped to a provider
+*prefix*, and never a property to compile in. The removal verb additionally
+skips elevation for a dry run, which is our own "analysis and dry-run never
+elevate" rule, enforced by the provider rather than by us. Therefore:
 the plan lists exactly which steps elevate and why; elevation
 is requested per operation at the moment it is needed; the credential is never
 cached by MacPortsBrew; analysis and dry-run never elevate; the tool is never

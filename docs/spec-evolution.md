@@ -3835,6 +3835,41 @@ finding ids in each entry.
   `i18n: ok (188 keys, 170 rendered, 18 unreferenced with a stated reason)`.
 - User impact: none. Architectural impact: none.
 
+## SE-077 — MacPorts elevates by prefix writability, not by being MacPorts
+
+- Status: accepted
+- Date / Pass: 2026-09-08 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `04-migration-and-safety.md` said the design "assumes
+  MacPorts operations generally require elevation", sharpened in two places —
+  by package, and by the `brew services` system-level case. Both sharpenings
+  were about *what* is being operated on; the provider half was left as a
+  property of the provider.
+- Change: a third sharpening, by **prefix**. The MUST now states that MacPorts'
+  elevation follows the writability of its prefix, that the default prefix is
+  why the outline claim holds, and that a `--prefix` install is the case where
+  it does not.
+- Rationale: R-5's MacPorts half had been cited, never observed — the note said
+  so itself, and `09-research-checklist.md` said it "is re-checked on a MacPorts
+  machine". This became one on 2026-09-07. All four elevation guards in the
+  shipped 2.12.6 Tcl are conditional; `portinstall.tcl:100` reads
+  `if {![file writable $prefix_frozen] || ...}` before `elevateToRoot`. So the
+  provider does not have a privilege property; its **installation** does. Same
+  shape as the cask sharpening already in that paragraph, and the same shape as
+  INV-20: a dated fact about a default, not architecture. The project's own
+  `provider-prefixes.toml` already contemplates the case that disproves the
+  general claim.
+- Evidence: `docs/research/R-5-privilege-requirements.md` E19–E32, observed
+  2026-09-08. The `elevateToRoot` condition and `/opt/local` being
+  `root:wheel drwxr-xr-x` were re-read in the main session rather than taken
+  from the research pass. Every read-only `port` subcommand the adapter uses ran
+  as an unprivileged user and exited 0, so INV-06 holds on this side by
+  observation now rather than by inference.
+- User impact: none today — nothing mutates, and the default prefix behaves as
+  the outline claim says. Architectural impact: the reason the plan asks **per
+  step** now has three independent supports instead of two, and a future
+  `--prefix` install becomes a case the specification has already conceded
+  rather than one that contradicts it.
+
 ## SE-076 — A session-start hook that could not tell "nothing" from "I could not look"
 
 - Status: accepted
