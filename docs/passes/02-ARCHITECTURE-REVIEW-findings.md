@@ -52,7 +52,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
-| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. And `ErrorId::all()` is a manual mirror of the enum: forget to update it and every i18n coverage test still passes while an identifier ships with no message. |
+| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Open, found 2026-09-08.** `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
@@ -2668,9 +2668,20 @@ the gate that would have caught it doing otherwise does not exist.
 
 The same shape as F-36 (`known_provider_ids()` versus the commands table) and as
 F-12: a check whose subject is a hand-written list is a check on the list, not on
-the thing. `strum::EnumIter` would close it and is a dependency (ADR-0004);
-a `match` in a test that must be updated to compile is free and closes it just as
-well.
+the thing.
+
+**Fixed 2026-09-08.** Rust cannot enumerate variants without a derive, and
+ADR-0004 makes `strum` a decision rather than a convenience. What is available
+is a chain, and it closes: `exit_code` and `message_id` are exhaustive matches
+with no wildcard, so **a new variant is a compile error in `error.rs` itself** —
+the author is already in the file — and a counted assertion beside them then
+fails until `all()` is extended too. `every_id_has_a_distinct_message` rules out
+padding the count with a duplicate.
+
+The test says plainly what it does not prove: that `all()` lists the *right*
+identifiers, only that it lists as many as exist. A count mistaken for a set is
+how the next version of this finding gets written. The assertion is not vacuous
+— it failed twice against wrong constants before it passed.
 
 **3. Two `schemaVersion` tests elsewhere have the defect F-41's fix corrected.**
 `crates/cli/tests/end_to_end.rs`'s `a_snapshot_from_an_unsupported_schema_is_refused`

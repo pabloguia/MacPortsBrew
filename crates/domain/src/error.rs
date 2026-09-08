@@ -166,6 +166,38 @@ mod tests {
     }
 
     #[test]
+    fn all_is_the_whole_enum_and_not_a_stale_copy_of_it() {
+        // `all()` is a hand-written mirror of the enum, and `crates/cli/tests/
+        // i18n.rs` iterates it to prove every identifier has a catalogue
+        // message, a `{detail}` slot and a remediation sentence - the MUST at
+        // `06-cli-and-ux.md:76`. Forget to extend `all()` and every one of
+        // those tests still passes while an identifier ships with no message
+        // at all, which that MUST calls never acceptable (F-43).
+        //
+        // Rust cannot enumerate variants without a derive, and ADR-0004 makes
+        // a dependency for that a decision. What is available is a chain, and
+        // it closes: `exit_code` and `message_id` are exhaustive matches with
+        // no wildcard, so a new variant is a **compile error** in this file -
+        // the author is already here - and this count then fails until `all()`
+        // is extended too. `every_id_has_a_distinct_message` below rules out
+        // padding the count with a duplicate.
+        //
+        // What it does not prove: that `all()` lists the *right* identifiers,
+        // only that it lists as many as exist. Stated because a count that is
+        // mistaken for a set is how the next version of F-43 gets written.
+        assert_eq!(
+            ErrorId::all().len(),
+            NUMBER_OF_ERROR_IDS,
+            "a variant was added without extending all(); the i18n coverage \
+             tests iterate all() and would have stayed green"
+        );
+    }
+
+    /// Update this **and** `all()` when adding an identifier. The exhaustive
+    /// matches above will already have refused to compile.
+    const NUMBER_OF_ERROR_IDS: usize = 14;
+
+    #[test]
     fn every_id_has_a_distinct_message() {
         let ids: std::collections::BTreeSet<_> =
             ErrorId::all().iter().map(|e| e.message_id()).collect();
