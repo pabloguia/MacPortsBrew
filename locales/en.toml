@@ -292,7 +292,15 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # --- doctor ---------------------------------------------------------------
 "doctor.provider_present" = "{provider} {version} is present."
 "doctor.provider_absent" = "{provider} is not installed."
-"doctor.provider_broken" = "{provider} is present but not working: {reason}. See the troubleshooting page."
+# `{reason}` is deliberately absent. Every construction of
+# `ProviderPresence::Broken` sets it to an `ErrorId::*.message_id()` - an
+# identifier, never prose - so interpolating it printed
+# "error.provider_unhealthy" at the user (F-38). It stays in the finding's
+# params because `docs/schemas/doctor.v1.md` documents it as part of the
+# `--json` contract, where a stable identifier is exactly what a machine wants.
+# Resolving it through the catalogue instead was measured and rejected: it puts
+# a two-sentence remediation paragraph inside a table cell.
+"doctor.provider_broken" = "{provider} is present but not working. See the troubleshooting page."
 "doctor.provider_architecture_mismatch" = "{provider} is built for {provider_arch} on a {machine_arch} machine."
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."

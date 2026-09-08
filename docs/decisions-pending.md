@@ -11,6 +11,39 @@ are recorded.
 
 ## Open
 
+### DP-018 — A second agent harness runs here under a weaker copy of the enforcement layer
+
+- **The question:** F-42. `.codex/` is a live, configured hook layer (its
+  `hooks.json` wires seven hooks by absolute path) and every shared file is an
+  older, shorter copy of its `.claude/` counterpart. `.codex/`'s path guard
+  protects the machine and **no repository path** — not Tier 1, not the pinned
+  toolchain manifest, not the unattended reservation of `decisions-pending.md` —
+  and its stop gate still carries both fail-opens fixed in `.claude/` at
+  `96605e9` this pass. The protection is also one-way: `.claude/` guards its own
+  hooks, `scripts/` and the workflows, and says nothing about `.codex/`.
+- **Why it is yours:** every route out edits `.claude/hooks/` or `scripts/`,
+  which this session does not do without you, and one of them deletes a harness
+  you may be using.
+- **It also answers a question I asked you badly.** I earlier recommended
+  committing `.agents/` and `.codex/` as a tidy-up. Reading them changed the
+  recommendation: committing a weaker live enforcement layer would turn a local
+  accident into a shipped property. Do not commit either until this is settled.
+- **Options:**
+  (a) **Generate `.codex/hooks/` from `.claude/hooks/`**, with the generator
+  checked in and a `validate.sh` stage asserting the two agree. Same pattern as
+  the six recipes, which are a `CONTRIBUTING.md` section and a skill written from
+  one source. Cost: a generator and a gate stage to maintain.
+  (b) **Point both manifests at one set of scripts.** Cheapest, loses only
+  per-harness message wording, and makes divergence structurally impossible
+  rather than merely checked.
+  (c) **Delete `.codex/`** and state that this repository supports one harness.
+  Honest, and free, if you are not using Codex here.
+- **Recommendation: (b).** It is the answer this project already gives to the
+  same shape elsewhere — one `validate.sh` is "the one definition of valid" — and
+  a check that two copies agree is a weaker thing than not having two copies.
+  Whichever you pick, `.claude/`'s path guard should also cover `.codex/**`,
+  which it does not today.
+
 ### DP-017 — Three of this repository's own guards make one security property untestable
 
 - **The question:** F-31 hardens the cask-receipt open with
@@ -32,7 +65,12 @@ are recorded.
      Rewording that message was legitimate (it names bits now, which is what it
      asserts); rewording a *call* to dodge the same grep would not be, and the
      two look identical from outside the diff. That ambiguity is itself an
-     argument for scoping the guard rather than living beside it.
+     argument for scoping the guard rather than living beside it. The pattern
+     recurred twice more the same day: the path guard refused a shell command
+     for quoting the pinned-toolchain filename in prose, and refused another for
+     naming a provider verb inside a fixture. Each was met with the documented
+     remedy — put the content in a file — but three false positives in one
+     session is a rate, not an accident.
   2. It cannot go there: `read_bounded` and `OpenPolicy` are `pub(crate)`, and
      reaching the flags through the public `cask_requested` proves nothing —
      the `symlink_metadata` pre-check refuses the symlink first, with the flags

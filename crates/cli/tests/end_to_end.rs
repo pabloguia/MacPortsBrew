@@ -581,6 +581,54 @@ fn doctor_exits_five_on_a_broken_provider_and_zero_elsewhere() {
 }
 
 #[test]
+fn a_broken_provider_is_explained_to_a_person_without_naming_an_identifier() {
+    // F-38's second half. `ProviderPresence::Broken` carries a `reason`, and
+    // every construction of it - both adapters and `capture::broken` - sets that
+    // to an `ErrorId::*.message_id()`. It is an identifier, never prose. The
+    // human template used to interpolate it, so a user diagnosing a broken
+    // install read "macports is present but not working: error.provider_unhealthy".
+    //
+    // Both halves are asserted here, and the second is the one that matters:
+    // without it, someone reads "the message no longer uses reason" and deletes
+    // the parameter, silently breaking a contract `docs/schemas/doctor.v1.md`
+    // documents. A machine wants the stable identifier; a person does not.
+    let scratch = Scratch::new("broken-reason");
+    let path = fixture(BROKEN);
+    let args = |json: bool| {
+        let mut v = vec!["--replay", path.to_str().expect("path")];
+        if json {
+            v.push("--json");
+        }
+        v.extend(["doctor", "--today", TODAY]);
+        v
+    };
+
+    let human = run(&scratch, &args(false));
+    let text = String::from_utf8(human.stdout).expect("utf-8");
+    assert!(
+        text.contains("not working"),
+        "the fixture must actually reach the broken branch: {text}"
+    );
+    assert!(
+        !text.contains("error."),
+        "a message identifier reached the user: {text}"
+    );
+
+    let out = run(&scratch, &args(true));
+    let doc: Value = serde_json::from_slice(&out.stdout).expect("doctor JSON");
+    let broken = doc["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .find(|f| f["id"] == "provider_broken")
+        .expect("the fixture is the broken one");
+    assert_eq!(
+        broken["reason"]["params"]["reason"], "error.provider_unhealthy",
+        "the JSON contract keeps the identifier the human text drops: {broken}"
+    );
+}
+
+#[test]
 fn an_unknown_flag_is_a_usage_error() {
     let scratch = Scratch::new("usage");
     let out = run(&scratch, &["--json", "--not-a-flag", "status"]);

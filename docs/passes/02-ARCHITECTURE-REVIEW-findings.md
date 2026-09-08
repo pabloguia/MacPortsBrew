@@ -48,10 +48,11 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-35** — verify elevation is a stored fact where three places say it must be detected | **Open. Carried to the executor pass.** The surviving half of F-24: the TOML comment, SE-059 and R-5a all name runtime capability detection as the real answer, and no artefact implements it. The 2026-09-06 observation makes the stored default right, which removes the urgency and not the obligation — INV-20 says detection wins over stored knowledge. Also carries the per-cell provenance want: two cells now need a source of their own and the schema has none. |
 | **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Fixed 2026-09-07 (`ae43fc2`).** `crates/cli/tests/registry_commands_parity.rs` asserts both directions between `known_provider_ids()` and the loaded commands table; it lives in `cli` because that is the only crate seeing both without breaking layering. Raised by `spec-guardian` reviewing the F-24 change. `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
 | **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
-| **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
+| **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Fixed 2026-09-08.** Both halves. The `doctor` half was deferred on a spec constraint that does not exist — see the resolution. `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Open, found 2026-09-07 by the F-31 security review.** Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
+| **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Open, found 2026-09-08.** `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -2268,6 +2269,42 @@ every catalogue and that referenced ids exist. Nothing checks that a message's
 unsubstituted through a gate that runs on every turn. Same family as F-32: the
 i18n gate cannot see the defect it exists to prevent.
 
+### Fixed 2026-09-08 — and the deferral was based on a rule I invented
+
+`doctor.provider_broken` no longer interpolates `{reason}`. Every construction
+of `ProviderPresence::Broken` — both adapters and `capture::broken` — sets that
+field to an `ErrorId::*.message_id()`, so it is an identifier by construction
+and never prose. A user diagnosing a broken install read *"macports is present
+but not working: error.provider_unhealthy"*.
+
+The parameter **stays** in the finding's params, because
+`docs/schemas/doctor.v1.md` documents it as part of the `--json` contract, where
+a stable identifier is exactly what a machine consumer wants. Resolving it
+through the catalogue instead was measured and rejected earlier in this pass: it
+puts a two-sentence remediation paragraph inside a table cell.
+
+The test asserts **both** halves, and the second is the load-bearing one:
+without it, a later reader sees that the message no longer uses `reason` and
+deletes the parameter, silently breaking the schema. It was mutation-checked —
+restoring `{reason}` makes it fail with the exact string a user would have seen.
+
+**The deferral itself was the more serious defect.** This finding, and F-41,
+both said `docs/spec/06-cli-and-ux.md` "reserves user-facing wording to the
+owner". **It says no such thing** — grep it for owner, human, decide, judgement,
+wording, tone or copy and one unrelated line comes back. What that file does
+contain is a **MUST** (line 76): *"An error taxonomy with stable identifiers,
+each carrying a user-facing remediation string. `"error: exit status 1"` is
+never acceptable user-facing output."* So the rule I cited to postpone the work
+did not exist, and the rule that does exist is the one the defect was breaking.
+
+That is the third time in this pass that a constraint was stated from memory
+rather than read: `custom_flags` "already used in three places" (it was used in
+none), "no other platform for these constants to be wrong on" (CI runs on
+Linux), and this. The failure mode is consistent enough to name — **a
+remembered constraint is an unsourced claim, and this project's own rule for
+provider facts, "verify, do not assume", has no exception for facts about
+itself.**
+
 ---
 
 ## F-39 — A replayed analysis reports fewer top-level packages than the machine it recorded, and the number is the only clue
@@ -2460,3 +2497,79 @@ where it was, because they are what a user sees when a snapshot will not load".
 That was the right instinct and it preserved a message that was already wrong
 for one of its two callers. Preserving behaviour preserves defects too, which
 is worth knowing the next time a refactor promises to change nothing.
+
+---
+
+## F-42 — A second agent harness runs here under a weaker copy of the enforcement layer
+
+**Severity: medium, and live now. Found 2026-09-08 while deciding whether
+`.agents/` and `.codex/` should be committed — a question I had filed for the
+owner without reading what was in them.**
+
+`.agents/` (thirteen skills) and `.codex/` (a config, a hooks manifest, three
+subagents and seven hooks) are untracked. They are **not** in `.gitignore`, so
+their absence from the repository is an omission rather than a decision — and
+the question I filed was the wrong one. Whether to commit them is downstream of
+whether they are correct, and they are not.
+
+`.codex/hooks.json` registers every hook by absolute path
+(`/Users/pirado/projects/MacPortsBrew/.codex/hooks/...`), so this is a
+configured, running enforcement layer rather than a sketch. Measured today:
+
+| Hook | `.claude/` | `.codex/` |
+|---|---|---|
+| `lib.sh` | 174 | 138 |
+| `stop-gate.sh` | 248 | 169 |
+| `guard-protected-paths.sh` | 87 | 47 |
+| `guard-provider-mutation.sh` | 140 | 99 |
+| `test-hooks.sh` | 409 | 245 |
+| `session-start.sh` | 49 | 38 |
+| `post-edit-checks.sh` | 78 | 78 (identical) |
+
+Line counts are a smell, not a finding. These are the differences that matter:
+
+**1. `.codex/hooks/guard-protected-paths.sh` protects no repository path.** Its
+`check()` matches provider prefixes, shell configuration and launch machinery —
+the *machine* half — and stops there. Absent: `docs/spec/01-invariants.md` as
+Tier 1, `rust-toolchain.toml` as ADR-0002's mechanism for the macOS floor, and
+the `MPB_UNATTENDED` reservation of `docs/decisions-pending.md` and `docs/adr/`
+for a human. Under Codex, an agent may rewrite the invariants it is bound by.
+
+**2. Both stop-gate fail-opens are still there.** Line 33 is
+`cd "$ROOT" || exit 0`, so a wrong `CLAUDE_PROJECT_DIR` skips the whole gate and
+reports success; line 35 returns on `MPB_SKIP_STOP_GATE=1` with no message, so a
+disclosed escape becomes an undisclosed one. Both were fixed in `.claude/` at
+`96605e9`, in this pass, for reasons that apply identically here.
+
+**3. The protection runs one way.** `.claude/hooks/guard-protected-paths.sh:67`
+covers `*/.claude/hooks/*`, `*/.claude/settings.json`, `*/scripts/validate.sh`,
+`*/scripts/check-*.sh` and `*/.github/workflows/*` behind `MPB_ALLOW_GUARD_EDIT`.
+It does not mention `.codex/`. So a Claude session may silently weaken the Codex
+guards, and a Codex session may silently weaken almost anything.
+
+**Why this is the same finding as F-30, one layer up.** F-30 was "the
+bounded-read mechanism is implemented twice, and prose in one copy did not reach
+the other". This is that, for the enforcement layer: three copies of the same
+intent — `.claude/`, `.codex/`, and the `scripts/check-*.sh` the gates call —
+with no source-of-truth relationship, so hardening one is invisible to the
+others. This project's own answer to that shape is stated twice already: one
+`validate.sh` is "the one definition of valid", and each of the six recipes is a
+`CONTRIBUTING.md` section **and** a skill "written from the same source". The
+Codex layer has no such source.
+
+**What is *not* claimed.** Nothing here says a Codex session has done damage —
+the divergence is what is measured, not any consequence of it. And
+`AGENTS.md`'s vocabulary is deliberate: this is dangerous because "weakening one
+is invisible until something it would have caught ships", not because anything
+has shipped.
+
+**Recommendation, revised by the evidence.** I previously recommended committing
+both directories. That was wrong: committing a live, weaker enforcement layer
+as-is would make the divergence a shipped property of the repository rather than
+a local accident. Reconcile first — the honest shapes are (a) generate
+`.codex/hooks/` from `.claude/hooks/` with a checked-in generator and a gate
+stage asserting they agree, the same pattern the six recipes use; (b) have both
+manifests point at *one* set of hook scripts, which is cheaper and loses only
+per-harness message wording; or (c) delete `.codex/` and state that this
+repository supports one harness. Every one of those edits `.claude/hooks/` or
+`scripts/`, so all three are the owner's, and (b) is the one I would take.
