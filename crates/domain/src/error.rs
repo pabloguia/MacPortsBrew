@@ -27,6 +27,17 @@ pub enum ErrorId {
     CapabilityMissing,
     /// A snapshot could not be read or has an incompatible schema.
     SnapshotUnusable,
+    /// A recording could not be read or has an incompatible schema.
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] only because the remediation
+    /// differs: a snapshot is produced by `macportsbrew snapshot` and consumed
+    /// by `--from-snapshot`, a recording by `scripts/capture-fixture.sh` and
+    /// consumed by `--replay`. One reader serves both (F-30), so before this
+    /// existed a bad `--replay` told the user to take a fresh snapshot and
+    /// point a flag they had not used at a different file (F-41). The exit code
+    /// is deliberately the same 8: `06-cli-and-ux.md:68` is the category
+    /// "8 stale/unusable input", and a recording is one.
+    RecordingUnusable,
     /// Policy data could not be loaded or is inconsistent.
     PolicyDataInvalid,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
@@ -51,7 +62,9 @@ impl ErrorId {
             | ErrorId::ProviderOutputChanged
             | ErrorId::ProviderTimeout
             | ErrorId::CapabilityMissing => 5,
-            ErrorId::SnapshotUnusable | ErrorId::PolicyDataInvalid => 8,
+            ErrorId::SnapshotUnusable | ErrorId::RecordingUnusable | ErrorId::PolicyDataInvalid => {
+                8
+            }
             ErrorId::PackageNotFound
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
@@ -70,6 +83,7 @@ impl ErrorId {
             ErrorId::PackageNotFound => "error.package_not_found",
             ErrorId::CapabilityMissing => "error.capability_missing",
             ErrorId::SnapshotUnusable => "error.snapshot_unusable",
+            ErrorId::RecordingUnusable => "error.recording_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
@@ -89,6 +103,7 @@ impl ErrorId {
             ErrorId::PackageNotFound,
             ErrorId::CapabilityMissing,
             ErrorId::SnapshotUnusable,
+            ErrorId::RecordingUnusable,
             ErrorId::PolicyDataInvalid,
             ErrorId::SafetyBlocked,
             ErrorId::NotImplementedInThisPass,
@@ -142,6 +157,11 @@ mod tests {
         assert_eq!(ErrorId::SafetyBlocked.exit_code(), 4);
         assert_eq!(ErrorId::ProviderUnhealthy.exit_code(), 5);
         assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
+        // Same bucket, deliberately: `06-cli-and-ux.md:68` is "8 stale/unusable
+        // input", a category, and a recording is one. Asserted here rather than
+        // only in the adapter that reads recordings, so re-bucketing the
+        // identifier fails where the contract lives (F-41).
+        assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 

@@ -11,7 +11,9 @@
 //!
 //! Everything read here is treated as untrusted input
 //! (`04-migration-and-safety.md`, threat model): the size is bounded before
-//! the file is read, a parse failure is `SnapshotUnusable` rather than a
+//! the file is read, a parse failure is `SnapshotUnusable` - or
+//! `RecordingUnusable` on the `--replay` route, because the remedies differ
+//! (F-41) - rather than a
 //! panic, the schema version is checked, and the capture timestamp — which is
 //! data from a file — is scrubbed to an alphanumeric stamp before it is
 //! allowed anywhere near a file name.
@@ -107,7 +109,7 @@ pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, D
 /// answers moves the other provider's prefix into a legitimately built
 /// environment, which a review demonstrated. One rule, both routes. F-21.
 pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
-    let text = read_bounded(path)?;
+    let text = read_bounded(path, ErrorId::SnapshotUnusable)?;
     let snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
         DomainError::new(
             ErrorId::SnapshotUnusable,
@@ -119,8 +121,13 @@ pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
 }
 
 /// Reads a recording — a fixture — with the same bounds as a snapshot.
+///
+/// Same reader, same bounds, **different identifier**. The two routes share one
+/// implementation (F-30) and that unification quietly preserved a message
+/// written for only one of them: a bad `--replay` told the user to take a fresh
+/// snapshot and point `--from-snapshot` at something else (F-41).
 pub fn load_recording(path: &Path) -> Result<Recording, DomainError> {
-    let text = read_bounded(path)?;
+    let text = read_bounded(path, ErrorId::RecordingUnusable)?;
     Recording::from_json(&text).map_err(|e| {
         DomainError::new(
             e.id,
@@ -141,9 +148,12 @@ pub fn load_recording(path: &Path) -> Result<Recording, DomainError> {
 /// applying to an object that need not be the one read — and an unbounded read
 /// of a file that grew, or of a device or a FIFO, is the threat-model item
 /// this cap exists for.
-fn read_bounded(path: &Path) -> Result<String, DomainError> {
+fn read_bounded(path: &Path, id: ErrorId) -> Result<String, DomainError> {
     use crate::persistence::bounded_read::{any_regular_file, BoundedReadError};
-    let unusable = |detail: String| DomainError::new(ErrorId::SnapshotUnusable, detail);
+    // The identifier is the caller's, not this reader's. Every message below is
+    // about *a file*, and which file it is decides what the user should do
+    // about it - the distinction F-30's unification lost and F-41 found.
+    let unusable = |detail: String| DomainError::new(id, detail);
     // The mechanism moved to `bounded_read` so the receipt reader could share it
     // (F-30); this wrapper exists to keep every message below exactly where it
     // was, because they are what a user sees when a snapshot will not load.
@@ -216,7 +226,12 @@ mod tests {
     }
 
     #[test]
-    fn reading_something_that_is_not_there_fails_closed() {
+    fn reading_something_that_is_not_there_fails_closed_and_says_which_input() {
+        // This test used to assert `SnapshotUnusable` for *both* loaders, which
+        // is how F-41 stayed invisible: the defect was pinned as the expected
+        // answer. Failing closed is still the property - neither loader returns
+        // a partial document - and the identifier now says which of the two
+        // inputs failed, because the remedies are different commands.
         let missing = Path::new("/nonexistent/macportsbrew/snapshot.json");
         assert_eq!(
             load_snapshot(missing).unwrap_err().id,
@@ -224,12 +239,21 @@ mod tests {
         );
         assert_eq!(
             load_recording(missing).unwrap_err().id,
-            ErrorId::SnapshotUnusable
+            ErrorId::RecordingUnusable
         );
-        // A directory is not a document either.
+        // A directory is not a document either, on either route.
         assert_eq!(
             load_snapshot(Path::new("/")).unwrap_err().id,
             ErrorId::SnapshotUnusable
         );
+        assert_eq!(
+            load_recording(Path::new("/")).unwrap_err().id,
+            ErrorId::RecordingUnusable
+        );
+        // Same exit code either way: `06-cli-and-ux.md:68` is the category
+        // "8 stale/unusable input", and a new identifier must not quietly move
+        // one off it.
+        assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
+        assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
     }
 }

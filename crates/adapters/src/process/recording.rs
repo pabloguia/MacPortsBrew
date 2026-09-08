@@ -62,11 +62,14 @@ pub const RECORDING_SCHEMA_VERSION: u32 = 1;
 impl Recording {
     /// Parses a recording from JSON.
     pub fn from_json(text: &str) -> Result<Self, DomainError> {
+        // `RecordingUnusable`, not `SnapshotUnusable`: same exit code 8, and a
+        // remediation that names `scripts/capture-fixture.sh` and `--replay`
+        // rather than `macportsbrew snapshot` and `--from-snapshot` (F-41).
         let rec: Recording = serde_json::from_str(text)
-            .map_err(|e| DomainError::new(ErrorId::SnapshotUnusable, format!("recording: {e}")))?;
+            .map_err(|e| DomainError::new(ErrorId::RecordingUnusable, format!("recording: {e}")))?;
         if rec.schema_version != RECORDING_SCHEMA_VERSION {
             return Err(DomainError::new(
-                ErrorId::SnapshotUnusable,
+                ErrorId::RecordingUnusable,
                 format!(
                     "recording schema {} is not the supported {}",
                     rec.schema_version, RECORDING_SCHEMA_VERSION

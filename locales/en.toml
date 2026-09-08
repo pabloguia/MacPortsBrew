@@ -48,6 +48,11 @@ cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` 
 error.usage = "That command line is not valid: {detail}. Run `macportsbrew --help` for the accepted commands and flags."
 error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew providers` to see what was detected and how to add it."
 error.provider_unhealthy = "The provider is present but did not answer correctly: {detail}. Run `macportsbrew doctor` for a full diagnosis before relying on its answers."
+# A recording is not a snapshot: it comes from scripts/capture-fixture.sh and is
+# consumed by --replay. Same exit code 8 as a snapshot - 06-cli-and-ux.md:68 is
+# the category "8 stale/unusable input" - and a different remediation, which is
+# the whole reason the identifier exists (F-41).
+error.recording_unusable = "The recording could not be read, or its schema is from an incompatible version: {detail}. Capture a fresh one with `scripts/capture-fixture.sh`, or point --replay at a readable file."
 error.provider_output_changed = "The provider's output did not have the shape this version expects: {detail}. The provider was probably updated; run `macportsbrew doctor --report` and attach the report to an issue."
 error.provider_timeout = "The provider did not answer within its time limit: {detail}. Try again, or pass --no-network if the delay is a metadata fetch."
 error.package_not_found = "That package is not present under that provider: {detail}. Run `macportsbrew list` to see what is there, and check the spelling."

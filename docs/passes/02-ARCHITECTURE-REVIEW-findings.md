@@ -51,7 +51,8 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Fixed 2026-09-08.** Both halves. The `doctor` half was deferred on a spec constraint that does not exist — see the resolution. `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
-| **F-41** — a failed `--replay` tells the user to fix a snapshot | **Open, found 2026-09-07 by the F-31 security review.** Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
+| **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
+| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. And `ErrorId::all()` is a manual mirror of the enum: forget to update it and every i18n coverage test still passes while an identifier ships with no message. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Open, found 2026-09-08.** `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
@@ -2494,20 +2495,71 @@ produces a snapshot, not a recording — `scripts/capture-fixture.sh` does that 
 and `--from-snapshot` is a different flag from the one the user passed. The
 `{detail}` is accurate; the sentence around it sends them somewhere else.
 
-**Why it is filed rather than fixed.** The honest fix is a second error
-identifier (`recording_unusable`) with its own catalogue entry and its own exit
-code question, or a generic message that serves both and names neither
-mechanism. That is an error-contract and wording decision — `crates/domain/src/error.rs`
-is on `AGENTS.md`'s "dangerous to change" list precisely because exit codes are
-a documented contract, and `docs/spec/06-cli-and-ux.md` reserves user-facing
-wording. Neither is a change to make inside a commit about open flags.
+### Fixed 2026-09-08 — and both reasons given for filing it were wrong
 
-**It is a consequence of F-30, not a regression from it.** The unification
-noted at the time that the wrapper existed "to keep every message below exactly
-where it was, because they are what a user sees when a snapshot will not load".
-That was the right instinct and it preserved a message that was already wrong
-for one of its two callers. Preserving behaviour preserves defects too, which
-is worth knowing the next time a refactor promises to change nothing.
+`ErrorId::RecordingUnusable` carries the `--replay` route, with a catalogue
+message naming the command that produces a recording and the flag that consumes
+one. Same exit code 8 — `06-cli-and-ux.md:68` is the category "8 stale/unusable
+input", and a recording is one — so nothing observable moved for a machine
+consumer. `snapshot_store::read_bounded` takes the identifier from its caller
+instead of hardcoding one, and `Recording::from_json` returns the new id on both
+its parse and its version arms.
+
+**Two tests were asserting the defect.** `reading_something_that_is_not_there_*`
+and `corrupt_state_fails_closed` both pinned `SnapshotUnusable` on the recording
+route as the expected answer. That is how this survived a review: the wrong
+identifier had a green test under it. Both now assert the new one, plus the
+exit code, so flipping them could not be a quiet loosening.
+
+#### The reasons for filing it were both invented
+
+This finding was filed rather than fixed on two grounds, and neither existed.
+
+**"`06-cli-and-ux.md` reserves user-facing wording to the owner."** It says no
+such thing — F-38 records the same fabrication, made in the same sitting. What
+that file does contain, at line 76, is a MUST requiring every identifier to
+carry a user-facing remediation string, which is the rule this defect was
+breaking.
+
+**"`crates/domain/src/error.rs` is on AGENTS.md's dangerous-to-change list, so
+it wants the owner."** The list says: *"Touch these only deliberately, and run
+`security-reviewer` and `spec-guardian` before reporting done."* It is
+**review-gated, not owner-gated**. Both reviewers were run; both are recorded
+below.
+
+#### What the reviews found, and it was the thing I had promised not to do
+
+I added a schema-version case specifically so that flipping the two tests could
+not be a loosening. **It did not reach the schema-version branch.**
+`Recording::provenance` is required with no `serde(default)`, so
+`{"schemaVersion": 99, "invocations": []}` dies in `serde_json::from_str` and
+never gets to the version check. The assertion passed for the wrong reason,
+under a comment claiming the opposite, leaving the one line it existed to cover
+with no coverage at all — reverting that line left the whole suite green.
+
+Both reviewers found it independently, each by building a probe rather than
+reading. It is the exact failure this pass has named four times now — *a path
+that did nothing is indistinguishable from a path that succeeded* — and this
+time I wrote it into a test whose comment denied it. The fix patches the version
+into a **real** fixture, mirroring the snapshot case eight lines above it, and
+asserts on the detail text so the two arms stay distinguishable. Mutation-checked
+against that one line.
+
+Also from the reviews, and fixed here: `docs/schemas/README.md:74` is the only
+document that enumerates identifiers per exit code and had gone stale, which is
+this finding one layer up; the exit-code assertion now also lives in
+`error.rs`'s own contract test, where the contract is; the module header of
+`snapshot_store.rs` had become half true; the citation was `:72` (a narrower
+sentence about a *restore* and a *snapshot*) where `:68` is the category; and
+the end-to-end test asserted wording without asserting `stdout` was empty, which
+is what makes it a fail-closed test rather than a wording test.
+
+Confirmed clean by review and not taken on trust: nothing anywhere branches on
+`ErrorId` — no retry, no fallback, no continue-rather-than-abort — so splitting
+it changed no control flow; `--replay` has no fallback to the live runner when a
+recording will not load, which would have broken INV-15 and INV-05 while looking
+like success; and `{detail}`'s exposure is unchanged in class and identical to
+the snapshot route's, reaching stderr only.
 
 ---
 
@@ -2584,3 +2636,48 @@ manifests point at *one* set of hook scripts, which is cheaper and loses only
 per-harness message wording; or (c) delete `.codex/` and state that this
 repository supports one harness. Every one of those edits `.claude/hooks/` or
 `scripts/`, so all three are the owner's, and (b) is the one I would take.
+
+---
+
+## F-43 — The planner tells a `--replay` user to fix a snapshot, and `ErrorId::all()` is a hand-copied list
+
+**Severity: low. Two items, both found 2026-09-08 by the reviews of F-41's fix,
+both the same defect as F-41 at sites that fix did not reach.**
+
+**1. `planner.rs` reproduces F-41 one layer up.** `crates/application/src/planner.rs:605`
+and `:619` return `ErrorId::SnapshotUnusable` when a package name is unsafe or a
+program path is not absolute. Under `--replay` those values came from a
+*recording*, so the user is told to take a fresh snapshot and re-aim
+`--from-snapshot` — verbatim the message F-41 exists to remove, at a site F-41
+did not touch.
+
+It is filed rather than fixed because the fix is not the same shape. The
+planner cannot see which route produced the snapshot it was handed; that is the
+point of the capture/analysis split, and giving it that knowledge is a design
+question rather than a parameter. The honest options are a third identifier that
+names neither route, or threading the provenance the `Snapshot` already carries
+down to the planner. Both are decisions; the first is probably right.
+
+**2. `ErrorId::all()` is a manual mirror of the enum with nothing asserting it is
+complete.** `crates/cli/tests/i18n.rs` iterates `all()` to prove every identifier
+has a catalogue message, a `{detail}` slot and a remediation sentence — the
+`06-cli-and-ux.md:76` MUST. Add a variant and forget `all()`, and **every one of
+those tests still passes** while an identifier ships with no message at all,
+which that MUST calls never acceptable. This change added a variant correctly;
+the gate that would have caught it doing otherwise does not exist.
+
+The same shape as F-36 (`known_provider_ids()` versus the commands table) and as
+F-12: a check whose subject is a hand-written list is a check on the list, not on
+the thing. `strum::EnumIter` would close it and is a dependency (ADR-0004);
+a `match` in a test that must be updated to compile is free and closes it just as
+well.
+
+**3. Two `schemaVersion` tests elsewhere have the defect F-41's fix corrected.**
+`crates/cli/tests/end_to_end.rs`'s `a_snapshot_from_an_unsupported_schema_is_refused`
+writes `{"schemaVersion": 99}` and gets `missing field 'toolVersion'` — the
+parse arm, not the version arm its name claims — and
+`crates/adapters/src/process/recording.rs`'s own unit test has the same shape.
+Both were verified against the built binary during the F-41 review. Neither is a
+runtime defect; both are green lights over uncovered lines, and the correct
+pattern now exists eight lines away in `crates/adapters/tests/persistence.rs`.
+

@@ -629,6 +629,53 @@ fn a_broken_provider_is_explained_to_a_person_without_naming_an_identifier() {
 }
 
 #[test]
+fn a_bad_recording_is_not_diagnosed_as_a_bad_snapshot() {
+    // F-41. `--from-snapshot` and `--replay` share one bounded reader (F-30),
+    // and that unification preserved a message written for only one of them:
+    // every failure was `SnapshotUnusable`, so pointing `--replay` at a
+    // directory told the user to run `macportsbrew snapshot` and aim
+    // `--from-snapshot` - a command that cannot produce a recording, and a flag
+    // they had not used.
+    //
+    // The exit code is asserted as *unchanged* on purpose. A new identifier
+    // that quietly moved an input error off 8 would break the contract in
+    // `06-cli-and-ux.md` while looking like a wording fix.
+    let scratch = Scratch::new("bad-recording");
+    let dir = scratch.path().join("not-a-file");
+    std::fs::create_dir_all(&dir).expect("a directory is unreadable as either");
+    let arg = dir.to_str().expect("path").to_string();
+
+    for (flag, wanted, unwanted) in [
+        ("--replay", "capture-fixture", "--from-snapshot"),
+        (
+            "--from-snapshot",
+            "macportsbrew snapshot",
+            "capture-fixture",
+        ),
+    ] {
+        let out = run(&scratch, &[flag, &arg, "status"]);
+        assert_eq!(
+            out.status.code(),
+            Some(8),
+            "{flag}: an unreadable input still exits 8"
+        );
+        assert!(
+            out.stdout.is_empty(),
+            "{flag}: an unreadable input produces no document, not a partial one"
+        );
+        let text = String::from_utf8(out.stderr).expect("utf-8");
+        assert!(
+            text.contains(wanted),
+            "{flag} must name the remedy that produces its own input: {text}"
+        );
+        assert!(
+            !text.contains(unwanted),
+            "{flag} must not send the user to the other route: {text}"
+        );
+    }
+}
+
+#[test]
 fn an_unknown_flag_is_a_usage_error() {
     let scratch = Scratch::new("usage");
     let out = run(&scratch, &["--json", "--not-a-flag", "status"]);
