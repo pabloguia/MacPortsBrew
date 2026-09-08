@@ -17,6 +17,16 @@ later pass can accept or reject each individually. The pass report is
 Four findings were fixed immediately after the review, at the owner's request,
 and this file is left as the record of what was found rather than rewritten:
 
+**This table has now gone stale twice, and both times it said less than the
+truth rather than more.** First a splice bug glued four rows together and
+silently dropped F-12 and F-19 from it, through two commits. Then F-34, F-36 and
+F-39 shipped their fixes in `ae43fc2` and kept their rows reading "Open" — so a
+reader would have re-done work already done, or reported outstanding defects
+that were not. Nothing mechanical checks that a row agrees with its own body,
+the way `check-i18n-parity.sh` checks a catalogue against its callers, and this
+register is the pass's deliverable. Until something does, **the body is the
+record and the row is a summary of it** — read down when the two disagree.
+
 | Finding | State |
 |---|---|
 | **F-01** — cross-provider reverse-dependency count (Tier 1) | **Fixed**, on the owner's ruling (DP-010, resolved). SE-045; the count is per-provider and SE-042(2) is withdrawn. |
@@ -34,12 +44,12 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Value closed by observation 2026-09-06; the deferral is not.** MacPorts 2.12.6 installed here: `port -q installed` runs as a non-root user, exit 0, and `registry.db` is `0644`. `verify = "none"`, sourced to the observation. R-5a's UNRESOLVED-1 and -2 answered. But the finding's actual complaint — three places name runtime detection and no artefact holds it — still stands; one machine fixes the default, not the mechanism (INV-20). |
 | **F-33** — a MacPorts `VERIFY_DESTINATION` cannot fail on exit status | **Open, and reachable.** `port installed` exits **0** for a port that is not installed, and for one that does not exist. `plan.v1.md` warns an executor about exit-status semantics for `PACKAGE_ABSENT` and says nothing for `PROVIDER_REPORTS_ACTIVE`, which is what `VERIFY_DESTINATION` carries — the step guarding `REMOVE_SOURCE` under INV-01. Unlike F-22 this path is reachable: MacPorts packages are plannable. Observed 2026-09-06.
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
-| **F-34** — a replayed `doctor` invents a `PATH` warning from data the recording does not carry | **Open, and it fires on every fixture.** `--replay` reports "<provider>'s prefix … is not on PATH" for each present provider. On this machine both prefixes *are* on `PATH`: live `doctor` says so and emits correct detailed findings instead, and `--from-snapshot` on a fresh capture emits none. The `Recording` format has no environment section at all — only the sanitised per-invocation `PATH` the executor builds. Mirror of F-29: that one turns an unknown into a silent no, this one turns an absent input into a confident warning a user would act on. Observed 2026-09-06.
+| **F-34** — a replayed `doctor` invents a `PATH` warning from data the recording does not carry | **Fixed 2026-09-07 (`ae43fc2`).** Both checks that read `PATH` are skipped together when there is none, and the absence is reported once as `doctor.path_unknown`. The test asserts the fix *and* the control: with a `PATH` that genuinely omits a prefix, the original finding must still fire. `--replay` reports "<provider>'s prefix … is not on PATH" for each present provider. On this machine both prefixes *are* on `PATH`: live `doctor` says so and emits correct detailed findings instead, and `--from-snapshot` on a fresh capture emits none. The `Recording` format has no environment section at all — only the sanitised per-invocation `PATH` the executor builds. Mirror of F-29: that one turns an unknown into a silent no, this one turns an absent input into a confident warning a user would act on. Observed 2026-09-06.
 | **F-35** — verify elevation is a stored fact where three places say it must be detected | **Open. Carried to the executor pass.** The surviving half of F-24: the TOML comment, SE-059 and R-5a all name runtime capability detection as the real answer, and no artefact implements it. The 2026-09-06 observation makes the stored default right, which removes the urgency and not the obligation — INV-20 says detection wins over stored knowledge. Also carries the per-cell provenance want: two cells now need a source of their own and the schema has none. |
-| **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Open. Raised by `spec-guardian` reviewing the F-24 change.** `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
+| **F-36** — `Elevation::Unknown` is unreachable by today's data and one recipe away from live | **Fixed 2026-09-07 (`ae43fc2`).** `crates/cli/tests/registry_commands_parity.rs` asserts both directions between `known_provider_ids()` and the loaded commands table; it lives in `cli` because that is the only crate seeing both without breaking layering. Raised by `spec-guardian` reviewing the F-24 change. `planner.rs` maps a provider with no `provider-commands.toml` row to `Unknown` with `placeholder = true`, and nothing asserts every `registry.rs` provider has a row — while `AGENTS.md` says adding a provider is "an adapter plus one registry entry". `MigrationPlan::steps_with_unknown_elevation` has **zero** tests outside its one call site, so the renderer arm and its locale key rot silently. A contributor following the recipe gets a plan of all-unknown commands and no red test. |
 | **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
-| **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Open.** Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
+| **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Open, found 2026-09-07 by the F-31 security review.** Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
@@ -2049,6 +2059,20 @@ invalidates the existing fixtures, which is the real cost. Until then a replayed
 `doctor` should report `PATH` findings as **unknown** rather than as negatives —
 which is a small change and stops the tool asserting something it cannot know.
 
+### Fixed 2026-09-07 (`ae43fc2`)
+
+An empty `PATH` here means the *capture* could not record one, not that the
+user's `PATH` is empty — a `Recording` carries no environment at all. Both
+checks that read it are now skipped together, and the absence is reported once
+as `doctor.path_unknown`, which says what a live run would answer instead.
+
+Skipping them together is the point: they read the same missing thing, and
+leaving `path_order` in place would have produced a confident ordering derived
+from nothing. The test asserts the fix **and** its control — with a `PATH` that
+genuinely omits a prefix, `prefix_not_on_path` must still fire — because a fix
+that replaced a false warning with silence would pass any test that only
+checked the warning was gone.
+
 ---
 
 ## F-35 — Verify elevation is a stored fact where three places say it must be detected
@@ -2121,6 +2145,21 @@ a user — to stop the renderer arm and the locale key rotting; and a check that
 every registry provider id resolves to a `provider-commands.toml` entry, which is
 the actual fix. The first is done in this change; the second is the executor
 pass's, because that is when a placeholder command stops being harmless.
+
+### Fixed 2026-09-07 (`ae43fc2`)
+
+`crates/cli/tests/registry_commands_parity.rs` asserts both directions: every
+`known_provider_ids()` entry has a row in the loaded commands table, and every
+row has a provider. It lives in `cli` because that is the only crate that sees
+both `registry.rs` and the loaded table without breaking the layering
+`check-layering.sh` enforces, and the weaker direction says in the test why it
+is weaker.
+
+Without it, `AGENTS.md` tells a contributor that adding a provider is "an
+adapter plus one registry entry" — do exactly that, and `planner.rs` falls
+through `table.get(id.as_str())` to `Elevation::Unknown` with `placeholder =
+true` on every command, producing a wall of unrunnable steps with no test
+turning red.
 
 ---
 
