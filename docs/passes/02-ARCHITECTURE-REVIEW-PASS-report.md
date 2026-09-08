@@ -64,6 +64,21 @@ It found `application` sitting under a floor its own gate had demanded since
 2026-09-02, which is the concrete cost of the two passes that reported coverage
 without running it.
 
+**And the divergence itself is closed, as of `96605e9` (2026-09-08).** All
+nineteen files were reviewed and committed — reviewed rather than swept in,
+because a commit message has to describe the change and that one could not be
+written from a diffstat. So from that commit onward, "validate.sh ok" in this
+report means the gate the repository defines. The window it describes was real
+and lasted the length of this pass; it is recorded rather than deleted, because
+"the local gate was a superset" is a claim a later reader may need to check
+against a specific commit.
+
+One asymmetry survives it and is now **F-42 / DP-018**: `.codex/` is a second,
+live hook layer whose guards are an older and weaker copy of `.claude/`, and
+whose path guard protects the machine but not one repository path. The paragraph
+above is about the gap between the working tree and `HEAD`; that one is about the
+gap between two harnesses in the same tree.
+
 ## What was verified rather than inherited
 
 The work order's first instruction is not to trust the previous report. Every
@@ -323,72 +338,85 @@ every object inside every rlib rather than trusting the build.
 
 ## Recommended next tasks, in priority order
 
-**Rewritten 2026-09-06.** The original list is preserved below because it is the
-record of what the review recommended; almost all of it has since shipped, and a
-stale to-do list is worse than none. What follows is what is actually left.
+**Rewritten 2026-09-08**, replacing a 2026-09-06 list whose every mechanical item
+had shipped. The original review's list is preserved below because it is the
+record of what the review recommended; a stale to-do list is worse than none, and
+this section has now been the stale thing twice.
 
-### 1. Owner, mechanical — one session-start flag unblocks four things
-
-Start a session with `MPB_ALLOW_GUARD_EDIT=1` (the disclosed escape,
-`11-agentic-sdlc.md`) and these land together, because they are all the
-enforcement layer:
-
-- **The DP-015 coverage floors** — `adapters` 80→95 and a 90% overall backstop,
-  into `scripts/check-coverage.sh` and `07-quality-and-testing.md`. Measured and
-  met already; only the gate and the specification do not say so yet.
-- **The test-lines-in-`src/` denominator** in the same script, which dilutes the
-  number it is checking.
-- **F-32** — the i18n gate counting a test fixture as a rendered string.
-- **`session-start.sh`** rendering an empty decision list as a parse failure.
-
-The last two are the same bug as F-12 and as the `cargo`-absent stop gate, which
-is why they belong in one change with the rule written once: **a gate must be
-able to fail.**
-
-### 2. Owner, decisions — four, three of them new tonight
+### 1. Owner, decisions — five open
 
 - **DP-016** (F-29) — what an *unknown* service status should do to
   `MANUAL_REVIEW`. Trades INV-19 against whether `--replay` can still show a real
   plan. Four options, recommendation (c).
+- **DP-017** (F-31) — three of this repository's own guards make one security
+  property untestable. Four options; **(d)** is new and cheapest — a script that
+  re-derives the two Darwin open-flag constants from the SDK header instead of
+  trusting a dated comment.
+- **DP-018** (F-42) — `.codex/` is a live hook layer that is a weaker copy of
+  `.claude/`. Its path guard protects the machine and **no repository path at
+  all**, and its stop gate still carries both fail-opens fixed in `.claude/`
+  this pass. Recommendation (b): one set of scripts, two manifests.
 - **Immutable releases** (R-14) — strictly good for supply-chain integrity,
-  strictly bad for withdrawal manoeuvrability, and a withdrawal permanently burns
-  the version number. Belongs in ADR-0005 or its own entry.
-- **The Intel runner costs money** (R-11) — `macos-15-intel` is an alias of
-  `macos-15-large`, and larger runners are billed even on public repositories.
-  Either pay, cross-compile from the free arm64 standard runner, or ship arm64
-  first and say so.
-- **A second certificate** (R-11) — the `.pkg` needs Developer ID *Installer*,
-  distinct from the Developer ID *Application* identity that signs the Mach-O and
-  the `.dmg`. Re-read DP-008 with that cost attached.
+  strictly bad for withdrawal manoeuvrability, and a withdrawal permanently
+  burns the version number. Belongs in ADR-0005 or its own entry.
+- **The Intel runner costs money, and the `.pkg` needs a second certificate**
+  (R-11) — `macos-15-intel` is an alias of `macos-15-large` and larger runners
+  are billed even on public repositories; Developer ID *Installer* is distinct
+  from the *Application* identity. Re-read DP-008 with both costs attached.
 
-### 3. Owner, housekeeping
+Do **not** commit `.agents/` or `.codex/` before DP-018 is settled. An earlier
+version of this report recommended committing them as housekeeping, without
+having read them; reading them inverted the recommendation.
 
-Sixteen files of enforcement-layer work sit uncommitted, including
-`scripts/check-memory-files.sh`, which `validate.sh:33` calls and git does not
-have. See "Gate status" above for what that means for every result in this pass.
-`.agents/` and `.codex/` are untracked and un-ignored.
+### 2. Implementation — what is genuinely left
 
-### 4. Implementation, in dependency order
-
-- **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists
-  to prevent. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters`,
-  which is an ADR-0001/ADR-0002 decision first.
+- **F-40** — the coverage denominator counts test code living in `src/`. Measured
+  2026-09-07: **34% of the instrumented surface is test code**, unevenly (16.4%
+  in `application`, 44.5% in `policy`), so correcting it reorders which crate is
+  nearest its floor rather than shifting all six numbers together. Two honest
+  routes — faithful segment post-processing with its own tests, or relocating the
+  in-`src/` test modules, which this project has done once already and which
+  makes the question disappear. Not a single change either way, and it re-tunes
+  the floors when it lands.
+- **F-33's data half** — a per-provider success semantic beside the verb in
+  `provider-commands.toml`. The obligation is now item 4 of `plan.v1.md`'s
+  executor-debt list; the schema change belongs to the executor.
+- **F-35** — verify elevation detected rather than stored. Needs a `Capability`
+  variant, an adapter method and a policy-data fallback. Executor-shaped.
+- **F-04's residual** — the self-invocation's relative program and empty
+  environment. A declared Tier 3 deviation (SE-056); the fix is "resolve this
+  process's own binary", which is the executor's design.
+- **F-43's first item** — `planner.rs:605,619` reproduce F-41 at a site F-41's
+  fix could not reach, because the planner cannot see which route produced its
+  input. That is the capture/analysis split working; threading provenance into
+  it is a design question, and a third identifier naming neither route is
+  probably the answer.
 - **F-29's implementation**, once DP-016 is ruled. The tri-state field itself
   needs no ruling — `AGENTS.md` already requires it.
 - **F-23's routing** — clap's `about` through the catalogue. A CLI-pass design
   question, because `--help` renders before `--language` is parsed.
-- **F-22** — nothing to do until casks are made plannable, at which point the
-  verb must become kind-aware in the same change. Three tests fail if it is not.
+- **F-22** — nothing to do until casks are plannable, at which point the verb
+  must become kind-aware in the same change. Three tests fail if it is not.
 
-### 5. Blocked on a machine or a remote, not on effort
+### 3. Blocked on a machine or a remote, not on effort
 
-**MacPorts has still never been observed** — `port` is not on this machine and
-`/opt/local` does not exist, so F-24 and every MacPorts-side assertion in this
-repository remain documentation-derived. Also waiting: R-11's hardened-runtime
-and offline-quarantine questions (one notarisation attempt, one offline machine),
-R-13's behavioural half (needs a real certificate and a real revocation, so
-possibly not answerable before the first release), R-14's Q2 and Q3 (minutes,
-once a remote exists), an Apple Silicon capture, and coverage in CI.
+**MacPorts is no longer among them.** It was installed on 2026-09-07, and the
+first thing it did was disprove the tool: the executor passed no `HOME`, `port`
+exits 1 without one whatever you ask it, and a healthy 2.12.6 install was
+reported as `Broken` (F-37). R-5's MacPorts half is now observed rather than
+cited (E19–E32), which also produced SE-077 and a third independent confirmation
+of F-33.
+
+Still waiting: R-11's hardened-runtime and offline-quarantine questions (one
+notarisation attempt, one offline machine); R-13's behavioural half, which needs
+a real certificate and a real revocation and so may not be answerable before the
+first release; R-14's Q2 and Q3, minutes once a remote exists; an Apple Silicon
+capture; and **CI, which has still never run** — every result in this pass is a
+local result.
+
+Two smaller observations are blocked by this repository's own deny rules rather
+than by a machine: a read-only `port select --list` and a read-only
+`launchctl print`. Both are recorded in R-5 E32 rather than reworded around.
 
 <details>
 <summary>The original list, as the review filed it</summary>
