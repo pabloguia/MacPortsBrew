@@ -11,6 +11,85 @@ are recorded.
 
 ## Open
 
+### DP-017 — Three of this repository's own guards make one security property untestable
+
+- **The question:** F-31 hardens the cask-receipt open with
+  `O_NOFOLLOW | O_NONBLOCK`. The behavioural test for that — plant a symlink,
+  watch the strict open fail — cannot be written anywhere in this repository,
+  and the reason is a collision between three guards that are each individually
+  right.
+- **The collision, verified against each script rather than argued** (a first
+  version of this list named the wrong script for one of them, which is why
+  each now cites a line):
+  1. `stop-gate.sh` refuses the token `symlink` in non-comment code anywhere
+     under `crates/*/src`. `#[cfg(test)]` is caught **by the path glob**, not by
+     a decision: the hook's stated reason (`stop-gate.sh:83-87`) is that Rust
+     compiles a `src/tests/` *directory* into the shipped binary, which is not
+     true of `cfg(test)` and which the hook never mentions. Its message says a
+     fixture like this "belongs under `crates/<crate>/tests/`".
+     It also fires on an **assertion message** — English prose that happens to
+     sit on a code line — a false positive already met once while writing this.
+     Rewording that message was legitimate (it names bits now, which is what it
+     asserts); rewording a *call* to dodge the same grep would not be, and the
+     two look identical from outside the diff. That ambiguity is itself an
+     argument for scoping the guard rather than living beside it.
+  2. It cannot go there: `read_bounded` and `OpenPolicy` are `pub(crate)`, and
+     reaching the flags through the public `cask_requested` proves nothing —
+     the `symlink_metadata` pre-check refuses the symlink first, with the flags
+     or without them. A test that passes either way is worse than none.
+  3. The FIFO half — the one this finding is *named* after — needs `mkfifo`,
+     for which `std` has no equivalent (`UnixListener::bind` makes a socket
+     node, whose `open` returns `ENXIO` at once and so tests nothing about
+     blocking). Spawning it is caught by `check-no-shell.sh:150` — but that
+     matches `Command::new("` **in its literal form only**, and the script's
+     own comment concedes as much ("a literal in program position is the
+     signal"). A `const` holding the path walks past it. So this door is
+     alarmed, not locked, and the alarm is the point: routing around it is the
+     violation, not the grep's incompleteness. `libc` is refused by ADR-0006
+     and, more strongly, by `unsafe_code = "forbid"` in the workspace manifest.
+     A **safe** wrapper crate (`nix::unistd::mkfifo`) evades both and is named
+     here only to be rejected: a dependency acquired to test one flag is worse
+     than every option below.
+- **What ships in the meantime:** the flag *set* is asserted
+  (`open_flags(RefuseSymlink) == 0x0104`), which catches the specific
+  regression the security review named — dropping the `O_NONBLOCK` term while
+  every other test stays green. What is **not** asserted is that the kernel
+  honours it. The code says so in the test itself rather than implying
+  coverage it does not have.
+- **Why it is yours:** every route out weakens a gate or widens an API, and
+  `AGENTS.md` is explicit that a hook blocking something legitimate "is a
+  question for the human, not an obstacle to route around".
+- **Options:**
+  (a) **Leave it.** The residual is one untested flag on a low-severity,
+  high-precondition path, disclosed in three places. Costs nothing; the flag
+  can regress silently in its *effect*, though not in its presence.
+  (b) **Narrow the `stop-gate.sh` scan** to exempt `#[cfg(test)]` blocks, or to
+  exempt `std::os::unix::fs::symlink` specifically. INV-06/INV-19 are about
+  *creating* symlinks in shipped code; a test creating one in a temp directory
+  is not that. Cost: the guard's current strength is that it is not
+  path-scoped, and every exemption is a thing the next reader must re-derive.
+  (c) **Make `bounded_read` `pub`** so the test can live in
+  `crates/adapters/tests/`. Cost: widening a security primitive's API surface
+  for a test, which is the tail wagging the dog.
+  (d) **Assert the constants instead of the behaviour.** A
+  `scripts/check-open-flags.sh` that re-derives `0x0100` and `0x0004` from
+  `$(xcrun --show-sdk-path)/usr/include/sys/fcntl.h` and compares them with the
+  literals in `bounded_read.rs`, skipping where `xcrun` is absent. No gate
+  weakened, no API widened, no dependency, no FIFO. It does **not** test that
+  the kernel honours the flags — but it closes the wrong-integer failure mode
+  entirely, which under (a) rests on a dated comment and one manual check. This
+  repository's stated preference is "give the agent a way to check its work"
+  over "tell the agent to be careful", and this is that. Raised by the second
+  security review; it is not implemented here because adding a stage to
+  `validate.sh` is a change to the one definition of valid.
+- **Recommendation: (d) now, (b) if the behavioural test is wanted.** (d) is
+  cheap, additive and closes the failure mode most likely to actually happen —
+  a constant going stale. It does not buy the behavioural test; only (b) does. It is the only one that
+  buys the test, and the exemption can be written as a named allowance with its
+  reason, which is what the other guards in this repository already do. Both
+  edit `scripts/` or `.claude/hooks/`, and this session does not edit gates
+  without you.
+
 ### DP-016 — Under replay, no package is known to be a service, and `MANUAL_REVIEW` will not fire
 
 - **The question:** F-29. `macports::service::scan` answers `Unreadable`

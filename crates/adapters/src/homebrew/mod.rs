@@ -646,11 +646,19 @@ pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope)
         .join(".metadata")
         .join("INSTALL_RECEIPT.json");
 
-    // Refuse a symlink or a FIFO *before* opening: `File::open` on a FIFO
-    // blocks, and nothing on this path carries a timeout, so a hang here is a
-    // hang in `analyze`. This stays here rather than in the shared reader: a
-    // snapshot path the user named is a different trust question, and the
-    // Caskroom is a directory this tool does not own.
+    // Refuse a non-regular file *before* opening. Two of the three reasons for
+    // this check are permanent; the third has moved, and saying which is the
+    // difference between a guard someone maintains and one someone deletes.
+    //
+    //   1. `before` is the dev/ino baseline the identity check below compares
+    //      against. Remove this line and the swap detector goes with it.
+    //   2. A character device's open can have side effects. Not opening a
+    //      non-regular object at all is stronger than opening and rejecting.
+    //   3. It used to be the *only* thing standing between `analyze` and a
+    //      permanent hang on a FIFO. It is not any more: this caller passes
+    //      `O_NONBLOCK`, so the open returns whatever is there and the
+    //      regular-file test inside `read_bounded` refuses it. The blocking
+    //      argument now belongs to the flags (F-31).
     let before = std::fs::symlink_metadata(&path).ok()?;
     if !before.is_file() {
         return None;
@@ -663,19 +671,27 @@ pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope)
     // function does (F-30).
     //
     // Both checks below run on the *opened* handle, before any byte is read.
-    let text = crate::persistence::bounded_read::read_bounded(&path, MAX_RECEIPT_BYTES, |opened| {
-        if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
-            // Not the object the pre-check inspected: something was swapped
-            // in between the two calls.
-            return Err("the receipt changed between the pre-check and the open");
-        }
-        if opened.nlink() > 1 {
-            // More than one name for these bytes is not something a receipt
-            // needs, and is a signal the file is not what it appears to be.
-            return Err("the receipt has more than one name");
-        }
-        Ok(())
-    })
+    let text = crate::persistence::bounded_read::read_bounded(
+        &path,
+        MAX_RECEIPT_BYTES,
+        // The pre-check above refuses a symlink present when it looks; this
+        // covers the window between that look and the open, for the final
+        // component only (F-31).
+        crate::persistence::bounded_read::OpenPolicy::RefuseSymlink,
+        |opened| {
+            if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
+                // Not the object the pre-check inspected: something was swapped
+                // in between the two calls.
+                return Err("the receipt changed between the pre-check and the open");
+            }
+            if opened.nlink() > 1 {
+                // More than one name for these bytes is not something a receipt
+                // needs, and is a signal the file is not what it appears to be.
+                return Err("the receipt has more than one name");
+            }
+            Ok(())
+        },
+    )
     .ok()?;
 
     // Every refusal is `None`, deliberately: an unreadable receipt is not

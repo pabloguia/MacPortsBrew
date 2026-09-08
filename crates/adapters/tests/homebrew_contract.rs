@@ -858,8 +858,10 @@ fn a_receipt_with_a_second_name_is_refused() {
 
 #[test]
 fn a_receipt_reached_through_a_link_is_refused() {
-    // The pre-check refuses a non-regular file before the open, because
-    // `File::open` on a FIFO blocks and nothing on this path has a timeout.
+    // The pre-check refuses a non-regular file before the open. Its blocking
+    // rationale moved to the open flags (F-31) - this caller passes
+    // `O_NONBLOCK` now - but the check is still what refuses the link here,
+    // and still supplies the dev/ino baseline the identity test compares.
     let real = caskroom_with("real", Some(br#"{"installed_on_request": true}"#));
     let root = caskroom_with("meld", None);
     std::os::unix::fs::symlink(receipt_path(&real, "real"), receipt_path(&root, "meld"))

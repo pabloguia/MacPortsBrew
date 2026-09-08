@@ -41,6 +41,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Half fixed 2026-09-07; `doctor`'s half needs a wording decision.** `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Open.** Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
+| **F-41** — a failed `--replay` tells the user to fix a snapshot | **Open, found 2026-09-07 by the F-31 security review.** Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
 | **F-19** — invariant tests that would not fail | **Fixed, one exception.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argues from types in the wrong crate. INV-13's was already closed by the F-03 fix. INV-15's is **F-25**. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -56,7 +57,7 @@ and this file is left as the record of what was found rather than rewritten:
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
 | **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open, and now a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c).
 | **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
-| **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Open, pre-existing.** The `lstat`→`open` gap is compensated by a dev/ino check that runs *after* the open has already blocked on a FIFO. Needs `O_NOFOLLOW | O_NONBLOCK`, which needs `libc` in `adapters` — an ADR decision, not a refactor. Raised by the F-30 review. |
+| **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Fixed, on the final path component, on Darwin.** `O_NONBLOCK` is now unconditional — no caller has a reason to hang — and `O_NOFOLLOW` is the one trust judgement, per caller. No `libc`: `custom_flags` is in `std` and ADR-0006 already ruled the dependency out. The first version of this fix had three defects its security review found; they are recorded below rather than quietly corrected. The behavioural test is DP-017. |
 **The four Tier 1 findings this review filed are closed**, each as regards what it
 stated: the cross-provider count, the one-way migration, the mode that
 changed the answer, and the gate that was green by exception. F-04's write-up
@@ -1711,15 +1712,6 @@ between the two calls; `File::open` blocks; the identity check never executes,
 because it is on the other side of the open. The check can detect a swap that
 *completed*. It cannot prevent the one that hangs.
 
-**Why it is not fixed here.** The structural answer is
-`O_NOFOLLOW | O_NONBLOCK` on the open, which closes the symlink follow and the
-FIFO hang together and demotes the caller's pre-check from load-bearing to
-belt-and-braces. `macportsbrew-adapters` has no `libc` — its dependencies are
-`macportsbrew-domain`, `serde`, `serde_json` and `toml` — and adding one is an
-ADR-0001/ADR-0002 decision about the deployment floor and the dependency gate,
-not a refactor. Hardcoding the two Darwin constants is the alternative and is
-also a decision.
-
 **What F-30 changed about it:** nothing, except that there is now exactly one
 `File::open` to harden instead of two. That is the whole return on the
 unification, arriving earlier than expected.
@@ -1727,8 +1719,130 @@ unification, arriving earlier than expected.
 **Reachability is genuinely low.** It needs write access to a directory inside
 the Homebrew Caskroom, which is to say an attacker who can already write where
 Homebrew installs — at which point the receipt's contents are theirs to choose
-anyway, and the worst outcome here is a hang rather than a wrong answer. That is
-why it is recorded at low severity rather than fixed under time pressure.
+anyway, and the worst outcome here is a hang rather than a wrong answer.
+
+## Resolution — 2026-09-07
+
+**The dependency this was blocked on does not exist.** The entry above said the
+fix "needs `libc` in `adapters`", making it an ADR-0001/ADR-0002 decision about
+the dependency gate. Both halves were wrong. `OpenOptionsExt::custom_flags` is
+in `std`, so the only thing missing was two integers — and **ADR-0006 had
+already decided "no `libc`"**, which makes
+writing them as literals the standing decision rather than a new one. A finding
+can be blocked on a decision taken before the finding was written; re-reading
+the ADR is cheaper than re-taking it.
+
+The constants were read from `$(xcrun --show-sdk-path)/usr/include/sys/fcntl.h`
+on 2026-09-07 and confirmed by compiling against that header: `O_NONBLOCK
+0x0004`, `O_NOFOLLOW 0x0100`.
+
+An earlier draft of this paragraph corroborated that with "this crate already
+uses `custom_flags` in three places". **It does not.** Those three files
+(`system/machine.rs`, `persistence/state_dir.rs`, `persistence/atomic.rs`)
+import `OpenOptionsExt` for `.mode`, a different method with different
+semantics; `custom_flags` is first used here. The sentence was a
+confidence-boost a reader could not check without grepping, in the paragraph
+whose entire job is "the blocker was imaginary" — the same error class the next
+section apologises for. It is recorded rather than quietly deleted because it
+was written *after* that apology, in the correction itself.
+
+### What the first version of this fix got wrong
+
+`security-reviewer` found three defects in it, plus two overclaims in this
+document. They are recorded because the pattern matters more than the fix: **a
+security change that reasons instead of measuring produces confident prose
+around a hole.** Every one of these was a sentence I wrote, not a line I typed
+wrong.
+
+**1. It welded two unrelated decisions into one enum, and documented the worse
+one as intended behaviour.** The policy was `AsNamed` / `RefuseSymlinkAndNeverBlock`
+— so choosing to follow a symlink the user named also chose to *block* on it.
+`--from-snapshot <a FIFO>` would have hung the whole run, forever, with no
+timeout anywhere on the path, and the enum's own documentation said so in
+prose: "follow a symlink, and block if the object turns out to be a FIFO with
+no writer". Following a path the user named is a reason to trust them; it is
+not a reason to hang on their behalf. `O_NONBLOCK` is now unconditional and
+`OpenPolicy` decides only `O_NOFOLLOW`.
+
+**2. "There is no other platform for these to be wrong on" is disproved by this
+repository's own CI.** The charter says macOS only, so the constants were
+written bare. But `.github/workflows/repository-validation.yml` runs the
+repository gate on `ubuntu-latest` with `MPB_GATE_FULL=1`, which reaches
+`cargo test --workspace` — on Linux, where `0x0100` is `O_NOCTTY` and `0x0004`
+is not an open flag at all. The flags are now `cfg(target_os = "macos")`.
+
+What is absent elsewhere is two things, and the first draft of this paragraph
+named only one. **Not the symlink guarantee** — that is the caller's
+platform-independent `symlink_metadata` pre-check, with the dev/ino comparison
+on the opened handle covering most of the race behind it, so off Darwin the
+symlink side loses the belt and keeps the braces. **But the non-blocking open
+has no caller-side equivalent at all**, so on a non-Darwin build
+`--from-snapshot <a FIFO>` hangs forever: this finding's own defect, live, in
+the arm added to keep the Linux gate compiling. It reaches nobody — macOS-only
+charter, and the Linux job creates no FIFO — and it is written down because the
+paragraph that omitted it was titled "stated exactly".
+
+This codebase had zero `cfg(target_os` before this change; that is why the
+assumption was so easy to make and so easy to miss.
+
+**3. `O_NOFOLLOW` covers the final component and this document said it covered
+the attack.** The resolution first read "`O_NOFOLLOW` makes the open fail
+instead of resolving to their target". True of the last component only. The
+receipt is at `<caskroom>/<token>/.metadata/INSTALL_RECEIPT.json`, and the
+stated precondition — write access inside the Caskroom — is exactly enough to
+replace `<token>` or `.metadata` with a symlink instead. `symlink_metadata`
+follows that parent too, so the dev/ino check then compares the redirected
+object against itself and passes. No race required. Darwin's `O_NOFOLLOW_ANY`
+would close it and needs macOS 12, above ADR-0002's floor; the `openat`-walk
+alternative needs `libc`, which ADR-0006 rules out. Both are out of reach, and
+saying so is better than implying the gap is closed. The residual is small —
+the reader extracts one boolean, as the invoking user, and every failure is
+`None` — but the sizing has to come from an accurate sentence.
+
+### What is tested, and what is not
+
+**Not the race.** A symlink planted *before* the call is caught by the
+pre-check, so such a test passes with the flags or without them; planting one
+*inside* the window needs a schedule this suite cannot force.
+
+**Not the kernel honouring the flags either**, and the first version of this
+document gave a false reason for that. It said a FIFO test "would have to spawn
+`mkfifo`, which `check-layering.sh` forbids outside `process/`". Wrong script:
+`check-layering.sh` explicitly exempts `crates/*/tests/`. The guard that
+actually forbids it is `check-no-shell.sh` — a program named by a string
+literal in program position under `crates/*/tests/` — which was committed
+earlier in this same pass. The conclusion survived; the reasoning did not, and
+in a document whose whole claim is not overclaiming, naming the wrong mechanism
+is the expensive kind of error. The behavioural symlink test is blocked
+separately, by `stop-gate.sh` refusing the token `symlink` under `crates/*/src`
+where a `pub(crate)` primitive can only be reached. **That three-way collision
+is DP-017**, filed for the owner rather than routed around: rewording the call
+to slip past the grep is what `CLAUDE.md` calls a specification violation in
+itself.
+
+**What is tested** is narrower and it is the one the review named: the flag
+*set*. `open_flags(RefuseSymlink) == 0x0104` and
+`open_flags(FollowAsNamed) == 0x0004`. Drop the `| O_NONBLOCK` term — the flag
+that answers this finding's own title — and before this test, every other test
+in the workspace stayed green.
+
+### Two things the review confirmed rather than faulted
+
+**No truncation risk.** `O_NONBLOCK` has no effect on `read()` of a regular
+file, verified on a 3 MB file through the same `Take::read_to_string` path. And
+`read_to_string` retries only `Interrupted`, so a hypothetical `EAGAIN` becomes
+`Err` — loud, never a short `Ok`. Silent truncation in the primitive that
+exists to prevent it would have been the worst possible outcome here.
+
+**The FIFO chain holds.** A FIFO opened with `O_NONBLOCK` returns immediately
+and reports `is_file() == false`, and the regular-file test runs before
+`accept`, before the size test, before the read. Nothing reads from a FIFO.
+
+**And the pre-check is not dead code** — but its written reason nearly was.
+Two of its three jobs are permanent (the dev/ino baseline, and not opening a
+character device at all); the third, "`File::open` on a FIFO blocks", is now
+the flags' job. A stale rationale beside a still-load-bearing check is how that
+check gets deleted, so it now names all three and says which one moved.
 
 ---
 
@@ -2271,3 +2385,39 @@ or beyond the first line of a trailing `#[cfg(test)] mod tests`, and recompute.
 `scripts/check-i18n-parity.sh`'s `production()` already locates exactly that
 boundary, with a comment explaining why the bare attribute is the wrong anchor —
 the same logic, reused rather than re-derived.
+
+---
+
+## F-41 — A failed `--replay` tells the user to fix a snapshot
+
+**Severity: low, user-facing. Found 2026-09-07 by the second `security-reviewer`
+pass on F-31, as an incidental observation while tracing the FIFO path.**
+
+`load_recording` and `load_snapshot` share one bounded reader
+(`snapshot_store::read_bounded`, unified by F-30), and every failure it maps
+carries `ErrorId::SnapshotUnusable`. The catalogue renders that as:
+
+> The snapshot could not be read, or its schema is from an incompatible
+> version: {detail}. Take a fresh one with `macportsbrew snapshot`, or point
+> --from-snapshot at a readable file.
+
+Point `--replay` at a directory, an oversized file or a FIFO and this is what
+comes back. Both remedies are wrong for that route: `macportsbrew snapshot`
+produces a snapshot, not a recording — `scripts/capture-fixture.sh` does that —
+and `--from-snapshot` is a different flag from the one the user passed. The
+`{detail}` is accurate; the sentence around it sends them somewhere else.
+
+**Why it is filed rather than fixed.** The honest fix is a second error
+identifier (`recording_unusable`) with its own catalogue entry and its own exit
+code question, or a generic message that serves both and names neither
+mechanism. That is an error-contract and wording decision — `crates/domain/src/error.rs`
+is on `AGENTS.md`'s "dangerous to change" list precisely because exit codes are
+a documented contract, and `docs/spec/06-cli-and-ux.md` reserves user-facing
+wording. Neither is a change to make inside a commit about open flags.
+
+**It is a consequence of F-30, not a regression from it.** The unification
+noted at the time that the wrapper existed "to keep every message below exactly
+where it was, because they are what a user sees when a snapshot will not load".
+That was the right instinct and it preserved a message that was already wrong
+for one of its two callers. Preserving behaviour preserves defects too, which
+is worth knowing the next time a refactor promises to change nothing.
