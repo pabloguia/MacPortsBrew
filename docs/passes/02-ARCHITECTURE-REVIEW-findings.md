@@ -53,7 +53,8 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
 | **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. |
-| **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Open, found 2026-09-08.** `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
+| **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source).** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills, and `--check` fails when they drift. Two residues need `MPB_ALLOW_GUARD_EDIT=1`: wiring `--check` into `validate.sh`, and covering `.codex/` in the path guard. `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
+| **F-44** — CI's shellcheck step fails today, and has since it was written | **Open, found 2026-09-08.** `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -2629,13 +2630,55 @@ has shipped.
 **Recommendation, revised by the evidence.** I previously recommended committing
 both directories. That was wrong: committing a live, weaker enforcement layer
 as-is would make the divergence a shipped property of the repository rather than
-a local accident. Reconcile first — the honest shapes are (a) generate
-`.codex/hooks/` from `.claude/hooks/` with a checked-in generator and a gate
-stage asserting they agree, the same pattern the six recipes use; (b) have both
-manifests point at *one* set of hook scripts, which is cheaper and loses only
-per-harness message wording; or (c) delete `.codex/` and state that this
-repository supports one harness. Every one of those edits `.claude/hooks/` or
-`scripts/`, so all three are the owner's, and (b) is the one I would take.
+a local accident. Reconcile first.
+
+### Fixed 2026-09-08 — DP-018 ruled `.claude/` the source
+
+The owner chose generation over a shared script set, for a reason better than
+the recommendation it overrode: the repository is open source and the developer
+picks their harness, so somebody who picks Codex should get a complete,
+self-contained layer rather than a manifest reaching into a directory named for
+a different tool. `scripts/generate-codex-layer.sh` implements it, with
+`--check`.
+
+**`.codex/hooks/` was never a Codex adaptation.** The scripts contain nothing
+Codex-specific — not one occurrence of the string — and `mpb_deny` and
+`mpb_context` were byte-identical in both trees. Every "Codex-only" line was an
+*older* Claude line. So the transform is a copy plus a banner, and the drift had
+no design behind it: the layer was written once and `.claude/` moved on.
+
+**Three things generation exposed that the measurement had not:**
+
+- **`spec-guardian` was missing outright** from `.codex/agents/`. Three of four
+  subagents, and the absent one was the invariant checker.
+- **`tools:` and `disallowedTools:` do not survive the translation.** They are
+  what make all four reviewers read-only under Claude Code, and this
+  repository's Codex TOML carries no equivalent. Codex agents do appear to take
+  a `sandbox` setting, but the only source found was secondary, so **it is not
+  written** — a security-relevant key from an unverified reading is what
+  `AGENTS.md` forbids. Each generated agent says so in its own header.
+- **`.agents/skills/` was a blind rename of the product name.** It produced
+  `.Codex/` with a capital C in three files — a path that does not exist, and
+  that only looks correct because macOS is case-insensitive by default — and
+  `https://code.Codex.com/docs/`, a domain that does not resolve. Renaming a
+  proper noun cannot distinguish a path from a prose word from a hostname. The
+  generator moves **paths only**, and names `settings.json` explicitly because
+  the two harnesses do not spell their configuration the same way.
+
+**One skill is deliberately not generated.** `tooling-recheck`'s subject is
+Claude Code's own field names and hook contracts, checked against Claude's
+documentation. A Codex version must be written against Codex's documentation —
+deriving it is exactly how that dead URL got there. The exclusion is a named
+constant in the generator with the reason beside it, not a silent omission.
+
+**Two residues, both blocked on `MPB_ALLOW_GUARD_EDIT=1`:**
+
+1. `--check` is not wired into `validate.sh`. Until it is, the generator exists
+   and nothing runs it — the same shape as the drift it was written to stop.
+2. `.claude/`'s path guard still does not cover `.codex/`. The generator
+   demonstrated the gap by writing the whole tree with no guard objecting. With
+   the check wired in a hand-edit is caught rather than prevented, which is
+   adequate; the asymmetry should still be closed deliberately.
 
 ---
 
@@ -2691,4 +2734,61 @@ parse arm, not the version arm its name claims — and
 Both were verified against the built binary during the F-41 review. Neither is a
 runtime defect; both are green lights over uncovered lines, and the correct
 pattern now exists eight lines away in `crates/adapters/tests/persistence.rs`.
+
+---
+
+## F-44 — CI's shellcheck step fails today, and has since it was written
+
+**Severity: medium — it is the *first* step of the repository gate, so nothing
+after it would run. Found 2026-09-08 while generating `.codex/` from
+`.claude/`.**
+
+`.github/workflows/repository-validation.yml:43` runs
+
+```
+shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
+```
+
+That command **exits 1 on this tree**, with two `SC2016` findings, both in
+`.claude/hooks/guard-provider-mutation.sh`:
+
+```
+line  97: DOTFILE='(~|\$HOME|\$ZDOTDIR|/Users/[^/ ]+|...)'
+line 112: PREFIX='(/opt/homebrew|/opt/local|...|(~|\$HOME|...)/\.(home|linux)brew)'
+```
+
+Both are correct code — the `\$HOME` is a literal to match in someone else's
+command line, not a variable to expand — and the file **already has the
+directive that would silence them**, at line 92:
+
+```
+# shellcheck disable=SC2016  # $HOME / $ZDOTDIR are literals to match, not to expand
+```
+
+**It is on the wrong line.** A shellcheck directive applies to the command that
+follows it. Line 92's follows `WRITER=` on line 93, which contains no `$` at
+all; the two assignments that do are fifteen and twenty lines further down, each
+behind its own comment block. So the directive silences nothing and the two
+findings stand.
+
+**Why nobody noticed: CI has never run** (F-12). This is the second concrete
+thing that lands the moment it does, after the toolchain-pin mismatch
+`check-action-pins.sh` was added to catch. It is worth stating plainly that the
+local gate does **not** cover this — `scripts/validate.sh` has no shellcheck
+stage; shellcheck runs only in the workflow and in the post-edit hook, which
+reports findings as context rather than failing.
+
+**The fix is one line**: move the directive so it is adjacent to line 97, and
+add a second before line 112. `.claude/hooks/` is guard-protected, so it needs
+`MPB_ALLOW_GUARD_EDIT=1`.
+
+**It generalises, and that is the more useful half.** I made the identical
+mistake while writing `scripts/generate-codex-layer.sh` in the same hour — a
+`# shellcheck disable=SC2016` placed above a comment instead of above the
+command — and caught it only because I ran shellcheck on the new file. A
+directive whose effect depends on adjacency, in a repository whose only
+shellcheck runs in a CI job that has never executed, is a check that cannot
+fail. Same shape as F-12, as the `cargo`-absent stop-gate hole, and as F-32.
+Adding a `shellcheck` stage to `validate.sh` would close it and belongs with the
+other `MPB_ALLOW_GUARD_EDIT` work.
 

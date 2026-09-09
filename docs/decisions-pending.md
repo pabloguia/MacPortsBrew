@@ -11,39 +11,6 @@ are recorded.
 
 ## Open
 
-### DP-018 — A second agent harness runs here under a weaker copy of the enforcement layer
-
-- **The question:** F-42. `.codex/` is a live, configured hook layer (its
-  `hooks.json` wires seven hooks by absolute path) and every shared file is an
-  older, shorter copy of its `.claude/` counterpart. `.codex/`'s path guard
-  protects the machine and **no repository path** — not Tier 1, not the pinned
-  toolchain manifest, not the unattended reservation of `decisions-pending.md` —
-  and its stop gate still carries both fail-opens fixed in `.claude/` at
-  `96605e9` this pass. The protection is also one-way: `.claude/` guards its own
-  hooks, `scripts/` and the workflows, and says nothing about `.codex/`.
-- **Why it is yours:** every route out edits `.claude/hooks/` or `scripts/`,
-  which this session does not do without you, and one of them deletes a harness
-  you may be using.
-- **It also answers a question I asked you badly.** I earlier recommended
-  committing `.agents/` and `.codex/` as a tidy-up. Reading them changed the
-  recommendation: committing a weaker live enforcement layer would turn a local
-  accident into a shipped property. Do not commit either until this is settled.
-- **Options:**
-  (a) **Generate `.codex/hooks/` from `.claude/hooks/`**, with the generator
-  checked in and a `validate.sh` stage asserting the two agree. Same pattern as
-  the six recipes, which are a `CONTRIBUTING.md` section and a skill written from
-  one source. Cost: a generator and a gate stage to maintain.
-  (b) **Point both manifests at one set of scripts.** Cheapest, loses only
-  per-harness message wording, and makes divergence structurally impossible
-  rather than merely checked.
-  (c) **Delete `.codex/`** and state that this repository supports one harness.
-  Honest, and free, if you are not using Codex here.
-- **Recommendation: (b).** It is the answer this project already gives to the
-  same shape elsewhere — one `validate.sh` is "the one definition of valid" — and
-  a check that two copies agree is a weaker thing than not having two copies.
-  Whichever you pick, `.claude/`'s path guard should also cover `.codex/**`,
-  which it does not today.
-
 ### DP-017 — Three of this repository's own guards make one security property untestable
 
 - **The question:** F-31 hardens the cask-receipt open with
@@ -183,6 +150,67 @@ are recorded.
 ---
 
 ## Resolved
+
+### DP-018 — A second agent harness ran under a weaker copy of the enforcement layer — **RESOLVED 2026-09-08: `.claude/` is the source, `.codex/` is generated from it**
+
+**The owner's ruling, given in session:** *"o principal é o .claude, gerar o
+.codex a partir dele. como é opensource, o dev escolhe"* — option (a), not the
+(b) this entry recommended.
+
+**The reason is better than the recommendation it overrode.** (b) would have
+pointed both manifests at one shared set of scripts, which makes divergence
+structurally impossible but leaves a `.codex/hooks.json` reaching into a
+directory named for a different tool. This repository is open source and the
+developer picks their harness; somebody who picks Codex should get a complete,
+self-contained layer. Generation costs a script and a check; that is the price
+of the property.
+
+**Implemented:** `scripts/generate-codex-layer.sh`, with `--check`.
+
+What generating turned up, none of which was visible from the outside:
+
+- **The hook scripts contain nothing Codex-specific.** Not one occurrence of the
+  string, checked. `mpb_deny` and `mpb_context` were byte-identical in both
+  trees. So `.codex/hooks/` was never an adaptation — it was a **snapshot of
+  `.claude/hooks/` that stopped being updated**, and every "Codex-only" line was
+  an older version of a Claude line: the `cd || exit 0` fail-open, the silent
+  `MPB_SKIP_STOP_GATE`, the identity-function `mpb_realpath`, the conflated
+  empty-decisions branch.
+- **`spec-guardian` was missing entirely** from `.codex/agents/` — the one
+  subagent that checks invariants. Three of four, and the absent one was that.
+- **`tools:` and `disallowedTools:` do not survive the translation.** They are
+  what make all four reviewers read-only under Claude Code, and the Codex TOML
+  format in this repository carries no equivalent. Codex agents *do* appear to
+  take a `sandbox` setting, but the only source found for that was secondary, so
+  **it is not written**: a security-relevant key from an unverified reading is
+  exactly what `AGENTS.md` forbids. The generated files say so in their own
+  header, and confirming it is a `tooling-recheck` for Codex — which does not
+  exist, see below.
+- **`.agents/skills/` was a blind find-and-replace of the product name**, and it
+  shows: `.Codex/` with a capital C in three files — a directory that does not
+  exist and only appears to work because macOS is case-insensitive by default —
+  and `https://code.Codex.com/docs/`, a domain that does not resolve. Renaming a
+  proper noun cannot tell a path from a prose word from a hostname. The
+  generator substitutes **paths only**, and names `settings.json` explicitly
+  because the two harnesses do not spell their configuration the same way.
+- **One skill is deliberately not generated.** `tooling-recheck`'s subject *is*
+  Claude Code's field names and hook contracts, verified against Claude's
+  documentation. A Codex equivalent has to be written against Codex's
+  documentation; deriving it is precisely how that broken URL got there.
+
+**Two things this ruling still needs, and both are blocked on
+`MPB_ALLOW_GUARD_EDIT=1`:**
+
+1. **The check is not wired into `validate.sh`.** Until it is, the generator
+   exists and nothing runs it — which is the same shape as the drift it was
+   written to stop. One line: `step "codex layer"; run
+   scripts/generate-codex-layer.sh --check`.
+2. **`.claude/`'s path guard still does not cover `.codex/`.** The generator
+   itself demonstrated the gap: it wrote the whole tree with no guard objecting.
+   With `--check` wired in, a hand-edit is caught rather than prevented, which is
+   adequate — but the asymmetry should be closed on purpose rather than left as
+   an accident.
+
 
 ### DP-015 — The coverage floors had never been measured — **RESOLVED 2026-09-06: option (a), with the floors raised**
 

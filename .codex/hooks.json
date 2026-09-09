@@ -1,0 +1,65 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/pirado/projects/MacPortsBrew/.codex/hooks/guard-provider-mutation.sh'",
+            "timeout": 15,
+            "statusMessage": "Checking command against INV-05 / INV-06"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/pirado/projects/MacPortsBrew/.codex/hooks/guard-protected-paths.sh'",
+            "timeout": 15,
+            "statusMessage": "Checking write target"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/pirado/projects/MacPortsBrew/.codex/hooks/post-edit-checks.sh'",
+            "timeout": 120,
+            "statusMessage": "Formatting and checking the edited file"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/pirado/projects/MacPortsBrew/.codex/hooks/session-start.sh'",
+            "timeout": 20,
+            "statusMessage": "Loading MacPortsBrew pass context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/pirado/projects/MacPortsBrew/.codex/hooks/stop-gate.sh'",
+            "timeout": 600,
+            "statusMessage": "Running the definition-of-done gate"
+          }
+        ]
+      }
+    ]
+  }
+}
