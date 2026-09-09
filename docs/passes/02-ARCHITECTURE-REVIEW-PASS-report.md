@@ -73,11 +73,46 @@ and lasted the length of this pass; it is recorded rather than deleted, because
 "the local gate was a superset" is a claim a later reader may need to check
 against a specific commit.
 
-One asymmetry survives it and is now **F-42 / DP-018**: `.codex/` is a second,
-live hook layer whose guards are an older and weaker copy of `.claude/`, and
-whose path guard protects the machine but not one repository path. The paragraph
-above is about the gap between the working tree and `HEAD`; that one is about the
-gap between two harnesses in the same tree.
+One asymmetry survived it — **F-42 / DP-018**: `.codex/` was a second, live hook
+layer whose guards were an older and weaker copy of `.claude/`, and whose path
+guard protected the machine but not one repository path. The paragraph above is
+about the gap between the working tree and `HEAD`; that one was about the gap
+between two harnesses in the same tree. It is closed: `.codex/` and
+`.agents/skills/` are generated from `.claude/`, and a `validate.sh` stage fails
+when they drift.
+
+### Disclosed escape: `MPB_ALLOW_GUARD_EDIT`, used once, 2026-09-08
+
+`docs/spec/11-agentic-sdlc.md` obliges this report to say so. The owner
+authorised it in session — *"Altere o flag e siga"* — for three changes the
+guard had refused:
+
+- **F-44.** `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` — CI's
+  very first gate step — exited 1 on this tree, and had since it was written.
+  Two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sat
+  twenty lines above the assignments it was meant to cover, where a shellcheck
+  directive silences nothing. Nothing after that step would have run.
+- **A `codex layer` stage** in `validate.sh`, running the generator's `--check`.
+  Without it the generator existed and nothing ran it, which is the shape of the
+  drift it was written to stop.
+- **A `shellcheck` stage** in `validate.sh`, the same invocation the workflow
+  uses. Shellcheck previously reached this repository through two surfaces that
+  could not reprove — a CI job that has never run, and a post-edit hook that
+  reports findings as context.
+
+**The flag was not set by the agent, and could not have been.** It is read from
+the hook process's environment, and the session had no file-based route to it;
+writing one into `settings.local.json` would have been the agent disabling the
+control that constrains it, which is the sentence at
+`guard-protected-paths.sh:60`. The changes were prepared as a patch, verified in
+a scratch tree — the exact CI invocation moved from exit 1 to exit 0 there before
+anything was handed over — and applied by the owner with `git apply`.
+
+**Both new stages were shown to fail before being trusted.** `codex layer`
+failed on its first real run, because the same patch had edited two hooks and
+left the generated layer stale — the check catching live drift rather than a
+constructed mutation. `shellcheck` was mutation-checked with a deliberate
+`SC2034`, and the file restored byte-identical to a pre-mutation copy.
 
 ## What was verified rather than inherited
 

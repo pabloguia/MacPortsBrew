@@ -31,6 +31,15 @@ step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh
 step "action pins";  run scripts/check-action-pins.sh
 step "memory files"; run scripts/check-memory-files.sh
+# `.codex/` and `.agents/skills/` are generated from `.claude/` (DP-018).
+# Without this stage the generator exists and nothing runs it, which is the
+# shape of the drift it was written to stop (F-42).
+step "codex layer";  run scripts/generate-codex-layer.sh --check
+# Shellcheck ran only in CI and in the post-edit hook, which reports rather
+# than fails - so a directive on the wrong line left the workflow's first
+# step exiting 1, unseen, because CI has never run (F-44, F-12). Same
+# invocation as the workflow, so the two cannot disagree.
+step "shellcheck";   run shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
 
 if [ "$mode" != "--quick" ]; then
   step "cargo test"; run cargo test --locked --all-features --workspace

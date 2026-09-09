@@ -70,7 +70,12 @@ check() {
   # MPB_SKIP_STOP_GATE.
   if [ "${MPB_ALLOW_GUARD_EDIT:-0}" != "1" ]; then
     case "$1" in
-      */.claude/hooks/*|*/.claude/settings.json|*/scripts/validate.sh|*/scripts/check-*.sh|*/.github/workflows/*)
+      # `.codex/**` is here because it is generated from `.claude/` (DP-018)
+      # and a hand-edit there is a divergence that the generator will silently
+      # overwrite. The generator itself is unaffected: it writes through a
+      # shell redirect, and this hook is PreToolUse on Edit|Write|NotebookEdit.
+      # `.agents/skills/**` is generated the same way, for the same reason.
+      */.claude/hooks/*|*/.claude/settings.json|*/scripts/validate.sh|*/scripts/check-*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
         mpb_deny "PreToolUse" "Blocked: $1 is part of the enforcement layer that is meant to constrain this session, so changing it from inside the session defeats it. If the change is intended, the human starts the session with MPB_ALLOW_GUARD_EDIT=1 and the end-of-pass report says so - the same disclosed-escape pattern as MPB_SKIP_STOP_GATE. See docs/spec/11-agentic-sdlc.md." ;;
     esac
   fi

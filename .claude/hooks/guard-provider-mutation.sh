@@ -89,11 +89,16 @@ fi
 # `sed -i ''` and `sed -i.bak` (the form an agent reaches for when it wants a
 # backup - the safety-minded instinct), and `perl -pi -e` is the most common
 # in-place idiom there is. Matching only `sed -i ` tested the least likely form.
-# shellcheck disable=SC2016  # $HOME / $ZDOTDIR are literals to match, not to expand
 WRITER='(>|(^|[;&|]|[[:space:]])((tee|cp|mv|ln|install|ditto|rsync|truncate|dd|mkdir|chmod|chown|touch|unlink|shred)([[:space:]]|$)|sed([[:space:]]+-[^i[:space:]][^[:space:]]*)*[[:space:]]+-i|perl[[:space:]]+-[a-zA-Z]*i[a-zA-Z]*|(python3?|ruby)[[:space:]]+-[ce]|awk[[:space:]]+-i))'
 
 # --- shell configuration and launch machinery -----------------------------
 # A dotfile path together with any writing verb - not only a redirect.
+#
+# The directive must sit immediately above the assignment. It used to sit
+# twenty lines up, above a comment block, where it silenced nothing and CI's
+# very first gate step exited 1 on two SC2016 findings nobody had seen,
+# because CI has never run and validate.sh has no shellcheck stage (F-44).
+# shellcheck disable=SC2016  # $HOME / $ZDOTDIR are literals to match, not to expand
 DOTFILE='(~|\$HOME|\$ZDOTDIR|/Users/[^/ ]+|(^|[[:space:]]))/?\.(zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|bash_login|profile|config/fish/[^ ]*)([[:space:]]|$)'
 if printf '%s' "$NORM" | grep -Eq "$DOTFILE" && printf '%s' "$NORM" | grep -Eq "$WRITER"; then
   deny "Blocked by MacPortsBrew docs/spec/05-environment-and-primary-provider.md. Shell configuration is only ever written through the managed-block procedure (detect, locate, diff, preview, confirm, back up, write atomically, verify) and never by an agent writing to a dotfile. Reading one is fine; nothing in the foundation pass writes shell files at all."
@@ -109,6 +114,7 @@ fi
 # The prefix must be in a DESTINATION position - the tail of the command, or a
 # redirect target. Reading out of a prefix is legitimate and common (capturing
 # a fixture), so `cp /opt/homebrew/etc/foo ./fixtures/` must stay allowed.
+# shellcheck disable=SC2016  # $HOME is a literal to match, not to expand
 PREFIX='(/opt/homebrew|/opt/local|/usr/local|/etc/paths\.d|(~|\$HOME|/Users/[^/ ]+)/\.(home|linux)brew)'
 if printf '%s' "$NORM" | grep -Eq ">>?[[:space:]]*${PREFIX}" \
   || printf '%s' "$NORM" | grep -Eq "${SEP}(tee|cp|mv|ln|install|ditto|rsync|mkdir|chmod|chown|touch)[[:space:]]([^;&|]*[[:space:]])?${PREFIX}[^[:space:];&|]*[[:space:]]*([;&|]|\$)"; then
