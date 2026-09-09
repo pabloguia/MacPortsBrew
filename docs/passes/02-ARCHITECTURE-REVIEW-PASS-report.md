@@ -114,6 +114,30 @@ left the generated layer stale — the check catching live drift rather than a
 constructed mutation. `shellcheck` was mutation-checked with a deliberate
 `SC2034`, and the file restored byte-identical to a pre-mutation copy.
 
+## End-to-end re-verification against the real machine, 2026-09-09
+
+Seven fixes landed after the previous live validation — F-31, F-37, F-38, F-39,
+F-41, and both halves of F-34 — so that validation no longer described this
+binary. Re-run on the dual-provider machine (Homebrew 6.0.22 at `/usr/local`,
+MacPorts 2.12.6 at `/opt/local`):
+
+| Property | Result |
+|---|---|
+| Determinism | Two live `--json status` runs, **byte-identical** |
+| `doctor` live | Exit 0, **zero** raw message identifiers in the output (F-38) |
+| Redaction | **No** occurrence of the invoking username in any output, and `capturedBy` is the constant `macportsbrew capture` |
+| Live vs `--from-snapshot` | Four differing fields, **all four provenance**: `capturedAt`, `capturedBy`, `origin`, `source`. The analysis itself is identical |
+| F-34, both directions | Live, `path_unknown` does **not** fire and the real `PATH` findings do. Under `--replay` it fires and says a recording carries no environment — the warning replaced by a statement |
+| F-41, both routes | `--replay <a directory>` and `--from-snapshot <a directory>` both exit 8, and each names the command that produces *its own* input and the flag the user actually passed |
+| F-39 | `status` reports "Ownership is unknown for 3 row(s)" live, where the count alone used to be the only clue |
+
+The control matters as much as the fix in two of those. `path_unknown` firing
+under replay proves nothing on its own — a check that always fires is not a
+check. It firing under replay **and staying silent live, where the real findings
+appear instead**, is what says the branch discriminates. Likewise F-41: the
+`--from-snapshot` half is unchanged behaviour, and asserting it is what shows the
+new identifier did not simply swap one wrong message for another.
+
 ## What was verified rather than inherited
 
 The work order's first instruction is not to trust the previous report. Every
