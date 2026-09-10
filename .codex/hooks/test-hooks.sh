@@ -182,6 +182,12 @@ rm -rf "$tmp"
 
 # --- stop gate --------------------------------------------------------------
 # On this repository the gate must pass; a deliberately broken tree must block.
+# This file is the one CI check that cannot become a `validate.sh` stage,
+# and the line below is why: it runs the stop gate, and the stop gate runs
+# `validate.sh`. A stage here would recurse until something gave out. So it
+# stays a workflow step and a thing you run by hand, and this comment exists
+# so the next person to notice the asymmetry does not have to rediscover the
+# reason (F-45).
 assert "stop gate passes on a clean tree"     stop-gate.sh exit0 '{"stop_hook_active":false}'
 
 # The branches SE-063 added, none of which the seventy cases above reach. Each

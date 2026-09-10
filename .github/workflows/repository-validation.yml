@@ -60,14 +60,12 @@ jobs:
           MPB_GATE_FULL: "1"
         run: .claude/hooks/stop-gate.sh
 
-      - name: LICENSE is the canonical Apache-2.0 text
-        run: |
-          echo "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE" \
-            | sha256sum --check --status \
-            || { echo "LICENSE does not match the canonical Apache-2.0 body recorded in SE-021." >&2; exit 1; }
-
-      - name: Support matrix is generated from this workflow
-        run: scripts/support-matrix.sh --check
+      # The LICENSE digest and the support-matrix check moved into
+      # scripts/validate.sh, which the Repository gate above already runs.
+      # CLAUDE.md: validate.sh is the one implementation of valid, and a check
+      # anywhere else is a check with a second spelling - the licence digest was
+      # duplicated here, and this step used `sha256sum`, which a stock macOS does
+      # not have, so it could never have run in the macOS job (F-45).
 
       - name: Dependency licences (cargo-deny)
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
@@ -109,8 +107,8 @@ jobs:
           CLAUDE_PROJECT_DIR: ${{ github.workspace }}
         run: .claude/hooks/test-hooks.sh
 
-      - name: Run the slice end to end against every fixture
-        run: scripts/run-fixture-matrix.sh
+      # The fixture matrix moved into scripts/validate.sh, which the step
+      # above runs with --full (F-45).
 
   coverage:
     name: coverage floors per layer

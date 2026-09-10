@@ -55,6 +55,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source).** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills, and `--check` fails when they drift. Two residues need `MPB_ALLOW_GUARD_EDIT=1`: wiring `--check` into `validate.sh`, and covering `.codex/` in the path guard. `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
+| **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -2817,3 +2818,86 @@ was restored byte-identical to a pre-mutation copy.
 Both changes needed the owner's `MPB_ALLOW_GUARD_EDIT` authorisation, given in
 session, and are disclosed in the pass report's gate section as that escape
 obliges.
+
+---
+
+## F-45 — Five checks lived only in a workflow that has never run
+
+**Severity: medium, and it is a class rather than a case. Found 2026-09-08 while
+closing F-44, by asking what *else* runs only in CI.**
+
+`CLAUDE.md` is unambiguous: `scripts/validate.sh` "is the one implementation of
+'valid' and the same one CI runs… **Do not add a check anywhere else.**" Five
+checks were somewhere else — steps in
+`.github/workflows/repository-validation.yml` with no local equivalent:
+
+| Check | Local equivalent before |
+|---|---|
+| `shellcheck -x -P SCRIPTDIR …` | none — **that is F-44**, and it was failing |
+| LICENSE is the canonical Apache-2.0 text | none |
+| `scripts/support-matrix.sh --check` | none |
+| `scripts/run-fixture-matrix.sh` | none |
+| `.claude/hooks/test-hooks.sh` | none |
+| `scripts/check-coverage.sh` | none |
+
+F-44 was one of these, found by accident. The rest were found by looking, and
+the method is the finding: **a check whose only home is a surface that has never
+executed cannot have told anyone anything.** Every one of them was run by hand
+on 2026-09-08. All passed except `test-hooks.sh`, at 114/115 — see below.
+
+### Fixed 2026-09-08
+
+Three moved into `validate.sh`: `licence text` and `support matrix` in
+`--quick`, `fixture matrix` after `cargo test` in the default mode, because it
+needs `target/debug/macportsbrew` and exits 2 without it. The three workflow
+steps are deleted rather than left duplicating, since the jobs already run
+`validate.sh`.
+
+**Moving the LICENSE check found a second defect in it.** The workflow used
+`sha256sum`, which is GNU coreutils and **absent from a stock macOS**. That step
+could never have run in the macOS job. `scripts/check-licence-text.sh` prefers
+`shasum -a 256`, falls back to `sha256sum`, and **fails rather than skips** when
+neither exists — a check that cannot run is not a check, which is the whole
+subject of this finding.
+
+**And it removed a duplicated constant.** The digest was written into the
+workflow. Two spellings of a constant is one spelling that will be wrong — the
+argument `check-action-pins.sh` already makes about the toolchain pin. It is
+written once now, in the script.
+
+### The one that cannot move, and why it is recorded in the file itself
+
+`test-hooks.sh` runs `stop-gate.sh`, and `stop-gate.sh` runs `validate.sh`. A
+stage for it would recurse until something gave out. It stays a workflow step
+and a thing a human runs, and `test-hooks.sh` now carries a comment saying so,
+so the next person to notice the asymmetry does not have to rediscover the
+reason.
+
+`check-coverage.sh` also stays out: it needs `cargo-llvm-cov`, which is not part
+of the pinned toolchain, and it has its own CI job for that reason.
+
+### What the mutation checks showed
+
+Each new stage was made to fail before being trusted, and each source file was
+restored byte-identically afterwards:
+
+- **licence text** — a single newline appended to `LICENSE` makes the gate exit 1
+  and name the mismatch.
+- **support matrix** — a comment appended to the generated `docs/support-matrix.md`
+  makes it exit 1 and name the regeneration command.
+- **fixture matrix** — with the binary moved aside it exits 2 with its own
+  message. Its propagation into `validate: FAILED` is the same `run` wrapper the
+  other two just demonstrated twice; that is an argument rather than a
+  demonstration, and it is stated as one.
+
+### The `codex layer` stage caught real drift twice in one day
+
+Not a mutation — live. The patch that added these stages also edited
+`.claude/hooks/test-hooks.sh`, so the generated `.codex/` copy was stale the
+moment the gate ran, and the gate said so. Earlier the same day it caught
+`.agents/skills/tooling-recheck/` reappearing on disk in its **old, broken form**
+(seven `.Codex/` and `code.Codex.com` markers), written by something outside the
+session that produced it. A check written on Monday earning its place on Monday
+is worth recording, because the argument for these stages is exactly that
+drift happens between the moments anyone is looking.
+

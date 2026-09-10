@@ -31,6 +31,12 @@ step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh
 step "action pins";  run scripts/check-action-pins.sh
 step "memory files"; run scripts/check-memory-files.sh
+# These two ran only in the workflow, which has never run (F-12). CLAUDE.md
+# says this file is "the one implementation of valid" and to "not add a check
+# anywhere else"; they were somewhere else, and the licence one carried its
+# own copy of the digest (F-45).
+step "licence text"; run scripts/check-licence-text.sh
+step "support matrix"; run scripts/support-matrix.sh --check
 # `.codex/` and `.agents/skills/` are generated from `.claude/` (DP-018).
 # Without this stage the generator exists and nothing runs it, which is the
 # shape of the drift it was written to stop (F-42).
@@ -43,6 +49,9 @@ step "shellcheck";   run shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*
 
 if [ "$mode" != "--quick" ]; then
   step "cargo test"; run cargo test --locked --all-features --workspace
+  # After `cargo test`, deliberately: it needs target/debug/macportsbrew and
+  # exits 2 without it. Nine seconds, so it stays out of --quick (F-45).
+  step "fixture matrix"; run scripts/run-fixture-matrix.sh
 fi
 if [ "$mode" = "--full" ]; then
   step "deployment target"; run scripts/check-deployment-target.sh
