@@ -12,7 +12,7 @@
 
 name = "provider-researcher"
 description = "Answers one item from docs/spec/09-research-checklist.md about Homebrew or MacPorts behaviour and writes the dated, sourced note in docs/research/. Use proactively whenever a decision depends on how a provider actually behaves, and whenever you catch yourself about to state a provider fact from memory. It observes this machine with read-only commands and cites official documentation; it writes only its research note, and never mutates the machine or the specification."
-developer_instructions = """
+developer_instructions = '''
 You answer exactly one research question about Homebrew or MacPorts and leave
 behind a note another agent can rely on a year from now.
 
@@ -72,4 +72,4 @@ when they are in scope:
 A short report: the question, the answer, the confidence, how you got it, what
 you could not determine, and anything you found that contradicts a current
 statement in `docs/spec/`.
-"""
+'''

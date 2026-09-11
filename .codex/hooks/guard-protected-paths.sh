@@ -75,7 +75,27 @@ check() {
       # overwrite. The generator itself is unaffected: it writes through a
       # shell redirect, and this hook is PreToolUse on Edit|Write|NotebookEdit.
       # `.agents/skills/**` is generated the same way, for the same reason.
-      */.claude/hooks/*|*/.claude/settings.json|*/scripts/validate.sh|*/scripts/check-*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
+      # `*/scripts/*.sh` rather than `validate.sh` plus `check-*.sh`: every
+      # script in that directory is a gate now, and naming two of them left
+      # `generate-codex-layer.sh` unguarded - the one sanctioned writer into
+      # `.codex/`, which *is* guarded. Editing the transform and then running
+      # it wrote arbitrary content into a tree a Codex session executes, and
+      # `--check` called the result correct, with no denied tool call
+      # anywhere in the sequence. `support-matrix.sh` and
+      # `run-fixture-matrix.sh` were unguarded for the same reason and became
+      # validate.sh stages in F-45.
+      #
+      # `.claude/agents/` and `.claude/skills/` are the generator's other
+      # inputs. Instruction text rather than code, but they reach a generated
+      # tree that is itself guarded, and an input weaker than its output is
+      # the asymmetry backwards.
+      #
+      # `settings.local.json` is here because the pass report claimed the
+      # agent *could not* set `MPB_ALLOW_GUARD_EDIT` itself. It could: a
+      # settings file's `env` block reaches hook processes and only the
+      # committed `settings.json` was matched. The report is corrected and so
+      # is the pattern.
+      */.claude/hooks/*|*/.claude/settings.json|*/.claude/settings.local.json|*/.claude/agents/*|*/.claude/skills/*|*/scripts/*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
         mpb_deny "PreToolUse" "Blocked: $1 is part of the enforcement layer that is meant to constrain this session, so changing it from inside the session defeats it. If the change is intended, the human starts the session with MPB_ALLOW_GUARD_EDIT=1 and the end-of-pass report says so - the same disclosed-escape pattern as MPB_SKIP_STOP_GATE. See docs/spec/11-agentic-sdlc.md." ;;
     esac
   fi

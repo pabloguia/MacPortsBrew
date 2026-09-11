@@ -379,6 +379,15 @@ assert "git log is allowed"                   "$G" allow  "$(bash_input 'git log
 # Tier 1, and the control protecting itself.
 assert "editing the invariants is denied"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/spec/01-invariants.md")"
 assert "editing a hook is denied"             "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gate.sh")"
+# The patterns added when `.codex/` became generated, and the three the
+# preflight reviews found missing. Without these, the guard widened with
+# nothing asserting it - in the file whose whole purpose is "hooks decide
+# what the specification says they decide".
+assert "editing the codex layer is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.codex/hooks/stop-gate.sh")"
+assert "editing a generated skill is denied"  "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.agents/skills/adr/SKILL.md")"
+assert "editing the generator is denied"      "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/scripts/generate-codex-layer.sh")"
+assert "editing a subagent is denied"         "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/agents/spec-guardian.md")"
+assert "editing local settings is denied"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/settings.local.json")"
 assert "editing settings.json is denied"      "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/settings.json")"
 assert "editing validate.sh is denied"        "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/scripts/validate.sh")"
 assert "editing a workflow is denied"         "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.github/workflows/claude.yml")"

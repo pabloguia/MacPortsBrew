@@ -4,7 +4,8 @@
 # Generates `.codex/` from `.claude/`, and checks that it is current.
 #
 # **Why this exists.** `.codex/` is a second, live agent-harness layer: its
-# `hooks.json` wires seven hooks by absolute path. It had drifted into an older,
+# `hooks.json` wires five hooks; `lib.sh` is sourced and `test-hooks.sh` is run
+# by hand, so seven files generate but five are wired. It had drifted into an older,
 # weaker copy of `.claude/` — its path guard protected the machine and no
 # repository path at all, its stop gate still carried two fail-opens that
 # `.claude/` had fixed, and one of the four subagents was simply missing. Nobody
@@ -38,7 +39,10 @@
 
 set -euo pipefail
 
-ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# From this file, like every other script here. Honouring CLAUDE_PROJECT_DIR
+# would let one env var point two of validate.sh's stages at a different
+# tree from the other fourteen.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 MODE="generate"
@@ -66,7 +70,14 @@ emit_hook() {
     banner_for "$name"
     tail -n +3 "$src"
   } > "$out"
-  chmod +x "$out"
+  # Executable only for what `hooks.json` actually spawns. `lib.sh` is sourced,
+  # never exec'd, and is 644 in `.claude/` - a blanket `chmod +x` made the
+  # generated copy differ from its source in a way `diff -rq` cannot see,
+  # because it compares content and not mode.
+  case "$name" in
+    lib.sh) chmod 644 "$out" ;;
+    *)      chmod 755 "$out" ;;
+  esac
 }
 
 # One subagent: YAML frontmatter to TOML.
@@ -83,7 +94,7 @@ emit_hook() {
 emit_agent() {
   local src="$1" out="$2"
   python3 - "$src" "$out" <<'PY'
-import io, sys
+import io, json, sys
 src, out = sys.argv[1], sys.argv[2]
 text = io.open(src, encoding="utf-8").read()
 if not text.startswith("---\n"):
@@ -104,8 +115,12 @@ for required in ("name", "description"):
         sys.exit("%s: frontmatter has no %s" % (src, required))
 
 body = body.strip("\n")
-if '"""' in body:
-    sys.exit("%s: body contains a TOML multi-line delimiter" % src)
+# A *literal* multi-line string, so a backslash in an agent's prose - a regex,
+# most likely - stays a backslash instead of becoming an escape sequence TOML
+# either rejects or silently rewrites. `--check` compares generation against
+# generation, so it could never have caught that on its own.
+if "'''" in body:
+    sys.exit("%s: body contains a TOML literal multi-line delimiter" % src)
 
 with io.open(out, "w", encoding="utf-8") as f:
     f.write("# SPDX-License-Identifier: Apache-2.0\n")
@@ -121,9 +136,26 @@ with io.open(out, "w", encoding="utf-8") as f:
     f.write("# verified for Codex. Treat this agent as unrestricted until that is settled\n")
     f.write("# (F-42).\n")
     f.write("\n")
-    f.write('name = "%s"\n' % field["name"].replace('"', '\\"'))
-    f.write('description = "%s"\n' % field["description"].replace('"', '\\"'))
-    f.write('developer_instructions = """\n%s"""\n' % (body + "\n"))
+    # json.dumps rather than a hand-rolled replace: JSON string syntax is a
+    # subset of TOML's basic-string syntax, and it escapes backslashes, which
+    # the hand-rolled version did not - a description ending in one produced an
+    # unterminated string that swallowed the next line.
+    f.write("name = %s\n" % json.dumps(field["name"]))
+    f.write("description = %s\n" % json.dumps(field["description"]))
+    f.write("developer_instructions = '''\n%s'''\n" % (body + "\n"))
+
+# Round-trip it. The generator is the only writer of these files, so a malformed
+# one is exactly what `--check` would call correct.
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+if tomllib is not None:
+    with open(out, "rb") as f:
+        parsed = tomllib.load(f)
+    for required in ("name", "description", "developer_instructions"):
+        if not parsed.get(required):
+            sys.exit("%s: emitted TOML lost %s" % (out, required))
 PY
 }
 
@@ -205,9 +237,20 @@ if ! diff -rq "$tmp/hooks" .codex/hooks >/dev/null 2>&1 \
 fi
 
 # The manifest is hand-written - it maps Codex's own event names onto these
-# scripts - so it is not generated. What can be checked is that it does not
-# reference a hook that no longer exists, which is how a guard silently stops
-# running.
+# scripts - so it is not generated. Two things about it are checked.
+#
+# **That it names no absolute path.** The first committed version wired every
+# hook as `/Users/<name>/projects/MacPortsBrew/.codex/hooks/...`, which put a
+# username into a repository DP-007 sends to public GitHub *and* meant every
+# clone got five hooks pointing at a directory that does not exist - a Codex
+# session with no PreToolUse guard and no Stop gate, announcing nothing. That is
+# the failure this whole layer was generated to end, reintroduced by the one
+# file the generator does not write. Codex sets no `CLAUDE_PROJECT_DIR`
+# equivalent (developers.openai.com/codex/hooks, read 2026-09-09); its own
+# guidance is to resolve from the git root, which is what the manifest does now.
+#
+# **That every script it names exists.** A reference to a hook that was renamed
+# is how a guard silently stops running.
 if [ -f .codex/hooks.json ]; then
   missing=""
   while IFS= read -r ref; do
@@ -216,6 +259,18 @@ if [ -f .codex/hooks.json ]; then
   done < <(grep -oE '\.codex/hooks/[A-Za-z0-9_-]+\.sh' .codex/hooks.json | sort -u)
   if [ -n "$missing" ]; then
     echo "codex layer: hooks.json references a script that does not exist:$missing" >&2
+    status=1
+  fi
+  # Checked on the whole line, not on a relative substring: the first version of
+  # this check grepped out `.codex/hooks/x.sh` from inside an absolute path and
+  # then tested *that* against the repository, so it passed while the path Codex
+  # would actually spawn was somebody else's home directory.
+  if grep -qE '"command"[^"]*"[^"]*(/Users/|/home/|^/)' .codex/hooks.json; then
+    echo "codex layer: hooks.json wires a hook by absolute path." >&2
+    grep -nE '"command"' .codex/hooks.json | sed 's/^/    /' >&2
+    echo "  A committed absolute path carries a username into a public repository" >&2
+    echo "  and points every other clone at a directory that does not exist, so the" >&2
+    echo "  guards silently do not run. Resolve from the git root instead." >&2
     status=1
   fi
 fi

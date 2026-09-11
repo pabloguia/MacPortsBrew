@@ -81,7 +81,35 @@ between two harnesses in the same tree. It is closed: `.codex/` and
 `.agents/skills/` are generated from `.claude/`, and a `validate.sh` stage fails
 when they drift.
 
-### Disclosed escape: `MPB_ALLOW_GUARD_EDIT`, used once, 2026-09-08
+### The committed home path, and how it got past the check written to catch it
+
+`a7ec60a` committed `.codex/hooks.json` wiring all five Codex hooks by absolute
+path — `/Users/<name>/projects/MacPortsBrew/.codex/hooks/...`. Two consequences,
+both real: a username entered a repository DP-007 sends to public GitHub, and
+**every clone got five hooks pointing at a directory that does not exist**, so a
+Codex session ran with no `PreToolUse` guard and no `Stop` gate and announced
+nothing. F-42's exact shape, restored by the one file the generator does not
+write, in the commit that closed F-42.
+
+Both preflight reviewers found it independently, and `spec-guardian`
+demonstrated it by cloning to another path and watching the check report `ok`.
+
+**The check could not see it.** It grepped `.codex/hooks/x.sh` out of the
+*middle* of the absolute string and tested that against the repository, where it
+exists — validating a substring rather than the command the harness spawns. It
+now rejects any absolute path in the manifest, and rejecting the state actually
+committed is how that was confirmed. The manifest resolves from the git root,
+which is Codex's own documented guidance for project-local hooks
+(developers.openai.com/codex/hooks, read 2026-09-09); Codex sets no
+`CLAUDE_PROJECT_DIR` equivalent, so there was nothing to substitute.
+
+**The turn before this one ended with the gate red**, because the fix touched
+`.codex/**`, which `665b4a6` had just placed under guard, and the generator's
+shell-redirect route around that guard was itself a finding of the same review.
+Using the hole to repair the defect that revealed it was not an option. It went
+to the owner as a patch.
+
+### Disclosed escape: guard edits, three times — 2026-09-08, 09 and 11
 
 `docs/spec/11-agentic-sdlc.md` obliges this report to say so. The owner
 authorised it in session — *"Altere o flag e siga"* — for three changes the
@@ -99,14 +127,47 @@ guard had refused:
   uses. Shellcheck previously reached this repository through two surfaces that
   could not reprove — a CI job that has never run, and a post-edit hook that
   reports findings as context.
+- **The path guard widened** to cover `.codex/**` and `.agents/skills/**`. This
+  was omitted from the first version of this list, and it is the most
+  security-relevant of the four — a disclosure that leaves out the change to the
+  guard itself is not a disclosure.
 
-**The flag was not set by the agent, and could not have been.** It is read from
-the hook process's environment, and the session had no file-based route to it;
-writing one into `settings.local.json` would have been the agent disabling the
-control that constrains it, which is the sentence at
-`guard-protected-paths.sh:60`. The changes were prepared as a patch, verified in
-a scratch tree — the exact CI invocation moved from exit 1 to exit 0 there before
-anything was handed over — and applied by the owner with `git apply`.
+**The flag was not set by the agent** — and the first version of this paragraph
+said it *could not have been*, which was an overclaim `spec-guardian` caught.
+There is a route: `.claude/settings.local.json` is not in the guard's pattern
+list (`*/.claude/settings.json` matches only the committed file) and a settings
+file's `env` block reaches hook processes. So the accurate sentence is that the
+agent **did not**, and that doing so would itself have been the violation — the
+sentence at `guard-protected-paths.sh:60`, "an agent whose gate keeps failing
+does not need bad intent to disable it". An unenforced norm stated as an
+impossibility is the wrong shape in a project whose named unrecoverable error is
+being wrong invisibly. The gap is real and should be closed:
+`*/.claude/settings.local.json` belongs in the pattern.
+
+The changes were prepared as a patch, verified in a scratch tree — the exact CI
+invocation moved from exit 1 to exit 0 there before anything was handed over —
+and applied by the owner with `git apply`.
+
+**The second use, 2026-09-09**, carried F-45: three checks that lived only in the
+workflow moved into `validate.sh`, the corresponding workflow steps deleted, and
+`scripts/check-licence-text.sh` added. Same route: a patch, verified first,
+applied by the owner. It is listed here because "used once" was true when it was
+written and stopped being true the next day, which is what a disclosure section
+is for.
+
+**The third use, 2026-09-11**, carried the two HIGH findings from the preflight
+reviews: the manifest's absolute paths, and the guard pattern that named
+`validate.sh` and `check-*.sh` while leaving `generate-codex-layer.sh` — the one
+sanctioned writer into the guarded `.codex/` — unprotected. It is now
+`*/scripts/*.sh`, plus `.claude/agents/`, `.claude/skills/` and
+`settings.local.json`, and five cases in `test-hooks.sh` assert them: the guard
+had been widened twice with nothing testing either widening.
+
+**And the owner changed the working agreement here**: from 2026-09-11 the agent
+applies these patches itself rather than handing each one over. What is kept is
+what the hand-over was for — the change is still built as a patch, so it is one
+reviewable unit rather than a scatter of edits, and every use is listed in this
+section. What is dropped is the round trip.
 
 **Both new stages were shown to fail before being trusted.** `codex layer`
 failed on its first real run, because the same patch had edited two hooks and

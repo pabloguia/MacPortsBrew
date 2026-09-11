@@ -72,12 +72,45 @@ out.append("  read 2026-09-02); verification on real hardware is welcome.")
 out.append("- **unsupported**: below the floor.")
 out.append("")
 text = "\n".join(out) + "\n"
+def without_the_remote_notice(s):
+    """Drop the "No CI job has ever run" block before comparing.
+
+    That block is emitted only when `git remote` is empty, and emptiness is a
+    property of *this checkout*, not of the repository. `actions/checkout`
+    always configures `origin`, so the committed file - generated here, where
+    there is no remote - can never equal what CI generates. Harmless while this
+    was one workflow step; the moment F-45 made it a `validate.sh` stage it
+    would have failed the gate in all five jobs on the first push, and locally
+    the moment anyone ran `git remote add`.
+
+    What this check exists for is the sentence above the table: the matrix is
+    generated from the workflow's `runner:` labels and from nothing else. That
+    is what is compared. Whether the notice belongs at all - CI not having run
+    is a fact about the project, and a clone having a remote does not change it
+    - is SE-052's question, and this does not answer it.
+    """
+    kept, blank = [], False
+    for line in s.splitlines():
+        if line.startswith(">"):
+            continue
+        # The notice block is followed by its own blank line, so dropping only
+        # the quoted lines leaves the two versions differing by one newline.
+        if not line.strip():
+            if blank:
+                continue
+            blank = True
+        else:
+            blank = False
+        kept.append(line)
+    return "\n".join(kept).strip() + "\n"
+
+
 if sys.argv[1] == "--check":
     try:
         current = open("docs/support-matrix.md", encoding="utf-8").read()
     except FileNotFoundError:
         current = ""
-    if current != text:
+    if without_the_remote_notice(current) != without_the_remote_notice(text):
         sys.stderr.write("support-matrix: docs/support-matrix.md is out of date; run scripts/support-matrix.sh > docs/support-matrix.md\n")
         sys.exit(1)
     print("support-matrix: ok")

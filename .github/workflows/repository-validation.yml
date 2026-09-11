@@ -39,8 +39,10 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck jq
 
-      - name: Shellcheck the hooks and scripts
-        run: shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
+      # Shellcheck is a `validate.sh` stage as of F-45, and the Repository gate
+      # below runs it. Left here it was a fourth check with a second spelling,
+      # which is the defect that commit set out to remove. The install step
+      # above stays: the gate needs the binary.
 
       - name: Hooks decide what the specification says they decide
         env:

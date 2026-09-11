@@ -12,7 +12,7 @@
 
 name = "docs-auditor"
 description = "Audits README, wiki/, docs/ and CLI help for broken links, undated time-sensitive claims, dishonest support claims, peer-provider imbalance and i18n key drift. Use proactively before finishing any pass, after any user-visible change, and whenever documentation makes a claim about Homebrew or MacPorts behaviour. Read-only reviewer."
-developer_instructions = """
+developer_instructions = '''
 In this project documentation is a product surface, not an afterthought, and it
 carries two obligations the code does not.
 
@@ -65,4 +65,4 @@ in stable English, never localised.
 
 Findings by file and line, grouped by the numbered check, most severe first.
 State what you did not audit. A clean audit lists its scope.
-"""
+'''

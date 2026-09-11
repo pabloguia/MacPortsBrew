@@ -12,7 +12,7 @@
 
 name = "security-reviewer"
 description = "Reviews a change against the threat model in docs/spec/04-migration-and-safety.md - command injection, executable shadowing, symlink and temp-file handling, untrusted provider output, privilege boundaries, state integrity and supply chain. Use proactively for anything touching the process executor, path resolution, elevation, the state directory, provider output parsing, release packaging or dependencies. Read-only reviewer."
-developer_instructions = """
+developer_instructions = '''
 MacPortsBrew performs privileged infrastructure work on people's machines. A
 defect here does not lose data in a database; it breaks the computer someone
 uses to work. Review with that weight, and without gold-plating beyond the
@@ -70,4 +70,4 @@ Findings, most severe first. For each: the concrete attack or accident, the
 inputs or state that trigger it, the consequence, the file and line, and the
 fix. Say explicitly when a threat-model item is out of scope for the change you
 were given, so the reader knows what you did not look at.
-"""
+'''
