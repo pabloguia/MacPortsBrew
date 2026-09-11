@@ -4,7 +4,8 @@
 
 The findings are in
 [`02-ARCHITECTURE-REVIEW-findings.md`](02-ARCHITECTURE-REVIEW-findings.md), ranked
-by consequence, twenty of them. This report says what was done, what it cost, and
+by consequence, forty-five of them - twenty at the review, the rest found while
+fixing those. This report says what was done, what it cost, and
 what to do next. **One finding stops at the human: F-01, recorded as DP-010.**
 
 ## About the earlier session under this pass id
@@ -20,7 +21,8 @@ SE-034 and SE-037. This file is now the report for the review it was named after
 ## Gate status: run in full, for the first time in this pass lineage
 
 `scripts/validate.sh` in default mode **exits 0 with the whole test suite**, and
-`.claude/hooks/test-hooks.sh` passes 70 of 70.
+`.claude/hooks/test-hooks.sh` passes 120 of 120 (70 at the review; the rest were
+added with the guards they assert).
 
 That is worth stating precisely, because the previous session reported the opposite
 and reported it as a fact about this machine: *"this machine has no Rust
@@ -233,7 +235,8 @@ unit's source provider, its `advanced_only` flag and the rules that fire (F-03).
 - Intel x86_64 as of September 2026 is **Tier 3** (Catalina 10.15 → Tahoe 26).
   **Unsupported** is a separate category — Mojave 10.14 and earlier.
 
-That last distinction is the one the charter and README get wrong (F-11, DP-011),
+That last distinction is the one the charter and README got wrong (F-11, fixed;
+DP-011 decided 2026-09-04),
 and the one `provider-support.toml` gets right. The data outlived the prose, which
 is the dated-facts design working as intended even while the prose drifted.
 
@@ -349,13 +352,20 @@ contradicts any of them, and F-2 and R-9 were leaned on again and held. **R-11 i
 still open** and still blocks the release workflow.
 
 No new research item is needed for any finding in this pass: every one is decidable
-from the code, from a source already cited, or from the owner. The largest standing
-research gap is unchanged and is not a finding of this review — **MacPorts has never
-been observed.** The adapter, its fixtures and its contract tests are
-documentation-derived. This review inherits that limitation completely: every
-MacPorts-side behaviour asserted here was read from synthesised fixtures, and F-02
-in particular (the one-direction planner) would be sharper evidence still on a
-machine that actually has both providers.
+from the code, from a source already cited, or from the owner.
+
+**The largest standing research gap closed while this pass was running.** This
+paragraph said "MacPorts has never been observed" and that the adapter, its
+fixtures and its contract tests were documentation-derived. True when written,
+and false from 2026-09-07, when MacPorts 2.12.6 was installed here. The first
+thing it did was disprove the tool: the executor passed no `HOME`, `port` exits
+1 without one whatever you ask it, and a healthy install was reported as
+`Broken` (F-37). R-5's MacPorts half moved from cited to observed (E19-E32),
+which also produced SE-077 and a third independent confirmation of F-33.
+
+Findings F-24, F-33, F-34, F-37 and F-39 all rest on that observation. Anything
+in this report dated before 2026-09-07 that treats MacPorts as unobservable
+describes the machine this pass started on, not the one it ended on.
 
 ## Tests and coverage
 
@@ -434,8 +444,13 @@ every object inside every rlib rather than trusting the build.
 
 ## Risks and limitations of this review
 
-- **MacPorts was not observed**, as above. Half of every symmetry finding rests on
-  synthesised fixtures.
+- **MacPorts was not observed** for the first five days of this pass, and was
+  from 2026-09-07 — see "Research" above. Findings raised before that date rest
+  on synthesised fixtures and say so; F-24, F-33, F-34, F-37 and F-39 rest on the
+  live install. This entry read "MacPorts was not observed" flatly until
+  2026-09-11, contradicting the same document 170 lines later. A reader who stops
+  at "Risks and limitations" — which is where a careful reader stops — took away
+  the opposite of the truth.
 - **No Apple Silicon machine.** The both-providers fixture is arm64 and derived; the
   planner findings were reproduced under `--replay`, not natively.
 - **Coverage unmeasured**, so "which safety paths are tested" was answered by reading
@@ -463,30 +478,30 @@ had shipped. The original review's list is preserved below because it is the
 record of what the review recommended; a stale to-do list is worse than none, and
 this section has now been the stale thing twice.
 
-### 1. Owner, decisions — five open
+### 1. Owner, decisions — two open
 
 - **DP-016** (F-29) — what an *unknown* service status should do to
   `MANUAL_REVIEW`. Trades INV-19 against whether `--replay` can still show a real
-  plan. Four options, recommendation (c).
+  plan. Four options, recommendation (c). Nothing executes plans in this build,
+  so it becomes live with the executor.
 - **DP-017** (F-31) — three of this repository's own guards make one security
-  property untestable. Four options; **(d)** is new and cheapest — a script that
-  re-derives the two Darwin open-flag constants from the SDK header instead of
-  trusting a dated comment.
-- **DP-018** (F-42) — `.codex/` is a live hook layer that is a weaker copy of
-  `.claude/`. Its path guard protects the machine and **no repository path at
-  all**, and its stop gate still carries both fail-opens fixed in `.claude/`
-  this pass. Recommendation (b): one set of scripts, two manifests.
-- **Immutable releases** (R-14) — strictly good for supply-chain integrity,
-  strictly bad for withdrawal manoeuvrability, and a withdrawal permanently
-  burns the version number. Belongs in ADR-0005 or its own entry.
-- **The Intel runner costs money, and the `.pkg` needs a second certificate**
-  (R-11) — `macos-15-intel` is an alias of `macos-15-large` and larger runners
-  are billed even on public repositories; Developer ID *Installer* is distinct
-  from the *Application* identity. Re-read DP-008 with both costs attached.
+  property untestable. Four options; **(d)** is the cheapest and was added after
+  the entry was first written — a script that re-derives the two Darwin
+  open-flag constants from the SDK header instead of trusting a dated comment.
 
-Do **not** commit `.agents/` or `.codex/` before DP-018 is settled. An earlier
-version of this report recommended committing them as housekeeping, without
-having read them; reading them inverted the recommendation.
+**DP-018 was resolved on 2026-09-08**: `.claude/` is the source and `.codex/` is
+generated from it. This list said "five open" and named it among them until
+2026-09-11, and carried a live instruction — *do not commit `.agents/` or
+`.codex/` before DP-018 is settled* — against something already done in
+`a7ec60a`. Both are removed. The two items that were listed here as decisions
+but have no DP number are in section 2, which is where implementation-blocked
+work belongs.
+
+Not decisions, but the owner's to schedule: **immutable releases** (R-14) trade
+supply-chain integrity against withdrawal manoeuvrability, and a withdrawal
+permanently burns the version number; **the Intel runner is billed even on a
+public repository** and **the `.pkg` needs a second certificate** (R-11), which
+gives DP-008 a cost it was decided without.
 
 ### 2. Implementation — what is genuinely left
 

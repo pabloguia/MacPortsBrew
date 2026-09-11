@@ -142,7 +142,9 @@ binary availability. This is what makes the availability model symmetric
 
 ### R-5 · Privilege requirements
 *Answered 2026-09-02 — `docs/research/R-5-privilege-requirements.md`*; the
-MacPorts half is cited, not observed, and is re-checked on a MacPorts machine.
+MacPorts half was cited, not observed, and **was re-checked on a MacPorts
+machine on 2026-09-08** (E19-E32), which this line asked for and which the note
+itself flagged as outstanding until then.
 Exactly which operations of each provider require elevation, on each
 architecture and prefix. Confirm that everything the foundation pass does
 requires none.

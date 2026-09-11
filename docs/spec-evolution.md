@@ -3621,6 +3621,39 @@ finding ids in each entry.
 
 # Raised by the 2026-09-05 security and specification review
 
+## SE-078 — A second agent harness, generated from the first
+
+- Status: accepted
+- Date / Pass: 2026-09-11 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `docs/spec/11-agentic-sdlc.md` describes one harness.
+  `.codex/` existed anyway — a live hook layer, wired by its own manifest — and
+  no chapter mentioned it. The rationale for a running enforcement layer lived
+  in a decisions-pending entry and a shell-script header.
+- Change: `.claude/` is the source and `.codex/` plus `.agents/skills/` are
+  generated from it by `scripts/generate-codex-layer.sh`, with `--check` as a
+  `validate.sh` stage. Recorded here because `AGENTS.md` says this file holds
+  the current rationale *per topic*, and a future pass reading chapter 11 would
+  otherwise not learn the second tree exists.
+- Rationale: DP-018, ruled by the owner. The alternative — both manifests
+  pointing at one shared set of scripts — makes divergence structurally
+  impossible but leaves a Codex manifest reaching into a directory named for a
+  different tool. This repository is open source and the developer picks their
+  harness, so somebody who picks Codex gets a complete, self-contained layer.
+  Generation costs a script and a check; that is the price of the property.
+- Evidence: F-42. `.codex/` had drifted to an older, weaker copy — its path
+  guard protected the machine and no repository path, its stop gate carried two
+  fail-opens `.claude/` had fixed, and `spec-guardian` was missing outright.
+  Nothing weakened it; it was written once and `.claude/` moved on over four
+  passes. The hook scripts contain nothing Codex-specific, so the transform is a
+  copy plus a banner; `tools:`/`disallowedTools:` have no verified Codex
+  equivalent and are dropped, which each generated agent states in its own
+  header.
+- User impact: none — no shipped behaviour changes. Architectural impact: the
+  enforcement layer has one source and a gate stage that fails when the copy
+  drifts. It caught real drift twice within a day of existing, and once caught
+  the fix's own author: `a7ec60a` committed a manifest wired by absolute path,
+  which is F-42 restored in the one file the generator does not write.
+
 ## SE-072 — The enforcement layer was enforced against the tool call's spelling, not against the artifact
 - Status: accepted
 - Date / Pass: 2026-09-05 / out-of-pass review (Cowork), applied the same day

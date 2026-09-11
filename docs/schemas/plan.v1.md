@@ -81,7 +81,7 @@ defend it.
 
 ### What an executor inherits
 
-Three obligations are recorded in this document and enforced by nothing today,
+Five obligations are recorded in this document and enforced by nothing today,
 because nothing executes. They are listed together so the executor pass inherits
 a list rather than three doc comments:
 

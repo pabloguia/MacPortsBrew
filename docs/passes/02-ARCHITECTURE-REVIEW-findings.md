@@ -6,11 +6,21 @@
 Findings are ranked by consequence, not by count. Each states what was checked,
 names the invariant or specification line it violates — or says explicitly that it
 is a judgement call — and gives a concrete failure scenario. Proposed specification
-changes are SE-044 to SE-054 in [`../spec-evolution.md`](../spec-evolution.md), so a
+changes begin at SE-044 in [`../spec-evolution.md`](../spec-evolution.md) and run
+to SE-077 as the pass fixed what it found, so a
 later pass can accept or reject each individually. The pass report is
 [`02-ARCHITECTURE-REVIEW-PASS-report.md`](02-ARCHITECTURE-REVIEW-PASS-report.md).
 
-**One finding stops at the human and is not mine to resolve: F-01.**
+**Two findings stop at the human**: F-29 (DP-016) and F-31 (DP-017). F-01 did
+and no longer does — DP-010 resolved it on 2026-09-02.
+
+**When MacPorts arrived, since three documents disagreed.** Resolved from the
+filesystem rather than by picking one: `/opt/local/bin/port` is dated
+**2026-09-06 21:53**, and the registry and the first receipt are **2026-09-07
+14:33** and **15:52**. So MacPorts itself landed on the 6th with zero ports —
+which is what F-24 records — and the first ports on the 7th, which is what F-37
+and R-5 were describing. Both were right about different events and neither said
+which. F-37's "minutes after" was wrong by about seventeen hours.
 
 ## Status since the review
 
@@ -53,9 +63,10 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
 | **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. |
-| **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source).** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills, and `--check` fails when they drift. Two residues need `MPB_ALLOW_GUARD_EDIT=1`: wiring `--check` into `validate.sh`, and covering `.codex/` in the path guard. `.codex/hooks.json` wires seven hooks by absolute path, so the layer is live, not a draft — and every shared file is a shorter, older copy of its `.claude/` counterpart. `.codex/hooks/guard-protected-paths.sh` protects the *machine* and **no repository path at all**: not Tier 1, not `rust-toolchain.toml`, not the unattended reservation of `decisions-pending.md`. Its stop gate still carries both fail-open defects fixed in `.claude/` at `96605e9`. And the protection is one-way: `.claude/` guards its own hooks, `scripts/` and the workflows, and does not guard `.codex/`. |
+| **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source), and the fix reintroduced the finding once.** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills; `--check` is a `validate.sh` stage. But `a7ec60a` also committed `.codex/hooks.json` wiring five hooks by absolute path — a username in a public repository, and every clone getting guards that silently do not run. Both preflight reviewers found it; the manifest now resolves from the git root and the check rejects an absolute path. The guard also protected the generated tree and not its generator, which is now `*/scripts/*.sh`. Five `test-hooks.sh` cases assert the widenings that had none. |
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
+| **F-46** — the register's own structure, and five statements the audit found stale | **Open, found 2026-09-11 by `docs-auditor`.** Twenty-nine items. The false statements are fixed; the structural ones are not. `# What is right about the foundation` is an H1 divider sitting between F-20 and F-26, so **twenty findings — most of this pass's work — fall after the conclusion**, outside every section. Two H2s collide on one anchor in the pass report and two `### DP-015` headings collide in `decisions-pending.md`. And the concluding section is maintained twice, in the register and the report, already drifted in both copies simultaneously. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -587,7 +598,9 @@ path or a flag"* — at a boundary the adapters do not guard.
 
 **Severity: medium. INV-06 erosion by habituation. Fixed — SE-059.** The four
 missing cells are stated from R-5a, two as cited facts and two as `unknown`
-because MacPorts is not installed here and its documentation does not settle it.
+because MacPorts was not installed here when this was written (2026-09-04) and
+its documentation does not settle it. It was installed 2026-09-07; the `verify`
+cell is `none` by observation now, sourced in `provider-commands.toml`.
 Stating them was only half: `unknown` rendered identically to `required`, so
 step 3 of the observed plan was unchanged until the human summary was split.
 (Step 2, which the finding also listed, emits no command on that fixture and so
@@ -1281,7 +1294,10 @@ where it is: unrouted, and now at least not contradicting the charter.
   cannot tell prose from intent, which is not a guard.
 
 - **"No open decisions" and "the parser broke" are the same message.** *Found
-  2026-09-06 while resolving DP-015; open, and out of this pass's reach.*
+  2026-09-06 while resolving DP-015; **fixed 2026-09-07** at
+  `.claude/hooks/session-start.sh:25-32`, with all three branches exercised. The
+  text below is the finding as raised and its reasoning about reach no longer
+  applies: the owner authorised the guard edit.*
   `.claude/hooks/session-start.sh:20-21` extracts open decisions with
   `awk '/^## Open/,/^## Resolved/'` piped into `grep -oE '^### DP-[0-9]+'`, and
   line 33 renders an empty result as `(none parsed - read the file)`. Empty has
@@ -1995,11 +2011,13 @@ failed. So MacPorts does not lock out readers while it builds — one fewer reas
 for the lock, and not an argument against it.
 
 **What was observed and when.** Originally the negative cases only; the positive
-case above closes it. **Previously not observed:** what `port -q installed <name>` prints and exits for a
-port that *is* installed. Nothing is installed on this machine, and installing a
-port is an elevating, mutating action the guards refuse and which is the owner's
-to take. The finding does not depend on it: if *not installed* already exits 0,
-then exit 0 cannot prove installed, whatever the positive case does.
+case above closes it. **Previously not observed:** what `port -q installed <name>` prints and exits for
+a port that *is* installed. That sentence continued "nothing is installed on this
+machine", which stopped being true on 2026-09-07 and stayed in the text until
+2026-09-11 — thirty lines below the block that records the positive case. The
+finding never depended on it: if *not installed* already exits 0, exit 0 cannot
+prove installed, whatever the positive case does. What the observation added is
+worse than the gap it filled — a name that is **not a port at all** also exits 0.
 
 **Shape of a fix**, for the executor pass. `PROVIDER_REPORTS_ACTIVE` needs a
 per-provider success semantic in the plan data — the same debt `plan.v1.md`
@@ -2181,7 +2199,7 @@ turning red.
 ## F-37 — Every live MacPorts read failed, and the tool reported a healthy install as `Broken`
 
 **Severity: high — it broke the core function for one of the two providers.
-Observed 2026-09-07, minutes after MacPorts was installed on this machine for
+Observed 2026-09-07, the day after MacPorts was installed on this machine for
 the first time in the project's history. Fixed in the same change.**
 
 `macports status` on a working MacPorts 2.12.6:
@@ -2901,3 +2919,64 @@ session that produced it. A check written on Monday earning its place on Monday
 is worth recording, because the argument for these stages is exactly that
 drift happens between the moments anyone is looking.
 
+---
+
+## F-46 — The register's own structure, and five statements the audit found stale
+
+**Severity: low, and it is about this file. Found 2026-09-11 by `docs-auditor`,
+asked to treat the pass's deliverable as the thing most likely to be wrong.**
+
+Twenty-nine items. The ones that were **false statements are fixed** — a
+document asserting something untrue is the failure mode `AGENTS.md` calls
+unrecoverable, and they are listed in the commit that fixed them. What is left
+is structural, and is recorded rather than repaired because each is a
+re-organisation rather than a correction:
+
+**1. The conclusion sits in the middle.** `# What is right about the foundation`
+is an H1, the same level as `# Tier 1 violations`, `# Security and safety` and
+the other section dividers — and it falls between F-20 and F-26. So **F-26
+through F-46, twenty findings and most of this pass's work, are after the
+conclusion and inside no section at all.** Moving it is trivial; doing so
+rewrites the file's shape, and a register that has been caught misreporting four
+times should not also be reflowed in the same change as its corrections.
+
+**2. Two anchors collide, twice.** `## Recommended next tasks, in priority
+order` appears in the pass report both live and inside the `<details>` archive,
+so a link to that anchor resolves to whichever the renderer reaches first.
+`docs/decisions-pending.md` has two `### DP-015` headings for the same reason.
+Neither breaks `check-links.sh`, which resolves anchors but does not detect
+duplicates — worth a line in that script rather than a manual fix.
+
+**3. One conclusion, maintained twice.** `# What is right about the foundation`
+exists in this file and in the pass report, reworded, and both copies have
+already drifted from reality *simultaneously*: both say the migration pages are
+"1065 and 944 words" (now 1084 and 991) and both say "zero broken internal links
+across 105 markdown files" (the repository has 124; the checker reports 80 that
+contain links). The zero is still true and the denominator is not. Two copies of
+one measurement is the future contradiction `08-distribution-and-project.md`
+exists to prevent — one should cite the other.
+
+**4. `AGENTS.md`, `CONTRIBUTING.md` and `11-agentic-sdlc.md` do not know the
+second harness exists.** None contains the string `codex`. A contributor
+arriving under Codex has no entry point, and nothing tells an editor that
+hand-editing a generated file is refused by the path guard. SE-078 records the
+architecture; the orientation documents have not caught up.
+
+**5. Eight research notes carry standing "MacPorts cannot be observed" claims.**
+R-3, R-4, R-6, R-8, R-12 and R-10 each state it as a property of the project
+rather than of their answer date, and R-6, R-8 and R-12 each name a "future
+attempt" that is now possible. R-5 and R-5a have been re-checked in place, which
+is the convention; the rest each need a dated banner at minimum. The two pass
+reports that say it are frozen records and should stay as they are.
+
+**What was fixed rather than recorded**, for the next reader deciding whether to
+trust this file: the pass report claiming MacPorts was never observed in its
+"Risks and limitations" section while contradicting itself 170 lines later; the
+decisions list naming a resolved DP-018 among "five open" and carrying a live
+instruction against something already committed; F-20's body reading "open" under
+a row reading fixed; F-33's body reading "nothing is installed on this machine"
+thirty lines below the block recording what was installed; F-10's and the
+research checklist's present-tense "not installed"; the three-way disagreement
+about when MacPorts arrived, settled from file timestamps; `plan.v1.md` counting
+three obligations while listing five; and the gate's stage list maintained in
+four places, three of them wrong by five stages, now in one.

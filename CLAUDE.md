@@ -100,11 +100,16 @@ fmt`, `clippy`, `test`, `build` and `tree` are allowed.
 
 The `Stop` gate does not implement its own checks: it runs
 `scripts/validate.sh`, which is the one implementation of "valid" and the same
-one CI runs. `--quick` (format, clippy, layering, SPDX, dependency licences,
-i18n parity, GitHub Action SHA pins) on every turn end; the full default mode, which adds the test
-suite, when `crates/`, `tests/`, `fixtures/`, `locales/`, `data/` or
-`Cargo.lock` changed. `MPB_GATE_FULL=1` forces the tests regardless. Do not add
-a check anywhere else.
+one CI runs. `--quick` runs every static check on every turn end; the default
+mode adds the test suite and the fixture matrix, when `crates/`, `tests/`,
+`fixtures/`, `locales/`, `data/` or `Cargo.lock` changed. `MPB_GATE_FULL=1`
+forces the tests regardless. **Do not add a check anywhere else.**
+
+**The stage list is in `validate.sh`'s own header and nowhere else.** It used to
+be written here and in `CONTRIBUTING.md` as well, and both copies drifted by five
+stages — including four of the five added in one day. Three spellings of one
+thing is two spellings that will be wrong, which is the argument
+`check-action-pins.sh` already makes about the toolchain pin.
 
 ## The two invariants a Claude session trips over most
 

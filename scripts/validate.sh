@@ -6,9 +6,19 @@
 # CI (authoritative), a contributor before pushing, and the agent's Stop
 # gate. Do not add a check anywhere else.
 #
-#   scripts/validate.sh --quick   format, lint, layering, no-shell, links, SPDX,
-#                                 action pins
-#   scripts/validate.sh           --quick plus the test suite
+#   scripts/validate.sh --quick   fourteen stages: cargo fmt, cargo clippy,
+#                                 layering, no-shell, links, SPDX, dependency
+#                                 licences, i18n parity, action pins, memory
+#                                 files, licence text, support matrix, codex
+#                                 layer, shellcheck
+#
+#                                 This list drifted from the code, and so did the
+#                                 copies in CLAUDE.md and CONTRIBUTING.md - four
+#                                 spellings of one thing, three of them wrong by
+#                                 five stages. Those two now point here instead
+#                                 of repeating it; this one is beside the code it
+#                                 describes and is the only place to update.
+#   scripts/validate.sh           --quick plus cargo test and the fixture matrix
 #   scripts/validate.sh --full    everything, plus the release build for both
 #                                 architectures with the deployment-target
 #                                 assertion (macOS only; needs otool)

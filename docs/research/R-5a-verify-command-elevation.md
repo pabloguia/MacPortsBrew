@@ -1,11 +1,20 @@
 # R-5a — Does the `verify` command each provider uses need administrator rights, for a package and for a GUI application?
 
-- **Status:** partially answered — Homebrew observed and cited (both cells);
-  MacPorts citation-only and **UNRESOLVED**, recommended `unknown`
-- **Answered on:** 2026-09-04
+- **Status:** answered for both providers. Homebrew observed and cited;
+  MacPorts was citation-only and `UNRESOLVED` until the machine changed —
+  **re-checked by observation 2026-09-08**, and `verify = "none"` ships in
+  `data/policy/provider-commands.toml` sourced to that read.
+- **Answered on:** 2026-09-04; **MacPorts half re-checked 2026-09-08**
+- **Header correction, 2026-09-11:** this block, and the summary table near the
+  end, described the pre-install world for three days after the body had
+  recorded the observation. `provider-commands.toml` cites this note as a
+  source, so the citation pointed at a document saying the opposite of the cell
+  it justified. The body's `UNRESOLVED-1` and `UNRESOLVED-2` entries carry the
+  answers and their dates.
 - **Machine:** macOS 26.6.2 (build 25G83), x86_64 (Intel), Homebrew 6.0.21 @
   `/usr/local` (`Homebrew/brew` HEAD `560147012b9678b42ef5e83b690f0895552d1366`,
-  committed 2026-09-01), MacPorts **not installed**
+  committed 2026-09-01), MacPorts **not installed** — as of the 2026-09-04
+  answer date. MacPorts 2.12.6 was installed at `/opt/local` on 2026-09-07.
 - **Blocking:** the four missing cells in `data/policy/provider-commands.toml`
   `[entry.elevation]` — `verify` and `verify_gui_app`, per provider. Today both
   providers' `verify*` keys are absent, and

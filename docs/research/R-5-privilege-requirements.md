@@ -10,7 +10,7 @@
   2026-09-08**
 - **Machine:** macOS 26.6.2 (build 25G83), x86_64 (Intel), Homebrew 6.0.21 @
   `/usr/local` (`Homebrew/brew` HEAD `560147012b9678b42ef5e83b690f0895552d1366`),
-  **MacPorts 2.12.6 @ `/opt/local`** (installed 2026-09-07; 18 ports installed,
+  **MacPorts 2.12.6 @ `/opt/local`** (installed 2026-09-06; first ports 2026-09-07; 18 ports installed,
   3 of them requested: `htop`, `jq`, `tree`)
 - **Blocking:** `01-invariants.md` INV-06 (least privilege);
   `04-migration-and-safety.md` (Privilege: "the design assumes MacPorts
