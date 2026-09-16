@@ -68,7 +68,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
-| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. |
+| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half is open and is a design question. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -2794,12 +2794,24 @@ error-contract change, not an edit", and neither holds. The specification does n
 F-41 added `ErrorId::RecordingUnusable` on the same exit code seven days ago with
 no evolution entry and none owed. The third-identifier route is that same edit.
 
-**Four times in this pass a deferral has cited a constraint that was not there** —
-a wording rule in `06-cli-and-ux.md`, an owner gate on `error.rs`, a use count
-for `custom_flags`, and now the planner's blindness. Every one was found by a
-reviewer, never by the author, and each had the same shape: a remembered
-constraint stated with the confidence of a checked one. That is worth more than
-the finding it keeps deferring.
+**Six times in this pass a claim about a constraint has turned out to be false.**
+Four were deferrals justified by something that did not exist: a wording rule in
+`06-cli-and-ux.md`, an owner gate on `error.rs`, a use count for `custom_flags`,
+and the planner's supposed blindness. The fifth was worse, because it came after
+a check: both planner guards declared unreachable on the strength of a probe that
+used a *relative* prefix, when the class the boundary forwards is a `~`-rooted
+one — and `prefix_shape_error` says so in its own comment, in the file the
+conclusion was drawn from. The sixth was "`policy` cannot read
+`provider-commands.toml` without inverting the dependency edge"; it sits in
+`data/policy/` beside six files `policy` already embeds.
+
+Five of the six were found by a reviewer. The sixth was found by the author,
+after five, by going back to check claims that had felt safe — which is the only
+part of this worth generalising. The shape is constant: a constraint recalled, or
+inferred from one experiment, stated with the confidence that belongs to a
+checked one. The register's own rule covers it and is worth restating, because
+the failures above are all the same rule broken: **a claim about what the code
+forbids is a claim about the code, and carries the same burden as any other.**
 
 ---
 
@@ -2945,7 +2957,7 @@ restored byte-identically afterwards:
   other two just demonstrated twice; that is an argument rather than a
   demonstration, and it is stated as one.
 
-### The `codex layer` stage caught real drift twice in one day
+### The `codex layer` stage has caught real drift four times
 
 Not a mutation — live. The patch that added these stages also edited
 `.claude/hooks/test-hooks.sh`, so the generated `.codex/` copy was stale the
@@ -2955,6 +2967,16 @@ moment the gate ran, and the gate said so. Earlier the same day it caught
 session that produced it. A check written on Monday earning its place on Monday
 is worth recording, because the argument for these stages is exactly that
 drift happens between the moments anyone is looking.
+
+**Four times by 2026-09-16, and the same file each time but once.**
+`.agents/skills/tooling-recheck/SKILL.md` has reappeared untracked on three
+separate days, always with the same seven `.Codex/` and `code.Codex.com` markers,
+most recently at 08:49 on the 16th — while this session was running, from
+something outside it. The generator prunes (`rm -rf` on the skills tree), so
+regenerating removes it each time; nothing here diagnoses what keeps writing it,
+and that is the open part. What the count establishes is narrower and still worth
+having: the stage is not theoretical, and a generated tree with no gate over it
+would have been wrong for days at a stretch without anyone noticing.
 
 ---
 
@@ -3139,19 +3161,106 @@ first is what the user actually wants.
 `dest_name` arrives at `command()` either from the destination inventory — where
 `check_names` has already refused an unsafe name — or from
 `policy.curated_targets`, read out of `data/policy/curated-mappings.toml` and
-compiled in. `is_safe_provider_name` appears nowhere in `policy` or
-`application` except `planner.rs:603`, so that guard is the sole gate on curated
+compiled in. `is_safe_provider_name` appeared nowhere in `policy` or
+`application` except `planner.rs:603`, so that guard was the sole gate on curated
 names, and `Snapshot::check` structurally cannot reach them.
 
 Not exploitable: the data is in the repository and compiled into the binary, so
 a bad entry is a defect the build shipped rather than anything a user supplies.
 That is exactly the problem with the identifier. `ErrorId::InputUnusable` tells
 the user to check their capture, snapshot or recording; the right answer for
-curated data is `PolicyDataInvalid`, whose remediation names `doctor --report`
-and calls it a defect in the build. Better still is validating curated targets
-where the data is loaded, which fails closed at the layer that owns them and
-makes `planner.rs:603` the second line the F-43 entry wrongly claimed it already
-was.
+curated data is `PolicyDataInvalid`, which calls it a defect in the build. (That
+remediation named `doctor --report` when this was written, and did so wrongly —
+see below.)
+
+### This half fixed 2026-09-16
+
+`check_curated_names` runs in `PolicyData::load_from`, beside
+`check_support_bounds`, and refuses a curated source or destination name that
+`is_safe_provider_name` rejects — `PolicyDataInvalid`, at the layer that owns the
+data. Both names, not only the destination: a row is read in both directions by
+`index_equivalences`, so a source name is a destination name from the other side.
+
+Checked to fail without it: with the call removed, a row whose destination is
+`--force` loads and the table indexes it in both directions. The test covers a
+flag, a path, a name with a space and an empty one, asserts that an ordinary row
+still loads, and asserts that the shipped table passes — a validator nothing
+valid can get through is a validator nobody will keep.
+
+`planner.rs:603` is now the second line the F-43 entry wrongly claimed it already
+was — **for the last of the planner's three gates, which is all this check
+matched.** `security-reviewer` found the first one on review: `planner::command`
+tests the provider's reserved-word list before it tests the name, and a curated
+destination of `installed` or `leaves` or `all` passes `is_safe_provider_name`,
+loads, plans, and fails with `ErrorId::Usage` — *"That command line is not valid
+… Run macportsbrew --help"* — for a command line that was valid and a `--help`
+that cannot help. Worse misattribution than the one this finding was filed about.
+
+Why the check is not simply extended: **`policy` could read that file** — it sits
+in `data/policy/` beside the six `policy` already `include_str!`s, and this entry
+first said it could not, which was wrong and is corrected here rather than
+quietly. What it cannot do is read it *once*: the parse lives in
+`application/provider_commands.rs`, which also validates the `executable` field
+for absoluteness and `..`, so a second parse in `policy` would be two spellings
+of one file — the argument `check-action-pins.sh` already makes about the
+toolchain pin. And the planner sees both already: `build_plan` takes `&PolicyData`, and calls
+`provider_commands::load()` at `planner.rs:168`. A runtime containment check was
+available and was not taken, for a design reason rather than an impossibility —
+a per-request path validates the request, not the compiled-in table, and
+rescanning seven rows on every plan buys nothing a test does not. **This entry
+said "cannot" in the sentence immediately after the one just corrected for saying
+"cannot".** So the property is asserted where both are visible —
+`every_curated_name_is_one_the_planner_would_accept` in
+`crates/application/tests/planner_refusals.rs`, which fails if either list moves,
+and panics rather than passing quietly if a curated row names a provider
+`provider-commands.toml` does not describe.
+
+### Two more, found in the same review
+
+**An artifact tag becomes part of a file name.** `offline_index_path` joins
+`packages.{tag}.jws.json` onto Homebrew's cache directory, and the tag is a
+template from `bottle-tags.toml` with a release name substituted in — so a `/` or
+a `..` in the template, the release name or the universal tag walks out of that
+directory, and the result is `is_file()`-probed with its path quoted into a
+capability reason. Bounded: it needs a commit to this repository's own data, and
+replay answers `Unknown` without touching the filesystem. But that is the same
+threat model the curated-name check had just accepted as worth defending, so
+`check_artifact_tags` defends it the same way, stating the condition it needs —
+one path component — rather than borrowing a package-name predicate.
+
+**And `error.policy_data_invalid` named a command that cannot run.** It said to
+report the defect with `macportsbrew doctor --report`; `Context::build` loads the
+policy data before anything else, so `doctor` stops at the same line with the
+same message. The remediation now says to quote the message, and says why
+to quote it. **The first attempt at that rewording was itself false**, and is the
+seventh entry in the list this pass keeps: it said `doctor --report` "cannot help
+here, because it loads the same data and stops at the same place", which holds
+for `PolicyData::load_from` and not for the identifier's other producer —
+`provider_commands.rs` parses from `build_plan`, after the context has loaded
+successfully, so `doctor` runs fine for a malformed `provider-commands.toml`. A
+remediation stating something untrue of the condition at hand is the defect this
+finding is about, reintroduced one identifier over while fixing it. The clause is
+gone. The old text was doubly wrong in any case: `--report` takes a path, so
+`macportsbrew doctor --report` with nothing after it was itself a usage error.
+
+Pre-existing. Two more checks can now produce this identifier, but not more
+often *for a user*: policy data is compiled in, `load_embedded` is the only
+non-test caller, and every one of these failures is a build that could not have
+passed its own suite.
+
+**The recipe does not know about either rule, and is left alone deliberately.**
+`curated-mappings.toml` now has two admission conditions the `add-mapping`
+procedure lists nowhere. That procedure exists twice by design, as a section of
+`CONTRIBUTING.md` and as `.claude/skills/add-mapping/SKILL.md`, written from one
+source so a human and an agent follow identical steps — and the skill is
+guard-protected, so this session can edit one copy and not the other. Editing
+just `CONTRIBUTING.md` would produce exactly the divergence the pairing exists to
+prevent, which is a worse outcome than both being a step behind. Nobody is
+stranded meanwhile: step 6 runs `validate.sh`, which now fails with a message
+naming the offending name. It needs `MPB_ALLOW_GUARD_EDIT` and both files in one
+change.
+
+The first half of this finding, the home-installed provider, is untouched.
 
 ---
 

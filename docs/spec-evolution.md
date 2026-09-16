@@ -1004,9 +1004,18 @@ change is made. Silent deviation remains the one unrecoverable error.
   predicate and gets there first — but the *reason* is narrower than it looks.
   A destination name can come from `mapping.selected`, which is sourced from
   `data/policy/curated-mappings.toml` and never passes `check_names` at all, so
-  for that route the planner guard is the only check rather than the second one.
-  The reserved-word half exists only there in any case, since a pseudo-portname
-  is a perfectly good name. It is kept as defence in depth for a name reaching the planner by
+  for that route the planner guard **was** the only check rather than the second
+  one. Corrected 2026-09-16 (F-48): `check_curated_names` applies the same
+  predicate in `PolicyData::load_from`, at the layer that owns the file, so the
+  planner's name half is now the second line on that route too. The reason it had
+  to move is the identifier, not the coverage — the planner answers
+  `InputUnusable`, which tells a user to check their own capture, snapshot or
+  recording for a defect that would be in the build's compiled-in data. The
+  reserved-word half still exists only at the planner, since a pseudo-portname is
+  a perfectly good name, and `every_curated_name_is_one_the_planner_would_accept`
+  in `crates/application/tests/planner_refusals.rs` is what stops the curated
+  table from producing one — the two lists are visible together in `build_plan`
+  but are deliberately not compared per request. It is kept as defence in depth for a name reaching the planner by
   some other route, and because it fails closed where an empty destination name
   would become an empty argument — a case F-09 named and which a probe over every
   plan the suite builds never reached, the mapping-confidence block sending such

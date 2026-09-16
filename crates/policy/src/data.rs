@@ -379,6 +379,8 @@ impl PolicyData {
         }
         let newest = newest_provenance(&provenance)?;
         check_support_bounds(&support.entry)?;
+        check_curated_names(&mappings.entry)?;
+        check_artifact_tags(&tags.tagset)?;
         let equivalences = index_equivalences(&mappings.entry);
 
         let mut support_entries = support.entry;
@@ -639,6 +641,79 @@ fn index_equivalences(
     index
 }
 
+/// Every artifact tag is one component of a file name, not a path.
+///
+/// `artifact_tags_for` builds a tag by substituting a release name into a
+/// template, and the first tag reaches
+/// `homebrew::offline_index_path` as `packages.{tag}.jws.json`, joined onto the
+/// Homebrew cache directory. A `/` or a `..` in a template, a release name or the
+/// universal tag therefore walks out of that directory, and the result is
+/// `is_file()`-probed with its path quoted into a capability reason. Bounded -
+/// it needs a commit to this repository's own data, and replay answers `Unknown`
+/// without touching the filesystem - but that is the same threat model
+/// `check_curated_names` below is defending, so it is defended the same way.
+///
+/// The condition is stated directly rather than borrowed from a package-name
+/// predicate: what this value must be is one path component, and the check says
+/// so. Found by `security-reviewer` while reviewing that one (F-48).
+fn check_artifact_tags(sets: &[ArtifactTagSet]) -> Result<(), DomainError> {
+    let component = |what: &str, provider: &str, value: &str| {
+        if value.is_empty()
+            || value.len() > 64
+            || value.contains('/')
+            || value.contains('\\')
+            || value.contains("..")
+            || value.chars().any(char::is_control)
+        {
+            return Err(invalid(format!(
+                "artifact tag {what} {value:?} for {provider:?} is not a single file-name \
+                 component; it would build a path outside the provider's cache directory"
+            )));
+        }
+        Ok(())
+    };
+    for set in sets {
+        if let Some(universal) = &set.universal_tag {
+            component("universal_tag", &set.provider, universal)?;
+        }
+        for pattern in &set.pattern {
+            component("template", &set.provider, &pattern.template)?;
+        }
+        for release in &set.release {
+            component("release name", &set.provider, &release.name)?;
+        }
+    }
+    Ok(())
+}
+
+/// Every curated package name is one a provider could have reported.
+///
+/// A curated destination reaches `planner::command` without ever passing
+/// `Snapshot::check`, which only ever sees what a provider said. Until this
+/// existed, the sole gate on those names was the planner's own guard - and that
+/// guard answers `InputUnusable`, which tells the user to check their capture,
+/// snapshot or recording for a defect that would be in the build's own data
+/// (F-48). Refusing here puts the failure where the data is owned, says it is a
+/// build defect, and makes the planner's guard the second line it was already
+/// being described as.
+fn check_curated_names(entries: &[CuratedMapping]) -> Result<(), DomainError> {
+    for e in entries {
+        for (what, name) in [
+            ("source", &e.source_name),
+            ("destination", &e.destination_name),
+        ] {
+            if !macportsbrew_domain::is_safe_provider_name(name) {
+                return Err(invalid(format!(
+                    "curated mapping {:?}/{:?} names a {what} {name:?} that no provider \
+                     could have reported; it would be read as a flag or a path",
+                    e.source_provider, e.source_name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn invalid(detail: impl Into<String>) -> DomainError {
     DomainError::new(ErrorId::PolicyDataInvalid, detail)
 }
@@ -890,6 +965,126 @@ mod tests {
         // A leap day: the arithmetic is calendar-correct, not 365-day.
         assert_eq!(days_between("2024-02-28", "2024-03-01"), Some(2));
         assert_eq!(days_between("2026-02-28", "2026-03-01"), Some(1));
+    }
+
+    /// F-48: an artifact tag becomes part of a file name, so it must be one
+    /// path component.
+    ///
+    /// `homebrew::offline_index_path` joins `packages.{tag}.jws.json` onto the
+    /// cache directory, so a `/` or a `..` anywhere in the template, a release
+    /// name or the universal tag walks out of it. Reachable only by committing
+    /// to this repository's own data — the same threat model as the curated
+    /// names below, defended the same way.
+    #[test]
+    fn an_artifact_tag_that_is_a_path_is_refused_where_the_data_lives() {
+        let tagset = |universal: &str, template: &str, release_name: &str| {
+            format!(
+                "[[tagset]]\nprovider=\"homebrew\"\nuniversal_tag=\"{universal}\"\n\
+                 older_compatible_same_architecture=true\nsource=\"s\"\n\
+                 read_on=\"2026-09-02\"\n\
+                 [[tagset.pattern]]\narchitecture=\"arm64\"\ntemplate=\"{template}\"\n\
+                 [[tagset.release]]\nmacos=\"26\"\nname=\"{release_name}\"\n"
+            )
+        };
+
+        let mut sources = embedded_sources();
+        let good = tagset("all", "arm64_{release}", "tahoe");
+        sources.artifact_tags = &good;
+        PolicyData::load_from(sources).expect("an ordinary tagset loads");
+
+        for (universal, template, release_name) in [
+            ("all", "../../../etc/{release}", "tahoe"),
+            ("all", "arm64_{release}", "../../../etc/passwd"),
+            ("../../../etc/passwd", "arm64_{release}", "tahoe"),
+            ("all", "a/b_{release}", "tahoe"),
+            ("", "arm64_{release}", "tahoe"),
+        ] {
+            let mut sources = embedded_sources();
+            let bad = tagset(universal, template, release_name);
+            sources.artifact_tags = &bad;
+            match PolicyData::load_from(sources) {
+                Ok(_) => panic!(
+                    "{universal:?} / {template:?} / {release_name:?} loaded; a tag that is a \
+                     path must be refused"
+                ),
+                Err(e) => {
+                    assert_eq!(e.id, ErrorId::PolicyDataInvalid);
+                    assert!(
+                        e.detail.contains("artifact tag"),
+                        "this must be the tag check: {}",
+                        e.detail
+                    );
+                }
+            }
+        }
+
+        // And the tags this build ships pass, or the check is too strict to keep.
+        PolicyData::load_embedded().expect("the shipped tag sets");
+    }
+
+    /// F-48: a curated destination reaches `planner::command` without ever
+    /// passing `Snapshot::check`, which only sees what a provider reported.
+    ///
+    /// The planner's own guard did catch it, and answered `InputUnusable` —
+    /// telling the user to check their capture, snapshot or recording for a
+    /// defect that would be in the build's own compiled-in data. Refusing at the
+    /// layer that owns the data puts the blame where it belongs and makes the
+    /// planner's guard the second line the F-43 entry had wrongly claimed it was.
+    #[test]
+    fn a_curated_name_no_provider_could_report_is_refused_where_the_data_lives() {
+        let row = |source_name: &str, destination_name: &str| {
+            format!(
+                "[[entry]]\nsource_provider=\"homebrew\"\nsource_name=\"{source_name}\"\n\
+                 destination_provider=\"macports\"\ndestination_name=\"{destination_name}\"\n\
+                 confidence=\"EXACT\"\nsource=\"s\"\nread_on=\"2026-09-02\"\n"
+            )
+        };
+
+        // The shape itself must load, or the cases below prove nothing.
+        let mut sources = embedded_sources();
+        let good = row("wget", "wget");
+        sources.curated_mappings = &good;
+        PolicyData::load_from(sources).expect("an ordinary curated row loads");
+
+        for (source_name, destination_name) in [
+            ("wget", "--force"),
+            ("--force", "wget"),
+            ("wget", "../../../bin/sh"),
+            ("wget", ""),
+            ("wget", "foo bar"),
+        ] {
+            let mut sources = embedded_sources();
+            let bad = row(source_name, destination_name);
+            sources.curated_mappings = &bad;
+            // Matched rather than `expect_err`: the Ok side is the whole
+            // `PolicyData`, and a panic that prints it buries the one line
+            // whoever is debugging this needs.
+            match PolicyData::load_from(sources) {
+                Ok(_) => panic!(
+                    "{source_name:?} -> {destination_name:?} loaded; a curated name that \
+                     would read as a flag or a path must be refused"
+                ),
+                Err(e) => {
+                    assert_eq!(
+                        e.id,
+                        ErrorId::PolicyDataInvalid,
+                        "{source_name:?} -> {destination_name:?} is the build's defect, \
+                         not the user's"
+                    );
+                    // The identifier is what every failure in this module
+                    // carries, so on its own it cannot tell this check from a
+                    // parse error or from `check_support_bounds`.
+                    assert!(
+                        e.detail.contains("curated mapping"),
+                        "this must be the curated-name check: {}",
+                        e.detail
+                    );
+                }
+            }
+        }
+
+        // And the data this build actually ships passes.
+        PolicyData::load_embedded().expect("the shipped curated table");
     }
 
     #[test]

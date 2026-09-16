@@ -247,3 +247,93 @@ fn explaining_a_package_by_the_other_providers_name_finds_it() {
     explain_package(&snap, &policy, &AnalysisOptions::default(), "wget")
         .expect("a held package must be explainable");
 }
+
+/// F-48: policy load must not accept a curated name the planner will refuse.
+///
+/// `check_curated_names` in `PolicyData::load_from` applies
+/// `is_safe_provider_name`, which is the *last* of the three gates
+/// `planner::command` runs on a package name. The first is the provider's
+/// reserved-word list from `provider-commands.toml` — thirteen words for
+/// MacPorts, `all`, `installed`, `active`, `leaves` among them. A curated row
+/// whose destination is one of those loads, plans, and fails at the planner with
+/// `ErrorId::Usage`: *"That command line is not valid … Run macportsbrew
+/// --help"*. The user's command line was valid and `--help` cannot help them,
+/// which is a worse misattribution than the one F-48 was filed about.
+///
+/// The two lists do not meet in either layer. `policy` *could* read
+/// `provider-commands.toml` — it is in `data/policy/` beside the six files
+/// `policy` already embeds — but the parse lives here, in
+/// `provider_commands.rs`, together with the absoluteness check on `executable`,
+/// so a copy in `policy` would be two spellings of one file. `build_plan` does
+/// see both — it takes `&PolicyData` and calls `provider_commands::load()` — so
+/// the containment could be checked at runtime; it is not, because a per-request
+/// path should validate the request rather than rescan a compiled-in table on
+/// every plan. The whole-table property belongs here. `security-reviewer` found
+/// the gap while reviewing the fix for the other half.
+///
+/// This asserts containment, not the absence of a check: policy accepting a name
+/// the planner rejects is the defect, and either list moving makes it fail.
+///
+/// **The reserved half has teeth on one side only, today.** Exactly one provider
+/// declares `reserved_names` — MacPorts, thirteen words — and every shipped
+/// curated row runs homebrew to macports, so the destination names are compared
+/// against a real list and the source names against an empty one. That is the
+/// half that matters (a destination name is what reaches `command()` as
+/// `dest_name`), and SE-051 already records the asymmetry as open research
+/// rather than a decision. It is said here because a reader would otherwise take
+/// "asserted where both are visible" as covering both directions, and the
+/// counted assertion below fails if the last real list is ever emptied.
+#[test]
+fn every_curated_name_is_one_the_planner_would_accept() {
+    let data = macportsbrew_policy::PolicyData::load_embedded().expect("embedded policy data");
+    let commands = macportsbrew_application::provider_commands::load().expect("provider commands");
+    let rows = data.curated_mappings();
+    assert!(!rows.is_empty(), "an empty table would assert nothing");
+    let mut compared_against_a_real_list = 0usize;
+
+    for row in rows {
+        for (provider, name) in [
+            (&row.source_provider, &row.source_name),
+            (&row.destination_provider, &row.destination_name),
+        ] {
+            assert!(
+                macportsbrew_domain::is_safe_provider_name(name),
+                "curated {provider} name {name:?} is not one a provider could report"
+            );
+            assert!(
+                !name.is_empty(),
+                "curated {provider} name is empty, which the planner calls an internal error"
+            );
+            let entry = commands.get(provider.as_str()).unwrap_or_else(|| {
+                panic!(
+                    "curated row names provider {provider:?}, which provider-commands.toml \
+                     does not describe - so the reserved-word half of this test would \
+                     silently check nothing"
+                )
+            });
+            {
+                assert!(
+                    !entry
+                        .reserved_names
+                        .iter()
+                        .any(|reserved| reserved.eq_ignore_ascii_case(name)),
+                    "curated {provider} name {name:?} is a word that provider reads as a set \
+                     of ports; the planner refuses it as a usage error, blaming a command line \
+                     that was correct (F-48)"
+                );
+                if !entry.reserved_names.is_empty() {
+                    compared_against_a_real_list += 1;
+                }
+            }
+        }
+    }
+
+    // Without this the reserved half can go quiet without failing: empty the one
+    // provider list that has words in it, or add rows in a direction no provider
+    // describes, and every assertion above still passes while checking nothing.
+    assert!(
+        compared_against_a_real_list > 0,
+        "no curated name was compared against a non-empty reserved-word list, so \
+         this test's reserved half asserted nothing"
+    );
+}
