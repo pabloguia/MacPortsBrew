@@ -62,7 +62,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
-| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. |
+| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. Item 3, the two `schemaVersion` tests that were green lights over uncovered lines, is **fixed 2026-09-15**: both patch the version into a real document and assert the message the version arm produces, which the parse arm cannot. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source), and the fix reintroduced the finding once.** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills; `--check` is a `validate.sh` stage. But `a7ec60a` also committed `.codex/hooks.json` wiring five hooks by absolute path — a username in a public repository, and every clone getting guards that silently do not run. Both preflight reviewers found it; the manifest now resolves from the git root and the check rejects an absolute path. The guard also protected the generated tree and not its generator, which is now `*/scripts/*.sh`. Five `test-hooks.sh` cases assert the widenings that had none. |
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
@@ -2663,12 +2663,21 @@ program path is not absolute. Under `--replay` those values came from a
 `--from-snapshot` — verbatim the message F-41 exists to remove, at a site F-41
 did not touch.
 
-It is filed rather than fixed because the fix is not the same shape. The
-planner cannot see which route produced the snapshot it was handed; that is the
-point of the capture/analysis split, and giving it that knowledge is a design
-question rather than a parameter. The honest options are a third identifier that
-names neither route, or threading the provenance the `Snapshot` already carries
-down to the planner. Both are decisions; the first is probably right.
+It was filed rather than fixed on a reason that does not survive being checked,
+which `spec-guardian` established on 2026-09-15. **The planner can see the
+route.** `build_plan` takes the whole `Snapshot`, and `Provenance.captured_by`
+carries `macportsbrew --replay` or `macportsbrew capture`, written at
+`context.rs:145`. The sentence claiming otherwise sat two lines from one saying
+"threading the provenance the `Snapshot` already carries", and both cannot be
+true.
+
+What is true is narrower and is the real design question: the only *typed* route
+value in this layer is `AnalysisSource`, which has `Live` and `Snapshot` and
+deliberately folds `--replay` into `Snapshot`. So the route is legible only as a
+free-text display string assembled in the CLI, and branching an error identifier
+on one is the wrong instrument. That argues for the third identifier — one that
+names neither route, so nothing has to branch at all — which is what this entry
+guessed was right for the wrong reason.
 
 **2. `ErrorId::all()` is a manual mirror of the enum with nothing asserting it is
 complete.** `crates/cli/tests/i18n.rs` iterates `all()` to prove every identifier
@@ -2703,6 +2712,36 @@ parse arm, not the version arm its name claims — and
 Both were verified against the built binary during the F-41 review. Neither is a
 runtime defect; both are green lights over uncovered lines, and the correct
 pattern now exists eight lines away in `crates/adapters/tests/persistence.rs`.
+
+### Item 3 fixed 2026-09-15
+
+Both now patch the version into a document that is otherwise real — the end-to-end
+test captures one with `--replay … snapshot --out` and edits the field, the unit
+test round-trips its own `recording()` helper — and both assert the text the
+version arm produces rather than only an exit code the parse arm produces too.
+
+Checked against the built binary rather than assumed. The document the
+end-to-end test used to write answers ``is not a readable snapshot: missing field
+`toolVersion` at line 1 column 21``; the patched one answers `snapshot schema
+version 99 is not the supported 1`. Same exit code 8, same non-empty stderr —
+which is exactly why the old assertions could not tell the arms apart. The new
+assertion matches the whole phrase and not the digits, because the parse arm
+quotes the file path and a scratch directory carrying those two digits would
+satisfy a looser test from the wrong arm.
+
+Item 1 stays open at the close of this change, with its stated reason corrected
+above rather than repeated. It was also over-fenced: this entry called the fix
+"a `docs/spec-evolution.md` entry and an error-contract change, not an edit",
+and neither holds. The specification does not enumerate error identifiers, and
+F-41 added `ErrorId::RecordingUnusable` on the same exit code seven days ago with
+no evolution entry and none owed. The third-identifier route is that same edit.
+
+**Four times in this pass a deferral has cited a constraint that was not there** —
+a wording rule in `06-cli-and-ux.md`, an owner gate on `error.rs`, a use count
+for `custom_flags`, and now the planner's blindness. Every one was found by a
+reviewer, never by the author, and each had the same shape: a remembered
+constraint stated with the confidence of a checked one. That is worth more than
+the finding it keeps deferring.
 
 ---
 
@@ -2759,7 +2798,7 @@ directive whose effect depends on adjacency, in a repository whose only
 shellcheck ran in a CI job that has never executed, is a check that cannot fail.
 Same shape as F-12, as the `cargo`-absent stop-gate hole, and as F-32.
 
-### F-43's second item fixed 2026-09-08
+### F-44's second half fixed 2026-09-08 — the directive that could not fail
 
 The directive is now adjacent to each of the two assignments it covers, and the
 misplaced one is gone rather than left where it silences nothing. `shellcheck -x

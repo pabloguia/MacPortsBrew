@@ -689,8 +689,35 @@ fn an_unknown_flag_is_a_usage_error() {
 #[test]
 fn a_snapshot_from_an_unsupported_schema_is_refused() {
     let scratch = Scratch::new("schema");
+
+    // A *real* snapshot with its version patched, not `{"schemaVersion": 99}`.
+    // That document is refused by the parse arm — `toolVersion` and the rest are
+    // required with no default — so it never reaches the version check, and this
+    // test asserted exit 8 and a non-empty stderr over a line it never executed.
+    // Both are true of the parse failure too, which is what made it a green
+    // light over an uncovered line (F-43).
+    let clean = scratch.path().join("clean.json");
+    let captured = run(
+        &scratch,
+        &[
+            "--replay",
+            fixture(BOTH).to_str().expect("path"),
+            "--json",
+            "snapshot",
+            "--out",
+            clean.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(captured.status.code(), Some(0), "capturing the snapshot");
+
+    let real = std::fs::read_to_string(&clean).expect("read");
+    let mut doc: Value = serde_json::from_str(&real).expect("the capture is JSON");
+    doc["schemaVersion"] = serde_json::json!(99);
     let path = scratch.path().join("future.json");
-    std::fs::write(&path, b"{\"schemaVersion\": 99}\n").expect("write");
+    std::fs::write(&path, doc.to_string().as_bytes()).expect("write");
+
     let out = run(
         &scratch,
         &[
@@ -702,7 +729,37 @@ fn a_snapshot_from_an_unsupported_schema_is_refused() {
     );
     assert_eq!(out.status.code(), Some(8), "snapshot-unusable is exit 8");
     assert!(out.stdout.is_empty());
-    assert!(!out.stderr.is_empty(), "the refusal is explained on stderr");
+    // The whole phrase, not just "99": the parse arm quotes the file path, and a
+    // scratch directory that happened to contain those digits would satisfy a
+    // bare `contains("99")` from the wrong arm. The parse arm's message for the
+    // old document was "missing field `toolVersion`", which this cannot match.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("schema version 99 is not the supported"),
+        "this must reach the version check, not the parse: {stderr}"
+    );
+
+    // And the untampered capture loads, or the case above proves nothing.
+    // `--today` is pinned like every other run in this file: without it the date
+    // comes from the snapshot's `capturedAt`, which capture writes from the real
+    // clock whatever `--today` said, so this control would start emitting a
+    // staleness notice on whatever day `data/policy`'s newest `read_on` ages out.
+    let ok = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            clean.to_str().expect("path"),
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        ok.status.code(),
+        Some(0),
+        "the untampered snapshot must load"
+    );
 }
 
 /// F-21: a snapshot must not be able to state the environment a provider

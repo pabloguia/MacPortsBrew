@@ -205,6 +205,24 @@ mod tests {
         let back = Recording::from_json(&text).unwrap();
         assert_eq!(rec, back);
         assert_eq!(back.to_json(), text);
-        assert!(Recording::from_json("{\"schemaVersion\":99}").is_err());
+
+        // The version arm, not the parse arm. This read
+        // `Recording::from_json("{\"schemaVersion\":99}").is_err()` until
+        // 2026-09-15: `provenance` is required with no default, so that document
+        // dies in `serde_json::from_str` and never reaches the check above. The
+        // assertion passed over a line it did not execute (F-43), which is the
+        // same defect `persistence.rs` had and fixed the same way — patch the
+        // version into a document that is otherwise real.
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&text).expect("the round trip is JSON");
+        doc["schemaVersion"] = serde_json::json!(99);
+        let err = Recording::from_json(&doc.to_string())
+            .expect_err("a schema this build does not read is refused");
+        assert_eq!(err.id, ErrorId::RecordingUnusable);
+        assert!(
+            err.detail.contains("schema 99 is not the supported"),
+            "this must reach the version check, not the parse: {}",
+            err.detail
+        );
     }
 }

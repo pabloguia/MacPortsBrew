@@ -522,10 +522,11 @@ gives DP-008 a cost it was decided without.
   environment. A declared Tier 3 deviation (SE-056); the fix is "resolve this
   process's own binary", which is the executor's design.
 - **F-43's first item** — `planner.rs:605,619` reproduce F-41 at a site F-41's
-  fix could not reach, because the planner cannot see which route produced its
-  input. That is the capture/analysis split working; threading provenance into
-  it is a design question, and a third identifier naming neither route is
-  probably the answer.
+  fix did not reach. This entry said the planner "cannot see which route produced
+  its input"; it can, through `Provenance.captured_by`, and the claim was wrong
+  (corrected 2026-09-15). What is true is that the route is legible only as a
+  free-text display string, so the answer is a third identifier naming neither
+  route — the same edit F-41 was, not the larger change this entry implied.
 - **F-29's implementation**, once DP-016 is ruled. The tri-state field itself
   needs no ruling — `AGENTS.md` already requires it.
 - **F-23's routing** — clap's `about` through the catalogue. A CLI-pass design
