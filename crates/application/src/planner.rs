@@ -602,21 +602,39 @@ fn command(
     }
     if !macportsbrew_domain::is_safe_provider_name(package) {
         return Err(DomainError::new(
-            ErrorId::SnapshotUnusable,
+            // Not `SnapshotUnusable`: this value may have come from a live
+            // capture, a snapshot file or a recording, and the snapshot
+            // remediation told a `--replay` user to go and take a fresh
+            // snapshot (F-43).
+            //
+            // An installed name reaches here already refused by `check_names`.
+            // The route that is *not* covered is the curated mapping table,
+            // whose targets nothing validates - and for those this identifier
+            // blames the wrong party, because the defect would be in the build's
+            // own data rather than in anything the user supplied. Recorded in
+            // F-48 rather than papered over with a second identifier here.
+            ErrorId::InputUnusable,
             format!(
                 "{package:?} is not a package name this tool will pass to a provider; \
                  it would be read as a flag or a path rather than as a package"
             ),
         ));
     }
-    // And the program itself, last. The prefix is validated at the boundary, but
-    // a relative program is never correct whatever produced it: `Command::new`
-    // resolves a string containing a slash against the working directory, so
-    // this is the difference between running the provider and running whatever
-    // is under the directory the user happened to be in.
+    // And the program itself, last. This is not defence in depth: it is the
+    // designed enforcement point, and `snapshot::prefix_shape_error` says so -
+    // a `~`-rooted prefix is "allowed *here* and refused where it matters",
+    // because it is an absolute path with the home elided by redaction and the
+    // privacy machinery exists so a home-installed provider can be captured at
+    // all. So the boundary passes `~/homebrew` and this guard is what stops it:
+    // `Command::new` resolves a string containing a slash against the working
+    // directory, which is the difference between running the provider and
+    // running whatever is under the directory the user happened to be in.
+    //
+    // Reached by an ordinary machine, not only a doctored file: a user whose
+    // Homebrew lives under `$HOME` can `analyze` and cannot `plan` (F-48).
     if !program.starts_with('<') && !Path::new(&program).is_absolute() {
         return Err(DomainError::new(
-            ErrorId::SnapshotUnusable,
+            ErrorId::InputUnusable,
             format!(
                 "the plan would run {program:?}, which is not an absolute program: \
                  the prefix it came from names no directory this tool can resolve"

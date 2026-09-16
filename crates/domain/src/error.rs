@@ -38,6 +38,24 @@ pub enum ErrorId {
     /// is deliberately the same 8: `06-cli-and-ux.md:68` is the category
     /// "8 stale/unusable input", and a recording is one.
     RecordingUnusable,
+    /// The input this run was built from cannot be used.
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] and
+    /// [`ErrorId::RecordingUnusable`] for the same reason those are separate
+    /// from each other - the remediation - but in the opposite direction: this
+    /// one names **no** route. The planner is handed a `Snapshot` whose values
+    /// may have come from a live capture, a snapshot file or a recording, and
+    /// `planner.rs` refused them all with the snapshot remediation, telling a
+    /// `--replay` user to take a fresh snapshot and point a flag they had not
+    /// used at a different file (F-43, the same defect as F-41 one layer up).
+    ///
+    /// The route is *visible* - `Provenance.captured_by` carries it - but only
+    /// as a free-text display string assembled in the CLI, and branching an
+    /// error identifier on one of those is the wrong instrument. An identifier
+    /// that presumes nothing needs no branch. Exit code 8 for the reason
+    /// `RecordingUnusable` has it: `06-cli-and-ux.md:68` is the category
+    /// "8 stale/unusable input", and this is one.
+    InputUnusable,
     /// Policy data could not be loaded or is inconsistent.
     PolicyDataInvalid,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
@@ -62,9 +80,10 @@ impl ErrorId {
             | ErrorId::ProviderOutputChanged
             | ErrorId::ProviderTimeout
             | ErrorId::CapabilityMissing => 5,
-            ErrorId::SnapshotUnusable | ErrorId::RecordingUnusable | ErrorId::PolicyDataInvalid => {
-                8
-            }
+            ErrorId::SnapshotUnusable
+            | ErrorId::RecordingUnusable
+            | ErrorId::InputUnusable
+            | ErrorId::PolicyDataInvalid => 8,
             ErrorId::PackageNotFound
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
@@ -84,6 +103,7 @@ impl ErrorId {
             ErrorId::CapabilityMissing => "error.capability_missing",
             ErrorId::SnapshotUnusable => "error.snapshot_unusable",
             ErrorId::RecordingUnusable => "error.recording_unusable",
+            ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
@@ -104,6 +124,7 @@ impl ErrorId {
             ErrorId::CapabilityMissing,
             ErrorId::SnapshotUnusable,
             ErrorId::RecordingUnusable,
+            ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
             ErrorId::SafetyBlocked,
             ErrorId::NotImplementedInThisPass,
@@ -162,6 +183,8 @@ mod tests {
         // only in the adapter that reads recordings, so re-bucketing the
         // identifier fails where the contract lives (F-41).
         assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
+        // And the planner's, which names no route at all (F-43).
+        assert_eq!(ErrorId::InputUnusable.exit_code(), 8);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 
@@ -195,7 +218,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 14;
+    const NUMBER_OF_ERROR_IDS: usize = 15;
 
     #[test]
     fn every_id_has_a_distinct_message() {

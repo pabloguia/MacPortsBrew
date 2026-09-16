@@ -762,6 +762,179 @@ fn a_snapshot_from_an_unsupported_schema_is_refused() {
     );
 }
 
+/// F-43 item 1 at the boundary: `check` also runs on a capture.
+///
+/// F-41 gave `--replay` its own identifier in the reader. `Snapshot::check` is
+/// the other place a replayed run can be refused, because a capture runs it and
+/// a capture under `--replay` is built from a recording - so this run used to
+/// answer "Take a fresh one with `macportsbrew snapshot`, or point
+/// --from-snapshot at a readable file" to a user who had done neither. A live
+/// capture got the same sentence, and it was wrong there too; only
+/// `--from-snapshot` was ever being told the truth, and that route keeps
+/// `SnapshotUnusable`.
+///
+/// Reproduced by answering `brew --prefix` with the other provider's prefix,
+/// which is the lever F-21's replay half already pulls.
+#[test]
+fn a_replayed_run_is_not_sent_after_a_snapshot_it_never_had() {
+    let scratch = Scratch::new("f43");
+    let mut recording: Value =
+        serde_json::from_slice(&std::fs::read(fixture(BOTH)).expect("fixture")).expect("JSON");
+    let mut patched = 0;
+    for invocation in recording["invocations"]
+        .as_array_mut()
+        .expect("invocations")
+    {
+        if invocation["program"] == serde_json::json!("brew")
+            && invocation["argv"] == serde_json::json!(["--prefix"])
+        {
+            invocation["stdout"] = serde_json::json!("/opt/local\n");
+            patched += 1;
+        }
+    }
+    assert_eq!(patched, 1, "the fixture must still record `brew --prefix`");
+
+    let doctored = scratch.path().join("overlap.json");
+    std::fs::write(
+        &doctored,
+        serde_json::to_vec(&recording).expect("serialise"),
+    )
+    .expect("write");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            doctored.to_str().expect("path"),
+            "--json",
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "an overlapping prefix is refused"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("overlaps"),
+        "the refusal must still say what is wrong: {stderr}"
+    );
+    // The point of the finding is not which identifier fires, but that the
+    // remediation does not send this user after a file and a flag they never used.
+    for route in ["macportsbrew snapshot", "--from-snapshot"] {
+        assert!(
+            !stderr.contains(route),
+            "a --replay run must not be sent after {route}: {stderr}"
+        );
+    }
+    // And that it still says something. Without this, an empty remediation - or
+    // a regression to the bare detail - passes the two checks above.
+    assert!(
+        stderr.contains("macportsbrew doctor"),
+        "the neutral remediation must still be rendered: {stderr}"
+    );
+}
+
+/// F-43 item 1 at the planner, which is not a second line but the designed
+/// enforcement point - and is reachable by an ordinary machine.
+///
+/// I filed this as unreachable, having fed a snapshot a *relative* prefix and
+/// watched the boundary refuse it. That was the wrong probe.
+/// `snapshot::prefix_shape_error` says in its own comment that a `~`-rooted
+/// prefix is "allowed *here* and refused where it matters", because it is an
+/// absolute path with the home elided by redaction - the privacy machinery
+/// exists so a home-installed provider can be captured at all - and that
+/// `planner::command` is what refuses it. So the boundary passes `~/homebrew`,
+/// `analyze` works, and `plan` stops at `planner.rs`. `security-reviewer` found
+/// this and reproduced it; the claim had been written into four places.
+///
+/// No boundary refusal can produce this message, which is what makes the
+/// assertion a test of the planner rather than of the exit code. The F-09 test
+/// asserts exit 8, which the boundary already produces, so it could never have
+/// told the two apart.
+#[test]
+fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
+    let scratch = Scratch::new("f43b");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the clean snapshot"
+    );
+
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("JSON");
+    // Both, because the boundary requires the `PATH` leader to be the detected
+    // prefix (INV-10): a home-installed provider's snapshot is coherent, not
+    // half-edited, and editing only one field tests the boundary rather than the
+    // planner.
+    doc["providers"]["homebrew"]["detection"]["prefix"] = serde_json::json!("~/homebrew");
+    let path = doc["providers"]["homebrew"]["invocationEnvironment"]["PATH"]
+        .as_str()
+        .expect("a PATH");
+    let rest = path
+        .split_once(':')
+        .expect("more than one entry")
+        .1
+        .to_string();
+    doc["providers"]["homebrew"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!(format!("~/homebrew/bin:{rest}"));
+    let home_rooted = scratch.path().join("home-rooted.json");
+    std::fs::write(&home_rooted, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    let analyze = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        analyze.status.code(),
+        Some(0),
+        "the boundary allows a `~`-rooted prefix on purpose, or this test proves nothing"
+    );
+
+    let planned = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+        ],
+    );
+    assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
+    let stderr = String::from_utf8_lossy(&planned.stderr);
+    assert!(
+        stderr.contains("is not an absolute program"),
+        "this must be the planner's refusal, which no boundary check emits: {stderr}"
+    );
+}
+
 /// F-21: a snapshot must not be able to state the environment a provider
 /// command runs in.
 ///

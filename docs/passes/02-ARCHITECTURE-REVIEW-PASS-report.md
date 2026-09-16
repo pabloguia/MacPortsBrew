@@ -306,8 +306,13 @@ session, for the findings to be resolved rather than filed — and afterwards fo
 coverage floor to be measured and met. Both instructions supersede section 3,
 because the owner wrote section 3; neither was silent, and this is where that is
 recorded. From `19b0c7a` onward the pass has been writing `src/`, tests, CI and
-`.claude/`, which section 3 forbids a reviewer to touch. The count is
-thirty-five commits, most of them `fix(...)`.
+`.claude/`, which section 3 forbids a reviewer to touch. That is seventy-two
+commits at 2026-09-16 — `git rev-list --count 19b0c7a^..HEAD` is the number, so
+the next reader recounts rather than trusting this sentence, which said
+thirty-five and "most of them `fix(...)`" until it was recounted. Twenty-nine are
+`docs`, twenty-six `fix`, eight `test`: the plurality is documentation, not
+repair. A hand-maintained count inside the document F-46 audited is the same
+defect F-46 is about, which is why it now carries the command that replaces it.
 
 Two things follow, and both matter more than the bookkeeping. **The review's
 separation of argument from diff is gone for the later findings**: F-01 to F-04
@@ -521,12 +526,13 @@ gives DP-008 a cost it was decided without.
 - **F-04's residual** — the self-invocation's relative program and empty
   environment. A declared Tier 3 deviation (SE-056); the fix is "resolve this
   process's own binary", which is the executor's design.
-- **F-43's first item** — `planner.rs:605,619` reproduce F-41 at a site F-41's
-  fix did not reach. This entry said the planner "cannot see which route produced
-  its input"; it can, through `Provenance.captured_by`, and the claim was wrong
-  (corrected 2026-09-15). What is true is that the route is legible only as a
-  free-text display string, so the answer is a third identifier naming neither
-  route — the same edit F-41 was, not the larger change this entry implied.
+- **F-43's first item** — **done 2026-09-16**, and this entry was wrong about it
+  twice. It said the planner "cannot see which route produced its input" (it can,
+  through `Provenance.captured_by`), and then that both planner guards were
+  unreachable second lines (`planner.rs:619` is the designed gate on a `~`-rooted
+  prefix, and a machine with Homebrew under `$HOME` reaches it). Both corrections
+  came from reviewers. `ErrorId::InputUnusable` names no route; the residue is
+  F-48.
 - **F-29's implementation**, once DP-016 is ruled. The tri-state field itself
   needs no ruling — `AGENTS.md` already requires it.
 - **F-23's routing** — clap's `about` through the catalogue. A CLI-pass design

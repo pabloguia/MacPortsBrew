@@ -7,7 +7,7 @@
 use crate::TOOL_VERSION;
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
-    redact_home, DomainError, HomeRedaction, MachineRead, Provenance, ProviderRead,
+    redact_home, DomainError, ErrorId, HomeRedaction, MachineRead, Provenance, ProviderRead,
     ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::BTreeMap;
@@ -121,7 +121,35 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     // provider - or a recording - answered, so a capture can carry the same
     // leak a file can state outright (F-21). Running it inside `capture` means
     // no route produces an unchecked snapshot.
-    snapshot.check(&ctx.environment_contracts)?;
+    //
+    // And `InputUnusable` rather than the identifier `check` builds, because
+    // this is the *capture* route: a live machine under a live runner, a
+    // recording under `--replay`. Neither is a snapshot file, and the snapshot
+    // remediation told both of them to take a fresh snapshot and re-aim a flag
+    // they had not used - F-41's defect, alive here as well as at
+    // `planner::command`, and reproduced by answering `brew --prefix` with the
+    // other provider's prefix in a recording. `load_snapshot` keeps
+    // `SnapshotUnusable`: there the input really is that file.
+    //
+    // The route *is* knowable here - `ctx.home` is `Recorded` exactly under
+    // replay - and is deliberately not branched on. A neutral identifier is
+    // preferred to a branch: reading `HomeRedaction` as a route proxy couples a
+    // remediation to redaction policy, so a later change to how homes are
+    // redacted would silently re-aim an error message. If the route is wanted
+    // here it should arrive as its own field.
+    //
+    // Only `SnapshotUnusable` is rewritten. `check` returns nothing else today,
+    // and a blanket rewrite would restamp whatever it returns tomorrow - a
+    // `SafetyBlocked` or a `PolicyDataInvalid` silently relabelled "input
+    // unusable" is the invisible wrongness this repository calls its one
+    // unrecoverable error.
+    snapshot.check(&ctx.environment_contracts).map_err(|e| {
+        if e.id == ErrorId::SnapshotUnusable {
+            DomainError::new(ErrorId::InputUnusable, e.detail)
+        } else {
+            e
+        }
+    })?;
     Ok(snapshot)
 }
 

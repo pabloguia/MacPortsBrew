@@ -62,12 +62,13 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
 | **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
-| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Open, found 2026-09-08 by the F-41 reviews.** `planner.rs:605,619` return `SnapshotUnusable` for values that came from a recording, at a site F-41's fix could not reach — the planner cannot see which route produced its input, by design. The `ErrorId::all()` half is **fixed** the same day: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. Item 3, the two `schemaVersion` tests that were green lights over uncovered lines, is **fixed 2026-09-15**: both patch the version into a real document and assert the message the version arm produces, which the parse arm cannot. |
+| **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Found 2026-09-08 by the F-41 reviews. Item 2 fixed 2026-09-08, item 3 2026-09-15, item 1 2026-09-16.** Item 2: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. Item 3: two `schemaVersion` tests that were green lights over uncovered lines now patch the version into a real document and assert the message only the version arm produces. Item 1 was **filed at the wrong address, and this row said so wrongly twice before `security-reviewer` and `spec-guardian` each reproduced the counter-example**. `planner.rs:619` is not a second line: `prefix_shape_error` passes a `~`-rooted prefix on purpose and names `planner::command` as what refuses it, so a machine with Homebrew under `$HOME` can `analyze` and cannot `plan`. `:605` is second-line for snapshot-derived names and the *sole* gate on curated mapping targets, which the boundary never sees. The defect was also live at the boundary, on both the capture routes. `ErrorId::InputUnusable` (exit 8) names no route and is used at all three sites; `load_snapshot` keeps `SnapshotUnusable`, the one route the old remediation fitted. Consequences filed as F-48. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source), and the fix reintroduced the finding once.** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills; `--check` is a `validate.sh` stage. But `a7ec60a` also committed `.codex/hooks.json` wiring five hooks by absolute path — a username in a public repository, and every clone getting guards that silently do not run. Both preflight reviewers found it; the manifest now resolves from the git root and the check rejects an absolute path. The guard also protected the generated tree and not its generator, which is now `*/scripts/*.sh`. Five `test-hooks.sh` cases assert the widenings that had none. |
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
+| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -2729,10 +2730,67 @@ assertion matches the whole phrase and not the digits, because the parse arm
 quotes the file path and a scratch directory carrying those two digits would
 satisfy a looser test from the wrong arm.
 
-Item 1 stays open at the close of this change, with its stated reason corrected
-above rather than repeated. It was also over-fenced: this entry called the fix
-"a `docs/spec-evolution.md` entry and an error-contract change, not an edit",
-and neither holds. The specification does not enumerate error identifiers, and
+### Item 1 fixed 2026-09-16 — and it was filed at the wrong address
+
+**This section first said both `planner.rs` sites were unreachable second lines.
+That was false, and `security-reviewer` reproduced the counter-example.** It is
+left here as the correction rather than rewritten away, because the way it was
+got wrong is the point.
+
+The probe was a *relative* prefix — `relative/prefix` — which the boundary does
+refuse, so the boundary answered and the conclusion "the boundary answers first"
+followed. The right probe is a **`~`-rooted** one, and `prefix_shape_error` says
+so in its own comment, 350 lines above the function I had read: a `~`-rooted
+prefix is *"allowed **here** and refused where it matters"*, because it is an
+absolute path with the home elided by redaction and the privacy machinery exists
+so a home-installed provider can be captured at all — and *"`planner::command`
+therefore refuses to emit a program that is not absolute"*. The answer was
+written down, in the file, by whoever built the thing.
+
+So **`planner.rs:619` is the designed enforcement point, not defence in depth**,
+and it is reached by an ordinary machine rather than a doctored file: a user
+whose Homebrew lives under `$HOME` gets prefix `~/homebrew`, `analyze` exits 0,
+and every `plan` that reaches command building exits 8. Reproduced both ways.
+The name guard at `:605` is the covered one — `check_names` refuses an installed
+name first — except through the curated mapping table, whose targets nothing
+validates. Both consequences are filed as F-48.
+
+The F-09 test that looks like it covers these guards asserts exit 8, which the
+boundary already produces, so it could never have told the two apart — item 3's
+defect again, in the test I had cited as coverage while filing the finding.
+
+**The boundary is where F-41's defect was *also* alive.** `check` is also what a
+*capture* runs, and under `--replay` a capture is built from a recording — so the
+three boundary refusals, all `SnapshotUnusable`, reached a user who had used no
+snapshot. A **live** capture got the same sentence, and it was wrong there too:
+only `--from-snapshot` was ever being told the truth, which is why that route
+keeps the identifier and the other two do not. Reproduced by answering `brew --prefix` with the other provider's
+prefix in a fixture: *"homebrew claims a prefix (/opt/local) that overlaps
+macports's. **Take a fresh one with `macportsbrew snapshot`, or point
+--from-snapshot at a readable file.**"* A file and a flag that run never touched.
+One finding after F-41, at an address nobody had looked at, because this entry
+named the site it had noticed rather than the site it could reach.
+
+**The fix is the third identifier this entry guessed at, for a better reason than
+it gave.** `ErrorId::InputUnusable`, exit 8 for the reason `RecordingUnusable`
+has it, and a remediation naming no route: the input is at fault rather than the
+command, so check whatever produced it — a live capture, a snapshot file, or a
+recording. It is used at the two planner sites and on the capture route.
+`load_snapshot` keeps `SnapshotUnusable`, because there the input really is that
+file.
+
+Nothing branches on the route, and that is not squeamishness: `CaptureContext`
+carries no runner, so the only route value reaching either layer is
+`Provenance.captured_by`, the display string. An identifier that presumes nothing
+needs no branch, which is why it is the right answer at both sites rather than
+merely the cheap one.
+
+`a_replayed_run_is_not_sent_after_a_snapshot_it_never_had` reproduces it and was
+checked to fail without the fix, with the old sentence in the failure output.
+
+The entry's stated reason was corrected above rather than repeated, and it was
+also over-fenced: it called the fix "a `docs/spec-evolution.md` entry and an
+error-contract change, not an edit", and neither holds. The specification does not enumerate error identifiers, and
 F-41 added `ErrorId::RecordingUnusable` on the same exit code seven days ago with
 no evolution entry and none owed. The third-identifier route is that same edit.
 
@@ -3037,6 +3095,65 @@ banner sits above the first section, says the machine changed on 2026-09-06, and
 says plainly that the note has **not** been re-checked. R-5 and R-5a were
 re-checked in place and show what that costs. The two pass reports that say the
 same thing are frozen records and keep their wording.
+
+## F-48 — A home-installed provider can be analysed and can never be planned
+
+**Severity: medium. Found 2026-09-16 by `security-reviewer`, checking a claim in
+F-43's fix that turned out to be false.**
+
+`crates/application/src/capture.rs` redacts `detection.prefix` through
+`redact_home` before `Snapshot::check` runs, so a provider installed under
+`$HOME` is captured as `~/homebrew`. The boundary passes that deliberately —
+`prefix_shape_error` says a `~`-rooted prefix is "allowed *here* and refused
+where it matters", because it is an absolute path with the home elided and the
+privacy machinery exists so such a machine can be read at all. `planner::command`
+is the "where it matters", and it refuses every program built from it.
+
+The result on that machine: `analyze` exits 0 and reports correctly, and every
+`plan` exits 8. The remediation was reworded in the same change that found this —
+it had said "the input is at fault rather than the command you ran", which is
+false here and is the reason this finding exists; it now names `macportsbrew
+doctor` and qualifies the rest. The wording is honest; the outcome is still a
+dead end. Reproduced on both routes — a `~`-rooted snapshot through
+`--from-snapshot`, and the same shape live, which follows from `capture.rs`
+redacting the in-memory snapshot every consumer uses.
+
+**Nothing is wrong except the outcome.** The provider is real, the snapshot is
+honest, the redaction is required by the privacy rule, and the refusal is right:
+`Command::new` resolves a string containing a slash against the working
+directory, so `~/homebrew/bin/brew` would follow the user wherever they ran the
+tool. What is wrong is that there is no way through. The tool tells the user
+"the input is at fault rather than the command you ran, so check whatever
+produced it", and what produced it was their own machine, correctly.
+
+The shape of a fix is a design question and is not taken here: the planner needs
+an absolute program, and the only thing that can supply one is the home the
+redaction removed. Either the plan carries the un-redacted prefix and the
+redaction becomes a display-time concern, or the refusal says what is true —
+that a home-installed provider cannot be planned by this build — and `doctor`
+says so before the user reaches a plan. The second is smaller and honest; the
+first is what the user actually wants.
+
+### The curated table reaches the same function with nothing else validating it
+
+`dest_name` arrives at `command()` either from the destination inventory — where
+`check_names` has already refused an unsafe name — or from
+`policy.curated_targets`, read out of `data/policy/curated-mappings.toml` and
+compiled in. `is_safe_provider_name` appears nowhere in `policy` or
+`application` except `planner.rs:603`, so that guard is the sole gate on curated
+names, and `Snapshot::check` structurally cannot reach them.
+
+Not exploitable: the data is in the repository and compiled into the binary, so
+a bad entry is a defect the build shipped rather than anything a user supplies.
+That is exactly the problem with the identifier. `ErrorId::InputUnusable` tells
+the user to check their capture, snapshot or recording; the right answer for
+curated data is `PolicyDataInvalid`, whose remediation names `doctor --report`
+and calls it a defect in the build. Better still is validating curated targets
+where the data is loaded, which fails closed at the layer that owns them and
+makes `planner.rs:603` the second line the F-43 entry wrongly claimed it already
+was.
+
+---
 
 ## F-47 — The duplicate-anchor gate stops working on a normal future edit
 
