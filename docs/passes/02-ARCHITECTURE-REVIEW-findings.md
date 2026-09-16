@@ -66,7 +66,8 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source), and the fix reintroduced the finding once.** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills; `--check` is a `validate.sh` stage. But `a7ec60a` also committed `.codex/hooks.json` wiring five hooks by absolute path — a username in a public repository, and every clone getting guards that silently do not run. Both preflight reviewers found it; the manifest now resolves from the git root and the check rejects an absolute path. The guard also protected the generated tree and not its generator, which is now `*/scripts/*.sh`. Five `test-hooks.sh` cases assert the widenings that had none. |
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
-| **F-46** — the register's own structure, and five statements the audit found stale | **Open, found 2026-09-11 by `docs-auditor`.** Twenty-nine items. The false statements are fixed; the structural ones are not. `# What is right about the foundation` is an H1 divider sitting between F-20 and F-26, so **twenty findings — most of this pass's work — fall after the conclusion**, outside every section. Two H2s collide on one anchor in the pass report and two `### DP-015` headings collide in `decisions-pending.md`. And the concluding section is maintained twice, in the register and the report, already drifted in both copies simultaneously. |
+| **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
+| **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -1332,82 +1333,21 @@ where it is: unrouted, and now at least not contradicting the charter.
 
 ---
 
-# What is right about the foundation
+# Found while fixing the first twenty
 
-The next pass needs to know what it must not break. Each of these was checked, not
-assumed.
+The review itself filed F-01 to F-20. Everything below was raised **during the
+work** — by the two reviewers reading a change, by a fix turning out to be
+wrong, by installing MacPorts and watching the tool fail against it. So were
+F-21 to F-25, which sit in the topical sections above because that is where
+their subject belongs; the number above twenty is the tell, not the position.
+That is why the
+count went from twenty to forty-six, and it is the more interesting half of
+the pass: a finding found at review is a finding the code advertised, and a
+finding found while fixing is one it did not.
 
-**The layering is real, not aspirational.** Exactly one `std::process::Command` site
-in the whole workspace (`process/system.rs:185`), with `.env_clear()`;
-`check-layering.sh` asserts the dependency edges from `cargo metadata` rather than
-from a diagram; zero elevation tokens in shipped source. No `HashMap`/`HashSet` in
-domain, policy or application, so determinism is structural.
-
-**The policy engine is genuinely pure.** No I/O, no clock, no environment anywhere in
-`crates/policy/src` — an impurity sweep returned only the domain type
-`CommandLineTools`, a false positive on the word. `today` is injected as a fact. That
-is what makes INV-14 and INV-15 hold.
-
-**INV-15 is proven, not claimed.** Two `--from-snapshot` runs byte-identical across
-184 KB; the fixture matrix re-proves it over six fixtures and 157 checks on every
-run. Designing capture and analysis as separate functions so `--from-snapshot` and
-`--replay` exercise the *same* code path is the best structural decision in the
-project.
-
-**Truncation is treated as corruption.** `Invocation::require_success`
-(`process/mod.rs:191-204`) turns a truncated read into `ProviderOutputChanged`, and
-the reasoning at `:182-190` — that a truncated line-oriented inventory parses
-*perfectly* into a silently short inventory — is the best piece of security reasoning
-in the codebase. That class of bug is closed.
-
-**Ownership is sourced from the providers' own records.** `installed_on_request` and
-the `requested` pseudo-portname, with authoritative evidence recorded per row; `leaves`
-is used only for orphan candidates and never substituted for intent. There is **no
-graph inference anywhere the provider has a record** — the cask case (F-20) is the
-no-record case only, and even it is flagged non-authoritative.
-
-**The state directory is the best-defended area.** `write_atomic` opens with
-`create_new` + `mode(0o600)` — `O_EXCL` at creation, not `chmod` afterwards — then
-`sync_all` and `rename`, which does not follow a final symlink. `state_dir.rs` refuses
-a symlink, refuses a non-directory, and checks ownership via `symlink_metadata` before
-touching permissions. `effective_uid` reads the uid without `libc`. The boundary that
-is *not* guaranteed is documented rather than glossed.
-
-**Elevation fails safe.** `planner.rs:382-389` maps anything not literally `"none"` or
-`"required"` to `Elevation::Unknown`, and `:334` counts `Unknown` as elevated. Unknown
-is treated as dangerous — the correct default, and the opposite of the usual mistake.
-(F-10 is the cost of that default being reached by omission, not an argument against
-it.)
-
-**"No telemetry" is verifiable.** No `reqwest`, `ureq`, `std::net`, `TcpStream`,
-`UdpSocket` or `curl` anywhere in `crates/*/src`. The one URL-building site
-(`macports/availability.rs:36-38`) gates on `is_safe_name` and returns a `String`
-nothing fetches.
-
-**Peer-provider balance holds, measured.** The two migration pages run 1065 and 944
-words, nine sections each, structurally parallel, each with exactly one section the
-other lacks. The peer position appears in the opening paragraph of `README.md` and
-`wiki/Home.md` and again under its own heading.
-`wiki/MacPorts-to-Homebrew-Migration.md:10-11` explicitly invites a bug report if the
-direction ever reads as an afterthought. The documentation keeps a promise the
-planner (F-02) does not.
-
-**The policy layer's symmetry testing is exemplary** — `invariant_17_symmetric_rules`
-renames providers to neutral `alpha`/`beta` ids and re-runs every rule individually.
-That is the right technique; it should be applied one layer up.
-
-**`explain` is the right product.** Facts, the rules that fired with reasons, and the
-rules that did not. For a tool whose value is judgement, exposing the judgement is
-correct, and it works today on a real machine.
-
-**Zero broken internal links across 105 markdown files**; 20 of 20 invariants carry a
-test named after them. The discipline is being kept, not merely described.
-
-**The dated-research design paid a return.** F-2 and R-9 were written by earlier
-passes for other purposes and survived being leaned on by decisions they were not
-written for. The `source` + `read_on` requirement on every `data/policy/*.toml` entry
-is what let this review re-verify the Intel timeline in one fetch and find the
-discrepancy in the prose rather than in the data.
+Until 2026-09-15 these twenty-one sat **after** the concluding section, inside
+no heading at all — most of the pass's work, filed below its own conclusion
+(F-46). The conclusion is now at the end, where a conclusion goes.
 
 ---
 
@@ -2092,7 +2032,7 @@ invalidates the existing fixtures, which is the real cost. Until then a replayed
 `doctor` should report `PATH` findings as **unknown** rather than as negatives —
 which is a small change and stops the tool asserting something it cannot know.
 
-### Fixed 2026-09-07 (`ae43fc2`)
+### F-34 fixed 2026-09-07 (`ae43fc2`)
 
 An empty `PATH` here means the *capture* could not record one, not that the
 user's `PATH` is empty — a `Recording` carries no environment at all. Both
@@ -2179,7 +2119,7 @@ every registry provider id resolves to a `provider-commands.toml` entry, which i
 the actual fix. The first is done in this change; the second is the executor
 pass's, because that is when a placeholder command stops being harmless.
 
-### Fixed 2026-09-07 (`ae43fc2`)
+### F-36 fixed 2026-09-07 (`ae43fc2`)
 
 `crates/cli/tests/registry_commands_parity.rs` asserts both directions: every
 `known_provider_ids()` entry has a row in the loaded commands table, and every
@@ -2819,7 +2759,7 @@ directive whose effect depends on adjacency, in a repository whose only
 shellcheck ran in a CI job that has never executed, is a check that cannot fail.
 Same shape as F-12, as the `cargo`-absent stop-gate hole, and as F-32.
 
-### Fixed 2026-09-08
+### F-43's second item fixed 2026-09-08
 
 The directive is now adjacent to each of the two assignments it covers, and the
 misplaced one is gone rather than left where it silences nothing. `shellcheck -x
@@ -2863,7 +2803,7 @@ the method is the finding: **a check whose only home is a surface that has never
 executed cannot have told anyone anything.** Every one of them was run by hand
 on 2026-09-08. All passed except `test-hooks.sh`, at 114/115 — see below.
 
-### Fixed 2026-09-08
+### F-44 fixed 2026-09-08
 
 Three moved into `validate.sh`: `licence text` and `support matrix` in
 `--quick`, `fixture matrix` after `cargo test` in the default mode, because it
@@ -2926,7 +2866,7 @@ drift happens between the moments anyone is looking.
 **Severity: low, and it is about this file. Found 2026-09-11 by `docs-auditor`,
 asked to treat the pass's deliverable as the thing most likely to be wrong.**
 
-Twenty-nine items. The ones that were **false statements are fixed** — a
+*As raised.* Twenty-nine items. The ones that were **false statements are fixed** — a
 document asserting something untrue is the failure mode `AGENTS.md` calls
 unrecoverable, and they are listed in the commit that fixed them. What is left
 is structural, and is recorded rather than repaired because each is a
@@ -2935,7 +2875,7 @@ re-organisation rather than a correction:
 **1. The conclusion sits in the middle.** `# What is right about the foundation`
 is an H1, the same level as `# Tier 1 violations`, `# Security and safety` and
 the other section dividers — and it falls between F-20 and F-26. So **F-26
-through F-46, twenty findings and most of this pass's work, are after the
+through F-46, twenty-one findings and most of this pass's work, are after the
 conclusion and inside no section at all.** Moving it is trivial; doing so
 rewrites the file's shape, and a register that has been caught misreporting four
 times should not also be reflowed in the same change as its corrections.
@@ -2969,14 +2909,258 @@ attempt" that is now possible. R-5 and R-5a have been re-checked in place, which
 is the convention; the rest each need a dated banner at minimum. The two pass
 reports that say it are frozen records and should stay as they are.
 
-**What was fixed rather than recorded**, for the next reader deciding whether to
-trust this file: the pass report claiming MacPorts was never observed in its
-"Risks and limitations" section while contradicting itself 170 lines later; the
-decisions list naming a resolved DP-018 among "five open" and carrying a live
-instruction against something already committed; F-20's body reading "open" under
-a row reading fixed; F-33's body reading "nothing is installed on this machine"
-thirty lines below the block recording what was installed; F-10's and the
-research checklist's present-tense "not installed"; the three-way disagreement
-about when MacPorts arrived, settled from file timestamps; `plan.v1.md` counting
-three obligations while listing five; and the gate's stage list maintained in
-four places, three of them wrong by five stages, now in one.
+**What was fixed rather than recorded** on 2026-09-08, before the structural
+work: the pass report claiming MacPorts was never observed in its "Risks and
+limitations" section while contradicting itself 170 lines later; the decisions
+list naming a resolved DP-018 among "five open" and carrying a live instruction
+against something already committed; F-20's body reading "open" under a row
+reading fixed; F-33's body reading "nothing is installed on this machine" thirty
+lines below the block recording what was installed; F-10's and the research
+checklist's present-tense "not installed"; the three-way disagreement about when
+MacPorts arrived, settled from file timestamps; `plan.v1.md` counting three
+obligations while listing five; and the gate's stage list maintained in four
+places, three of them wrong by five stages, now in one.
+
+### Fixed 2026-09-15 — all five structural items
+
+**1. The conclusion is at the end.** `# What is right about the foundation` moved
+there, and the twenty-one findings that had been filed below it are now
+`# Found while fixing the first twenty` — which is what they are. The review
+filed F-01 to F-20; everything after was raised *during the work*, by a reviewer
+reading a change, by a fix turning out to be wrong, or by installing MacPorts and
+watching the tool fail against it.
+
+**2. `check-links.sh` fails on a duplicate anchor**, and found three the moment
+it could — while disproving one of the two the audit had named. Two headings with one slug give an anchor that resolves to
+whichever the renderer reaches first — silently, and differently between
+renderers. The checker resolved anchors and never counted them.
+
+The first run also produced a **false positive of my own making**: it flagged
+`05-environment-and-primary-provider.md`, where the managed-block markers are
+shell comments inside a fenced example (`# >>> MacPortsBrew managed environment
+>>>`). The heading scan tested `startswith("#")` and nothing else. That is the
+second time in one day I read fenced code as headings — the first was a throwaway
+parser, this one was about to ship. It is fence-aware now, which also fixes the
+phantom anchors the existing map had been carrying harmlessly.
+
+The three real collisions: two `### Documented fields` in one tooling note (one
+about subagent frontmatter, one about skill frontmatter), and two pairs of
+identically-named resolution headings in this file. All now named by what they
+document or which finding they close.
+
+**The audit was wrong about `decisions-pending.md`**, and the checker said so.
+Its two `### DP-015` headings do not collide: one ends `— **RESOLVED 2026-09-06:
+option (a), with the floors raised**` and the other `, and the toolchain policy
+is why`, so they slug differently, and the detector run over the tree at `HEAD`
+returns four occurrences with neither among them. The heading is still renamed
+`### DP-015 as it was raised`, because two headings opening `DP-015 — The
+coverage floors ha[d|ve] never been measured` are worth telling apart by a human
+reading down the file — but that is a legibility fix and this section said it was
+an anchor fix, which it was not. An item filed against stale statements that
+corrects one of them with another wrong statement is the finding proving itself;
+`spec-guardian` caught it on review.
+
+**3. The duplicated measurements are measured, and one copy cites the other.**
+The migration pages are 1084 and 991 words, not 1065 and 944. The link figure
+took two tries: "105 markdown files" was stale, and the first correction — "80 of
+124 tracked files contain links" — was false twice over, because 80 is the number
+of files `check-links.sh` *scans* (`wiki/`, `docs/` and five root files) and the
+44-file gap is what it does not scan, not files without links. An item filed
+against stale numbers replaced one with a wrong one; `spec-guardian` caught it on
+review, which is the second time in this item that the check found the checker.
+Both figures had been wrong in **both** copies simultaneously, which is the
+argument against keeping two — the pass report now cites this section rather than
+repeating it.
+
+**4. The orientation documents know the second harness exists.** `AGENTS.md`'s
+directory table and `CONTRIBUTING.md` both say `.claude/` is the source, that
+`.codex/` and `.agents/skills/` are generated, and that the guard refuses a
+hand-edit of a generated file. Adding it pushed `AGENTS.md` to 200 lines and
+`check-memory-files.sh` refused the turn — correctly. The fix was to stop saying
+it twice: the table row carries the fact and the recipes section does not repeat
+it, which is this finding's own lesson applied to itself.
+
+**Two of item 4's three targets.** As raised it named `11-agentic-sdlc.md` as
+well, and that chapter still contains no occurrence of `codex`: its
+enforcement-layer table enumerates `.claude/hooks/`, `.claude/settings.json`,
+`scripts/validate.sh`, `scripts/check-*.sh` and `.github/workflows/`, and does
+not name `.codex/` or the generator that F-42's fix brought under the guard. It
+is deferred rather than forgotten: chapter 11 is Tier 3, so editing it is a
+specification change that lands with its own `docs/spec-evolution.md` entry
+merged into SE-078, which is not what a documentation-accuracy fix should carry.
+Saying "all five items" without saying this is the failure mode the item is
+about, so it is said here.
+
+**5. Six research notes carry a dated machine banner.** R-3, R-4, R-6, R-8, R-12
+and R-10 each stated, correctly for their answer date, that MacPorts could not be
+observed here — and each left it standing as a property of the project. The
+banner sits above the first section, says the machine changed on 2026-09-06, and
+says plainly that the note has **not** been re-checked. R-5 and R-5a were
+re-checked in place and show what that costs. The two pass reports that say the
+same thing are frozen records and keep their wording.
+
+## F-47 — The duplicate-anchor gate stops working on a normal future edit
+
+**Severity: medium. Found 2026-09-15 by `security-reviewer`, and independently by
+running the gate F-46 had just added against documents built to break it.**
+
+F-46 item 2 taught `check-links.sh` to fail on two headings that slug to one
+anchor. Proving a gate fails when it should is this repository's own rule, so it
+was run against fourteen constructed documents rather than only against a tree it
+passes. Eleven behaved. Three did not, and the two reviewers and the test agreed
+on why.
+
+`headings_of` tracks fenced code with a single boolean that either marker flips:
+
+```python
+if line.lstrip().startswith(("```", "~~~")):
+    fenced = not fenced
+```
+
+Five inputs desynchronise it — a backtick line inside a tilde block, a
+```` ```python ```` line inside a backtick block, a marker indented four columns
+(an indented code block, where a marker is content), a line opening with an
+inline span of three or more backticks, and a fence left unterminated at end of
+file.
+
+**The two consumers then fail in opposite directions, and one of them is silent.**
+A dropped heading makes a *link* fail loudly — `no such heading`, a false positive,
+safe. It makes the *duplicate check* fail quietly: two colliding headings inside a
+desynchronised region are never compared, and the collision this gate exists to
+catch ships anyway. The nested case is worse: it reintroduces the phantom anchors
+fence-awareness was added to remove, so a broken link to a `#` comment in a code
+sample resolves and passes.
+
+Not reachable in the tree as it stands — the correct tracker and the current one
+agree on all 80 scanned files. But the scanned corpus is `CONTRIBUTING.md` and
+`docs/`, which is markdown about markdown, so a nested fence is an ordinary future
+edit rather than an adversarial one. This is the shape the register keeps
+recording: a gate that stops reporting is indistinguishable from a gate with
+nothing to report.
+
+**The fix is written and not applied.** Track the opener as its character and
+length; close only on the same character, at least as long, with an empty info
+string; ignore an opener indented four or more columns; reject an opener whose
+info string contains the fence character; and **fail on an unterminated fence at
+end of file**, which turns every desynchronisation above from "silently stopped
+reading" into a visible failure — the rule the adapters already follow, where a
+parser meeting unrecognised output fails rather than mis-parses. It passes all
+fourteen cases and returns the same verdict on the real tree. It is not in this
+commit because `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is set
+by the human at session start, which is the disclosed-escape pattern
+`11-agentic-sdlc.md` describes. Routing around the guard with a shell redirect
+would be the specification violation `CLAUDE.md` names explicitly.
+
+### Two older holes found beside it
+
+**A link target that leaves the repository is checked against the host, not the
+repository.** `os.path.join` discards the base when the path is absolute, so a
+target of `/etc/passwd` satisfies `os.path.exists` and is reported valid —
+verified. A `../`-escaping target is resolved to a path *above* the repository
+root and tested there, which is why the illustrative one written into this
+paragraph was caught: it pointed at a directory that happens not to exist beside
+the checkout. Either verdict is a fact about the machine running the gate rather
+than about the repository, so CI and a laptop can disagree about the same
+document. (Writing those two examples as markdown links was the fourth time in
+this pass that prose about a checker tripped the checker; they are inline code
+now.) No content-derived path is ever opened — `resolved` reaches
+`os.path.exists` and a dict key and nothing else — so this is a detection gap,
+not a read primitive. Reject `os.path.isabs(path)`, and a `relpath` starting
+`..`.
+
+**A blockquoted heading is invisible.** `line.startswith("#")` misses `> # Title`,
+which GitHub does anchor; a link to it is falsely reported broken. Both the old
+and the new code miss it.
+
+**And the script's header does not describe what it now enforces.** Line 4 still
+reads "Every relative markdown link, and every anchor, resolves"; the duplicate
+check is documented only in an inline comment. By this repository's own rule —
+the stage list lives in `validate.sh`'s header and nowhere else, because copies
+drift — the header is where a reader learns what a gate does, and it is one
+behaviour out of date.
+
+---
+
+# What is right about the foundation
+
+The next pass needs to know what it must not break. Each of these was checked, not
+assumed.
+
+**The layering is real, not aspirational.** Exactly one `std::process::Command` site
+in the whole workspace (`process/system.rs:185`), with `.env_clear()`;
+`check-layering.sh` asserts the dependency edges from `cargo metadata` rather than
+from a diagram; zero elevation tokens in shipped source. No `HashMap`/`HashSet` in
+domain, policy or application, so determinism is structural.
+
+**The policy engine is genuinely pure.** No I/O, no clock, no environment anywhere in
+`crates/policy/src` — an impurity sweep returned only the domain type
+`CommandLineTools`, a false positive on the word. `today` is injected as a fact. That
+is what makes INV-14 and INV-15 hold.
+
+**INV-15 is proven, not claimed.** Two `--from-snapshot` runs byte-identical across
+184 KB; the fixture matrix re-proves it over six fixtures and 157 checks on every
+run. Designing capture and analysis as separate functions so `--from-snapshot` and
+`--replay` exercise the *same* code path is the best structural decision in the
+project.
+
+**Truncation is treated as corruption.** `Invocation::require_success`
+(`process/mod.rs:191-204`) turns a truncated read into `ProviderOutputChanged`, and
+the reasoning at `:182-190` — that a truncated line-oriented inventory parses
+*perfectly* into a silently short inventory — is the best piece of security reasoning
+in the codebase. That class of bug is closed.
+
+**Ownership is sourced from the providers' own records.** `installed_on_request` and
+the `requested` pseudo-portname, with authoritative evidence recorded per row; `leaves`
+is used only for orphan candidates and never substituted for intent. There is **no
+graph inference anywhere the provider has a record** — the cask case (F-20) is the
+no-record case only, and even it is flagged non-authoritative.
+
+**The state directory is the best-defended area.** `write_atomic` opens with
+`create_new` + `mode(0o600)` — `O_EXCL` at creation, not `chmod` afterwards — then
+`sync_all` and `rename`, which does not follow a final symlink. `state_dir.rs` refuses
+a symlink, refuses a non-directory, and checks ownership via `symlink_metadata` before
+touching permissions. `effective_uid` reads the uid without `libc`. The boundary that
+is *not* guaranteed is documented rather than glossed.
+
+**Elevation fails safe.** `planner.rs:382-389` maps anything not literally `"none"` or
+`"required"` to `Elevation::Unknown`, and `:334` counts `Unknown` as elevated. Unknown
+is treated as dangerous — the correct default, and the opposite of the usual mistake.
+(F-10 is the cost of that default being reached by omission, not an argument against
+it.)
+
+**"No telemetry" is verifiable.** No `reqwest`, `ureq`, `std::net`, `TcpStream`,
+`UdpSocket` or `curl` anywhere in `crates/*/src`. The one URL-building site
+(`macports/availability.rs:36-38`) gates on `is_safe_name` and returns a `String`
+nothing fetches.
+
+**Peer-provider balance holds, measured.** The two migration pages run 1084 and 991
+words, measured 2026-09-11 and re-measured 2026-09-15 (1065 and 944 when first
+written, and stale in two copies of this paragraph until 2026-09-15 — F-46), nine sections each, structurally parallel, each with exactly one section the
+other lacks. The peer position appears in the opening paragraph of `README.md` and
+`wiki/Home.md` and again under its own heading.
+`wiki/MacPorts-to-Homebrew-Migration.md:10-11` explicitly invites a bug report if the
+direction ever reads as an afterthought. The documentation keeps a promise the
+planner (F-02) does not.
+
+**The policy layer's symmetry testing is exemplary** — `invariant_17_symmetric_rules`
+renames providers to neutral `alpha`/`beta` ids and re-runs every rule individually.
+That is the right technique; it should be applied one layer up.
+
+**`explain` is the right product.** Facts, the rules that fired with reasons, and the
+rules that did not. For a tool whose value is judgement, exposing the judgement is
+correct, and it works today on a real machine.
+
+**Zero broken internal links** across the 80 files `check-links.sh` scans —
+`wiki/`, `docs/` and five root files, which is its scope and not a count of the
+124 tracked markdown files or of the files containing links; 20 of 20 invariants
+carry a test named after them. This sentence read "105 markdown files" until
+2026-09-15, here and in the pass report, and its first correction misread the
+scope — twice wrong in two maintained copies, which is what two maintained copies
+of one measurement do (F-46). The discipline is being kept, not merely
+described.
+
+**The dated-research design paid a return.** F-2 and R-9 were written by earlier
+passes for other purposes and survived being leaned on by decisions they were not
+written for. The `source` + `read_on` requirement on every `data/policy/*.toml` entry
+is what let this review re-verify the Intel timeline in one fetch and find the
+discrepancy in the prose rather than in the data.

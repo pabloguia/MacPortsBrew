@@ -12,6 +12,14 @@
   `03-planning-and-mapping.md`, the `doctor` surface, and the executable
   ownership classification in `05`.
 
+> **Machine note, added 2026-09-15.** This note states, correctly for its answer
+> date, that MacPorts could not be observed here. **It can be since 2026-09-06**,
+> when MacPorts 2.12.6 was installed at `/opt/local` (first ports 2026-09-07).
+> Nothing below has been re-checked against it; the citations stand as citations.
+> R-5 and R-5a were re-checked in place and show what that costs — R-5 gained
+> fourteen evidence blocks and produced SE-077. Where this note names a "future
+> attempt" that needed a MacPorts machine, that attempt is now available (F-46).
+
 ## Question
 
 `05-environment-and-primary-provider.md` states a **HYPOTHESIS** — a

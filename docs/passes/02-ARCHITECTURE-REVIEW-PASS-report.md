@@ -556,7 +556,7 @@ than by a machine: a read-only `port select --list` and a read-only
 <details>
 <summary>The original list, as the review filed it</summary>
 
-## Recommended next tasks, in priority order
+## The review's original list, superseded
 
 **Owner, before anything else.** DP-010 — the Tier 1 ruling. Every other planner
 task is cheaper once it is answered, and the fix for F-01 depends on it. DP-011 and
@@ -648,7 +648,10 @@ reached by omission, not an argument against the default.
 `crates/*/src`.
 
 **The peer position is kept in the documentation even where the code does not keep
-it.** The two migration pages are 1065 and 944 words, nine sections each,
+it.** The two migration pages are within ten percent of each other by length and
+structurally parallel — the measurement and its date are in the findings
+register's closing section, cited rather than repeated here, because maintaining
+it twice is what let both copies go stale together (F-46). Nine sections each,
 structurally parallel; the peer clause is in the opening paragraph of both `README.md`
 and `wiki/Home.md`; and `wiki/MacPorts-to-Homebrew-Migration.md:10-11` invites a bug
 report if the direction ever reads as an afterthought. That page is right and F-02 is
@@ -659,7 +662,9 @@ and the rules that did not. For a tool whose value is judgement, exposing the
 judgement is correct — and it is what made F-01 visible, because the false
 `provider: "macports"` label was printed rather than hidden.
 
-**Zero broken internal links across 105 markdown files**, and the tiering held under
+**Zero broken internal links** — the figure and what it counts are in the findings
+register's closing section, cited rather than repeated here, because this is the
+copy that went stale and was then corrected wrongly (F-46) — and the tiering held under
 pressure in the previous session: three Tier 1 edits, all three stopped at the human.
 This review adds a fourth test of the same mechanism (DP-010) and the mechanism is
 why F-01 is a question rather than a commit.

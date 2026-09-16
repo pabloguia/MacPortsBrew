@@ -71,9 +71,16 @@ check anywhere else.
 
 | Invocation | What it runs |
 |---|---|
-| `scripts/validate.sh --quick` | every static check; the list lives in that script's header and is not repeated here, because this copy drifted by five stages once already, GitHub Action SHA pins |
+| `scripts/validate.sh --quick` | every static check; the list lives in that script's header and is not repeated here, because this copy drifted by five stages once already |
 | `scripts/validate.sh` | the above plus `cargo test --workspace` |
 | `scripts/validate.sh --full` | the above plus the release build for both architectures with the deployment-target assertion (macOS only; needs `otool`) |
+
+**A second harness is generated from the first.** `.codex/` and
+`.agents/skills/` are produced from `.claude/` by
+`scripts/generate-codex-layer.sh` (DP-018). Edit `.claude/`; a `validate.sh`
+stage fails when the copies drift, and the path guard refuses a hand-edit of a
+generated file. That is why an edit under `.agents/skills/` is blocked and the
+message names the source.
 
 ## Architecture in one screen
 

@@ -259,7 +259,7 @@ the floors.
 <details>
 <summary>The original entry, as filed</summary>
 
-### DP-015 — The coverage floors have never been measured, and the toolchain policy is why
+### DP-015 as it was raised — The coverage floors have never been measured, and the toolchain policy is why
 - **The question:** `07-quality-and-testing.md` sets coverage floors — 95% for
   `domain`, `policy` and planning, 80% for `adapters` plus a contract test per
   parsed command, `cli` reported. None has ever been measured. `cargo-llvm-cov`

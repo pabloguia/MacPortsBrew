@@ -40,12 +40,52 @@ files = sorted(
 )
 files = [f for f in files if os.path.exists(f)]
 
-headings = {
-    os.path.normpath(f): {slug(l.lstrip("#")) for l in open(f) if l.startswith("#")}
-    for f in files
-}
+def headings_of(path):
+    """Heading slugs, in order, skipping fenced code.
 
-broken = []
+    Fence-awareness is not decoration. `05-environment-and-primary-provider.md`
+    documents a managed block whose markers are shell comments -
+    `# >>> MacPortsBrew managed environment >>>` and its closing twin - and a
+    scan that only tests `startswith("#")` reads those as two headings with one
+    slug. The duplicate check below called that a collision on its first run.
+    The extra anchors were harmless while this map was only ever asked "does
+    this fragment exist"; they stop being harmless the moment anything counts.
+    """
+    out, fenced = [], False
+    for line in open(path):
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if fenced or not line.startswith("#"):
+            continue
+        text = line.lstrip("#")
+        # A heading has a space after its hashes; `#!/usr/bin/env` and `#include`
+        # do not.
+        if text.strip() and text[:1] in (" ", "\t"):
+            out.append(slug(text))
+    return out
+
+
+# Collected as a list first, because two headings that slug the same are the
+# defect below and a set would hide it.
+heading_list = {os.path.normpath(f): headings_of(f) for f in files}
+headings = {f: set(hs) for f, hs in heading_list.items()}
+
+# Two headings with the same slug give one anchor, and a link to it resolves to
+# whichever the renderer reaches first - silently, and differently between
+# renderers. This checker resolved anchors and never counted them, so a report
+# carried `## Recommended next tasks` twice (live and archived) and
+# `decisions-pending.md` carried `### DP-015` twice, each for months. A link to
+# the archive got the live list instead, or the reverse (F-46).
+duplicates = []
+for f, hs in sorted(heading_list.items()):
+    seen = set()
+    for h in hs:
+        if h in seen:
+            duplicates.append("%s: two headings share the anchor #%s" % (f, h))
+        seen.add(h)
+
+broken = list(duplicates)
 for f in files:
     base = os.path.dirname(f)
     body = open(f).read()

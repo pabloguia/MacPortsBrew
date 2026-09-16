@@ -27,7 +27,7 @@ does not exist in the repository.
 
 ## 1. Subagent frontmatter (S1, read 2026-09-02)
 
-### Documented fields
+### Documented fields — subagent frontmatter
 
 | Field | Required | Documented meaning |
 |---|---|---|
@@ -175,7 +175,7 @@ Observations on the repository's combination:
 
 ## 3. Skill frontmatter (S2, read 2026-09-02)
 
-### Documented fields
+### Documented fields — skill frontmatter
 
 "All fields are optional. Only `description` is recommended." Frontmatter is
 read only when the opening `---` is the file's first line. Booleans accept

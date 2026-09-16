@@ -2707,7 +2707,15 @@ finding ids in each entry.
   with the others carrying the qualifier and a link, which is what the anchor was
   for. Three of those links then pointed at a bold paragraph rather than a
   heading — found by inspection, and the reason `scripts/check-links.sh` now
-  exists. `08-distribution-and-project.md:183-184` had required link-checking all
+  exists. It gained a second failure class on 2026-09-15 (F-46): two headings
+  that slug to one anchor now fail the build, because a link to a duplicated
+  anchor resolves to whichever the renderer reaches first — silently, and
+  differently between renderers — and the checker had been resolving anchors
+  without ever counting them. Recognising a heading changed with it: a `#` inside
+  a fenced block is no longer an anchor, and neither is one without a space after
+  the hashes, so the map is strictly smaller and no link that failed before can
+  pass now. The fence tracker is a single boolean and can still desynchronise; the
+  residual is recorded in F-47 rather than left to be discovered. `08-distribution-and-project.md:183-184` had required link-checking all
   along and nothing did it. The charter question the audit said should have been
   filed rather than only noted is DP-013. No stale link to the renamed page remains in `wiki/`,
   `docs/`, `README.md`, `locales/` or `crates/`; neither the CLI help nor the
