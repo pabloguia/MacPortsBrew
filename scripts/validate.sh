@@ -6,11 +6,11 @@
 # CI (authoritative), a contributor before pushing, and the agent's Stop
 # gate. Do not add a check anywhere else.
 #
-#   scripts/validate.sh --quick   fourteen stages: cargo fmt, cargo clippy,
+#   scripts/validate.sh --quick   fifteen stages: cargo fmt, cargo clippy,
 #                                 layering, no-shell, links, SPDX, dependency
 #                                 licences, i18n parity, action pins, memory
 #                                 files, licence text, support matrix, codex
-#                                 layer, shellcheck
+#                                 layer, shellcheck, gate tests
 #
 #                                 This list drifted from the code, and so did the
 #                                 copies in CLAUDE.md and CONTRIBUTING.md - four
@@ -56,6 +56,18 @@ step "codex layer";  run scripts/generate-codex-layer.sh --check
 # step exiting 1, unseen, because CI has never run (F-44, F-12). Same
 # invocation as the workflow, so the two cannot disagree.
 step "shellcheck";   run shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
+
+# The gates' own constructed-input tests. Two of the parsers here were shipped,
+# passed against the tree, and found broken afterwards by someone building an
+# input they should have rejected (F-47, DP-016). Static in cost - no cargo, no
+# binary - so it belongs in --quick, where a gate that stops being able to say
+# no is caught on the turn that breaks it rather than in a later review.
+#
+# Maps to 07-quality-and-testing.md, "Validation is mechanical, not remembered".
+# 11-agentic-sdlc.md makes it a MUST that every check in the Stop gate names a
+# line it enforces, and a gate nothing exercises is remembered validation
+# wearing a mechanical gate's name.
+step "gate tests";   run scripts/test-gates.sh
 
 if [ "$mode" != "--quick" ]; then
   step "cargo test"; run cargo test --locked --all-features --workspace
