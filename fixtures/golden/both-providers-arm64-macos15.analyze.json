@@ -7321,6 +7321,7 @@
         "architecture": "arm64",
         "executable": "/opt/homebrew/bin/brew",
         "prefix": "/opt/homebrew",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },
@@ -7378,6 +7379,7 @@
         "architecture": null,
         "executable": "/opt/local/bin/port",
         "prefix": "/opt/local",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },

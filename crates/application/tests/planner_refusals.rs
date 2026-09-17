@@ -75,6 +75,7 @@ fn holding(id: &str, prefix: &str, names: &[(&str, Option<&str>)]) -> ProviderSn
             prefix: Some(PathBuf::from(prefix)),
             executable: None,
             architecture: Some(Architecture::Arm64),
+            prefix_redacted: false,
         },
         capabilities: ProviderCapabilities::default(),
         inventory,

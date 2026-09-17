@@ -115,6 +115,7 @@ fn provider(
             prefix: present.then(|| PathBuf::from(prefix)),
             executable: None,
             architecture: present.then_some(Architecture::Arm64),
+            prefix_redacted: false,
         },
         capabilities: ProviderCapabilities::default(),
         inventory,

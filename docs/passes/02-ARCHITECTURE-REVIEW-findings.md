@@ -69,7 +69,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
 | **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. |
-| **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Open, found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. |
+| **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Open, found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -3157,13 +3157,35 @@ what made F-48's first version wrong. Capture knows whether it redacted:
 boolean on `ProviderDetection` — covers both shapes, removes the guessing, and is
 the same fact the open half of F-48 needs anyway.
 
-**The owner ruled on 2026-09-16: add the field.** It is a compatible addition and
-there is no release, so the alternative was to guess forever or to change the
-schema once recordings exist in the world. It lands with its
-`docs/spec-evolution.md` entry. It also unblocks DP-016's long-term answer (d):
-once a recording carries what capture knew, `Unknown` means "this recording
-predates the field" rather than "nothing here is classifiable", and the refusal
-(c) installs can narrow to exactly those.
+### Fixed 2026-09-16
+
+**The owner ruled: add the field.** `ProviderDetection.prefix_redacted`,
+`#[serde(default)]`, set by `capture` from whether `redact_option_path` changed
+the value — the whole question, asked where the answer is known. `doctor` now
+fires on that **or** the shape test.
+
+Both halves checked. The consumer half end to end: two documents identical but
+for the field, the same `/opt/USER/homebrew` prefix, and only the one carrying it
+is reported. The producer half by the six adapter sites that build a
+`ProviderDetection` and now all say `false` — detection never redacts, capture
+does, and that asymmetry is in the type now rather than in a convention.
+
+**`SNAPSHOT_SCHEMA_VERSION` stays 1, and that was checked rather than assumed.**
+No snapshot type carries `deny_unknown_fields`, so a new build reading an old
+document defaults to `false` and an old build reading a new one ignores the field
+and falls back to the shape test — the behaviour it already had. A version that
+moves for a compatible addition teaches readers to ignore it. SE-080.
+
+**The limit is asserted, not left to be found.** `false` means "not known to have
+been redacted", never "not redacted", so a `USER`-shaped prefix in a document
+written before the field is still missed. The test carries that case. It is an
+absence in the file; guessing at it is what made `doctor`'s first version wrong,
+and what fixes it is time rather than cleverness.
+
+It also unblocks DP-016's long-term answer (d): once a recording carries what
+capture knew, `Unknown` means "this recording predates the field" rather than
+"nothing here is classifiable", and the refusal (c) installs can narrow to
+exactly those.
 
 ---
 

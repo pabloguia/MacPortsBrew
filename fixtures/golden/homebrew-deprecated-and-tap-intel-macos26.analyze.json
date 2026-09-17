@@ -6101,6 +6101,7 @@
         "architecture": "x86_64",
         "executable": "/usr/local/bin/brew",
         "prefix": "/usr/local",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },
@@ -6158,6 +6159,7 @@
         "architecture": null,
         "executable": null,
         "prefix": null,
+        "prefixRedacted": false,
         "presence": {
           "state": "ABSENT"
         },

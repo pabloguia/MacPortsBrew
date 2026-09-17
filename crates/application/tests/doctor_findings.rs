@@ -26,6 +26,13 @@ use std::path::PathBuf;
 const HB: &str = "homebrew";
 const MP: &str = "macports";
 
+/// The same, but recorded by a capture that redacted the prefix (F-49).
+fn provider_redacted(id: &str, prefix: &str, arch: Architecture) -> ProviderSnapshot {
+    let mut p = provider(id, prefix, arch);
+    p.detection.prefix_redacted = true;
+    p
+}
+
 /// A present provider at `prefix`, reporting `arch`.
 fn provider(id: &str, prefix: &str, arch: Architecture) -> ProviderSnapshot {
     ProviderSnapshot {
@@ -36,6 +43,7 @@ fn provider(id: &str, prefix: &str, arch: Architecture) -> ProviderSnapshot {
             prefix: Some(PathBuf::from(prefix)),
             executable: None,
             architecture: Some(arch),
+            prefix_redacted: false,
         },
         capabilities: ProviderCapabilities::default(),
         inventory: ProviderInventory::default(),
@@ -363,6 +371,60 @@ fn a_prefix_that_is_not_absolute_is_a_warning_because_no_step_can_run_it() {
     );
     assert!(
         findings(&ordinary, TODAY, "provider_prefix_is_not_absolute").is_empty(),
-        "an absolute prefix is not a home-redacted one"
+        "an absolute prefix that nothing redacted is not reported"
+    );
+}
+
+/// F-49: the shape that fails open, now caught by what capture recorded.
+///
+/// Redaction replaces the bare login name wherever it is a whole path component,
+/// so `/opt/ada/homebrew` is written `/opt/USER/homebrew`. That is absolute, so
+/// `planner::command` accepts it and emits a plan naming a program that exists on
+/// no machine — where the `~` shape is refused and the user at least gets an
+/// error. Nothing in the string betrays it, which is why the answer is a fact
+/// capture records rather than a cleverer predicate.
+///
+/// The last case is the honest limit and is asserted rather than hidden: a
+/// snapshot written before the field carries `false`, so a `USER`-shaped prefix
+/// in one of those is still missed. That is an absence in the file, and guessing
+/// at it is what made the first version of this check wrong.
+#[test]
+fn what_capture_recorded_catches_the_redaction_shape_the_string_hides() {
+    let case = |p: ProviderSnapshot| {
+        let snap = snapshot(
+            Architecture::Arm64,
+            installed(),
+            &["/usr/bin"],
+            vec![
+                ("homebrew", p),
+                (
+                    "macports",
+                    provider("macports", "/opt/local", Architecture::Arm64),
+                ),
+            ],
+        );
+        !findings(&snap, TODAY, "provider_prefix_is_not_absolute").is_empty()
+    };
+
+    assert!(
+        case(provider_redacted(
+            "homebrew",
+            "/opt/USER/homebrew",
+            Architecture::Arm64
+        )),
+        "absolute, but capture says it redacted: this is the shape that fails open"
+    );
+    assert!(
+        case(provider("homebrew", "~/homebrew", Architecture::Arm64)),
+        "a document written before the field still reports the `~` shape"
+    );
+    assert!(
+        !case(provider(
+            "homebrew",
+            "/opt/USER/homebrew",
+            Architecture::Arm64
+        )),
+        "and the limit: without the field, a USER-shaped prefix is indistinguishable \
+         from a directory somebody named USER"
     );
 }

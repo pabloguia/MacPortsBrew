@@ -338,6 +338,9 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 prefix: None,
                 executable: None,
                 architecture: None,
+                // Detection never redacts - `capture` does, and is the only
+                // thing that may say so (F-49, SE-080).
+                prefix_redacted: false,
             },
             status if status.success() => ProviderDetection {
                 provider: self.id.clone(),
@@ -350,6 +353,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 // base installation, and `-v` is not in this adapter's read
                 // set. Left undetermined rather than guessed.
                 architecture: None,
+                prefix_redacted: false,
             },
             _ => ProviderDetection {
                 provider: self.id.clone(),
@@ -360,6 +364,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 prefix: Some(self.prefix.clone()),
                 executable: Some(self.executable()),
                 architecture: None,
+                prefix_redacted: false,
             },
         };
         *self.detection.borrow_mut() = Some(detection.clone());

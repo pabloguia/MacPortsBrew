@@ -73,6 +73,7 @@ fn holding(id: &str, prefix: &str, name: &str, kind: PackageKind) -> ProviderSna
             prefix: Some(PathBuf::from(prefix)),
             executable: None,
             architecture: Some(Architecture::Arm64),
+            prefix_redacted: false,
         },
         capabilities: ProviderCapabilities::default(),
         inventory,

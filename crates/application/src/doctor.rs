@@ -115,12 +115,21 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                     // about a prefix the planner still refuses, returning the
                     // user to the surprise this removes.
                     //
-                    // It does not cover the other shape redaction produces: a
-                    // login name replaced as a whole path component leaves
-                    // `/opt/USER/brew`, which *is* absolute, so the planner
-                    // accepts it and emits a plan naming a program that does not
-                    // exist. That fails open where this fails closed, and is
-                    // F-49 rather than a silent widening of this predicate.
+                    // Two questions, not one, and the union of them is the
+                    // answer (F-49). `prefix_redacted` is what capture recorded
+                    // about itself, and it covers the other shape redaction
+                    // produces: a login name replaced as a whole path component
+                    // leaves `/opt/USER/brew`, which *is* absolute, so nothing
+                    // in the string betrays it. The shape test stays because the
+                    // field is `#[serde(default)]` - every snapshot and recording
+                    // written before it reads `false`, meaning "not known to have
+                    // been redacted", and for those the `~` shape is still all
+                    // there is to go on.
+                    //
+                    // A `USER`-shaped prefix in one of those older documents is
+                    // therefore still missed. That is not a gap in the predicate
+                    // but an absence in the file, and guessing harder is what
+                    // made the first version of this check wrong.
                     //
                     // A structural fact about the machine, which is what
                     // `doctor` reports: not "move your install", which would be
@@ -128,7 +137,7 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                     // `Warning` rather than `Error`: no answer is wrong here,
                     // one operation is unavailable, and an `Error` would make
                     // `doctor` exit 5 on a machine that answers correctly.
-                    if !std::path::Path::new(&text).is_absolute() {
+                    if p.detection.prefix_redacted || !std::path::Path::new(&text).is_absolute() {
                         add(
                             "provider_prefix_is_not_absolute",
                             Severity::Warning,

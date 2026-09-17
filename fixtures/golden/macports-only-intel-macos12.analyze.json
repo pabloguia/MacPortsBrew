@@ -654,6 +654,7 @@
         "architecture": null,
         "executable": null,
         "prefix": null,
+        "prefixRedacted": false,
         "presence": {
           "state": "ABSENT"
         },
@@ -712,6 +713,7 @@
         "architecture": null,
         "executable": "/opt/local/bin/port",
         "prefix": "/opt/local",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },

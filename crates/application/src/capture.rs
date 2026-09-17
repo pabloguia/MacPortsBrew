@@ -178,7 +178,11 @@ fn redact_provider(snap: &mut ProviderSnapshot, home: &HomeRedaction) {
     for value in snap.invocation_environment.values_mut() {
         *value = redact_home(value, home);
     }
-    redact_option_path(&mut snap.detection.prefix, home);
+    // Recorded here because here is where it happens. A consumer that re-derives
+    // this from the string catches `~` and misses `/opt/USER/brew`, which is the
+    // shape that fails open (F-49). `redact_option_path` answers whether it
+    // changed the value, which is the whole question.
+    snap.detection.prefix_redacted = redact_option_path(&mut snap.detection.prefix, home);
     redact_option_path(&mut snap.detection.executable, home);
     for package in &mut snap.inventory.installed {
         redact_option_path(&mut package.install_path, home);
@@ -189,10 +193,17 @@ fn redact_provider(snap: &mut ProviderSnapshot, home: &HomeRedaction) {
     }
 }
 
-fn redact_option_path(path: &mut Option<PathBuf>, home: &HomeRedaction) {
-    if let Some(value) = path {
-        *value = PathBuf::from(redact_home(&value.to_string_lossy(), home));
-    }
+/// Redacts in place, and answers whether that changed anything.
+///
+/// `false` for an absent path as well as for one redaction left alone: the
+/// question this answers is "is what is recorded different from what was
+/// observed", and for `None` there is nothing recorded either way.
+fn redact_option_path(path: &mut Option<PathBuf>, home: &HomeRedaction) -> bool {
+    let Some(value) = path else { return false };
+    let redacted = PathBuf::from(redact_home(&value.to_string_lossy(), home));
+    let changed = redacted != *value;
+    *value = redacted;
+    changed
 }
 
 fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot {
@@ -206,6 +217,8 @@ fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot 
             prefix: None,
             executable: None,
             architecture: None,
+            prefix_redacted: false,
+            // A broken provider has no prefix, so there was nothing to redact.
         },
         capabilities: macportsbrew_domain::ProviderCapabilities::default(),
         inventory: macportsbrew_domain::ProviderInventory::default(),
@@ -240,6 +253,7 @@ mod tests {
                 prefix: None,
                 executable: None,
                 architecture: None,
+                prefix_redacted: false,
             },
             capabilities: ProviderCapabilities {
                 capabilities: [(

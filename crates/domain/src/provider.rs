@@ -78,6 +78,22 @@ pub struct ProviderDetection {
     pub executable: Option<PathBuf>,
     /// The architecture the installation is built for, when detectable.
     pub architecture: Option<crate::machine::Architecture>,
+    /// Whether capture changed `prefix` to remove the user's home.
+    ///
+    /// Recorded rather than re-derived. Redaction produces two shapes - `~` for
+    /// the home itself, and the bare login name replaced wherever it is a whole
+    /// path component, so `/opt/ada/brew` becomes `/opt/USER/brew` - and only
+    /// the first is visible in the result. A consumer that guesses from the
+    /// string catches the shape that fails closed and misses the one that fails
+    /// open, which is what F-49 records and what this field removes the need to
+    /// guess at.
+    ///
+    /// `#[serde(default)]`, so every snapshot and recording written before this
+    /// field parses as `false` - meaning "not known to have been redacted", not
+    /// "not redacted". A consumer must treat it as one half of the question and
+    /// keep the shape test for the other, which is what `doctor` does.
+    #[serde(default)]
+    pub prefix_redacted: bool,
 }
 
 /// One capability a provider's installed version may or may not offer.

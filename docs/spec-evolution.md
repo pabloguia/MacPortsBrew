@@ -3638,6 +3638,41 @@ finding ids in each entry.
 
 # Raised by the 2026-09-05 security and specification review
 
+## SE-080 — Capture records that it redacted, instead of consumers guessing from the string
+
+- Status: accepted
+- Date / Pass: 2026-09-16 / 02-ARCHITECTURE-REVIEW
+- Original assumption: a redacted path was assumed to be recognisable from its
+  shape. It is not. `redact_known_home` produces **two** shapes — `~` for the
+  home, and the bare login name replaced wherever it is a whole path component,
+  so `/opt/ada/brew` is written `/opt/USER/brew` — and only the first is visible
+  in the result.
+- Change: `ProviderDetection` gains `prefix_redacted: bool`, `#[serde(default)]`,
+  set by `capture` from whether `redact_option_path` changed the value. `doctor`
+  keys its finding on that **or** the shape test, not on either alone.
+- Reason: the owner's ruling, 2026-09-16, on F-49. The `~` shape fails closed —
+  the planner refuses and the user gets an error — while the `USER` shape is
+  absolute, is accepted, and puts a path that exists on no machine into a plan a
+  human reads and copies commands from. A consumer cannot tell them apart, and
+  the first version of `doctor`'s check tried to and was wrong.
+- Evidence: reproduced both ways against the built binary. With the field set and
+  an otherwise identical document, the finding fires; without it, the same prefix
+  passes unreported.
+- Compatibility, checked rather than assumed: no snapshot type carries
+  `deny_unknown_fields`, so a new build reading an old document defaults to
+  `false` and an old build reading a new one ignores the field and falls back to
+  the shape test — the behaviour it already had. **`SNAPSHOT_SCHEMA_VERSION`
+  stays 1**; a version that moves for a compatible addition trains readers to
+  ignore it.
+- Stated limit: `false` means "not known to have been redacted", never "not
+  redacted". A `USER`-shaped prefix in a document written before this field is
+  still missed, which is an absence in the file rather than a gap in the check.
+  The test asserts that case rather than leaving it to be discovered.
+- Consequence for DP-016: the same shape of answer. Once a recording carries what
+  capture knew, an `Unknown` service status means "this recording predates the
+  field" rather than "nothing here is classifiable", which is what lets (c)'s
+  refusal narrow to exactly those recordings.
+
 ## SE-079 — Releases are immutable, and a withdrawal burns the version number
 
 - Status: accepted

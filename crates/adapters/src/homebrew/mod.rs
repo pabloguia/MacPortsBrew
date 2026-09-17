@@ -1000,7 +1000,10 @@ impl HomebrewAdapter<'_> {
                     prefix: Some(self.prefix.clone()),
                     executable: Some(self.executable()),
                     architecture: None,
-                })
+                    // Detection never redacts - `capture` does, and is the only
+                    // thing that may say so (F-49, SE-080).
+                    prefix_redacted: false,
+                });
             }
             _ => {}
         }
@@ -1011,6 +1014,7 @@ impl HomebrewAdapter<'_> {
             prefix: Some(self.one_path(ARGV_PREFIX, "--prefix")?),
             executable: Some(self.executable()),
             architecture: architecture_from_config(&self.config()?)?,
+            prefix_redacted: false,
         })
     }
 
@@ -1022,6 +1026,7 @@ impl HomebrewAdapter<'_> {
             prefix: None,
             executable: None,
             architecture: None,
+            prefix_redacted: false,
         }
     }
 

@@ -80,6 +80,7 @@ fn snapshot_with(requested: Option<bool>) -> Snapshot {
                     prefix: Some(PathBuf::from("/usr/local")),
                     executable: None,
                     architecture: Some(Architecture::X86_64),
+                    prefix_redacted: false,
                 },
                 capabilities: ProviderCapabilities::default(),
                 inventory,
