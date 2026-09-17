@@ -3155,9 +3155,15 @@ reason to fix it after.
 what made F-48's first version wrong. Capture knows whether it redacted:
 `redact_option_path` either changed the value or did not. Recording that — a
 boolean on `ProviderDetection` — covers both shapes, removes the guessing, and is
-the same fact the open half of F-48 needs anyway. It is a snapshot schema
-addition, so it lands with its `docs/spec-evolution.md` entry and a schema
-version decision, which is why it is filed rather than done here.
+the same fact the open half of F-48 needs anyway.
+
+**The owner ruled on 2026-09-16: add the field.** It is a compatible addition and
+there is no release, so the alternative was to guess forever or to change the
+schema once recordings exist in the world. It lands with its
+`docs/spec-evolution.md` entry. It also unblocks DP-016's long-term answer (d):
+once a recording carries what capture knew, `Unknown` means "this recording
+predates the field" rather than "nothing here is classifiable", and the refusal
+(c) installs can narrow to exactly those.
 
 ---
 

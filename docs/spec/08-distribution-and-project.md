@@ -102,6 +102,17 @@ SLSA predicate with no field for it, and saying otherwise would describe a
 mechanism that does not exist. `SECURITY.md`, "If a release must be withdrawn",
 is the plan that depends on this (DP-009).
 
+**MUST.** Releases are **immutable**. GitHub's immutable releases lock the tag to
+its commit, refuse modification or deletion of the attached assets, and generate
+a release attestation automatically (R-14). The cost is accepted deliberately:
+once published, a release cannot be replaced and its tag name can never be
+reused, so a withdrawal permanently burns that version number and the successor
+is a new version rather than a corrected one. For a tool that rewrites somebody's
+package manager, being able to prove that `v1.2.3` is always the same bytes is
+worth more than being able to substitute them; a burnt version number is cheap.
+`SECURITY.md`'s withdrawal runbook is written against this constraint rather than
+around it.
+
 **MUST.** Publish a build provenance attestation for every release artifact, and
 one `SHA256SUMS` covering all of them, itself attested, **and a verification
 snippet users can run** — naming the repository predicate, since a command

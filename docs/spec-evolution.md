@@ -3638,6 +3638,33 @@ finding ids in each entry.
 
 # Raised by the 2026-09-05 security and specification review
 
+## SE-079 — Releases are immutable, and a withdrawal burns the version number
+
+- Status: accepted
+- Date / Pass: 2026-09-16 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `08-distribution-and-project.md` specified attestation,
+  `SHA256SUMS` and a signing-identity record, and said nothing about whether a
+  published release can be replaced. `SECURITY.md`'s withdrawal runbook was
+  written against an ordinary release, whose documentation "gives the procedure
+  and says nothing about what survives it" (R-14).
+- Change: a MUST that releases are immutable. GitHub's immutable releases lock
+  the tag to its commit, refuse modification or deletion of attached assets, and
+  generate a release attestation automatically.
+- Reason: the owner's ruling, 2026-09-16, on the trade R-14 established — supply
+  chain integrity against withdrawal manoeuvrability. For a tool that rewrites
+  somebody's package manager, proving that `v1.2.3` is always the same bytes is
+  worth more than being able to substitute them.
+- Evidence: R-14, which quotes the two constraints verbatim with their source and
+  read date — a tag "cannot be changed, and cannot be deleted while the release
+  exists", and if the release is deleted "you cannot reuse the same tag name";
+  assets are "protected from modification or deletion".
+- User impact: a withdrawn release is permanently a hole in the version sequence,
+  and the fix ships as a new version rather than as a corrected one. Accepted
+  deliberately: a burnt version number is cheap, and the property it buys is the
+  one a user cannot check for themselves.
+- Consequence for `SECURITY.md`: its withdrawal runbook is now written against
+  this constraint rather than around it, which is the half DP-009 still owns.
+
 ## SE-078 — A second agent harness, generated from the first
 
 - Status: accepted
