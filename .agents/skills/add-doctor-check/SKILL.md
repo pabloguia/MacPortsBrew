@@ -31,8 +31,12 @@ are the same steps. If you change one, change the other.
    It must never emit usernames, home paths, environment variable values or
    tokens. A parameter that can carry a path is redacted the same way the rest
    of the report is — the home directory becomes `~`.
-5. **Add a test in the same file** covering the finding present and the finding
-   absent.
+5. **Add a test in `crates/application/tests/doctor_findings.rs`** covering the
+   finding present and the finding absent. Not "in the same file", which this
+   step used to say: `doctor.rs` has no `#[cfg(test)]` module and never had one,
+   and every doctor finding is tested there instead. A step that names a place
+   that does not exist is one the next contributor has to work around and then
+   guess at, which is how the two halves of a paired procedure start to drift.
 6. **Verify:** `scripts/check-i18n-parity.sh`, then
    `macportsbrew --replay fixtures/recordings/<fixture>.json doctor` and the
    same with `--json`, on a fixture that exercises the check.

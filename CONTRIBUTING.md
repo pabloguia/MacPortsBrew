@@ -164,6 +164,27 @@ and follow the reasoning.
    `https://formulae.brew.sh/api/formula/<name>.json`. A row whose destination
    name was not read from the destination provider is not admissible — that is
    the standing admission rule for the file.
+
+   **Two further admission rules, both mechanical, and both applying to the
+   source name as much as to the destination** — `index_equivalences` builds the
+   reverse index from the same rows, so every source name is a destination name
+   read from the other side.
+
+   - **The name must be one `is_safe_provider_name` accepts**: no leading dash,
+     no path separator, nothing a provider would read as a flag or a path.
+     `check_curated_names` refuses the whole file at load with
+     `PolicyDataInvalid`, so a row that breaks this is a *build* defect failing
+     every command, not a surprise inside one plan. It is refused there rather
+     than in the planner because the planner's identical guard answered
+     `InputUnusable`, which sends the user to re-capture a snapshot over a
+     defect compiled into the binary (F-48).
+   - **The name must not be a word the provider reads as a set of ports** rather
+     than as one package — the `reserved_names` in
+     `crates/application/src/provider_commands.rs`. Unlike the rule above this
+     one is **not** checked at load: it refuses in the planner, with `Usage`,
+     and only when somebody plans that particular package. It is therefore the
+     one to check by hand while writing the row, because nothing will tell you
+     until a user asks for that plan.
 3. **Add one `[[entry]]` to `data/policy/curated-mappings.toml`** with every
    field: `source_provider`, `source_name`, `destination_provider`,
    `destination_name`, `confidence = "EXACT"` (a curated row is a human
@@ -284,8 +305,12 @@ and follow the reasoning.
    It must never emit usernames, home paths, environment variable values or
    tokens. A parameter that can carry a path is redacted the same way the rest
    of the report is — the home directory becomes `~`.
-5. **Add a test in the same file** covering the finding present and the finding
-   absent.
+5. **Add a test in `crates/application/tests/doctor_findings.rs`** covering the
+   finding present and the finding absent. Not "in the same file", which this
+   step used to say: `doctor.rs` has no `#[cfg(test)]` module and never had one,
+   and every doctor finding is tested there instead. A step that names a place
+   that does not exist is one the next contributor has to work around and then
+   guess at, which is how the two halves of a paired procedure start to drift.
 6. **Verify:** `scripts/check-i18n-parity.sh`, then
    `macportsbrew --replay fixtures/recordings/<fixture>.json doctor` and the
    same with `--json`, on a fixture that exercises the check.
