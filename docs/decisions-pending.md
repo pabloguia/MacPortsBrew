@@ -40,8 +40,22 @@ are recorded.
     no legitimate in-session need, and it is the file the escalation actually
     wants. `settings.json` stays editable. Narrower, and it leaves the same hole
     one file over.
-- **The reversible default taken, and it is the third option's opposite:**
-  nothing was changed in the deny list. Documenting first and tightening later
+- **Recommendation: the third option.** What makes this dangerous is not the
+  write, it is the *invisibility*. A change to `settings.json` is committable
+  and shows up in review — it is a change that ought to be reviewed, and it
+  still can be. A change to `settings.local.json` appears nowhere. Denying the
+  git-ignored one removes the invisibility without removing the legitimate
+  capability, and registering a hook — the thing option (a) would cost — stays
+  possible and stays visible. Stated plainly so it is not over-read: this closes
+  the accidental route and the Edit/Write route, and closes nothing else.
+  `Bash` writes either file regardless, since it never reaches this guard, and
+  no option here changes that.
+- **The reversible default taken, and it is the recommendation's opposite:**
+  nothing was changed in the deny list, because documenting first and tightening
+  later is reversible, while tightening first and discovering an agent cannot
+  register a hook is a session you have to rescue. Reproduced twice, once by
+  `spec-guardian` and once directly: under an armed marker a `Write` to either
+  settings file returns no denial, while the marker itself is refused. Documenting first and tightening later
   is reversible; tightening first and discovering an agent cannot register a
   hook is a session you have to rescue. The claim in `arm-guard-edit.sh` and
   SE-081 has been corrected so neither now asserts the immunity this defeats.
