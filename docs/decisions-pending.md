@@ -11,6 +11,45 @@ are recorded.
 
 ## Open
 
+### DP-020 — The weak half of the guard-edit escape can manufacture the strong half, in a file no diff shows
+
+- **Raised 2026-09-17 by `spec-guardian`, reviewing SE-081, and reproduced.**
+- **The question:** should `*/.claude/settings.json` and
+  `*/.claude/settings.local.json` move into `guard-protected-paths.sh`'s
+  **unconditional** deny list, beside the escape's own marker and log?
+- **Why it is not already obvious.** Today both sit *inside* the escape-guarded
+  `case`, so a session that is armed may write them. A settings file's `env`
+  block reaches hook processes. So a session armed by the route SE-081 calls
+  detection — a prompt, which an agent can forge with one `Bash` redirect — can
+  write `"env": {"MPB_ALLOW_GUARD_EDIT": "1"}` into `.claude/settings.local.json`
+  and arm **every session after it** by the route SE-081 calls prevention: no
+  marker, no prompt, no author, and log lines that read "the
+  MPB_ALLOW_GUARD_EDIT=1 environment variable". `settings.local.json` is
+  git-ignored, so none of it appears in a diff. Verified against the current
+  hook: a `Write` to that path under an armed marker returns no denial.
+- **Why it is yours.** Both routes out cost something real, and the cost is the
+  kind this project makes the owner pay rather than an agent.
+  - **Deny unconditionally.** Closes it. But `settings.json` is how this
+    session's own hook was registered, and an agent could then never change
+    either file through `Edit` — every settings change becomes a `Bash` write
+    (unguarded, so the gap merely moves) or a task for you outside a session.
+  - **Leave it, documented.** No friction, and the escalation stays reachable.
+    It is at least *recorded* now, in SE-081 and here, and the disclosure log
+    catches the write that starts it — provided anyone reads the log.
+  - **Deny `settings.local.json` only.** It is git-ignored personal state with
+    no legitimate in-session need, and it is the file the escalation actually
+    wants. `settings.json` stays editable. Narrower, and it leaves the same hole
+    one file over.
+- **The reversible default taken, and it is the third option's opposite:**
+  nothing was changed in the deny list. Documenting first and tightening later
+  is reversible; tightening first and discovering an agent cannot register a
+  hook is a session you have to rescue. The claim in `arm-guard-edit.sh` and
+  SE-081 has been corrected so neither now asserts the immunity this defeats.
+- **A cheaper mitigation worth ruling on at the same time:** the `Bash` guard
+  has no path rule for settings files at all (checked: 105 deny rules, none
+  naming `.claude`). A `Bash` deny would not close the `Edit` route above, and
+  the reverse is also true — they are two separate holes into one file.
+
 ### DP-019 — DP-008 was decided without its cost, and the cost is a second certificate plus a billed runner
 
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two
@@ -315,6 +354,22 @@ Writing 95 into the specification while the gate still enforces 80 would be the
 same defect this pass corrected three times over — documentation promising what
 the code does not do — so it waits rather than being half-applied. **This is the
 one outstanding owner action from DP-015**, and it is mechanical, not a decision.
+
+> **Superseded 2026-09-17.** Both were written, and this paragraph outlived
+> them: `check-coverage.sh` carries 95/95/95/95 with a 90 backstop, and
+> `07-quality-and-testing.md`'s table carries the same, with the `adapters`
+> raise explained in its own row. The outstanding owner action it names is
+> **closed**. Left in place rather than deleted because the paragraph below it
+> still stands, and because a struck-out claim is easier to trust than a missing
+> one.
+>
+> The *other* half of it did not close. The denominator still counts test code
+> in `src/`, and correcting it is now measured rather than estimated: a direct
+> transcription of `llvm-cov`'s own line algorithm disagrees with `llvm-cov` on
+> 59 of 75 files, by 449 lines, so post-processing the segments is not the small
+> job F-40 assumed. Moving the in-`src/` test modules to `crates/*/tests/` is
+> the recommendation. It stays yours because it lowers every percentage at once,
+> by different amounts per crate, against floors you set.
 
 Two limits carried forward from the entry below and still true. **Branch coverage
 is unenforced**: `--branch` needs nightly, the pin is stable (ADR-0002), so the

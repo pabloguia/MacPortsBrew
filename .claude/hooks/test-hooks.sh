@@ -19,6 +19,16 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$HERE/../.." && pwd)}"
 
+# The suite asserts what the guards decide, which means it must not inherit the
+# things that change their decision. Both escapes are exported deliberately, in
+# a subshell, by the two cases that test them; inherited from the session they
+# would turn a dozen `deny` assertions green while asserting nothing - and they
+# would do it precisely during a session editing the hooks, which is the only
+# time anybody runs this file with the escape armed. Found when the prompt-armed
+# marker was added and this suite was run under a session that had the variable
+# set, where the twelve enforcement-layer cases below all passed the wrong way.
+unset MPB_ALLOW_GUARD_EDIT MPB_UNATTENDED
+
 pass=0
 failures=()
 
@@ -393,19 +403,190 @@ assert "editing validate.sh is denied"        "$P" deny   "$(edit_input "$CLAUDE
 assert "editing a workflow is denied"         "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.github/workflows/claude.yml")"
 assert "editing a spec chapter is allowed"    "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/docs/spec/11-agentic-sdlc.md")"
 assert "editing a crate source is allowed"    "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/crates/domain/src/lib.rs")"
-(
-  export MPB_ALLOW_GUARD_EDIT=1
-  assert "the disclosed escape opens it"      "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gate.sh")"
-)
+# Exported and unset around the case rather than wrapped in `( ... )`. A
+# subshell discards `failures`, so every assertion written inside one could
+# report a problem to nobody: the three cases that used a subshell here - this
+# one and the two unattended ones below - could not have failed this suite,
+# which is the shape of defect this file exists to catch. Demonstrated with a
+# three-line reproduction before it was changed.
+# Pointed at a scratch project root, because an *allowed* enforcement-layer
+# write is appended to `.claude/.guard-edit-log`, and a suite that writes into
+# the real disclosure log makes the end-of-pass report cite its own test runs as
+# though they were edits. Found by reading the log after the first run: it named
+# `stop-gate.sh`, `claude.yml` and `spec-guardian.md`, none of which had been
+# touched. Evidence a gate fabricates is worse than evidence it does not keep.
+ESCAPE_SANDBOX="$(mktemp -d)"
+mkdir -p "$ESCAPE_SANDBOX/.claude"   # the log lives here; without it the write is refused
+REAL_DIR="$CLAUDE_PROJECT_DIR"
+export CLAUDE_PROJECT_DIR="$ESCAPE_SANDBOX"
+export MPB_ALLOW_GUARD_EDIT=1
+assert "the disclosed escape opens it"        "$P" allow  "$(edit_input "$ESCAPE_SANDBOX/.claude/hooks/stop-gate.sh")"
+unset MPB_ALLOW_GUARD_EDIT
+export CLAUDE_PROJECT_DIR="$REAL_DIR"
+rm -rf "$ESCAPE_SANDBOX"
+
+# --- the prompt-armed escape ------------------------------------------------
+#
+# The same escape, armed from the human's message instead of the environment.
+# The cases that matter are the ones where it must NOT arm: the token reaching
+# the hook by any route other than the `prompt` field authorises nothing, and a
+# marker left by another session authorises nothing here.
+#
+# These write and delete the real marker, so they run against a copy of the
+# project root rather than the live one - a suite that disarmed the session
+# running it would be a gate with a side effect on the thing it guards.
+A=arm-guard-edit.sh
+GUARD_TOKEN="MPB_ALLOW_GUARD""_EDIT=1"
+prompt_input() { # <prompt-text> [session]
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"UserPromptSubmit","session_id":sys.argv[2],"cwd":".","prompt":sys.argv[1]}))' "$1" "${2:-S1}"
+  else
+    jq -cn --arg p "$1" --arg s "${2:-S1}" '{hook_event_name:"UserPromptSubmit",session_id:$s,cwd:".",prompt:$p}'
+  fi
+}
+edit_session_input() { # <path> <session>
+  printf '{"tool_name":"Edit","session_id":"%s","tool_input":{"file_path":"%s"}}' "$2" "$1"
+}
+REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
+{
+  SANDBOX="$(mktemp -d)"
+  mkdir -p "$SANDBOX/.claude"
+  export CLAUDE_PROJECT_DIR="$SANDBOX"
+  MARK="$SANDBOX/.claude/.guard-edit-marker"
+  LOG="$SANDBOX/.claude/.guard-edit-log"
+  TARGET="$SANDBOX/.claude/hooks/stop-gate.sh"
+
+  # Arming, and what it writes.
+  assert "the token arms and says so"         "$A" context "$(prompt_input "please fix the gate $GUARD_TOKEN")"
+  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("the token writes a marker")
+  [ "$(sed -n '1p' "$MARK")" = "S1" ] && pass=$((pass + 1)) || failures+=("the marker records the session")
+  grep -q 'please fix the gate' "$MARK" && pass=$((pass + 1)) || failures+=("the marker records the prompt that armed it")
+
+  # The guard honours it, for that session only, and records the write.
+  assert "an armed prompt opens the layer"    "$P" allow  "$(edit_session_input "$TARGET" S1)"
+  grep -q 'stop-gate.sh' "$LOG" && pass=$((pass + 1)) || failures+=("an allowed write is written to the disclosure log")
+  grep -q 'please fix the gate' "$LOG" && pass=$((pass + 1)) || failures+=("the log names the prompt that authorised it")
+  assert "another session is not armed"       "$P" deny   "$(edit_session_input "$TARGET" S2)"
+  assert "a payload with no session is not"   "$P" deny   "$(edit_input "$TARGET")"
+
+  # The marker and the log are refused even while armed: a session that could
+  # edit them could authorise itself and then rewrite the account of it.
+  assert "the marker itself is never writable" "$P" deny  "$(edit_session_input "$MARK" S1)"
+  assert "the log itself is never writable"    "$P" deny  "$(edit_session_input "$LOG" S1)"
+
+  # Disarming: the next message without the token clears it. This is the whole
+  # of the expiry - no timer, rewritten by the event that defines the boundary.
+  assert "a message without the token"        "$A" exit0  "$(prompt_input "carry on then")"
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a message without the token disarms")
+  assert "and the layer is closed again"      "$P" deny   "$(edit_session_input "$TARGET" S1)"
+
+  # The token arriving by any route that is not the human's message. This is
+  # the property the whole design rests on: the hook reads one field, and tool
+  # results, file contents and subagent reports never reach this event at all.
+  assert "the token in another field arms nothing" "$A" exit0 \
+    "$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"S1","cwd":"%s","prompt":"summarise the file"}' "$GUARD_TOKEN")"
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("the token outside the prompt field arms nothing")
+
+  # Quoting it back is still the human saying it - there is no way to tell them
+  # apart, and pretending otherwise would be the guard overstating itself. The
+  # case is here so the behaviour is asserted rather than assumed.
+  assert "quoted in the prompt still arms"    "$A" context "$(prompt_input "the hook looks for $GUARD_TOKEN in the message")"
+  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a quoted token arms, as documented")
+  rm -f "$MARK"
+
+  # An INDENTED line carrying the token arms nothing. This is not a stylistic
+  # rule: a subagent hand-back reaches the session through the prompt channel,
+  # and the first live arming of this escape was a `spec-guardian` report
+  # quoting the token while describing the mechanism. The harness indents
+  # relayed output, so column zero separates the human's own line from text
+  # quoted back at them. A filter, not a boundary - see the hook's header.
+  assert "an indented relay arms nothing"     "$A" exit0 \
+    "$(prompt_input "[Subagent hand-back]
+  The report below quotes $GUARD_TOKEN while describing it.")"
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an indented relayed token arms nothing")
+  assert "a tab-indented quote arms nothing"  "$A" exit0 "$(prompt_input "	quoting $GUARD_TOKEN back")"
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a tab-indented token arms nothing")
+  # And the human's own sentence still arms, token inline, which is how it is
+  # actually typed.
+  assert "the human's own line still arms"    "$A" context \
+    "$(prompt_input "this session was opened with $GUARD_TOKEN deliberately, to edit the gates")"
+  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an unindented human line arms")
+
+  assert "unreadable prompt input fails closed" "$A" closed '{bad'
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an unreadable prompt disarms rather than leaving it armed")
+
+  # --- the five a security review found untested, each one a real defect ---
+
+  # The disarm must happen before anything that can exit. With the parser check
+  # ahead of it, a message arriving while jq and python3 were both unreachable
+  # exited 2 and left the previous message's marker armed - for the rest of the
+  # session, not just that message.
+  assert "re-arming for the next case"        "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  # A PATH with the ordinary tools on it and *no JSON parser* - which is the
+  # real shape of this failure. Emptying PATH instead would remove `rm` as well
+  # and prove only that a hook with no `rm` cannot delete anything.
+  MINIBIN="$SANDBOX/minibin"
+  mkdir -p "$MINIBIN"
+  # `bash` is in the list because the shebang is `/usr/bin/env bash`, and `env`
+  # resolves `bash` through PATH - without it the hook never starts, and the
+  # marker survives for a reason that has nothing to do with the parser.
+  for t in bash rm cat date sed tr cut mkdir; do
+    p="$(command -v "$t")" && ln -sf "$p" "$MINIBIN/$t"
+  done
+  PATH="$MINIBIN" "$HERE/$A" <<<"$(prompt_input "no token here")" >/dev/null 2>&1
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a hook that cannot run its parser still disarms")
+
+  # A symlinked marker is not the marker. `[ -f ]` follows one, and pointing it
+  # at a file the Write tool will happily write turns "needs Bash once per
+  # arming" into "needs Bash once".
+  assert "re-arming to test the symlink"      "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  mv "$MARK" "$SANDBOX/elsewhere"
+  ln -s "$SANDBOX/elsewhere" "$MARK"
+  assert "a symlinked marker arms nothing"    "$P" deny   "$(edit_session_input "$TARGET" S1)"
+  rm -f "$MARK"
+
+  # A write the escape permits but cannot record must not happen. Detection is
+  # the whole of what the prompt-armed route rests on, so a swallowed log
+  # failure would buy a silent enforcement-layer write - worse than the deny it
+  # replaced.
+  assert "re-arming to test the log"          "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  rm -f "$LOG"
+  mkdir "$LOG"   # a directory cannot be appended to
+  assert "an unrecordable write is refused"   "$P" deny   "$(edit_session_input "$TARGET" S1)"
+  rmdir "$LOG"
+
+  # One write, one line. `check` runs on the path as written and again on its
+  # canonical form, and a log that counts one edit twice is one a report
+  # overstates from.
+  assert "the write is allowed again"         "$P" allow  "$(edit_session_input "$TARGET" S1)"
+  [ "$(wc -l <"$LOG" | tr -d ' ')" = "1" ] && pass=$((pass + 1)) || failures+=("one permitted write writes exactly one log line")
+
+  # A path may contain a tab or a newline, and `*` in the deny patterns spans
+  # both - so an unescaped path can close its own record and open a complete,
+  # plausible, fabricated one after it.
+  # JSON-encoded rather than interpolated: a raw newline inside a JSON string is
+  # not JSON, and the guard would fail closed on the payload instead of being
+  # tested on the path.
+  forged_path="$(printf '%s/scripts/a\n2020-01-01T00:00:00Z\t/forged/path.sh\tforged\nb.sh' "$SANDBOX")"
+  if command -v python3 >/dev/null 2>&1; then
+    forged_json="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Edit","session_id":"S1","tool_input":{"file_path":sys.argv[1]}}))' "$forged_path")"
+  else
+    forged_json="$(jq -cn --arg p "$forged_path" '{tool_name:"Edit",session_id:"S1",tool_input:{file_path:$p}}')"
+  fi
+  assert "a newline in the path is squashed"  "$P" allow "$forged_json"
+  [ "$(wc -l <"$LOG" | tr -d ' ')" = "2" ] && pass=$((pass + 1)) || failures+=("a path with a newline cannot forge a second log line")
+
+  rm -rf "$SANDBOX"
+}
+export CLAUDE_PROJECT_DIR="$REAL_PROJECT_DIR"
 
 # The unattended boundary: 11-agentic-sdlc.md reserves decisions-pending and
 # ADRs for a human in the loop. The workflows set MPB_UNATTENDED=1.
 assert "interactive may edit decisions"       "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/docs/decisions-pending.md")"
-(
-  export MPB_UNATTENDED=1
-  assert "unattended may not edit decisions"  "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/decisions-pending.md")"
-  assert "unattended may not edit an ADR"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/adr/0002-implementation-language.md")"
-)
+export MPB_UNATTENDED=1
+assert "unattended may not edit decisions"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/decisions-pending.md")"
+assert "unattended may not edit an ADR"       "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/adr/0002-implementation-language.md")"
+unset MPB_UNATTENDED
 
 # A user prefix and a case variant. ~/.homebrew is Homebrew's supported
 # non-admin prefix; macOS's default volume is case-insensitive, so

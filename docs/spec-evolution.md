@@ -3770,7 +3770,10 @@ finding ids in each entry.
      `.github/workflows/` were all editable from inside the session they
      constrain. The gate can detect that its own path changed; it cannot
      prevent it. `MPB_ALLOW_GUARD_EDIT=1` is now the disclosed escape, on the
-     same terms as `MPB_SKIP_STOP_GATE`.
+     same terms as `MPB_SKIP_STOP_GATE`. **Superseded by SE-081**, which adds a
+     second way to arm it and changes the security property on that route from
+     prevention to detection; read SE-081 for the current rationale, and this
+     item only for what raised the escape in the first place.
   5. **In-place editors were matched on their least likely spelling.**
      `sed -i ''` was tested; `sed -i.bak` — the form chosen when a backup is
      wanted, i.e. the safety-minded instinct — and `perl -pi -e`, the commonest
@@ -4001,3 +4004,101 @@ finding ids in each entry.
   section, and the explicit message when the heading is absent.
 - User impact: agents get a true statement at session start. Architectural
   impact: none.
+
+## SE-081 — The guarded-path escape can be armed from a prompt, and that trades prevention for detection
+
+- Status: accepted
+- Date / Pass: 2026-09-17 / 02-ARCHITECTURE-REVIEW
+- Supersedes: **SE-072 item 4**, which raised the escape and described it as the
+  environment variable alone. That item now points here; per SE-032 this entry
+  is the current rationale for the topic and SE-072's is kept only as the
+  account of what raised it.
+- Original assumption: the only way to open `guard-protected-paths.sh` was
+  `MPB_ALLOW_GUARD_EDIT=1` in the environment, set before the session starts.
+  `11-agentic-sdlc.md` describes it as a disclosed escape whose cost is an entry
+  in the end-of-pass report.
+- Change: a `UserPromptSubmit` hook, `.claude/hooks/arm-guard-edit.sh`,
+  recognises the literal `MPB_ALLOW_GUARD_EDIT=1` in a user message and writes a
+  marker naming the session, the time and an excerpt of that message. The guard
+  honours the marker as well as the variable, and appends every write the escape
+  lets through — by either route — to `.claude/.guard-edit-log`.
+- Rationale, and the part that is a real loss: **the two routes are not equally
+  strong, and the difference is the whole of this entry.** The environment
+  variable cannot be forged *for a running process*: it is set before that
+  process exists, and nothing inside a session can change its own environment.
+  The marker is a file, and the session has a shell;
+  `guard-protected-paths.sh` is `PreToolUse` on `Edit|Write|NotebookEdit` and
+  never sees `Bash`.
+- **A claim this entry made and a reviewer disproved, kept here because the
+  correction is the useful part.** It first said the variable is beyond reach
+  altogether, "because the two settings files whose `env` block would reach a
+  hook are both in the guard's deny list". They are — to `Edit`, `Write` and
+  `NotebookEdit`, and to nothing else. Appending an `env` block to
+  `~/.claude/settings.json` with `Bash` arms every *future* session in the
+  stronger mode, by the weaker route. The gap predates this change; what this
+  change did was make the claim load-bearing. Ninth false statement about what
+  the code prevents in this pass, and the first caught before it shipped. Naming the marker in the deny list stops the Edit and
+  Write tools and nothing else, and no secret can fix this, because whatever
+  would authenticate the marker has to be readable by the guard and is therefore
+  readable by the agent. So: the variable is **prevention**, the marker is
+  **detection**. The trade is worth making only because disclosure was always
+  what this escape rested on — the variable never stopped a determined session
+  either, it stopped an absent-minded one and made the deliberate act
+  reportable. The marker keeps the second property, gives up part of the first,
+  and adds something the variable never had: an author. A variable, by the time
+  the guard reads it, is a property of a process with nothing to point at; a
+  prompt has a writer, a time and a text, which is what lets the log say *which*
+  instruction authorised a write.
+- Scope, stated precisely because the obvious reading is wrong: the marker is
+  rewritten on **every** user message — present with the token, deleted without
+  one — so it expires at the human's next message with no timer to be wrong.
+  That is not per-edit authorisation. One message can drive a long autonomous
+  run and all of it is armed; the unit is one *work order*.
+- That expiry needed two fixes a reviewer found, and neither was cosmetic. The
+  delete is now the **first** statement in the hook: behind the parser check it
+  was skipped whenever `jq` and `python3` were both unreachable, leaving the
+  previous message's marker armed for the rest of the session — not a
+  hypothetical in a tool whose own work can relink `jq`. And `session-start.sh`
+  now deletes the marker, because nothing in this hook runs at session end and a
+  resumed session keeps its `session_id`, so an armed marker would have been
+  inherited by the run after it.
+- The escape also fails closed on its own record now. A permitted write that
+  cannot be appended to `.claude/.guard-edit-log` is **denied**: once detection
+  is what the route rests on, a swallowed log failure buys a silent
+  enforcement-layer write, which is worse than the refusal it replaced — and
+  making the append fail takes one `Bash` command. Both log fields are squashed
+  to a single line, because a path may contain a newline and `*` spans it, so an
+  unescaped path could close its own record and open a fabricated one.
+- Evidence: `test-hooks.sh` covers arming, disarming, the marker bound to its
+  own session (another session's id is refused), the marker and log refused to
+  Edit even while armed, an unreadable payload disarming rather than leaving the
+  escape open, and the token present in a field other than `prompt` arming
+  nothing.
+- **The claim that last test was written to protect turned out to be false, and
+  the escape's own first live firing is what proved it.** The entry said: the
+  hook reads exactly one field, so "tool results, file contents and subagent
+  reports never reach this event at all". The first half holds. The second does
+  not — a subagent hand-back is delivered to the session *through the prompt
+  channel*, and the first real arming of this escape was a `spec-guardian`
+  report quoting the token while describing the mechanism. Nobody typed it that
+  turn. It was caught inside a minute because the marker stores an excerpt of
+  what armed it, and the excerpt read `<agent-message from=…>` — the detection
+  property doing exactly the job it was added for, on its author.
+- The mechanism is narrowed accordingly: the token now has to appear on a line
+  beginning at column zero, and the harness indents every line of relayed model
+  output. That is a **filter, not a boundary** — it rests on a formatting
+  convention this repository does not own, and a relay that did not indent would
+  arm. It removes the demonstrated route and nothing more. Tenth false statement
+  about what the code prevents in this pass; the second caught before shipping,
+  and the first caught by the mechanism it was written about.
+- Found while writing it, and fixed in the same change: `test-hooks.sh`
+  inherited `MPB_ALLOW_GUARD_EDIT` from the session running it, so under an
+  armed session nine of its enforcement-layer `deny` assertions passed the wrong
+  way — demonstrated, not inferred. Worse, the three cases that set an escape
+  did so inside `( … )`, and a subshell discards the `failures` array, so those
+  assertions could not have failed the suite at all. Both are now impossible:
+  the suite unsets both variables at the top and sets them without a subshell.
+- User impact: none; this is agent tooling. Architectural impact: the
+  enforcement layer's escape is now detective rather than preventive on one of
+  its two routes, and `11-agentic-sdlc.md`'s disclosure requirement carries
+  correspondingly more weight.

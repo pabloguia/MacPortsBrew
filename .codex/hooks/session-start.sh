@@ -20,6 +20,15 @@ set -euo pipefail
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
+# The other half of the guarded-path escape's expiry. `arm-guard-edit.sh` clears
+# the marker on every user message, which ends the armed window *within* a
+# session; nothing there runs at session end, and a resumed session keeps its
+# `session_id`, so a marker left on disk would arm the run that inherits it.
+# Deleting it here is what makes "armed for one message" true across the seam as
+# well as inside it. A session that meant to arm the escape says so in its first
+# message and re-arms in the same breath.
+rm -f "$ROOT/.claude/.guard-edit-marker"
+
 pass="unknown"
 [ -f .claude/current-pass ] && pass="$(tr -d '[:space:]' < .claude/current-pass)"
 
