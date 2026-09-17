@@ -32,6 +32,15 @@ to answer.
 
 ### Added
 
+- **`doctor` reports a provider whose recorded prefix is not absolute**
+  (`provider_prefix_is_not_absolute`, `WARNING`). A provider installed under the
+  user's home is captured as `~/...`, which `planner::command` refuses, so
+  analysis is correct and no step that would run that provider can be built. The
+  finding says so in the diagnosis instead of leaving the user to meet it as a
+  refusal that blames their input. `ErrorId::InputUnusable` (exit 8) is the
+  identifier those refusals now carry, replacing a snapshot-specific remediation
+  that was wrong on every route but `--from-snapshot`.
+
 - **Domain layer** (`crates/domain`): provider-neutral types for packages,
   ownership, package classes, artifact availability, mappings, resolutions,
   support state, snapshots, migration plans and the error taxonomy. No I/O, no

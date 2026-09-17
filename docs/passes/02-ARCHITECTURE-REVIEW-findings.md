@@ -68,7 +68,8 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
-| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half is open and is a design question. |
+| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. |
+| **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Open, found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -3118,6 +3119,48 @@ says plainly that the note has **not** been re-checked. R-5 and R-5a were
 re-checked in place and show what that costs. The two pass reports that say the
 same thing are frozen records and keep their wording.
 
+## F-49 — Redaction's other shape is absolute, and the plan carries a path that exists nowhere
+
+**Severity: medium. Found 2026-09-16 by `security-reviewer`, reviewing F-48's
+`doctor` finding.**
+
+`redact_known_home` does two things, and F-48 only ever looked at the first. It
+replaces the home directory with `~`, and it replaces the **bare login name
+wherever it appears as a whole path component**. So a provider at
+`/opt/ada/homebrew` is recorded as `/opt/USER/homebrew`.
+
+That string is absolute. `prefix_shape_error` accepts it, `planner::command`'s
+`is_absolute()` guard accepts it, and a plan is built. Reproduced against the
+binary: with that prefix, `doctor` emits no finding at all and exits 0, and
+`plan htop --to macports` exits 0 and prints a plan whose steps name
+`/opt/USER/homebrew/bin/brew` — in the `--json` payload and in the human
+rendering both. That path exists on no machine.
+
+**The two shapes fail in opposite directions.** The `~` shape fails closed: the
+planner refuses, nothing is emitted, and F-48's finding now says so before the
+user meets the refusal. This one fails open: the plan is the document a human
+reads and copies commands from, and it names a program that is not there. Which
+is the more serious half, and it is the half nothing warns about.
+
+`security-reviewer` adds an argument this entry records rather than asserts,
+because it was not checked here: on a stock Intel machine `/usr/local` is
+admin-group writable, so `/usr/local/USER/brew/bin/brew` is a path another admin
+account could create. Nothing in this build executes a plan step, so that is a
+statement about a future executor rather than about today. It is written down
+because the reason to fix this before an executor exists is stronger than the
+reason to fix it after.
+
+**The fix is not a wider predicate.** Widening `doctor`'s test to guess at
+`USER`-shaped paths would be re-deriving a fact from a redacted string, which is
+what made F-48's first version wrong. Capture knows whether it redacted:
+`redact_option_path` either changed the value or did not. Recording that — a
+boolean on `ProviderDetection` — covers both shapes, removes the guessing, and is
+the same fact the open half of F-48 needs anyway. It is a snapshot schema
+addition, so it lands with its `docs/spec-evolution.md` entry and a schema
+version decision, which is why it is filed rather than done here.
+
+---
+
 ## F-48 — A home-installed provider can be analysed and can never be planned
 
 **Severity: medium. Found 2026-09-16 by `security-reviewer`, checking a claim in
@@ -3260,7 +3303,59 @@ stranded meanwhile: step 6 runs `validate.sh`, which now fails with a message
 naming the offending name. It needs `MPB_ALLOW_GUARD_EDIT` and both files in one
 change.
 
-The first half of this finding, the home-installed provider, is untouched.
+### The first half, reversible part taken 2026-09-16
+
+The dead end is not removed. What is removed is the surprise: `doctor` now
+reports `provider_prefix_is_not_absolute` as a **warning** when a present
+provider's recorded prefix is not absolute.
+
+**The first version of this said something false, in user-facing text.** It was
+called `provider_prefix_is_home_redacted`, tested `starts_with('~')`, and told
+the user that "plans for the other provider are unaffected". `security-reviewer`
+reproduced the counter-example and so did I: `REMOVE_SOURCE` builds its command
+from the *source* provider's snapshot, so `plan htop --to macports` on a
+home-rooted Homebrew exits 8 — the migration **away** from the stranded provider,
+which is the one such a user actually wants. The same run with `--retain-source`
+exits 0, so the other half — "no plan can be built for it" — was wrong in the
+opposite direction at the same time. A finding that makes a promise the tool
+breaks one command later costs more trust than the surprise it was meant to
+prevent. Eighth false statement of this pass, and the first in text a user reads.
+
+The sentence now states the rule the code implements, which is about steps rather
+than providers: no step that would run this provider can be built, so it cannot
+be a destination and can be a source only with `--retain-source`. Both halves
+checked against the binary.
+
+**And the predicate is now the planner's own**, `!is_absolute()` rather than
+`starts_with('~')`. They agree today only because `is_safe_captured_path` admits
+nothing else non-absolute; widening that would have made `doctor` go quiet about
+a prefix the planner still refuses, which is the surprise this removes. The
+identifier was renamed with it: `provider_prefix_is_not_absolute` claims what is
+checked, asserts no cause, and stays true for a `~`-rooted prefix that arrives
+from a recording rather than from redaction.
+
+`Warning` rather than `Error` is the recipe's own rule applied: `Error` is for a
+setup that produces *wrong answers*, and nothing here is wrong — the analysis is
+correct and one operation is unavailable. It is a finding rather than a
+recommendation for the same reason: it states a structural fact about the
+machine, not "move your install", which would belong in the policy engine.
+
+This is the reversible default `AGENTS.md` asks for while a decision is open, and
+it forecloses neither option. The question it leaves is unchanged: the planner
+needs an absolute program, and the only thing that can supply one is the home
+that redaction removes — so either the plan carries the un-redacted prefix and
+redaction becomes a display-time concern, or this stays a documented limit. The
+first is what the user wants; the second is what is true today, and now it is
+said out loud before they meet it.
+
+**The recipe's step 5 is wrong, and is left alone for the same reason as
+`add-mapping`.** It says to add the test "in the same file"; `doctor.rs` has no
+test module and every doctor finding is tested in
+`crates/application/tests/doctor_findings.rs`, which is where this one went. The
+procedure exists twice — a `CONTRIBUTING.md` section and a guard-protected skill,
+written from one source — so correcting one copy would produce the divergence the
+pairing prevents. It needs `MPB_ALLOW_GUARD_EDIT` and both files in one change,
+alongside `add-mapping`'s two missing admission rules.
 
 ---
 

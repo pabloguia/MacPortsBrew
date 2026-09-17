@@ -95,7 +95,50 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                     Some(id.clone()),
                 );
                 if let Some(prefix) = &p.detection.prefix {
-                    prefixes.push((id.clone(), prefix.to_string_lossy().into_owned()));
+                    let text = prefix.to_string_lossy().into_owned();
+                    // F-48. `planner::command` refuses to build a step whose
+                    // program is not absolute, because `Command::new` resolves a
+                    // string containing a slash against the working directory.
+                    // A prefix under the user's home arrives here as `~/...`,
+                    // redacted at capture so a home-installed provider can be
+                    // captured at all, and `prefix_shape_error` passes it on
+                    // purpose naming `planner::command` as what refuses it. So
+                    // `analyze` is right and any step that would run this
+                    // provider cannot be built - and until this finding existed,
+                    // the user met that as a refusal telling them their input was
+                    // at fault when nothing was.
+                    //
+                    // The *same* predicate as the planner, deliberately. An
+                    // earlier version tested `starts_with('~')`, which agrees
+                    // only because `is_safe_captured_path` admits nothing else
+                    // non-absolute; widen that and doctor would have gone quiet
+                    // about a prefix the planner still refuses, returning the
+                    // user to the surprise this removes.
+                    //
+                    // It does not cover the other shape redaction produces: a
+                    // login name replaced as a whole path component leaves
+                    // `/opt/USER/brew`, which *is* absolute, so the planner
+                    // accepts it and emits a plan naming a program that does not
+                    // exist. That fails open where this fails closed, and is
+                    // F-49 rather than a silent widening of this predicate.
+                    //
+                    // A structural fact about the machine, which is what
+                    // `doctor` reports: not "move your install", which would be
+                    // a recommendation and belongs in the policy engine.
+                    // `Warning` rather than `Error`: no answer is wrong here,
+                    // one operation is unavailable, and an `Error` would make
+                    // `doctor` exit 5 on a machine that answers correctly.
+                    if !std::path::Path::new(&text).is_absolute() {
+                        add(
+                            "provider_prefix_is_not_absolute",
+                            Severity::Warning,
+                            Reason::new("doctor.provider_prefix_is_not_absolute")
+                                .with("provider", id)
+                                .with("prefix", &text),
+                            Some(id.clone()),
+                        );
+                    }
+                    prefixes.push((id.clone(), text));
                 }
                 if let Some(arch) = p.detection.architecture {
                     if arch != snapshot.machine.architecture {

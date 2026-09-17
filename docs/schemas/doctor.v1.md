@@ -43,6 +43,7 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `provider_support_degraded` | `WARNING` | `doctor.provider_support` | `provider`, `tier`, `source`, `readOn` |
 | `provider_support_ending` | `WARNING` | `doctor.provider_support_ending` | `provider`, `endDate`, `source`, `readOn` |
 | `prefix_not_on_path` | `WARNING` | `doctor.prefix_not_on_path` | `provider`, `prefix` |
+| `provider_prefix_is_not_absolute` | `WARNING` | `doctor.provider_prefix_is_not_absolute` | `provider`, `prefix` |
 | `path_order` | `OK` or `WARNING` | `doctor.path_order` | `order` |
 | `path_duplicate` | `WARNING` | `doctor.path_duplicate` | `entry` |
 | `path_missing` | `WARNING` | `doctor.path_missing` | `entry` |
@@ -53,6 +54,7 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `path_world_writable_precedes_system` | `ERROR` | `doctor.path_world_writable_precedes_system` | `entry` |
 | `path_relative_precedes_system` | `ERROR` | `doctor.path_relative_precedes_system` | `entry` |
 | `path_finding_unknown` | `WARNING` | `doctor.path_finding_unknown` | `entry` |
+| `path_unknown` | `WARNING` | `doctor.path_unknown` | — |
 | `path_has_no_system_directory` | `ERROR` | `doctor.path_has_no_system_directory` | — |
 | `build_variable_names_prefix` | `WARNING` | `doctor.build_variable_names_prefix` | `variable`, `provider` |
 | `running_translated` | `WARNING` | `doctor.running_translated` | — |

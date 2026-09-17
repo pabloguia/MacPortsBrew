@@ -283,3 +283,86 @@ fn an_absent_path_is_reported_as_unknown_rather_than_as_a_missing_prefix() {
         "a PATH that exists is not an unknown one"
     );
 }
+
+/// F-48: a provider whose recorded prefix is not absolute analyses fine and can
+/// run no step, and until this finding existed nothing said so until the refusal.
+///
+/// The prefix is redacted to `~` at capture — the privacy machinery exists so a
+/// home-installed provider can be captured at all — and
+/// `snapshot::prefix_shape_error` passes a `~`-rooted prefix on purpose, naming
+/// `planner::command` as what refuses it. So `analyze` is right, every `plan` for
+/// that provider exits 8, and the refusal tells the user their input is at fault
+/// when nothing is.
+///
+/// This does not fix that. It moves the moment the user learns it from the
+/// failure to the diagnosis, which is the reversible half of the design question
+/// F-48 leaves open.
+///
+/// The predicate is the planner's own — `!is_absolute()`, not `starts_with('~')`
+/// — so the two cannot drift apart. It covers only the shape that fails *closed*;
+/// the `USER`-component shape redaction also produces is absolute, is accepted,
+/// and is F-49.
+#[test]
+fn a_prefix_that_is_not_absolute_is_a_warning_because_no_step_can_run_it() {
+    let redacted = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/usr/bin"],
+        vec![
+            (
+                "homebrew",
+                provider("homebrew", "~/homebrew", Architecture::Arm64),
+            ),
+            (
+                "macports",
+                provider("macports", "/opt/local", Architecture::Arm64),
+            ),
+        ],
+    );
+    let found = findings(&redacted, TODAY, "provider_prefix_is_not_absolute");
+    assert_eq!(
+        found,
+        vec![(
+            Severity::Warning,
+            "doctor.provider_prefix_is_not_absolute".to_string()
+        )],
+        "exactly the home-rooted provider is reported, and as a warning: the \
+         analysis is correct, one operation is unavailable"
+    );
+
+    // The other provider in the same snapshot is not swept up.
+    let report = doctor(
+        &redacted,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        TODAY,
+    );
+    let named: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.id == "provider_prefix_is_not_absolute")
+        .filter_map(|f| f.provider.as_ref())
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(named, vec!["homebrew".to_string()]);
+
+    // And absent when neither prefix is under the home, or this asserts nothing.
+    let ordinary = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/usr/bin"],
+        vec![
+            (
+                "homebrew",
+                provider("homebrew", "/opt/homebrew", Architecture::Arm64),
+            ),
+            (
+                "macports",
+                provider("macports", "/opt/local", Architecture::Arm64),
+            ),
+        ],
+    );
+    assert!(
+        findings(&ordinary, TODAY, "provider_prefix_is_not_absolute").is_empty(),
+        "an absolute prefix is not a home-redacted one"
+    );
+}

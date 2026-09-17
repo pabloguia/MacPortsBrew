@@ -307,6 +307,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # Resolving it through the catalogue instead was measured and rejected: it puts
 # a two-sentence remediation paragraph inside a table cell.
 "doctor.provider_broken" = "{provider} is present but not working. See the troubleshooting page."
+"doctor.provider_prefix_is_not_absolute" = "The recorded location of {provider} is {prefix}, which is not an absolute path: the home directory was removed when this snapshot was captured, so a report can be shared safely. Analysis reports on {provider} normally. No step that would run it can be built, so it cannot be a migration destination, and it can only be a source with --retain-source, which leaves the installed package alone."
 "doctor.provider_architecture_mismatch" = "{provider} is built for {provider_arch} on a {machine_arch} machine."
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."
