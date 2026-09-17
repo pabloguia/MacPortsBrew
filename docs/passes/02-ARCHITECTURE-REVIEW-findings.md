@@ -67,9 +67,9 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
-| **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Open, found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. The fix is written and passes fourteen cases; `scripts/*.sh` is guard-protected and `MPB_ALLOW_GUARD_EDIT` is the owner's to set. Two pre-existing holes found with it: an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
+| **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
 | **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. |
-| **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Open, found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
+| **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding; fixed the same day.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
@@ -3385,6 +3385,56 @@ written from one source — so correcting one copy would produce the divergence 
 pairing prevents. It needs `MPB_ALLOW_GUARD_EDIT` and both files in one change,
 alongside `add-mapping`'s two missing admission rules.
 
+### Both recipes corrected 2026-09-17, both copies in one change
+
+`add-doctor-check` step 5 now names `crates/application/tests/doctor_findings.rs`
+and says why it is not "the same file". `add-mapping` step 2 now carries the two
+mechanical admission rules it was missing, and states that they apply to the
+*source* name too, because `index_equivalences` builds the reverse index from the
+same rows. The two rules fail in different places, which is the part a
+contributor needs and neither copy said: `is_safe_provider_name` is checked by
+`check_curated_names` at load and refuses the whole file as a build defect
+(F-48), while the `reserved_names` list is checked only in the planner, only
+when somebody plans that package — so it is the one to verify by hand.
+
+### DP-016(c)'s last mile, 2026-09-17
+
+`run-fixture-matrix.sh` already accepted exit 4, but `expect_json` required JSON
+on stdout, and the refusal builds no plan. The two states are now told apart by
+`expect_plan`, and told apart by *asserting* which one occurred rather than
+tolerating either: exit 4 with a document must carry a `MANUAL_REVIEW` step,
+exit 0 must carry none, and a refusal must write nothing to stdout and something
+to stderr. The separation is the planner's own rule, `Ok(if
+plan.requires_manual_review() { 4 } else { 0 })`, so the exit code and the steps
+array are one fact stated twice and this checks that they agree — in both
+directions, which is more than the old check asserted. Check count over the
+matrix rose from 183 to 193.
+
+**The matrix now names which outcome each fixture owes**, derived from the
+source provider rather than the fixture's name so it stays true as fixtures are
+added. Without that, `expect_plan` accepted any outcome from any fixture, and a
+refusal broadened by a regression — keyed on the destination instead of the
+source — would have turned every plan into a refusal and left the matrix green.
+It also restores a property the old `expect_json "0 4"` had and the first
+version of this dropped: every invocation that *can* produce a document must
+produce one. 193 checks became 198.
+
+**One narrow hole left open, recorded rather than closed.** The refusal keys on
+`is_unknown`, and an **absent** `SERVICE_METADATA` entry is deliberately not
+`Unknown` — "a capability nobody reported was never asked about, not
+undetectable", which the test asserts. Both shipping adapters always write the
+entry, so the live path is safe. The exposure is `--from-snapshot` on a document
+written by a build predating the capability: same `SNAPSHOT_SCHEMA_VERSION`, so
+it loads, and INV-19's rule is then silently unevaluated on a real plan — which
+is the hole DP-016 exists to close, one route over. Closing it means either
+defaulting the field to `Unknown` on deserialisation or bumping the schema, and
+both are changes to the snapshot contract rather than to this refusal.
+
+That "no error writes JSON to stdout" was verified rather than assumed: `run`
+in `crates/cli/src/app/mod.rs` has exactly one `Err` arm and it writes the
+rendered message to `stderr`, `--json` or not. Eleven constructed cases in
+`scripts/test-gates.sh` hold it, eight of which require a rejection.
+
 ---
 
 ## F-47 — The duplicate-anchor gate stops working on a normal future edit
@@ -3466,6 +3516,74 @@ check is documented only in an inline comment. By this repository's own rule —
 the stage list lives in `validate.sh`'s header and nowhere else, because copies
 drift — the header is where a reader learns what a gate does, and it is one
 behaviour out of date.
+
+### Fence tracker fixed 2026-09-17, and the test now discriminates
+
+The five rules are in `headings_of`: the opener is tracked as its character and
+length, closed only by the same character, at least as long, with an empty info
+string; an opener indented four or more columns is content; an opener whose info
+string contains the fence character is refused; and **an unterminated fence at
+end of file is an error**, which is what turns the other four from a silent
+wrong answer into a visible one. `headings_of` returns `(slugs, unterminated)`
+and that message joins the failure list. The header was rewritten at the same
+time and now enumerates all three things the gate enforces.
+
+**The fourteen constructed documents are a permanent test now**,
+`scripts/test-gates.sh`, and a `--quick` stage. They are not a copy of the
+gate's logic: the test lifts `slug` and `headings_of` out of `check-links.sh` by
+anchor and executes them, so a copy cannot drift into passing while the gate
+breaks — the argument `validate.sh`'s header already makes about its stage list.
+
+**Run against the old tracker, eight of the fourteen fail.** That is the half
+that matters: a suite that only goes green has shown it can say yes. The three
+the original testing found are among them, with the nested and length cases
+besides. The tree's verdict is unchanged at 80 files, as the entry predicted.
+
+Still open from this finding, and deliberately not taken here: the absolute and
+`../`-escaping link targets checked against the host rather than the repository,
+and the blockquoted heading. The second is not the one-line fix it looks like —
+making `> # Title` visible *adds* anchors, and an added anchor can collide with
+an existing one, so it lands together with whatever duplicates it surfaces.
+
+---
+
+## F-40 — measured 2026-09-17, and both premises of the deferral moved
+
+Two things the entry above relies on are no longer true, and they point in
+opposite directions.
+
+**`cargo-llvm-cov` is present on this machine** — 0.9.1. "Why it is not fixed
+here" rests on the agent being unable to iterate, because the tool reports "not
+available" locally; that reason has gone, and the measurement it asks for can be
+taken inside a session.
+
+**But the fix is worse-shaped than "feasible" suggested.** The entry proposes
+post-processing the segments faithfully. That was attempted: LLVM's
+`LineCoverageIterator` and `LineCoverageStats` were transcribed directly —
+wrapped segment, region-entry and gap-region handling, the skipped-region rule —
+and then checked against the number `llvm-cov` itself reports for the same file.
+
+**It disagrees on 59 of 75 files, by 449 lines in total**, always undercounting.
+Macro expansion was the obvious suspect and is not the cause: every file in this
+workspace has zero expansion records. So the residual is elsewhere in an
+algorithm whose reference implementation is several hundred lines of C++, and
+the entry's own objection now has evidence under it: *a gate is the wrong place
+for a reimplementation nobody has validated against the tool it replaces.*
+Shipping the transcription would have swapped a denominator that is too kind by
+an unknown amount for one that is wrong by a known 4.4%.
+
+**So `scripts/check-coverage.sh` was not changed**, and route two — move the
+in-`src/` test modules to `crates/*/tests/` — is the recommendation now rather
+than the preference. It makes the question disappear instead of measuring around
+it, and it needs no algorithm to be right.
+
+**A third thing, which resizes the urgency downward.** `check-coverage.sh` is
+not a `validate.sh` stage; it runs only in the `coverage` job of
+`repository-validation.yml`, and F-12 records that no CI job has ever run. The
+flattering denominator has therefore never produced a verdict anyone acted on.
+The floors are owner-set (DP-015), and correcting the denominator moves every
+percentage against them at once — which is why DP-015 already says the
+denominator and the floors belong in one edit.
 
 ---
 

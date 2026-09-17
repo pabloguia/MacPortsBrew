@@ -420,9 +420,133 @@ nightly and the pin is stable (ADR-0002), so every percentage here is lines only
 And **`check-coverage.sh` counts test code that lives in `src/` in its own
 denominator**: adding in-module tests to `provider_commands.rs` moved
 `application`'s total from 1851 to 1902 lines, diluting the very number it was
-raising. The owner's new floors are not written into the gate or the
-specification yet; both files are guard-protected and that needs
-`MPB_ALLOW_GUARD_EDIT=1`.
+raising.
+
+**Corrected 2026-09-17: the last sentence of this section said the owner's new
+floors "are not written into the gate or the specification yet". They are, in
+both** — `check-coverage.sh` carries 95/95/95/95 with a 90 backstop, and
+`07-quality-and-testing.md`'s table carries the same with the `adapters` raise
+explained in its own row. The sentence was true when written and nobody came
+back to it. Same defect as the two it was describing, one level up.
+
+**And the denominator was measured rather than fixed.** `cargo-llvm-cov` turns
+out to be installed on this machine, so the deferral reason — the agent cannot
+iterate on a locally-unavailable tool — no longer holds. A direct transcription
+of LLVM's own `LineCoverageStats` was written and checked against the number
+`llvm-cov` reports for the same file: **it disagrees on 59 of 75 files, by 449
+lines**, always low, and macro expansion is not the cause (this workspace has
+none). So the gate was left alone, because replacing a denominator that is too
+kind by an unknown amount with one that is wrong by a known 4.4% is not an
+improvement, and F-40's own objection — a gate is the wrong place for an
+unvalidated reimplementation — now has a measurement behind it. Moving the
+in-`src/` test modules to `crates/*/tests/` is the recommendation.
+
+## Guarded-path edits made under the disclosed escape, 2026-09-17
+
+`docs/spec/11-agentic-sdlc.md` obliges this section whenever the enforcement
+layer is edited from inside a session. The session was started with
+`MPB_ALLOW_GUARD_EDIT=1` in the environment, deliberately, by the owner.
+
+**What was edited, and why:**
+
+| Path | Why |
+|---|---|
+| `.claude/hooks/arm-guard-edit.sh` *(new)* | Arms the escape from the human's own message instead of the environment (SE-081) |
+| `.claude/hooks/guard-protected-paths.sh` | Honours that marker, binds it to the session that armed it, refuses the marker and log unconditionally, and logs every write the escape permits |
+| `.claude/settings.json` | Registers the new `UserPromptSubmit` hook |
+| `.claude/hooks/test-hooks.sh` | Tests for the above; made hermetic; three assertions moved out of subshells that discarded their failures |
+| `scripts/run-fixture-matrix.sh` | DP-016(c): `expect_plan` tells a refusal from a plan that halts at manual review |
+| `scripts/check-links.sh` | F-47: the fence tracker, and a header that describes what the gate now enforces |
+| `scripts/test-gates.sh` *(new)* | The two gates' own constructed-input tests |
+| `scripts/validate.sh` | Runs them; stage count fourteen → fifteen |
+| `.claude/skills/add-mapping/`, `.claude/skills/add-doctor-check/` | Both recipes, each edited together with its `CONTRIBUTING.md` half |
+| `.codex/**`, `.agents/skills/**` | Regenerated from `.claude/` by `scripts/generate-codex-layer.sh` (DP-018) |
+
+**The escape now records itself.** Every write it permits is appended to
+`.claude/.guard-edit-log` with the time, the path and what armed it. That is new
+in this change, and it exists because a disclosure obligation discharged from
+memory is the agent's recollection wearing a record's clothes.
+
+**Two things about that log a reader should not be misled by.** It is
+git-ignored session state, not an artefact. And on its first run it recorded
+`stop-gate.sh`, `claude.yml` and `spec-guardian.md` — none of which were
+touched: those were `test-hooks.sh` feeding protected paths to the guard, under
+a session whose environment armed the escape. The suite now runs those cases
+against a scratch project root, so it cannot write into the real log again.
+Evidence a gate fabricates is worse than evidence it does not keep.
+
+**The escape armed itself once, from a subagent's report, and that is the most
+useful thing that happened here.** This section first claimed that only the
+human's message could arm the prompt route, because tool results and subagent
+output "never reach this event at all". A `spec-guardian` hand-back quoting the
+token — while reviewing this very mechanism — was relayed through the prompt
+channel and armed the guard on its first live firing. Nobody typed it. The
+marker stores an excerpt of what armed it, the excerpt read
+`<agent-message from=…>`, and that is how it was caught within the minute: the
+detection property this change was built around, working on its own author.
+The token must now sit on a line starting at column zero, which removes that
+route because the harness indents relayed output — **a filter resting on a
+formatting convention, not a boundary**, and written up as one.
+
+**One limitation, stated because the alternative is a reader over-trusting it.**
+The environment variable cannot be forged from inside a session; the prompt-armed
+marker can, by any session with a shell, because the path guard is `PreToolUse`
+on `Edit|Write|NotebookEdit` and never sees `Bash`. SE-081 states this in full.
+The marker is detection, not prevention.
+
+### What `spec-guardian` found, and what happened to each
+
+No Tier 1 violation and no charter change. Thirteen items; the ones that changed
+something:
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | **The weak half of the escape can manufacture the strong half.** `settings.local.json` sits *inside* the escape-guarded `case`, so an armed session can write an `env` block that arms every later session by the route the documentation calls prevention — in a git-ignored file no diff shows. Reproduced | **Raised as DP-020**, reversible default taken (nothing denied yet), and the claims in `arm-guard-edit.sh` and SE-081 corrected so neither asserts the immunity this defeats. The reviewer's own recommendation was an owner ruling rather than a quiet patch |
+| 2 | The INV-19 refusal's only test is not named `invariant_19_*`, so `grep -rn "fn invariant_"` never surfaces it — and all four existing INV-19 tests pass with the new refusal deleted | **Fixed.** Renamed `invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan` |
+| 3 | `expect_plan` accepted any outcome from any fixture, so the only MacPorts-source plan in the matrix became a refusal with nothing pinning it, and a broadened refusal would leave the matrix green | **Fixed.** Each fixture now declares what it owes, derived from the source provider. 193 → 198 checks |
+| 4 | "Strictly more than the old check asserted" is false — the old check required every plan invocation to emit a parseable document | **Fixed** both in the script header and the findings entry; finding 3 restores the property, so the corrected sentence is now true |
+| 5 | The F-47 index row still read "Open … the fix is written", while the body below it said fixed | **Fixed** |
+| 6 | The marker's third line is described as "free text"; the guard reads it into `ARMED_BY` and writes it to the log | **Fixed** |
+| 7 | The new Stop-gate stage names no line in `07-quality-and-testing.md`, which `11-agentic-sdlc.md` makes a MUST | **Fixed.** It maps to "Validation is mechanical, not remembered" |
+| 8 | SE-081 does not cross-reference SE-072 item 4, which owned this topic (SE-032) | **Fixed**, in both directions |
+| 10 | An *absent* `SERVICE_METADATA` is not `Unknown`, so a snapshot from a build predating the capability loads at the same schema version and leaves INV-19 silently unevaluated | **Recorded, not closed.** Closing it changes the snapshot contract, not this refusal |
+| 13 | `.gitignore` named the log exactly, so a variant spelling would be commit-visible | **Fixed** — `*` added, after exactly that happened with `.guard-edit-log.polluted` |
+
+Items 9, 11 and 12 needed nothing: 9 confirmed the exit-code contract is real and
+documented in three agreeing places, 11 was already fixed by the time it was
+read, and 12 was an unreproduced failure from a run concurrent with edits — the
+clean rerun is 153/153.
+
+### What `security-reviewer` found in it, and what happened to each
+
+The escape was reviewed before it was committed, which is the only reason most
+of this list is in the past tense. Nine findings; seven were real and are fixed,
+two were already true.
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | The disclosure log could be silenced without denying anything — `2>/dev/null \|\| true` swallowed a failed append, and `rm -f log && mkdir log` is one `Bash` command | **Fixed.** A permitted write that cannot be recorded is now denied. Detection is the whole of what the prompt route rests on, so a swallowed failure bought a *silent* enforcement-layer write |
+| 2 | The expiry was not fail-closed: `mpb_require_json_parser` exited before the disarm, so a message arriving with no `jq`/`python3` left the previous marker armed for the rest of the session. Nothing cleared it at session end either, and `--resume` keeps the `session_id` | **Fixed.** The delete is the first statement in the hook; `session-start.sh` deletes the marker too |
+| 3 | Four comments claimed more than the code did — including "no state that outlives the thing that justified it" and "the two settings files … are both refused by the path guard" (refused to three *tools*; `Bash` can append to `~/.claude/settings.json` and arm every future session) | **Fixed**, in the hook and in SE-081. The ninth false statement about what the code prevents in this pass, and the first caught before shipping |
+| 4 | `test-gates.sh` wrote to a fixed `/tmp` name and followed a symlink planted there — and this change had just wired it into `--quick`, so it ran at every turn end | **Fixed.** `mkdtemp`, like every other temporary path here |
+| 5 | The log had no field escaping: a path may contain a newline, `*` spans it, so a crafted path could close its own record and open a fabricated one | **Fixed.** Both fields squashed to one line |
+| 6 | Every permitted write was logged twice, because `check` runs on the path and on its canonical form | **Fixed** — found independently while reading the log, before the review returned |
+| 7 | `[ -f "$MARKER" ]` follows a symlink, so pointing the marker at a file the Write tool accepts turns "Bash per arming" into "Bash once". Marker written world-readable with 100 characters of the prompt | **Fixed.** Symlinked marker refused; `umask 077` |
+| 8 | `test-gates.sh` lifted a span of `check-links.sh` that included top-level `glob` code, so anything later added in that gap would execute inside a `--quick` stage | **Fixed.** The lift is now two `def` spans with checked anchors |
+| 9 | The `Edit\|Write\|NotebookEdit` matcher means any future file-writing tool bypasses the guard entirely; `.codex/` has no `UserPromptSubmit` wiring, so a Codex session never disarms a Claude marker | **Accepted, not fixed.** Both predate this change. The second is safe only because of the `session_id` binding, which makes that binding load-bearing rather than defence in depth — now said in the guard's own comment |
+
+Five of the seven fixes have a new case in `test-hooks.sh`: the parser-less
+disarm, the symlinked marker, the unrecordable write, one-write-one-line, and a
+newline in the path.
+
+**And one edit made outside the tools, disclosed here for the same reason.**
+Midway through restructuring `guard-protected-paths.sh` a half-applied edit left
+the file with a syntax error, so the hook failed closed on every subsequent
+`Edit` — including the one that would repair it. The repair was made with
+`Bash`. The authorisation was present and explicit the whole time, and the guard
+would have allowed the write had it been able to run; but it is exactly the
+route SE-081 names as the marker's weakness, so it is recorded rather than
+passed over.
 
 ## CI
 
