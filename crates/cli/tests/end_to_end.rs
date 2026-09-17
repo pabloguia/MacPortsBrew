@@ -850,6 +850,11 @@ fn a_replayed_run_is_not_sent_after_a_snapshot_it_never_had() {
 /// `analyze` works, and `plan` stops at `planner.rs`. `security-reviewer` found
 /// this and reproduced it; the claim had been written into four places.
 ///
+/// Migrating *away* from the home-rooted provider, so it is the source whose
+/// program `REMOVE_SOURCE` names — the case that matters, and the one DP-016's
+/// refusal leaves reachable: a MacPorts-source plan under replay is now refused
+/// earlier, for not being able to answer the service question.
+///
 /// No boundary refusal can produce this message, which is what makes the
 /// assertion a test of the planner rather than of the exit code. The F-09 test
 /// asserts exit 8, which the boundary already produces, so it could never have
@@ -924,7 +929,7 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
             "plan",
             "htop",
             "--to",
-            "homebrew",
+            "macports",
         ],
     );
     assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
@@ -2122,10 +2127,53 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // direction of failure, and the assertions above would still pass: they see
     // one summary line either way. Running both directions also exercises
     // INV-17: the same code renders both, and only the data differs.
+    //
+    // Through a snapshot rather than `--replay`, because DP-016(c) refuses a
+    // plan whose source cannot say whether its packages define services — and
+    // under replay MacPorts never can, since the scan will not read another
+    // machine's filesystem (F-25, F-29). The one thing patched is that
+    // capability, to what a live MacPorts machine reports; the binary, the
+    // planner and the rendering are the real ones, and this direction is the
+    // only place INV-06's *elevating* branch and INV-17's symmetry are
+    // asserted at all.
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path,
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "AVAILABLE" });
+    let answerable = scratch.path().join("answerable.json");
+    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
     let out = run(
         &scratch,
         &[
-            "--replay", path, "plan", "htop", "--to", "homebrew", "--today", TODAY,
+            "--from-snapshot",
+            answerable.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
         ],
     );
     let text = String::from_utf8_lossy(&out.stdout);

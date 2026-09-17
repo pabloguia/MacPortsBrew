@@ -151,6 +151,23 @@ impl ProviderCapabilities {
             Some(CapabilityState::Available)
         )
     }
+
+    /// True when detection was not possible — distinct from detected-absent.
+    ///
+    /// [`Self::has`] answers "may I use this", and for that question `Unknown`
+    /// and `Unavailable` are the same answer: no. They are not the same answer
+    /// to "may I conclude anything from its absence", and a caller that must
+    /// not mistake "I could not look" for "there is nothing there" needs this
+    /// one instead. An absent entry is `false`: a capability the adapter never
+    /// reported was not *unable* to be detected, it was never asked about.
+    ///
+    /// `Capability::ServiceMetadata` is why this exists. The adapter reports
+    /// `Unknown` under replay, `has` rendered that as "not a service", and
+    /// nothing else read it — an unknown no consumer distinguishes from a no is
+    /// an unknown in name only (F-29, DP-016).
+    pub fn is_unknown(&self, cap: Capability) -> bool {
+        matches!(self.capabilities.get(&cap), Some(CapabilityState::Unknown))
+    }
 }
 
 /// The provider's own record of what the user asked for.

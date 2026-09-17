@@ -66,6 +66,9 @@ run() { # <stdout-file> <args...>
 
 # Asserts the exit code, that stdout parses as JSON, and that it carries the
 # schema version the CLI contract promises.
+#
+# For `plan`, use `expect_plan` instead: two of its three outcomes share exit
+# code 4 and only one of them writes a document.
 expect_json() { # <label> <expected-codes-space-separated> <out-file> <rc>
   local label="$1" want="$2" out="$3" rc="$4"
   case " $want " in
@@ -79,6 +82,108 @@ expect_json() { # <label> <expected-codes-space-separated> <out-file> <rc>
   ok
   if [ "$(jq -r '.schemaVersion // empty' "$out")" != "1" ]; then
     fail "$label: schemaVersion is not 1"
+    return
+  fi
+  ok
+}
+
+# `plan` settles in one of three states, and the exit code does not separate
+# them because two of them are 4:
+#
+#   exit 0, document on stdout   a plan with no manual-review stop
+#   exit 4, document on stdout   a plan that stops at manual review
+#   exit 4, stdout empty         a refusal: no plan was built at all
+#
+# The first two are `Ok` from `run_inner`. The third is an `Err`, and `run`
+# (crates/cli/src/app/mod.rs) renders every `Err` to *stderr* as text - there
+# is no JSON error envelope anywhere in this program, under `--json` or not.
+# So "exit 4" alone cannot tell a built plan from a refused one, and
+# `expect_json` reported the refusal DP-016(c) added as "stdout is not JSON":
+# a true sentence about the wrong thing, on a run that behaved correctly.
+#
+# What separates them here is not a tolerance but the planner's own rule,
+# `Ok(if plan.requires_manual_review() { 4 } else { 0 })`, where
+# `requires_manual_review` is "any step is `MANUAL_REVIEW`". The exit code and
+# the steps array are therefore one fact stated twice, and this asserts they
+# agree *in both directions* - 4 without a stop, and 0 with one, are both
+# failures.
+#
+# Not "strictly more than the old check", which this comment claimed until a
+# reviewer measured it. `expect_json "0 4"` required *every* plan invocation to
+# emit a parseable document, and simply allowing an empty stdout at exit 4 drops
+# that. It is restored by the caller naming which outcome each fixture owes, so
+# a document is still required everywhere one is possible; the assertions above
+# are what is added on top. A non-empty stdout that does not parse stays a
+# failure either way.
+expect_plan() { # <label> <out-file> <err-file> <rc> <want: plan|refusal>
+  local label="$1" out="$2" err="$3" rc="$4" want="$5" stops
+  case "$rc" in
+    0 | 4) ok ;;
+    *)
+      fail "$label: exit $rc, expected 0 (plan), or 4 (plan stopping at manual review, or refusal)"
+      return
+      ;;
+  esac
+
+  # Which of the two the *caller* says this fixture must produce. Without it
+  # `expect_plan` accepted any outcome from any fixture, and the old
+  # `expect_json "0 4"` had asserted something this did not: that every plan
+  # invocation emits a parseable document. A refusal broadened by a regression -
+  # keyed on the destination instead of the source, say - would then turn every
+  # fixture into a refusal and leave the matrix green.
+  if [ "$want" = "refusal" ] && [ -s "$out" ]; then
+    fail "$label: a plan was built, and this fixture cannot answer the service question so it must be refused"
+    return
+  fi
+  if [ "$want" = "plan" ] && [ ! -s "$out" ]; then
+    fail "$label: refused, and this fixture has the facts to be planned"
+    return
+  fi
+  ok
+
+  if [ ! -s "$out" ]; then
+    # No document: a refusal. Only exit 4 may produce one - an exit 0 that
+    # wrote nothing is a command that silently did nothing.
+    if [ "$rc" != "4" ]; then
+      fail "$label: exit $rc wrote no plan; only a refusal (exit 4) may write none"
+      return
+    fi
+    ok
+    # A refusal that says nothing leaves the user with an exit code and no
+    # reason, which is the failure mode 06-cli-and-ux.md exists to prevent.
+    if [ ! -s "$err" ]; then
+      fail "$label: refused with exit 4 and wrote nothing to stderr"
+      return
+    fi
+    ok
+    return
+  fi
+
+  # A document: it must be JSON, carry the schema version, and its stops must
+  # agree with the exit code.
+  if ! jq -e . "$out" >/dev/null 2>&1; then
+    fail "$label: stdout is not JSON"
+    return
+  fi
+  ok
+  if [ "$(jq -r '.schemaVersion // empty' "$out")" != "1" ]; then
+    fail "$label: schemaVersion is not 1"
+    return
+  fi
+  ok
+  stops="$(jq '[.steps[]? | select(.kind == "MANUAL_REVIEW")] | length' "$out")"
+  if [ "$rc" = "4" ] && [ "$stops" = "0" ]; then
+    fail "$label: exit 4 on a plan with no MANUAL_REVIEW step"
+    return
+  fi
+  if [ "$rc" = "0" ] && [ "$stops" != "0" ]; then
+    fail "$label: exit 0 on a plan with $stops MANUAL_REVIEW step(s)"
+    return
+  fi
+  ok
+  # A built plan goes to stdout, so nothing is left to say on stderr.
+  if [ -s "$err" ]; then
+    fail "$label: a plan was written and stderr is not empty: $(head -c 200 "$err")"
     return
   fi
   ok
@@ -132,10 +237,19 @@ for fixture in fixtures/recordings/*.json; do
     run "$tmp/explain.json" --replay "$fixture" --json explain "$pkg" --today "$TODAY" && rc=0 || rc=$?
     expect_json "explain $pkg" "0" "$tmp/explain.json" "$rc"
 
-    # 4 is the safety-check code: a plan that stops at manual review
-    # (06-cli-and-ux.md). Both answers are correct; anything else is not.
+    # Which outcome this fixture owes, derived from the source rather than from
+    # the fixture's name so it stays true as fixtures are added. A MacPorts
+    # source cannot answer whether its packages define services under `--replay`
+    # - the scan will not read a filesystem that is not the recorded machine's
+    # (F-25, F-29) - so DP-016(c) refuses rather than let INV-19's rule be
+    # silently unevaluated. Every other source has the fact and gets a plan.
+    want="plan"
+    [ "$src" = "macports" ] && want="refusal"
+
+    # Three correct outcomes, two of which are exit 4; `expect_plan` tells them
+    # apart and holds the fixture to the one it owes.
     run "$tmp/plan.json" --replay "$fixture" --json plan "$pkg" --to "$dest" --today "$TODAY" && rc=0 || rc=$?
-    expect_json "plan $pkg -> $dest" "0 4" "$tmp/plan.json" "$rc"
+    expect_plan "plan $pkg -> $dest" "$tmp/plan.json" "$tmp/stderr" "$rc" "$want"
   else
     echo "  (no package unit: explain and plan skipped)"
   fi

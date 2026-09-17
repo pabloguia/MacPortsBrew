@@ -60,6 +60,19 @@ pub enum ErrorId {
     PolicyDataInvalid,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
     SafetyBlocked,
+    /// A safety rule could not be evaluated, because the input does not carry
+    /// the fact it needs.
+    ///
+    /// Separate from [`ErrorId::SafetyBlocked`] for the reason
+    /// [`ErrorId::RecordingUnusable`] is separate from
+    /// [`ErrorId::SnapshotUnusable`] — the remediation. `SafetyBlocked` means a
+    /// rule fired and the user can read the finding, resolve it and re-run.
+    /// Here no rule fired and nothing the user does resolves it: the fact is
+    /// absent from the document, so there is no plan to correct. Same exit code
+    /// 4, because `06-cli-and-ux.md:67` is the category "blocked by a safety
+    /// check" and being unable to run one is why this operation stopped
+    /// (DP-016).
+    SafetyUnverifiable,
     /// The operation exists in the specification but not in this build
     /// (the foundation pass ships no mutating code path).
     NotImplementedInThisPass,
@@ -74,7 +87,7 @@ impl ErrorId {
     pub fn exit_code(self) -> i32 {
         match self {
             ErrorId::Usage => 2,
-            ErrorId::SafetyBlocked => 4,
+            ErrorId::SafetyBlocked | ErrorId::SafetyUnverifiable => 4,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
             | ErrorId::ProviderOutputChanged
@@ -106,6 +119,7 @@ impl ErrorId {
             ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::SafetyBlocked => "error.safety_blocked",
+            ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
             ErrorId::Io => "error.io",
             ErrorId::Internal => "error.internal",
@@ -127,6 +141,7 @@ impl ErrorId {
             ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
             ErrorId::SafetyBlocked,
+            ErrorId::SafetyUnverifiable,
             ErrorId::NotImplementedInThisPass,
             ErrorId::Io,
             ErrorId::Internal,
@@ -176,6 +191,9 @@ mod tests {
     fn exit_codes_follow_the_contract() {
         assert_eq!(ErrorId::Usage.exit_code(), 2);
         assert_eq!(ErrorId::SafetyBlocked.exit_code(), 4);
+        // Same bucket, deliberately: a safety rule that cannot be evaluated is
+        // why the operation stopped, which is what category 4 names (DP-016).
+        assert_eq!(ErrorId::SafetyUnverifiable.exit_code(), 4);
         assert_eq!(ErrorId::ProviderUnhealthy.exit_code(), 5);
         assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
         // Same bucket, deliberately: `06-cli-and-ux.md:68` is "8 stale/unusable
@@ -218,7 +236,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 15;
+    const NUMBER_OF_ERROR_IDS: usize = 16;
 
     #[test]
     fn every_id_has_a_distinct_message() {

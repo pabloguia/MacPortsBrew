@@ -154,6 +154,39 @@ pub fn build_plan(
             format!("{} is already held by {}", unit.name, request.to),
         ));
     };
+    // DP-016(c). INV-19 forces `MANUAL_REVIEW` on a service package, and
+    // `classify` decides that from `metadata.defines_service` — a bool that the
+    // source provider fills. Where the adapter could not look, it reports
+    // `Capability::ServiceMetadata: Unknown` and that bool is `false`, so the
+    // rule silently does not fire and the plan looks ordinary. Under `--replay`
+    // that is every MacPorts package, because the scan answers `Unreadable`
+    // wherever this host's filesystem is not the machine being described (F-25,
+    // F-29).
+    //
+    // The owner ruled (c): refuse the plan rather than weaken the rule. (a) —
+    // treat `Unknown` as a service and force review — would have made every
+    // replayed MacPorts plan a `MANUAL_REVIEW`, which costs `--replay` the one
+    // thing it exists to demonstrate. Closing the path that needs the missing
+    // fact costs only that path: `analyze`, `status` and `explain` never ask
+    // this question and keep working.
+    //
+    // Asked of the **source**, because that is whose metadata classifies the
+    // package being moved. A destination that cannot answer says nothing about
+    // what is being removed.
+    if snapshot.providers.get(&source).is_some_and(|p| {
+        p.capabilities
+            .is_unknown(macportsbrew_domain::Capability::ServiceMetadata)
+    }) {
+        return Err(DomainError::new(
+            ErrorId::SafetyUnverifiable,
+            format!(
+                "this input does not record whether {source} packages define services, so the \
+                 rule that forces manual review for a service package cannot be evaluated for \
+                 {}",
+                unit.name
+            ),
+        ));
+    }
     // Whether the destination already has it decides the shape of the plan
     // rather than whether there is one: consolidating onto a provider that
     // already holds the package is a removal from the other side, not an

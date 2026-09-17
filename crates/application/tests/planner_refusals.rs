@@ -22,10 +22,11 @@
 
 use macportsbrew_application::{build_plan, explain_package, AnalysisOptions, PlanRequest};
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, EnvironmentSnapshot, ErrorId, InstalledPackage, Machine,
-    MacosVersion, PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
-    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
-    RequestedSet, Snapshot, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot, ErrorId,
+    InstalledPackage, Machine, MacosVersion, PackageIdentity, PackageKind, PackageMetadata,
+    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
+    ProviderPresence, ProviderSnapshot, RequestedSet, Snapshot, Translation, Version,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -336,5 +337,73 @@ fn every_curated_name_is_one_the_planner_would_accept() {
         compared_against_a_real_list > 0,
         "no curated name was compared against a non-empty reserved-word list, so \
          this test's reserved half asserted nothing"
+    );
+}
+
+/// DP-016(c): a plan is refused when the source cannot say whether its packages
+/// define services, because INV-19's protection would be silently absent.
+///
+/// `classify` reads `metadata.defines_service`, a bool the source provider
+/// fills. Where the adapter could not look it reports
+/// `Capability::ServiceMetadata: Unknown` and that bool is `false`, so
+/// `PackageClass::Service` is never added and the rule that forces
+/// `MANUAL_REVIEW` never fires — on a plan that looks entirely ordinary. Under
+/// `--replay` that is every MacPorts package (F-25, F-29).
+///
+/// The owner ruled (c) over (a): refuse the plan rather than treat `Unknown` as
+/// a service, because (a) would make every replayed MacPorts plan a
+/// `MANUAL_REVIEW` and cost `--replay` the thing it exists to demonstrate.
+///
+/// Four cases, because the refusal has to be *narrow* to be worth having: the
+/// two that decide it, the one that proves the question is asked of the source,
+/// and the one that keeps "never asked" from meaning "could not look".
+#[test]
+fn invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan() {
+    let with = |snap: &mut Snapshot, provider: &str, state: CapabilityState| {
+        snap.providers
+            .get_mut(&ProviderId::new(provider))
+            .expect("provider")
+            .capabilities
+            .capabilities
+            .insert(Capability::ServiceMetadata, state);
+    };
+
+    // Unknown on the source: refused, and the refusal names what is missing.
+    let mut snap = both(&[("wget", None)], &[]);
+    with(&mut snap, HB, CapabilityState::Unknown);
+    let (id, detail) = plan_for(&snap, "wget", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::SafetyUnverifiable);
+    assert!(
+        detail.contains("service") && detail.contains("wget"),
+        "the refusal must say which fact is missing and for what: {detail}"
+    );
+
+    // Available on the source: planning is untouched. Without this the test
+    // would pass just as well if the refusal were unconditional.
+    let mut snap = both(&[("wget", None)], &[]);
+    with(&mut snap, HB, CapabilityState::Available);
+    assert!(
+        plan_for(&snap, "wget", MP).is_ok(),
+        "a source that can answer still plans"
+    );
+
+    // Unknown on the *destination* only. The question is about the package being
+    // moved, which the source classifies; a destination that cannot answer says
+    // nothing about it.
+    let mut snap = both(&[("wget", None)], &[]);
+    with(&mut snap, HB, CapabilityState::Available);
+    with(&mut snap, MP, CapabilityState::Unknown);
+    assert!(
+        plan_for(&snap, "wget", MP).is_ok(),
+        "the destination's ignorance is not about the package being removed"
+    );
+
+    // Absent entirely, which is what every other test in this file carries.
+    // "Never reported" is not "could not be detected", and reading it as the
+    // latter would refuse every plan built from a hand-made snapshot.
+    let snap = both(&[("wget", None)], &[]);
+    assert!(
+        plan_for(&snap, "wget", MP).is_ok(),
+        "a capability nobody reported was never asked about, not undetectable"
     );
 }
