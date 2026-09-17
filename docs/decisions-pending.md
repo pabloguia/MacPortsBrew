@@ -11,59 +11,6 @@ are recorded.
 
 ## Open
 
-### DP-020 — The weak half of the guard-edit escape can manufacture the strong half, in a file no diff shows
-
-- **Raised 2026-09-17 by `spec-guardian`, reviewing SE-081, and reproduced.**
-- **The question:** should `*/.claude/settings.json` and
-  `*/.claude/settings.local.json` move into `guard-protected-paths.sh`'s
-  **unconditional** deny list, beside the escape's own marker and log?
-- **Why it is not already obvious.** Today both sit *inside* the escape-guarded
-  `case`, so a session that is armed may write them. A settings file's `env`
-  block reaches hook processes. So a session armed by the route SE-081 calls
-  detection — a prompt, which an agent can forge with one `Bash` redirect — can
-  write `"env": {"MPB_ALLOW_GUARD_EDIT": "1"}` into `.claude/settings.local.json`
-  and arm **every session after it** by the route SE-081 calls prevention: no
-  marker, no prompt, no author, and log lines that read "the
-  MPB_ALLOW_GUARD_EDIT=1 environment variable". `settings.local.json` is
-  git-ignored, so none of it appears in a diff. Verified against the current
-  hook: a `Write` to that path under an armed marker returns no denial.
-- **Why it is yours.** Both routes out cost something real, and the cost is the
-  kind this project makes the owner pay rather than an agent.
-  - **Deny unconditionally.** Closes it. But `settings.json` is how this
-    session's own hook was registered, and an agent could then never change
-    either file through `Edit` — every settings change becomes a `Bash` write
-    (unguarded, so the gap merely moves) or a task for you outside a session.
-  - **Leave it, documented.** No friction, and the escalation stays reachable.
-    It is at least *recorded* now, in SE-081 and here, and the disclosure log
-    catches the write that starts it — provided anyone reads the log.
-  - **Deny `settings.local.json` only.** It is git-ignored personal state with
-    no legitimate in-session need, and it is the file the escalation actually
-    wants. `settings.json` stays editable. Narrower, and it leaves the same hole
-    one file over.
-- **Recommendation: the third option.** What makes this dangerous is not the
-  write, it is the *invisibility*. A change to `settings.json` is committable
-  and shows up in review — it is a change that ought to be reviewed, and it
-  still can be. A change to `settings.local.json` appears nowhere. Denying the
-  git-ignored one removes the invisibility without removing the legitimate
-  capability, and registering a hook — the thing option (a) would cost — stays
-  possible and stays visible. Stated plainly so it is not over-read: this closes
-  the accidental route and the Edit/Write route, and closes nothing else.
-  `Bash` writes either file regardless, since it never reaches this guard, and
-  no option here changes that.
-- **The reversible default taken, and it is the recommendation's opposite:**
-  nothing was changed in the deny list, because documenting first and tightening
-  later is reversible, while tightening first and discovering an agent cannot
-  register a hook is a session you have to rescue. Reproduced twice, once by
-  `spec-guardian` and once directly: under an armed marker a `Write` to either
-  settings file returns no denial, while the marker itself is refused. Documenting first and tightening later
-  is reversible; tightening first and discovering an agent cannot register a
-  hook is a session you have to rescue. The claim in `arm-guard-edit.sh` and
-  SE-081 has been corrected so neither now asserts the immunity this defeats.
-- **A cheaper mitigation worth ruling on at the same time:** the `Bash` guard
-  has no path rule for settings files at all (checked: 105 deny rules, none
-  naming `.claude`). A `Bash` deny would not close the `Edit` route above, and
-  the reverse is also true — they are two separate holes into one file.
-
 ### DP-019 — DP-008 was decided without its cost, and the cost is a second certificate plus a billed runner
 
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two
@@ -106,6 +53,71 @@ are recorded.
   what is documented and because reversing it costs nothing while nothing ships.
 
 ## Resolved
+
+### DP-020 — The weak half of the guard-edit escape can manufacture the strong half, in a file no diff shows — **RESOLVED 2026-09-17: option (c), deny the git-ignored half and leave the committed one openable**
+
+- **Raised 2026-09-17 by `spec-guardian`, reviewing SE-081, and reproduced.**
+- **The question:** should `*/.claude/settings.json` and
+  `*/.claude/settings.local.json` move into `guard-protected-paths.sh`'s
+  **unconditional** deny list, beside the escape's own marker and log?
+- **Why it is not already obvious.** Today both sit *inside* the escape-guarded
+  `case`, so a session that is armed may write them. A settings file's `env`
+  block reaches hook processes. So a session armed by the route SE-081 calls
+  detection — a prompt, which an agent can forge with one `Bash` redirect — can
+  write `"env": {"MPB_ALLOW_GUARD_EDIT": "1"}` into `.claude/settings.local.json`
+  and arm **every session after it** by the route SE-081 calls prevention: no
+  marker, no prompt, no author, and log lines that read "the
+  MPB_ALLOW_GUARD_EDIT=1 environment variable". `settings.local.json` is
+  git-ignored, so none of it appears in a diff. Verified against the current
+  hook: a `Write` to that path under an armed marker returns no denial.
+- **Why it is yours.** Both routes out cost something real, and the cost is the
+  kind this project makes the owner pay rather than an agent.
+  - **Deny unconditionally.** Closes it. But `settings.json` is how this
+    session's own hook was registered, and an agent could then never change
+    either file through `Edit` — every settings change becomes a `Bash` write
+    (unguarded, so the gap merely moves) or a task for you outside a session.
+  - **Leave it, documented.** No friction, and the escalation stays reachable.
+    It is at least *recorded* now, in SE-081 and here, and the disclosure log
+    catches the write that starts it — provided anyone reads the log.
+  - **Deny `settings.local.json` only.** It is git-ignored personal state with
+    no legitimate in-session need, and it is the file the escalation actually
+    wants. `settings.json` stays editable. Narrower, and it leaves the same hole
+    one file over.
+- **Recommendation: the third option.** What makes this dangerous is not the
+  write, it is the *invisibility*. A change to `settings.json` is committable
+  and shows up in review — it is a change that ought to be reviewed, and it
+  still can be. A change to `settings.local.json` appears nowhere. Denying the
+  git-ignored one removes the invisibility without removing the legitimate
+  capability, and registering a hook — the thing option (a) would cost — stays
+  possible and stays visible. Stated plainly so it is not over-read: this closes
+  the accidental route and the Edit/Write route, and closes nothing else.
+  `Bash` writes either file regardless, since it never reaches this guard, and
+  no option here changes that.
+- **The default taken while this was open, and it was the recommendation's
+  opposite:** nothing was changed in the deny list, because documenting first
+  and tightening later is reversible, while tightening first and discovering an
+  agent cannot register a hook is a session you have to rescue. Reproduced
+  twice, once by `spec-guardian` and once directly: under an armed marker a
+  `Write` to either settings file returned no denial, while the marker itself
+  was refused.
+- **A cheaper mitigation worth ruling on at the same time:** the `Bash` guard
+  has no path rule for settings files at all (checked: 105 deny rules, none
+  naming `.claude`). A `Bash` deny would not close the `Edit` route above, and
+  the reverse is also true — they are two separate holes into one file.
+
+- **Resolved 2026-09-17 on the owner's ruling**, as recommended.
+  `*/.claude/settings.local.json` moved into `guard-protected-paths.sh`'s
+  unconditional deny list and out of the escape-guarded one, so it is refused
+  whether the escape is armed or not, and by either arming route.
+  `*/.claude/settings.json` stays in the escape-guarded list: a change to it is
+  committed and reviewable, and registering a hook is something a session
+  legitimately does. The asymmetry is the ruling, so `test-hooks.sh` asserts
+  both halves rather than only the denial.
+- **What it does not do, recorded so the next reader does not over-read it.**
+  It closes the accidental route and the `Edit|Write|NotebookEdit` route.
+  `Bash` never reaches this guard, so it writes either settings file exactly as
+  it can write the marker; no arrangement of this deny list changes that. The
+  claim in `arm-guard-edit.sh` is rewritten to say which half is closed.
 
 ### DP-016 — Under replay, no package is known to be a service, and `MANUAL_REVIEW` will not fire — **RESOLVED 2026-09-16: option (c), refuse the plan rather than weaken the rule**
 

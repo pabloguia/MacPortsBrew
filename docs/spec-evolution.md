@@ -4032,12 +4032,23 @@ finding ids in each entry.
 - **A claim this entry made and a reviewer disproved, kept here because the
   correction is the useful part.** It first said the variable is beyond reach
   altogether, "because the two settings files whose `env` block would reach a
-  hook are both in the guard's deny list". They are — to `Edit`, `Write` and
-  `NotebookEdit`, and to nothing else. Appending an `env` block to
-  `~/.claude/settings.json` with `Bash` arms every *future* session in the
-  stronger mode, by the weaker route. The gap predates this change; what this
-  change did was make the claim load-bearing. Ninth false statement about what
-  the code prevents in this pass, and the first caught before it shipped. Naming the marker in the deny list stops the Edit and
+  hook are both in the guard's deny list". They were — to `Edit`, `Write` and
+  `NotebookEdit`, and to nothing else, and only while the escape was *unarmed*.
+  So an armed session could write an `env` block and grant itself the variable
+  for every session afterwards: the weak half manufacturing the strong one.
+  Ninth false statement about what the code prevents in this pass, and the first
+  caught before it shipped.
+- **Resolved as DP-020, on the owner's ruling, option (c).**
+  `*/.claude/settings.local.json` is now in the guard's **unconditional** deny
+  list, refused armed or not and by either arming route.
+  `*/.claude/settings.json` stays escape-guarded, because a change to it is
+  committed and reviewable and registering a hook is something a session
+  legitimately does. The deciding difference is visibility, not the write: the
+  git-ignored file is the one whose escalation would appear in no diff at all.
+  `test-hooks.sh` asserts both halves, since the asymmetry *is* the ruling.
+  This closes the accidental route and the `Edit|Write|NotebookEdit` route and
+  nothing else — `Bash` never reaches this guard, so it writes either settings
+  file exactly as it writes the marker. Naming the marker in the deny list stops the Edit and
   Write tools and nothing else, and no secret can fix this, because whatever
   would authenticate the marker has to be readable by the guard and is therefore
   readable by the agent. So: the variable is **prevention**, the marker is

@@ -480,6 +480,19 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
   assert "the marker itself is never writable" "$P" deny  "$(edit_session_input "$MARK" S1)"
   assert "the log itself is never writable"    "$P" deny  "$(edit_session_input "$LOG" S1)"
 
+  # DP-020: the escape's weak half must not be able to manufacture its strong
+  # half. `settings.local.json` carries an `env` block that reaches hook
+  # processes, and it is git-ignored, so writing it under the marker would arm
+  # every later session by the environment-variable route with nothing in any
+  # diff to show for it. Refused whether or not the escape is armed.
+  assert "local settings denied while armed"   "$P" deny \
+    "$(edit_session_input "$SANDBOX/.claude/settings.local.json" S1)"
+  # The other half of the same ruling, asserted rather than left to the reader:
+  # `settings.json` stays writable under the escape, because a change to it is
+  # committed and reviewable. The asymmetry *is* the decision.
+  assert "committed settings stay openable"    "$P" allow \
+    "$(edit_session_input "$SANDBOX/.claude/settings.json" S1)"
+
   # Disarming: the next message without the token clears it. This is the whole
   # of the expiry - no timer, rewritten by the event that defines the boundary.
   assert "a message without the token"        "$A" exit0  "$(prompt_input "carry on then")"

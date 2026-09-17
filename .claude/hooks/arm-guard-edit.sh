@@ -41,15 +41,22 @@
 # change its own environment.
 #
 # It is NOT true that the variable is beyond reach altogether, and the first
-# version of this comment said so. The two settings files whose `env` block
-# would reach a hook process are refused by the path guard - to `Edit`, `Write`
-# and `NotebookEdit`, and to nothing else. `Bash` does not reach that guard, so
-# appending an `env` block to `~/.claude/settings.json` arms **every future
-# session**, in the stronger of the two modes, from the weaker route. That gap
-# is older than this hook; what is new is that this hook made the claim
-# load-bearing, so it is stated rather than left flattering. The same pass
-# report once claimed this immunity without checking it, and the guard already
-# carries the correction.
+# version of this comment said so. A settings file's `env` block reaches hook
+# processes, so writing one is how a session grants itself the variable - for
+# every session after it.
+#
+# Half of that is now closed and half is not, and the split is deliberate
+# (DP-020). `settings.local.json` is refused unconditionally, armed or not,
+# because it is git-ignored: the escalation through it would appear in no diff
+# at all. `settings.json` stays writable under the escape, because a change to
+# it is committed and reviewable, and registering a hook is a thing a session
+# legitimately does.
+#
+# Neither closes the `Bash` route. This guard is PreToolUse on
+# Edit|Write|NotebookEdit and never sees a shell, so `cat >> ~/.claude/
+# settings.json` still arms every future session in the stronger mode from the
+# weaker route. That gap is older than this hook; what this hook did was make
+# the claim load-bearing, which is why it is stated rather than left flattering.
 #
 # **The agent CAN forge this marker.** It is a file, and the agent has a shell.
 # `guard-protected-paths.sh` is a PreToolUse hook on Edit|Write|NotebookEdit, so

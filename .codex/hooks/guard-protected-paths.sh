@@ -147,6 +147,28 @@ check() {
   # writer nothing. It also stops nothing else - `Bash` does not reach this
   # hook, which is the limitation `arm-guard-edit.sh` states in full.
   case "$1" in
+    # DP-020, resolved: the weak half of the escape could manufacture the
+    # strong half. A session armed by the marker - which an agent can write
+    # with one `Bash` redirect - could write `"env": {"MPB_ALLOW_GUARD_EDIT":
+    # "1"}` here, and every later session would then start armed by the route
+    # SE-081 calls *prevention*, with no marker, no prompt and no author, its
+    # log lines reading "the MPB_ALLOW_GUARD_EDIT=1 environment variable".
+    #
+    # This file rather than `settings.json` because the deciding difference is
+    # visibility, not the write. `settings.json` is committed: changing it shows
+    # up in a diff and can be reviewed, which is why registering a hook is still
+    # something a session can do. `settings.local.json` is git-ignored, so the
+    # same escalation appears nowhere at all - and it is personal, local state
+    # with no reason for an agent to be editing it mid-session.
+    #
+    # What this does NOT do, said here so the next reader does not over-read it:
+    # it closes the accidental route and the Edit|Write|NotebookEdit route. It
+    # closes nothing else. `Bash` writes this file without ever reaching this
+    # hook, exactly as it can write the marker, and no arrangement of this deny
+    # list changes that.
+    */.claude/settings.local.json)
+      mpb_deny "PreToolUse" "Blocked: $1 carries an \`env\` block that reaches hook processes, so writing it is how a session grants itself the environment-variable form of the guarded-path escape - permanently, for every session after this one, and in a file git ignores so the change appears in no diff (DP-020). This refusal holds whether or not the escape is armed. \`settings.json\` is still editable under the escape because a change there is committed and reviewable; if that is what you meant, write that file instead." ;;
+
     */.claude/.guard-edit-marker|*/.claude/.guard-edit-log)
       mpb_deny "PreToolUse" "Blocked: $1 is the guarded-path escape's own marker or its disclosure log, written by .claude/hooks/arm-guard-edit.sh from the human's message and read by this guard. Editing it would be a session authorising its own writes, or rewriting the record of having done so. This refusal covers the Edit, Write and NotebookEdit tools and nothing else - it is not a claim that the file cannot be reached; see arm-guard-edit.sh for what that does and does not buy. Arm the escape by putting MPB_ALLOW_GUARD_EDIT=1 in a message, or start the session with it set in the environment." ;;
   esac
@@ -186,12 +208,16 @@ check() {
       # tree that is itself guarded, and an input weaker than its output is
       # the asymmetry backwards.
       #
-      # `settings.local.json` is here because the pass report claimed the
-      # agent *could not* set `MPB_ALLOW_GUARD_EDIT` itself. It could: a
-      # settings file's `env` block reaches hook processes and only the
-      # committed `settings.json` was matched. The report is corrected and so
-      # is the pattern.
-    */.claude/hooks/*|*/.claude/settings.json|*/.claude/settings.local.json|*/.claude/agents/*|*/.claude/skills/*|*/scripts/*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
+      # `settings.local.json` was here, added because the pass report claimed
+      # the agent could not set `MPB_ALLOW_GUARD_EDIT` itself - it could, since
+      # a settings file's `env` block reaches hook processes and only the
+      # committed `settings.json` was matched. It has moved *above*, into the
+      # unconditional list: being refused only while the escape was unarmed
+      # meant an armed session could still write it, and writing it is how the
+      # escape's weak half manufactures its strong half (DP-020).
+      # `settings.json` stays here, refusable-but-openable, because a change to
+      # it is committed and reviewable.
+    */.claude/hooks/*|*/.claude/settings.json|*/.claude/agents/*|*/.claude/skills/*|*/scripts/*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
       if [ -z "$ARMED_BY" ]; then
         mpb_deny "PreToolUse" "Blocked: $1 is part of the enforcement layer that is meant to constrain this session, so changing it from inside the session defeats it. If the change is intended, the human authorises it - either by putting MPB_ALLOW_GUARD_EDIT=1 in a message, which arms it for that message alone, or by starting the session with it set in the environment - and the end-of-pass report says what was edited and why, the same disclosed-escape pattern as MPB_SKIP_STOP_GATE. See docs/spec/11-agentic-sdlc.md."
       fi
