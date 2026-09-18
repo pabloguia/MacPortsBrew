@@ -4113,3 +4113,33 @@ finding ids in each entry.
   enforcement layer's escape is now detective rather than preventive on one of
   its two routes, and `11-agentic-sdlc.md`'s disclosure requirement carries
   correspondingly more weight.
+
+## SE-082 — The enforcement layer is a property of the harness, not of the checkout
+
+- Status: accepted
+- Date / Pass: 2026-09-18 / 02-ARCHITECTURE-REVIEW
+- Original assumption: `11-agentic-sdlc.md` described the guards, the escape and
+  the `Stop` gate as things this repository has. It never said *where* they run,
+  and DP-018 had already established there is more than one harness.
+- Change: `11-agentic-sdlc.md` now states plainly that the guards are Claude Code
+  hooks plus the generated `.codex/` layer, and names which surfaces read them —
+  the terminal CLI, the IDE extensions and the desktop app's `Code` tab, which
+  bundles Claude Code; and not the same app's ordinary chat surface, which is a
+  different product and runs none of it.
+- Rationale: the question came up because a session ended with the owner moving
+  to the desktop app, and the honest answer at that moment was "I have not
+  checked". Checking took one fetch and the answer is reassuring — but the
+  reassuring half and the dangerous half live in the same application, one tab
+  apart, and nothing in a checkout distinguishes them. An absent guard is silent,
+  which is the shape of F-12 (a CI job that never ran) and F-42 (a second
+  harness whose guards were weaker), and both of those cost a pass to find.
+- Evidence: code.claude.com/docs/en/overview, read 2026-09-18 — "A standalone app
+  for running Claude Code outside your IDE or terminal … The app includes Claude
+  Code, so you don't need to install the CLI separately."
+- Also corrected in the same row: the path list described the escape as covering
+  `scripts/validate.sh` and `scripts/check-*.sh`, while the guard denies every
+  `scripts/*.sh` plus `.claude/agents/`, `.claude/skills/`, `.codex/` and
+  `.agents/skills/`. The narrow spelling is what left `generate-codex-layer.sh`
+  unguarded once already (F-45).
+- User impact: none; this is agent tooling. Architectural impact: none. It makes
+  a precondition explicit that was being relied on without being stated.

@@ -475,6 +475,17 @@ a session whose environment armed the escape. The suite now runs those cases
 against a scratch project root, so it cannot write into the real log again.
 Evidence a gate fabricates is worse than evidence it does not keep.
 
+**A note for whoever runs the next pass, because it cost a red gate here.**
+`.agents/skills/tooling-recheck/` was recreated by a concurrent session in this
+repository six times over this pass, the last of them *between* a green
+`validate` and the commit that followed it — so the gate was briefly red for a
+reason that had nothing to do with the change being committed, and nothing in
+the working tree said which session had done it. `scripts/generate-codex-layer.sh`
+removes it in seconds; the generator declines to produce that one skill on
+purpose, because its subject is Claude Code and it means nothing in the Codex
+harness (the generator says so at its own line 184). Worth knowing before
+debugging it as a defect in the change under test.
+
 **The escape armed itself once, from a subagent's report, and that is the most
 useful thing that happened here.** This section first claimed that only the
 human's message could arm the prompt route, because tool results and subagent

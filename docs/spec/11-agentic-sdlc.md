@@ -97,7 +97,30 @@ paths exist.
 | `rustup default|override|toolchain`, `cargo install` | ADR-0002. The pinned toolchain is what holds the macOS floor. |
 | `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet, so the first push is the owner's act of publishing. Both a bare `git push` and `git push <args>`: a rule ending in ` *` needs the argument. |
 | `rust-toolchain.toml`, `docs/spec/01-invariants.md` | ADR-0002 and Tier 1. The `rustup` rule tells the agent to change the pin in the file instead of the active toolchain, which made the file the unguarded path to the same outcome. |
-| The enforcement layer itself — `.claude/hooks/`, `.claude/settings.json`, `scripts/validate.sh`, `scripts/check-*.sh`, `.github/workflows/` | A control that a session can edit is a control that session can switch off, and the gate can only detect that its own path changed, never prevent it. `MPB_ALLOW_GUARD_EDIT=1` is the disclosed escape, on the same terms as `MPB_SKIP_STOP_GATE`. It is armed two ways, and they differ: set in the environment before the session starts it cannot be forged from inside, while the same literal in a user message arms it for **that message only** through a `UserPromptSubmit` hook — which a session with a shell could write itself, making that route detective rather than preventive. Both append every write they permit to `.claude/.guard-edit-log`, and the report cites it (SE-081). |
+| The enforcement layer itself — `.claude/hooks/`, `.claude/settings.json`, `.claude/agents/`, `.claude/skills/`, **every** `scripts/*.sh`, `.github/workflows/`, and the generated `.codex/` and `.agents/skills/` | A control that a session can edit is a control that session can switch off, and the gate can only detect that its own path changed, never prevent it. `MPB_ALLOW_GUARD_EDIT=1` is the disclosed escape, on the same terms as `MPB_SKIP_STOP_GATE`. It is armed two ways, and they differ: set in the environment before the session starts it cannot be forged from inside, while the same literal in a user message arms it for **that message only** through a `UserPromptSubmit` hook — which a session with a shell could write itself, making that route detective rather than preventive. Both append every write they permit to `.claude/.guard-edit-log`, and the report cites it (SE-081). |
+
+**MUST** be stated wherever the enforcement layer is described: **it is not a
+property of the repository, it is a property of the harness reading it.** The
+guards are Claude Code hooks declared in `.claude/settings.json`, plus the
+`.codex/` layer generated from them (DP-018). A surface that does not read those
+files runs none of it — no path guard, no provider-mutation guard, no `Stop`
+gate — and nothing in the checkout would say so.
+
+Which surfaces do, as of 2026-09-18 (code.claude.com/docs/en/overview):
+
+- **The terminal CLI** and **the IDE extensions**, which are Claude Code.
+- **The desktop app's `Code` tab.** The app "includes Claude Code, so you don't
+  need to install the CLI separately" — same hooks, same `CLAUDE.md`, same
+  skills.
+- **Not** the same app's ordinary chat surface, which is not Claude Code. Work
+  done there reaches this repository with every guard absent, and the absence is
+  silent, which is the same shape as F-12 and F-42: a path that enforced nothing
+  was indistinguishable from a path that enforced everything.
+
+This was asked and answered because a session ended with the owner moving to the
+desktop app; the answer is reassuring and the question was not obviously so, and
+an unwritten "it depends which window you are in" is exactly the kind of thing
+this file exists to write down.
 
 **MUST.** Read-only provider subcommands are explicitly *allowed*. Observing
 the live system is how provider facts are meant to be established
