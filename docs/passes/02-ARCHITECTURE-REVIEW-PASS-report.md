@@ -336,8 +336,8 @@ the `--advanced` shift was cosmetic (F-03).
 
 ## Decisions
 
-None taken. Three added for the owner, each with a recommendation and a reversible
-default already in place:
+None taken. Three added for the owner at the time of the review, each with a
+recommendation and a reversible default already in place:
 
 - **DP-010** — a Tier 1 invariant (INV-04/INV-08) is currently relaxed by a Tier 3
   entry (SE-042 change 2). Does the invariant stand, or does it need an explicit
@@ -347,8 +347,14 @@ default already in place:
 - **DP-012** — do casks belong in the default top-level view? Either answer changes
   the default view's scope, which is not an agent's call.
 
-DP-008 and DP-009 are untouched and still open. Neither blocks the implementation
-passes below.
+**This paragraph recorded the state on the day of the review, and it expired.**
+It read *"DP-008 and DP-009 are untouched and still open"*; both were resolved
+on 2026-09-04, DP-010 to DP-012 were ruled between 2026-09-02 and 2026-09-05,
+and the pass went on to raise decisions beyond these three. DP-008's cost was
+reopened as DP-019 on 2026-09-16, and that is the one decision open as of
+2026-09-18. `docs/decisions-pending.md` is the register and the only place the
+count is kept current; the task list below names what is open, not this
+section.
 
 ## Research
 
@@ -613,73 +619,121 @@ every object inside every rlib rather than trusting the build.
 
 ## Recommended next tasks, in priority order
 
-**Rewritten 2026-09-08**, replacing a 2026-09-06 list whose every mechanical item
-had shipped. The original review's list is preserved below because it is the
-record of what the review recommended; a stale to-do list is worse than none, and
-this section has now been the stale thing twice.
+**Rewritten 2026-09-18, and this section has now been the stale thing three
+times.** The 2026-09-08 rewrite replaced a 2026-09-06 list whose every mechanical
+item had shipped. It then named DP-016 and DP-017 as the two open decisions for
+ten days after both were ruled on 2026-09-16, and never named DP-019, which is
+the one that is actually open — wrong in both directions at once. A list that
+overstates what is outstanding sends the next session to redo finished work; one
+that understates it hides the only item left. The original review's list is
+preserved below as the record of what the review recommended.
 
-### 1. Owner, decisions — two open
+### 1. Owner, decisions — one open
 
-- **DP-016** (F-29) — what an *unknown* service status should do to
-  `MANUAL_REVIEW`. Trades INV-19 against whether `--replay` can still show a real
-  plan. Four options, recommendation (c). Nothing executes plans in this build,
-  so it becomes live with the executor.
-- **DP-017** (F-31) — three of this repository's own guards make one security
-  property untestable. Four options; **(d)** is the cheapest and was added after
-  the entry was first written — a script that re-derives the two Darwin
-  open-flag constants from the SDK header instead of trusting a dated comment.
+- **DP-019** — DP-008 chose to publish all three artifacts without knowing two
+  costs R-11 later established: the `.pkg` needs a **second certificate**
+  (Developer ID *Installer*, not the Application certificate the binary and the
+  `.dmg` use), and the **Intel runner is billed even on a public repository**.
+  Four options; recommendation **(a)**, keep all three, decided *before* the
+  first release rather than at it — (c) is the one that trades away exactly the
+  Intel users the project's founding argument is about. Blocks nothing today:
+  there is no remote and no release, and the reversible default is that DP-008
+  stands.
 
-**DP-018 was resolved on 2026-09-08**: `.claude/` is the source and `.codex/` is
-generated from it. This list said "five open" and named it among them until
-2026-09-11, and carried a live instruction — *do not commit `.agents/` or
-`.codex/` before DP-018 is settled* — against something already done in
-`a7ec60a`. Both are removed. The two items that were listed here as decisions
-but have no DP number are in section 2, which is where implementation-blocked
-work belongs.
+**Four decisions have closed since this list last counted them.** DP-016 (F-29)
+was ruled 2026-09-16, option (c) — refuse the plan rather than weaken INV-19 —
+and is implemented. DP-017 (F-31) was ruled the same day, option (d): the two
+Darwin open-flag constants are re-derived and asserted rather than trusted to a
+dated comment. DP-020 was raised and ruled on 2026-09-17, option (c): the
+git-ignored half of the guard-edit escape is denied unconditionally and the
+committed half stays openable, because the deciding difference is visibility
+rather than the write. DP-018 was resolved on 2026-09-08.
 
-Not decisions, but the owner's to schedule: **immutable releases** (R-14) trade
+Not a decision but the owner's to schedule: **immutable releases** (R-14) trade
 supply-chain integrity against withdrawal manoeuvrability, and a withdrawal
-permanently burns the version number; **the Intel runner is billed even on a
-public repository** and **the `.pkg` needs a second certificate** (R-11), which
-gives DP-008 a cost it was decided without.
+permanently burns the version number. The second certificate and the billed
+Intel runner used to sit here as scheduling items; they are DP-019 now.
 
 ### 2. Implementation — what is genuinely left
 
-- **F-40** — the coverage denominator counts test code living in `src/`. Measured
-  2026-09-07: **34% of the instrumented surface is test code**, unevenly (16.4%
-  in `application`, 44.5% in `policy`), so correcting it reorders which crate is
-  nearest its floor rather than shifting all six numbers together. Two honest
-  routes — faithful segment post-processing with its own tests, or relocating the
-  in-`src/` test modules, which this project has done once already and which
-  makes the question disappear. Not a single change either way, and it re-tunes
-  the floors when it lands.
+Ordered by consequence. The first three are one body of work and belong to the
+executor pass.
+
 - **F-33's data half** — a per-provider success semantic beside the verb in
-  `provider-commands.toml`. The obligation is now item 4 of `plan.v1.md`'s
-  executor-debt list; the schema change belongs to the executor.
-- **F-35** — verify elevation detected rather than stored. Needs a `Capability`
-  variant, an adapter method and a policy-data fallback. Executor-shaped.
+  `provider-commands.toml`. `port installed` exits 0 for an installed port, an
+  absent one, *and* a name that is not a port at all, so a MacPorts
+  `VERIFY_DESTINATION` cannot fail — and that is the step INV-01 puts in front of
+  `REMOVE_SOURCE`. Filed medium-high because it is a data-loss path. Now item 4
+  of `plan.v1.md`'s executor-debt list.
+- **F-35** — verify elevation detected rather than stored, which is what INV-20
+  requires and what three artefacts already name as the answer. Needs a
+  `Capability` variant, an adapter method and a policy-data fallback, plus a test
+  that the fallback is used and a test that detection overrides it.
 - **F-04's residual** — the self-invocation's relative program and empty
   environment. A declared Tier 3 deviation (SE-056); the fix is "resolve this
   process's own binary", which is the executor's design.
-- **F-43's first item** — **done 2026-09-16**, and this entry was wrong about it
-  twice. It said the planner "cannot see which route produced its input" (it can,
-  through `Provenance.captured_by`), and then that both planner guards were
-  unreachable second lines (`planner.rs:619` is the designed gate on a `~`-rooted
-  prefix, and a machine with Homebrew under `$HOME` reaches it). Both corrections
-  came from reviewers. `ErrorId::InputUnusable` names no route; the residue is
-  F-48.
-- **F-29's implementation**, once DP-016 is ruled. The tri-state field itself
-  needs no ruling — `AGENTS.md` already requires it.
+- **F-29's residual hole**, left open deliberately when DP-016(c) shipped. The
+  refusal keys on `is_unknown`, and an **absent** `SERVICE_METADATA` entry is
+  deliberately not `Unknown` — so a snapshot written by a build predating the
+  capability loads under the same `SNAPSHOT_SCHEMA_VERSION` and INV-19 goes
+  silently unevaluated on a real plan, which is the hole DP-016 exists to close,
+  one route over. Closing it means defaulting the field on deserialisation or
+  bumping the schema: a change to the snapshot contract, not to the refusal.
+- **F-48's residual** — a provider installed under `$HOME` can be analysed and
+  can never be a plan destination, because redaction removes the absolute prefix
+  the planner requires. The reversible part is taken: `doctor` reports
+  `provider_prefix_is_not_absolute` as a warning, so the user meets the limit in
+  the diagnosis rather than in a refusal. What is left is the design question —
+  either the plan carries the un-redacted prefix and redaction becomes a
+  display-time concern, or this stays a documented limit.
+- **F-47's two older holes.** A link target that is absolute or escapes with
+  `../` is resolved against the *host* rather than the repository, so CI and a
+  laptop can disagree about the same document; reject `os.path.isabs(path)` and
+  a `relpath` starting `..`, which is the small half. A blockquoted heading is
+  invisible to the gate, and that is not the one-line fix it looks like: making
+  it visible *adds* anchors, an added anchor can collide with an existing one,
+  so it lands together with whatever duplicates it surfaces. The fence tracker
+  half was fixed 2026-09-17 and is now a permanent test.
+- **F-40** — the coverage denominator counts test code living in `src/`. Both
+  premises of the 2026-09-07 deferral moved on 2026-09-17: `cargo-llvm-cov` is
+  present on this machine after all, and the faithful-post-processing route was
+  tried and **disagrees with `llvm-cov` on 59 of 75 files, by 449 lines, always
+  undercounting**. So route two — relocating the in-`src/` test modules — is the
+  recommendation now rather than the preference; it makes the question disappear
+  instead of measuring around it, and it needs no algorithm to be right. Least
+  urgent of these: `check-coverage.sh` is not a `validate.sh` stage, it runs only
+  in a CI job that has never run, and correcting the denominator re-tunes the
+  owner-set floors in the same edit (DP-015).
+- **SE-054's residual** — a home directory outside `/Users` is still not
+  recognised by redaction. Small, and in the same code F-48 would touch.
 - **F-23's routing** — clap's `about` through the catalogue. A CLI-pass design
-  question, because `--help` renders before `--language` is parsed.
+  question, because `--help` renders before `--language` is parsed, and the
+  string is fixed by Tier 2 anyway, so the routing buys translation and nothing
+  else.
 - **F-22** — nothing to do until casks are plannable, at which point the verb
   must become kind-aware in the same change. Three tests fail if it is not.
 
+**F-43's first item was done on 2026-09-16**, and the entry this list carried for
+it was wrong twice before it went: it said the planner "cannot see which route
+produced its input" (it can, through `Provenance.captured_by`), and then that
+both planner guards were unreachable second lines (`planner.rs:619` is the
+designed gate on a `~`-rooted prefix, and a machine with Homebrew under `$HOME`
+reaches it). Both corrections came from reviewers. Kept here as the record of
+what this list got wrong; the residue is F-48, above.
+
 ### 3. Blocked on a machine or a remote, not on effort
 
-**MacPorts is no longer among them.** It was installed on 2026-09-07, and the
-first thing it did was disprove the tool: the executor passed no `HOME`, `port`
-exits 1 without one whatever you ask it, and a healthy 2.12.6 install was
+**The remote is the top of this section now, not a line at the bottom of it.**
+DP-007 decided a public GitHub repository on 2026-09-02; none exists, `git push`
+is denied by this repository's own rules for exactly that reason, and
+`pass/02-architecture-review` stands **88 commits ahead of `main`** and unmerged,
+measured 2026-09-18. **CI has still never run**, so every result in this report
+is a local result — which is the standing caveat on all of it, not a task among
+others.
+
+**MacPorts is no longer among the blocked.** It was installed on 2026-09-07, and
+the first thing it did was disprove the tool: the executor passed no `HOME`,
+`port` exits 1 without one whatever you ask it, and a healthy 2.12.6 install was
 reported as `Broken` (F-37). R-5's MacPorts half is now observed rather than
 cited (E19–E32), which also produced SE-077 and a third independent confirmation
 of F-33.
@@ -687,9 +741,8 @@ of F-33.
 Still waiting: R-11's hardened-runtime and offline-quarantine questions (one
 notarisation attempt, one offline machine); R-13's behavioural half, which needs
 a real certificate and a real revocation and so may not be answerable before the
-first release; R-14's Q2 and Q3, minutes once a remote exists; an Apple Silicon
-capture; and **CI, which has still never run** — every result in this pass is a
-local result.
+first release; R-14's Q2 and Q3, minutes once a remote exists; and an Apple
+Silicon capture.
 
 Two smaller observations are blocked by this repository's own deny rules rather
 than by a machine: a read-only `port select --list` and a read-only
