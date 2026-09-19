@@ -25,8 +25,8 @@ output may change freely.
 The read-only slice. Nothing here executes anything, elevates anything, or
 writes into either provider's prefix.
 
-**Policy version: `2026.09.06-1`.** The provider facts it carries were read on
-2026-09-02, 2026-09-04 and 2026-09-06 and are dated in `data/policy/*.toml`; the staleness threshold is
+**Policy version: `2026.09.08-1`.** The provider facts it carries were read on
+2026-09-02, 2026-09-04, 2026-09-06 and 2026-09-08 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
 

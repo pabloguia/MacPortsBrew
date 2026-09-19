@@ -4311,3 +4311,176 @@ finding ids in each entry.
   refusal is owed.
 
 ---
+
+## SE-085 — The policy version was a rule with a rationale, a format and no gate
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Original assumption: `data/policy/policy.toml`'s header defines `version` as
+  `<newest read_on across the data set>-<serial within that day>` and states
+  plainly why it matters — "the version exists so a recommendation can be traced
+  to the data that produced it; anything that changes the data and not the
+  version defeats that." `.claude/rules/policy-data.md` repeats the format, and
+  every `Recommendation` and `--json` payload carries the value. Three artefacts
+  state the rule. None checked it.
+- What was found: on 2026-09-08 commit `33439cb` moved
+  `provider-commands.toml`'s `read_on` forward for F-33 and left the manifest
+  reading `2026.09.06-1`. For eleven days every recommendation this build
+  produced carried a version naming a data set that was not the one that
+  produced it — the precise failure the header describes, in the directory the
+  header governs. `CHANGELOG.md` carried the same stale value and a read-date
+  list missing 2026-09-08.
+- Change: the manifest reads `2026.09.08-1`; the changelog and both documented
+  `status` samples follow; seven golden fixtures were regenerated, and the diff
+  is `policyVersion` and nothing else, which is how it was checked rather than
+  hoped. `invariant_20_the_policy_version_names_the_newest_read_date_in_the_data`
+  now asserts the date half on every run.
+- Why the test is textual rather than through `PolicyData`: the loader knows
+  four of these files. `provider-commands.toml` is read by the application layer
+  and `provider-prefixes.toml` by the adapters, so a check written against the
+  parsed type would have excluded exactly the file that drifted. It reads the
+  directory the rule names, and fails if it finds fewer than four `.toml` files —
+  a scan that finds nothing otherwise passes while proving nothing (F-19).
+- What it does not check, said rather than implied: **the serial.** It counts
+  edits within a day, and an edit that moves nothing else leaves no trace a test
+  can count. The date half is the half that carries the traceability claim.
+- **And this change did not bump the serial, under the rule it exists to
+  enforce.** It edits `data/policy/provider-commands.toml` — comments only, no
+  verb, elevation, success semantic or reserved name — and leaves the version at
+  `-1`. `.claude/rules/policy-data.md` says "bump the serial for any edit that
+  does not move a read date", unqualified. The reading taken is that a comment
+  is not a fact and a recommendation computed before and after is traceable to
+  the same data; the rule does not say that, and the new test cannot catch it
+  either way. Stated here rather than left for a reader to notice, because this
+  is the one change where "we edited a policy data file and did not bump" is
+  exactly the sentence that ought to be visible (`spec-guardian`, 2026-09-19).
+- Proved by mutation, not by going green: reverted to `2026.09.06-1`, the test
+  fails naming `provider-commands.toml` as the file whose read date it missed.
+
+---
+## SE-086 — A refusal that describes a symptom the tool itself caused
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Evidence: `crates/application/src/planner.rs` (the refusal);
+  `a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary`
+  and `a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it`
+  in `crates/cli/tests/end_to_end.rs`;
+  `is_safe_captured_path_admits_only_absolute_or_home_rooted` in
+  `crates/domain/src/snapshot.rs`; `error.rs:95` for the exit-code table.
+- Extends: **SE-080**, which added `ProviderDetection::prefix_redacted` so
+  `doctor` could tell the two shapes of redaction apart. Nothing in SE-080's
+  reasoning changes.
+- Original assumption: F-48 recorded that a provider installed under `$HOME` can
+  be analysed and never planned, and that the refusal "says their input is at
+  fault when nothing is". The reversible half taken 2026-09-16 put the true
+  statement in `doctor` and pointed the refusal's remediation at it. The refusal
+  itself still said the prefix "names no directory this tool can resolve".
+- Change: it now names the cause — capture removes the home from the prefix, so
+  nothing downstream can resolve it back to a program, and analysis is
+  unaffected — and adds that this is a limit of the build rather than a defect
+  in anything the user supplied.
+- **The first version of this change branched, and the branch was wrong.** It
+  read `prefix_redacted || program.starts_with('~')` and kept a second arm for
+  the other case, with a comment calling the pair load-bearing. `spec-guardian`
+  showed the first term could be deleted with **every test in the workspace
+  still passing**: a redacted *absolute* prefix — F-49's `/opt/USER/brew` shape —
+  never reaches this guard at all, because the guard fires only on a
+  non-absolute program. The pairing `doctor` needs is not the pairing this site
+  needs, and shipping an untested term under a comment claiming otherwise is the
+  F-19 class exactly, in a change that cites F-19 twice.
+- So there is **one message and no branch**, and what keeps it honest is a test
+  rather than dead code: `is_safe_captured_path` admits only `/`-, `~`- or
+  `~/`-rooted prefixes, and `provider_commands` refuses an absolute
+  `executable`, so a non-absolute program is `~`-rooted always. That premise is
+  now pinned in the crate that owns it, and widening it fails a test that names
+  this site.
+- The test asserts the superseded message is **not** what answered, not only
+  that the new one is. A refusal falling back would otherwise satisfy a positive
+  assertion the moment the two strings shared a phrase.
+- **The identifier is still wrong and deliberately not changed here.**
+  `ErrorId::InputUnusable`'s catalogue string ends "check whatever produced it",
+  so the envelope still names the user's input while the detail says the
+  opposite. `CapabilityMissing` was proposed as "the same exit code 8"; it is
+  **5**, and `06-cli-and-ux.md` makes exit codes a documented contract, so that
+  is a contract change rather than a wording fix. Rewording the catalogue string
+  is not available either — its two other callers are genuinely about the input.
+  The detail therefore carries the correction, and the identifier question goes
+  to the owner with DP-021.
+- **Filed as DP-021, which is the part that was actually owed.** F-48's
+  remaining half trades away an audience — users installing under `$HOME`
+  because they have no administrator rights — or spends a Tier 3 MUST.
+  `AGENTS.md` makes that the owner's, and it had been carried in the register as
+  "a design question" for three days without being written where such questions
+  live. The entry records a third option neither the finding nor the review had
+  named: carry the prefix in the in-memory plan only, since the MUST governs
+  what the tool *writes*. It also records that the MUST as written governs
+  `doctor --report` alone, and that extending it to snapshots is a reading —
+  which is the axis the whole recommendation turns on.
+- **Both directions are now tested, and one was not.** `ADD_DESTINATION` builds
+  from the destination and `REMOVE_SOURCE` from the source, so a home-installed
+  provider is refused either way; DP-021 first claimed `--retain-source` exits 0,
+  which holds only when it is the source. The code was symmetric throughout — the
+  refusal names no provider — so the gap was in coverage, which is the half INV-17
+  makes a habit of losing.
+
+## SE-087 — A sample the binary has never been asked to produce is a claim, not a contract
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Extends: **SE-063**, which built `documented_samples.rs` after F-27 found the
+  same block wrong in `README.md` and `wiki/Getting-Started.md` for two commits.
+  Its reasoning is unchanged; what changes is where it looks.
+- Original assumption: `documented_files()` returned `README.md` and `wiki/*.md`.
+  `docs/schemas/` was never in scope, and `plan.v1.md` — the document the
+  executor pass is told to build against, whose own "What an executor inherits"
+  list is the handover for five obligations — had never had a sample compared
+  with the binary.
+- Change: the scan reads `docs/schemas/*.md`, and the marker convention gains
+  two optional tokens, each defaulting to what every existing marker already
+  meant, so no marker in the tree changed:
+  - `at=<RFC 6901 JSON Pointer>` resolves the block against a sub-value of the
+    parsed stdout. A schema document shows a `PlanCommand`, not a plan.
+  - `exit=<n>`, default `0`, replacing `status.success()`. Stricter for the
+    existing samples, and the only way a document can honestly show a refusal —
+    `plan.v1.md`'s whole-plan example exits **4**, so it was unreachable by a
+    guard that asserted success.
+- **What the first run found**, which is the argument for the change rather
+  than a footnote to it. `doctor.v1.md`'s worked example was wrong in four ways,
+  and the first draft of this entry got the story wrong — it said "fifteen lines
+  shorter … missing findings", which is arithmetic about re-indentation and not
+  a defect at all. `spec-guardian` re-derived it from the two documents. The
+  block carried **six findings before and six after**; what differed was:
+  - `"id": "path_duplicate"` where the binary emits `path_unknown` — the
+    document asserted a **finding this build does not produce**, with a
+    `params.entry` of `~/some/dir/bin` that exists nowhere;
+  - `"tier": "Degraded"` where the binary writes `DEGRADED` — a documented enum
+    value in the wrong case, in the document that *is* that enum's contract;
+  - `"readOn": "2026-09-02"` on two findings where the data says `2026-09-04`;
+  - `policyVersion` stale by two bumps.
+
+  A fabricated finding id and a mis-cased enum are a worse and more useful story
+  than "missing findings", and the correction is kept here rather than written
+  over because the first version was produced by reading a line count instead of
+  the two payloads.
+- The two `PlanCommand` fragments were **correct in content** and folded by
+  hand. They are rewritten as the binary serialises them: more verbose, and the
+  sentence above them claims they are "as they actually serialise", which is now
+  true. Byte comparison everywhere was chosen over a formatting-insensitive
+  compare for JSON, because one rule that is occasionally ugly beats two rules
+  that a reader has to know which of applies here.
+- **Two blocks stay unchecked, and both now say so in their own text.**
+  `analysis.v1.md` empties `packages` and writes a literal `"..."` path;
+  `explain.v1.md` shows three fired rules of a roster of fourteen. Both declare
+  the abridgement in prose, and no marker form makes an abridged block
+  byte-equal to an output. Closing them needs either regeneration from a small
+  recording or a key-structure-only comparison, and that is its own change.
+  Naming them in the documents is what stops the widened scan from reading as
+  complete coverage.
+- Proved by mutation: a changed `success` inside an `at=` fragment, an `exit=0`
+  on the plan that exits 4, and a pointer resolving to nothing each fail with
+  the message a reader needs. `AT_LEAST` rises 2 → 6, which is the constant's
+  stated purpose — left at 2 while four new samples existed, the whole directory
+  could have left scope with the suite green.
+
+---

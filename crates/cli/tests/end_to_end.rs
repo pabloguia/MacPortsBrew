@@ -935,9 +935,107 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
     assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
     let stderr = String::from_utf8_lossy(&planned.stderr);
     assert!(
-        stderr.contains("is not an absolute program"),
+        stderr.contains("installed under the home directory"),
         "this must be the planner's refusal, which no boundary check emits: {stderr}"
     );
+    // This document sets `prefix` and never `prefixRedacted`, so it reads
+    // `false` - exactly the pre-field document that flag's doc comment warns
+    // about - and the refusal is reached by the shape alone. The message is
+    // about the home directory because that is the *only* shape reaching it:
+    // `is_safe_captured_path_admits_only_absolute_or_home_rooted` in
+    // `crates/domain/src/snapshot.rs` is what holds that true (DP-021).
+    assert!(
+        !stderr.contains("names no directory this tool can resolve"),
+        "the superseded generic message must not be what answered: {stderr}"
+    );
+}
+
+/// The direction the test above does not cover, and DP-021 got wrong.
+///
+/// That test makes the **source** home-rooted and migrates away. The entry then
+/// claimed "`plan --retain-source` exits 0", which is true only for that
+/// direction: `ADD_DESTINATION` and `VERIFY_DESTINATION` build their commands
+/// from the **destination**, and `--retain-source` drops only `REMOVE_SOURCE`
+/// and `VERIFY_REMOVAL`. So a user whose *destination* lives under `$HOME` is
+/// refused with or without it.
+///
+/// Found by `spec-guardian` on 2026-09-19, and it is an INV-17 shape: one
+/// direction covered and one not, on a path both reach. The code is symmetric —
+/// the refusal names no provider — so what was missing was the test, which is
+/// the harder half to notice.
+#[test]
+fn a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it() {
+    let scratch = Scratch::new("dp021dest");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the clean snapshot"
+    );
+
+    // The mirror of the test above: **macports** is the home-installed one, so
+    // it is the destination of `--to macports` rather than the source. Both
+    // fields for the same reason that one states - the boundary requires the
+    // `PATH` leader to be the detected prefix (INV-10), so a half-edited
+    // document tests the boundary instead of the planner.
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("JSON");
+    let detected = doc["providers"]["macports"]["detection"]["prefix"]
+        .as_str()
+        .expect("a prefix")
+        .to_string();
+    doc["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("~/local");
+    // Every entry, not only the leader. MacPorts contributes both `bin` and
+    // `sbin`, and the boundary checks each against the detected prefix - moving
+    // one and leaving the other is the half-edited document this comment warns
+    // against, and it refuses at the boundary with an INV-10 message instead of
+    // reaching the planner at all.
+    let path = doc["providers"]["macports"]["invocationEnvironment"]["PATH"]
+        .as_str()
+        .expect("a PATH")
+        .replace(&detected, "~/local");
+    doc["providers"]["macports"]["invocationEnvironment"]["PATH"] = serde_json::json!(path);
+    let home_rooted = scratch.path().join("home-rooted-destination.json");
+    std::fs::write(&home_rooted, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    for extra in [Vec::new(), vec!["--retain-source"]] {
+        let mut args = vec![
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+        ];
+        args.extend(extra.iter().copied());
+        let planned = run(&scratch, &args);
+        assert_eq!(
+            planned.status.code(),
+            Some(8),
+            "a home-installed destination is refused whatever {extra:?} says, because \
+             ADD_DESTINATION builds its command from the destination"
+        );
+        let stderr = String::from_utf8_lossy(&planned.stderr);
+        assert!(
+            stderr.contains("installed under the home directory"),
+            "and for the same stated reason as the source direction: {stderr}"
+        );
+    }
 }
 
 /// F-21: a snapshot must not be able to state the environment a provider

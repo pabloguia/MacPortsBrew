@@ -147,11 +147,18 @@ internally tagged union, so the tag repeats the field name. Taken from
 `plan htop --to macports --json` against
 `fixtures/recordings/both-providers-arm64-macos15.json`:
 
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/2/commands/0 -->
 ```json
 {
-  "target": { "target": "PROVIDER" },
+  "target": {
+    "target": "PROVIDER"
+  },
   "program": "/opt/local/bin/port",
-  "argv": ["-q", "installed", "htop"],
+  "argv": [
+    "-q",
+    "installed",
+    "htop"
+  ],
   "environment": {
     "LANG": "C",
     "LC_ALL": "C",
@@ -159,22 +166,46 @@ internally tagged union, so the tag repeats the field name. Taken from
     "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
     "TERM": "dumb"
   },
-  "elevation": { "elevation": "NONE" },
-  "success": { "success": "STDOUT_NAMES_PACKAGE" },
+  "elevation": {
+    "elevation": "NONE"
+  },
+  "success": {
+    "success": "STDOUT_NAMES_PACKAGE"
+  },
   "placeholder": false
 }
 ```
 
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/3/commands/0 -->
 ```json
 {
-  "target": { "target": "TOOL" },
+  "target": {
+    "target": "TOOL"
+  },
   "program": "macportsbrew",
-  "argv": ["primary", "htop", "macports"],
-  "elevation": { "elevation": "NONE" },
-  "success": { "success": "EXIT_STATUS" },
+  "argv": [
+    "primary",
+    "htop",
+    "macports"
+  ],
+  "elevation": {
+    "elevation": "NONE"
+  },
+  "success": {
+    "success": "EXIT_STATUS"
+  },
   "placeholder": false
 }
 ```
+
+These two were hand-formatted until 2026-09-19 — same content, arrays and tags
+folded onto one line — and are now written exactly as the binary serialises
+them, because that is what a marker can check. The verbosity is the price of
+the check, and this is a contract an executor is built against rather than
+prose. The pointers are `/steps/2/commands/0` and `/steps/3/commands/0` for this
+recording and this package; they are positions in one output, not part of the
+schema, so a plan whose steps change moves them and the marker fails loudly
+rather than silently comparing the wrong command.
 
 **Both samples were stale before this field was added to them**, and in two
 ways that are worth naming rather than quietly fixing. The first said
@@ -260,23 +291,34 @@ the *next* value added, which is the point of adding the tolerant reader now.
 MacPorts. Every step is `MANUAL_REVIEW`, so the plan is entirely
 non-mutating and the command exits 4:
 
+<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json --json plan curl --to macports exit=4 -->
 ```json
 {
   "schemaVersion": 1,
-  "package": { "provider": "homebrew", "name": "curl" },
+  "package": {
+    "provider": "homebrew",
+    "name": "curl"
+  },
   "source": "homebrew",
   "destination": "macports",
   "retainSource": false,
   "primaryAfter": "macports",
-  "recommendation": { "kind": "MIGRATE_TO", "provider": "macports" },
-  "overrode": { "kind": "MANUAL_REVIEW" },
+  "recommendation": {
+    "kind": "MIGRATE_TO",
+    "provider": "macports"
+  },
+  "overrode": {
+    "kind": "MANUAL_REVIEW"
+  },
   "steps": [
     {
       "index": 1,
       "kind": "MANUAL_REVIEW",
       "reason": {
         "id": "reason.destination_provider_absent",
-        "params": { "provider": "macports" }
+        "params": {
+          "provider": "macports"
+        }
       }
     },
     {
@@ -285,8 +327,10 @@ non-mutating and the command exits 4:
       "reason": {
         "id": "reason.mapping_confidence_below_threshold",
         "params": {
-          "candidates": "0", "confidence": "None",
-          "destination": "macports", "threshold": "Strong"
+          "candidates": "0",
+          "confidence": "None",
+          "destination": "macports",
+          "threshold": "Strong"
         }
       }
     },
@@ -295,16 +339,50 @@ non-mutating and the command exits 4:
       "kind": "MANUAL_REVIEW",
       "reason": {
         "id": "reason.reverse_dependencies_present",
-        "params": { "count": "2", "provider": "homebrew" }
+        "params": {
+          "count": "2",
+          "provider": "homebrew"
+        }
       }
     }
   ],
   "risks": [
-    { "id": "destination_absent", "reason": { "id": "reason.destination_provider_absent", "params": { "provider": "macports" } }, "blocking": true },
-    { "id": "mapping", "reason": { "id": "reason.mapping_confidence_below_threshold", "params": { "destination": "macports", "confidence": "None", "threshold": "Strong", "candidates": "0" } }, "blocking": true },
-    { "id": "reverse_dependencies", "reason": { "id": "reason.reverse_dependencies_present", "params": { "count": "2", "provider": "homebrew" } }, "blocking": true }
+    {
+      "id": "destination_absent",
+      "reason": {
+        "id": "reason.destination_provider_absent",
+        "params": {
+          "provider": "macports"
+        }
+      },
+      "blocking": true
+    },
+    {
+      "id": "mapping",
+      "reason": {
+        "id": "reason.mapping_confidence_below_threshold",
+        "params": {
+          "candidates": "0",
+          "confidence": "None",
+          "destination": "macports",
+          "threshold": "Strong"
+        }
+      },
+      "blocking": true
+    },
+    {
+      "id": "reverse_dependencies",
+      "reason": {
+        "id": "reason.reverse_dependencies_present",
+        "params": {
+          "count": "2",
+          "provider": "homebrew"
+        }
+      },
+      "blocking": true
+    }
   ],
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.09.08-1",
   "dryRunOnly": true
 }
 ```

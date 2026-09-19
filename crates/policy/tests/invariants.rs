@@ -477,6 +477,120 @@ fn invariant_20_provider_facts_are_dated_data() {
     );
 }
 
+/// The manifest convention INV-20's data set depends on, stated in prose in
+/// three places and enforced by nothing.
+///
+/// Named `invariant_20_*` for where it sits and what it protects, **not**
+/// because INV-20 says anything about a version string's composition — it does
+/// not. What is enforced here is `data/policy/policy.toml`'s header and
+/// `.claude/rules/policy-data.md`, which are Tier 3/4. Said plainly because in
+/// this repository the difference decides who may change a thing: an agent may
+/// relax a Tier 3 convention with a `docs/spec-evolution.md` entry and may never
+/// touch Tier 1, and a test name that blurs the two argues for the wrong answer.
+///
+/// `data/policy/policy.toml`'s own header defines `version` as `<newest read_on
+/// across the data set>-<serial within that day>`, and says why: "the version
+/// exists so a recommendation can be traced to the data that produced it;
+/// anything that changes the data and not the version defeats that." Nothing
+/// checked it. On 2026-09-08 commit `33439cb` moved `provider-commands.toml`'s
+/// `read_on` forward for F-33 and left the manifest reading `2026.09.06-1`, so
+/// for eleven days two different data sets shared one version string — which is
+/// the exact failure the header names, sitting in the file that names it.
+///
+/// This asserts the date half only. The serial cannot be checked from the tree:
+/// it counts edits within a day, and an edit that moves nothing else leaves no
+/// trace a test could count. Saying so is better than a check that looks
+/// complete — the argument `invariant_20_no_provider_deadline_is_written_into_source`
+/// already makes about the two categories it cannot scan for.
+#[test]
+fn invariant_20_the_policy_version_names_the_newest_read_date_in_the_data() {
+    let policy_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the workspace root")
+        .join("data")
+        .join("policy");
+
+    // Sorted, so that two files tying on the newest date always name the same
+    // one in the failure message. The assertion is order-independent either
+    // way; the diagnostic was not, and "everything serialised is ordered" is
+    // this project's rule about exactly that.
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&policy_dir)
+        .expect("data/policy must be readable")
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            (path.extension()? == "toml").then_some(path)
+        })
+        .collect();
+    entries.sort();
+
+    let mut newest: Option<(String, String)> = None;
+    let mut files = 0usize;
+    for path in entries {
+        files += 1;
+        let name = path
+            .file_name()
+            .expect("a file name")
+            .to_string_lossy()
+            .into_owned();
+        let text = std::fs::read_to_string(&path).expect("a readable data file");
+        // Deliberately textual, and not through `PolicyData`. The loader knows
+        // four of these files; `provider-commands.toml` is read by the
+        // application layer and `provider-prefixes.toml` by the adapters, so a
+        // check written against the parsed type would silently exclude the two
+        // that are not this crate's — and it was one of those that drifted.
+        for line in text.lines() {
+            let Some(rest) = line.trim_start().strip_prefix("read_on") else {
+                continue;
+            };
+            let Some(value) = rest.split('"').nth(1) else {
+                continue;
+            };
+            if newest
+                .as_ref()
+                .is_none_or(|(date, _)| value > date.as_str())
+            {
+                newest = Some((value.to_string(), name.clone()));
+            }
+        }
+    }
+
+    // A scan that finds nothing passes every assertion below while proving
+    // nothing (F-19). The floor is what stops a renamed directory or a changed
+    // extension from turning this test green and empty. Deliberately not the
+    // current count: the first draft wrote "Six files ship today" and there
+    // were eight — a fresh wrong number, in the change whose own argument was
+    // that a count in prose is a claim that ages (`spec-guardian`, 2026-09-19).
+    assert!(
+        files >= 4,
+        "expected the policy data set, found {files} .toml files in {}",
+        policy_dir.display()
+    );
+    let (newest_read_on, source_file) = newest.expect("no read_on anywhere in data/policy");
+
+    let manifest =
+        std::fs::read_to_string(policy_dir.join("policy.toml")).expect("policy.toml is readable");
+    let version = manifest
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("version")?.split('"').nth(1))
+        .expect("policy.toml states a version");
+    let (dotted, serial) = version
+        .split_once('-')
+        .expect("the version is <date>-<serial>");
+    assert!(
+        !serial.is_empty() && serial.chars().all(|c| c.is_ascii_digit()),
+        "the serial {serial:?} is not a number, so two data sets could share a version"
+    );
+
+    assert_eq!(
+        dotted.replace('.', "-"),
+        newest_read_on,
+        "policy.toml says version {version:?}, but the newest read_on in data/policy is \
+         {newest_read_on} (in {source_file}). A recommendation carrying {version:?} cannot \
+         be traced to the data that produced it, which is the one thing the version is for"
+    );
+}
+
 #[test]
 fn invariant_20_no_provider_deadline_is_written_into_source() {
     // The one thing INV-20 exists to stop: a date a provider published,

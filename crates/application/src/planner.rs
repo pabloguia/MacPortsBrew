@@ -647,11 +647,15 @@ fn command(
             // snapshot (F-43).
             //
             // An installed name reaches here already refused by `check_names`.
-            // The route that is *not* covered is the curated mapping table,
-            // whose targets nothing validates - and for those this identifier
-            // blames the wrong party, because the defect would be in the build's
-            // own data rather than in anything the user supplied. Recorded in
-            // F-48 rather than papered over with a second identifier here.
+            // The route that was *not* covered was the curated mapping table,
+            // whose targets nothing validated - and for those this identifier
+            // blamed the wrong party, because the defect would be in the build's
+            // own data rather than in anything the user supplied. That was F-48's
+            // first half and it is closed: `check_curated_names` refuses such a
+            // row at load as `PolicyDataInvalid`, so a curated target can no
+            // longer reach this arm. The comment stays because the reasoning for
+            // *this* identifier still depends on it - what remains here is the
+            // user-supplied route, which is the party this identifier names.
             ErrorId::InputUnusable,
             format!(
                 "{package:?} is not a package name this tool will pass to a provider; \
@@ -672,11 +676,56 @@ fn command(
     // Reached by an ordinary machine, not only a doctored file: a user whose
     // Homebrew lives under `$HOME` can `analyze` and cannot `plan` (F-48).
     if !program.starts_with('<') && !Path::new(&program).is_absolute() {
+        // The message said "the prefix it came from names no directory this
+        // tool can resolve" — the symptom, for a machine whose only defect is
+        // that its provider lives under `$HOME`, where the cause is the
+        // redaction that removed the home, and the tool did the redacting.
+        // Telling a user their prefix is unresolvable when this build made it
+        // so is the misattribution F-48's other half was filed about, one layer
+        // up (DP-021).
+        //
+        // **One message, because there is one reachable case.**
+        // `is_safe_captured_path` admits a prefix only if it starts with `/`,
+        // is `~`, or is `~/`-rooted, and `executable` is refused at load if it
+        // is absolute — so a `program` that fails the absolute test above is
+        // `~`-rooted, always. A first version branched on
+        // `prefix_redacted || program.starts_with('~')` and kept a second arm
+        // for the other case. `spec-guardian` showed the first term could be
+        // deleted with every test still passing, because a *redacted absolute*
+        // prefix never reaches this guard at all: the pairing `doctor` needs is
+        // not the pairing this site needs, and shipping an untested term under
+        // a comment calling it load-bearing is the F-19 class exactly.
+        //
+        // What holds the message honest is not a branch but
+        // `is_safe_captured_path_admits_only_absolute_or_home_rooted`, which
+        // pins the premise in the crate that owns it. Widen that and the test
+        // fails naming this site.
         return Err(DomainError::new(
+            // `InputUnusable` is still the wrong party, and it stays, because
+            // the right one costs more than this change may spend.
+            // `spec-guardian` proposed `CapabilityMissing` "same exit code 8" —
+            // it is **5** (`error.rs:95`), so the swap is an exit-code change,
+            // and `06-cli-and-ux.md` makes those a documented contract.
+            // Its catalogue string also blames the provider, which is no more
+            // true than blaming the input.
+            //
+            // Rewording `error.input_unusable` is not available either: its two
+            // other callers — an unsafe package name at `:659` and a snapshot
+            // that failed `check` (`capture.rs:148`) — are genuinely about the
+            // input, and "check whatever produced it" is right for both.
+            //
+            // So the detail says the part the envelope gets wrong, in the
+            // sentence the user actually reads, and the identifier question
+            // goes to the owner with DP-021, where the rest of this decision
+            // already is.
             ErrorId::InputUnusable,
             format!(
-                "the plan would run {program:?}, which is not an absolute program: \
-                 the prefix it came from names no directory this tool can resolve"
+                "the plan would run {program:?}, and this build cannot build a step that \
+                 runs a provider installed under the home directory: capture removes the \
+                 home from the prefix, so nothing here can resolve it back to a program. \
+                 This is a limit of this build, not a defect in anything you supplied, so \
+                 nothing you change about the input will alter it. Analysis of this \
+                 machine is unaffected"
             ),
         ));
     }

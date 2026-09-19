@@ -11,8 +11,8 @@
 //! `REMOVE_SOURCE` under INV-01.
 //!
 //! The finding left a disjunction it could not close: either `GuiApp` forces
-//! `MANUAL_REVIEW` and no cask ever reaches a verify step — making the four
-//! `*_gui_app` elevation cells dead — or it does reach one and the verbs table
+//! `MANUAL_REVIEW` and no cask ever reaches a verify step — making every
+//! `*_gui_app` elevation cell dead — or it does reach one and the verbs table
 //! must become kind-aware. "It cannot be both, and nothing currently tests
 //! which."
 //!

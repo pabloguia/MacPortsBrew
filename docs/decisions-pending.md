@@ -52,6 +52,96 @@ are recorded.
 - **Default meanwhile:** DP-008 stands — all three artifacts — because it is
   what is documented and because reversing it costs nothing while nothing ships.
 
+### DP-021 — A provider installed under the home directory can be analysed and can never be planned, and closing that costs either a privacy rule or an audience
+
+- **Raised 2026-09-19**, filing the design question F-48 has carried open since
+  2026-09-16. F-48's other half — the curated table judged by a guard that
+  blamed the user — was fixed that day; this half was left as "a design
+  question" and was never written down as a decision, which is the gap this
+  entry closes. `AGENTS.md` names "anything that trades away part of the
+  audience" as the owner's, and both routes out do exactly that or spend a
+  privacy rule to avoid it.
+- **What is true today.** Capture redacts a prefix under `$HOME` to `~/homebrew`
+  on **every** route, live capture included (`capture.rs:102-104`, before
+  `Snapshot::check`). The domain boundary passes that shape deliberately
+  (`snapshot.rs:243-265`), and `planner::command` then refuses it, because
+  `Command::new` resolves a relative string against the working directory —
+  the difference between running the provider and running whatever is under the
+  directory the user happened to be in (`planner.rs:674-682`, exit 8).
+- **Who it strands, and in which direction — both of them.** `ADD_DESTINATION`
+  and `VERIFY_DESTINATION` build their commands from the **destination** and
+  `REMOVE_SOURCE` from the **source**, so a home-installed provider is refused
+  whether it is where the package is going or where it is coming from.
+  `analyze` exits 0 and is correct; every `plan` touching that provider exits 8.
+  **This entry first said "`plan --retain-source` exits 0", which is true only
+  when the home-installed provider is the source** — `--retain-source` drops
+  `REMOVE_SOURCE` and `VERIFY_REMOVAL` and nothing else, so it cannot rescue a
+  home-installed *destination*. Found 2026-09-19 by `spec-guardian`, which also
+  noted that the regression test covered only the away direction: one direction
+  covered and one not, on a path both reach, is the INV-17 shape this project
+  names as a trap. `a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it`
+  now covers the other, and the code was symmetric all along — the refusal names
+  no provider. What was missing was the test, which is the harder half to see.
+  The audience is
+  specifically users who installed Homebrew under `$HOME` because they have no
+  administrator rights — managed and corporate machines — which is a population
+  that overlaps the Intel users INV-20 and the charter are written for.
+- **Options:**
+  (a) **The plan carries the un-redacted prefix, and redaction becomes a
+  display-time concern.** What the user actually wants. It collides with the
+  Tier 3 **MUST** at `06-cli-and-ux.md:133` — read that line before pricing
+  this option, because **it is narrower than this entry first made it sound**.
+  In full it governs one artefact: "`doctor --report` **writes a redacted local
+  diagnostic file** … Never: usernames, home paths…". Extending it to snapshots
+  and plans is a reading the codebase already takes by analogy
+  (`capture.rs:96-104` argues it), and it is a reading rather than the text.
+  That matters here more than anywhere, because option (c) below turns on
+  exactly this axis, and the extrapolation is what prices (a) above it. Also,
+  if the prefix were re-supplied from this host at plan time, it collides with
+  with INV-15 — `invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host`
+  forbids exactly that. So it is not a small change: it touches the snapshot
+  schema, `capture.rs`, `planner.rs` and the INV-15 tests, and it needs a
+  spec-evolution entry arguing why a home path in a plan document is acceptable
+  where the spec says it never is.
+  (b) **The refusal says what is true, and `doctor` says it first.** Smaller and
+  honest. Costs the audience above permanently, or until (a) is taken.
+  (c) **Carry the prefix only in the in-memory plan and never in a written
+  document.** Narrower than (a): `plan --json` and any snapshot still redact,
+  so the MUST is kept where it is about *output*. It needs the un-redacted value
+  to survive capture, which today it does not — `prefix_redacted` records only
+  that redaction happened, not what was removed.
+- **Recommendation: (b) now, (c) as the shape of the eventual fix.** (b) is
+  already three-quarters taken and costs nothing to complete. (c) is the version
+  of (a) that does not spend the privacy MUST, because that MUST is about what
+  the tool *writes*, and a plan step that runs on this machine is not a document
+  until it is serialised. What makes (a) tempting and wrong is that it reads as
+  "just stop redacting"; what it actually is, is moving a rule that currently
+  holds at capture to somewhere it has to be re-enforced at three separate exits.
+- **What it blocks:** nothing. The tool analyses these machines correctly today.
+- **What has already landed, and needs no ruling.** These are (b)'s completion,
+  all reversible, and none forecloses (a) or (c). Listed separately from the
+  question so a reader can tell what is awaiting you from what is done:
+  1. `doctor` warns before the user reaches a plan (2026-09-16).
+  2. The refusal's remediation points at `doctor` (2026-09-16).
+  3. The refusal itself names the cause instead of describing the symptom
+     (2026-09-19), and a test covers the destination direction as well as the
+     source one.
+- **What is awaiting you:** only the choice between (a), (b) and (c) — plus one
+  smaller question it makes sense to rule on at the same time.
+- **The smaller question: the error identifier.** The refusal still answers
+  `ErrorId::InputUnusable`, whose catalogue string ends "if the input came from
+  a snapshot file or a recording, check whatever produced it" — so the envelope
+  still names the user's input as the suspect while the detail says the opposite.
+  `spec-guardian` proposed `CapabilityMissing` on the grounds that it is "the
+  same exit code 8"; **it is not — it is 5**, and `06-cli-and-ux.md` makes exit
+  codes a documented contract, so that swap is a contract change and not a
+  wording fix. Rewording `error.input_unusable` is not available either: its two
+  other callers are genuinely about the input. The options are to accept the
+  mismatch, to move this path to exit 5, or to add an identifier for "this build
+  cannot express a step for this machine", which is a category the table does not
+  currently have. Meanwhile the detail carries the correction in the sentence the
+  user actually reads, which is the reversible half.
+
 ## Resolved
 
 ### DP-020 — The weak half of the guard-edit escape can manufacture the strong half, in a file no diff shows — **RESOLVED 2026-09-17: option (c), deny the git-ignored half and leave the committed one openable**

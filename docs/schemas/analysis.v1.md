@@ -13,7 +13,7 @@ it references. The compatibility rule is in [`README.md`](README.md).
 |---|---|---|
 | `schemaVersion` | integer | `1` |
 | `toolVersion` | string | The MacPortsBrew version, e.g. `"0.1.0"` |
-| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.09.02-1"` |
+| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.09.08-1"` |
 | `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across the policy data |
 | `policyStale` | boolean | True when `today` minus `policyReadOn` exceeds the threshold in `data/policy/policy.toml`. Advisory: recommendations are still produced |
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
@@ -225,11 +225,21 @@ Present as `snapshotProvenance` when the analysis came from a file.
 `macportsbrew status --json` on an Intel Mac with Homebrew and no MacPorts,
 abridged to the shape rather than the whole package list:
 
+**Abridged, and therefore unchecked** — deliberately, and said here rather than
+left to be discovered. Every other JSON sample under `docs/schemas/` carries a
+`<!-- sample: ... -->` marker and is compared with the binary on every run
+(F-50). This one cannot be: `packages` is emptied and `commandLineTools.path` is
+a literal `"..."`, so no byte comparison can pass. Closing it means regenerating
+from a recording with a small enough inventory to print whole, or teaching the
+scan a key-structure-only comparison; until one of those happens this block is
+maintained by hand and may drift, which is exactly the condition F-27 was built
+to end.
+
 ```json
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.09.08-1",
   "policyReadOn": "2026-09-02",
   "policyStale": false,
   "today": "2026-09-02",

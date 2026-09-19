@@ -61,10 +61,16 @@ verify = "none"
 #
 # F-22 asked whether that matters, and the answer is: not today. A cask carries
 # `PackageClass::GuiApp`, which forces `MANUAL_REVIEW` (INV-19), and a plan that
-# halts there emits no commands at all - so this cell, and the three other
-# `_gui_app` cells in this file, are read by nothing. Pinned by
+# halts there emits no commands at all - so this cell, and every other
+# `_gui_app` cell in this file, are read by nothing. Pinned by
 # `crates/application/tests/planner_casks.rs`, which also fails if a cask ever
 # reaches a `--versions` argv.
+#
+# It said "the three other" until 2026-09-19, when counting found eight, five of
+# them `unknown`. The number was right when written and had been wrong through
+# four additions since; it is now phrased so that adding a ninth cannot make it
+# wrong again. A count in prose is a claim that ages, which is the argument
+# `validate.sh`'s header already makes about its stage list.
 #
 # They stay rather than being deleted for two reasons. The loader refuses an
 # operation that has an elevation for one package kind and not the other (F-10),

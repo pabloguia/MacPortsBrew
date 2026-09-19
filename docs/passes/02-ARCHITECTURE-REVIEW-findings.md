@@ -64,7 +64,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-37** — every live MacPorts read failed, and the tool called a healthy install `Broken` | **Fixed 2026-09-07.** The adapter set `home: None` on its sanitised environment because "no read here is documented to need it". `port` runs `mportinit` before any subcommand, and `mportinit` resolves the home through `dscl`; with no `HOME` it fails and **`port` exits 1 whatever you asked it**. Live detection reported MacPorts 2.12.6 as `Broken` from the day the adapter was written. The plumbing already existed and is replay-aware — Homebrew was already given `ctx.home`. Found the first time this repository had MacPorts installed. |
 | **F-38** — a message identifier and an unsubstituted placeholder both reached the user | **Fixed 2026-09-08.** Both halves. The `doctor` half was deferred on a spec constraint that does not exist — see the resolution. `status` printed `Broken ({reason})` verbatim — the catalogue string carried a placeholder and the call site rendered without parameters. `doctor` prints the raw identifier `error.provider_unhealthy`, which is F-20's rule ("no Rust identifier reaches the reader") violated in the other direction. Root cause is the type: `ProviderPresence::Broken.reason` holds a message *id* whose catalogue text is a remediation sentence with its own `{detail}`, so no consumer can render it in a table cell. |
 | **F-39** — a replayed analysis reports fewer top-level packages than the machine it recorded | **Fixed 2026-09-07 (`ae43fc2`).** `Summary` carries `ownership_unknown`, counted across every row rather than only the source row, and rendered only when non-zero. On this machine it reads 10 replayed against 3 live. Same machine, same moment: live says Homebrew has 56 top-level packages, replaying its own recording says 49. The seven are casks, `TOP_LEVEL` via `installed_on_request` live and `UNKNOWN` via `no_provider_record` under replay, because cask intent lives in an on-disk receipt a replayed reader correctly refuses to read (DP-012, INV-15). The behaviour is right; presenting the smaller number as the answer is not. Third instance of the pattern after F-29 (services) and F-34 (`PATH`). |
-| **F-40** — the coverage denominator counts test code living in `src/` | **Open, measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
+| **F-40** — the coverage denominator counts test code living in `src/` | **Open; inventoried 2026-09-19.** "Move the modules" is a three-way split, not a two-way one: 62 modules / 346 tests, of which 35 modules and 60% of the tests cannot move without changing production visibility, and `process/mod.rs`'s cannot move at any price because `#[cfg(test)]` there widens the *spawn allowlist* — an integration test would silently assert something else. The achievable piece is the 27 movable modules, which is its own pass. **Measured 2026-09-07.** Of the 213 instrumented lines `llvm-cov` attributes to `crates/domain/src/plan.rs`, **91 are inside its `#[cfg(test)]` module** — 43%. Test code is near-fully covered, so every floor in `07-quality-and-testing.md` is met against a flattered figure, and the flattery grows with every in-module test added. Correcting it moves all six numbers at once, so it needs its own change with a fresh measurement rather than an edit alongside the floors (SE-074). |
 | **F-41** — a failed `--replay` tells the user to fix a snapshot | **Fixed 2026-09-08.** `ErrorId::RecordingUnusable`, same exit code 8, its own remediation. Both grounds for filing it — a wording rule in `06-cli-and-ux.md` and an owner gate on `error.rs` — turned out not to exist. The reviews then found that the test I added to prove the fix was not a loosening did not reach the branch it named. Every bounded-read failure carries `ErrorId::SnapshotUnusable`, whose catalogue text ends "Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file" — advice that names the wrong flag and a command that cannot produce a recording. Both routes share one reader (F-30) and one error id; separating them is an i18n and error-contract decision, not an edit. |
 | **F-43** — the planner reproduces F-41, and `ErrorId::all()` is a hand-copied list | **Found 2026-09-08 by the F-41 reviews. Item 2 fixed 2026-09-08, item 3 2026-09-15, item 1 2026-09-16.** Item 2: a counted assertion beside the exhaustive matches that already refuse to compile on a new variant. Item 3: two `schemaVersion` tests that were green lights over uncovered lines now patch the version into a real document and assert the message only the version arm produces. Item 1 was **filed at the wrong address, and this row said so wrongly twice before `security-reviewer` and `spec-guardian` each reproduced the counter-example**. `planner.rs:619` is not a second line: `prefix_shape_error` passes a `~`-rooted prefix on purpose and names `planner::command` as what refuses it, so a machine with Homebrew under `$HOME` can `analyze` and cannot `plan`. `:605` is second-line for snapshot-derived names and the *sole* gate on curated mapping targets, which the boundary never sees. The defect was also live at the boundary, on both the capture routes. `ErrorId::InputUnusable` (exit 8) names no route and is used at all three sites; `load_snapshot` keeps `SnapshotUnusable`, the one route the old remediation fitted. Consequences filed as F-48. |
 | **F-42** — a second agent harness runs here under a weaker copy of the enforcement layer | **Fixed 2026-09-08 (DP-018: `.claude/` is the source), and the fix reintroduced the finding once.** `scripts/generate-codex-layer.sh` regenerates the hooks, the four subagents and twelve of thirteen skills; `--check` is a `validate.sh` stage. But `a7ec60a` also committed `.codex/hooks.json` wiring five hooks by absolute path — a username in a public repository, and every clone getting guards that silently do not run. Both preflight reviewers found it; the manifest now resolves from the git root and the check rejects an absolute path. The guard also protected the generated tree and not its generator, which is now `*/scripts/*.sh`. Five `test-hooks.sh` cases assert the widenings that had none. |
@@ -72,15 +72,15 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
-| **F-50** — the drift guard F-27 built does not cover the documents an executor builds against | **Open, found 2026-09-18** during `03-UNKNOWN-IS-NEVER-A-YES`, which is a later pass than this register - recorded here because this file is the register and a finding kept only in a pass report is a finding the next reader does not meet. `documented_samples.rs` scans `README.md` and `wiki/*.md` and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample with what the binary prints. Two of `plan.v1.md`'s were wrong. Samples corrected; guard not widened. |
-| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. |
+| **F-50** — the drift guard F-27 built does not cover the documents an executor builds against | **Fixed 2026-09-19.** The scan reads `docs/schemas/*.md`; the marker convention gained `at=<JSON Pointer>` for a block that is part of an output and `exit=<n>` for one that documents a refusal. The first run found `doctor.v1.md` stale by two policy versions and fifteen lines short of the binary. `analysis.v1.md` and `explain.v1.md` stay unchecked because they are abridged by design, and each now says so. **Found 2026-09-18** during `03-UNKNOWN-IS-NEVER-A-YES`, which is a later pass than this register - recorded here because this file is the register and a finding kept only in a pass report is a finding the next reader does not meet. `documented_samples.rs` scans `README.md` and `wiki/*.md` and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample with what the binary prints. Two of `plan.v1.md`'s were wrong. Samples corrected **and the guard widened 2026-09-19**; this row said "guard not widened" until then, denying its own first sentence. |
+| **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. **Filed as DP-021 on 2026-09-19** — it trades away an audience (users installing under `$HOME` because they have no administrator rights) or spends the Tier 3 privacy MUST at `06-cli-and-ux.md:133`, which `AGENTS.md` makes the owner's call, and it had been carried as "a design question" for three days without being written down where such questions live. The reversible default is now complete: the refusal itself names the cause instead of describing the symptom, branching on `prefix_redacted` **or** the `~` shape, because the flag is `#[serde(default)]` and a document written before it existed reads `false`. The regression test's own fixture is such a document, so the shape half is what fires there; it asserts the generic arm did **not** answer, or the assertion would survive the two messages converging. |
 | **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding; fixed the same day.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
 | **F-25** — four unguarded live-filesystem calls under replay | **Fixed.** SE-069. `FilesystemScope` is the constructor parameter this finding asked for; nine reads, not four, and eight guards each probed by removal. `override_for` deliberately keeps asking the runner. One consequence recorded rather than closed: F-29. |
 | **F-06** — verification steps that cannot verify what they are named for | **Fixed.** SE-049. `VERIFY_REMOVAL` said `PROVIDER_REPORTS_ACTIVE` — as data, "verify the removal by confirming the package is still there"; it says `PACKAGE_ABSENT` now. `VERIFY_DESTINATION` was satisfiable by state predating the plan, so a no-op install cleared INV-01's gate; it carries `PACKAGE_NEWLY_PRESENT` where the destination was absent and claims nothing extra where it was not. `check_ordering` refuses a plan carrying more than one of each mutating kind rather than comparing first positions — the pairwise check needs a step to name its package, which it does not, so the assumption is asserted instead of assumed. |
 | **F-10** — a read-only command is enumerated as elevating | **Fixed.** SE-059. `verify` and `verify_gui_app` are stated for both providers — Homebrew `none` on evidence (`sudo brew list` aborts), MacPorts `unknown` because the documentation does not settle it and guessing would be worse. The loader refuses a table where a verb lacks an elevation, so the comment claiming this could not happen is now a check. And the human summary no longer renders an unknown as "would need administrator rights", which is what actually trains someone to approve a prompt for a read. |
 | **F-13/F-14/F-15** — the documentation promised more than the design does | **Fixed.** SE-058, one entry because they are one defect wearing three faces: each is a qualifier the specification wrote down and the reader never saw. The README lead plans rather than executes; INV-03's "whenever technically possible" is restored on four pages, not the two the findings named; and the restore page says why it is not called `undo` and carries all three mandated limits — including the one nobody had written down, that upstream moving on means a restore gives you a *newer* version than the snapshot. |
-| **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and the four `*_gui_app` elevation cells are dead. `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
+| **F-22** — a cask's verify step emits a command that fails on a correctly installed cask | **Latent, and now pinned as latent.** The disjunction is closed: a cask carries `GuiApp`, forces `MANUAL_REVIEW`, and a plan halting there emits *no* command — so the wrong verb is never reached and **every** `*_gui_app` elevation cell is dead (eight of them, counted 2026-09-19; this row said four, which was right when written). `tests/planner_casks.rs` asserts it, with a control proving a plain package does reach `VERIFY_DESTINATION`. The defect itself is unfixed by design: `[entry.verbs]` still cannot express a kind-dependent verb, and making casks plannable requires that first. |
 | **F-23** — the binary's `--help` is outside i18n, and the catalogue key for it has drifted | **Drift corrected; the routing stays open.** `cli.about` said the tool migrates in both directions and disagreed with the charter's own tagline (Tier 2, and carried identically by README, wiki and clap). It now opens with that sentence and states the read-only limit. The routing is not a substitution: `--help` renders before `--language` is parsed, and the string is Tier 2 anyway, so it buys translation only — a CLI-pass decision. The finding's stated reason for going unnoticed was itself wrong and is corrected: see F-32. |
 | **F-32** — the i18n gate counted a **doc comment** as a rendered string | **Fixed 2026-09-07 — and the finding as first written was wrong.** It claimed the gate cannot exclude a `#[cfg(test)]` module inside `src/`. It can: `production()` strips the trailing test module, deliberately. What it did not strip was doc comments, so `cli.about` satisfied the gate on an `assert!` inside a `///` example and on prose naming the key. `production()` now strips `///` and `//!` too; `cli.about` gets the marker it always needed. SE-075. |
 | **F-11** — the charter and README misstate Homebrew's own tier vocabulary | **Fixed.** DP-011, decided by the owner 2026-09-04; SE-044 accepted. Three surfaces name Tier 3 as Homebrew names it and say the *Unsupported* category is a different one Intel is not in. SE-044's own proposed wording was wrong the same way and did not land. |
@@ -2191,6 +2191,26 @@ data can carry `Elevation::Unknown`, and the renderer's "Steps where it is not
 known" arm, its locale key, and `MigrationPlan::steps_with_unknown_elevation`
 are exercised by nothing.
 
+**Counted 2026-09-19: five, not four, and the conclusion is unchanged.**
+`grep -n '_gui_app' data/policy/provider-commands.toml` returns eight cells, of
+which five are `unknown` — Homebrew `add`/`remove`, MacPorts `add`/`remove`, and
+MacPorts `verify_gui_app`, which the sentence above misses because it was
+written the day the `verify` cell moved. Every one is a `_gui_app` cell, so the
+reasoning that follows — casks halt before the command builder, therefore no
+plan carries `Elevation::Unknown` from today's data — holds exactly as written.
+The number was decorative and the property was load-bearing, which is the only
+reason this is a note and not a reopening.
+
+**Two different counts, and the first version of this note called them the same
+miscount.** They are not. This sentence counts cells whose *value* is `unknown`
+(five of eight). `provider-commands.toml`'s "this cell, and the three other
+`_gui_app` cells" counted **all** `_gui_app` cells (four when written, eight
+now), as do F-22's status row and `planner_casks.rs`'s header. Both were stale
+and they were stale about different quantities — which is why both are now
+phrased so that a ninth cell cannot make either wrong again, rather than
+re-numbered. Corrected 2026-09-19 by `spec-guardian`, in the note that
+diagnosed the original.
+
 **That is not the same as unreachable.** `planner.rs` looks the provider up with
 `table.get(id.as_str())`; a `None` falls through to `Elevation::Unknown` with
 `placeholder = true` on every command. **Nothing asserts that each provider in
@@ -2746,8 +2766,16 @@ refused and generating it is not.
 
 ## F-43 — The planner tells a `--replay` user to fix a snapshot, and `ErrorId::all()` is a hand-copied list
 
-**Severity: low. Two items, both found 2026-09-08 by the reviews of F-41's fix,
-both the same defect as F-41 at sites that fix did not reach.**
+**Severity: low. Three items, all found 2026-09-08 by the reviews of F-41's fix,
+all the same defect as F-41 at sites that fix did not reach.**
+
+**All three are closed, and this preamble said "Two items" until 2026-09-19.**
+Item 1 fixed 2026-09-16, item 2 on 2026-09-08 and item 3 on 2026-09-15; each has
+its own subsection below. The count was right when written — item 3 was added by
+a later review and the preamble was not re-read. It is recorded rather than
+quietly renumbered because the register's own convention is that the body is the
+record and the row is the summary, and here the row was current while the body
+read as open: the inversion F-46 exists to catch, in the entry that catches it.
 
 **1. `planner.rs` reproduces F-41 one layer up.** `crates/application/src/planner.rs:605`
 and `:619` return `ErrorId::SnapshotUnusable` when a package name is unsafe or a
@@ -3567,6 +3595,60 @@ rather than whole command outputs, so the marker convention needs a form for
 "this block is part of the output of that invocation" before the scan can
 assert on them. That is the actual work, and why it is not a one-liner.
 
+### Fixed 2026-09-19 — and the first run found a document stale by two policy versions
+
+`documented_files()` now reads `docs/schemas/*.md`, and the convention grew the
+two forms the prediction called for, each an optional token that defaults to
+what every existing marker already meant:
+
+- **`at=<RFC 6901 JSON Pointer>`** — parse stdout, resolve the pointer, compare
+  the block against that sub-value. A pointer rather than a dotted path because
+  `serde_json::Value::pointer` implements the standard, so there is no parser
+  here to get subtly wrong — the same objection F-40's follow-up raised against
+  reimplementing `llvm-cov`.
+- **`exit=<n>`** — the exact code, defaulting to `0`. Stricter than the
+  `status.success()` it replaces, and it is what lets a document show a refusal:
+  `plan.v1.md`'s whole-plan sample exits **4** because every step is
+  `MANUAL_REVIEW`, so under the old assertion it could not have been checked at
+  all. That is a second gap this finding did not name.
+
+**What the first run found, which is the point of the entry.**
+`doctor.v1.md`'s worked example was wrong in four ways. It carried
+`"id": "path_duplicate"` where the binary emits `path_unknown` — a **finding
+this build does not produce**, with a `params.entry` of `~/some/dir/bin` that
+exists nowhere; `"tier": "Degraded"` where the binary writes `DEGRADED`, a
+documented enum value in the wrong case in the document that *is* that enum's
+contract; `"readOn": "2026-09-02"` on two findings against a data set saying
+`2026-09-04`; and `policyVersion` stale by two bumps. `plan.v1.md`'s whole-plan
+sample was hand-formatted across 46 lines where the binary prints 92. Both are
+regenerated.
+
+**This paragraph first said the doctor block was "fifteen lines shorter …
+missing findings for an unknown span", and that was wrong** — the count was
+six before and six after, and the fifteen lines are compact-to-pretty
+re-indentation. It was written from a line count rather than from the two
+payloads, which is the same shortcut the register keeps recording. Corrected
+2026-09-19 by `spec-guardian`, and left visible because a finding about
+unchecked claims that itself carried one is worth seeing. The two `PlanCommand` fragments turned out to be correct
+in content and hand-folded in formatting; they are rewritten as the binary
+serialises them, because that is what a marker can check and because the
+sentence above them claims they are "as they actually serialise".
+
+**Proved by mutation, not by going green.** Three constructed failures, each
+with the message a reader needs: a changed `success` value inside an `at=`
+fragment, an `exit=0` on the plan that exits 4, and a pointer resolving to
+nothing. `AT_LEAST` rises 2 → 6 for the reason the constant exists — left at 2
+while four new samples existed, the whole new directory could have dropped out
+of scope silently.
+
+**What is deliberately not covered, named in both documents rather than left to
+be noticed:** `analysis.v1.md`'s and `explain.v1.md`'s blocks, which say in
+their own prose that they are abridged — one to the shape rather than the whole
+package list, the other to three fired rules out of fourteen. No marker form
+makes an abridged block byte-equal to an output. Each now carries a paragraph
+saying it is unchecked and what closing it would take. The executor's document
+is fully covered, which is where this finding's defects were.
+
 ---
 
 ## F-47 — The duplicate-anchor gate stops working on a normal future edit
@@ -3716,6 +3798,59 @@ flattering denominator has therefore never produced a verdict anyone acted on.
 The floors are owner-set (DP-015), and correcting the denominator moves every
 percentage against them at once — which is why DP-015 already says the
 denominator and the floors belong in one edit.
+
+---
+### Inventoried 2026-09-19 — "move the modules" is a three-way split, and a third of it cannot move
+
+The follow-up above recommends route two — move the in-`src/` test modules to
+`crates/*/tests/` — on the grounds that it "needs no algorithm to be right".
+That is true about correctness and wrong about cost. A brace-matched inventory
+of every `#[cfg(test)] mod` under `crates/*/src/**` found **62 modules, 346
+test functions, 6,390 lines**, and they fall into three groups, not two:
+
+- **A — the file's module is not `pub`, so nothing can move (19 files, 83
+  tests).** Fourteen are `crates/policy/src/rules/*.rs`, reachable only through
+  `rules/mod.rs`'s `all()`, which is the design. Three are `process/`
+  submodules and `bounded_read`, behind the one-executor isolation boundary.
+  Making these reachable is not a test move, it is a boundary change.
+- **B — public module, but the test names a genuinely private item (16 files,
+  123 tests).** `parse_version_line`, `is_allowed_argv`, `temporary_sibling`,
+  `civil_from_days`, `PERMITTED_PROGRAMS` and about forty others. Moving these
+  needs `#[cfg(any(test, feature = "testing"))] pub` on each — the precedent
+  exists at `crates/policy/src/rules/mod.rs` — which trades a flattering
+  coverage denominator for a widened visibility surface. That is a structural
+  decision and wants an ADR, not a cleanup.
+- **C — public module, nothing private, movable essentially as-is (27 files,
+  140 tests, ~2,253 lines).**
+
+**35 of 62 modules — 60% of the tests — cannot move without changing production
+visibility.** So the achievable piece is C alone, which removes roughly a third
+of the contaminated denominator and leaves the rest *bounded and known*, which
+is strictly better than today's "too kind by an unknown amount".
+
+**And one module cannot move at any price.** `crates/adapters/src/process/mod.rs`
+uses `#[cfg(test)]` to change **production behaviour**: `PERMITTED_IN_TESTS`
+widens the spawn allowlist with `sh`, `sleep`, `env` and four more, and
+`may_spawn` consults it behind a second `#[cfg(test)]`. An integration test
+links the library compiled *without* `cfg(test)`, so those seven programs do not
+exist for it. Moving those tests would not fail to compile — it would silently
+change what is being asserted, which is worse. The doc comment there says the
+separation is deliberate ("a test that can only see the wider list cannot tell
+you anything about what ships"), so this is load-bearing design.
+
+**A correction this turned up, fixed in the same change:** `AGENTS.md` said
+invariant tests live in `crates/*/tests/` "and, for the engine's own, in
+`crates/policy/src/engine.rs`". That file has never held a test named
+`invariant_*`. The two that do live in `src/` are `invariant_01`
+(`crates/domain/src/plan.rs`) and `invariant_10`
+(`crates/adapters/src/process/mod.rs`) — and the second is precisely the
+unmovable one above.
+
+**Not attempted here**, and the reason is the boundary rather than the effort:
+the C move is ~2,250 lines out and ~3,300 in across 27 files and five crates
+(calibrated from `f770318`, where two tests moving cost a 1.6× expansion because
+integration-test context has to be re-established). That is a pass, and a pass
+whose diff nobody can review alongside anything else.
 
 ---
 

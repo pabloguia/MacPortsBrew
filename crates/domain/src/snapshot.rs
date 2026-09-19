@@ -1123,6 +1123,46 @@ impl Snapshot {
 mod tests {
     use super::*;
 
+    /// The premise `planner::command`'s home-installed refusal rests on.
+    ///
+    /// That refusal emits **one** message — "a provider installed under the
+    /// home directory" — rather than branching, and it is allowed to because a
+    /// `program` that is not absolute can only have come from a `~`-rooted
+    /// prefix: this function admits nothing else that is relative, and
+    /// `provider_commands` refuses an absolute `executable`. A first version of
+    /// the refusal carried a second arm for the other case; `spec-guardian`
+    /// showed the arm was unreachable and the term selecting it untested, which
+    /// is the F-19 class.
+    ///
+    /// So the guarantee lives here, in the crate that owns it, instead of as a
+    /// dead branch there. Widen this and the refusal's message becomes a lie —
+    /// this test is what fails first, and it names the site.
+    #[test]
+    fn is_safe_captured_path_admits_only_absolute_or_home_rooted() {
+        for absolute in ["/usr/local", "/opt/local", "/opt/homebrew"] {
+            assert!(is_safe_captured_path(absolute), "{absolute}");
+        }
+        for home in ["~", "~/homebrew", "~/opt/local"] {
+            assert!(is_safe_captured_path(home), "{home}");
+        }
+        for relative in [
+            "relative/evil",
+            ".",
+            "..",
+            "./homebrew",
+            "../homebrew",
+            "usr/local",
+            "",
+        ] {
+            assert!(
+                !is_safe_captured_path(relative),
+                "{relative:?} is relative and not `~`-rooted, so a plan built from it would \
+                 be refused with a message naming the home directory, which it is not about \
+                 (planner::command, DP-021)"
+            );
+        }
+    }
+
     #[test]
     fn a_provider_name_is_an_argument_and_never_a_flag() {
         // The union of what the two adapters accept from provider output, and

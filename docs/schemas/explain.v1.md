@@ -101,13 +101,22 @@ fact and every rule the engine knows, and the roster grows as rules are added.
 Three rules fired here with three different outcomes; `MANUAL_REVIEW` is the
 answer:
 
+**Abridged, and therefore unchecked**, like `analysis.v1.md`'s and unlike every
+other JSON sample in this directory, which carry `<!-- sample: ... -->` markers
+and are compared with the binary on every run (F-50). The roster shown is three
+fired and four not, against a real roster of fourteen rules. Note that "the
+roster grows as rules are added" is an argument *for* checking this block rather
+than against it: a document that silently falls behind the rule set is the drift
+F-27 exists to catch, and this is the one place in this directory still open to
+it.
+
 ```json
 {
   "schemaVersion": 1,
   "package": { "name": "curl", "source": "homebrew" },
   "facts": {
     "today": "2026-09-02",
-    "policyVersion": "2026.09.02-1",
+    "policyVersion": "2026.09.08-1",
     "providers": {
       "homebrew": {
         "presence": { "state": "PRESENT" },
@@ -170,9 +179,9 @@ answer:
     "recommendation": {
       "outcome": { "kind": "MANUAL_REVIEW" },
       "rulesNotFired": ["DESTINATION_UNSUPPORTED_HERE"],
-      "policyVersion": "2026.09.02-1"
+      "policyVersion": "2026.09.08-1"
     },
-    "policyVersion": "2026.09.02-1"
+    "policyVersion": "2026.09.08-1"
   }
 }
 ```

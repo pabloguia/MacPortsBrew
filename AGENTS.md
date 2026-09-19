@@ -167,10 +167,10 @@ ownership (INV-11) and is not a global priority (INV-12).
 valid; CI is the authority. Tests run against captured fixtures, never a live
 installation. Coverage floors: `domain`/`policy`/planning 95%, `adapters` 80%
 plus a contract test per parsed command, `cli` reported. Invariant tests are
-named `invariant_NN_*` in `crates/*/tests/` (and, for the engine's own, in
-`crates/policy/src/engine.rs`); find them with
-`grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change that touches
-an invariant and cannot point at its test is incomplete.**
+named `invariant_NN_*` in `crates/*/tests/`, plus `invariant_01`
+(`domain/src/plan.rs`) and `invariant_10` (`adapters/src/process/mod.rs`); find
+them with `grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change
+that touches an invariant and cannot point at its test is incomplete.**
 
 ## The six recipes
 

@@ -116,16 +116,19 @@ it, and makes no network call that reports anything about the user.**
 
 `macportsbrew doctor --json` on an Intel Mac with Homebrew and no MacPorts:
 
+<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json --json doctor -->
 ```json
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.09.08-1",
   "findings": [
     {
-      "id": "path_duplicate",
+      "id": "path_unknown",
       "severity": "WARNING",
-      "reason": { "id": "doctor.path_duplicate", "params": { "entry": "~/some/dir/bin" } }
+      "reason": {
+        "id": "doctor.path_unknown"
+      }
     },
     {
       "id": "provider_support_degraded",
@@ -134,9 +137,9 @@ it, and makes no network call that reports anything about the user.**
         "id": "doctor.provider_support",
         "params": {
           "provider": "homebrew",
-          "tier": "Degraded",
+          "readOn": "2026-09-04",
           "source": "https://docs.brew.sh/Support-Tiers",
-          "readOn": "2026-09-02"
+          "tier": "DEGRADED"
         }
       },
       "provider": "homebrew"
@@ -147,10 +150,10 @@ it, and makes no network call that reports anything about the user.**
       "reason": {
         "id": "doctor.provider_support_ending",
         "params": {
-          "provider": "homebrew",
           "endDate": "2027-09-01",
-          "source": "https://docs.brew.sh/Support-Tiers",
-          "readOn": "2026-09-02"
+          "provider": "homebrew",
+          "readOn": "2026-09-04",
+          "source": "https://docs.brew.sh/Support-Tiers"
         }
       },
       "provider": "homebrew"
@@ -158,18 +161,31 @@ it, and makes no network call that reports anything about the user.**
     {
       "id": "command_line_tools",
       "severity": "OK",
-      "reason": { "id": "doctor.command_line_tools_present" }
+      "reason": {
+        "id": "doctor.command_line_tools_present"
+      }
     },
     {
       "id": "provider_absent",
       "severity": "OK",
-      "reason": { "id": "doctor.provider_absent", "params": { "provider": "macports" } },
+      "reason": {
+        "id": "doctor.provider_absent",
+        "params": {
+          "provider": "macports"
+        }
+      },
       "provider": "macports"
     },
     {
       "id": "provider_present",
       "severity": "OK",
-      "reason": { "id": "doctor.provider_present", "params": { "provider": "homebrew", "version": "6.0.21" } },
+      "reason": {
+        "id": "doctor.provider_present",
+        "params": {
+          "provider": "homebrew",
+          "version": "6.0.21"
+        }
+      },
       "provider": "homebrew"
     }
   ]
