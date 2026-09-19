@@ -1084,7 +1084,7 @@ impl Snapshot {
     ///
     /// Both symptoms had one cause, and it was in neither of those places: the
     /// Homebrew adapter wrote an **empty** capability table for a provider
-    /// that is not installed, where the MacPorts adapter wrote nine
+    /// that is not installed, where the MacPorts adapter wrote every one
     /// `Unknown`s. The peer providers disagreed about the shape of "absent",
     /// and a rule written here to accommodate that disagreement could only
     /// pick which of the two defects to keep. The adapter is fixed; this rule

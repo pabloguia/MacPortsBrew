@@ -77,7 +77,7 @@ means - so `load_snapshot` fills every missing entry with it before any check
 runs.
 
 **The rule is unconditional, and an empty table is not an exception.** Both
-adapters write all nine capabilities for a provider that is not installed - for
+adapters write every capability for a provider that is not installed - for
 a while Homebrew wrote none, which is the asymmetry that made this rule look
 like it needed an exception, and fixing the adapter removed the need for one
 (SE-084). So the rule is a no-op on every table this build writes, which is

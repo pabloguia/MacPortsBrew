@@ -694,6 +694,28 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
                 CapabilityState::Unknown
             },
         );
+        // Whether reading this provider needs administrator rights, answered by
+        // reading it. `inventory()` runs `port -q installed` — the verify verb
+        // itself — and adds no probe of its own. It caches on *success* only,
+        // so a provider whose inventory fails re-runs it here; that is one call
+        // site, and saying "memoises" without the qualifier was wrong
+        // (`spec-guardian`). A registry is created with the installing
+        // user's umask, so the stored `none` in `provider-commands.toml` is true
+        // of the machine it was observed on and of no other; this is the same
+        // question asked of *this* machine (INV-20, F-24, F-35).
+        //
+        // `Available` or `Unknown`, never `Unavailable`: a failed read does not
+        // say why it failed, and inferring "needs elevation" from it would put
+        // an administrator prompt on a read, which is the INV-06 defect SE-059
+        // recorded.
+        capabilities.insert(
+            Capability::UnprivilegedRead,
+            if self.inventory().is_ok() {
+                CapabilityState::Available
+            } else {
+                CapabilityState::Unknown
+            },
+        );
         Ok(ProviderCapabilities { capabilities })
     }
 

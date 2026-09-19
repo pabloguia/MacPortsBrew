@@ -4653,3 +4653,92 @@ finding ids in each entry.
   `security-reviewer` on the same diff. Recorded as **F-51**.
 
 ---
+
+## SE-090 — INV-20's second sentence had been true of the documentation and of nothing else
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Evidence: `Capability::UnprivilegedRead` in `crates/domain/src/provider.rs`;
+  detection in both adapters' capability tables; the preference in
+  `planner::command`; `invariant_20_a_detected_read_beats_a_stored_required`
+  and `a_detected_read_never_relaxes_a_mutation` in `planner.rs`;
+  `invariant_20_detection_relaxes_a_read_and_never_a_mutation` in
+  `crates/application/tests/invariants.rs`. Seven golden fixtures gained the
+  capability and nothing else.
+- Extends: **SE-059**, which closed F-24's *value* — MacPorts' `verify`
+  elevation became `none` on one machine's observation — and left the
+  obligation open as F-35. Its reasoning is unchanged; what changes is that
+  the obligation is now discharged.
+- Original assumption: INV-20 ends "where behaviour can be detected at runtime,
+  detection wins over stored knowledge". Four artefacts said so about this
+  cell — the data file's own comment, SE-059, R-5a and
+  `.claude/rules/policy-data.md` — and **no code implemented it**. Whether
+  reading a provider needs administrator rights was a string in
+  `provider-commands.toml`, true of the machine it was observed on. A registry
+  is created with the installing user's umask, so a restrictive one makes the
+  stored answer wrong and nothing noticed.
+- Change: a tenth capability, detected **from a read the adapter already
+  performs** — no new probe, nothing stat-ed, no permission inspected. The
+  planner prefers it over the stored cell.
+- **The strength of that evidence differs by provider, and saying "listing what
+  is installed *is* the verify verb" was true of only one of them.** For
+  MacPorts it is an identity: `inventory()` runs `port -q installed`, which is
+  the `verify` argv character for character. For Homebrew it is an *inference* —
+  the read observed is `brew info --json=v2 --installed`, the verb relaxed is
+  `brew list --versions`. Same binary, same prefix, same user, so the inference
+  is sound; it is still an inference and the entry claimed an identity.
+- **Three narrowings, and they are the whole of why this is safe:**
+  1. **Read operations only** (`READ_OPERATIONS`). Relaxing an elevation is
+     safe exactly where INV-06 already requires `None`. Letting an observation
+     about a *read* rewrite the elevation of `add` or `remove` would be this
+     rule reaching past its evidence.
+  2. **Never `Unavailable`.** A read that fails does not say *why* — a missing
+     binary and a permission denial arrive identically — so this can confirm
+     "no elevation needed" and can never assert the opposite. It cannot add a
+     prompt nobody established.
+  3. **`Unknown` falls back to the cell and does not fold to `Required`.**
+     SE-059 recorded that rendering an unknown as "needs administrator rights"
+     is itself the INV-06 defect: it trains a user to approve a password prompt
+     for a read.
+- **What this changes on any machine this project can test: nothing**, and that
+  is said plainly rather than left for a reader to discover. The seven goldens
+  moved by exactly the new capability key. **The first draft gave the wrong
+  reason** — "both shipped cells already say `none`". There are **eight** read
+  elevation cells, and MacPorts' two `_gui_app` ones say `unknown`
+  (`provider-commands.toml:265-266`). Plans are identical because the GUI path
+  halts at `MANUAL_REVIEW` before `command()`, not because the data agrees; and
+  the cells that disagree are exactly the ones the first version of this branch
+  would have overridden, keyed as it was on the un-suffixed operation name.
+  What changes is that the answer is now *derived from the machine* wherever the
+  machine can say, which is the sentence INV-20 has been making since the
+  foundation pass.
+- **Because the effect is invisible in the fixtures, the override is tested
+  where it can be seen**: `command()` takes the commands table as an argument,
+  so a unit test in `planner.rs` can force both read cells to `required` — which
+  no real entry says — and assert that a detected capability beats them, that
+  `Unknown` does not, that a `_gui_app` cell it never consulted survives, and
+  that `add`/`remove` keep theirs. It is the third `fn invariant_*` living in
+  `src/` — beside `invariant_01` in `domain/src/plan.rs` and `invariant_10` in
+  `adapters/src/process/mod.rs` — which is **not** the same as the third test
+  there: F-40's inventory counts 62 modules and 346 tests in `src/`, and this
+  adds a 63rd module and two tests. The reason is the one F-40 itself names —
+  a property not reachable without changing production visibility — and the
+  cost is real, which is why the F-40 row records it. Shipping the branch
+  untested was the alternative, and this pass has twice been shown what an
+  untested branch under a confident comment is worth.
+- Proved by mutation in both directions: deleting the preference fails the
+  override test, and dropping the read-only narrowing fails the mutation test.
+- **A consequence worth stating, because it changes what a data file is for:**
+  on a healthy machine the four read elevation cells are now *dead data* — a
+  live run never consults them. That is the intended direction
+  (`.claude/rules/policy-data.md`: "this directory is the fallback and the
+  explanation"), and it means a drifted read cell no longer shows up in any
+  output. The fallback is still exercised by every `--replay` and
+  `--from-snapshot` of a document written before this capability existed.
+- **What is still open under F-35**, and it is the half that was always
+  separable: per-cell provenance. Two cells now carry observations that the
+  entry-level `source` and `read_on` can only describe in prose — MacPorts'
+  `verify` mixes three read dates, Homebrew's cites a commit where the entry
+  cites the FAQ. That is a schema change to the data file and is its own entry.
+
+---

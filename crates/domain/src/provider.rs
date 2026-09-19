@@ -118,6 +118,37 @@ pub enum Capability {
     DeprecationState,
     /// Background services are exposed in metadata.
     ServiceMetadata,
+    /// The provider's **read** operations run as the invoking user.
+    ///
+    /// INV-20's second sentence — "where behaviour can be detected at runtime,
+    /// detection wins over stored knowledge" — had no implementation for the one
+    /// cell F-24 and F-35 are about: whether verifying a package needs
+    /// administrator rights. That was a string in a data file, true of the one
+    /// machine it was observed on. The registry a provider reads is created with
+    /// the installing user's umask, so a restrictive umask makes the stored
+    /// answer wrong, and no artefact noticed.
+    ///
+    /// **Detected from a read the adapter already performs**, not from a new
+    /// probe: an inventory that came back is proof the read needs no elevation.
+    /// Nothing is stat-ed and no permission is inspected.
+    ///
+    /// The strength of that evidence differs by provider, which is worth saying
+    /// because the first version of this comment claimed an identity for both.
+    /// For MacPorts it *is* one — the inventory argv and the verify argv are the
+    /// same. For Homebrew the observed read is `info --json=v2 --installed` and
+    /// the relaxed verb is `list --versions`: same binary, same prefix, same
+    /// user, so the inference is sound, and it is an inference.
+    ///
+    /// **`Available` or `Unknown`, never `Unavailable`.** A read that fails
+    /// does not say *why* it failed — a missing binary and a permission denial
+    /// arrive the same way — so this can confirm "no elevation needed" and can
+    /// never assert the opposite. That asymmetry is deliberate and is what makes
+    /// consulting it safe: it can relax a stored `required` on a read to `none`
+    /// when proven, and can never add an elevation prompt nobody established.
+    /// SE-059 recorded that rendering an unknown as "needs administrator
+    /// rights" is itself the INV-06 defect, because it trains a user to approve
+    /// a password prompt for a read.
+    UnprivilegedRead,
 }
 
 impl Capability {
@@ -142,7 +173,8 @@ impl Capability {
                 | Capability::OfflineMetadata
                 | Capability::FileOwnership
                 | Capability::DeprecationState
-                | Capability::ServiceMetadata => (),
+                | Capability::ServiceMetadata
+                | Capability::UnprivilegedRead => (),
             }
         }
         exhaustive(Capability::ServiceMetadata);
@@ -157,6 +189,7 @@ impl Capability {
             Capability::FileOwnership,
             Capability::DeprecationState,
             Capability::ServiceMetadata,
+            Capability::UnprivilegedRead,
         ]
     }
 }
@@ -393,7 +426,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding a capability. The exhaustive
     /// match inside `all()` will already have refused to compile.
-    const NUMBER_OF_CAPABILITIES: usize = 9;
+    const NUMBER_OF_CAPABILITIES: usize = 10;
 
     #[test]
     fn capability_all_has_no_duplicates() {

@@ -46,6 +46,9 @@
           },
           "SERVICE_METADATA": {
             "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "UNKNOWN"
           }
         }
       },
@@ -103,6 +106,9 @@
             "state": "UNKNOWN"
           },
           "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
             "state": "UNKNOWN"
           }
         }

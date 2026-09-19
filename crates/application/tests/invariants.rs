@@ -10,12 +10,12 @@ use macportsbrew_application::{
 };
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
-    AvailabilityEvidence, CommandLineTools, CommandTarget, DependencyEdge, Elevation,
-    EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan,
-    Outcome, PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
-    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
-    RequestedSet, Resolution, Snapshot, StepKind, SuccessSemantic, Translation, VerificationCheck,
-    Version, SNAPSHOT_SCHEMA_VERSION,
+    AvailabilityEvidence, Capability, CapabilityState, CommandLineTools, CommandTarget,
+    DependencyEdge, Elevation, EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine,
+    MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind, PackageMetadata,
+    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
+    ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot, StepKind,
+    SuccessSemantic, Translation, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1486,7 +1486,27 @@ fn invariant_06_a_step_whose_job_is_to_read_never_elevates() {
     // never needs administrator rights.
     let mut checked = 0usize;
     for (source, to, package) in [(HB, MP, "gnu-sed"), (MP, HB, "gsed")] {
-        let plan = plan_for(&install_needed(source), package, to, false);
+        let snapshot = install_needed(source);
+        // **What this test is exercising, asserted rather than assumed.** As of
+        // 2026-09-19 a detected `UnprivilegedRead` relaxes a read's elevation
+        // whatever the table says, so a fixture carrying it would satisfy every
+        // assertion below without the stored cell ever being consulted — and
+        // the mutation this test was proved against (flip a `verify` cell to
+        // `required`) would stop reaching it. These snapshots carry an empty
+        // capability table, which is what makes the assertions about the data
+        // file. If that ever changes, this fails here and says why rather than
+        // going quietly vacuous (`spec-guardian`).
+        for (id, provider) in &snapshot.providers {
+            assert!(
+                !provider
+                    .capabilities
+                    .capabilities
+                    .contains_key(&Capability::UnprivilegedRead),
+                "{id}: this fixture must not pre-empt the stored elevation, or this test \
+                 stops testing what it is named for"
+            );
+        }
+        let plan = plan_for(&snapshot, package, to, false);
         for step in &plan.steps {
             if !matches!(
                 step.kind,
@@ -1511,5 +1531,100 @@ fn invariant_06_a_step_whose_job_is_to_read_never_elevates() {
         checked >= 2,
         "a verification command must have been examined in each direction, or \
          this test passes by looking at nothing: {checked}"
+    );
+}
+
+/// INV-20's second sentence, the half that is visible from outside this crate:
+/// **detection may relax a read and must never touch a mutation.**
+///
+/// "Where behaviour can be detected at runtime, detection wins over stored
+/// knowledge" is a dangerous sentence if taken further than it was meant. The
+/// preference added for F-35 is scoped to read operations precisely because
+/// relaxing `add` or `remove` would be a rule rewriting the elevation of a
+/// *mutating* step from an observation about a *read*. MacPorts' shipped cells
+/// for those two are `required`, so this is assertable against the real data.
+///
+/// The other half — a detected capability beating a stored `required` on a
+/// read — is not reachable from here: `build_plan` loads the commands table
+/// itself, and no shipped cell disagrees with detection, so the override has no
+/// observable effect on today's data. It is tested in `planner.rs`'s own module,
+/// where `command()` takes the table as an argument, and the reason it lives
+/// there is written beside it.
+#[test]
+fn invariant_20_detection_relaxes_a_read_and_never_a_mutation() {
+    let mut snap = install_needed(HB);
+    for provider in snap.providers.values_mut() {
+        provider
+            .capabilities
+            .capabilities
+            .insert(Capability::UnprivilegedRead, CapabilityState::Available);
+    }
+    let plan = plan_for(&snap, "gnu-sed", MP, false);
+
+    let mut reads = 0usize;
+    let mut mutations = 0usize;
+    for step in &plan.steps {
+        for command in &step.commands {
+            match step.kind {
+                StepKind::VerifyDestination | StepKind::VerifyRemoval => {
+                    reads += 1;
+                    assert_eq!(
+                        command.elevation,
+                        Elevation::None,
+                        "a provider that demonstrated it can be read unprivileged must \
+                         carry no elevation on {:?}",
+                        step.kind
+                    );
+                }
+                // The destination only. `REMOVE_SOURCE` acts on the *source*,
+                // which here is Homebrew, whose `remove` cell is `none` — so
+                // asserting `Required` on it asserted the wrong provider's data.
+                // Caught by running the test rather than by reading it.
+                StepKind::AddDestination => {
+                    mutations += 1;
+                    assert!(
+                        matches!(command.elevation, Elevation::Required { .. }),
+                        "adding under MacPorts is `required` in the shipped data, and an \
+                         observation about a *read* must not relax a *mutation*: {:?}",
+                        command.elevation
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        reads > 0 && mutations > 0,
+        "both kinds must have been examined or this proves nothing: \
+         {reads} read(s), {mutations} mutation(s)"
+    );
+
+    // **Which provider's capability decides.** `command()` reads it from the
+    // `ProviderSnapshot` it is handed, and the unit tests pin that. What they
+    // cannot see is whether `build_plan` hands it the *right* one: a caller
+    // reading `snapshot.providers.values().any(..)` instead of the passed
+    // provider would let one provider's observation relax the other's read —
+    // the INV-07/INV-08 shape — and every assertion above would stay green,
+    // because this fixture sets the capability on both (`spec-guardian`).
+    //
+    // Pinned by program, which is the only thing in a command that names the
+    // provider it will run. `VERIFY_REMOVAL`'s counterpart is asserted in
+    // `invariant_01_a_verification_step_asserts_what_its_name_says`.
+    let program_of = |kind: StepKind| {
+        plan.steps
+            .iter()
+            .find(|s| s.kind == kind)
+            .and_then(|s| s.commands.first())
+            .map(|c| c.program.clone())
+    };
+    assert_eq!(
+        program_of(StepKind::VerifyDestination),
+        program_of(StepKind::AddDestination),
+        "the destination's verification must read the provider it was added under"
+    );
+    assert_ne!(
+        program_of(StepKind::VerifyDestination),
+        program_of(StepKind::RemoveSource),
+        "and must not be the provider the package is being removed from"
     );
 }

@@ -61,7 +61,17 @@ it references. The compatibility rule is in [`README.md`](README.md).
 
 Capability keys: `MACHINE_READABLE_INVENTORY`, `REQUESTED_RECORD`,
 `DEPENDENCIES`, `REVERSE_DEPENDENCIES`, `ARTIFACT_AVAILABILITY`,
-`OFFLINE_METADATA`, `FILE_OWNERSHIP`, `DEPRECATION_STATE`, `SERVICE_METADATA`.
+`OFFLINE_METADATA`, `FILE_OWNERSHIP`, `DEPRECATION_STATE`, `SERVICE_METADATA`,
+`UNPRIVILEGED_READ`.
+
+`UNPRIVILEGED_READ` is the one that feeds a decision rather than a report:
+`AVAILABLE` means the provider's own inventory came back while running as the
+invoking user, which is proof its read operations need no administrator rights,
+and the planner prefers it over the stored elevation in
+`data/policy/provider-commands.toml` for read steps only (INV-20: detection wins
+over stored knowledge). It is never `UNAVAILABLE` — a read that failed does not
+say whether it failed for want of permission or for want of a binary — so it can
+confirm that no elevation is needed and can never assert that one is.
 
 `CapabilityState` is a tagged union on `state`: `AVAILABLE`, `UNAVAILABLE`
 (with a reason), `UNKNOWN`. **`UNKNOWN` is a first-class answer** and never
@@ -69,7 +79,7 @@ means "assume available" — a consumer that treats it as available is reading
 the schema wrong.
 
 **Every provider reports every key**, whether or not it is installed. An
-absent provider's capabilities are nine `UNKNOWN`s — it cannot be asked what it
+absent provider's capabilities are `UNKNOWN` throughout — it cannot be asked what it
 can do, and that is what `UNKNOWN` means. An analysis of a *snapshot document*
 reports keys the document did not carry for the same reason: they are recorded
 as `UNKNOWN` when it loads, because a capture writes every answer and a

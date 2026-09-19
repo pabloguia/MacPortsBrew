@@ -401,6 +401,14 @@ impl<'r> HomebrewAdapter<'r> {
                 }
                 capabilities.insert(Capability::FileOwnership, CapabilityState::Unknown);
                 capabilities.insert(Capability::OfflineMetadata, self.offline_metadata_state());
+                // Not `Unavailable`, even though every capability beside it is.
+                // A read that failed does not say whether it failed because the
+                // user may not read, or because there was nothing to read: a
+                // missing binary and a permission denial arrive here the same
+                // way. Claiming "this read needs elevation" from that is the
+                // guess INV-06 forbids, so the honest answer is that nothing
+                // was established (F-35).
+                capabilities.insert(Capability::UnprivilegedRead, CapabilityState::Unknown);
                 return ProviderCapabilities { capabilities };
             }
         };
@@ -432,6 +440,15 @@ impl<'r> HomebrewAdapter<'r> {
         );
         // Homebrew has no "which package owns this file" query (R-1).
         capabilities.insert(Capability::FileOwnership, CapabilityState::Unknown);
+        // The read that produced `document` ran as the invoking user and came
+        // back, which is the observation. Note it is `info --json=v2
+        // --installed` and the verb it relaxes is `list --versions`: same
+        // binary, same prefix, same user, so the inference is sound — but it is
+        // an inference here, where on MacPorts the two argvs are identical. No new
+        // probe, nothing stat-ed, no permission inspected — INV-20's "detection
+        // wins over stored knowledge" answered from a read already performed
+        // (F-24, F-35).
+        capabilities.insert(Capability::UnprivilegedRead, CapabilityState::Available);
         capabilities.insert(Capability::OfflineMetadata, self.offline_metadata_state());
         ProviderCapabilities { capabilities }
     }

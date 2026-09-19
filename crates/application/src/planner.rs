@@ -7,9 +7,9 @@ use crate::analysis::{analyze, AnalysisOptions, AnalysisSource};
 use crate::provider_commands::{self, ProviderCommands};
 use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
 use macportsbrew_domain::{
-    CommandTarget, Confidence, DomainError, Elevation, ErrorId, MigrationPlan, MigrationStep,
-    Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence,
-    Reason, Snapshot, StepKind, SuccessSemantic, VerificationCheck,
+    Capability, CapabilityState, CommandTarget, Confidence, DomainError, Elevation, ErrorId,
+    MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk,
+    ProviderId, ProviderPresence, Reason, Snapshot, StepKind, SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -603,6 +603,13 @@ pub fn build_plan(
     Ok(plan)
 }
 
+/// The operations whose job is to read, and the only ones a detected
+/// `Capability::UnprivilegedRead` may relax the elevation of.
+///
+/// A list rather than a predicate on the verb string, so that adding a read
+/// verb is a decision made here rather than one that happens by spelling.
+const READ_OPERATIONS: &[&str] = &["verify", "verify_absent"];
+
 /// Operations whose argv carries no package name.
 ///
 /// One today. It is a function rather than a `const` list inline so the reason
@@ -783,7 +790,7 @@ fn command(
         PackageKind::GuiApp => format!("{operation}_gui_app"),
         PackageKind::Package => operation.to_string(),
     };
-    let elevation = match entry.and_then(|e| e.elevation.get(&elevation_key).map(String::as_str)) {
+    let stored = match entry.and_then(|e| e.elevation.get(&elevation_key).map(String::as_str)) {
         Some("none") => Elevation::None,
         Some("required") => Elevation::Required {
             reason: entry
@@ -791,6 +798,56 @@ fn command(
                 .unwrap_or_else(|| "provider prefix is not user-writable".into()),
         },
         _ => Elevation::Unknown,
+    };
+    // **INV-20's second sentence, which had no implementation until 2026-09-19.**
+    // "Where behaviour can be detected at runtime, detection wins over stored
+    // knowledge." Whether reading a provider needs administrator rights was a
+    // string in `provider-commands.toml`, true of the one machine it was
+    // observed on — and the registry a provider reads is created with the
+    // installing user's umask, so a machine with a restrictive one gets a stored
+    // answer that is wrong and nothing notices (F-24 closed the value, F-35 kept
+    // the obligation open).
+    //
+    // Three deliberate narrowings, because "detection wins" is a dangerous
+    // sentence taken further than this:
+    //
+    // 1. **Read operations only.** Relaxing an elevation is safe exactly where
+    //    INV-06 already says the answer must be `None` — a step whose job is to
+    //    read never elevates. Letting a detected capability relax `add` or
+    //    `remove` would be this rule rewriting the answer for a *mutating* step,
+    //    which is not what it observed.
+    // 2. **Only `Available` wins.** The capability is never `Unavailable` (the
+    //    adapters cannot tell a permission denial from a missing binary), so
+    //    detection can confirm "no elevation needed" and can never assert the
+    //    opposite. It cannot add a prompt nobody established.
+    // 3. **`Unknown` falls back to the cell**, and does not fold to `Required`.
+    //    SE-059 recorded that rendering an unknown as "needs administrator
+    //    rights" is itself the INV-06 defect, because it trains a user to
+    //    approve a password prompt for a read. Under `--replay` and
+    //    `--from-snapshot` of a document written before this capability existed,
+    //    `Unknown` is what is there, so those runs answer exactly as before.
+    // 4. **Keyed on `elevation_key`, not on `operation`.** The stored value is
+    //    looked up per package kind — `verify_gui_app` for a GUI application —
+    //    and the first version of this branch tested the *un*-suffixed name, so
+    //    a detected capability would have overridden a cell it never consulted.
+    //    MacPorts states `verify_gui_app = "unknown"` precisely "so the planner
+    //    never reaches a value by omission", and this would have turned that
+    //    into a confident `none` for a package kind the provider does not have.
+    //    Latent — `PackageClass::GuiApp` halts at `MANUAL_REVIEW` before
+    //    `command()` — but F-22's note twenty lines up says in terms that only
+    //    the elevation lookup is kind-aware and that the asymmetry is the
+    //    defect; a second kind-blind consumer of a kind-aware lookup is that
+    //    defect again (`spec-guardian`, 2026-09-19).
+    let elevation = if READ_OPERATIONS.contains(&elevation_key.as_str())
+        && provider
+            .capabilities
+            .capabilities
+            .get(&Capability::UnprivilegedRead)
+            == Some(&CapabilityState::Available)
+    {
+        Elevation::None
+    } else {
+        stored
     };
     // Unknown when the table does not say, and the fallback is the refusing
     // value on purpose: an executor that meets it must refuse the plan rather
@@ -826,4 +883,192 @@ fn command(
         elevation,
         success,
     })
+}
+
+/// The one property of this module that is not reachable from
+/// `crates/application/tests/`.
+///
+/// `build_plan` loads the commands table itself, so an integration test cannot
+/// vary a stored elevation cell — and the shipped cells that disagree with
+/// detection are the two MacPorts `_gui_app` ones, which no plan reaches
+/// because a GUI application halts at `MANUAL_REVIEW` first. So the override
+/// below changes no answer on any machine this project can test. That is exactly why it needs a test: a branch whose effect
+/// is invisible in the fixtures is a branch that can be broken without anything
+/// going red.
+///
+/// `command()` takes the table as an argument, so here it can. This is the third
+/// `fn invariant_*` living in `src/` — beside `invariant_01` in
+/// `domain/src/plan.rs` and `invariant_10` in `adapters/src/process/mod.rs` —
+/// which is not the same as the third *test* there: F-40 counts 62 modules and
+/// 346 tests in `src/`, and this is a 63rd module. The reason is the one F-40
+/// itself names, a property not reachable without changing production
+/// visibility, and the cost is real.
+#[cfg(test)]
+mod tests {
+    // Named `tests` and not for tidiness. The INV-20 textual scan in
+    // `crates/policy/tests/invariants.rs` skips a test module by matching
+    // `mod tests` literally — deliberately, because an earlier version latched
+    // on any `#[cfg(test)]` and silently excluded 27% of the workspace. So a
+    // module called anything else is read as production source, and the
+    // `/opt/local` fixture below is then flagged as a provider prefix written
+    // into code. It errs loud, which is the right direction, and this comment
+    // is here because the first draft of this module was called
+    // `elevation_preference` and failed that gate.
+    use super::*;
+    use macportsbrew_domain::{
+        Architecture, ProviderCapabilities, ProviderDetection, ProviderInventory, ProviderPresence,
+        Version,
+    };
+    use std::path::PathBuf;
+
+    /// A minimal snapshot of one provider, with the capability set as given.
+    fn provider(detected: Option<CapabilityState>) -> macportsbrew_domain::ProviderSnapshot {
+        let id = ProviderId::new("macports");
+        let mut capabilities = BTreeMap::new();
+        if let Some(state) = detected {
+            capabilities.insert(Capability::UnprivilegedRead, state);
+        }
+        macportsbrew_domain::ProviderSnapshot {
+            detection: ProviderDetection {
+                provider: id,
+                presence: ProviderPresence::Present,
+                version: Some(Version::new("2.12.6")),
+                prefix: Some(PathBuf::from("/opt/local")),
+                executable: None,
+                architecture: Some(Architecture::Arm64),
+                prefix_redacted: false,
+            },
+            capabilities: ProviderCapabilities { capabilities },
+            inventory: ProviderInventory::default(),
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+        }
+    }
+
+    /// The shipped table with both read cells forced to `required`, which no
+    /// real entry says — that is the point. Without it, "detection wins" is a
+    /// claim about a value that agrees with detection anyway.
+    /// The two read verbs, named **literally** rather than taken from
+    /// `READ_OPERATIONS`.
+    ///
+    /// The first version of this module drew both the forced cells and the
+    /// asserted operations from that constant, so deleting `"verify_absent"`
+    /// from it shrank the test with it and every assertion stayed green — while
+    /// a stored `required` on the removal-verification read would have survived
+    /// detection and put an administrator prompt on the step that closes
+    /// INV-01's loop. A constant must not both define and grade its own test
+    /// (`spec-guardian`, 2026-09-19).
+    const READS: &[&str] = &["verify", "verify_absent"];
+
+    fn table_demanding_elevation_for_reads() -> BTreeMap<String, ProviderCommands> {
+        let mut table = provider_commands::load().expect("the shipped table parses");
+        for entry in table.values_mut() {
+            for op in READS {
+                entry
+                    .elevation
+                    .insert((*op).to_string(), "required".to_string());
+            }
+        }
+        table
+    }
+
+    fn elevation_of(operation: &str, detected: Option<CapabilityState>) -> Elevation {
+        elevation_of_kind(operation, detected, PackageKind::Package)
+    }
+
+    fn elevation_of_kind(
+        operation: &str,
+        detected: Option<CapabilityState>,
+        kind: PackageKind,
+    ) -> Elevation {
+        command(
+            &table_demanding_elevation_for_reads(),
+            &provider(detected),
+            &ProviderId::new("macports"),
+            operation,
+            "htop",
+            kind,
+        )
+        .expect("the command builds")
+        .elevation
+    }
+
+    #[test]
+    fn invariant_20_a_detected_read_beats_a_stored_required() {
+        // The fallback first, or the other half proves nothing: with no
+        // capability recorded — every snapshot and recording written before it
+        // existed, and so every `--replay` run — the stored cell decides.
+        assert!(
+            matches!(elevation_of("verify", None), Elevation::Required { .. }),
+            "with nothing detected the table must decide, or there is no fallback"
+        );
+        assert!(
+            matches!(
+                elevation_of("verify", Some(CapabilityState::Unknown)),
+                Elevation::Required { .. }
+            ),
+            "and `Unknown` is not a detection: folding it to `none` would be reading an \
+             unknown as a yes, and folding it to `required` is the INV-06 defect SE-059 \
+             recorded — either way the cell decides"
+        );
+
+        // The constant is the thing under test, so assert what it contains
+        // rather than iterating it and calling that coverage.
+        assert_eq!(
+            READ_OPERATIONS, READS,
+            "the operations detection may relax are the read verbs and nothing else"
+        );
+
+        // And the sentence itself.
+        for operation in READS {
+            assert_eq!(
+                elevation_of(operation, Some(CapabilityState::Available)),
+                Elevation::None,
+                "{operation}: a machine that demonstrated it can be read unprivileged must \
+                 beat a stored `required` (INV-20: detection wins over stored knowledge)"
+            );
+        }
+    }
+
+    #[test]
+    fn a_detected_read_never_relaxes_a_cell_it_did_not_consult() {
+        // The stored value is looked up per package kind; the override must be
+        // too. MacPorts states `verify_gui_app = "unknown"` so the planner
+        // "never reaches a value by omission", and an override keyed on the
+        // un-suffixed `verify` turned that into a confident `none` for a
+        // package kind this provider does not have. The forced table above
+        // touches only the un-suffixed keys, so the `_gui_app` cells are the
+        // shipped `unknown` — which is exactly the value that must survive.
+        for operation in READS {
+            assert_eq!(
+                elevation_of_kind(
+                    operation,
+                    Some(CapabilityState::Available),
+                    PackageKind::GuiApp
+                ),
+                Elevation::Unknown,
+                "{operation}_gui_app is `unknown` in the shipped data and detection says \
+                 nothing about it; overriding it would be reaching a value by omission"
+            );
+        }
+    }
+
+    #[test]
+    fn a_detected_read_never_relaxes_a_mutation() {
+        // The narrowing that makes the override safe. `add` and `remove` are
+        // `required` for MacPorts in the shipped data; an observation about a
+        // *read* says nothing about them, and a rule that relaxed them would be
+        // rewriting the elevation of a mutating step from evidence it does not
+        // have.
+        for operation in ["add", "remove"] {
+            assert!(
+                matches!(
+                    elevation_of(operation, Some(CapabilityState::Available)),
+                    Elevation::Required { .. }
+                ),
+                "{operation} must keep its stored elevation however the read behaves"
+            );
+        }
+    }
 }

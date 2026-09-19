@@ -6223,6 +6223,9 @@
           },
           "SERVICE_METADATA": {
             "state": "AVAILABLE"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "AVAILABLE"
           }
         }
       },
@@ -6282,6 +6285,9 @@
           },
           "SERVICE_METADATA": {
             "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "AVAILABLE"
           }
         }
       },
