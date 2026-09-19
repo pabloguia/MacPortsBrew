@@ -527,7 +527,22 @@ pub fn build_plan(
             steps.push(next(
                 StepKind::VerifyRemoval,
                 Some(source.clone()),
-                vec![],
+                // Carried nothing until 2026-09-19, which made this the only
+                // verification step in the plan with a check and no way to
+                // perform it - executor-debt item 3 in `plan.v1.md`. The
+                // semantic is the mirror of what SE-083 gave
+                // `VERIFY_DESTINATION`, and it is deliberately not that one
+                // negated: see `SuccessSemantic::StdoutOmitsPackage` for the
+                // three-cases-one-answer observation that rules out asking
+                // about a single name on either provider.
+                vec![command(
+                    &commands,
+                    src_snapshot,
+                    &source,
+                    "verify_absent",
+                    &source_name,
+                    kind,
+                )?],
                 // Not `ProviderReportsActive`, which is documented as "reports
                 // the package installed and active" - as data, that told an
                 // executor to verify a removal by confirming the package is
@@ -586,6 +601,14 @@ pub fn build_plan(
     plan.check_ordering()
         .map_err(|e| DomainError::new(ErrorId::Internal, e))?;
     Ok(plan)
+}
+
+/// Operations whose argv carries no package name.
+///
+/// One today. It is a function rather than a `const` list inline so the reason
+/// sits with the rule: see `SuccessSemantic::StdoutOmitsPackage`.
+pub(crate) fn names_no_package(operation: &str) -> bool {
+    operation == "verify_absent"
 }
 
 fn command(
@@ -743,7 +766,19 @@ fn command(
     let mut argv: Vec<String> = entry
         .and_then(|e| e.verbs.get(operation).cloned())
         .unwrap_or_else(|| vec![format!("<{operation}>")]);
-    argv.push(package.to_string());
+    // `verify_absent` asks for the whole inventory and names no package, which
+    // is the entire reason it can answer at all: on both providers, asking
+    // about *one* name returns the same empty stdout for a package that was
+    // removed, a name that never was one, and a provider that could not run
+    // (observed 2026-09-19; the table states it beside both cells). So absence
+    // is the name missing from a non-empty answer, and an empty one is refused.
+    //
+    // The name still travels in the plan - the executor matches stdout against
+    // it - so every guard above still applies to it. What changes is only that
+    // it is not an argument.
+    if !names_no_package(operation) {
+        argv.push(package.to_string());
+    }
     let elevation_key = match kind {
         PackageKind::GuiApp => format!("{operation}_gui_app"),
         PackageKind::Package => operation.to_string(),
@@ -779,6 +814,7 @@ fn command(
     let success = match entry.and_then(|e| e.success.get(operation).map(String::as_str)) {
         Some("exit_status") => SuccessSemantic::ExitStatus,
         Some("stdout_names_package") => SuccessSemantic::StdoutNamesPackage,
+        Some("stdout_omits_package") => SuccessSemantic::StdoutOmitsPackage,
         _ => SuccessSemantic::Unknown,
     };
     Ok(PlanCommand {

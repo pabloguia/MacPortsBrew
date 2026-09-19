@@ -56,7 +56,7 @@ the order they occur:
 | `SET_PRIMARY` | yes | Make the destination's copy the one that resolves |
 | `VERIFY_RESOLUTION` | no | Confirm it actually does |
 | `REMOVE_SOURCE` | yes | Only reachable after `VERIFY_DESTINATION` passed (INV-01) |
-| `VERIFY_REMOVAL` | no | Carries `PACKAGE_ABSENT`. It carries **no command**: what an executor should run to establish absence, and what exit status means it, is owed to the executor pass (F-06, F-22) |
+| `VERIFY_REMOVAL` | no | Carries `PACKAGE_ABSENT` **and, since 2026-09-19, a command**: the provider's inventory verb with **no package argument**, and `success: STDOUT_OMITS_PACKAGE`. Absence is the name missing from an answer that exited cleanly, was not truncated and is non-empty — four conditions, not one; the exit status is a precondition here rather than the answer (F-06, F-22) |
 | `CLEANUP_REVIEW` | no | What is left behind, for a human to decide about |
 | `RECORD_HISTORY` | no | |
 | `MANUAL_REVIEW` | no | A human must look. Execution stops here |
@@ -82,7 +82,9 @@ defend it.
 ### What an executor inherits
 
 Five obligations are recorded in this document and enforced by nothing today,
-because nothing executes. They are listed together so the executor pass inherits
+because nothing executes. Two of the five — items 3 and 4 — are now discharged
+as *data*: the plan carries what an executor needs, and what remains is an
+executor reading it. They are listed together so the executor pass inherits
 a list rather than three doc comments:
 
 1. **Refuse a plan carrying a `placeholder` command.** It cannot be run; see
@@ -90,10 +92,57 @@ a list rather than three doc comments:
 2. **Refuse a plan carrying a `check` this build does not recognise.** An
    unknown check can never count as satisfied
    (`MigrationPlan::verification_is_performable`).
-3. **`PACKAGE_ABSENT` needs a command and a success semantic.** The step carries
-   none, and "nonzero exit means absent" is verification by exit status with the
-   sign flipped — `brew list --versions` exits 1 for a correctly installed cask
-   (F-06, F-22).
+3. **Perform a `VERIFY_REMOVAL` only on an inventory that is complete.** **Discharged
+   as data 2026-09-19**, and what is left is the executor's half, which is one
+   sentence rather than a design. `PACKAGE_ABSENT` now carries the provider's
+   inventory verb with no package argument and `success: STDOUT_OMITS_PACKAGE`.
+   What this entry said before, and which is why the field is shaped this way:
+   the step carried no command at all, and "nonzero exit means absent" is
+   verification by exit status with the sign flipped — `brew list --versions`
+   exits 1 for a correctly installed cask (F-06, F-22).
+
+   Observed on this machine 2026-09-19, and it rules out the obvious design.
+   Asked about a **single name**, each provider gives the same empty stdout for
+   a package that was removed, a name that never was one, and a provider that
+   could not run:
+
+   | | installed | absent | not a package |
+   |---|---|---|---|
+   | `port -q installed <n>` | exit 0, names it | exit 0, empty | exit 0, empty |
+   | `brew list --versions <n>` | exit 0, names it | exit 1, empty | exit 1, empty |
+
+   So "nothing came back" would mean "successfully removed", on the step that
+   certifies a removal — an answer carrying no information read as a yes.
+   Asking for the **whole inventory** instead makes the answer a large positive
+   output (18 and 201 lines here). **The executor's obligation is four
+   conditions, not one**, because this is the one semantic satisfied by saying
+   nothing, so every way of saying nothing must be excluded first:
+
+   1. the process exited **0**;
+   2. its output was **not truncated**;
+   3. stdout is **non-empty**;
+   4. only then: the name is not the first whitespace-separated token of any
+      line.
+
+   This list said only (3) when first written, justified by the claim that a
+   crashed or truncated read "produces an empty stdout". **It does not** —
+   `read_bounded` returns the first `cap` bytes and sets a separate flag, and a
+   killed process leaves whatever it flushed. A `brew list --versions` cut off
+   at line 40 of 201 is non-empty, omits the name, and would have certified a
+   removal it never saw. Found by `security-reviewer` 2026-09-19; the loader now
+   also refuses this semantic on any verb the planner appends a name to.
+
+   **And the stdout is never recorded.** It is the machine's complete installed
+   inventory — a strong fingerprint that routinely names internal tooling. What
+   may be written to history, a log or a report is the boolean result, the line
+   count and the truncation flag.
+
+   The cost is stated rather than discovered: removing the last package a
+   provider holds leaves an empty inventory and condition (3) refuses it, which
+   is a false negative and the direction this project chooses every time. It
+   needs its own message — that case is the single-package migration, and "could
+   not verify removal" reads as "the removal failed", whose natural response is
+   to remove it again.
 4. **Refuse a plan carrying a command whose `success` is `UNKNOWN`** — and
    honour the semantic on the ones that state it. **Discharged as data
    2026-09-18**, and what is left is the executor's half. The semantic now sits
@@ -131,7 +180,7 @@ the plan is the useful output even when it cannot be run unattended.
 | `argv` | array of string | The full argument vector. **There is no shell and no string interpolation**: package names and paths are arguments, never fragments of a command line |
 | `environment` | map of string to string, optional | The sanitised environment the command would run in. Omitted when empty, so its absence does not by itself mean `TOOL`: a `PROVIDER` command whose source snapshot carried no environment is written without it too (see F-21) |
 | `elevation` | tagged union, tag `elevation` | `NONE`, `REQUIRED` (with a `reason` — the provider's own statement or a stable identifier), `UNKNOWN` |
-| `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, or `UNKNOWN`. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed |
+| `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, `STDOUT_OMITS_PACKAGE`, or `UNKNOWN`. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. **"Appear" means equal to the first whitespace-separated token of some line, not a substring** — measured 2026-09-19, 18 of 201 installed formulae are a substring of another's name (`gh` inside `ghidra`), so a substring rule lets a failed install pass the step INV-01 puts in front of `REMOVE_SOURCE` (F-51). A prefix test does not close it either: `ghidra` begins with `gh`. `STDOUT_OMITS_PACKAGE` is how a **removal** is certified and is deliberately not that one negated: the name must be missing from a **non-empty** stdout, because asked about one name each provider answers an absent package, a name that never was one, and a provider that failed to run with the same empty output (observed 2026-09-19). The command therefore names no package and asks for the whole inventory, and an empty answer is refused rather than read as a removal. It uses the same whole-token definition of "names" as `STDOUT_NAMES_PACKAGE`, negated — one definition for the pair, because under a substring rule the two fail in opposite directions. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed |
 | `placeholder` | boolean, always present | The command is an **illustration**, not something an executor could run. A plan built for a provider that was not detected has no prefix to resolve, so the program reads `<macports prefix>/bin/macports` and the verb `<verify>`. Until this field existed nothing distinguished those from a real command, and `check_ordering` never looks at commands at all (F-20). **An executor refuses a plan carrying one** rather than running the steps around it. **Read this field before executing anything.** It is always written, but `false` is the permissive value, so a reader that ignores it — or a document produced before the field existed — sees a real command where an illustration is. Unlike an unrecognised `check`, which deserialises to a value that cannot be satisfied, a boolean has no shape that fails closed on a reader who never looks |
 
 **`TOOL` is not a provider invocation.** Exactly one step can carry one —
@@ -197,6 +246,67 @@ internally tagged union, so the tag repeats the field name. Taken from
   "placeholder": false
 }
 ```
+
+And the step the absence contract is about, whole, because the command and the
+check it satisfies are only meaningful together — this is what an executor
+inherits from item 3 above. Note `argv` carries **no package name**: the
+`htop` this plan removes appears nowhere in it.
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/6 -->
+```json
+{
+  "index": 7,
+  "kind": "VERIFY_REMOVAL",
+  "provider": "homebrew",
+  "commands": [
+    {
+      "target": {
+        "target": "PROVIDER"
+      },
+      "program": "/opt/homebrew/bin/brew",
+      "argv": [
+        "list",
+        "--versions"
+      ],
+      "environment": {
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_COLOR": "1",
+        "HOMEBREW_NO_EMOJI": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "NO_COLOR": "1",
+        "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "TERM": "dumb"
+      },
+      "elevation": {
+        "elevation": "NONE"
+      },
+      "success": {
+        "success": "STDOUT_OMITS_PACKAGE"
+      },
+      "placeholder": false
+    }
+  ],
+  "verification": [
+    {
+      "check": "PACKAGE_ABSENT"
+    }
+  ],
+  "reason": {
+    "id": "reason.verify_removal"
+  }
+}
+```
+
+Added 2026-09-19 because `spec-guardian` observed that the shape this pass
+introduced appeared in **no golden and no documented sample** — the goldens are
+`analyze` output, and the whole-plan sample below is all `MANUAL_REVIEW` and so
+carries no `VERIFY_REMOVAL`. By this project's own rule a documented sample is
+the contract and prose is a claim, so until this block existed the contract was
+a claim plus one unit test.
 
 These two were hand-formatted until 2026-09-19 — same content, arrays and tags
 folded onto one line — and are now written exactly as the binary serialises
@@ -382,7 +492,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.09.08-1",
+  "policyVersion": "2026.09.19-1",
   "dryRunOnly": true
 }
 ```

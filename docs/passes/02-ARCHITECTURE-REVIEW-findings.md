@@ -72,6 +72,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
+| **F-51** — "the name appears in stdout" is a substring rule, on the step INV-01 rests on | **Fixed 2026-09-19 (contract only; no executor exists).** Measured: 18 of 201 installed formulae are a substring of another's name. `STDOUT_NAMES_PACKAGE` guards `VERIFY_DESTINATION`, so a failed install of `gh` would be certified by `ghidra`'s line and `REMOVE_SOURCE` would run — fail-open. Its new mirror `STDOUT_OMITS_PACKAGE` breaks the safe way on the same collision. Both now require the name to **equal the first whitespace-separated token** of a line, literally — a prefix test does not close it (`ghidra` begins with `gh`) and a regex cannot be used (`.` and `+` are legal name characters). |
 | **F-50** — the drift guard F-27 built does not cover the documents an executor builds against | **Fixed 2026-09-19.** The scan reads `docs/schemas/*.md`; the marker convention gained `at=<JSON Pointer>` for a block that is part of an output and `exit=<n>` for one that documents a refusal. The first run found `doctor.v1.md` stale by two policy versions and fifteen lines short of the binary. `analysis.v1.md` and `explain.v1.md` stay unchecked because they are abridged by design, and each now says so. **Found 2026-09-18** during `03-UNKNOWN-IS-NEVER-A-YES`, which is a later pass than this register - recorded here because this file is the register and a finding kept only in a pass report is a finding the next reader does not meet. `documented_samples.rs` scans `README.md` and `wiki/*.md` and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample with what the binary prints. Two of `plan.v1.md`'s were wrong. Samples corrected **and the guard widened 2026-09-19**; this row said "guard not widened" until then, denying its own first sentence. |
 | **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. **Filed as DP-021 on 2026-09-19** — it trades away an audience (users installing under `$HOME` because they have no administrator rights) or spends the Tier 3 privacy MUST at `06-cli-and-ux.md:133`, which `AGENTS.md` makes the owner's call, and it had been carried as "a design question" for three days without being written down where such questions live. The reversible default is now complete: the refusal itself names the cause instead of describing the symptom, branching on `prefix_redacted` **or** the `~` shape, because the flag is `#[serde(default)]` and a document written before it existed reads `false`. The regression test's own fixture is such a document, so the shape half is what fires there; it asserts the generic arm did **not** answer, or the assertion would survive the two messages converging. |
 | **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding; fixed the same day.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
@@ -3851,6 +3852,49 @@ the C move is ~2,250 lines out and ~3,300 in across 27 files and five crates
 (calibrated from `f770318`, where two tests moving cost a 1.6× expansion because
 integration-test context has to be re-established). That is a pass, and a pass
 whose diff nobody can review alongside anything else.
+
+---
+## F-51 — "the name appears in stdout" is a substring rule, and one of the two steps it guards is the one INV-01 rests on
+
+**Severity: high. Found 2026-09-19 while discharging `plan.v1.md`'s
+executor-debt item 3, and independently by `security-reviewer` reviewing that
+work.** Pre-existing: SE-083 shipped `SuccessSemantic::StdoutNamesPackage` on
+2026-09-18 defined as "the package's own name in the command's standard
+output", and nothing said whether that meant a whole field or any substring.
+
+**Measured, not reasoned about.** On this machine, 2026-09-19: of **201**
+installed Homebrew formulae, **18 are a substring of another formula's name** —
+`gh` inside `ghidra`, `highway` and `libnghttp2`; `apr` inside `apr-util`; `gd`
+inside `gdk-pixbuf`; `certifi` inside `ca-certificates`. That is 9%, so this is
+an ordinary machine's arithmetic rather than an adversarial input.
+
+**The two semantics break in opposite directions, and only one of them is
+safe.**
+
+- `STDOUT_NAMES_PACKAGE` guards `VERIFY_DESTINATION`, which INV-01 puts in
+  front of `REMOVE_SOURCE`. Install `gh`, have it fail, and `ghidra`'s line
+  satisfies "gh appears in stdout" — **the gate passes and the source is
+  removed.** Fail-open, on the one step the invariant exists to protect.
+- `STDOUT_OMITS_PACKAGE` guards `VERIFY_REMOVAL`. The same collision refuses to
+  certify a removal that did happen. A false negative, and safe.
+
+**The fix, and why the obvious one does not work.** The name must **equal the
+first whitespace-separated token** of a line. Observed the same day, both
+inventories agree on that shape: `node 26.7.0`, the multi-version
+`cryptography 50.0.1 50.0.0`, and MacPorts' two-space-indented
+`  autoconf @2.73_0 (active)`. A **prefix** test does not close it — `ghidra`
+*begins* with `gh` — and MacPorts' indent is why the rule is "first token"
+rather than "line begins with". It must also be a **literal** comparison:
+`is_safe_provider_name` admits `.` and `+`, both regex metacharacters, and real
+names use them (`lua@5.4`, `gtk+3`), so a name compiled as a pattern either
+fails to compile or matches a different package.
+
+**Fixed 2026-09-19** in `SuccessSemantic`'s doc comments and in `plan.v1.md`'s
+`success` row, for both variants, stated once and referenced from the other so
+the pair cannot drift apart. **No code implements either rule yet** — there is
+no executor — so what shipped is the contract, which is the whole of what F-51
+was about: the contract said something that would have been implemented wrongly
+and defensibly.
 
 ---
 

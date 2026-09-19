@@ -13,7 +13,7 @@ it references. The compatibility rule is in [`README.md`](README.md).
 |---|---|---|
 | `schemaVersion` | integer | `1` |
 | `toolVersion` | string | The MacPortsBrew version, e.g. `"0.1.0"` |
-| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.09.08-1"` |
+| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.09.19-1"` |
 | `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across the policy data |
 | `policyStale` | boolean | True when `today` minus `policyReadOn` exceeds the threshold in `data/policy/policy.toml`. Advisory: recommendations are still produced |
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
@@ -239,7 +239,7 @@ to end.
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.09.08-1",
+  "policyVersion": "2026.09.19-1",
   "policyReadOn": "2026-09-02",
   "policyStale": false,
   "today": "2026-09-02",

@@ -99,7 +99,89 @@ pub enum SuccessSemantic {
     /// Exit status carries no information for this command. Success requires
     /// the package's own name in the command's standard output; an empty
     /// stdout is a failure however the process exited.
+    ///
+    /// **"Names" means a whole field, not a substring**, and the difference is
+    /// a data-loss path rather than a nicety. This said only "the package's own
+    /// name in the command's standard output" until 2026-09-19. Measured that
+    /// day on this machine: of 201 installed formulae, **18 are a substring of
+    /// another formula's name** — `gh` inside `ghidra`, `highway` and
+    /// `libnghttp2`; `apr` inside `apr-util`; `gd` inside `gdk-pixbuf`. So a
+    /// `VERIFY_DESTINATION` for `gh` whose install had failed would find "gh"
+    /// in the line for `ghidra` and **pass**, and INV-01 puts precisely that
+    /// step in front of `REMOVE_SOURCE` (F-51).
+    ///
+    /// The rule that closes it, and it is one rule for both providers because
+    /// both inventories agree on the shape: **the name must equal the first
+    /// whitespace-separated token of some line of stdout.** Observed
+    /// 2026-09-19 — `node 26.7.0`, `cryptography 50.0.1 50.0.0` and
+    /// `  autoconf @2.73_0 (active)` all carry the name as that token, and
+    /// MacPorts' two-space indent is why it is "first token" rather than
+    /// "line begins with". A prefix test would not have closed it: `ghidra`
+    /// *begins* with `gh`.
     StdoutNamesPackage,
+    /// The package's name is **not** the first whitespace-separated token of any
+    /// line of a **complete** standard output. How absence is established
+    /// (`VERIFY_REMOVAL`, `PACKAGE_ABSENT`).
+    ///
+    /// **Four conditions, and an executor must check all four before the name
+    /// test**, because unlike [`Self::StdoutNamesPackage`] this semantic is
+    /// satisfied by *saying nothing*, so every way of saying nothing has to be
+    /// excluded first:
+    ///
+    /// 1. the process exited **0**;
+    /// 2. its output was **not truncated**;
+    /// 3. stdout is **non-empty**;
+    /// 4. only then: the name is not the first token of any line.
+    ///
+    /// **The first draft of this comment stated only (3) and justified it with
+    /// a claim that is false.** It said a provider "crashed, was killed, or
+    /// whose output was truncated produces an empty stdout". Truncation does
+    /// not: `read_bounded` returns the first `cap` bytes and sets a separate
+    /// flag, and a process killed mid-write leaves whatever it had flushed. So
+    /// a `brew list --versions` cut off at line 40 of 201 is non-empty, omits
+    /// the name, and would have certified a removal it never saw — on the far
+    /// side of `REMOVE_SOURCE`, where the package is already gone. An
+    /// alphabetical inventory makes a name near the end *more* likely to be in
+    /// the lost tail. Found by `security-reviewer`, 2026-09-19.
+    ///
+    /// Why the single-name form is not available, observed the same day —
+    /// MacPorts 2.12.6, Homebrew 6.0.21. Asked about **one** name, each
+    /// provider answers three different states identically:
+    ///
+    /// | | installed | absent | not a package |
+    /// |---|---|---|---|
+    /// | `port -q installed <n>` | exit 0, names it | exit 0, empty | exit 0, empty |
+    /// | `brew list --versions <n>` | exit 0, names it | exit 1, empty | exit 1, empty |
+    ///
+    /// So "nothing came back" would mean "successfully removed". Asking for the
+    /// **whole inventory** instead makes the truthful answer a large positive
+    /// output, which is what conditions (1)-(3) can then be demanded of.
+    ///
+    /// **"Not the first token" is the exact negation of
+    /// [`Self::StdoutNamesPackage`]'s rule, and the shared definition is
+    /// load-bearing.** It is a **literal token comparison — never a substring,
+    /// glob or regular expression.** `is_safe_provider_name` admits `.` and
+    /// `+`, and real names use them (`lua@5.4`, `gtk+3`), so a name compiled as
+    /// a pattern either fails to compile or matches a different package. Under
+    /// a substring rule the 18 measured collisions break the pair in opposite
+    /// directions: this one refuses a genuine removal of `gh` while `ghidra`
+    /// remains (a false negative, safe), and its mirror falsely certifies a
+    /// destination (F-51, not safe).
+    ///
+    /// **The stdout of such a command is never recorded.** It is the machine's
+    /// complete installed inventory — 201 formulae here — which is a strong
+    /// fingerprint and routinely names an employer's internal tooling. What may
+    /// be written to history, a log or a report is the boolean result, the line
+    /// count and the truncation flag.
+    ///
+    /// The cost, stated rather than discovered: removing the last package a
+    /// provider holds leaves an empty inventory, which condition (3) refuses.
+    /// That is a false negative — "could not verify", never "verified" — and it
+    /// is the direction this project chooses every time. It also needs its own
+    /// message, because it is the single-package migration and "could not
+    /// verify removal" reads as "the removal failed", whose natural response is
+    /// to remove it again.
+    StdoutOmitsPackage,
     /// Not stated, or stated in terms this build does not recognise.
     ///
     /// The refusing value, and the default, for the reason

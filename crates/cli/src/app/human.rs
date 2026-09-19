@@ -8,7 +8,7 @@ use crate::render::table::Table;
 use macportsbrew_application::{Analysis, DoctorReport, Explanation, PackageReport, Severity};
 use macportsbrew_domain::{
     ArtifactAvailability, MigrationPlan, Outcome, Ownership, PackageClass, ProviderPresence,
-    SourceBuildReason, StepKind, SupportTier, Translation, VerificationCheck,
+    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -426,9 +426,36 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
                     format!("  [{}]", label(ctx, "plan.elevation_unknown"))
                 }
             };
+            // **SE-083** recorded "the human renderer does not show the
+            // semantic" as deliberately not done, that pass's work order having
+            // put it out of scope. (This comment cited SE-084 and quoted a
+            // sentence that appears in neither entry, until `spec-guardian`
+            // checked it on 2026-09-19 — an invented rationale credited to the
+            // wrong record, in the file that is the audit trail.) That
+            // reasoning held while each verb had one semantic. It stopped on
+            // 2026-09-19, when `VERIFY_REMOVAL` gained the *same verb* as
+            // `VERIFY_DESTINATION` with the opposite meaning: this view renders
+            // `$ /opt/local/bin/port -q installed` and `$ ... -q installed foo`,
+            // which differ by a trailing argument and mean opposite things.
+            // INV-02 makes this the surface a human consents on, so a reader
+            // who cannot tell them apart is the defect (`security-reviewer`).
+            //
+            // Only the two that change how the line should be read are marked.
+            // `EXIT_STATUS` and `STDOUT_NAMES_PACKAGE` are what a reader already
+            // assumes a verification command means, and a marker on every
+            // command would bury the two that matter.
+            let success = match c.success {
+                SuccessSemantic::ExitStatus | SuccessSemantic::StdoutNamesPackage => String::new(),
+                SuccessSemantic::StdoutOmitsPackage => {
+                    format!("  [{}]", label(ctx, "plan.success_omits"))
+                }
+                SuccessSemantic::Unknown => {
+                    format!("  [{}]", label(ctx, "plan.success_unknown"))
+                }
+            };
             let _ = writeln!(
                 out,
-                "       $ {} {}{elevation}{illustrative}",
+                "       $ {} {}{elevation}{success}{illustrative}",
                 c.program,
                 c.argv.join(" ")
             );

@@ -59,6 +59,26 @@ and the run reports failure with the specific check that failed.
 
 **MUST NOT.** "The install command exited 0" is not verification.
 
+### Verifying a removal
+
+**MUST.** Removal verification establishes **absence**, and absence cannot be
+established by asking a provider about the package that is absent: observed
+2026-09-19, both providers answer a removed package, a name that was never a
+package, and a provider that could not run with the same empty output. It is
+therefore established from the provider's **whole inventory**, and only when
+that inventory is known to be complete.
+
+**MUST NOT.** An empty, truncated or nonzero-exit answer is never absence.
+
+The conditions, the observation behind them and the obligation never to record
+that inventory are stated **once**, in
+[`../schemas/plan.v1.md`](../schemas/plan.v1.md)'s `success` field and its
+executor-debt item 3. This section points at that copy rather than repeating it:
+this contract was written in four places on one day — a schema document, a Rust
+doc comment and two data-file comments — and this chapter, which INV-01 names as
+*the* verification contract, was silent. Three spellings of one thing is two
+spellings that will be wrong.
+
 ## Reverse dependencies
 
 **MUST.** Before any removal, resolve reverse dependencies within the source

@@ -15,14 +15,19 @@
 [[entry]]
 provider = "homebrew"
 executable = "bin/brew"
-source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md. The `[entry.success]` cells are two observations on this machine, Homebrew 6.0.21: the verify verb on an installed formula exits 0 with the name and version (R-5a E1, 2026-09-04), and on a name that is not installed exits 1 with no output (2026-09-06, recorded in the F-33 section of docs/passes/02-ARCHITECTURE-REVIEW-findings.md). `add` and `remove` are cited to the Manpage, not re-observed, because running them would mutate this machine (INV-05)"
-read_on = "2026-09-06"
+source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md. The `[entry.success]` cells are two observations on this machine, Homebrew 6.0.21: the verify verb on an installed formula exits 0 with the name and version (R-5a E1, 2026-09-04), and on a name that is not installed exits 1 with no output (2026-09-06, recorded in the F-33 section of docs/passes/02-ARCHITECTURE-REVIEW-findings.md). `add` and `remove` are cited to the Manpage, not re-observed, because running them would mutate this machine (INV-05). The `verify_absent` cells are a third observation, 2026-09-19, Homebrew 6.0.21: `brew list --versions <installed>` exits 0 naming it, a real-but-uninstalled formula (`cowsay`) and a name that is not a formula both exit 1 with no output, and the bare inventory exits 0 with 201 lines, listing casks as well as formulae (all nine installed casks appear, matched on the first token) and emitting no section headers - so absence is the name missing from a complete non-empty inventory, and never an empty answer"
+read_on = "2026-09-19"
 elevation_reason = "Homebrew refuses to run as root; its prefix subdirectories are owned by the user (docs.brew.sh/FAQ, read 2026-09-02)."
 
 [entry.verbs]
 add = ["install"]
 remove = ["uninstall"]
 verify = ["list", "--versions"]
+# The same verb, and deliberately the same argv, because the planner appends no
+# package to this one: it asks for the whole inventory and absence is the name
+# being missing from it. See `[entry.success]` below for why asking about one
+# name cannot answer this question on either provider.
+verify_absent = ["list", "--versions"]
 
 # How an executor establishes that each command succeeded. Exit status is not
 # the universal answer - see the MacPorts entry, where for one verb it carries
@@ -42,6 +47,28 @@ verify = ["list", "--versions"]
 add = "exit_status"
 remove = "exit_status"
 verify = "exit_status"
+# How a removal is certified, and why it is not `verify` with the sense
+# reversed. Observed on this machine 2026-09-19, Homebrew 6.0.21:
+#
+#   brew list --versions actionlint                   -> exit 0, "actionlint 1.7.12"
+#   brew list --versions cowsay                       -> exit 1, no output
+#   brew list --versions definitely-not-a-formula-xyz -> exit 1, no output
+#   brew list --versions                              -> exit 0, 201 lines
+#
+# `cowsay` is the real-but-absent case and is the row that matters, because it
+# is the state a removal actually produces. The first version of this block
+# demonstrated only the installed and never-existed cases while the entry-level
+# `source` claimed all three for 2026-09-19 - the absent column was carried over
+# from the 2026-09-06 read and presented as observed today (spec-guardian).
+#
+# Exit 1 with empty stdout is what a removed formula looks like - and also what
+# a name that was never a formula looks like, and what a `brew` that could not
+# run looks like. "Nonzero means absent" is verification by exit status with the
+# sign flipped, which is what F-06 and F-22 warned about.
+#
+# So this asks for the inventory and requires the name to be missing from a
+# *non-empty* answer. A provider that failed produces nothing and is refused.
+verify_absent = "stdout_omits_package"
 
 [entry.elevation]
 add = "none"
@@ -55,6 +82,22 @@ remove_gui_app = "unknown"
 # 2026-09-04 (R-5a). Note the entry-level `source` below cites the FAQ, which
 # names no subcommand; this cell's source is `brew.sh` at that revision.
 verify = "none"
+# Reading the inventory elevates no more than reading one row of it: same verb,
+# same binary, one fewer argument.
+#
+# F-22's objection genuinely does not reach these two cells, and that is now an
+# observation rather than the inference it was when first written
+# (security-reviewer, 2026-09-19: the premise was asserted and unobserved, and
+# had it been wrong the cask cell would have certified a removal that never
+# happened - trivially, because the name could never be in a list it is not on).
+# Observed 2026-09-19, Homebrew 6.0.21 with nine casks installed: the bare
+# `brew list --versions` lists **casks as well as formulae** - all nine appear,
+# matched on the first token - and emits no `==>` section headers. So the
+# absence verb is kind-agnostic where the presence verb is not: `brew list
+# --versions <cask>` is formula-only *once a name is given*, and this one gives
+# no name.
+verify_absent = "none"
+verify_absent_gui_app = "none"
 # Same command, same answer. Verifying a cask does not elevate either - but see
 # finding F-22: `brew list --versions` is formula-only once a name is given, so
 # the *verb* is wrong for a cask even though the elevation is right.
@@ -91,8 +134,8 @@ set_primary_gui_app = "none"
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24). Re-observed 2026-09-08 with three ports installed, which the 2026-09-06 read could not do: the elevation answer is unchanged, and `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33)"
-read_on = "2026-09-08"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24). Re-observed 2026-09-08 with three ports installed, which the 2026-09-06 read could not do: the elevation answer is unchanged, and `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
+read_on = "2026-09-19"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
 # called one of these is not a package: removing the set named `installed` is
@@ -116,6 +159,8 @@ reserved_names = [
 add = ["install"]
 remove = ["uninstall"]
 verify = ["-q", "installed"]
+# No package is appended to this one; see `[entry.success]`.
+verify_absent = ["-q", "installed"]
 
 # `verify` is the one cell in this file where exit status is not the answer,
 # and it is why this table exists (F-33). Observed on this machine 2026-09-08,
@@ -138,6 +183,24 @@ verify = ["-q", "installed"]
 add = "exit_status"
 remove = "exit_status"
 verify = "stdout_names_package"
+# And the mirror, which on this provider is the *same* three-cases-one-answer
+# problem as `verify` rather than a different one. Observed on this machine
+# 2026-09-19, MacPorts 2.12.6:
+#
+#   port -q installed autoconf                  -> exit 0, "  autoconf @2.73_0 (active)"
+#   port -q installed wireshark                 -> exit 0, no output
+#   port -q installed definitely-not-a-port-xyz -> exit 0, no output
+#   port -q installed                           -> exit 0, 18 lines
+#
+# Removed, never-a-port and could-not-run are one answer again, and here even
+# the exit status does not separate them the way Homebrew's does. `port
+# installed <name>` without `-q` does print "None of the specified ports are
+# installed." - a real positive signal - but it says the same for a name that
+# is not a port, and matching a provider's prose is the mis-parse the adapters
+# are built to refuse.
+#
+# So: the inventory, and the name missing from a non-empty answer.
+verify_absent = "stdout_omits_package"
 
 [entry.elevation]
 add = "required"
@@ -194,8 +257,12 @@ remove_gui_app = "unknown"
 # over stored knowledge). One machine is a better default than `unknown`, not a
 # substitute for detecting.
 verify = "none"
+# The same read with one argument fewer, so the same answer, and it rests on the
+# same observation: registry.db is 0644 and readable by a non-root user.
+verify_absent = "none"
 # MacPorts has no GUI-application package kind, as `add_gui_app` above already
 # records. Stated so the planner never reaches a value by omission.
+verify_absent_gui_app = "unknown"
 verify_gui_app = "unknown"
 # Cross-provider primary goes through the MacPortsBrew-managed directory
 # (SE-036); the provider's own intra-provider selection mechanism needs

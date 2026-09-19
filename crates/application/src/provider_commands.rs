@@ -184,16 +184,46 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
         // omission here would turn into a plan that cannot be run rather than
         // into a build that cannot ship.
         for verb in e.verbs.keys() {
+            // The coupling the whole absence design rests on, and nothing
+            // checked it until `security-reviewer` said so on 2026-09-19.
+            //
+            // `stdout_omits_package` is only safe because the command names no
+            // package: asked about one name, both providers answer an absent
+            // package, a name that never was one, and a failure identically.
+            // The two halves live in different files - the semantic here, the
+            // "no package in argv" rule in `planner::names_no_package` - so a
+            // data-only edit could give a name-taking verb this semantic and
+            // produce a plan telling an executor "absent iff the name is
+            // missing" about a command that asks for one name. `port installed
+            // <name>` without `-q` is the live example and prints a sentence
+            // that is non-empty and does not contain the name: a certified
+            // removal, for a port that is still there.
+            if e.success.get(verb).map(String::as_str) == Some("stdout_omits_package")
+                && !crate::planner::names_no_package(verb)
+            {
+                return Err(DomainError::new(
+                    ErrorId::PolicyDataInvalid,
+                    format!(
+                        "provider-commands.toml: entry {} gives {verb} the success semantic \
+                         stdout_omits_package, but {verb} is a verb the planner appends the \
+                         package name to. Absence is established by asking for the whole \
+                         inventory; asked about one name, both providers answer \"absent\", \
+                         \"never existed\" and \"could not run\" the same way",
+                        e.provider
+                    ),
+                ));
+            }
             match e.success.get(verb).map(String::as_str) {
-                Some("exit_status" | "stdout_names_package") => {}
+                Some("exit_status" | "stdout_names_package" | "stdout_omits_package") => {}
                 Some(other) => {
                     return Err(DomainError::new(
                         ErrorId::PolicyDataInvalid,
                         format!(
                             "provider-commands.toml: entry {} gives {verb} the success \
-                             semantic {other:?}, which is not exit_status or \
-                             stdout_names_package; an unrecognised value silently becomes \
-                             \"unknown\", which an executor must refuse to run",
+                             semantic {other:?}, which is not exit_status, \
+                             stdout_names_package or stdout_omits_package; an unrecognised \
+                             value silently becomes \"unknown\", which an executor must \
+                             refuse to run",
                             e.provider
                         ),
                     ));
@@ -275,6 +305,19 @@ mod tests {
             assert!(e.verbs.contains_key("add"), "{id} lacks add");
             assert!(e.verbs.contains_key("remove"), "{id} lacks remove");
             assert!(e.verbs.contains_key("verify"), "{id} lacks verify");
+            // Not in this list until 2026-09-19, and its absence is worse than
+            // the others': a missing verb falls through to `<verify_absent>` as
+            // a literal argv element with `placeholder: false`, which the human
+            // plan renders as a real argument to a real provider binary (F-20).
+            // It fails closed only incidentally, because the missing success
+            // cell makes the semantic `Unknown`. `add-provider` names no verbs,
+            // so a third provider would have omitted it silently
+            // (`security-reviewer`, 2026-09-19).
+            assert!(
+                e.verbs.contains_key("verify_absent"),
+                "{id} lacks verify_absent, so a plan's VERIFY_REMOVAL would carry a \
+                 literal <verify_absent> argument"
+            );
             assert!(!e.source.is_empty() && !e.read_on.is_empty());
         }
     }
@@ -357,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_success_semantic_that_is_not_one_of_the_two_is_refused() {
+    fn a_success_semantic_this_build_does_not_recognise_is_refused() {
         // Same reasoning as the misspelt elevation, and worse: the planner
         // folds an unrecognised value to `SuccessSemantic::Unknown`, which an
         // executor must refuse - so a typo here turns into a plan that cannot
@@ -384,6 +427,12 @@ mod tests {
         // when the name is absent. Both observed on this machine 2026-09-08
         // (R-5 E22, F-33). If either cell is ever "corrected" to exit status,
         // this fails and says why.
+        //
+        // The two `verify_absent` cells joined them on 2026-09-19 and were not
+        // added here until `spec-guardian` noticed: a test whose stated job is
+        // to stop an observed semantic being "corrected" had been left covering
+        // half of them. Its name said "one of the two" then, which is the
+        // drifting-count class this pass spent the night on, one commit later.
         let table = load().unwrap();
         assert_eq!(
             table["macports"].success["verify"], "stdout_names_package",
@@ -394,6 +443,14 @@ mod tests {
             "Homebrew's can, and saying so is what makes the other cell a fact \
              rather than a blanket rule"
         );
+        for provider in ["macports", "homebrew"] {
+            assert_eq!(
+                table[provider].success["verify_absent"], "stdout_omits_package",
+                "{provider}: absence is never exit status and never a single-name query - \
+                 asked about one name both providers answer removed, never-existed and \
+                 could-not-run identically (observed 2026-09-19)"
+            );
+        }
     }
 
     #[test]

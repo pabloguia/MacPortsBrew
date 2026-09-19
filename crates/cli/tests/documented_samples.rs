@@ -140,12 +140,12 @@ fn check_argv(args: &[String], path: &Path, line: usize) {
 /// A floor, not a count. A scan that finds nothing passes every assertion
 /// below while proving nothing, which is the failure mode F-19 catalogued.
 ///
-/// Six today: two prose `status` blocks (`README.md`, `wiki/Getting-Started.md`)
-/// and four JSON blocks under `docs/schemas/`. The number is the current count
+/// Seven today: two prose `status` blocks (`README.md`,
+/// `wiki/Getting-Started.md`) and five JSON blocks under `docs/schemas/`. The number is the current count
 /// and is meant to be raised when a sample is added — left at 2 while four new
 /// ones existed, a whole directory could drop out of scope silently, which is
 /// the failure this constant exists for and not a different one.
-const AT_LEAST: usize = 6;
+const AT_LEAST: usize = 7;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

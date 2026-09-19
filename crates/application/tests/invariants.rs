@@ -461,6 +461,119 @@ fn invariant_01_a_verification_step_asserts_what_its_name_says() {
             .contains(&VerificationCheck::ProviderReportsActive),
         "the check that asserts the opposite must not be here"
     );
+
+    // And a check an executor cannot perform is a check in name only, which is
+    // what this step was until 2026-09-19: `PACKAGE_ABSENT` with no command at
+    // all, the last of `plan.v1.md`'s executor-debt items to have no data
+    // behind it.
+    let command = match removal.commands.as_slice() {
+        [one] => one,
+        other => panic!("verifying a removal needs exactly one command, got {other:?}"),
+    };
+    assert_eq!(
+        command.success,
+        SuccessSemantic::StdoutOmitsPackage,
+        "absence is the name missing from the answer, never an exit status"
+    );
+
+    // **The assertion this test exists for.** The argv must not name the
+    // package, and that is a safety property rather than a formatting one.
+    // Observed 2026-09-19 on both providers: asked about a single name, each
+    // returns the *same* empty stdout for a package that was removed, a name
+    // that never was one, and a provider that failed to run. An executor
+    // handed `list --versions tool` and told "absent if the name is missing"
+    // would read a crashed provider as a successful removal — on the step that
+    // certifies the removal. Asking for the whole inventory makes the answer a
+    // large positive output instead, so an empty one is refused rather than
+    // believed.
+    assert!(
+        !command.argv.iter().any(|a| a == "tool"),
+        "the absence command must ask for the inventory, not for one name: {:?}",
+        command.argv
+    );
+
+    // Four more, each pinning a mutation the first draft of this test let
+    // through. `spec-guardian` found them on 2026-09-19 by mutating the code
+    // rather than by reading it, and the first three are safety properties, not
+    // tidiness. The assertion they replace was `!command.argv.is_empty()`, which
+    // no reachable path can violate — `argv` is either the verb from the table
+    // or the literal `["<verify_absent>"]` fallback — so it was the F-19 class
+    // in the test added to close an F-19-class hole.
+    let removal_command = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::RemoveSource)
+        .and_then(|s| s.commands.first())
+        .expect("a plan that verifies a removal performed one");
+
+    // 1. **It reads the provider the package was removed from.** Swapping
+    //    `src_snapshot`/`source` for the destination's passes every assertion
+    //    above: the destination's argv is also non-empty and also omits "tool".
+    //    The plan would then certify a removal from one provider by reading the
+    //    *other* provider's inventory, where the name is guaranteed absent —
+    //    a cross-provider satisfaction of the kind INV-07 and INV-08 forbid,
+    //    on the step that certifies the removal.
+    assert_eq!(
+        command.program, removal_command.program,
+        "the absence check must read the provider the removal acted on"
+    );
+    assert_eq!(
+        removal.provider,
+        plan.steps
+            .iter()
+            .find(|s| s.kind == StepKind::RemoveSource)
+            .expect("a removal step")
+            .provider,
+        "and the step must name that provider too"
+    );
+
+    // 2. **It asks for the WHOLE inventory** — the same verb as the presence
+    //    check, one argument shorter. Nothing pinned this, so a data-only edit
+    //    to `["-q", "installed", "requested"]` or `["list", "--versions",
+    //    "--formula"]` would still pass: a non-empty answer that structurally
+    //    omits dependencies or casks, and so a certified removal that never
+    //    happened. That would reopen by data edit the exact hole the nine-cask
+    //    observation was added to close.
+    //    Anchored to the table rather than to another step of this plan. The
+    //    first attempt compared against `VERIFY_DESTINATION`'s command and
+    //    guarded the comparison with `|| command.program != presence.program` —
+    //    and in this plan the two sides *are* different providers, so the guard
+    //    short-circuited and the assertion never ran. It passed the mutation it
+    //    was written for. Caught by running that mutation rather than by
+    //    re-reading the assertion, which is the only way this class is ever
+    //    caught.
+    let table = provider_commands::load().expect("the shipped commands table");
+    for (id, entry) in &table {
+        let presence = entry.verbs.get("verify").expect("every provider verifies");
+        let absence = entry
+            .verbs
+            .get("verify_absent")
+            .expect("every provider certifies a removal");
+        assert_eq!(
+            absence, presence,
+            "{id}: the absence verb must be the presence verb — the planner appends no \
+             package to it, so equal argv here means 'the whole inventory, one argument \
+             shorter' at the command. A narrowed form like `--formula` or `requested` \
+             answers non-empty while structurally omitting what it does not list, which \
+             certifies a removal that never happened"
+        );
+    }
+
+    // 3. **It is a command an executor could run**, not an illustration.
+    assert!(
+        !command.placeholder,
+        "a placeholder cannot certify anything"
+    );
+
+    // 4. **Reading an inventory never elevates.** `verify_absent = "required"`
+    //    in the elevation table would put an administrator prompt on a read,
+    //    which is the INV-06 shape F-10 was filed about, and nothing here
+    //    noticed.
+    assert_eq!(
+        command.elevation,
+        Elevation::None,
+        "a step whose job is to read must not elevate (INV-06)"
+    );
 }
 
 #[test]

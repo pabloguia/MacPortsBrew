@@ -4192,10 +4192,14 @@ finding ids in each entry.
   documentation calls out that it could not do this — `false` is its permissive
   value and a boolean has no shape that fails closed on a reader who never
   looks. A tagged union does, and this one uses it.
-- Not done, deliberately: `PACKAGE_ABSENT` still carries no command
-  (executor-debt item 3), the human renderer does not show the semantic, and
-  `[entry.verbs]` is still kind-blind (F-22). Each is a separate change and
-  each is named in this pass's work order as out of scope.
+- Not done in that pass, deliberately, and **two of the three have since been
+  done**: `PACKAGE_ABSENT` carries a command as of 2026-09-19 (SE-088), and the
+  human renderer shows the semantic as of the same day — that reasoning stopped
+  holding once one verb carried two opposite meanings. **`[entry.verbs]` is
+  still kind-blind (F-22), and that one stands.** Superseded in place rather
+  than left standing, because SE-032 makes a topic's entry the *current*
+  rationale and this is the entry a reader looking for `StdoutNamesPackage`
+  lands on (`spec-guardian`, 2026-09-19).
 - Evidence: `invariant_01_a_verification_command_states_how_it_could_fail`
   asserts the semantic per direction and that no step of a planned migration
   leaves it unstated; `every_verb_states_how_its_success_is_established` and
@@ -4482,5 +4486,170 @@ finding ids in each entry.
   the message a reader needs. `AT_LEAST` rises 2 → 6, which is the constant's
   stated purpose — left at 2 while four new samples existed, the whole directory
   could have left scope with the suite green.
+
+---
+
+## SE-088 — Absence cannot be established by asking about the thing that is absent
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Evidence: observed on this machine 2026-09-19, MacPorts 2.12.6 (18 ports
+  installed) and Homebrew 6.0.21 (201 formulae), recorded in
+  `data/policy/provider-commands.toml`'s `source` and `read_on` for both
+  entries; `invariant_01_a_verification_step_asserts_what_its_name_says` in
+  `crates/application/tests/invariants.rs`.
+- Extends: **SE-083**, which gave `VERIFY_DESTINATION` a success semantic
+  because `port -q installed <name>` exits 0 for three different states. This is
+  the mirror step, and the same observation reaches a different conclusion.
+- Original assumption: `plan.v1.md`'s executor-debt item 3 said `PACKAGE_ABSENT`
+  "needs a command and a success semantic", and warned that "nonzero exit means
+  absent" is verification by exit status with the sign flipped. It named the
+  wrong answer and left the right one open. `VERIFY_REMOVAL` has carried a
+  verification check and **no command at all** since the planner was written —
+  the only step in the plan asserting something an executor had no way to test.
+- **The observation that decides the shape.** Asked about a **single name**,
+  both providers answer an absent package, a name that was never a package, and
+  a provider that could not run with the *same empty stdout*:
+
+  | | installed | absent | not a package |
+  |---|---|---|---|
+  | `port -q installed <n>` | exit 0, names it | exit 0, empty | exit 0, empty |
+  | `brew list --versions <n>` | exit 0, names it | exit 1, empty | exit 1, empty |
+
+  So the obvious design — `StdoutNamesPackage` negated — reads "nothing came
+  back" as "successfully removed", on the step that certifies a removal. That is
+  the pass-03 defect exactly, one step further along: an answer carrying no
+  information read as a yes, and this time on the far side of `REMOVE_SOURCE`
+  where the package is already gone.
+- Change: `VERIFY_REMOVAL` carries the provider's inventory verb **with no
+  package argument** and `SuccessSemantic::StdoutOmitsPackage`. The answer is
+  then a large positive output — 18 lines and 201 here.
+  `names_no_package` in the planner is what keeps the package out of that argv;
+  the name still travels in the plan, because the executor matches stdout
+  against it, so every guard on it still applies.
+- **The first version of this entry stated one condition and justified it with a
+  false claim, and `security-reviewer` refused it.** It said "a provider that
+  crashed, was killed or was truncated produces an empty stdout and is refused".
+  Truncation does not produce an empty stdout: `read_bounded` returns the first
+  `cap` bytes and sets a separate flag, and a killed process leaves whatever it
+  flushed. A `brew list --versions` cut off at line 40 of 201 is **non-empty**,
+  omits the name, and would have certified a removal it never saw — past
+  `REMOVE_SOURCE`, where the package is already gone. The contract is now four
+  conditions, checked in order: **exit 0, not truncated, non-empty, then the
+  name test.** This is the second time in one night that an argument written
+  down was taken for a guarantee, and both times what caught it was someone
+  re-deriving the behaviour rather than reading the prose.
+- **Two couplings the design rests on are now enforced rather than assumed**,
+  also `security-reviewer`'s: the loader refuses `stdout_omits_package` on any
+  verb the planner appends a package name to — `port installed <name>` without
+  `-q` is the live counter-example, printing a non-empty sentence that does not
+  contain the name, i.e. a certified removal of a port that is still there — and
+  `embedded_table_loads_with_provenance` refuses an entry that omits the verb,
+  which previously fell through to a literal `<verify_absent>` argv element with
+  `placeholder: false`. `add-provider` now names four verbs instead of three.
+- **A premise about casks was asserted and is now observed.**
+  `verify_absent_gui_app = "none"` rested on "the inventory gives no name, so
+  F-22 does not reach it". Had the bare inventory excluded casks, "the name is
+  not in the list" would have been trivially true for every cask — a certified
+  removal that never happened, in the cell claiming the hazard did not apply.
+  Observed 2026-09-19, Homebrew 6.0.21 with nine casks installed: the bare
+  `brew list --versions` lists casks **and** formulae, all nine appear, and it
+  emits no `==>` section headers. So the absence verb is kind-agnostic where the
+  presence verb is not.
+- **The stdout is never recorded**, and that obligation is written now rather
+  than when an executor exists: it is the machine's complete installed
+  inventory, a strong fingerprint that routinely names internal tooling. What
+  may be logged is the boolean result, the line count and the truncation flag.
+- **Rejected: `port installed <name>` without `-q`.** It does print a real
+  positive signal — its own not-installed sentence — and was observed doing so.
+  It says the same thing for a name that is not a port, and matching a
+  provider's prose is the mis-parse `.claude/rules/adapters.md` forbids: a
+  parser meeting unrecognised output must fail rather than guess. A sentence is
+  also free to change with a version or a locale in a way an inventory is not.
+- **The cost, stated rather than discovered:** removing the last package a
+  provider holds leaves an empty inventory, which this refuses. That is a false
+  negative — "could not verify", never "verified" — and it is the direction this
+  project chooses every time.
+- What is left for the executor is **four stated conditions rather than a design
+  question** — exit 0, not truncated, non-empty, then the name test — plus the
+  never-log-stdout rule. This bullet said "one sentence" until 2026-09-19,
+  contradicting this same entry thirty-five lines above, and it is the last
+  substantive line here and so the one an executor pass would have acted on
+  (`spec-guardian`). Item 3 joins item 4 as discharged **as data**, so two of
+  `plan.v1.md`'s five inherited obligations are settled here — though only item
+  4 is literally "read a field": item 3 is read the field, *then* honour four
+  runtime conditions and a privacy rule, none of which is a field of the plan.
+- Proved by mutation, twice: making the argv name the package fails the
+  invariant test with the argv printed, and removing the command again fails it
+  with "verifying a removal needs exactly one command".
+- **Three more corrections from `spec-guardian`'s review, each recorded rather
+  than folded in silently.** (1) The `human.rs` comment credited SE-084 and
+  quoted a sentence that exists in no entry; the decision reversed is SE-083's,
+  and SE-083's own "not done, deliberately" bullet is now superseded in place,
+  since SE-032 makes a topic's entry the current rationale and that is the entry
+  a reader looking for `StdoutNamesPackage` lands on. (2) The Homebrew `absent`
+  column was dated 2026-09-19 while the observation beside it demonstrated only
+  an installed formula and a name that never was one — the real-but-absent case
+  was carried from the 2026-09-06 read. Re-observed the same day with `cowsay`:
+  exit 1, no output. (3) The `plan.success_omits` catalogue string stated three
+  of the four conditions and omitted exit 0, so the user-facing sentence was
+  narrower than the contract.
+- **The loader now depends on the planner**, which is worth saying because the
+  guard's whole justification is that the two halves live in different files:
+  `provider_commands::parse` calls `planner::names_no_package`. Same crate, no
+  new layer edge, and `check-layering.sh` is unaffected — but the coupling the
+  guard exists to enforce is now also the guard's own dependency.
+- **The new command shape appears in no golden and no documented sample**, and
+  that is the next thing to close. The seven goldens are `analyze` output;
+  `plan.v1.md`'s whole-plan sample is all `MANUAL_REVIEW` and so carries no
+  `VERIFY_REMOVAL`. By this project's own rule — a documented sample is the
+  contract, prose is a claim — the shape is currently a claim plus one unit
+  test.
+- **`04-migration-and-safety.md` gains a removal-verification clause**, pointing
+  at `plan.v1.md` rather than restating it. INV-01 names that chapter as *the*
+  verification contract and it was silent on removal, while this contract had
+  been written into four other places on one day.
+- Policy version moves to `2026.09.19-1`, which is the read date of the new
+  observation. Seven golden fixtures and six documented samples follow, and the
+  guard SE-087 built is what found the two that had drifted.
+
+---
+
+## SE-089 — "The name appears in the output" was a substring rule guarding a removal
+
+- Status: accepted
+- Date / Pass: 2026-09-19 / 04-CLOSING-THE-REGISTER
+- Evidence: measured on this machine 2026-09-19 — 201 installed Homebrew
+  formulae, 18 of them a substring of another's name; inventory line shapes
+  `node 26.7.0`, `cryptography 50.0.1 50.0.0`, `  autoconf @2.73_0 (active)`.
+  Recorded in `SuccessSemantic`'s doc comments and `docs/schemas/plan.v1.md`.
+- Extends: **SE-083**, which introduced `StdoutNamesPackage` for the right
+  reason — exit status cannot answer on one provider — and defined the
+  replacement loosely enough to reintroduce the same class of hole.
+- Original assumption: "the package's own name in the command's standard
+  output". Whether that meant a whole field or any substring was never stated,
+  and the natural implementation is `stdout.contains(name)`.
+- What it costs: `gh` is a substring of `ghidra`, `highway` and `libnghttp2`;
+  `apr` of `apr-util`; `gd` of `gdk-pixbuf`. So a `VERIFY_DESTINATION` for `gh`
+  whose install had **failed** is satisfied by `ghidra`'s line, and INV-01 puts
+  that step in front of `REMOVE_SOURCE`. Fail-open, on the one gate the
+  invariant exists to hold, reachable by 9% of the names on an ordinary machine.
+- Change: both semantics now require the name to **equal the first
+  whitespace-separated token** of a line, stated once and referenced from the
+  other, and to be compared **literally** — never a substring, glob or regular
+  expression. `is_safe_provider_name` admits `.` and `+`, and `lua@5.4` and
+  `gtk+3` are real names, so a name compiled as a pattern either fails to
+  compile or matches a different package.
+- **Why a prefix test is not the fix**, since it is the first thing that comes
+  to mind: `ghidra` *begins* with `gh`. And why it is "first token" rather than
+  "the line is the name": MacPorts indents its inventory by two spaces and
+  Homebrew appends versions, so neither equality nor prefix works on the whole
+  line.
+- What this does **not** do: no code implements either rule, because there is no
+  executor. What shipped is the contract — which is the whole of the finding,
+  since the defect was a specification that would have been implemented wrongly
+  and defensibly by someone reading it carefully.
+- Found while discharging executor-debt item 3 (SE-088) and independently by
+  `security-reviewer` on the same diff. Recorded as **F-51**.
 
 ---
