@@ -4143,3 +4143,171 @@ finding ids in each entry.
   unguarded once already (F-45).
 - User impact: none; this is agent tooling. Architectural impact: none. It makes
   a precondition explicit that was being relied on without being stated.
+
+## SE-083 — A verification step whose command cannot fail is an ordering invariant guarding nothing
+
+- Status: accepted
+- Date / Pass: 2026-09-18 / 03-UNKNOWN-IS-NEVER-A-YES
+- Original assumption: `docs/schemas/plan.v1.md` left "how does an executor know
+  this command succeeded" entirely to the executor, and its own executor-debt
+  list (item 4) said the answer "belongs beside the verb in
+  `provider-commands.toml`, which is a schema change and therefore the
+  executor's, not this pass's".
+- Change: `data/policy/provider-commands.toml` gains `[entry.success]`, one
+  value per verb from a closed set of two — `exit_status` and
+  `stdout_names_package`. The loader refuses an entry that omits a verb's value
+  or names one it does not recognise, exactly as it already refuses a missing
+  elevation. `PlanCommand` gains a `success` field carrying
+  `SuccessSemantic::{ExitStatus, StdoutNamesPackage, Unknown}`, and
+  `MigrationPlan::steps_with_unknown_success` reports the steps an executor must
+  refuse. Executor-debt item 4 is rewritten: the data half is discharged and
+  what remains is the executor reading the field.
+- Rationale: `VERIFY_DESTINATION` is the step INV-01 puts in front of
+  `REMOVE_SOURCE`, and on one of the two peer providers it cannot fail.
+  Observed on this machine 2026-09-08 (MacPorts 2.12.6, R-5 E22): the MacPorts
+  read verb exits **0** for an installed port, for a real port that is absent,
+  and for a name that is not a port at all. An executor implementing
+  `PROVIDER_REPORTS_ACTIVE` as "run it, succeed on exit 0" passes verification
+  for a package that was never installed and then removes the source, while
+  `check_ordering` holds perfectly. Homebrew's verify verb *does* exit 1 for an
+  absent name — a **different** pair of reads, R-5a E1 on 2026-09-04 for the
+  positive case and 2026-09-06 for the negative one, and the first version of
+  this entry and of the data file's comment attributed both to R-5 E22 and to
+  2026-09-08, which is a note containing no Homebrew observation at all
+  (`spec-guardian`, 2026-09-18). The facts held; the citation did not, and a
+  sourced claim wider than its source is what F-28 was. So the two providers
+  cannot share one rule — which is why this is data with a source and a read
+  date (INV-20) rather than a branch in Rust.
+- Why it was taken now rather than left to the executor: the deferral was
+  written when the alternative was inventing a shape against a hypothetical.
+  It is not a hypothesis any more — the behaviour is observed, on both
+  providers, in both directions — and the cost of carrying it is that the one
+  open finding whose failure mode is silent data loss stays open through
+  another pass. What genuinely belongs to the executor is unchanged: reading
+  the field and acting on it.
+- The shape, and the one place it departs from its neighbour: `Unknown` is the
+  `#[serde(default)]` and the `#[serde(other)]` value, so a plan written before
+  the field existed, or one naming a semantic a newer build added, refuses
+  rather than falling back to exit status. `PlanCommand::placeholder`'s own
+  documentation calls out that it could not do this — `false` is its permissive
+  value and a boolean has no shape that fails closed on a reader who never
+  looks. A tagged union does, and this one uses it.
+- Not done, deliberately: `PACKAGE_ABSENT` still carries no command
+  (executor-debt item 3), the human renderer does not show the semantic, and
+  `[entry.verbs]` is still kind-blind (F-22). Each is a separate change and
+  each is named in this pass's work order as out of scope.
+- Evidence: `invariant_01_a_verification_command_states_how_it_could_fail`
+  asserts the semantic per direction and that no step of a planned migration
+  leaves it unstated; `every_verb_states_how_its_success_is_established` and
+  `a_success_semantic_that_is_not_one_of_the_two_is_refused` probe the loader by
+  deleting and by corrupting each cell; `the_shipped_table_states_the_semantics_
+  that_were_observed` pins the two values the observation produced.
+
+---
+
+## SE-084 — In a document, a capability that is not recorded is not a capability nobody asked about
+
+- Status: accepted
+- Date / Pass: 2026-09-18 / 03-UNKNOWN-IS-NEVER-A-YES
+- Extends: **SE-080**, which recorded that `SNAPSHOT_SCHEMA_VERSION` stays 1 for
+  compatible additions and that once recordings carry service state the
+  DP-016(c) refusal "stops triggering on its own". That remains true and is not
+  what this entry changes.
+- Original assumption: DP-016(c) closed the case where a provider cannot answer
+  whether its packages define services — the planner refuses when the source's
+  `SERVICE_METADATA` capability is `Unknown`. `ProviderCapabilities::is_unknown`
+  answers `false` for an **absent** entry, deliberately: in memory a capability
+  nobody reported was never asked about, and reading that as "undetectable"
+  would refuse every plan built from a hand-made snapshot.
+- Change, in two parts, and the second is the one that made the first correct:
+  1. **The adapters now agree about the shape of "absent".** The Homebrew
+     adapter wrote an empty capability table for a provider that is not
+     installed; the MacPorts adapter wrote all nine as `Unknown`. Homebrew now
+     does what MacPorts does, and MacPorts' hand-written list of nine is
+     replaced by `Capability::all()`. This changes user-visible output: an
+     analysis of a machine without Homebrew now reports its capabilities as
+     nine `UNKNOWN`s rather than as nothing, which is the honest answer and the
+     one the peer provider already gave. Three golden fixtures were regenerated
+     for it.
+  2. **`Snapshot::mark_unrecorded_capabilities_unknown`** records every
+     capability a **loaded document** does not mention as `Unknown`, and
+     `load_snapshot` calls it before any check runs. `Capability::all()` makes
+     that total, with the drift guard `ErrorId::all()` arrived at after F-43:
+     an exhaustive match in the same file, so a new variant is a compile error
+     there, and a count constant that then fails until the list is extended.
+- **Part 1 is here because two attempts at part 2 alone both failed, in
+  opposite directions.** The first filled every table and the fixture matrix
+  refused it — `neither-provider-intel-macos13`, *"snapshot round trip differs
+  from the replay analysis"* — because inventing nine unknowns for a provider
+  Homebrew's adapter had left empty made `--from-snapshot` disagree with a live
+  run of the same machine (INV-15). The second skipped empty tables to satisfy
+  the matrix, and `spec-guardian` demonstrated the cost: emptying the whole
+  table, rather than deleting one key, then walked straight past the refusal
+  this entry exists to install — exit 0 and a byte-identical plan, from a
+  source provider still declaring itself `PRESENT` with a full inventory.
+  **That is the outcome the next bullet rejects `#[serde(default)]` for**, and
+  the second attempt shipped it while the entry argued against it. A snapshot
+  file is untrusted input here (F-09, F-21), so a one-keystroke bypass of
+  INV-19 is not a rough edge.
+- **A third spelling, and a third producer, both found by `security-reviewer`
+  on 2026-09-18 after the above was written.** The refusal keyed on
+  `CapabilityState::Unknown` alone, so a document whose `SERVICE_METADATA`
+  read `UNAVAILABLE` planned normally — reproduced at exit 0 with a
+  `REMOVE_SOURCE` step that elevates. `Unavailable` is not an affirmative
+  answer to "can this provider tell you whether a package defines a service":
+  a provider that does not expose service metadata cannot tell you, exactly as
+  one whose scan failed cannot, and only `Available` is. The predicate is now
+  `ProviderCapabilities::cannot_answer`, which matches both and keeps the
+  absent-is-false carve-out. It also closes an accident path rather than only
+  a crafted one: Homebrew's parse-failure branch records `ServiceMetadata` as
+  `Unavailable`, which is "I could not look" written as "detected absent".
+  Separately, `capture::broken` was a **third** producer of the empty table
+  this entry says cannot exist — reachable when a *present* Homebrew's output
+  fails to parse — and now writes nine `Unknown`s like the two adapters.
+- **Both were live in a tree that was green on every gate in the repository.**
+  Recorded because the lesson is not "the reviewers are useful" but which
+  class of defect the gates here cannot see: an enum variant that means the
+  same thing as another and is matched in one place.
+- **Both symptoms had one cause and it was in neither place.** A rule written
+  at the load door to accommodate an adapter asymmetry can only choose which of
+  the two defects to keep. With the peers agreeing, the rule is unconditional,
+  both shapes refuse, and it is a no-op on every table this build writes. The
+  asymmetry itself had no stated reason and contradicted `AGENTS.md`'s peer
+  position; it was invisible until a document rule had to be written around it.
+- Rationale, and it is a distinction rather than a reversal: the in-memory rule
+  is right and stays. A document is in a different position. A capture asks
+  every capability and writes every answer, so a document that omits one was
+  written by a build that did not have the question — and the file does not say
+  what answer it would have given. Absence there means the record does not say,
+  which is what `Unknown` means. Before this, such a document carried the same
+  `SNAPSHOT_SCHEMA_VERSION`, so it loaded, and INV-19's rule went silently
+  unevaluated on a real plan: the exact outcome DP-016 exists to prevent, one
+  route over. That was F-29's residual hole, recorded when DP-016(c) shipped.
+- Why not the two routes the finding named. **Bumping `schemaVersion`** would
+  refuse the document outright, including for read-only analysis, which
+  `.claude/rules/adapters.md` says is wrong: "the analysis degrades and says
+  so; it does not guess, and it does not fail either". Only the planning path
+  refuses, and `analyze --from-snapshot` on the same document still succeeds
+  and reports `UNKNOWN`.
+  **`#[serde(default)]` on the field** is still rejected, but the reason this
+  entry first gave has expired and is replaced rather than quietly kept: it
+  said an optional `capabilities` would deserialise to an empty map and read
+  as "never asked about", which was true of the bounded rule and is not true
+  of the unconditional one — the empty map is now filled and refuses. The
+  reason that survives is better, and `spec-guardian` demonstrated it while
+  re-checking the rework: keeping the field **required** refuses the document
+  at parse time, exit 8, *before* anything reads it, where defaulting it would
+  refuse at the planner, exit 4, after the rest of the document had been
+  trusted. A malformed document should not get as far as being analysed.
+- Evidence, demonstrated rather than asserted:
+  `invariant_19_a_document_that_does_not_record_the_service_question_refuses_
+  the_plan` captures a real snapshot, sets the capability to a definite answer
+  and plans successfully (the control, so the refusal cannot pass for the reason
+  DP-016(c) already covered), then deletes the key and requires exit 4 with no
+  document on stdout, then requires the analysis of the same file to succeed
+  with `UNKNOWN`, and finally empties the whole table and requires **that** to
+  refuse too — the arm the second attempt would have failed. Probed by removal:
+  with the one call commented out the test fails with exit 0, a plan where a
+  refusal is owed.
+
+---

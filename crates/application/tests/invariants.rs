@@ -14,8 +14,8 @@ use macportsbrew_domain::{
     EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan,
     Outcome, PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
     ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
-    RequestedSet, Resolution, Snapshot, StepKind, Translation, VerificationCheck, Version,
-    SNAPSHOT_SCHEMA_VERSION,
+    RequestedSet, Resolution, Snapshot, StepKind, SuccessSemantic, Translation, VerificationCheck,
+    Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -461,6 +461,58 @@ fn invariant_01_a_verification_step_asserts_what_its_name_says() {
             .contains(&VerificationCheck::ProviderReportsActive),
         "the check that asserts the opposite must not be here"
     );
+}
+
+#[test]
+fn invariant_01_a_verification_command_states_how_it_could_fail() {
+    // INV-01 is "nothing is removed before its replacement is verified", and
+    // `check_ordering` enforces the *order*. Order is worth nothing if the step
+    // it puts first cannot fail: observed 2026-09-08, `port -q installed <name>`
+    // exits 0 for an installed port, an absent one, and a name that is not a
+    // port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit
+    // status passes for a package that was never installed — and then
+    // `REMOVE_SOURCE` runs (F-33).
+    //
+    // Asserted per direction, because the two providers genuinely differ and a
+    // single blanket rule is the mistake this closes. Toward Homebrew exit
+    // status is the right answer; asserting it here is what keeps the MacPorts
+    // cell a fact rather than a workaround.
+    // The same fixture `invariant_17_a_dual_held_package_plans_in_either_
+    // direction` uses for its mirrored half: `both_present` is deliberately
+    // asymmetric, and clearing the one dependency is what makes both
+    // directions produce a full plan rather than a halt.
+    let mut snap = both_present();
+    snap.providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .inventory
+        .dependencies
+        .clear();
+
+    for (to, expected) in [
+        (MP, SuccessSemantic::StdoutNamesPackage),
+        (HB, SuccessSemantic::ExitStatus),
+    ] {
+        let plan = plan_for(&snap, "tool", to, false);
+        let verify = plan
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::VerifyDestination)
+            .expect("a migration verifies its destination");
+        let command = verify
+            .commands
+            .first()
+            .expect("and that verification runs a command");
+        assert_eq!(
+            command.success, expected,
+            "verifying toward {to} must state how the command reports failure"
+        );
+        assert!(
+            plan.steps_with_unknown_success().is_empty(),
+            "no step of a plan this build produced may leave it unstated: {:?}",
+            plan.steps_with_unknown_success()
+        );
+    }
 }
 
 #[test]

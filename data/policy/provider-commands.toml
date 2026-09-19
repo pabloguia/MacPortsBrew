@@ -15,14 +15,33 @@
 [[entry]]
 provider = "homebrew"
 executable = "bin/brew"
-source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md"
-read_on = "2026-09-04"
+source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md. The `[entry.success]` cells are two observations on this machine, Homebrew 6.0.21: the verify verb on an installed formula exits 0 with the name and version (R-5a E1, 2026-09-04), and on a name that is not installed exits 1 with no output (2026-09-06, recorded in the F-33 section of docs/passes/02-ARCHITECTURE-REVIEW-findings.md). `add` and `remove` are cited to the Manpage, not re-observed, because running them would mutate this machine (INV-05)"
+read_on = "2026-09-06"
 elevation_reason = "Homebrew refuses to run as root; its prefix subdirectories are owned by the user (docs.brew.sh/FAQ, read 2026-09-02)."
 
 [entry.verbs]
 add = ["install"]
 remove = ["uninstall"]
 verify = ["list", "--versions"]
+
+# How an executor establishes that each command succeeded. Exit status is not
+# the universal answer - see the MacPorts entry, where for one verb it carries
+# no information at all - so it is stated rather than assumed (F-33).
+#
+# Homebrew's is exit status, and that is an observation rather than an
+# inference - but the two halves come from two reads on two dates, and the
+# first version of this comment cited one wrong note and one wrong date for
+# both (spec-guardian, 2026-09-18). Positive case: the verify verb on an
+# installed formula exits 0 and prints the name and version, R-5a E1, observed
+# 2026-09-04. Negative case: the same verb on a name that is not installed
+# exits 1 with no output, observed 2026-09-06 and recorded in the F-33 section
+# of docs/passes/02-ARCHITECTURE-REVIEW-findings.md, which is a findings file
+# rather than a research note - stated here rather than quietly re-cited,
+# because where an observation lives is part of how the next reader checks it.
+[entry.success]
+add = "exit_status"
+remove = "exit_status"
+verify = "exit_status"
 
 [entry.elevation]
 add = "none"
@@ -91,6 +110,28 @@ reserved_names = [
 add = ["install"]
 remove = ["uninstall"]
 verify = ["-q", "installed"]
+
+# `verify` is the one cell in this file where exit status is not the answer,
+# and it is why this table exists (F-33). Observed on this machine 2026-09-08,
+# MacPorts 2.12.6, three ports installed (R-5 E22): the read verb exits 0 for
+# an installed port, for a real port that is absent, and for a name that is
+# not a port at all - three cases, one exit status, and the output is the only
+# thing that differs.
+#
+# So a VERIFY_DESTINATION toward MacPorts driven by exit status can never
+# fail - and INV-01 puts that step in front of REMOVE_SOURCE, which makes it a
+# data-loss path rather than a cosmetic one. `stdout_names_package` says what
+# an executor must do instead: the port's own name has to appear in the
+# output, and an empty stdout is a failure however the process exited.
+#
+# The other two verbs are exit status, cited rather than observed: both are
+# documented to fail nonzero (guide.macports.org, using.port.install and
+# using.port.uninstall, read 2026-09-04), and neither was re-run here because
+# doing so would mutate this machine (INV-05).
+[entry.success]
+add = "exit_status"
+remove = "exit_status"
+verify = "stdout_names_package"
 
 [entry.elevation]
 add = "required"

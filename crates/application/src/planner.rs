@@ -9,7 +9,7 @@ use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
 use macportsbrew_domain::{
     CommandTarget, Confidence, DomainError, Elevation, ErrorId, MigrationPlan, MigrationStep,
     Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence,
-    Reason, Snapshot, StepKind, VerificationCheck,
+    Reason, Snapshot, StepKind, SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -175,7 +175,7 @@ pub fn build_plan(
     // what is being removed.
     if snapshot.providers.get(&source).is_some_and(|p| {
         p.capabilities
-            .is_unknown(macportsbrew_domain::Capability::ServiceMetadata)
+            .cannot_answer(macportsbrew_domain::Capability::ServiceMetadata)
     }) {
         return Err(DomainError::new(
             ErrorId::SafetyUnverifiable,
@@ -489,6 +489,12 @@ pub fn build_plan(
                 argv: vec!["primary".into(), unit.name.clone(), request.to.to_string()],
                 environment: BTreeMap::new(),
                 elevation: Elevation::None,
+                // Stated here rather than read from `provider-commands.toml`,
+                // for the same reason the elevation beside it is: this is not a
+                // provider command, so that table does not describe it. This
+                // tool's own exit status is the answer, and it is this tool
+                // that will have to keep that true.
+                success: SuccessSemantic::ExitStatus,
             }],
             vec![VerificationCheck::ProviderReportsActive],
             Reason::new("reason.set_primary_shim").with("provider", &request.to),
@@ -702,6 +708,30 @@ fn command(
         },
         _ => Elevation::Unknown,
     };
+    // Unknown when the table does not say, and the fallback is the refusing
+    // value on purpose: an executor that meets it must refuse the plan rather
+    // than fall back to exit status, which on one of the two providers cannot
+    // fail (F-33). The loader refuses an entry that omits the cell, so a plan
+    // this build produces never carries `Unknown` from a provider it has an
+    // entry for.
+    //
+    // No entry at all does reach here, and that case is always a placeholder
+    // too - `placeholder` is `(prefix, entry)` being absent, so no-entry
+    // implies it. Not the converse: a provider with an entry and no detected
+    // prefix is a placeholder with a stated semantic, which is the ordinary
+    // "what would happen if you installed it" plan.
+    //
+    // One narrower gap, recorded rather than closed: the loader keys this
+    // check on `verbs` alone, where F-10 forced the elevation check onto the
+    // union of both tables. An operation that lives only in `[entry.elevation]`
+    // - `set_primary` is the one - would reach here with no cell and no loader
+    // complaint. It cannot today, because `set_primary` does not route through
+    // this function, and the fallback fails closed if it ever does.
+    let success = match entry.and_then(|e| e.success.get(operation).map(String::as_str)) {
+        Some("exit_status") => SuccessSemantic::ExitStatus,
+        Some("stdout_names_package") => SuccessSemantic::StdoutNamesPackage,
+        _ => SuccessSemantic::Unknown,
+    };
     Ok(PlanCommand {
         placeholder,
         target: CommandTarget::Provider,
@@ -709,5 +739,6 @@ fn command(
         argv,
         environment: provider.invocation_environment.clone(),
         elevation,
+        success,
     })
 }

@@ -1046,6 +1046,63 @@ impl Snapshot {
         self.check_invocation_environments(contracts)
     }
 
+    /// Records every capability a loaded document does not mention as
+    /// [`CapabilityState::Unknown`].
+    ///
+    /// **This is a rule about documents, and it is the opposite of the rule
+    /// about values in memory.** `ProviderCapabilities::is_unknown` answers
+    /// `false` for an absent entry on purpose: in memory, a capability nobody
+    /// reported was never asked about, and reading that as "could not be
+    /// detected" would refuse every plan built from a hand-made snapshot.
+    ///
+    /// A document is not in that position. A capture asks every capability and
+    /// writes every answer, so a document that omits one is not a document
+    /// where the question went unasked — it is one written by a build that did
+    /// not have the question, and there is no way to tell from the file which
+    /// answer it would have given. Absence there means the record does not say,
+    /// which is what `Unknown` means.
+    ///
+    /// The case this closes is `SERVICE_METADATA` and DP-016(c) (F-29). The
+    /// planner refuses to plan when the source cannot answer whether its
+    /// packages define services, because INV-19's `MANUAL_REVIEW` reads a
+    /// `bool` that renders unknown as `false` and so would silently not fire.
+    /// That refusal keys on `Unknown`, and a document predating the capability
+    /// carries the same `SNAPSHOT_SCHEMA_VERSION`, so it loaded and planned as
+    /// though the answer were no.
+    ///
+    /// Read-only analysis is deliberately still possible afterwards: the
+    /// capability table reports `UNKNOWN`, which is the analysis degrading and
+    /// saying so rather than failing, and only the planning path refuses.
+    ///
+    /// **This took two attempts, and the first one is worth knowing about.**
+    /// It filled every provider's table, and the fixture matrix refused it:
+    /// `neither-provider-intel-macos13` failed with "snapshot round trip
+    /// differs from the replay analysis". The second skipped empty tables, and
+    /// `spec-guardian` demonstrated that emptying the whole table - rather
+    /// than deleting one key - then walked straight past the refusal this
+    /// exists to install, on input the threat model treats as hostile.
+    ///
+    /// Both symptoms had one cause, and it was in neither of those places: the
+    /// Homebrew adapter wrote an **empty** capability table for a provider
+    /// that is not installed, where the MacPorts adapter wrote nine
+    /// `Unknown`s. The peer providers disagreed about the shape of "absent",
+    /// and a rule written here to accommodate that disagreement could only
+    /// pick which of the two defects to keep. The adapter is fixed; this rule
+    /// is unconditional again, and it is a no-op on every table this build
+    /// writes - which is what keeps the live and document routes identical
+    /// (INV-15).
+    pub fn mark_unrecorded_capabilities_unknown(&mut self) {
+        for provider in self.providers.values_mut() {
+            for &capability in crate::provider::Capability::all() {
+                provider
+                    .capabilities
+                    .capabilities
+                    .entry(capability)
+                    .or_insert(crate::provider::CapabilityState::Unknown);
+            }
+        }
+    }
+
     /// Fails when the schema version is not the one this build reads.
     pub(crate) fn check_schema(&self) -> Result<(), crate::error::DomainError> {
         if self.schema_version == SNAPSHOT_SCHEMA_VERSION {

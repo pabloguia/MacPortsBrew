@@ -958,7 +958,25 @@ impl ProviderRead for HomebrewAdapter<'_> {
             capabilities: if present {
                 self.capabilities()?
             } else {
-                ProviderCapabilities::default()
+                // Nine unknowns, not an empty table. A provider that is not
+                // here cannot be asked what it can do, and `Unknown` is what
+                // "could not determine" means; an empty table says the
+                // question was never put, which is a different claim and not
+                // one this adapter is entitled to make.
+                //
+                // It is also what the MacPorts adapter has always done. The
+                // two are peer providers and this was the one place they
+                // disagreed about the shape of "absent" - invisible until a
+                // rule about documents had to be written around it, and the
+                // rule it forced left INV-19's refusal bypassable by deleting
+                // the table rather than a key (F-29, spec-guardian
+                // 2026-09-18).
+                ProviderCapabilities {
+                    capabilities: Capability::all()
+                        .iter()
+                        .map(|c| (*c, CapabilityState::Unknown))
+                        .collect(),
+                }
             },
             inventory: if present {
                 self.inventory()?

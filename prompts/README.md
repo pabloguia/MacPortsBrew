@@ -10,6 +10,7 @@ authority you have, what this pass must not do, and how it is accepted.
 | [01-FOUNDATION-PASS.md](01-FOUNDATION-PASS.md) | Research, the domain, the read-only vertical slice. |
 | [02-ARCHITECTURE-REVIEW-PASS.md](02-ARCHITECTURE-REVIEW-PASS.md) | An independent reviewer challenges the foundation. Reviewing, not coding. |
 | [03-FOCUSED-IMPLEMENTATION-PASS.md](03-FOCUSED-IMPLEMENTATION-PASS.md) | One independently verifiable capability. Instantiated per task. |
+| [03-unknown-is-never-a-yes.md](03-unknown-is-never-a-yes.md) | First instance of the template. An answer that carries no information never reaches a plan as a yes: a per-provider success semantic on every plan command (F-33), and a loaded snapshot that does not record the service question refuses to plan (F-29). Completed 2026-09-18. |
 
 `.claude/current-pass` names the active one in a single line. The session-start
 hook reads it and announces it; keep it accurate.

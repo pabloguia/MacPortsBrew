@@ -7,8 +7,8 @@
 use crate::TOOL_VERSION;
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
-    redact_home, DomainError, ErrorId, HomeRedaction, MachineRead, Provenance, ProviderRead,
-    ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    redact_home, DomainError, ErrorId, HomeRedaction, MachineRead, Provenance, ProviderId,
+    ProviderRead, ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -54,7 +54,7 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     for provider in &ctx.providers {
         let snap = match provider.snapshot() {
             Ok(s) => s,
-            Err(e) => broken(*provider, &e),
+            Err(e) => broken(provider.id(), &e),
         };
         providers.insert(provider.id().clone(), snap);
     }
@@ -206,10 +206,16 @@ fn redact_option_path(path: &mut Option<PathBuf>, home: &HomeRedaction) -> bool 
     changed
 }
 
-fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot {
+/// The snapshot recorded for a provider whose read failed.
+///
+/// Takes the id rather than the reader, because the id is all it uses and the
+/// difference is a unit test rather than a `ProviderRead` stub. It had none
+/// until 2026-09-18, which is how it stayed the last producer of an empty
+/// capability table after both adapters had stopped writing one.
+fn broken(provider: &ProviderId, error: &DomainError) -> ProviderSnapshot {
     ProviderSnapshot {
         detection: macportsbrew_domain::ProviderDetection {
-            provider: provider.id().clone(),
+            provider: provider.clone(),
             presence: macportsbrew_domain::ProviderPresence::Broken {
                 reason: error.id.message_id().to_string(),
             },
@@ -220,7 +226,21 @@ fn broken(provider: &dyn ProviderRead, error: &DomainError) -> ProviderSnapshot 
             prefix_redacted: false,
             // A broken provider has no prefix, so there was nothing to redact.
         },
-        capabilities: macportsbrew_domain::ProviderCapabilities::default(),
+        // Nine unknowns rather than an empty table, for the reason both
+        // adapters now give: a provider this run could not read cannot be
+        // asked what it can do. An empty table here was the third producer of
+        // a shape the domain's load-door rule is documented as never seeing,
+        // and it is reachable on an ordinary machine - a present Homebrew
+        // whose JSON this build cannot parse takes this branch - so `analyze`
+        // live and `analyze --from-snapshot` of the snapshot written from it
+        // would have disagreed, which is INV-15 (security-reviewer,
+        // 2026-09-18).
+        capabilities: macportsbrew_domain::ProviderCapabilities {
+            capabilities: macportsbrew_domain::Capability::all()
+                .iter()
+                .map(|c| (*c, macportsbrew_domain::CapabilityState::Unknown))
+                .collect(),
+        },
         inventory: macportsbrew_domain::ProviderInventory::default(),
         environment: BTreeMap::new(),
         invocation_environment: BTreeMap::new(),
@@ -235,6 +255,42 @@ mod tests {
         Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
         ProviderPresence,
     };
+
+    #[test]
+    fn a_provider_whose_read_failed_records_every_capability_as_unknown() {
+        // The fix that made this true shipped without a test, which `AGENTS.md`
+        // calls incomplete - and this is the one producer the fixture matrix
+        // cannot reach, because no recording makes `snapshot()` return `Err`
+        // (security-reviewer, 2026-09-18). `macports-broken` does not exercise
+        // it: that provider reaches `Broken` through `detect()` and never
+        // through here.
+        //
+        // An empty table here would put the live route and the document route
+        // out of step - `analyze` of the machine would show no capabilities
+        // and `analyze --from-snapshot` of the snapshot written from it would
+        // show nine unknowns, which is INV-15 and is exactly what the fixture
+        // matrix caught the first time this rule was written.
+        let snap = broken(
+            &ProviderId::new("homebrew"),
+            &DomainError::new(
+                macportsbrew_domain::ErrorId::ProviderOutputChanged,
+                "the JSON this build reads is not the JSON it got",
+            ),
+        );
+        assert_eq!(
+            snap.capabilities.capabilities.len(),
+            Capability::all().len(),
+            "every capability, not an empty table"
+        );
+        assert!(
+            snap.capabilities
+                .capabilities
+                .values()
+                .all(|s| *s == CapabilityState::Unknown),
+            "and every one of them unknown: a provider this run could not read \
+             cannot be asked what it can do"
+        );
+    }
 
     #[test]
     fn a_capability_reason_is_redacted_like_any_other_free_text() {

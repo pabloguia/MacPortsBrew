@@ -120,6 +120,47 @@ pub enum Capability {
     ServiceMetadata,
 }
 
+impl Capability {
+    /// Every capability, for callers that must treat the set as a whole.
+    ///
+    /// The list is written out, and the `match` above it is what keeps it
+    /// honest: adding a variant stops that compiling, and the compiler error
+    /// lands next to the comment saying to extend the array too. This is the
+    /// shape `ErrorId::all()` arrived at after F-43 item 2 found it as a
+    /// hand-copied list with nothing beside it; `capability_all_names_every_
+    /// variant` in this file's tests holds the other half.
+    #[must_use]
+    pub fn all() -> &'static [Capability] {
+        const fn exhaustive(c: Capability) {
+            // Extend the array below in the same change as this match.
+            match c {
+                Capability::MachineReadableInventory
+                | Capability::RequestedRecord
+                | Capability::Dependencies
+                | Capability::ReverseDependencies
+                | Capability::ArtifactAvailability
+                | Capability::OfflineMetadata
+                | Capability::FileOwnership
+                | Capability::DeprecationState
+                | Capability::ServiceMetadata => (),
+            }
+        }
+        exhaustive(Capability::ServiceMetadata);
+
+        &[
+            Capability::MachineReadableInventory,
+            Capability::RequestedRecord,
+            Capability::Dependencies,
+            Capability::ReverseDependencies,
+            Capability::ArtifactAvailability,
+            Capability::OfflineMetadata,
+            Capability::FileOwnership,
+            Capability::DeprecationState,
+            Capability::ServiceMetadata,
+        ]
+    }
+}
+
 /// Whether a capability was detected, absent, or could not be determined.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "state")]
@@ -152,21 +193,44 @@ impl ProviderCapabilities {
         )
     }
 
-    /// True when detection was not possible — distinct from detected-absent.
+    /// True when the record says this capability cannot answer - by either
+    /// spelling - and false when it is absent.
     ///
-    /// [`Self::has`] answers "may I use this", and for that question `Unknown`
-    /// and `Unavailable` are the same answer: no. They are not the same answer
-    /// to "may I conclude anything from its absence", and a caller that must
-    /// not mistake "I could not look" for "there is nothing there" needs this
-    /// one instead. An absent entry is `false`: a capability the adapter never
-    /// reported was not *unable* to be detected, it was never asked about.
+    /// [`Self::is_unknown`] asks "was it undetectable"; this asks the question
+    /// a safety rule actually has, which is "may I conclude anything from what
+    /// this provider reports". `Unavailable` is not an affirmative answer to
+    /// that: a provider that does not offer service metadata cannot tell you
+    /// whether a package defines a service any more than one whose scan failed
+    /// can. Both are "I cannot establish it", and only `Available` is not.
     ///
-    /// `Capability::ServiceMetadata` is why this exists. The adapter reports
-    /// `Unknown` under replay, `has` rendered that as "not a service", and
-    /// nothing else read it — an unknown no consumer distinguishes from a no is
-    /// an unknown in name only (F-29, DP-016).
-    pub fn is_unknown(&self, cap: Capability) -> bool {
-        matches!(self.capabilities.get(&cap), Some(CapabilityState::Unknown))
+    /// Filed by `security-reviewer` on 2026-09-18 and reproduced: with the
+    /// planner keyed on `is_unknown`, a document whose `SERVICE_METADATA` read
+    /// `UNAVAILABLE` planned normally - exit 0, a full plan with a
+    /// `REMOVE_SOURCE` step - while the two spellings this pass had just
+    /// closed refused. INV-19's rule was never evaluated, which is the whole
+    /// of F-29 one enum variant over.
+    ///
+    /// **The absent case stays `false`, deliberately.** In memory a capability
+    /// nobody reported was never asked about, and reading that as "could not
+    /// be detected" would refuse every plan built from a hand-made snapshot.
+    /// A *document* cannot reach here with an absent entry, because the load
+    /// door fills every one (`Snapshot::mark_unrecorded_capabilities_unknown`)
+    /// — the two rules answer different questions and both are needed.
+    ///
+    /// **This replaces `is_unknown`, which is gone rather than deprecated.**
+    /// That predicate answered "was it undetectable", which is not the
+    /// question any safety rule has, and it had exactly one caller: the
+    /// planner, where choosing it over this one was the defect above. Two
+    /// near-identical public predicates, where picking the wrong one is a
+    /// data-loss-class mistake, is the shape that produced the bug — leaving
+    /// the loser in place for a future caller to pick would have preserved it
+    /// (`security-reviewer`, 2026-09-18).
+    #[must_use]
+    pub fn cannot_answer(&self, cap: Capability) -> bool {
+        matches!(
+            self.capabilities.get(&cap),
+            Some(CapabilityState::Unknown | CapabilityState::Unavailable { .. })
+        )
     }
 }
 
@@ -300,4 +364,91 @@ pub trait ProviderRead {
 
     /// The serialisable state of this provider for `analyze --from-snapshot`.
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capability_all_is_the_whole_enum_and_not_a_stale_copy_of_it() {
+        // Same chain `ErrorId::all` uses, and the same limitation. Rust cannot
+        // enumerate variants without a derive, and ADR-0004 makes a dependency
+        // for that a decision. What closes instead: the `exhaustive` match
+        // inside `all()` has no wildcard, so adding a variant is a compile
+        // error in this file — the author is already here — and this count then
+        // fails until the array is extended too.
+        //
+        // It proves the list is as long as the enum, never that it names the
+        // right members; `capability_all_has_no_duplicates` rules out padding
+        // the count, which is the only way the two can disagree silently.
+        assert_eq!(
+            Capability::all().len(),
+            NUMBER_OF_CAPABILITIES,
+            "a variant was added without extending all(); a loaded snapshot \
+             would then leave that capability unrecorded and it would read as \
+             \"never asked about\" rather than as unknown"
+        );
+    }
+
+    /// Update this **and** `all()` when adding a capability. The exhaustive
+    /// match inside `all()` will already have refused to compile.
+    const NUMBER_OF_CAPABILITIES: usize = 9;
+
+    #[test]
+    fn capability_all_has_no_duplicates() {
+        let distinct: std::collections::BTreeSet<_> = Capability::all().iter().collect();
+        assert_eq!(
+            distinct.len(),
+            Capability::all().len(),
+            "a duplicate would pad the count and hide an omission"
+        );
+    }
+
+    #[test]
+    fn an_absent_capability_is_not_unknown_and_not_available() {
+        // The distinction the whole of F-29 turns on, asserted on the accessors
+        // themselves rather than only through the planner that consumes them.
+        let empty = ProviderCapabilities::default();
+        assert!(
+            !empty.has(Capability::ServiceMetadata),
+            "absent is not a yes"
+        );
+        assert!(
+            !empty.cannot_answer(Capability::ServiceMetadata),
+            "and absent is not undetectable either: in memory it means nobody \
+             asked, which is what lets a hand-made snapshot still be planned"
+        );
+    }
+
+    #[test]
+    fn cannot_answer_is_true_for_both_spellings_of_could_not_establish() {
+        // The carve-out above is load-bearing for the whole document rule, and
+        // until 2026-09-18 it was asserted nowhere in the crate that defines
+        // it - only indirectly, from the planner's tests and an end-to-end
+        // arm. This is where a future simplification would break it.
+        let with = |state: CapabilityState| ProviderCapabilities {
+            capabilities: [(Capability::ServiceMetadata, state)].into_iter().collect(),
+        };
+
+        assert!(
+            with(CapabilityState::Unknown).cannot_answer(Capability::ServiceMetadata),
+            "undetectable is not an answer"
+        );
+        assert!(
+            with(CapabilityState::Unavailable {
+                reason: "provider_exposes_no_service_metadata".into(),
+            })
+            .cannot_answer(Capability::ServiceMetadata),
+            "neither is 'this provider does not offer it' - a provider that \
+             cannot tell you is a provider that cannot tell you, and reading \
+             only the first spelling is how the planner let a document plan \
+             that should have been refused"
+        );
+        assert!(
+            !with(CapabilityState::Available).cannot_answer(Capability::ServiceMetadata),
+            "and only Available is an answer, or the refusal is unconditional \
+             and this test would pass for the wrong reason"
+        );
+    }
 }

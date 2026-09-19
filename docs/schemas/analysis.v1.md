@@ -68,6 +68,15 @@ Capability keys: `MACHINE_READABLE_INVENTORY`, `REQUESTED_RECORD`,
 means "assume available" — a consumer that treats it as available is reading
 the schema wrong.
 
+**Every provider reports every key**, whether or not it is installed. An
+absent provider's capabilities are nine `UNKNOWN`s — it cannot be asked what it
+can do, and that is what `UNKNOWN` means. An analysis of a *snapshot document*
+reports keys the document did not carry for the same reason: they are recorded
+as `UNKNOWN` when it loads, because a capture writes every answer and a
+document that omits one does not say what answer it would have given. The
+reasoning and the case it closes are in
+[`snapshot.v1.md`](snapshot.v1.md) (SE-084).
+
 ### `SupportState`
 
 | Field | Type | Notes |

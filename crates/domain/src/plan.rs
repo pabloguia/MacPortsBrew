@@ -71,6 +71,49 @@ pub enum Elevation {
     Unknown,
 }
 
+/// How an executor establishes that a command succeeded.
+///
+/// Exit status is not the universal answer, and assuming it is fails *open* on
+/// one of the two providers this tool exists for. Observed on this machine
+/// 2026-09-08 (MacPorts 2.12.6, R-5 E22, F-33): `port -q installed <name>`
+/// exits **0** for an installed port, for a real port that is absent, and for a
+/// name that is not a port at all — three cases, one exit status. `brew list
+/// --versions <name>` exits 1 when the name is absent, so the two providers
+/// cannot share one rule.
+///
+/// This matters because of where it sits. `VERIFY_DESTINATION` is the step
+/// INV-01 puts in front of `REMOVE_SOURCE`: an executor that reads "exit 0" as
+/// "verified" would pass verification for a package that was never installed
+/// and then remove the source. `MigrationPlan::check_ordering` would hold
+/// perfectly while the thing it orders proved nothing.
+///
+/// [`Self::Unknown`] is the value a reader arrives at, never one the data
+/// states — see [`PlanCommand::success`].
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "success")]
+pub enum SuccessSemantic {
+    /// Exit status carries the answer: zero succeeded, nonzero failed.
+    ExitStatus,
+    /// Exit status carries no information for this command. Success requires
+    /// the package's own name in the command's standard output; an empty
+    /// stdout is a failure however the process exited.
+    StdoutNamesPackage,
+    /// Not stated, or stated in terms this build does not recognise.
+    ///
+    /// The refusing value, and the default, for the reason
+    /// [`PlanCommand::placeholder`] documents as its own weak point: a reader
+    /// that meets a document written before this field existed, or one naming a
+    /// semantic a newer build added, must not fall back to exit status — that
+    /// is the fail-open this type exists to prevent. Here the fallback *is* the
+    /// refusing value, which is the trick [`VerificationCheck::Unknown`] uses
+    /// and `placeholder` could not.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
 /// A command a step would run: argv only, never a shell string.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +138,13 @@ pub struct PlanCommand {
     pub environment: BTreeMap<String, String>,
     /// Elevation this command needs.
     pub elevation: Elevation,
+    /// How an executor establishes that this command succeeded.
+    ///
+    /// Always serialised, and absent on read means [`SuccessSemantic::Unknown`]
+    /// rather than exit status, so a document from a build that predates this
+    /// field refuses rather than fails open.
+    #[serde(default)]
+    pub success: SuccessSemantic,
     /// Whether this command is an illustration rather than something an
     /// executor could run.
     ///
@@ -374,6 +424,29 @@ impl MigrationPlan {
             .collect()
     }
 
+    /// Steps carrying a command that does not say how its success is
+    /// established.
+    ///
+    /// Empty for a plan this build produced: the planner reads the semantic
+    /// from `provider-commands.toml`, whose loader refuses an entry that omits
+    /// one. A non-empty result means the plan was written by another build, or
+    /// names a semantic this one does not recognise — and an executor must
+    /// refuse it for the same reason it refuses an unrecognised verification
+    /// check (`Self::verification_is_performable`): what it cannot read is
+    /// exactly the part that decides whether the step passed.
+    #[must_use]
+    pub fn steps_with_unknown_success(&self) -> Vec<u32> {
+        self.steps
+            .iter()
+            .filter(|s| {
+                s.commands
+                    .iter()
+                    .any(|c| c.success == SuccessSemantic::Unknown)
+            })
+            .map(|s| s.index)
+            .collect()
+    }
+
     /// Whether every step's verification is one this build can perform.
     ///
     /// `false` when any step carries a check this build does not recognise. An
@@ -585,6 +658,14 @@ mod tests {
             environment: BTreeMap::new(),
             elevation,
             placeholder: false,
+            success: SuccessSemantic::ExitStatus,
+        }
+    }
+
+    fn cmd_with_success(success: SuccessSemantic) -> PlanCommand {
+        PlanCommand {
+            success,
+            ..cmd(Elevation::None)
         }
     }
 
@@ -685,5 +766,80 @@ mod tests {
         assert!(bad.check_ordering().unwrap_err().contains("INV-01"));
         let no_snapshot = plan(vec![step(1, StepKind::AddDestination)]);
         assert!(no_snapshot.check_ordering().is_err());
+    }
+
+    #[test]
+    fn a_command_that_does_not_say_how_it_succeeds_is_unknown_not_exit_status() {
+        // The whole point of the type. A reader meeting a plan written before
+        // this field existed must not fall back to exit status: on MacPorts
+        // `verify` that is a check which cannot fail, and INV-01 puts it in
+        // front of `REMOVE_SOURCE` (F-33).
+        //
+        // Asserted through serde rather than through `Default`, because the
+        // hazard is a *document*, and `#[serde(default)]` on the field is the
+        // line that makes it safe.
+        let without: PlanCommand = serde_json::from_str(
+            r#"{"target":{"target":"PROVIDER"},"program":"/p/bin/x","argv":["read"],
+                "elevation":{"elevation":"NONE"},"placeholder":false}"#,
+        )
+        .expect("a document predating the field must still parse");
+        assert_eq!(
+            without.success,
+            SuccessSemantic::Unknown,
+            "absent must mean unknown, never exit status"
+        );
+
+        let unrecognised: PlanCommand = serde_json::from_str(
+            r#"{"target":{"target":"PROVIDER"},"program":"/p/bin/x","argv":["read"],
+                "elevation":{"elevation":"NONE"},"placeholder":false,
+                "success":{"success":"STDOUT_MATCHES_A_REGEX_A_NEWER_BUILD_ADDED"}}"#,
+        )
+        .expect("an unrecognised semantic must parse, not fail");
+        assert_eq!(
+            unrecognised.success,
+            SuccessSemantic::Unknown,
+            "a semantic this build does not know is one it cannot perform"
+        );
+    }
+
+    #[test]
+    fn a_stated_success_semantic_round_trips() {
+        let json = serde_json::to_string(&cmd_with_success(SuccessSemantic::StdoutNamesPackage))
+            .expect("serialises");
+        assert!(
+            json.contains(r#""success":{"success":"STDOUT_NAMES_PACKAGE"}"#),
+            "the wire shape is the tagged one the other plan enums use: {json}"
+        );
+        let back: PlanCommand = serde_json::from_str(&json).expect("parses");
+        assert_eq!(back.success, SuccessSemantic::StdoutNamesPackage);
+    }
+
+    #[test]
+    fn steps_whose_command_cannot_say_how_it_succeeds_are_reported() {
+        let mut stated = step(1, StepKind::AddDestination);
+        stated.commands = vec![cmd_with_success(SuccessSemantic::ExitStatus)];
+        let mut silent = step(2, StepKind::VerifyDestination);
+        silent.commands = vec![cmd_with_success(SuccessSemantic::Unknown)];
+        let mut other = step(3, StepKind::VerifyRemoval);
+        other.commands = vec![cmd_with_success(SuccessSemantic::StdoutNamesPackage)];
+
+        let p = plan(vec![stated, silent, other]);
+
+        assert_eq!(
+            p.steps_with_unknown_success(),
+            vec![2],
+            "only the step whose command cannot say belongs here"
+        );
+    }
+
+    #[test]
+    fn a_step_with_no_commands_at_all_is_not_reported_as_unknown() {
+        // `VERIFY_REMOVAL` carries no command today (`plan.v1.md` executor-debt
+        // item 3, which this pass does not close). A step with nothing to run
+        // has nothing whose success semantic could be missing, and reporting it
+        // would make the accessor fire on every plan and so mean nothing.
+        let bare = step(1, StepKind::VerifyRemoval);
+        assert!(bare.commands.is_empty());
+        assert!(plan(vec![bare]).steps_with_unknown_success().is_empty());
     }
 }

@@ -94,18 +94,21 @@ a list rather than three doc comments:
    none, and "nonzero exit means absent" is verification by exit status with the
    sign flipped — `brew list --versions` exits 1 for a correctly installed cask
    (F-06, F-22).
-4. **`PROVIDER_REPORTS_ACTIVE` needs a per-provider success semantic.** Item 3
-   is the same defect with the sign flipped; this is the direction that is worse,
-   because it fails *open*. Observed on this machine 2026-09-08:
-   `port -q installed <name>` exits **0** for an installed port, for a real port
-   that is absent, and for a name that does not exist at all — three cases, one
-   exit status. So a `VERIFY_DESTINATION` toward MacPorts cannot fail on exit
-   status, and under INV-01 that step is precisely what guards a
-   `REMOVE_SOURCE`. Homebrew's `brew list --versions` does exit 1 when absent,
-   so the two providers cannot share one rule and the check must read output.
-   The success semantic belongs beside the verb in `provider-commands.toml`,
-   which is a schema change and therefore the executor's, not this pass's
-   (F-33).
+4. **Refuse a plan carrying a command whose `success` is `UNKNOWN`** — and
+   honour the semantic on the ones that state it. **Discharged as data
+   2026-09-18**, and what is left is the executor's half. The semantic now sits
+   beside the verb in `provider-commands.toml`, the loader refuses an entry that
+   omits one, and every command in a plan carries it (see `PlanCommand.success`
+   above). What this entry said before, and which still explains why the field
+   exists: observed on this machine 2026-09-08, the MacPorts read verb exits
+   **0** for an installed port, for a real port that is absent, and for a name
+   that does not exist at all — three cases, one exit status. So a
+   `VERIFY_DESTINATION` toward MacPorts cannot fail on exit status, and under
+   INV-01 that step is precisely what guards a `REMOVE_SOURCE`. Homebrew's
+   `brew list --versions` does exit 1 when absent, so the two providers cannot
+   share one rule and the check must read output. The executor's obligation is
+   now the same shape as items 1 and 2: read the field, refuse what it cannot
+   perform (F-33).
 5. **A single-instance lock, and a check for a concurrently running `brew` or
    `port`.** `04-migration-and-safety.md:201` is a **MUST** and nothing
    implements it — not even a type, which every other deferred capability here
@@ -128,6 +131,7 @@ the plan is the useful output even when it cannot be run unattended.
 | `argv` | array of string | The full argument vector. **There is no shell and no string interpolation**: package names and paths are arguments, never fragments of a command line |
 | `environment` | map of string to string, optional | The sanitised environment the command would run in. Omitted when empty, so its absence does not by itself mean `TOOL`: a `PROVIDER` command whose source snapshot carried no environment is written without it too (see F-21) |
 | `elevation` | tagged union, tag `elevation` | `NONE`, `REQUIRED` (with a `reason` — the provider's own statement or a stable identifier), `UNKNOWN` |
+| `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, or `UNKNOWN`. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed |
 | `placeholder` | boolean, always present | The command is an **illustration**, not something an executor could run. A plan built for a provider that was not detected has no prefix to resolve, so the program reads `<macports prefix>/bin/macports` and the verb `<verify>`. Until this field existed nothing distinguished those from a real command, and `check_ordering` never looks at commands at all (F-20). **An executor refuses a plan carrying one** rather than running the steps around it. **Read this field before executing anything.** It is always written, but `false` is the permissive value, so a reader that ignores it — or a document produced before the field existed — sees a real command where an illustration is. Unlike an unrecognised `check`, which deserialises to a value that cannot be satisfied, a boolean has no shape that fails closed on a reader who never looks |
 
 **`TOOL` is not a provider invocation.** Exactly one step can carry one —
@@ -155,7 +159,9 @@ internally tagged union, so the tag repeats the field name. Taken from
     "PATH": "/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
     "TERM": "dumb"
   },
-  "elevation": { "elevation": "UNKNOWN" }
+  "elevation": { "elevation": "NONE" },
+  "success": { "success": "STDOUT_NAMES_PACKAGE" },
+  "placeholder": false
 }
 ```
 
@@ -164,9 +170,21 @@ internally tagged union, so the tag repeats the field name. Taken from
   "target": { "target": "TOOL" },
   "program": "macportsbrew",
   "argv": ["primary", "htop", "macports"],
-  "elevation": { "elevation": "NONE" }
+  "elevation": { "elevation": "NONE" },
+  "success": { "success": "EXIT_STATUS" },
+  "placeholder": false
 }
 ```
+
+**Both samples were stale before this field was added to them**, and in two
+ways that are worth naming rather than quietly fixing. The first said
+`"elevation": { "elevation": "UNKNOWN" }` for the MacPorts read verb; observing
+that verb needs no elevation turned that cell into a `none` when F-24 closed,
+and the sample was never re-run. And neither carried `placeholder`, which the
+row above calls always present. Both are now the binary's own output for the
+invocation named above, re-generated 2026-09-18. A sample that says it came
+from a command is a claim about that command, and this one had been wrong for
+a fortnight in the document an executor is meant to build against.
 
 An unrecognised `target` value fails to parse rather than reading as unknown.
 That is a deliberate departure from this project's usual unknown-tolerance:

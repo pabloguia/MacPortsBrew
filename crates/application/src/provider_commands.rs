@@ -25,6 +25,25 @@ pub struct ProviderCommands {
     pub verbs: BTreeMap<String, Vec<String>>,
     /// Elevation per operation: `none`, `required`, `unknown`.
     pub elevation: BTreeMap<String, String>,
+    /// How success is established per operation: `exit_status`,
+    /// `stdout_names_package`.
+    ///
+    /// Keyed by operation like `verbs`, and **not yet** per package kind.
+    ///
+    /// The first version of this comment said a kind-aware form "would be
+    /// inventing a distinction no provider makes". That is wrong, and
+    /// `planner.rs` records the counter-example twenty lines away:
+    /// `brew list --versions <cask>` exits 1 for a *correctly installed* cask
+    /// (F-22). The verb differs by kind, so the semantic that reads it differs
+    /// by kind too.
+    ///
+    /// It is not kind-aware today because it cannot be reached: a `GuiApp`
+    /// carries `PackageClass::GuiApp`, which forces `MANUAL_REVIEW` before any
+    /// command is built. **Whoever closes F-22 adds the kind-aware cell in the
+    /// same change as the kind-aware verb** - and until then the mismatch
+    /// fails closed, because a verification that cannot succeed halts before
+    /// `REMOVE_SOURCE` rather than after it (security-reviewer, 2026-09-18).
+    pub success: BTreeMap<String, String>,
     /// Why elevation is needed where it is.
     #[serde(default)]
     pub elevation_reason: Option<String>,
@@ -150,6 +169,49 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                 }
             }
         }
+        // Every verb states how its success is established (F-33, INV-01).
+        //
+        // Keyed off `verbs` alone, not the union above, and the difference is
+        // deliberate: a success semantic describes a command this table
+        // supplies the argv for, and `set_primary` supplies none - the planner
+        // builds that step's command itself, as a `CommandTarget::Tool`, and
+        // states the semantic there. Requiring a cell here for an operation
+        // with no verb would be a cell nothing reads.
+        //
+        // The refusal is at load rather than at use for the same reason the
+        // elevation check is: the planner's fallback is
+        // `SuccessSemantic::Unknown`, which an executor must refuse, so an
+        // omission here would turn into a plan that cannot be run rather than
+        // into a build that cannot ship.
+        for verb in e.verbs.keys() {
+            match e.success.get(verb).map(String::as_str) {
+                Some("exit_status" | "stdout_names_package") => {}
+                Some(other) => {
+                    return Err(DomainError::new(
+                        ErrorId::PolicyDataInvalid,
+                        format!(
+                            "provider-commands.toml: entry {} gives {verb} the success \
+                             semantic {other:?}, which is not exit_status or \
+                             stdout_names_package; an unrecognised value silently becomes \
+                             \"unknown\", which an executor must refuse to run",
+                            e.provider
+                        ),
+                    ));
+                }
+                None => {
+                    return Err(DomainError::new(
+                        ErrorId::PolicyDataInvalid,
+                        format!(
+                            "provider-commands.toml: entry {} declares the verb {verb} but \
+                             states no success semantic for it, so an executor would be left \
+                             to assume exit status - which on this provider's verify verb \
+                             can never fail (F-33, INV-01)",
+                            e.provider
+                        ),
+                    ));
+                }
+            }
+        }
         out.insert(e.provider.clone(), e);
     }
     Ok(out)
@@ -188,6 +250,7 @@ mod tests {
                  executable = \"bin/example\"\n\
                  verbs = {{}}\n\
                  elevation = {{}}\n\
+                 success = {{}}\n\
                  source = \"{source}\"\n\
                  read_on = \"{read_on}\"\n"
             );
@@ -264,6 +327,73 @@ mod tests {
         let err = parse(&text).expect_err("a misspelt elevation must be refused");
         assert_eq!(err.id, ErrorId::PolicyDataInvalid);
         assert!(err.detail.contains("requried"), "{}", err.detail);
+    }
+
+    #[test]
+    fn every_verb_states_how_its_success_is_established() {
+        // The elevation check above has a sibling because the two omissions
+        // fail in opposite directions. A missing elevation makes the planner
+        // reach `Unknown`, which is *cautious*. A missing success semantic
+        // leaves an executor to assume exit status, and on the MacPorts verify
+        // verb that is a check which cannot fail while standing in front of
+        // `REMOVE_SOURCE` (F-33, INV-01). Caution and data loss are not the
+        // same kind of default.
+        for key in [
+            "verify = \"stdout_names_package\"",
+            "verify = \"exit_status\"",
+            "add = \"exit_status\"",
+            "remove = \"exit_status\"",
+        ] {
+            let Err(err) = without(key) else {
+                panic!("removing {key} must be refused");
+            };
+            assert_eq!(err.id, ErrorId::PolicyDataInvalid, "{key}");
+            assert!(
+                err.detail.contains("success semantic"),
+                "{key}: {}",
+                err.detail
+            );
+        }
+    }
+
+    #[test]
+    fn a_success_semantic_that_is_not_one_of_the_two_is_refused() {
+        // Same reasoning as the misspelt elevation, and worse: the planner
+        // folds an unrecognised value to `SuccessSemantic::Unknown`, which an
+        // executor must refuse - so a typo here turns into a plan that cannot
+        // be run, discovered at execution rather than at build.
+        let text = SOURCE.replacen(
+            "verify = \"stdout_names_package\"",
+            "verify = \"stdout_names_pacakge\"",
+            1,
+        );
+        let err = parse(&text).expect_err("a misspelt success semantic must be refused");
+        assert_eq!(err.id, ErrorId::PolicyDataInvalid);
+        assert!(
+            err.detail.contains("stdout_names_pacakge"),
+            "{}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn the_shipped_table_states_the_semantics_that_were_observed() {
+        // Not a restatement of the file: these two values are the finding.
+        // `port -q installed <name>` exits 0 whether the port is installed,
+        // absent, or not a port at all; `brew list --versions <name>` exits 1
+        // when the name is absent. Both observed on this machine 2026-09-08
+        // (R-5 E22, F-33). If either cell is ever "corrected" to exit status,
+        // this fails and says why.
+        let table = load().unwrap();
+        assert_eq!(
+            table["macports"].success["verify"], "stdout_names_package",
+            "MacPorts' verify verb cannot be driven by exit status"
+        );
+        assert_eq!(
+            table["homebrew"].success["verify"], "exit_status",
+            "Homebrew's can, and saying so is what makes the other cell a fact \
+             rather than a blanket rule"
+        );
     }
 
     #[test]

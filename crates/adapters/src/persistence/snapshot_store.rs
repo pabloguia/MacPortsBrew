@@ -110,12 +110,31 @@ pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, D
 /// environment, which a review demonstrated. One rule, both routes. F-21.
 pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
     let text = read_bounded(path, ErrorId::SnapshotUnusable)?;
-    let snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
+    let mut snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
         DomainError::new(
             ErrorId::SnapshotUnusable,
             format!("{} is not a readable snapshot: {e}", path.display()),
         )
     })?;
+    // A capability this document does not mention is one this document cannot
+    // answer, which is not the same thing as one nobody asked about - see
+    // `Snapshot::mark_unrecorded_capabilities_unknown`. Here rather than inside
+    // `check` because it is the only route where the distinction exists: every
+    // producer of a `ProviderSnapshot` in this build answers all nine
+    // capabilities - both adapters, installed or not, and `capture::broken`
+    // for a provider whose read failed - so on the capture route there is
+    // never anything to fill, and `check` is shared with it (F-29, DP-016).
+    // That `broken` was writing an empty table, and so was a third shape the
+    // rule below is documented as never meeting, was found by
+    // `security-reviewer` on 2026-09-18 rather than by this comment.
+    //
+    // One consequence of filling *before* validating, worth knowing when
+    // `check` grows: any capability validation added there is pre-satisfied by
+    // this call and would be silently vacuous on the load route.
+    //
+    // Before `check`, so that what the checks see is what the rest of the
+    // program will see.
+    snapshot.mark_unrecorded_capabilities_unknown();
     snapshot.check(&crate::registry::environment_contracts())?;
     Ok(snapshot)
 }

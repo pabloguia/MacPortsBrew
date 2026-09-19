@@ -11,8 +11,12 @@ to SE-077 as the pass fixed what it found, so a
 later pass can accept or reject each individually. The pass report is
 [`02-ARCHITECTURE-REVIEW-PASS-report.md`](02-ARCHITECTURE-REVIEW-PASS-report.md).
 
-**Two findings stop at the human**: F-29 (DP-016) and F-31 (DP-017). F-01 did
-and no longer does — DP-010 resolved it on 2026-09-02.
+**No finding stops at the human any more.** Three did: F-01 until DP-010 was
+resolved on 2026-09-02, and F-29 (DP-016) and F-31 (DP-017) until both were
+ruled on 2026-09-16. This sentence named the last two as open until
+2026-09-18, in the register whose own preamble is about staleness — found by
+`spec-guardian` in the same review that found the defect F-29's closure
+shipped with.
 
 **When MacPorts arrived, since three documents disagreed.** Resolved from the
 filesystem rather than by picking one: `/opt/local/bin/port` is dated
@@ -52,7 +56,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-21** — a snapshot file dictates a provider command's environment (Tier 1) | **Fixed.** SE-051, part 1 of three, now built. A captured *and* a loaded snapshot are both refused if the invocation environment is not one `sanitised_environment` could have produced. What is asserted is what an adapter builds, arrived at over three security reviews: a deny-list was defeated four ways (`SUDO_ASKPASS`, `RUBYOPT`, a writable directory first on `PATH`, `/opt/../opt/homebrew/bin`) and a looser shape six more (a case-folded `/OPT/Local` on a case-insensitive volume; a chosen `HOME`, which makes `brew` re-export the refused keys from `$HOME/.homebrew/brew.env`; `/usr/local/bin`, commonly writable where an Intel Homebrew created it, on a Homebrew detected elsewhere; an environment missing the variables that keep provider output parseable; and — surviving two rebuilds — a prefix shallow enough to contain everything, so that declaring `/opt` made the other provider's tree its own; and a quieting variable permitted by name, so `HOMEBREW_NO_AUTO_UPDATE=0` turned a read-only command into one that writes). Every one reproduced against the real binary before being believed. Limits stated in SE-051. |
 | **F-08** — the no-shell guarantee is not enforced | **Fixed.** SE-050. A run-time allowlist at the one spawn site — six programs, absolute, no `..`, providers only from a `bin` directory — with private `CommandSpec` fields, the layering check and the rewritten lint behind it. The first build of the fix was a type-level guarantee, and a security review defeated it four ways in one sitting: public fields let a spec be rewritten after construction (which also reopened this pass's own INV-10 fix), `OnceLock` manufactures a `&'static str` with no `Box::leak` to grep for, the interpreter denylist had never heard of `tclsh` — which `port` is written in — and the `#[cfg(test)]` exemption asserted "at most one attribute" while relying on "one trailing section". The threat model's "no shell interprets any of it" was also false: `brew` is a bash script. |
 | **F-24** — MacPorts' `verify` elevation is `unknown` with no detection path | **Value closed by observation 2026-09-06; the deferral is not.** MacPorts 2.12.6 installed here: `port -q installed` runs as a non-root user, exit 0, and `registry.db` is `0644`. `verify = "none"`, sourced to the observation. R-5a's UNRESOLVED-1 and -2 answered. But the finding's actual complaint — three places name runtime detection and no artefact holds it — still stands; one machine fixes the default, not the mechanism (INV-20). |
-| **F-33** — a MacPorts `VERIFY_DESTINATION` cannot fail on exit status | **Half done 2026-09-08; the data half is the executor's.** Confirmed a third time by direct observation — `port -q installed` exits 0 for an installed port, an absent one, *and* a name that is not a port at all — and recorded as item 4 of `plan.v1.md`'s executor-debt list so the obligation cannot be lost. The per-provider success semantic beside the verb in `provider-commands.toml` is a schema change and stays open. `port installed` exits **0** for a port that is not installed, and for one that does not exist. `plan.v1.md` warns an executor about exit-status semantics for `PACKAGE_ABSENT` and says nothing for `PROVIDER_REPORTS_ACTIVE`, which is what `VERIFY_DESTINATION` carries — the step guarding `REMOVE_SOURCE` under INV-01. Unlike F-22 this path is reachable: MacPorts packages are plannable. Observed 2026-09-06.
+| **F-33** — a MacPorts `VERIFY_DESTINATION` cannot fail on exit status | **Closed 2026-09-18 (SE-083); what remains is the executor reading the field.** The data half shipped: `[entry.success]` in `provider-commands.toml`, refused by the loader when a verb omits it, carried into every plan command as `PlanCommand.success`, and `plan.v1.md`'s executor-debt item 4 rewritten from "needs a semantic" to "refuse a plan whose semantic is `UNKNOWN`" — the same shape as items 1 and 2. Earlier state, kept because it is why the field exists: **half done 2026-09-08; the data half is the executor's.** Confirmed a third time by direct observation — `port -q installed` exits 0 for an installed port, an absent one, *and* a name that is not a port at all — and recorded as item 4 of `plan.v1.md`'s executor-debt list so the obligation cannot be lost. The per-provider success semantic beside the verb in `provider-commands.toml` is a schema change and stays open. `port installed` exits **0** for a port that is not installed, and for one that does not exist. `plan.v1.md` warns an executor about exit-status semantics for `PACKAGE_ABSENT` and says nothing for `PROVIDER_REPORTS_ACTIVE`, which is what `VERIFY_DESTINATION` carries — the step guarding `REMOVE_SOURCE` under INV-01. Unlike F-22 this path is reachable: MacPorts packages are plannable. Observed 2026-09-06.
 | **F-12** — CI has never run and the documentation reads as though it has | **Fixed.** SE-052. The matrix is generated from `runner:` labels and nothing else, so every row states configuration; it now says so, and says outright that no CI job has ever run for as long as there is no remote — detected, not remembered. The MUST that required it to distinguish "what CI actually exercises" asked for something no label parse can establish, and asks for what it can now. |
 | **F-34** — a replayed `doctor` invents a `PATH` warning from data the recording does not carry | **Fixed 2026-09-07 (`ae43fc2`).** Both checks that read `PATH` are skipped together when there is none, and the absence is reported once as `doctor.path_unknown`. The test asserts the fix *and* the control: with a `PATH` that genuinely omits a prefix, the original finding must still fire. `--replay` reports "<provider>'s prefix … is not on PATH" for each present provider. On this machine both prefixes *are* on `PATH`: live `doctor` says so and emits correct detailed findings instead, and `--from-snapshot` on a fresh capture emits none. The `Recording` format has no environment section at all — only the sanitised per-invocation `PATH` the executor builds. Mirror of F-29: that one turns an unknown into a silent no, this one turns an absent input into a confident warning a user would act on. Observed 2026-09-06.
 | **F-35** — verify elevation is a stored fact where three places say it must be detected | **Open. Carried to the executor pass.** The surviving half of F-24: the TOML comment, SE-059 and R-5a all name runtime capability detection as the real answer, and no artefact implements it. The 2026-09-06 observation makes the stored default right, which removes the urgency and not the obligation — INV-20 says detection wins over stored knowledge. Also carries the per-cell provenance want: two cells now need a source of their own and the schema has none. |
@@ -68,6 +72,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
 | **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
+| **F-50** — the drift guard F-27 built does not cover the documents an executor builds against | **Open, found 2026-09-18** during `03-UNKNOWN-IS-NEVER-A-YES`, which is a later pass than this register - recorded here because this file is the register and a finding kept only in a pass report is a finding the next reader does not meet. `documented_samples.rs` scans `README.md` and `wiki/*.md` and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample with what the binary prints. Two of `plan.v1.md`'s were wrong. Samples corrected; guard not widened. |
 | **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. |
 | **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding; fixed the same day.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
 | **F-19** — invariant tests that would not fail | **Fixed.** SE-062. INV-10 checked every program *except* `brew` and `port`, which is what it is about; INV-07/08 asserted one direction against the planner's own value; the INV-17 swap kept the map keys so iteration order was never exercised; INV-20 scanned one crate of five for one of four categories — and on being widened, found a second copy of a provider prefix in the MacPorts adapter; INV-11's only test argued from types in the wrong crate, and now does not - `crates/application/tests/invariants.rs:595` asserts on the `SetPrimary` step itself. INV-13's was already closed by the F-03 fix. INV-15's was **F-25**, which is fixed - so the exception this row carried is discharged. |
@@ -83,7 +88,7 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-26** — Homebrew's timeline said to have moved past the cited row | **Not a defect — the finding was wrong.** Re-read 2026-09-04: the section is verbatim unchanged, the normative Unsupported list still names Mojave, and the timeline is a forecast keyed to Apple's release cycle rather than to the calendar. The re-read still bought four fresh read dates, a truncated quote fixed, and a gap in the policy-version rule. |
 | **F-27** — documented CLI samples drift from the binary and nothing notices | **Fixed.** SE-070. `documented_samples.rs`: each sample declares its own `--replay` invocation in a marker comment, a scan finding fewer than two is itself a failure, and the check was probed against the three drifts that happened plus a deleted marker. It drifted a fourth time while the finding sat open, which is the argument for an instrument over a habit. |
 | **F-28** — a sourced claim was wider than its source | **Corrected in all nine places.** `source` and `read_on` verify provenance, not scope, so no gate here could have caught a quantifier. This finding's own first census said six and was itself wider than its evidence. |
-| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Open, and now a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c).
+| **F-29** — a replayed analysis classifies fewer packages as services than a live one | **Closed 2026-09-18.** DP-016(c) shipped 2026-09-16 and left one hole, recorded at the time: an *absent* `SERVICE_METADATA` entry is not `Unknown`, so a document predating the capability loaded under the same `SNAPSHOT_SCHEMA_VERSION` and planned as though the answer were no. `load_snapshot` now records every capability a document does not mention as `Unknown` (SE-084), which refuses the plan and leaves read-only analysis working. Earlier state: **open, and a decision rather than a finding — DP-016.** Premise re-checked 2026-09-06: nothing in `application`, `policy` or `cli` reads `Capability::ServiceMetadata`. The tri-state field is not the question — `AGENTS.md` already requires it ("`UNKNOWN` is a first-class answer, never a silent 'no'"). What `Unknown` should *do* is, because it trades INV-19 against whether `--replay` can still show a real plan, and `--replay` is how a contributor without MacPorts exercises the planner at all. Four options, recommendation (c).
 | **F-30** — the bounded-read mechanism is implemented twice | **Fixed.** `persistence::bounded_read` is the one implementation; both callers use it, and `snapshot_store`'s five user-facing strings are byte-identical. The security review of the unification found a defect *in the unification* — `take(cap + 1)` wraps to `take(0)` at `u64::MAX` with release overflow checks off, returning `Ok("")` for a non-empty file. Fixed with `saturating_add`, and the test was checked to fail without it. |
 | **F-31** — the receipt reader's FIFO guard cannot prevent the hang it exists to prevent | **Fixed, on the final path component, on Darwin.** `O_NONBLOCK` is now unconditional — no caller has a reason to hang — and `O_NOFOLLOW` is the one trust judgement, per caller. No `libc`: `custom_flags` is in `std` and ADR-0006 already ruled the dependency out. The first version of this fix had three defects its security review found; they are recorded below rather than quietly corrected. The behavioural test is DP-017. |
 **The four Tier 1 findings this review filed are closed**, each as regards what it
@@ -1610,6 +1615,52 @@ in `crates/adapters/src/filesystem.rs`'s type documentation, and in
 
 ---
 
+### Residual hole closed 2026-09-18 — the distinction is between a value and a document
+
+DP-016(c) refuses a plan when the source's `SERVICE_METADATA` is `Unknown`. The
+hole recorded beside it was that an **absent** entry is deliberately not
+`Unknown`: in memory a capability nobody reported was never asked about, which
+is what lets a hand-made snapshot still be planned, and the test asserting that
+is load-bearing.
+
+A document is in a different position, and that is the whole of the fix. A
+capture asks every capability and writes every answer, so a document that omits
+one was written by a build that did not have the question and the file does not
+say what answer it would have given. `load_snapshot` now records every
+unmentioned capability as `Unknown` before any check runs
+(`Snapshot::mark_unrecorded_capabilities_unknown`, SE-084). The in-memory rule
+is untouched.
+
+**Neither route the finding named was taken, and both would have been worse.**
+`#[serde(default)]` on the field would make `capabilities` optional, so a
+document missing the whole table would deserialise to an empty map and read as
+"never asked about" — re-opening the hole while looking like the fix. Bumping
+`schemaVersion` would refuse the document outright, including for read-only
+analysis, which is the one thing `.claude/rules/adapters.md` says an unknown
+must not cause: the analysis degrades and says so, it does not fail.
+
+**Two versions of the fix were wrong before this one, and the cause was
+somewhere else entirely.** The first filled every provider's table, and
+`neither-provider-intel-macos13` failed the fixture matrix with "snapshot round
+trip differs from the replay analysis" — INV-15, caught by the gate built to
+prove it. The second skipped empty tables to satisfy the matrix, and
+`spec-guardian` demonstrated that emptying the whole table rather than deleting
+one key then walked past this refusal entirely: exit 0, a byte-identical plan,
+from a source provider still declaring itself `PRESENT`.
+
+Both came from an asymmetry in neither place: the Homebrew adapter wrote an
+**empty** capability table for an absent provider where the MacPorts adapter
+wrote nine `Unknown`s. A rule written at the load door to accommodate that can
+only pick which of the two defects to keep. Homebrew now does what MacPorts
+does — SE-084, and three golden fixtures regenerated for the changed output —
+and the rule is unconditional again.
+
+Probed by removal, which is what makes the test worth having: with the one call
+commented out, the end-to-end test fails with exit 0 — a plan built where a
+refusal is owed.
+
+---
+
 ## F-30 — "Read a file, bounded, resolving the name once" is now implemented twice
 
 **Severity: low as a defect, medium as a drift risk. Raised by the security
@@ -1967,6 +2018,46 @@ already records for `PACKAGE_ABSENT` — expressed as what to match in the outpu
 rather than as an exit code, because for MacPorts only the output carries the
 answer. It is the same missing capability as F-22's kind-dependent verb: the
 verbs table can say *what to run* and cannot say *what success looks like*.
+
+---
+
+### Data half closed 2026-09-18 — and the deferral had outlived its reason
+
+`provider-commands.toml` carries `[entry.success]`, one value per verb from a
+closed set of two: `exit_status`, and `stdout_names_package` for the one cell
+where exit status carries no information. The loader refuses an entry that
+omits a verb's value or misspells one, which is the same treatment elevation
+already had and for the sharper reason — a missing elevation makes the planner
+reach `Unknown`, which is cautious, while a missing success semantic leaves an
+executor to assume exit status, which on this verb is a check that cannot fail
+standing in front of `REMOVE_SOURCE`.
+
+**The deferral said this was a schema change and therefore the executor's.**
+That was written when the alternative was designing a shape against a
+hypothesis. It stopped being a hypothesis on 2026-09-08, when the third
+observation confirmed all three cases produce exit 0 — and the cost of carrying
+it another pass was that the only open finding whose failure mode is silent
+data loss stayed open. What actually belongs to the executor is unchanged and
+is still item 4 of `plan.v1.md`'s list: read the field, refuse what it cannot
+perform.
+
+`SuccessSemantic::Unknown` is the serde default *and* the `#[serde(other)]`
+catch-all, so a plan written before the field existed, or one naming a semantic
+a newer build added, refuses rather than falling back to exit status.
+`PlanCommand::placeholder`'s own documentation explains why it could not do
+that — `false` is its permissive value and a boolean has no shape that fails
+closed on a reader who never looks. A tagged union does.
+
+**Two samples in `plan.v1.md` were stale before this touched them**, and are
+corrected in the same change rather than quietly rewritten: one said the
+MacPorts read verb's elevation was `UNKNOWN`, which F-24's observation turned
+into a `none` without the sample being re-run, and neither carried
+`placeholder`, which the row above them calls always present. Both are now the
+binary's own output, re-generated 2026-09-18.
+
+Still open from this finding, and deliberately not taken: `PACKAGE_ABSENT`
+still carries no command at all (executor-debt item 3), and the human renderer
+does not show the semantic — only `--json` does.
 
 ---
 
@@ -3434,6 +3525,47 @@ That "no error writes JSON to stdout" was verified rather than assumed: `run`
 in `crates/cli/src/app/mod.rs` has exactly one `Err` arm and it writes the
 rendered message to `stderr`, `--json` or not. Eleven constructed cases in
 `scripts/test-gates.sh` hold it, eight of which require a rejection.
+
+---
+
+## F-50 — The sample-drift guard does not cover the schema documents
+
+**Severity: medium. Found 2026-09-18, in the pass after this one**
+(`03-UNKNOWN-IS-NEVER-A-YES`), while adding a field to `plan.v1.md`. Recorded
+here rather than only in that pass's report because this file declares itself
+the register, and F-46 is the entry about what happens when a record lives in
+two places or in none.
+
+F-27 built `crates/cli/tests/documented_samples.rs` so that a documented CLI
+sample cannot drift from the binary: each sample declares its own `--replay`
+invocation, and a scan finding fewer than two samples is itself a failure. Its
+`documented_files()` returns `README.md` and every `wiki/*.md`. **It has never
+looked at `docs/schemas/`.**
+
+Two of `plan.v1.md`'s `PlanCommand` samples were wrong when this was found:
+
+- one carried `"elevation": { "elevation": "UNKNOWN" }` for the MacPorts read
+  verb, which F-24's observation had turned into a `none` a fortnight earlier;
+- neither carried `placeholder`, which the row directly above them calls
+  **always present**.
+
+Both are corrected, re-generated from the binary on 2026-09-18. The guard is
+not widened, because a gate's scope is its own change and would have grown a
+focused pass past the point of being independently verifiable.
+
+**Why this is the worst place in the repository for an unchecked sample.**
+`plan.v1.md` is the document the executor pass is told to build against, and
+its own "What an executor inherits" list is the handover for five obligations.
+A reader who trusts a sample there writes code against a shape the binary does
+not produce — and the two defects found were in exactly the fields an executor
+must read before running anything: the elevation it must prompt for, and the
+`placeholder` flag it must refuse on.
+
+**What discharges it:** `documented_files()` gains `docs/schemas/*.md`, plus
+whatever that turns up on first run — and the samples there are JSON fragments
+rather than whole command outputs, so the marker convention needs a form for
+"this block is part of the output of that invocation" before the scan can
+assert on them. That is the actual work, and why it is not a one-liner.
 
 ---
 

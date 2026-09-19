@@ -2053,6 +2053,218 @@ fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() 
 }
 
 #[test]
+fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the_plan() {
+    // DP-016(c) refuses a plan whose source cannot say whether its packages
+    // define services, and it keys on `CapabilityState::Unknown`. An *absent*
+    // entry is deliberately not `Unknown` — in memory a capability nobody
+    // reported was never asked about, which is what lets a hand-made snapshot
+    // still be planned.
+    //
+    // A document is not in that position, and that was the hole this closes
+    // (F-29's residual). Both shipping adapters always write the entry, so the
+    // live path was safe; a document written by a build predating the
+    // capability carries the same `SNAPSHOT_SCHEMA_VERSION`, so it loaded, and
+    // INV-19's rule went silently unevaluated on a real plan — the exact
+    // outcome DP-016 exists to prevent, one route over.
+    //
+    // Demonstrated rather than asserted: a real capture, the key deleted, the
+    // real binary planning from it.
+    let scratch = Scratch::new("f29-absent-capability");
+    let path = fixture("both-providers-arm64-macos15");
+    let path = path.to_str().expect("fixture path is UTF-8");
+
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path,
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    // The capture answers the question — under replay MacPorts cannot scan
+    // another machine's filesystem, so it says `UNKNOWN` and says it out loud.
+    // Set it to a definite answer first, so that what this test removes is the
+    // *record* and not an unknown that was already there: without this the
+    // refusal would fire for the reason DP-016(c) already covered and prove
+    // nothing new.
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "AVAILABLE" });
+    let answerable = scratch.path().join("answerable.json");
+    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                answerable.to_str().expect("path"),
+                "plan",
+                "htop",
+                "--to",
+                "homebrew",
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "the control: a document that answers the question plans normally"
+    );
+
+    // Now the same document with the entry simply not there.
+    let obj = doc["providers"]["macports"]["capabilities"]["capabilities"]
+        .as_object_mut()
+        .expect("the capability table is an object");
+    assert!(
+        obj.remove("SERVICE_METADATA").is_some(),
+        "the key this test is about must have been there to remove"
+    );
+    let silent = scratch.path().join("silent.json");
+    std::fs::write(&silent, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            silent.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "a document that does not record the service question must refuse to \
+         plan, not plan as though the answer were no"
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "a refusal writes no plan document: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // And read-only analysis of the same document still works, because the
+    // analysis degrades and says so rather than failing (`.claude/rules/
+    // adapters.md`, "UNKNOWN is a first-class answer"). Only the planning path
+    // refuses.
+    let analysed = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            silent.to_str().expect("path"),
+            "--json",
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        analysed.status.code(),
+        Some(0),
+        "analysis of the same document still succeeds"
+    );
+    let report: Value = serde_json::from_slice(&analysed.stdout).expect("JSON");
+    assert_eq!(
+        report["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"]
+            ["state"],
+        serde_json::json!("UNKNOWN"),
+        "and it reports the capability as unknown rather than omitting it"
+    );
+
+    // A third spelling, and the one that survived both earlier attempts.
+    // `security-reviewer` reproduced it on 2026-09-18: the refusal matched
+    // only `UNKNOWN`, so a document whose capability read `UNAVAILABLE` -
+    // which is the other way a record says "I cannot establish this" - planned
+    // normally, `REMOVE_SOURCE` step and all.
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "UNAVAILABLE", "reason": "nope" });
+    let unavailable = scratch.path().join("unavailable.json");
+    std::fs::write(&unavailable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                unavailable.to_str().expect("path"),
+                "plan",
+                "htop",
+                "--to",
+                "homebrew",
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(4),
+        "UNAVAILABLE is the same answer as UNKNOWN to the question the rule \
+         asks, and only AVAILABLE is not"
+    );
+
+    // Deleting the whole table must refuse too, and this arm exists because
+    // the first two versions of the fix did not.
+    //
+    // Version one filled every provider's table and the fixture matrix refused
+    // it on INV-15 grounds. Version two skipped empty tables to satisfy the
+    // matrix - and `spec-guardian` then demonstrated that emptying the table,
+    // rather than deleting one key, walked straight past this refusal: exit 0
+    // and a byte-identical plan, on a source provider still declaring itself
+    // PRESENT with a full inventory. A snapshot file is untrusted input here
+    // (F-09, F-21), so a one-keystroke bypass of INV-19 is the whole finding.
+    //
+    // Both symptoms had one cause, in neither place: the Homebrew adapter
+    // wrote an empty capability table for an absent provider where MacPorts
+    // wrote nine unknowns. With the peers agreeing, the rule is unconditional
+    // and both shapes refuse.
+    doc["providers"]["macports"]["capabilities"]["capabilities"] = serde_json::json!({});
+    let blank = scratch.path().join("blank.json");
+    std::fs::write(&blank, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    let blanked = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            blank.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        blanked.status.code(),
+        Some(4),
+        "emptying the capability table must refuse exactly as deleting the \
+         one key does, or the refusal is one keystroke from being bypassed"
+    );
+    assert!(
+        blanked.stdout.is_empty(),
+        "and it writes no plan: {}",
+        String::from_utf8_lossy(&blanked.stdout)
+    );
+}
+
+#[test]
 fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // Finding F-10, reproduced exactly as it was observed: the plan for
     // `htop --to macports` ended "Steps that would need administrator rights:

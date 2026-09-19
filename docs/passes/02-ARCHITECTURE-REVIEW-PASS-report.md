@@ -656,29 +656,30 @@ Intel runner used to sit here as scheduling items; they are DP-019 now.
 
 ### 2. Implementation — what is genuinely left
 
-Ordered by consequence. The first three are one body of work and belong to the
-executor pass.
+Ordered by consequence.
 
-- **F-33's data half** — a per-provider success semantic beside the verb in
-  `provider-commands.toml`. `port installed` exits 0 for an installed port, an
-  absent one, *and* a name that is not a port at all, so a MacPorts
-  `VERIFY_DESTINATION` cannot fail — and that is the step INV-01 puts in front of
-  `REMOVE_SOURCE`. Filed medium-high because it is a data-loss path. Now item 4
-  of `plan.v1.md`'s executor-debt list.
+**Two of these closed on 2026-09-18**, in the focused pass
+`03-UNKNOWN-IS-NEVER-A-YES` — `prompts/03-unknown-is-never-a-yes.md`, report at
+`03-unknown-is-never-a-yes-report.md`. **F-33's data half**: the success
+semantic now sits beside the verb in `provider-commands.toml`, the loader
+refuses an entry that omits one, every plan command carries it, and
+`plan.v1.md`'s executor-debt item 4 is rewritten as an executor obligation of
+the same shape as items 1 and 2 (SE-083). **F-29's residual hole**: a loaded
+document that does not record a capability now records it as `Unknown`, so the
+DP-016(c) refusal fires on the one route that bypassed it (SE-084). Both are
+struck from the list below rather than left in it, which is the mistake this
+section has made three times.
+
 - **F-35** — verify elevation detected rather than stored, which is what INV-20
   requires and what three artefacts already name as the answer. Needs a
-  `Capability` variant, an adapter method and a policy-data fallback, plus a test
-  that the fallback is used and a test that detection overrides it.
+  `Capability` variant, an adapter method and a policy-data fallback, plus a
+  test that the fallback is used and a test that detection overrides it. The
+  nearest thing to the work just done and the obvious next one: `Capability`
+  now has an `all()` with a drift guard, which is the primitive a new variant
+  needs.
 - **F-04's residual** — the self-invocation's relative program and empty
   environment. A declared Tier 3 deviation (SE-056); the fix is "resolve this
   process's own binary", which is the executor's design.
-- **F-29's residual hole**, left open deliberately when DP-016(c) shipped. The
-  refusal keys on `is_unknown`, and an **absent** `SERVICE_METADATA` entry is
-  deliberately not `Unknown` — so a snapshot written by a build predating the
-  capability loads under the same `SNAPSHOT_SCHEMA_VERSION` and INV-19 goes
-  silently unevaluated on a real plan, which is the hole DP-016 exists to close,
-  one route over. Closing it means defaulting the field on deserialisation or
-  bumping the schema: a change to the snapshot contract, not to the refusal.
 - **F-48's residual** — a provider installed under `$HOME` can be analysed and
   can never be a plan destination, because redaction removes the absolute prefix
   the planner requires. The reversible part is taken: `doctor` reports
@@ -686,6 +687,19 @@ executor pass.
   the diagnosis rather than in a refusal. What is left is the design question —
   either the plan carries the un-redacted prefix and redaction becomes a
   display-time concern, or this stays a documented limit.
+- **F-50 — the drift guard F-27 built does not cover the documents an executor
+  builds against.** Found 2026-09-18 while adding a field to `plan.v1.md`:
+  `crates/cli/tests/documented_samples.rs` scans `README.md` and `wiki/*.md`
+  and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample
+  with what the binary prints. Two of `plan.v1.md`'s samples were wrong when
+  this was found — one carried an elevation that F-24's observation had changed
+  a fortnight earlier, and neither carried `placeholder`, which the row above
+  them calls always present. Both were corrected in the same change; the
+  *guard* was not, because widening a gate's scope is its own change and would
+  have grown a focused pass. The schema documents are the contract an executor
+  is told to build against, which makes this the worst place in the repository
+  for an unchecked sample.
+
 - **F-47's two older holes.** A link target that is absolute or escapes with
   `../` is resolved against the *host* rather than the repository, so CI and a
   laptop can disagree about the same document; reject `os.path.isabs(path)` and

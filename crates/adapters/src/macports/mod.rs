@@ -651,17 +651,11 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         let present = matches!(self.detection()?.presence, ProviderPresence::Present);
         let mut capabilities = BTreeMap::new();
         if !present {
-            for capability in [
-                Capability::MachineReadableInventory,
-                Capability::RequestedRecord,
-                Capability::Dependencies,
-                Capability::ReverseDependencies,
-                Capability::ArtifactAvailability,
-                Capability::OfflineMetadata,
-                Capability::FileOwnership,
-                Capability::DeprecationState,
-                Capability::ServiceMetadata,
-            ] {
+            // `Capability::all()` rather than the nine names written out, which
+            // is what stood here: the list carries a drift guard now, and a
+            // capability added later cannot quietly go unwritten and be read
+            // back from a document as "never asked about" (F-29, F-43).
+            for &capability in Capability::all() {
                 capabilities.insert(capability, CapabilityState::Unknown);
             }
             return Ok(ProviderCapabilities { capabilities });

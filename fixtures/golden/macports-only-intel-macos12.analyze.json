@@ -648,7 +648,35 @@
   "providers": {
     "homebrew": {
       "capabilities": {
-        "capabilities": {}
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "state": "UNKNOWN"
+          },
+          "DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "DEPRECATION_STATE": {
+            "state": "UNKNOWN"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "UNKNOWN"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "UNKNOWN"
+          },
+          "OFFLINE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "REQUESTED_RECORD": {
+            "state": "UNKNOWN"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          }
+        }
       },
       "detection": {
         "architecture": null,

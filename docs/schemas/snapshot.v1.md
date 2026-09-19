@@ -56,11 +56,60 @@ output format, which is why the fields are not optional.
 | Field | Type | Notes |
 |---|---|---|
 | `detection` | `ProviderDetection` | See [`analysis.v1.md`](analysis.v1.md) |
-| `capabilities` | `ProviderCapabilities` | See [`analysis.v1.md`](analysis.v1.md) |
+| `capabilities` | `ProviderCapabilities` | See [`analysis.v1.md`](analysis.v1.md). **On load, every capability this document does not mention is recorded as `UNKNOWN`** - see the note below |
 | `inventory` | `ProviderInventory` | Validated on load and on capture, by where each value goes. A **name** becomes an argument, so it must be one a provider could have reported: `[A-Za-z0-9_.@+-]`, no leading `-`, not `.` or `..`, at most 128 bytes. Everything else — versions, **variants**, install paths, resolved paths — reaches a reader rather than a command, and is only bounded and free of control characters; two providers fill `variants` and they fill it with different things. The twelve MacPorts pseudo-portnames are refused by the *planner*, not here, so a snapshot naming a port `installed` loads and is reported, and only a plan for it is refused. A snapshot naming a package `--force` is refused rather than rendered into a plan (SE-051, finding F-09) |
 | `environment` | map of string to string, optional | What this provider reported about its own environment. Descriptive; nothing is run with it |
 | `invocationEnvironment` | map of string to string, optional | The sanitised environment this provider's commands are stated to run in. **Validated on load and on capture** — a reader refuses a snapshot whose value is not one the tool builds: only the variables an adapter emits, all four pinned ones present and unchanged (`LANG`/`LC_ALL` = `C`, `TERM` = `dumb`, `NO_COLOR` = `1`), `HOME` exactly `~` when present, and a `PATH` ending in `/usr/bin:/bin:/usr/sbin:/sbin` whose leading entries are all under the prefix that provider was *detected* at — or, for a provider that was not detected, under a prefix the registry knows for it, which is the common case whenever one provider is absent. No leading entry may be under another provider's prefix whatever this one declares, and a declared prefix must name a directory of its own: at least two components, no overlap with another provider's, never an ancestor of a system directory. The cross-provider comparisons fold case, because the default boot volume is case-insensitive; a case-sensitive APFS volume is supported and there the fold is merely stricter than it needs to be. Absent only for a provider whose capture failed. Note the limit: "detected at" is read from `detection.prefix` in the same document, which this version does not otherwise validate (F-09). Adding a provider variable to an adapter changes what older builds accept without changing `schemaVersion` (SE-051, finding F-21) |
 | `resolutions` | map of executable name to `Resolution`, optional | |
+
+### An unrecorded capability, on load, is an unknown one
+
+**A rule about documents, and the opposite of the rule about values in
+memory.** In memory an absent capability entry means nobody asked: a snapshot
+built by hand in a test states the few capabilities the test is about, and
+reading the rest as "could not be detected" would refuse every such plan.
+
+A document is not in that position. A capture asks every capability and writes
+every answer, so a document that omits one was written by a build that did not
+have the question, and nothing in the file says what answer it would have
+given. Absence there means the record does not say, which is what `UNKNOWN`
+means - so `load_snapshot` fills every missing entry with it before any check
+runs.
+
+**The rule is unconditional, and an empty table is not an exception.** Both
+adapters write all nine capabilities for a provider that is not installed - for
+a while Homebrew wrote none, which is the asymmetry that made this rule look
+like it needed an exception, and fixing the adapter removed the need for one
+(SE-084). So the rule is a no-op on every table this build writes, which is
+what keeps the live and document routes identical (INV-15), and a document
+whose table is empty or partial refuses to be planned from either way.
+
+The case this closes is `SERVICE_METADATA`. The planner refuses to build a plan
+when the source cannot say whether its packages define services, because
+INV-19's `MANUAL_REVIEW` is driven by a boolean that renders unknown as
+`false`, so the rule would silently not fire (DP-016, option (c)). That refusal
+keys on `UNKNOWN`, and a document predating the capability carries the same
+`schemaVersion` - so it loaded, and planned, as though the answer were no. That
+was F-29's residual hole and this is what closes it.
+
+Two consequences worth stating, because each is a choice:
+
+- **`schemaVersion` does not change.** Nothing about the shape moved; a
+  document that parsed before parses now. What changed is that one that omits
+  a capability can no longer be planned from - which is the point, and is a
+  refusal with exit code 4 rather than a parse failure.
+- **The other direction is a hard failure, and that is a cost rather than an
+  oversight.** A document carrying a capability key, or a `CapabilityState`
+  variant, that this build's enums do not have is rejected whole with
+  `SnapshotUnusable` (exit 8) - so "someone sends you their snapshot" stops
+  working across a capability addition, in the newer-to-older direction, while
+  `schemaVersion` says the documents are compatible. It fails closed, which is
+  the right default for a document that decides whether a package is removed,
+  and it is stated here because the bullet above only considered the
+  older-to-newer direction (security-reviewer, 2026-09-18).
+- **Read-only analysis still works on such a document**, and reports the
+  capability as `UNKNOWN`. The analysis degrades and says so rather than
+  failing; only the planning path refuses.
 
 ### `ProviderInventory`
 

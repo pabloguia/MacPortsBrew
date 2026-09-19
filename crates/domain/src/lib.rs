@@ -42,7 +42,7 @@ pub use package::{
 };
 pub use plan::{
     CommandTarget, Elevation, MigrationPlan, MigrationStep, PlanCommand, PlanRisk, StepKind,
-    VerificationCheck,
+    SuccessSemantic, VerificationCheck,
 };
 pub use provider::{
     Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,

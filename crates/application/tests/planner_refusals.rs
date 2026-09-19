@@ -398,6 +398,28 @@ fn invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_pla
         "the destination's ignorance is not about the package being removed"
     );
 
+    // Unavailable on the source: refused too, and this arm was missing until
+    // `security-reviewer` reproduced the gap on 2026-09-18. The predicate
+    // matched only `Unknown`, so a document saying `UNAVAILABLE` planned
+    // normally - exit 0, a full plan with a `REMOVE_SOURCE` step - while the
+    // two shapes this pass had just closed refused.
+    //
+    // `Unavailable` is not an affirmative answer to "can this provider tell
+    // you whether a package defines a service". A provider that does not offer
+    // service metadata cannot tell you, exactly as one whose scan failed
+    // cannot. Only `Available` is.
+    let mut snap = both(&[("wget", None)], &[]);
+    with(
+        &mut snap,
+        HB,
+        CapabilityState::Unavailable {
+            reason: "provider_exposes_no_service_metadata".into(),
+        },
+    );
+    let (id, _) = plan_for(&snap, "wget", MP)
+        .expect_err("a source that reports the capability unavailable must refuse too");
+    assert_eq!(id, ErrorId::SafetyUnverifiable);
+
     // Absent entirely, which is what every other test in this file carries.
     // "Never reported" is not "could not be detected", and reading it as the
     // latter would refuse every plan built from a hand-made snapshot.
