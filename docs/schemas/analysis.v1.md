@@ -14,7 +14,7 @@ it references. The compatibility rule is in [`README.md`](README.md).
 | `schemaVersion` | integer | `1` |
 | `toolVersion` | string | The MacPortsBrew version, e.g. `"0.1.0"` |
 | `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.09.19-1"` |
-| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across the policy data |
+| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across **the files the policy engine loads** — not the whole of `data/policy/`. `provider-commands.toml` is read by the application layer and `provider-prefixes.toml` by the adapters (DP-014), so a read date moving in either does not move this. `policyVersion` *does* span the directory, so the two legitimately differ: a payload may carry `policyVersion: 2026.09.19-1` beside `policyReadOn: 2026-09-04`. The narrower set is deliberate — it drives the staleness notice below, and the older date warns earlier |
 | `policyStale` | boolean | True when `today` minus `policyReadOn` exceeds the threshold in `data/policy/policy.toml`. Advisory: recommendations are still produced |
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
 | `source` | `AnalysisSource` | `LIVE` or `SNAPSHOT` |

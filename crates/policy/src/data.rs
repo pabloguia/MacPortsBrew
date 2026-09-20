@@ -430,7 +430,20 @@ impl PolicyData {
         self.stale_after_days
     }
 
-    /// The newest read date anywhere in the data set, `YYYY-MM-DD`.
+    /// The newest read date across **the files this crate loads**, `YYYY-MM-DD`.
+    ///
+    /// Not the whole of `data/policy/`, and the distinction became visible on
+    /// 2026-09-19: `provider-commands.toml` is read by the application layer
+    /// and `provider-prefixes.toml` by the adapters (DP-014), so a read date
+    /// moving in either is invisible here. `policy.toml`'s `version` *does*
+    /// span the directory, so the two legitimately differ and a payload can
+    /// carry `policyVersion: 2026.09.19-1` beside `policyReadOn: 2026-09-04`.
+    ///
+    /// The narrower set is kept deliberately rather than widened. This value
+    /// drives the staleness notice, and the older date warns **earlier** — a
+    /// data set is as fresh as its stalest half, not its freshest. Widening it
+    /// would also mean this crate reading files it does not own, which is the
+    /// layering those files were placed by.
     pub fn newest_read_on(&self) -> &str {
         &self.newest_read_on
     }

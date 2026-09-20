@@ -4360,6 +4360,22 @@ finding ids in each entry.
   exactly the sentence that ought to be visible (`spec-guardian`, 2026-09-19).
 - Proved by mutation, not by going green: reverted to `2026.09.06-1`, the test
   fails naming `provider-commands.toml` as the file whose read date it missed.
+- **And the bump made a second, older inconsistency visible, which is recorded
+  here rather than in its own entry because it is the same topic.**
+  `analysis.v1.md` defined `policyReadOn` as "the newest `read_on` across the
+  policy data". It is not: `PolicyData` loads four of the directory's files, and
+  `provider-commands.toml` — read by the application layer — and
+  `provider-prefixes.toml` — read by the adapters (DP-014) — are not among them.
+  So a payload now carries `policyVersion: 2026.09.19-1` beside
+  `policyReadOn: 2026-09-04`, which reads as self-contradictory and is not. The
+  gap was four days before this pass and is fifteen after it.
+  **The definition is corrected, not the computation.** The narrower set drives
+  the staleness notice, and the *older* date warns earlier — a data set is as
+  fresh as its stalest half. Widening it would also make this crate read files
+  it does not own, which is the layering those files were placed by. Found by
+  `spec-guardian` after the change had committed; `analysis.v1.md` is the
+  document the sample guard cannot check, because its block is abridged by
+  design (F-50), which is why nothing caught it.
 
 ---
 ## SE-086 — A refusal that describes a symptom the tool itself caused

@@ -134,6 +134,29 @@ compile. The achievable piece is 27 modules, which is its own pass.
 - **F-35's per-cell provenance half.** Two cells carry observations the
   entry-level `source` can only describe in prose. That is a schema change.
 
+## One more, found after the third commit had landed
+
+`spec-guardian`'s review of the absence work arrived late — long enough that
+the tree had moved twice under it — and it caught something the bump had made
+visible rather than caused. `analysis.v1.md` defined `policyReadOn` as "the
+newest `read_on` across the policy data". It is not: `PolicyData` loads four of
+the directory's files, and the two read by the application layer and the
+adapters are not among them. So a payload now carries
+`policyVersion: 2026.09.19-1` beside `policyReadOn: 2026-09-04` — which reads as
+self-contradictory and is not. The gap was four days before this pass and
+fifteen after it.
+
+The **definition** is corrected and the computation left alone: the narrower set
+drives the staleness notice, and the older date warns *earlier*, because a data
+set is as fresh as its stalest half. Widening it would also make the policy
+crate read files it does not own, which is the layering those files were placed
+by (DP-014).
+
+Worth noting where it hid. `analysis.v1.md`'s sample is one of the two the
+widened guard still cannot check, because it is abridged by design — so the one
+document carrying a false definition is the one document outside the instrument
+this pass built. That is not a coincidence to be pleased about.
+
 ## Decisions filed for the owner
 
 **DP-021** — a provider installed under `$HOME` can be analysed and never
