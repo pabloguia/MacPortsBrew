@@ -71,8 +71,9 @@ record and the row is a summary of it** — read down when the two disagree.
 | **F-44** — CI's shellcheck step fails today, and has since it was written | **Fixed 2026-09-08**, with the owner's `MPB_ALLOW_GUARD_EDIT` authorisation. `shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh` exits 1 on this tree: two `SC2016` in `guard-provider-mutation.sh` whose silencing directive sits on the wrong line — a directive applies to the *next command*, and this one precedes a comment block. It is the first step of the repository gate, so nothing after it would run. Invisible because CI has never run (F-12) and `validate.sh` has no shellcheck stage. One line, guard-protected. |
 | **F-45** — five checks lived only in a workflow that has never run | **Fixed 2026-09-08** for three of them; two cannot move and say why. `CLAUDE.md` calls `validate.sh` the one definition of valid and forbids checks elsewhere; the licence digest, the support matrix and the fixture matrix were elsewhere. Moving the licence check found a second defect in it — the workflow used `sha256sum`, absent from a stock macOS, so that step could never have run in the macOS job. F-44 was one of this class, found by accident; the rest were found by looking. |
 | **F-46** — the register's own structure, and five statements the audit found stale | **Fixed 2026-09-15**, four items and two thirds of the fifth. The conclusion is at the end and the twenty-one orphans have a section; `check-links.sh` now fails on a duplicate anchor, which found three and disproved one of the two the audit had named; the drifted measurements are measured and one copy cites the other, the link figure having been corrected wrongly once first; six research notes carry a dated machine banner. `AGENTS.md` and `CONTRIBUTING.md` know the second harness — `11-agentic-sdlc.md` does not, and is deferred because editing it is a Tier 3 change. Four of `spec-guardian`'s findings on this change were false statements introduced by it. The finding as raised is below. |
-| **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. |
+| **F-47** — the duplicate-anchor gate stops working on a normal future edit, and two older holes beside it | **Fence tracker fixed 2026-09-17; two older holes open.** Found 2026-09-15 by `security-reviewer` and by testing the gate F-46 added.** `headings_of` tracks fences with one boolean toggled by either marker, so a ``` line inside a `~~~` block, a ```` ```python ```` inside a ``` block, a marker indented four columns, an inline span of three backticks, or an unterminated fence all desynchronise it. Links then fail loudly, but **the duplicate check goes silent** — and in the nested case sample `# ` lines become anchors a broken link resolves against. Not reachable in the tree today; a page documenting markdown fences reaches it. **The tracker is fixed 2026-09-17** and the fourteen constructed documents are a permanent `--quick` stage, `scripts/test-gates.sh`, which lifts the function out of the gate rather than copying it; eight of the fourteen fail against the old tracker, and an unterminated fence at end of file is now an error. **Two pre-existing holes stay open:** an absolute or `../`-escaping link target satisfies `os.path.exists` and passes, and a blockquoted heading is invisible. **Both measured and designed 2026-09-20, neither applied** — the armed window closed before the edit. The blockquote premise is now observed on a rendered page rather than assumed, and costs zero new duplicates; the host-versus-repository hole has zero instances, so it needs `link_target` extracted as a pure function to be provable by mutation at all. `post-edit-checks.sh` was found to share the `../` half. |
 | **F-51** — "the name appears in stdout" is a substring rule, on the step INV-01 rests on | **Fixed 2026-09-19 (contract only; no executor exists).** Measured: 18 of 201 installed formulae are a substring of another's name. `STDOUT_NAMES_PACKAGE` guards `VERIFY_DESTINATION`, so a failed install of `gh` would be certified by `ghidra`'s line and `REMOVE_SOURCE` would run — fail-open. Its new mirror `STDOUT_OMITS_PACKAGE` breaks the safe way on the same collision. Both now require the name to **equal the first whitespace-separated token** of a line, literally — a prefix test does not close it (`ghidra` begins with `gh`) and a regex cannot be used (`.` and `+` are legal name characters). |
+| **F-52** — the guarded-path escape can be armed by a subagent's report, and the fix for that does not hold | **Open. Found 2026-09-20, by it happening.** SE-081 narrowed prompt-arming to a token at column zero on the theory that "the harness indents every line of relayed model output", and recorded in the same breath that this is "a **filter, not a boundary** … a relay that did not indent would arm." It did. A `docs-auditor` hand-back — commissioned to audit the disclosure of the earlier unguarded write, so quoting SE-081's MUST table verbatim, token included — armed the marker with no human message in the turn; the session had been resumed after compaction and the owner was asleep. The relay came in a `<task-notification>` envelope, not the `<agent-message>` form the rule was written against. The detection property held: the marker's stored excerpt reads `<task-notification> <task-id>…`, which is how it was caught, and **the window was refused rather than used** — no guarded path was written under it and the marker was left in place as evidence. Twice now this escape has been armed by a reviewer quoting the specification that describes it. Naming a second envelope would not fix it; either the prompt-armed marker goes in favour of the environment variable a session cannot forge, or arming must require something a relayed agent message structurally cannot carry. Until then an armed marker means the token was quoted, not that the owner authorised anything. Fix is guard-protected (`.claude/hooks/arm-guard-edit.sh`). |
 | **F-50** — the drift guard F-27 built does not cover the documents an executor builds against | **Fixed 2026-09-19.** The scan reads `docs/schemas/*.md`; the marker convention gained `at=<JSON Pointer>` for a block that is part of an output and `exit=<n>` for one that documents a refusal. The first run found `doctor.v1.md` stale by two policy versions and fifteen lines short of the binary. `analysis.v1.md` and `explain.v1.md` stay unchecked because they are abridged by design, and each now says so. **Found 2026-09-18** during `03-UNKNOWN-IS-NEVER-A-YES`, which is a later pass than this register - recorded here because this file is the register and a finding kept only in a pass report is a finding the next reader does not meet. `documented_samples.rs` scans `README.md` and `wiki/*.md` and nothing else, so no gate has ever compared a `docs/schemas/*.md` sample with what the binary prints. Two of `plan.v1.md`'s were wrong. Samples corrected **and the guard widened 2026-09-19**; this row said "guard not widened" until then, denying its own first sentence. |
 | **F-48** — a home-installed provider can be analysed and can never be planned, and the curated table is validated by a guard that blames the user | **Open, found 2026-09-16 by `security-reviewer` while checking F-43's fix.** `redact_home` turns a prefix under `$HOME` into `~/homebrew`, which the boundary passes on purpose; `planner::command` then refuses every command built from it. So `analyze` works, `plan` exits 8, nothing the user can do resolves it, and the message says their input is at fault when nothing is. Second half: curated mapping targets reach the same function unvalidated by anything else, so a bad entry in the build's own data is reported as the user's bad input. Neither is exploitable; both attribute a defect to the wrong party. **The curated half is fixed 2026-09-16**: `check_curated_names` refuses such a name in `PolicyData::load_from` as `PolicyDataInvalid`, at the layer that owns the data, which makes the planner's guard the second line it was already being described as. The home-installed half stays open as a design question, with its reversible half taken 2026-09-16: `doctor` warns that a `~`-rooted prefix can be analysed and never planned, so the user meets it in the diagnosis rather than in a refusal that blames their input. **Filed as DP-021 on 2026-09-19** — it trades away an audience (users installing under `$HOME` because they have no administrator rights) or spends the Tier 3 privacy MUST at `06-cli-and-ux.md:133`, which `AGENTS.md` makes the owner's call, and it had been carried as "a design question" for three days without being written down where such questions live. The reversible default is now complete: the refusal itself names the cause instead of describing the symptom, branching on `prefix_redacted` **or** the `~` shape, because the flag is `#[serde(default)]` and a document written before it existed reads `false`. The regression test's own fixture is such a document, so the shape half is what fires there; it asserts the generic arm did **not** answer, or the assertion would survive the two messages converging. |
 | **F-49** — the other shape redaction produces is absolute, so a plan is emitted naming a program that does not exist | **Found 2026-09-16 by `security-reviewer` while reviewing F-48's `doctor` finding; fixed the same day.** `redact_known_home` writes `~` for the home *and* replaces the bare login name wherever it is a whole path component, so `/opt/ada/brew` is recorded `/opt/USER/brew`. That is absolute, the planner accepts it, and `plan` exits 0 with `/opt/USER/homebrew/bin/brew` in the JSON and in the human rendering — a path that exists on no machine. The `~` shape fails closed and is now announced; this one fails **open** and is announced nowhere. Reproduced both ways. **Fixed 2026-09-16** on the owner's ruling: `ProviderDetection.prefix_redacted` records what capture did, and `doctor` fires on that or on the shape (SE-080). Schema version unchanged — no type denies unknown fields, so the addition is compatible in both directions. |
@@ -3718,8 +3719,10 @@ document. (Writing those two examples as markdown links was the fourth time in
 this pass that prose about a checker tripped the checker; they are inline code
 now.) No content-derived path is ever opened — `resolved` reaches
 `os.path.exists` and a dict key and nothing else — so this is a detection gap,
-not a read primitive. Reject `os.path.isabs(path)`, and a `relpath` starting
-`..`.
+not a read primitive. Reject `os.path.isabs(path)`, and a `normpath` starting
+`..`. (This first read `relpath`, which needs a `start` argument to mean what the
+sentence wants; corrected 2026-09-20 so the register does not carry two
+spellings of one fix.)
 
 **A blockquoted heading is invisible.** `line.startswith("#")` misses `> # Title`,
 which GitHub does anchor; a link to it is falsely reported broken. Both the old
@@ -3759,6 +3762,161 @@ Still open from this finding, and deliberately not taken here: the absolute and
 and the blockquoted heading. The second is not the one-line fix it looks like —
 making `> # Title` visible *adds* anchors, and an added anchor can collide with
 an existing one, so it lands together with whatever duplicates it surfaces.
+
+### Both holes measured and designed 2026-09-20; neither applied
+
+The escape was armed for the message that asked for this work and the window
+closed on a session resumption before the edit ran, so the gate is unchanged.
+What the window did buy is that neither hole is a guess any more.
+
+**The premise under the blockquote hole is now observed, not assumed.** The GFM
+specification renders `> # Foo` as `<blockquote><h1>Foo</h1>` — Example 206 of
+version 0.29-gfm (2019-04-06), `https://github.github.com/gfm/#block-quotes`,
+read 2026-09-20. The example *number* moves between CommonMark releases, so it
+is the version that pins it, not the ordinal. github.com then anchors that
+heading exactly as it anchors a top-level one — both fragments below are from
+one rendered README, `https://github.com/Arminando/GameRig`, read 2026-09-20,
+and the blockquote ancestor is in the bytes rather than in a claim about them:
+
+```html
+<blockquote>
+<div class="markdown-heading"><h2 class="heading-element">Differences between GameRig and Rigify</h2>
+<a id="user-content-differences-between-gamerig-and-rigify" class="anchor" href="#differences-between-gamerig-and-rigify">…</a></div>
+```
+
+```html
+<div class="markdown-heading"><h1 class="heading-element">GameRig</h1>
+<a id="user-content-gamerig" class="anchor" href="#gamerig">…</a></div>
+```
+
+The `user-content-` prefix is GitHub's id namespacing; the **fragment** is the
+bare slug, which is exactly what `slug()` already produces. One anchor namespace,
+one spelling, no distinction drawn at the blockquote. So a blockquoted heading is
+an anchor, and counting it is right for *both* consumers rather than a trade
+between them.
+
+*(The first version of this paragraph quoted only the top-level-looking half of
+that pair and asserted the rest. `spec-guardian` refused it: the quoted bytes did
+not show what they were quoted for. The fragments above are the answer to that,
+not a rewording of it.)*
+
+**The collision warning above resolves to nothing.** Counting them adds eight
+anchors across four files in `docs/research/` — `F-1` (3), `R-12` (3), `R-5` (1),
+`R-5a` (1) — and **zero** new duplicates. Nothing links to any of the eight, so
+no link verdict changes either. The fix does not have to land with anything.
+
+**The real trap is somewhere else, and it is in the tree today.** Stripping the
+quote marker at the top of the loop would make a `>`-prefixed fence marker close
+an *unquoted* fence — and this corpus is markdown about markdown. There are six
+fences inside block quotes in `docs/research/`, across four files. None of the
+six currently contains a `#` line, so nothing leaks today.
+
+The fence must therefore carry the quote depth it was opened at —
+`(character, length, quote depth)` — and be closed only from that depth. **That
+much was recorded here on 2026-09-20 and was not enough**, which `spec-guardian`
+established by implementing it and running it rather than by reading it:
+
+~~~text
+# One
+> ```          <- a fence opens, inside a block quote, at depth 1
+> code
+                <- blank line: the block quote ends here, the fence never closed
+## Two
+~~~
+
+Recorded design: `["one"]`, and an unterminated-fence **error**. Correct:
+`["one", "two"]`.
+
+CommonMark closes a fence when its containing block ends. Symmetric depth
+matching has no rule for that, so an ordinary block quote whose fence is never
+explicitly closed — which renders correctly everywhere — becomes a hard gate
+failure, and takes every heading after it. Two more shapes fail the same way: a
+closer at a *deeper* depth, and an unquoted closer under a quoted opener.
+
+**The rule the design was missing:** an open fence is also closed when a line's
+quote depth falls **below** the depth it was opened at, and only a fence still
+open at depth 0 is the end-of-file error. Without that second clause the
+end-of-file error — the thing that turns silent desynchronisation into a visible
+failure — becomes the mechanism by which valid documents are rejected.
+
+**And the fourteen constructed documents cannot tell any of this apart.** Not one
+of them contains a `>`, so the naive implementation and both versions of the
+depth-aware one score 14/14. The change therefore lands with new cases or it
+lands untested: a `>`-prefixed marker inside an unquoted fence, an unquoted
+marker inside a quoted one, a block quote ending before its fence closes, a
+closer at a deeper depth, and a blockquoted heading at depth 1 and at depth 2.
+`test-gates.sh`'s own header is the argument — a gate is only ever exercised
+against a tree it passes.
+
+**The host-versus-repository hole has zero instances in the corpus** (measured
+2026-09-20), so no document demonstrates it. The discriminating case is an
+absolute target that exists on every machine — a link written in the
+bracket-and-parenthesis form whose target is `/etc/hosts`. Under the current gate
+it passes, confirmed 2026-09-20, because `os.path.join` discards the base and
+`os.path.exists` then answers about the host.
+
+`link_target(base, path)` should come out of the link loop as a pure lexical
+function — refusing `os.path.isabs`, and a `normpath` that starts `..`, without
+asking the filesystem anything — and a refusal is a **failure**, joining
+`broken`, not a counted note like the wiki-escape number. Four things the first
+version of this paragraph left unsaid, each of which `spec-guardian` showed
+matters:
+
+1. **The empty path stays outside.** `check-links.sh:165` reads
+   `… if path else os.path.normpath(f)`; a bare in-page `#fragment` link has no
+   path. Fold that branch in naively and the bare fragment resolves to a
+   *directory*, which is not a key in `headings`, so the fragment check is
+   skipped — silently, for every in-page anchor in the repository, while the gate
+   still prints that every anchor resolves. That is the exact direction of
+   failure F-47 exists to stop.
+2. **Extraction is the better design, not the only route to a test.**
+   `test-gates.sh` already builds a `mktemp` working directory; a constructed
+   tree with a real file and a real escaping target would exercise the whole
+   loop. "Provable only by mutation" was overstated.
+3. **The lift needs two things the record did not mention.**
+   `test-gates.sh:57` compiles the lifted body with only `import re` prepended,
+   and `link_target` needs `os`; and `ANCHORS` needs a third pair positioned so
+   no top-level statement falls inside it — which is why that list exists.
+4. **There is a third join site in the same file.** The wiki-escape loop at
+   `check-links.sh:174-184` spells `os.path.normpath(os.path.join("wiki", path))`
+   by hand, with no absolute guard, so it discards the base identically.
+   Extracting the function and leaving that line as it is reproduces, inside one
+   file, the two-spellings defect this subsection's closing argument invokes.
+
+**A fourth hole, found by the same review and of the same class.** The positive
+verdict still comes from `os.path.exists`, and this repository sits on a
+case-insensitive filesystem. Confirmed 2026-09-20: `readme.MD` and `Docs/Spec`
+both satisfy `os.path.exists` here and both 404 on github.com, which is
+case-sensitive. Worse, the wrong-case path is not a key in `headings`, so the
+fragment check is skipped too — a link with both a wrong-case path and a
+nonexistent anchor passes clean. A lexical refusal does not reach this; it needs
+the resolved name compared against the directory entry as spelled.
+
+And a fifth, minor and pre-existing: a target naming a **directory** satisfies
+`os.path.exists` under both the current and the proposed rule, so the header's
+"resolves to a file that exists" is not quite what the gate checks.
+
+Writing that example as an actual link tripped `post-edit-checks.sh` — again;
+the count kept a few paragraphs above this one stood at four. The first reading
+of that catch — "the hook already implements the repository
+rule, so the behaviour exists a few directories away" — was written down here and
+was wrong; checking it took one command. The hook does not resolve anything. It
+concatenates — `post-edit-checks.sh:56` tests
+`[ ! -e "$(dirname "$FILE")/${target%%#*}" ]` — so an absolute target becomes
+`docs/passes//etc/hosts`, which exists nowhere. It reaches the right verdict for
+a reason that is not a rule, and it shares the other half of this finding —
+verified 2026-09-20, a `../`-escaping target from a file at the repository root
+resolves past the root and is tested against the host, exactly as the gate does.
+
+So the correct behaviour does **not** already exist elsewhere, and there are two
+link checkers here with different logic and different holes. That is the
+two-spellings defect `validate.sh`'s header records about its stage list,
+standing in the enforcement layer itself.
+
+A third hole, noticed and out of scope: a repository-relative target that is a
+symlink out of the tree would still be resolved against the host. There are no
+markdown symlinks in the scanned corpus today, so this is recorded rather than
+fixed.
 
 ---
 

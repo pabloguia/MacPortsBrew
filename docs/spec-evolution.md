@@ -2723,9 +2723,12 @@ finding ids in each entry.
   without ever counting them. Recognising a heading changed with it: a `#` inside
   a fenced block is no longer an anchor, and neither is one without a space after
   the hashes, so the map is strictly smaller and no link that failed before can
-  pass now. The fence tracker is a single boolean and can still desynchronise; the
-  residual is recorded in F-47 rather than left to be discovered. `08-distribution-and-project.md:183-184` had required link-checking all
-  along and nothing did it. The charter question the audit said should have been
+  pass now. The fence tracker was a single boolean that could desynchronise; it was
+  replaced on 2026-09-17 by one tracking the opener's character and length, and
+  an unterminated fence at end of file is now an error. The residual is recorded
+  in F-47 rather than left to be discovered, and as of 2026-09-20 it is two link
+  holes rather than a fence one. `08-distribution-and-project.md:246` had
+  required link-checking all along and nothing did it. The charter question the audit said should have been
   filed rather than only noted is DP-013. No stale link to the renamed page remains in `wiki/`,
   `docs/`, `README.md`, `locales/` or `crates/`; neither the CLI help nor the
   catalogue uses the word "undo" at all, so the command surface needed no change.
@@ -4102,6 +4105,27 @@ finding ids in each entry.
   arm. It removes the demonstrated route and nothing more. Tenth false statement
   about what the code prevents in this pass; the second caught before shipping,
   and the first caught by the mechanism it was written about.
+- **That prediction came true on 2026-09-20, and the filter is now known not to
+  hold.** A `docs-auditor` hand-back — commissioned to audit the disclosure of
+  the *previous* unguarded write, and therefore quoting this entry's own MUST
+  table, token and all — armed the marker. No human message was involved; the
+  session had been resumed after compaction and the owner was asleep. The relay
+  arrived in a `<task-notification>` envelope rather than the `<agent-message>`
+  form the column-zero rule was written against, and something in it put the
+  token at column zero. The stored excerpt again names the author, and again
+  that is how it was caught: it reads `<task-notification> <task-id>…`, so the
+  marker's own evidence says no human armed it. Twice now the escape has been
+  armed by a reviewer quoting the specification that describes the escape.
+- **What this settles.** The formatting convention is not a boundary and cannot
+  be patched into one by naming a second envelope — the next relay shape would
+  arm again. Either the prompt-armed marker is withdrawn in favour of the
+  environment variable, which a session cannot forge, or arming must require
+  something a relayed agent message structurally cannot carry. Until one of
+  those lands, **an armed marker is evidence that something quoted the token,
+  not that the owner authorised anything**, and a session finding itself armed
+  without a human message should decline the window and say so. That is what
+  happened here: the window was refused, the marker left in place as evidence,
+  and no guarded path was written under it.
 - Found while writing it, and fixed in the same change: `test-hooks.sh`
   inherited `MPB_ALLOW_GUARD_EDIT` from the session running it, so under an
   armed session nine of its enforcement-layer `deny` assertions passed the wrong
