@@ -2549,6 +2549,24 @@ or beyond the first line of a trailing `#[cfg(test)] mod tests`, and recompute.
 boundary, with a comment explaining why the bare attribute is the wrong anchor —
 the same logic, reused rather than re-derived.
 
+> **That shape does not work, and 2026-09-20 is the second time it has been
+> shown not to.** DP-015's superseded note already recorded one attempt
+> disagreeing with llvm-cov on 59 of 75 files. Tried again from scratch: a
+> reconstruction from the JSON segments disagrees on **72 of 76**. Then the
+> question was put to llvm-cov its own way — `cargo llvm-cov report --lcov`, no
+> transcription at all — and **that disagrees with llvm-cov's own JSON summary on
+> 60 of 76 files**, always lower. The obstacle is not the difficulty of copying
+> the algorithm. It is that the tool's two exports disagree with each other about
+> what a line is, and the gate's denominator is defined by one of them. Dropping
+> segments past a boundary inherits that disagreement rather than avoiding it.
+>
+> The exact, algorithm-free part is now in DP-015: 63 modules, 350 `#[test]`
+> functions, 7046 of 24953 `src/` lines — 28.2%, and unevenly spread, with
+> `policy` at 34.9% and `adapters` at 34.0% against a 95 floor each. Those are
+> source lines, not instrumented ones, so they size the decision without
+> answering it. **A real number requires doing the move and re-measuring**, which
+> is the owner's call for the reason DP-015 gives.
+
 ---
 
 ## F-41 — A failed `--replay` tells the user to fix a snapshot

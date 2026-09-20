@@ -486,6 +486,44 @@ one outstanding owner action from DP-015**, and it is mechanical, not a decision
 > job F-40 assumed. Moving the in-`src/` test modules to `crates/*/tests/` is
 > the recommendation. It stays yours because it lowers every percentage at once,
 > by different amounts per crate, against floors you set.
+>
+> **Measured 2026-09-20, and the projection is worse-founded than it looked.**
+> The attempt above was tried again from scratch and failed harder: a
+> reconstruction from the JSON export's segments disagrees with llvm-cov's own
+> per-file summary on **72 of 76** files. Then the same question was put to
+> llvm-cov a second way — `cargo llvm-cov report --lcov`, its own line writer,
+> no transcription at all — and **that disagrees with its own JSON summary on 60
+> of 76 files**, always lower. So the obstacle is not that the algorithm is hard
+> to copy; it is that **llvm-cov's two exports do not agree with each other about
+> what a line is**, and `check-coverage.sh`'s denominator is defined by one of
+> them. There is no per-region exclusion switch, and `#[cfg(test)]` code shares a
+> file with the code it tests, so `--ignore-filename-regex` cannot reach it.
+> **The new percentages cannot be computed from the existing data by any route
+> tried.** Getting a real number means doing the move and re-measuring.
+>
+> What *is* exact, because it needs no coverage algorithm — a syntactic census of
+> `#[cfg(test)]` modules in `crates/*/src/`, 2026-09-20:
+>
+> | Crate | Modules | `#[test]` fns | Test lines | `src/` lines | Share |
+> |---|---:|---:|---:|---:|---:|
+> | `domain` | 11 | 35 | 816 | 4267 | 19.1% |
+> | `policy` | 19 | 83 | 1572 | 4507 | 34.9% |
+> | `application` | 5 | 27 | 728 | 3754 | 19.4% |
+> | `adapters` | 20 | 134 | 3113 | 9153 | 34.0% |
+> | `cli` | 8 | 71 | 817 | 3272 | 25.0% |
+> | **Total** | **63** | **350** | **7046** | **24953** | **28.2%** |
+>
+> These are source lines, not instrumented lines, so they do not give the new
+> percentages — but they size the decision and show its shape. **The dilution is
+> not uniform:** `policy` and `adapters` carry about a third of their `src/` as
+> test code, `domain` and `application` about a fifth. Those two crates would
+> move furthest, and both sit on a 95 floor. That is the "different amounts per
+> crate" above, with numbers on it.
+>
+> (The earlier F-40 inventory counted 62 modules and 346 tests; this census
+> counts 63 and 350. The method is stated here so the difference is checkable
+> rather than mysterious: a scan for `#[cfg(test)]` followed by the next `mod`,
+> brace-matched to its close.)
 
 Two limits carried forward from the entry below and still true. **Branch coverage
 is unenforced**: `--branch` needs nightly, the pin is stable (ADR-0002), so the
