@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# What this gate enforces, all three of them:
+# What this gate enforces, all four of them:
 #
-#   1. Every relative markdown link resolves to a file that exists.
-#   2. Every `#` fragment resolves to a heading in the file it names.
+#   1. Every relative markdown link resolves to a file that exists **in this
+#      repository**, spelled as the filesystem spells it. A target that is
+#      absolute or climbs out with `../` is refused from the text alone rather
+#      than tested against the host, and a target that resolves only because
+#      this filesystem is case-insensitive is refused too - both used to pass,
+#      and both are broken for every reader of the rendered page (F-47).
+#   2. Every `#` fragment resolves to a heading in the file it names, where a
+#      heading inside a block quote is a heading: GFM renders `> # Foo` as one
+#      and github.com anchors it identically (F-47).
 #   3. No file has two headings that slug to one anchor (F-46), and no file
-#      leaves a code fence open at end of file (F-47) - the second because the
-#      heading scan cannot tell code from prose past an unterminated fence, so
-#      an answer from there is not an answer.
+#      leaves a top-level code fence open at end of file (F-47) - the second
+#      because the heading scan cannot tell code from prose past an
+#      unterminated fence, so an answer from there is not an answer.
+#   4. Nothing here consults the machine to decide what a link *means*. Where a
+#      target points is decided lexically; the filesystem is asked only whether
+#      what it names is there, and how it is spelled.
 #
 # This list was one behaviour out of date for the whole of F-46's life: the
 # duplicate check existed only in an inline comment. The rule this repository
@@ -94,38 +104,144 @@ def headings_of(path):
     wrongly refused leaves the scan inverted, and it is the end-of-file error
     that then reports it rather than a silent wrong answer.
     """
-    out, fence = [], None  # fence: (character, length) while one is open
+    def unquote(line):
+        """A line with its block quote markers removed, and how many there were.
+
+        `> # Foo` is an ATX heading inside a block quote: GFM 0.29-gfm's own
+        Example 206 renders it `<blockquote><h1>Foo</h1>`, and github.com gives
+        it the same permalink as a top-level heading - `href="#foo"`, the bare
+        slug, observed on a rendered README 2026-09-20. A scan testing the raw
+        line saw none of them, so eight headings in `docs/research/` were
+        anchors this gate did not know existed: harmless for links, silence in
+        the duplicate check, which is the direction that ships a collision.
+
+        CommonMark's marker is `>` with a following space **or** `>` alone, and
+        it nests, so both forms are consumed until the line stops being quoted.
+        """
+        depth = 0
+        while True:
+            quoted = re.match(r" {0,3}> ?", line)
+            if not quoted:
+                return depth, line
+            depth += 1
+            line = line[quoted.end():]
+
+    out, fence = [], None  # fence: (character, length, quote depth) while open
     opened_at = 0
     for line_no, line in enumerate(open(path), 1):
-        stripped = line.lstrip()
+        depth, content = unquote(line)
+        # A fence is tracked at the quote depth it was opened at, for two
+        # reasons that pull in opposite directions.
+        #
+        # Stripping the marker and keeping one fence for the whole file would be
+        # worse than not stripping at all: a ``` line *inside* a plain fence
+        # would close it, and this corpus is markdown about markdown. There are
+        # six fences inside block quotes in `docs/research/` and, the other way,
+        # a quoted marker under an unquoted fence is ordinary quoted output.
+        #
+        # But matching the depth *symmetrically* was also wrong, and shipped
+        # here for exactly as long as it took a reviewer to implement it rather
+        # than read it. CommonMark closes a fence when its containing block
+        # ends, so an ordinary document - a quoted fence, then a blank line -
+        # has a fence no depth-matched closer ever reaches. The end-of-file
+        # error then fires on valid markdown and takes every heading after it.
+        # Hence: a drop in quote depth closes the fence.
+        if fence is not None and depth < fence[2]:
+            fence = None
+        stripped = content.lstrip()
         marker = stripped[:1]
         if marker in ("`", "~"):
-            indent = len(line) - len(stripped)
+            indent = len(content) - len(stripped)
             run = len(stripped) - len(stripped.lstrip(marker))
             info = stripped[run:].strip()
             if fence is None:
                 if indent <= 3 and run >= 3 and marker not in info:
-                    fence, opened_at = (marker, run), line_no
+                    fence, opened_at = (marker, run, depth), line_no
                     continue
-            elif marker == fence[0] and run >= fence[1] and indent <= 3 and not info:
+            elif ((marker, depth) == (fence[0], fence[2])
+                  and run >= fence[1] and indent <= 3 and not info):
                 fence = None
                 continue
             # Anything else on a marker line is content. Falling through here
             # rather than toggling is the whole of the fix.
-        if fence is not None or not line.startswith("#"):
+        if fence is not None or not content.startswith("#"):
             continue
-        text = line.lstrip("#")
+        text = content.lstrip("#")
         # A heading has a space after its hashes; `#!/usr/bin/env` and `#include`
         # do not.
         if text.strip() and text[:1] in (" ", "\t"):
             out.append(slug(text))
-    if fence is not None:
+    # Only a fence still open at depth 0 is an error. One opened inside a block
+    # quote is closed by end of file the same way it is closed by the block
+    # quote ending, so calling it unterminated would reject a valid document -
+    # the failure the depth-drop rule above exists to prevent, arriving one line
+    # later.
+    if fence is not None and fence[2] == 0:
         return out, (
             "%s:%d: unterminated %s fence; past this line the heading scan "
             "cannot tell code from prose, so its answer is not an answer"
             % (path, opened_at, fence[0] * fence[1])
         )
     return out, None
+
+
+def link_target(base, path):
+    """Where a relative link points **inside this repository**.
+
+    Returns `(resolved, refusal)`, exactly one of which is None.
+
+    What this replaces answered about the *host*. `os.path.join` discards
+    everything to its left when its right operand is absolute, so a target of
+    `/etc/hosts` resolved to `/etc/hosts`, which exists on every machine this
+    gate runs on: the link passed here and 404s on GitHub, where a leading `/`
+    is site-root-relative and names no file in the repository. A target climbing
+    out with `../` was resolved above the repository root and tested there. Both
+    verdicts were facts about the machine, so CI and a laptop could disagree
+    about one document - the property `--replay` exists to deny the readers
+    (INV-15), in a gate.
+
+    Decided from the text alone: this function never asks the filesystem
+    anything. The empty path stays with the caller on purpose - a bare
+    `#fragment` link has no path, and resolving it here would produce a
+    directory, which is not a key in the heading map, so every in-page anchor in
+    the repository would stop being checked with nothing said.
+    """
+    if os.path.isabs(path):
+        return None, "absolute link target names no file in this repository"
+    resolved = os.path.normpath(os.path.join(base, path))
+    if resolved == ".." or resolved.startswith(".." + os.sep):
+        return None, "link target climbs out of the repository"
+    return resolved, None
+
+
+_entries = {}
+
+
+def spelled_as_on_disk(path):
+    """True when every component of `path` matches its directory entry exactly.
+
+    `os.path.exists` is case-insensitive on the default macOS filesystem, and
+    github.com is not. Without this, `readme.MD` resolves here and 404s for
+    every reader - and because the wrongly-cased name is not a key in the
+    heading map either, the fragment check is skipped too, so a link with a
+    wrong-case path *and* a nonexistent anchor passes clean. Same class as the
+    hole above: a verdict that is a fact about the machine.
+    """
+    here = ""
+    for part in path.split(os.sep):
+        if part in ("", "."):
+            continue
+        listing = _entries.get(here)
+        if listing is None:
+            try:
+                listing = set(os.listdir(here or "."))
+            except OSError:
+                return False
+            _entries[here] = listing
+        if part not in listing:
+            return False
+        here = os.path.join(here, part)
+    return True
 
 
 # Collected as a list first, because two headings that slug the same are the
@@ -162,10 +278,24 @@ for f in files:
             if target.startswith(("http://", "https://", "mailto:")):
                 continue
             path, _, fragment = target.partition("#")
-            resolved = os.path.normpath(os.path.join(base, path)) if path else os.path.normpath(f)
-            if path and not os.path.exists(resolved):
-                broken.append(f"{f}:{line_no}: no such file: {target}")
-                continue
+            if path:
+                resolved, refusal = link_target(base, path)
+                if refusal:
+                    broken.append(f"{f}:{line_no}: {refusal}: {target}")
+                    continue
+                if not os.path.exists(resolved):
+                    broken.append(f"{f}:{line_no}: no such file: {target}")
+                    continue
+                if not spelled_as_on_disk(resolved):
+                    broken.append(
+                        f"{f}:{line_no}: resolves only on a case-insensitive "
+                        f"filesystem, so it is broken for every reader: {target}"
+                    )
+                    continue
+            else:
+                # A bare `#fragment`: the target is this file. Deliberately not
+                # routed through `link_target` - see its docstring.
+                resolved = os.path.normpath(f)
             if fragment and resolved in headings and fragment not in headings[resolved]:
                 broken.append(f"{f}:{line_no}: no such heading: {target}")
 
@@ -180,7 +310,16 @@ for f in files:
             if target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
             path = target.partition("#")[0]
-            if path and not os.path.normpath(os.path.join("wiki", path)).startswith("wiki/"):
+            if not path:
+                continue
+            # The same resolution as the loop above, through the same function.
+            # Spelling `os.path.join` a second time here is how one file comes
+            # to hold two rules: this line had no absolute-path guard, so
+            # `join("wiki", "/x")` discarded the base exactly as the other site
+            # did. A refusal is already a failure there; here it only has to not
+            # be counted as a wiki escape.
+            resolved, refusal = link_target("wiki", path)
+            if refusal is None and not resolved.startswith("wiki" + os.sep):
                 escaping.append(f"{f}:{line_no}: {target}")
 
 if broken:

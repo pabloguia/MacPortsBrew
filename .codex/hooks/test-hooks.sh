@@ -463,7 +463,7 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
   TARGET="$SANDBOX/.claude/hooks/stop-gate.sh"
 
   # Arming, and what it writes.
-  assert "the token arms and says so"         "$A" context "$(prompt_input "please fix the gate $GUARD_TOKEN")"
+  assert "the token arms and says so"         "$A" context "$(prompt_input "$GUARD_TOKEN please fix the gate")"
   [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("the token writes a marker")
   [ "$(sed -n '1p' "$MARK")" = "S1" ] && pass=$((pass + 1)) || failures+=("the marker records the session")
   grep -q 'please fix the gate' "$MARK" && pass=$((pass + 1)) || failures+=("the marker records the prompt that armed it")
@@ -506,30 +506,54 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
     "$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"S1","cwd":"%s","prompt":"summarise the file"}' "$GUARD_TOKEN")"
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("the token outside the prompt field arms nothing")
 
-  # Quoting it back is still the human saying it - there is no way to tell them
-  # apart, and pretending otherwise would be the guard overstating itself. The
-  # case is here so the behaviour is asserted rather than assumed.
-  assert "quoted in the prompt still arms"    "$A" context "$(prompt_input "the hook looks for $GUARD_TOKEN in the message")"
-  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a quoted token arms, as documented")
-  rm -f "$MARK"
+  # THESE TWO ASSERTIONS USED TO SAY THE OPPOSITE, AND THE RULE THEY ASSERTED
+  # WAS DISPROVED TWICE BY THIS ESCAPE ARMING ITSELF (F-52). The comment here
+  # read "quoting it back is still the human saying it - there is no way to tell
+  # them apart", and the case below asserted that a mid-line quotation arms.
+  # Both times the escape armed on its own it was a reviewing subagent quoting
+  # the specification that describes the escape, in exactly that shape.
+  #
+  # There is a way to tell them apart, and it is not perfect: the token must be
+  # the FIRST THING ON A LINE. Every one of the token's occurrences in the
+  # tracked corpus sits inside prose or backticks, `scripts/test-gates.sh`
+  # asserts that no tracked line begins with it, and a quotation reproducing a
+  # source line therefore cannot arm. What it does not cover is a quotation that
+  # *reformats* - into a fenced block, a list item, a diff hunk - and the
+  # git-ignored marker, whose excerpt now begins with the token by construction.
+  # See the hook's header; DP-022 carries the two changes that would close it.
+  assert "a mid-line quotation arms nothing"  "$A" context "$(prompt_input "the hook looks for $GUARD_TOKEN in the message")"
+  [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a token quoted mid-line arms nothing")
 
-  # An INDENTED line carrying the token arms nothing. This is not a stylistic
-  # rule: a subagent hand-back reaches the session through the prompt channel,
-  # and the first live arming of this escape was a `spec-guardian` report
-  # quoting the token while describing the mechanism. The harness indents
-  # relayed output, so column zero separates the human's own line from text
-  # quoted back at them. A filter, not a boundary - see the hook's header.
+  # An INDENTED line carrying the token arms nothing - subsumed by the
+  # line-start rule now, and kept because it is the shape the first live
+  # self-arming took: a subagent hand-back reaches the session through the
+  # prompt channel, and the harness indents relayed output.
   assert "an indented relay arms nothing"     "$A" exit0 \
     "$(prompt_input "[Subagent hand-back]
   The report below quotes $GUARD_TOKEN while describing it.")"
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an indented relayed token arms nothing")
   assert "a tab-indented quote arms nothing"  "$A" exit0 "$(prompt_input "	quoting $GUARD_TOKEN back")"
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a tab-indented token arms nothing")
-  # And the human's own sentence still arms, token inline, which is how it is
-  # actually typed.
+
+  # A relay envelope arms nothing even when the token DOES open a line. The
+  # second self-arming came in a `<task-notification>`, which did not indent, so
+  # the line-start rule alone would not have stopped it. Naming envelopes is a
+  # filter and the hook says so; these are the shapes that have actually fired.
+  for envelope in "<task-notification><task-id>a507</task-id>" \
+                  "<agent-message from=spec-guardian>" \
+                  "<system-reminder>" \
+                  "[SYSTEM NOTIFICATION - NOT USER INPUT]"; do
+    assert "a relay envelope arms nothing"    "$A" exit0 \
+      "$(prompt_input "$envelope
+$GUARD_TOKEN is the disclosed escape")"
+    [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a relay envelope carrying the token arms nothing: $envelope")
+  done
+
+  # And the human's own sentence still arms, token opening the line, which is
+  # how it is actually typed.
   assert "the human's own line still arms"    "$A" context \
-    "$(prompt_input "this session was opened with $GUARD_TOKEN deliberately, to edit the gates")"
-  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an unindented human line arms")
+    "$(prompt_input "$GUARD_TOKEN this session was opened deliberately, to edit the gates")"
+  [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a human line opening with the token arms")
 
   assert "unreadable prompt input fails closed" "$A" closed '{bad'
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an unreadable prompt disarms rather than leaving it armed")
@@ -540,7 +564,7 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
   # ahead of it, a message arriving while jq and python3 were both unreachable
   # exited 2 and left the previous message's marker armed - for the rest of the
   # session, not just that message.
-  assert "re-arming for the next case"        "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  assert "re-arming for the next case"        "$A" context "$(prompt_input "$GUARD_TOKEN again")"
   # A PATH with the ordinary tools on it and *no JSON parser* - which is the
   # real shape of this failure. Emptying PATH instead would remove `rm` as well
   # and prove only that a hook with no `rm` cannot delete anything.
@@ -558,7 +582,7 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
   # A symlinked marker is not the marker. `[ -f ]` follows one, and pointing it
   # at a file the Write tool will happily write turns "needs Bash once per
   # arming" into "needs Bash once".
-  assert "re-arming to test the symlink"      "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  assert "re-arming to test the symlink"      "$A" context "$(prompt_input "$GUARD_TOKEN again")"
   mv "$MARK" "$SANDBOX/elsewhere"
   ln -s "$SANDBOX/elsewhere" "$MARK"
   assert "a symlinked marker arms nothing"    "$P" deny   "$(edit_session_input "$TARGET" S1)"
@@ -568,7 +592,7 @@ REAL_PROJECT_DIR="$CLAUDE_PROJECT_DIR"
   # the whole of what the prompt-armed route rests on, so a swallowed log
   # failure would buy a silent enforcement-layer write - worse than the deny it
   # replaced.
-  assert "re-arming to test the log"          "$A" context "$(prompt_input "again $GUARD_TOKEN")"
+  assert "re-arming to test the log"          "$A" context "$(prompt_input "$GUARD_TOKEN again")"
   rm -f "$LOG"
   mkdir "$LOG"   # a directory cannot be appended to
   assert "an unrecordable write is refused"   "$P" deny   "$(edit_session_input "$TARGET" S1)"

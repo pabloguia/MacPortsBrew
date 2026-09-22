@@ -447,6 +447,44 @@ improvement, and F-40's own objection — a gate is the wrong place for an
 unvalidated reimplementation — now has a measurement behind it. Moving the
 in-`src/` test modules to `crates/*/tests/` is the recommendation.
 
+## Guarded-path edits made under the disclosed escape, 2026-09-20
+
+The owner armed the escape in a message, to close F-47 and F-52.
+`.claude/.guard-edit-log` carries **13 entries** dated 2026-09-20; this section
+is the obligation `docs/spec/11-agentic-sdlc.md` attaches to them.
+
+| Path | Why |
+|---|---|
+| `scripts/check-links.sh` | F-47: a heading inside a block quote is a heading; fences carry the quote depth they opened at; `link_target` decides containment lexically; `spelled_as_on_disk` refuses a name that resolves only on a case-insensitive filesystem |
+| `scripts/test-gates.sh` | The constructed cases for all of the above, plus the arming rule's own cases and the corpus assertion behind it |
+| `.claude/hooks/arm-guard-edit.sh` | F-52: the token must be the first thing on a line, and a prompt carrying a relay envelope arms nothing |
+| `.codex/hooks/arm-guard-edit.sh` | Generated from `.claude/` by `scripts/generate-codex-layer.sh`, not hand-edited (DP-018) |
+
+**This work is not committed, and should not be until one more guarded edit
+lands.** `spec-guardian` found that `.claude/hooks/test-hooks.sh` asserts the
+rule that was replaced: every arming prompt in that suite puts the token
+mid-line, so **13 of its assertions now fail** — confirmed by running it. It is
+not a `validate.sh` stage, so the `Stop` gate and `/preflight` are both green on
+a tree whose CI step would fail; the workflow runs it at
+`repository-validation.yml:50` and `:110`, and CI has never run (F-12). The
+armed window closed before that could be fixed, and it closed *by the change
+itself* — the reviewer's hand-back arrived through the prompt channel, the
+unconditional disarm ran, and the new envelope rule declined to re-arm from a
+`<task-notification>`. Correct behaviour, and the reason this section exists
+rather than a commit.
+
+**What else the two reviews left open**, all of it in guarded files: the hook's
+header still overclaims ("no quotation of this repository's own text can arm the
+escape" — the git-ignored marker's third line now begins with the token by
+construction, and a quotation that reformats begins a line the source did not);
+a section heading one line above the new rule still announces the old one; the
+case-sensitivity note in `test-gates.sh` still prints a false sentence for the
+name-absent case; an ATX heading indented one to three spaces is invisible to the
+scan, and the block-quote change made the quoted form of that newly reachable; an
+HTML comment containing a fence is a false hard failure; a target ending in `/`
+or `.` resolves to a directory and has its fragment checked by nothing; and one
+test name is in Portuguese, against `AGENTS.md`'s project-language rule.
+
 ## Guarded-path edits made under the disclosed escape, 2026-09-17
 
 `docs/spec/11-agentic-sdlc.md` obliges this section whenever the enforcement
@@ -501,8 +539,8 @@ channel and armed the guard on its first live firing. Nobody typed it. The
 marker stores an excerpt of what armed it, the excerpt read
 `<agent-message from=…>`, and that is how it was caught within the minute: the
 detection property this change was built around, working on its own author.
-The token must now sit on a line starting at column zero, which removes that
-route because the harness indents relayed output — **a filter resting on a
+The token was then required to sit on a line starting at column zero, on the
+reasoning that the harness indents relayed output — **a filter resting on a
 formatting convention, not a boundary**, and written up as one.
 
 **One limitation, stated because the alternative is a reader over-trusting it.**

@@ -11,6 +11,46 @@ are recorded.
 
 ## Open
 
+### DP-022 — The guarded-path escape is a filter, and both ways to make it a boundary spend your workflow
+
+- **Filed 2026-09-20, from F-52, which is the second time this escape armed
+  itself.** Both times a reviewing subagent quoted the specification that
+  describes the escape, and both times the hand-back reached the hook through
+  the same prompt channel a human message uses. The first narrowing (token at
+  column zero, because "the harness indents relayed output") rested on a
+  convention this repository does not own, and a second relay shape did not
+  honour it.
+- **What landed instead, and what it is worth.** The token must now be the
+  **first thing on a line**, and `test-gates.sh` asserts that no line in the
+  tracked corpus begins with it — 33 matching lines today, none opening with the
+  token. That narrows the accident onto something the repository controls, and
+  reviewers established the same day that it is **narrower than it first read
+  here**: the assertion covers *tracked source lines*, so it cannot see the
+  git-ignored marker — whose third line now begins with the token by
+  construction — and it says nothing about a quotation that *reformats* into a
+  fenced block, a list item or a diff hunk. It is also detective rather than
+  preventive, running at `Stop` time. So the filter is real and it is
+  **still a filter**: text that did not come from
+  here — a paraphrase, a commit message, a page on the web — can put the token
+  at the start of a line, and nothing readable can stop a session that means to
+  arm itself (SE-081).
+- **The two routes that would be boundaries.**
+  1. **Withdraw prompt-arming; the environment variable only.** A session
+     cannot forge its own environment, so this is an actual boundary. The cost
+     is the workflow you used twice on 2026-09-19 and 2026-09-20: no arming
+     mid-session, every guarded edit needs a session started with the variable
+     set.
+  2. **A per-session nonce.** `session-start.sh` generates a random value and
+     shows it to you; arming requires the token with that value. A subagent
+     quoting documentation can never produce it, because it is in no document.
+     It does **not** stop a determined session — the agent can read the nonce —
+     so it closes the demonstrated accident and not the deliberate act. The cost
+     is that you copy a value instead of typing a fixed string.
+- **Why it is yours:** both spend how you work, and the reversible default is
+  the one that does not. `AGENTS.md` reserves that class of trade for you.
+- **The reversible default, taken:** the filter above, with its limits written
+  where the rule is implemented rather than in a summary of it.
+
 ### DP-019 — DP-008 was decided without its cost, and the cost is a second certificate plus a billed runner
 
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two

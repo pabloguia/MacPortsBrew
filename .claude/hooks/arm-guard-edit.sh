@@ -101,9 +101,18 @@
 #
 # So the accurate statement is narrower. This hook reads exactly one field; what
 # it cannot do is assume that field only ever carries what the human wrote,
-# because a subagent hand-back arrives through it too. The column-zero rule
-# below removes that route by leaning on the harness indenting relayed output -
-# a filter, not a boundary, and named as one where it is implemented.
+# because a subagent hand-back arrives through it too.
+#
+# The first narrowing - require the token at column zero, because the harness
+# indents relayed output - was itself false, and was disproved on 2026-09-20 by
+# a second hand-back arriving in an envelope that did not indent (F-52). What
+# replaces it does not lean on the harness at all: the token must be the FIRST
+# THING ON A LINE, and `test-gates.sh` asserts that no line in the tracked
+# corpus begins with it. That makes quoting this repository's own text
+# insufficient to arm the escape, and makes the assertion fail if a future edit
+# would change that. It is still a filter rather than a boundary - see the long
+# note at the rule itself for exactly which routes remain open, and DP-022 for
+# the two that would close them and what each costs.
 #
 # The reason this is written out rather than quietly patched: an agent reading
 # this file needs to know that the prompt channel is not a human-only channel,
@@ -153,26 +162,71 @@ fi
 # marker recorded its own provenance - `<agent-message from=...>` - which is how
 # it was caught within the minute.
 #
-# The harness indents every line of relayed model output, so requiring column
-# zero removes that route. Say exactly what that is worth: it is a FILTER, not a
-# boundary. It rests on a formatting convention of the harness rather than on
-# anything this repository controls, and any relay that did not indent would
-# arm. It narrows the accident; the log is still what catches the rest, and the
-# excerpt it stores is there so a human can tell their own sentence from
-# something quoted back at them.
+# THE COLUMN-ZERO RULE WAS ALSO FALSE, AND WAS DISPROVED THE SAME WAY - BY THIS
+# HOOK FIRING (F-52, 2026-09-20). It rested on "the harness indents every line
+# of relayed model output", which this repository does not own and which a
+# second relay shape did not honour: a `docs-auditor` hand-back, commissioned to
+# audit the disclosure of an earlier unguarded write and therefore quoting this
+# escape's own MUST table, arrived in a `<task-notification>` envelope and armed
+# the guard. No human message was in that turn. Again the excerpt is what caught
+# it. Twice now this escape has been armed by a reviewer quoting the
+# specification that describes the escape.
+#
+# So the rule is narrowed onto something this repository DOES own: the token
+# must be the **first thing on a line**. Every one of the 33 occurrences in the
+# tracked corpus is inside prose or backticks, none begins a line, and
+# `test-gates.sh` asserts that as a corpus invariant - so no quotation of this
+# repository's own text can arm the escape, and the assertion fails if a future
+# edit introduces one. That is the difference from what it replaces: a
+# convention with a gate behind it rather than a convention of the harness.
+#
+# Say what it is still not. It is not a boundary. Text that did not come from
+# this repository - a paraphrase, a commit message, a web page - can still put
+# the token at the start of a line, and nothing here can stop a session that
+# means to arm itself, because whatever would authenticate the marker is
+# readable by the agent (SE-081). The two routes that would be boundaries both
+# spend the owner's workflow and are DP-022, filed rather than chosen here.
+case "$prompt" in
+*"<task-notification"* | *"<agent-message"* | *"<system-reminder"* | *"[SYSTEM NOTIFICATION"*)
+  # A relay envelope. Naming envelopes is a filter and the header says so; this
+  # one is here because it is the demonstrated vector, not because the list is
+  # believed to be complete. Explained rather than silent: a human who pasted
+  # one of these into their own message needs to know why nothing armed.
+  case "$prompt" in
+  *"$TOKEN"*)
+    mpb_context "UserPromptSubmit" \
+      "The guard-edit token appeared in a prompt that also carries a relay
+envelope, so nothing was armed. A subagent report reaches this hook through the
+same channel a human message does, and twice it has armed this escape by quoting
+the specification that describes it (F-52). If this was your own message, resend
+it without the quoted envelope."
+    ;;
+  esac
+  exit 0
+  ;;
+esac
+
 armed=0
+mentioned=0
 while IFS= read -r line; do
   case "$line" in
-  " "* | "	"*) continue ;; # indented: relayed or quoted, not a line the human opened
-  esac
-  case "$line" in
-  *"$TOKEN"*)
+  "$TOKEN"*)
     armed=1
     break
     ;;
+  *"$TOKEN"*) mentioned=1 ;;
   esac
 done <<<"$prompt"
-[ "$armed" = "1" ] || exit 0
+if [ "$armed" != "1" ]; then
+  if [ "$mentioned" = "1" ]; then
+    mpb_context "UserPromptSubmit" \
+      "The guard-edit token appeared in this prompt but not at the start of a
+line, so nothing was armed - that is the rule that stops a quotation of this
+repository's own text from arming the escape (F-52). To arm it, begin a line
+with the token."
+  fi
+  exit 0
+fi
 
 session="$(mpb_json_field "$input" "session_id")" || session=""
 # An excerpt, not the message: enough to recognise which instruction armed the

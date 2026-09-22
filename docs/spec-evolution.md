@@ -4124,8 +4124,36 @@ finding ids in each entry.
   those lands, **an armed marker is evidence that something quoted the token,
   not that the owner authorised anything**, and a session finding itself armed
   without a human message should decline the window and say so. That is what
-  happened here: the window was refused, the marker left in place as evidence,
-  and no guarded path was written under it.
+  happened here: the window was refused and no guarded path was written under
+  it, which `.claude/.guard-edit-log` is the record of — it has no entry for
+  that turn.
+- **Narrowed again 2026-09-20, this time onto something this repository owns.**
+  The token must be the **first thing on a line**, and `scripts/test-gates.sh`
+  asserts as a corpus invariant that no line in the tracked tree begins with it:
+  33 matching lines today, none of them opening with the token. **State exactly
+  what that proves, because the first version of this entry did not.** It proves
+  that no *tracked source line* begins with the token, and an edit introducing
+  one fails the gate. It does **not** prove that no quotation of this repository
+  can arm the escape, which is the broader sentence that was written here and in
+  the hook, and which two reviewers disproved the same day by different routes:
+  the git-ignored `.claude/.guard-edit-marker` now begins its third line with
+  the token *by construction*, because the excerpt it stores is the opening of
+  a prompt that had to begin with the token to arm; and a quotation that
+  reformats — a fenced block, a list item, a table cell broken one token to a
+  line, a diff hunk — begins a line with text that did not begin one in the
+  source. The gate cannot see the first, and does not speak to the second. The
+  assertion is also *detective* rather than preventive: it runs at `Stop` time,
+  after the turn in which a prompt could have quoted the offending line. A prompt
+  carrying a relay envelope is refused outright as well, and when the token is
+  present but the prompt is refused the hook says so rather than going quiet, so
+  a human whose own message was rejected is not left guessing. Eight constructed
+  prompts hold the rule, and both mutations — the token matching anywhere on the
+  line, and dropping the envelope refusal — fail cases.
+- **Still a filter, and the gap is now the owner's rather than open.** Text from
+  outside this corpus can put the token at the start of a line, and no readable
+  secret stops a session that means to arm itself. The two routes that would be
+  boundaries — the environment variable alone, or a per-session nonce — each
+  spend how the owner works, so they are **DP-022** rather than chosen here.
 - Found while writing it, and fixed in the same change: `test-hooks.sh`
   inherited `MPB_ALLOW_GUARD_EDIT` from the session running it, so under an
   armed session nine of its enforcement-layer `deny` assertions passed the wrong
