@@ -630,8 +630,11 @@ mod tests {
         }
     }
 
+    /// `(cell, read_on)` pairs for one provider's table.
+    type Rows<'a> = &'a [(&'a str, &'a str)];
+
     #[test]
-    fn invariant_20_the_two_cells_that_rest_on_their_own_reads_say_so_in_a_field() {
+    fn invariant_20_every_cell_with_its_own_evidence_says_so_in_a_field() {
         // F-35's second half. Both cells used to be explained in comments and in
         // a mixed entry-level `source`; if either loses its field, this says so.
         let table = load().unwrap();
@@ -655,6 +658,50 @@ mod tests {
             table["macports"].provenance["elevation"]["verify_absent"],
             table["macports"].provenance["elevation"]["verify"]
         );
+        // Every other cell whose evidence is dated apart from its entry
+        // (SE-091), with the date it rests on - a key alone would let a wrong
+        // date through (spec-guardian, 2026-09-25). Homebrew's `success.add`
+        // and `success.remove` are absent on purpose: no artefact records the
+        // Manpage stating an exit status for either.
+        let expected: &[(&str, &str, Rows)] = &[
+            (
+                "homebrew",
+                "elevation",
+                &[
+                    ("verify", "2026-09-04"),
+                    ("verify_absent", "2026-09-04"),
+                    ("verify_absent_gui_app", "2026-09-04"),
+                    ("verify_gui_app", "2026-09-04"),
+                ],
+            ),
+            (
+                "homebrew",
+                "success",
+                &[("verify", "2026-09-06"), ("verify_absent", "2026-09-19")],
+            ),
+            (
+                "macports",
+                "elevation",
+                &[("verify", "2026-09-08"), ("verify_absent", "2026-09-08")],
+            ),
+            (
+                "macports",
+                "success",
+                &[
+                    ("add", "2026-09-02"),
+                    ("remove", "2026-09-02"),
+                    ("verify", "2026-09-08"),
+                    ("verify_absent", "2026-09-19"),
+                ],
+            ),
+        ];
+        for (provider, table_name, rows) in expected {
+            let have: Vec<(&str, &str)> = table[*provider].provenance[*table_name]
+                .iter()
+                .map(|(k, c)| (k.as_str(), c.read_on.as_str()))
+                .collect();
+            assert_eq!(have, rows.to_vec(), "{provider}.{table_name}");
+        }
     }
 
     #[test]
@@ -680,10 +727,23 @@ mod tests {
         }
     }
 
+    /// The shipped table with the `read_on` of Homebrew's `verify` elevation
+    /// row replaced - located by its header, because a row's position in the
+    /// entry is not something a test should depend on.
+    fn with_homebrew_verify_read_on(date: &str) -> String {
+        let header = "\n[entry.provenance.elevation.verify]\nsource = \"Homebrew/brew";
+        let start = SOURCE.find(header).expect("the Homebrew verify row");
+        let line = "read_on = \"2026-09-04\"";
+        let at = start + SOURCE[start..].find(line).expect("its read_on");
+        format!(
+            "{}read_on = \"{date}\"{}",
+            &SOURCE[..at],
+            &SOURCE[at + line.len()..]
+        )
+    }
+
     #[test]
     fn invariant_20_a_provenance_row_without_a_source_or_a_date_is_refused() {
-        let homebrew_cell = "read_on = \"2026-09-04\"\n\n[[entry]]";
-        assert!(SOURCE.contains(homebrew_cell));
         for bad in [
             "",
             "Sept 4",
@@ -692,11 +752,7 @@ mod tests {
             "2026-13-04",
             "2026-09-00",
         ] {
-            let text = SOURCE.replacen(
-                homebrew_cell,
-                &format!("read_on = \"{bad}\"\n\n[[entry]]"),
-                1,
-            );
+            let text = with_homebrew_verify_read_on(bad);
             let err = parse(&text).expect_err(&format!("read_on {bad:?}"));
             assert!(err.detail.contains("YYYY-MM-DD"), "{bad}: {}", err.detail);
         }
@@ -740,11 +796,7 @@ mod tests {
         // The entry's `read_on` is the newest read in it, and `policy.toml`'s
         // version is built from the newest across the directory. A cell dated
         // after its entry would make both quietly wrong.
-        let text = SOURCE.replacen(
-            "read_on = \"2026-09-04\"\n\n[[entry]]",
-            "read_on = \"2026-09-20\"\n\n[[entry]]",
-            1,
-        );
+        let text = with_homebrew_verify_read_on("2026-09-20");
         let err = parse(&text).expect_err("a cell newer than its entry must be refused");
         assert!(err.detail.contains("after the entry"), "{}", err.detail);
     }

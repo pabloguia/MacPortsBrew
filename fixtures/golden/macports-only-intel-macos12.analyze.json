@@ -35,7 +35,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.09.19-2",
+        "policyVersion": "2026.09.19-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -152,7 +152,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.19-2",
+        "policyVersion": "2026.09.19-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -304,7 +304,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.19-2",
+        "policyVersion": "2026.09.19-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -446,7 +446,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.19-2",
+        "policyVersion": "2026.09.19-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -555,7 +555,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.09.19-2",
+        "policyVersion": "2026.09.19-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -644,7 +644,7 @@
   ],
   "policyReadOn": "2026-09-04",
   "policyStale": false,
-  "policyVersion": "2026.09.19-2",
+  "policyVersion": "2026.09.19-3",
   "providers": {
     "homebrew": {
       "capabilities": {

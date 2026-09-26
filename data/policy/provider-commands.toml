@@ -139,10 +139,37 @@ set_primary_gui_app = "none"
 source = "Homebrew/brew Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366: `list` is absent from the exemption list, so `brew list` run as root aborts (R-5a E5); `brew list --versions actionlint` as uid 501 exits 0 (R-5a E1), Homebrew 6.0.21 on this machine; docs/research/R-5a-verify-command-elevation.md"
 read_on = "2026-09-04"
 
+# The rest of this entry's cells with a date of their own (SE-091). Each cites
+# what the comment beside the cell records; `add` and `remove` in
+# `[entry.success]` are cited to the Manpage, and no artefact records the
+# Manpage stating an exit status for either verb, so they stay on the entry's
+# provenance rather than get a row asserting a read nobody recorded. The `add`
+# and `remove` elevations rest on `elevation_reason`, and `set_primary*` on
+# SE-036; neither is a cell whose evidence was folded into the entry `source`.
+[entry.provenance.elevation.verify_gui_app]
+source = "The argv this cell pairs with, `brew list --versions <cask>`, run unelevated as uid 501 exits 1 with no prompt - the wrong verb for a cask (F-22) but no elevation - and `brew list --cask --versions gimp` / `wireshark-chmodbpf` exit 0 (R-5a E0, E2); brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (R-5a E5). Homebrew 6.0.21, this machine; docs/research/R-5a-verify-command-elevation.md"
+read_on = "2026-09-04"
+
+[entry.provenance.elevation.verify_absent]
+source = "Bare `brew list --versions` run unelevated as uid 501 exits 0 and lists casks as well as formulae (docs/research/R-5a-verify-command-elevation.md E0, E2); `list` is absent from check-run-command-as-root's exemptions in Library/Homebrew/brew.sh @ 560147012b9678b42ef5e83b690f0895552d1366, so a root run aborts (R-5a E5). Homebrew 6.0.21, this machine. Repeated 2026-09-19 with nine casks installed, recording output but not the user"
+read_on = "2026-09-04"
+
+[entry.provenance.elevation.verify_absent_gui_app]
+source = "Same evidence as elevation.verify_absent: the bare inventory is kind-agnostic, listing casks, and runs unelevated as uid 501 (R-5a E0, E2); brew.sh @ 560147012b9678b42ef5e83b690f0895552d1366 (R-5a E5)"
+read_on = "2026-09-04"
+
+[entry.provenance.success.verify]
+source = "Positive case: `brew list --versions actionlint` exits 0 printing name and version (R-5a E1, 2026-09-04). Negative case: the same verb on a name that is not installed exits 1 with no output (observed 2026-09-06, recorded in the F-33 section of docs/passes/02-ARCHITECTURE-REVIEW-findings.md). Homebrew 6.0.21, this machine"
+read_on = "2026-09-06"
+
+[entry.provenance.success.verify_absent]
+source = "Observed on this machine 2026-09-19, Homebrew 6.0.21: `brew list --versions actionlint` exit 0 naming it; `cowsay` (real, not installed) and `definitely-not-a-formula-xyz` both exit 1 with no output; bare `brew list --versions` exit 0 with 201 lines"
+read_on = "2026-09-19"
+
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell carries its own provenance, in `[entry.provenance.elevation.verify]`. Observed 2026-09-08 with three ports installed: `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell carries its own provenance, in `[entry.provenance.elevation.verify]`. Observed 2026-09-08 with 18 ports installed, three requested (R-5 E24): `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
 read_on = "2026-09-19"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
@@ -172,7 +199,8 @@ verify_absent = ["-q", "installed"]
 
 # `verify` is the one cell in this file where exit status is not the answer,
 # and it is why this table exists (F-33). Observed on this machine 2026-09-08,
-# MacPorts 2.12.6, three ports installed (R-5 E22): the read verb exits 0 for
+# MacPorts 2.12.6, 18 ports installed, three of them requested (R-5 E22, E24):
+# the read verb exits 0 for
 # an installed port, for a real port that is absent, and for a name that is
 # not a port at all - three cases, one exit status, and the output is the only
 # thing that differs.
@@ -183,10 +211,13 @@ verify_absent = ["-q", "installed"]
 # an executor must do instead: the port's own name has to appear in the
 # output, and an empty stdout is a failure however the process exited.
 #
-# The other two verbs are exit status, cited rather than observed: both are
-# documented to fail nonzero (guide.macports.org, using.port.install and
-# using.port.uninstall, read 2026-09-04), and neither was re-run here because
-# doing so would mutate this machine (INV-05).
+# The other two verbs are exit status, cited rather than observed: `port(1)`
+# states "The port utility exits 0 on success, and >0 if an error occurs"
+# (docs/research/R-3-macports-read-interfaces.md E-13, read 2026-09-02). This
+# comment cited guide.macports.org read 2026-09-04 until 2026-09-25; no research
+# note records that read saying anything about exit status (spec-guardian).
+# Neither verb was re-run here, because doing so would mutate this machine
+# (INV-05).
 [entry.success]
 add = "exit_status"
 remove = "exit_status"
@@ -245,7 +276,7 @@ remove_gui_app = "unknown"
 # which part was which (F-35).
 #
 # **Both cases are now observed** (2026-09-08, this machine, MacPorts 2.12.6
-# with three ports installed; R-5 E22). The earlier note here said the positive
+# with 18 ports installed, three requested; R-5 E22, E24). The earlier note here said the positive
 # case was unknown because nothing was installed. It is now known, and the
 # answer is worse than the gap it replaced:
 #
@@ -282,11 +313,29 @@ set_primary_gui_app = "none"
 # read that records *elevation*. The 2026-09-19 runs of the same argv recorded
 # output, not the user they ran as, so they do not move this date.
 [entry.provenance.elevation.verify]
-source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with three requested ports installed: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
+source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with 18 ports installed, three of them requested: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
 read_on = "2026-09-08"
 
 # The same read with one argument fewer, resting on the same observation - which
 # the trim of the entry's `source` above would otherwise have left without one.
 [entry.provenance.elevation.verify_absent]
-source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with three requested ports installed: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
+source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with 18 ports installed, three of them requested: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
 read_on = "2026-09-08"
+
+# The rest of this entry's cells with a date of their own (SE-091), each citing
+# what the comment beside the cell records.
+[entry.provenance.success.add]
+source = "port(1) EXIT STATUS: \"The port utility exits 0 on success, and >0 if an error occurs.\" (doc/port.1.txt and man.macports.org/port.1.html, docs/research/R-3-macports-read-interfaces.md E-13); not re-run here, because running it would mutate this machine (INV-05)"
+read_on = "2026-09-02"
+
+[entry.provenance.success.remove]
+source = "port(1) EXIT STATUS: \"The port utility exits 0 on success, and >0 if an error occurs.\" (doc/port.1.txt and man.macports.org/port.1.html, docs/research/R-3-macports-read-interfaces.md E-13); not re-run here, because running it would mutate this machine (INV-05)"
+read_on = "2026-09-02"
+
+[entry.provenance.success.verify]
+source = "Observed on this machine 2026-09-08, MacPorts 2.12.6, 18 ports installed, three requested (R-5 E24): `port -q installed <name>` exits 0 for an installed port (printing it), a real absent port and a name that is not a port (docs/research/R-5-privilege-requirements.md E22, F-33)"
+read_on = "2026-09-08"
+
+[entry.provenance.success.verify_absent]
+source = "Observed on this machine 2026-09-19, MacPorts 2.12.6 with 18 ports installed: `port -q installed autoconf` exit 0 naming it; `wireshark` (real, absent) and `definitely-not-a-port-xyz` exit 0 with no output; bare `port -q installed` exit 0 with 18 lines"
+read_on = "2026-09-19"

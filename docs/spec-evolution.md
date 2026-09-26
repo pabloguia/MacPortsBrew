@@ -4902,8 +4902,8 @@ finding ids in each entry.
   `source` and one `read_on` per provider, and every cell in the entry is
   attributed to them.
 - Change: an optional `[entry.provenance.<table>.<key>]` with its own `source`
-  and `read_on`, for a cell in `elevation` or `success`. Three cells use it.
-  The two F-35 named: Homebrew's `verify` elevation, which rests on
+  and `read_on`, for a cell in `elevation` or `success`. The first commit gave
+  it to three cells. The two F-35 named: Homebrew's `verify` elevation, which rests on
   `brew.sh` at commit `560147012b` read 2026-09-04 while the entry's
   `elevation_reason` cites the FAQ; and MacPorts', which rests on an observation
   of this machine (2026-09-06, repeated with ports installed 2026-09-08) and was
@@ -4915,14 +4915,33 @@ finding ids in each entry.
   (spec-guardian). Both comments that explained the mismatch now point at the
   field. The MacPorts row cites R-5 E23 and E24 — the 2026-09-08 elevation
   evidence — and not only E22, which records output.
-- **Not every cell with a date of its own has a row yet**, and this entry does
-  not claim otherwise. Homebrew's three `success` cells rest on three reads
-  (2026-09-04, 2026-09-06, 2026-09-19) dated in its entry `source`; MacPorts'
-  `success.verify` on 2026-09-08 and `add`/`remove` on 2026-09-04, in the
-  `source` and a comment; Homebrew's `verify_gui_app`, `verify_absent` and
-  `verify_absent_gui_app` elevations share `verify`'s `brew.sh` read with no row.
-  None is wrong, and none is newer than its entry; each is the mixed-citation
-  shape F-35 described, now with a field to move into when next touched.
+- **The first commit moved only those three; the rest followed the same day.**
+  Every cell whose own evidence had been folded into its entry's `source` or
+  written only in a comment now has a row: Homebrew's `verify_gui_app`,
+  `verify_absent` and `verify_absent_gui_app` elevations (R-5a E0, E2, E5,
+  2026-09-04 — the 2026-09-19 repeat recorded output and not the user, so it
+  does not move the date, the same rule MacPorts' row applies) and its
+  `success.verify` (2026-09-06) and `success.verify_absent` (2026-09-19);
+  MacPorts' `success.add`/`remove` and `success.verify` (2026-09-08) and
+  `success.verify_absent` (2026-09-19). Moving them into fields surfaced three
+  errors the prose had carried, each fixed in the comment as well as the row:
+  MacPorts' `add`/`remove` exit status was cited to guide.macports.org read
+  2026-09-04, a read no research note records saying anything about exit
+  status — it is `port(1)`, R-3 E-13, read 2026-09-02; "three ports installed"
+  was 18 installed, three requested (R-5 E24); and Homebrew's `verify_gui_app`
+  cited only the `--cask` argv, not the one the cell pairs with (spec-guardian).
+- **Cells deliberately left on their entry.** Homebrew's `success.add` and
+  `success.remove`: they are cited to the Manpage, and no artefact records the
+  Manpage stating an exit status for either verb, so a row would assert a read
+  nobody recorded. The `add`/`remove` elevations of both providers rest on
+  `elevation_reason` (read 2026-09-02) and `set_primary*` on SE-036; their
+  evidence was never folded into the entry `source`, and moving it is not what
+  F-35 asked. The entry-level `source` strings keep their summaries; the rows
+  are what the loader checks, and
+  `invariant_20_every_cell_with_its_own_evidence_says_so_in_a_field` pins every
+  row's key *and* date, so a dropped row or a wrong date fails it — proved by
+  reverting MacPorts' `success.add` to the old date. Policy version
+  `2026.09.19-3`, the second data edit without a new read date.
 - Rationale: INV-20 wants provenance in a field, and the loader checks fields.
   A third comment explaining a mixed citation would have been the third time
   the same information was written in prose that nothing reads. The schema grows
@@ -4944,7 +4963,7 @@ finding ids in each entry.
   `data/policy/provider-commands.toml`; the cells' dates from
   `docs/research/R-5a-verify-command-elevation.md` (E1, E5, UNRESOLVED-1 and -2)
   and `docs/research/R-5-privilege-requirements.md` E22. Tests:
-  `invariant_20_the_two_cells_that_rest_on_their_own_reads_say_so_in_a_field`,
+  `invariant_20_every_cell_with_its_own_evidence_says_so_in_a_field`,
   `invariant_20_a_provenance_row_that_describes_no_cell_is_refused`,
   `invariant_20_a_provenance_row_without_a_source_or_a_date_is_refused`,
   `invariant_20_a_provenance_row_newer_than_its_entry_is_refused`,
@@ -4958,8 +4977,8 @@ finding ids in each entry.
 - User impact: none. No output carries per-cell provenance yet; the plan still
   reports the entry-level `policyReadOn`. Surfacing a cell's own date where the
   cell decides a step's elevation is a separate change.
-- Architectural impact: a data edit, so the policy version moves to
-  `2026.09.19-2` — the newest read date is unchanged, so the serial moves, as
+- Architectural impact: a data edit, so the policy version moved to
+  `2026.09.19-2` with the first commit and `2026.09.19-3` with the second — the newest read date is unchanged, so the serial moves, as
   `policy.toml`'s header requires.
 - Compatibility impact: `provider-commands.toml` gains an optional table; an
   entry without it loads as before.

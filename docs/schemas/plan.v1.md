@@ -492,7 +492,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.09.19-2",
+  "policyVersion": "2026.09.19-3",
   "dryRunOnly": true
 }
 ```

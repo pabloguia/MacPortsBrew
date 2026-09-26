@@ -437,7 +437,8 @@ impl PolicyData {
     /// and `provider-prefixes.toml` by the adapters (DP-014), so a read date
     /// moving in either is invisible here. `policy.toml`'s `version` *does*
     /// span the directory, so the two legitimately differ and a payload can
-    /// carry `policyVersion: 2026.09.19-1` beside `policyReadOn: 2026-09-04`.
+    /// carry a `policyVersion` dated 2026-09-19 beside a `policyReadOn` of
+    /// 2026-09-04 (as it did when this was written).
     ///
     /// The narrower set is kept deliberately rather than widened. This value
     /// drives the staleness notice, and the older date warns **earlier** — a
