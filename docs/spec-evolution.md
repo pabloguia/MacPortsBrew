@@ -2536,7 +2536,8 @@ finding ids in each entry.
 
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
 - Status: accepted
-- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04
+- Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04;
+  subcommand dimension 2026-09-25 (F-53)
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: a run-time allowlist at the one spawn site, with three narrower
@@ -2620,6 +2621,80 @@ finding ids in each entry.
   list is untouched by it. The lint's boundary is the `#[cfg(test)]` that opens
   an inline `mod tests {` running to the end of the file; anything else, the
   two-file split included, is scanned whole.
+- **The allowlist named programs and not what they were asked to do (F-53,
+  2026-09-25).** Every mutation this tool must never perform is `brew` or `port`
+  with different arguments, and the spawn site asked only for the name. What
+  held was, again, one allowlist per adapter — and a plan's verbs do not come
+  from an adapter: they are read out of `provider-commands.toml`, where
+  `verify = [<the entry's add verb>]` loaded, planned a `VERIFY_DESTINATION`
+  carrying it, and passed every predicate an executor's refusal gate would
+  apply. Two changes, one per place the hole could be closed:
+  - `PERMITTED_SUBCOMMANDS` beside `PERMITTED_PROGRAMS`, checked by the same
+    guard in `SystemRunner::run`. For a provider: the leading options are a
+    list (`-q` for `port`, none for `brew`); the next element must be, exactly,
+    a read subcommand the adapters run; no element anywhere may be an action
+    separator; and nothing after the subcommand may be a single-dash option.
+    Each clause is a measured `port` behaviour, read in its source on this
+    machine (MacPorts 2.12.6, 2026-09-25): it resolves an unknown action by
+    case-folded unambiguous prefix, so only exact full names are safe
+    (`find_action`); it runs one argv as a *sequence* of actions split on `;`,
+    continuing while the previous succeeded — and `port -q installed` succeeds
+    for any name (`process_cmd`); and `-F <file>` queues a command file in
+    either position (`parse_options`, then the main block). The first version
+    checked only the first word, and **both reviewers broke it independently**
+    — `spec-guardian` with `installed ; <mutation>`, `security-reviewer` with
+    that and with `installed -F <file>`, observed with a file of `version`
+    lines. Every argv the adapters hold uses only `--long` options past the
+    subcommand, so none of this refuses a read they perform. An empty argv is
+    refused: it is `port`'s interactive mode. The four macOS probes are named
+    in `SYSTEM_PROBES` rather than implied by absence from the read lists, so a
+    provider added to `PERMITTED_PROGRAMS` without a read list is refused
+    instead of passing unchecked; a test holds the partition. Another test ties
+    the read lists to the adapters' argv allowlists in both directions.
+  - A loader rule in `provider_commands.rs`: a `verify` or `verify_absent` argv
+    may share no non-flag word with the same entry's `add` or `remove` argv.
+    Narrower than the runner's, on purpose: it refuses the overlap the table can
+    name about itself, at build time and in front of a person. It does **not**
+    catch another spelling — `port` would run a case variant or unambiguous
+    prefix of the remove action, Homebrew has aliases for both mutations — nor
+    a different mutation; those are the runner's, which refuses them because
+    its list is exact.
+  - **Not closed, and recorded rather than improvised.** (1) The runner cannot
+    tell a read step from a write step. Today every permitted subcommand is a
+    read, so that is moot; once the executor pass adds mutating subcommands to
+    this list, a `VERIFY_*` step carrying one would pass it, and the loader's
+    set is only `add` ∪ `remove`. Carrying read-or-write intent into
+    `CommandSpec` is executor design, which the owner retains
+    (`prompts/05-the-executor.md` §5). (2) A URL port spec (any scheme, in the
+    portlist of `info`, `installed` or `echo` alike: `element`,
+    `/opt/local/bin/port` line 1244) or the `current` pseudo-port, and `port
+    info` with no names, open a Portfile from elsewhere — for `current`, from
+    the working directory, which the runner never sets, so it is the user's.
+    Theoretical: appended names cannot contain `:` or `/`, `run_info` is never
+    called without names, and no port is named `current`; only a data edit
+    could produce one (security-reviewer, 2026-09-25). (3) A
+    refused provider read arrives as `NotStarted`, which the detection path
+    reads as "absent"; unreachable while the read lists and the adapters' argv
+    are tied, and worth knowing when the executor pass edits either.
+  Proved by mutation, each reverted: disabling the loader rule fails
+  `invariant_01_a_verification_verb_that_is_the_entrys_own_mutation_is_refused`;
+  accepting any subcommand fails `a_provider_mutation_is_refused_whatever_surrounds_it`,
+  `invariant_05_a_provider_is_never_updated_or_upgraded_from_the_spawn_site`
+  and `a_provider_asked_for_a_subcommand_off_its_read_list_is_not_started`;
+  dropping the separator clause fails the first two; dropping the short-option
+  clause fails the first; dropping a probe fails
+  `every_permitted_program_is_a_probe_or_has_a_read_list`. The tests name no
+  mutating verb as a literal — they assemble it at run time, as
+  `.claude/hooks/test-hooks.sh` does, or read it out of the table — because the
+  Stop gate greps `src/` for exactly those words.
+  - **The MUST at `04-migration-and-safety.md` "Process execution" said
+    "provider subcommands and flags come from a code-level allowlist"**, which
+    was not true of a plan's verbs: their flags, and until now their
+    subcommands, came from policy data. It now says what holds — subcommands
+    and the options before them from a code-level list at the spawn site,
+    options after them from the adapters' argv lists or dated policy data, and
+    never from user input. What a verification step's command means is SE-049
+    and SE-083's topic; the loader half of this is cross-referenced there.
 - **One thing this pass will not evade.** `invariant_06_reading_the_machine_needs_
   no_elevation` refused the elevating binary's name in a list of programs a test
   asserts are *rejected*. The invariant is right and the case was dropped: an
@@ -2635,11 +2710,19 @@ finding ids in each entry.
   the `check-*.sh` scripts — none of the other seven has one — so those probes
   are evidence, not a regression test; the allowlist's are tests. The shebang and
   the meaning of `bash -p` were read on this machine on 2026-09-04 and are cited
-  where they are stated.
+  where they are stated. That count is of 2026-09-04; the F-53 extension's tests
+  are named in its own bullet above.
 - User impact: none directly.
-- Architectural impact: adding a provider is now one adapter, one registry entry
-  and a `&'static str`; there is no way for the new adapter to name its executable
-  from configuration, which is the point.
+- Architectural impact: adding a provider is now one adapter, one registry entry,
+  a `&'static str` — and, since F-53, a read list in `PERMITTED_SUBCOMMANDS`,
+  without which the runner refuses every invocation of it (`add-provider` and its
+  `CONTRIBUTING.md` section do not say so yet; both are generated-layer sources
+  and were left for a pass that may touch them). `is_permitted_program`'s
+  rule that a provider sits directly in a `bin` directory is still spelled
+  `"brew" | "port"`, so a third provider would skip it unless that is derived
+  from `PERMITTED_SUBCOMMANDS` too (spec-guardian, 2026-09-25; older than F-53,
+  left open). There is no way for the new adapter to name its executable from
+  configuration, which is the point.
 - Compatibility impact: none.
 
 ## SE-058 — The user-facing documentation promised more than the design does
@@ -4199,6 +4282,9 @@ finding ids in each entry.
 ## SE-083 — A verification step whose command cannot fail is an ordering invariant guarding nothing
 
 - Status: accepted
+- See also: SE-050's F-53 bullet — a verification step's command must also be a
+  *read*, refused at load when it shares a word with the entry's own mutation
+  and at the spawn site when its subcommand is not on the read list.
 - Date / Pass: 2026-09-18 / 03-UNKNOWN-IS-NEVER-A-YES
 - Original assumption: `docs/schemas/plan.v1.md` left "how does an executor know
   this command succeeded" entirely to the executor, and its own executor-debt

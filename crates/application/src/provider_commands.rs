@@ -169,6 +169,44 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                 }
             }
         }
+        // A verification verb is a read, and nothing said so (F-53).
+        //
+        // Every check above is about a cell's *shape*; none asked what the verb
+        // under `verify` or `verify_absent` does. `verify = ["install"]` loaded
+        // clean, planned a VERIFY_DESTINATION carrying an install command, and
+        // passed `check_ordering` and every predicate the executor's refusal
+        // gate was going to apply - so a loop that runs verification steps
+        // would have run it. Compared by word rather than by argv, because a
+        // mutating verb with a different flag beside it is the same mutation.
+        //
+        // This refuses the one overlap the table itself can name. A read verb
+        // that is some *other* mutation is the runner's to refuse - its
+        // subcommand allowlist beside `PERMITTED_PROGRAMS` holds reads only -
+        // and that is the second half of this finding, not a gap in this one.
+        let words = |op: &str| -> BTreeSet<&str> {
+            e.verbs
+                .get(op)
+                .into_iter()
+                .flatten()
+                .map(String::as_str)
+                .filter(|w| !w.starts_with('-'))
+                .collect()
+        };
+        let mutating: BTreeSet<&str> = words("add").union(&words("remove")).copied().collect();
+        for read in ["verify", "verify_absent"] {
+            if let Some(word) = words(read).intersection(&mutating).next() {
+                return Err(DomainError::new(
+                    ErrorId::PolicyDataInvalid,
+                    format!(
+                        "provider-commands.toml: entry {} gives {read} the word {word:?}, \
+                         which is this entry's add or remove verb. A verification step is \
+                         a read; one that installs or removes would be run by a loop that \
+                         runs verification steps (F-53)",
+                        e.provider
+                    ),
+                ));
+            }
+        }
         // Every verb states how its success is established (F-33, INV-01).
         //
         // Keyed off `verbs` alone, not the union above, and the difference is
@@ -450,6 +488,47 @@ mod tests {
                  asked about one name both providers answer removed, never-existed and \
                  could-not-run identically (observed 2026-09-19)"
             );
+        }
+    }
+
+    #[test]
+    fn invariant_01_a_verification_verb_that_is_the_entrys_own_mutation_is_refused() {
+        // F-53, as the finding states it: the shipped table with one read verb
+        // replaced by the same entry's add or remove verb. The replacement is
+        // read out of the table rather than written here, which is both the
+        // honest case - the entry's own mutation - and what keeps the literal
+        // out of `src/`, where the Stop gate greps for it.
+        let table = load().unwrap();
+        for (provider, shipped) in [
+            ("homebrew", "[\"list\", \"--versions\"]"),
+            ("macports", "[\"-q\", \"installed\"]"),
+        ] {
+            for read in ["verify", "verify_absent"] {
+                for op in ["add", "remove"] {
+                    let word = &table[provider].verbs[op][0];
+                    let line = format!("{read} = {shipped}");
+                    // Each provider's argv is distinct, so the first match is
+                    // that provider's line and no other.
+                    assert!(SOURCE.contains(&line), "{line} is not in the table");
+                    let text = SOURCE.replacen(&line, &format!("{read} = [{word:?}]"), 1);
+                    let err = parse(&text).expect_err(&format!(
+                        "{provider}: {read} = [<{op} verb>] must be refused"
+                    ));
+                    assert_eq!(err.id, ErrorId::PolicyDataInvalid);
+                    assert!(
+                        err.detail.contains("F-53") && err.detail.contains(read),
+                        "{provider} {read} {op}: {}",
+                        err.detail
+                    );
+                    // A flag beside it is the same mutation.
+                    let text = SOURCE.replacen(
+                        &line,
+                        &format!("{read} = [\"--quiet\", {word:?}, \"x\"]"),
+                        1,
+                    );
+                    assert!(parse(&text).is_err(), "{provider} {read} {op} with a flag");
+                }
+            }
         }
     }
 

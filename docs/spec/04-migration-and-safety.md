@@ -59,6 +59,12 @@ and the run reports failure with the specific check that failed.
 
 **MUST NOT.** "The install command exited 0" is not verification.
 
+**MUST.** A verification command is a read. The commands table refuses a
+`verify` or `verify_absent` verb that shares a non-flag word with the same entry's own
+add or remove verb, and the spawn site refuses any provider subcommand not on
+its read list (F-53, SE-050). The second half holds while that list contains only reads;
+SE-050 records what changes when an executor adds mutating subcommands to it.
+
 ### Verifying a removal
 
 **MUST.** Removal verification establishes **absence**, and absence cannot be
@@ -267,8 +273,12 @@ of it (SE-059, finding F-10).
 
 **MUST.** One centralised executor. Argv arrays only — no shell, no string
 interpolation, ever. Package names and paths are arguments, never fragments of
-a command line. Provider subcommands and flags come from a code-level allowlist;
-user input never becomes a flag.
+a command line. A provider's subcommand, and every option before it, come from a
+code-level allowlist checked at the spawn site; options after it come from the
+adapters' own argument-vector allowlists or, for a plan's verbs, from dated
+policy data whose loader refuses a verification verb that repeats the entry's own
+add or remove verb; any other subcommand is refused at the spawn site. User
+input never becomes a flag (F-53, SE-050).
 
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.
@@ -325,6 +335,23 @@ do not gold-plate beyond them.
   module-level `OnceLock` manufactures the `&'static str` the constructors ask
   for with no `Box::leak` and nothing to grep, and a *denylist* of interpreters
   had never heard of `tclsh`, which is what `port` is written in.
+
+  A program name is half the question, because every mutation this tool must
+  never perform is `brew` or `port` with different arguments. So for the two
+  providers the same check has a second dimension, `PERMITTED_SUBCOMMANDS`:
+  after a listed leading option (`-q` for `port`, none for `brew`), the next
+  argument must be, exactly, one of the read subcommands the adapters run; no
+  argument may be `port`'s action separator `;`; nothing after the subcommand
+  may be a single-dash option, since `port -F <file>` runs a command file from
+  either position; and an empty argument vector — `port`'s interactive mode —
+  is refused. The `port` behaviours were read in its source on this machine,
+  MacPorts 2.12.6, 2026-09-25, and are cited where the list states them. The
+  adapters' own argument-vector allowlists stay, tied to these lists in both
+  directions by a test; this is what holds for a command that did not come
+  from an adapter, such as a plan's verbs read out of policy data (F-53,
+  SE-050). It is a list of *reads*: the pass that adds an executor extends it
+  deliberately, and at that point it can no longer tell a read step from a
+  write step on its own — SE-050 records that as open.
 
   Three further controls stand behind it, each holding something the allowlist
   does not. `check-layering.sh` keeps `std::process::Command` inside the

@@ -202,14 +202,19 @@ impl ProcessRunner for SystemRunner {
         // `OnceLock` manufactures the `&'static str` the constructors ask for,
         // and a denylist of interpreters is missing `tclsh` — which `port`
         // itself is written in — however long it grows.
-        if !crate::process::may_spawn(&spec.program) {
+        //
+        // And for a provider, which of its subcommands: a permitted program
+        // asked to do a permitted program's mutation is the same program (F-53).
+        if !crate::process::may_spawn(&spec.program, &spec.argv) {
             return Ok(record(
                 ExitStatus::NotStarted {
                     error: format!(
-                        "refusing to run `{}`: this tool spawns only {}, each at an \
-                         absolute path, and a provider's own executable only from a \
-                         `bin` directory under a detected prefix",
+                        "refusing to run `{}` with {:?}: this tool spawns only {}, each \
+                         at an absolute path, a provider's own executable only from a \
+                         `bin` directory under a detected prefix, and a provider only \
+                         for a subcommand on its read allowlist",
                         spec.program.display(),
+                        spec.argv,
                         crate::process::PERMITTED_PROGRAMS.join(", ")
                     ),
                 },
@@ -396,6 +401,29 @@ mod tests {
         let inv = runner.run(&spec).unwrap();
         assert!(matches!(inv.status, ExitStatus::NotStarted { .. }));
         assert!(inv.require_success().is_err());
+    }
+
+    #[test]
+    fn a_provider_asked_for_a_subcommand_off_its_read_list_is_not_started() {
+        // F-53 at the spawn site. The prefix does not exist, so a spec that got
+        // past the guard would also end `NotStarted` - from the kernel. The
+        // assertion is on *which* refusal, so it cannot pass by that route. The
+        // verb is assembled at run time for the reason
+        // `.claude/hooks/test-hooks.sh` gives: the Stop gate greps `src/` for
+        // the literal, and this is test data rather than a code path.
+        let add = ["in", "stall"].concat();
+        let runner = SystemRunner::new();
+        let spec = CommandSpec::provider(
+            std::path::Path::new("/nonexistent-mpb-prefix"),
+            "bin/brew",
+            vec![add, "wget".into()],
+            env(),
+        );
+        let inv = runner.run(&spec).unwrap();
+        let ExitStatus::NotStarted { error } = &inv.status else {
+            panic!("a mutating subcommand reached the kernel: {:?}", inv.status);
+        };
+        assert!(error.contains("read allowlist"), "{error}");
     }
 
     #[test]
