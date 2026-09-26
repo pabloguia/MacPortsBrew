@@ -2718,10 +2718,10 @@ finding ids in each entry.
   without which the runner refuses every invocation of it (`add-provider` and its
   `CONTRIBUTING.md` section do not say so yet; both are generated-layer sources
   and were left for a pass that may touch them). `is_permitted_program`'s
-  rule that a provider sits directly in a `bin` directory is still spelled
-  `"brew" | "port"`, so a third provider would skip it unless that is derived
-  from `PERMITTED_SUBCOMMANDS` too (spec-guardian, 2026-09-25; older than F-53,
-  left open). There is no way for the new adapter to name its executable from
+  rule that a provider sits directly in a `bin` directory was spelled
+  `"brew" | "port"`, so a third provider would have skipped it (spec-guardian,
+  2026-09-25); it is now derived from `PERMITTED_SUBCOMMANDS`, held by
+  `every_provider_with_a_read_list_must_come_from_a_bin_directory`. There is no way for the new adapter to name its executable from
   configuration, which is the point.
 - Compatibility impact: none.
 

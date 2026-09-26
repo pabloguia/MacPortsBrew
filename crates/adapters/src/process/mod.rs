@@ -258,7 +258,12 @@ pub(crate) fn is_permitted_program(program: &std::path::Path) -> bool {
     if !PERMITTED_PROGRAMS.contains(&name) {
         return false;
     }
-    if matches!(name, "brew" | "port") {
+    // Every program with a read list is a provider, and a provider is
+    // resolved from a detected prefix, so it must come from a `bin` directory.
+    // Derived rather than spelled out: `"brew" | "port"` here meant a third
+    // provider given a read list would skip this rule (spec-guardian,
+    // 2026-09-25).
+    if PERMITTED_SUBCOMMANDS.iter().any(|r| r.program == name) {
         return program
             .parent()
             .and_then(std::path::Path::file_name)
@@ -675,6 +680,18 @@ mod tests {
             std::path::Path::new("/tmp/brew"),
             &argv(&["list"])
         ));
+    }
+
+    #[test]
+    fn every_provider_with_a_read_list_must_come_from_a_bin_directory() {
+        // Iterates the read lists rather than naming the two providers, so a
+        // third one inherits the rule the moment it is given a list.
+        for reads in PERMITTED_SUBCOMMANDS {
+            let outside = std::path::PathBuf::from("/opt/example/libexec").join(reads.program);
+            assert!(!is_permitted_program(&outside), "{}", outside.display());
+            let inside = std::path::PathBuf::from("/opt/example/bin").join(reads.program);
+            assert!(is_permitted_program(&inside), "{}", inside.display());
+        }
     }
 
     #[test]
