@@ -4889,10 +4889,79 @@ finding ids in each entry.
   explanation"), and it means a drifted read cell no longer shows up in any
   output. The fallback is still exercised by every `--replay` and
   `--from-snapshot` of a document written before this capability existed.
-- **What is still open under F-35**, and it is the half that was always
-  separable: per-cell provenance. Two cells now carry observations that the
-  entry-level `source` and `read_on` can only describe in prose — MacPorts'
-  `verify` mixes three read dates, Homebrew's cites a commit where the entry
-  cites the FAQ. That is a schema change to the data file and is its own entry.
+- **The other half of F-35**, per-cell provenance, was always separable and is
+  its own entry: SE-091.
+
+
+## SE-091 — A cell whose evidence is not its entry's carries its own source and date
+
+- Status: accepted
+- Date / Pass: 2026-09-25 / 02-ARCHITECTURE-REVIEW
+- Extends: **SE-090**, which closed F-35's detection half and left this one.
+- Original assumption: provenance is per entry. `provider-commands.toml` has one
+  `source` and one `read_on` per provider, and every cell in the entry is
+  attributed to them.
+- Change: an optional `[entry.provenance.<table>.<key>]` with its own `source`
+  and `read_on`, for a cell in `elevation` or `success`. Three cells use it.
+  The two F-35 named: Homebrew's `verify` elevation, which rests on
+  `brew.sh` at commit `560147012b` read 2026-09-04 while the entry's
+  `elevation_reason` cites the FAQ; and MacPorts', which rests on an observation
+  of this machine (2026-09-06, repeated with ports installed 2026-09-08) and was
+  folded into the entry's `source` beside documentation read on 2026-09-04,
+  with the string explaining which part was which. The third is MacPorts'
+  `verify_absent` elevation, which rests on the same observation and would
+  otherwise have lost it: the MacPorts `source` loses that paragraph, and the
+  first draft of this change left that cell citing nothing specific
+  (spec-guardian). Both comments that explained the mismatch now point at the
+  field. The MacPorts row cites R-5 E23 and E24 — the 2026-09-08 elevation
+  evidence — and not only E22, which records output.
+- **Not every cell with a date of its own has a row yet**, and this entry does
+  not claim otherwise. Homebrew's three `success` cells rest on three reads
+  (2026-09-04, 2026-09-06, 2026-09-19) dated in its entry `source`; MacPorts'
+  `success.verify` on 2026-09-08 and `add`/`remove` on 2026-09-04, in the
+  `source` and a comment; Homebrew's `verify_gui_app`, `verify_absent` and
+  `verify_absent_gui_app` elevations share `verify`'s `brew.sh` read with no row.
+  None is wrong, and none is newer than its entry; each is the mixed-citation
+  shape F-35 described, now with a field to move into when next touched.
+- Rationale: INV-20 wants provenance in a field, and the loader checks fields.
+  A third comment explaining a mixed citation would have been the third time
+  the same information was written in prose that nothing reads. The schema grows
+  one optional table rather than every one of the 28 elevation and success cells
+  growing two fields, because most cells share their entry's evidence.
+- The loader refuses a provenance row that **names no cell** (a table other than
+  `elevation` or `success`, or a key absent from it — a misspelling would
+  otherwise attach the citation to nothing while the cell kept the entry's),
+  that **lacks a source or a `YYYY-MM-DD` date**, or that is **newer than its
+  entry's `read_on`**. The last one is what keeps the entry field honest: it is
+  documented as the newest read in the entry, and `policy.toml`'s version is
+  built from the newest read in the directory. It is sound only if both sides
+  are dates, so the entry's own `read_on` is now shape-checked too — unchecked,
+  `"Sept 19"` sorts after every real date and the refusal never fires
+  (spec-guardian). Dates must have a month and a day in range; a source must be
+  more than whitespace. `CellProvenance` also denies unknown fields.
+- Evidence: `ProviderCommands::provenance` and the loop at the end of `parse` in
+  `crates/application/src/provider_commands.rs`; the two tables in
+  `data/policy/provider-commands.toml`; the cells' dates from
+  `docs/research/R-5a-verify-command-elevation.md` (E1, E5, UNRESOLVED-1 and -2)
+  and `docs/research/R-5-privilege-requirements.md` E22. Tests:
+  `invariant_20_the_two_cells_that_rest_on_their_own_reads_say_so_in_a_field`,
+  `invariant_20_a_provenance_row_that_describes_no_cell_is_refused`,
+  `invariant_20_a_provenance_row_without_a_source_or_a_date_is_refused`,
+  `invariant_20_a_provenance_row_newer_than_its_entry_is_refused`,
+  `invariant_20_an_entry_read_on_that_is_not_a_date_is_refused`. Named for
+  INV-20 and kept in `src/` because `parse` is private (SE-090's reasoning).
+  Proved by mutation, each reverted: accepting a key absent from its table, or
+  an unknown table, fails the first refusal test; dropping the cell shape check
+  fails the second; dropping the date comparison fails the third; dropping the
+  entry shape check, the range check or the whitespace trim fails the last (the
+  range check also the second).
+- User impact: none. No output carries per-cell provenance yet; the plan still
+  reports the entry-level `policyReadOn`. Surfacing a cell's own date where the
+  cell decides a step's elevation is a separate change.
+- Architectural impact: a data edit, so the policy version moves to
+  `2026.09.19-2` — the newest read date is unchanged, so the serial moves, as
+  `policy.toml`'s header requires.
+- Compatibility impact: `provider-commands.toml` gains an optional table; an
+  entry without it loads as before.
 
 ---

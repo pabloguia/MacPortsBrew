@@ -79,8 +79,9 @@ remove_gui_app = "unknown"
 # `check-run-command-as-root` in the shipped `Library/Homebrew/brew.sh`, so
 # `sudo brew list` aborts rather than merely being unnecessary. Homebrew 6.0.21,
 # `Homebrew/brew` HEAD 560147012b9678b42ef5e83b690f0895552d1366, observed
-# 2026-09-04 (R-5a). Note the entry-level `source` below cites the FAQ, which
-# names no subcommand; this cell's source is `brew.sh` at that revision.
+# 2026-09-04 (R-5a). `elevation_reason` cites the FAQ, which names no
+# subcommand; this cell's own source and date are in
+# `[entry.provenance.elevation.verify]` below (F-35).
 verify = "none"
 # Reading the inventory elevates no more than reading one row of it: same verb,
 # same binary, one fewer argument.
@@ -131,10 +132,17 @@ set_primary = "none"
 # and not in `[entry.verbs]`, which is what the check was iterating.
 set_primary_gui_app = "none"
 
+# Per-cell provenance (F-35): a cell whose evidence is not the entry's carries
+# its own `source` and `read_on`. The loader refuses one that names no cell, has
+# no source or date, or is newer than the entry's `read_on`.
+[entry.provenance.elevation.verify]
+source = "Homebrew/brew Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366: `list` is absent from the exemption list, so `brew list` run as root aborts (R-5a E5); `brew list --versions actionlint` as uid 501 exits 0 (R-5a E1), Homebrew 6.0.21 on this machine; docs/research/R-5a-verify-command-elevation.md"
+read_on = "2026-09-04"
+
 [[entry]]
 provider = "macports"
 executable = "bin/port"
-source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell is an observation on this machine, not a citation - MacPorts 2.12.6 on macOS 26.6.2 (25G83), prefix /opt/local: as a non-root user `port -q installed` exits 0 and registry.db is 0644 (R-5a UNRESOLVED-1 and -2, F-24). Re-observed 2026-09-08 with three ports installed, which the 2026-09-06 read could not do: the elevation answer is unchanged, and `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
+source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell carries its own provenance, in `[entry.provenance.elevation.verify]`. Observed 2026-09-08 with three ports installed: `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
 read_on = "2026-09-19"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
@@ -230,13 +238,11 @@ remove_gui_app = "unknown"
 # root:**wheel**. The mode matches; the group does not. Only one machine, so
 # this is recorded rather than generalised.
 #
-# The observation is carried in this entry's `source` field and `read_on`, not
-# only in this comment: INV-20 wants provenance in a field, and the loader checks
-# fields. `read_on` is the newest read in the entry, which is now this
-# observation; the documentation citations beside it are still dated 2026-09-04
-# and the `source` string says which part is which. Per-cell provenance would be
-# better - Homebrew's `verify` cell wants it too - and is a schema change, so it
-# is recorded rather than improvised (F-35).
+# The observation is carried in `[entry.provenance.elevation.verify]` at the end
+# of this entry, not only in this comment: INV-20 wants provenance in a field,
+# and the loader checks fields. Until 2026-09-25 it was folded into the entry's
+# `source` beside documentation read two days earlier, with the string saying
+# which part was which (F-35).
 #
 # **Both cases are now observed** (2026-09-08, this machine, MacPorts 2.12.6
 # with three ports installed; R-5 E22). The earlier note here said the positive
@@ -270,3 +276,17 @@ verify_gui_app = "unknown"
 set_primary = "none"
 # MacPorts has no GUI-application package kind, as the cells above record.
 set_primary_gui_app = "none"
+
+# Per-cell provenance (F-35); see the Homebrew entry. The 2026-09-06 read had no
+# port installed; 2026-09-08 repeated it with ports installed, and is the newest
+# read that records *elevation*. The 2026-09-19 runs of the same argv recorded
+# output, not the user they ran as, so they do not move this date.
+[entry.provenance.elevation.verify]
+source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with three requested ports installed: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
+read_on = "2026-09-08"
+
+# The same read with one argument fewer, resting on the same observation - which
+# the trim of the entry's `source` above would otherwise have left without one.
+[entry.provenance.elevation.verify_absent]
+source = "Observed on this machine as a non-root user, MacPorts 2.12.6, macOS 26.6.2 (25G83), prefix /opt/local: registry directory root:wheel drwxr-xr-x and registry.db root:wheel -rw-r--r-- (stat), `port -q installed` exits 0 with zero ports installed (docs/research/R-5a-verify-command-elevation.md UNRESOLVED-1 and -2, answered 2026-09-06; F-24); repeated 2026-09-08 with three requested ports installed: the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E23, E24) and `port -q installed <port>` answers unelevated (E22)"
+read_on = "2026-09-08"

@@ -133,7 +133,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 packages in the default view; 15 need manual review. Policy 2026.09.19-1.
+56 packages in the default view; 15 need manual review. Policy 2026.09.19-2.
 Ownership is unknown for 10 row(s): the provider kept no record, or this analysis could not read one.
 ```
 

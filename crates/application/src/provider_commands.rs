@@ -57,8 +57,45 @@ pub struct ProviderCommands {
     pub reserved_names: Vec<String>,
     /// Provenance.
     pub source: String,
-    /// Read date.
+    /// Read date - the newest read in the entry, which the loader holds every
+    /// cell's own date to.
     pub read_on: String,
+    /// Where one cell was read, for a cell whose evidence is not the entry's
+    /// (F-35). Keyed by table (`elevation`, `success`), then by the cell's key.
+    ///
+    /// An entry's `source` describes the entry, and two cells had come to rest
+    /// on reads the entry-level fields could only describe in prose: MacPorts'
+    /// `verify` elevation on an observation dated after the documentation the
+    /// entry cited, Homebrew's on a commit of `brew.sh` where the entry cited
+    /// the FAQ. The comments said so; INV-20 wants provenance in a field, and
+    /// the loader checks fields.
+    #[serde(default)]
+    pub provenance: BTreeMap<String, BTreeMap<String, CellProvenance>>,
+}
+
+/// One cell's `source` and `read_on`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CellProvenance {
+    /// What was read, precisely enough to read it again.
+    pub source: String,
+    /// When, `YYYY-MM-DD`.
+    pub read_on: String,
+}
+
+/// `YYYY-MM-DD`, with a month and a day in range - which is what makes two
+/// dates comparable as strings. Not a calendar: `2026-02-31` passes, and the
+/// comparison it serves is unaffected by that.
+fn is_iso_date(s: &str) -> bool {
+    let shaped = s.len() == 10
+        && s.char_indices().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                c == '-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    shaped && ("01"..="12").contains(&&s[5..7]) && ("01"..="31").contains(&&s[8..10])
 }
 
 #[derive(Deserialize)]
@@ -84,12 +121,26 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
     })?;
     let mut out = BTreeMap::new();
     for e in file.entry {
-        if e.source.is_empty() || e.read_on.is_empty() {
+        if e.source.trim().is_empty() || e.read_on.is_empty() {
             return Err(DomainError::new(
                 ErrorId::PolicyDataInvalid,
                 format!(
                     "provider-commands.toml: entry {} lacks source or read_on",
                     e.provider
+                ),
+            ));
+        }
+        // The entry's own date is the one every cell's is compared against
+        // below; unchecked, `"Sept 19"` sorts after every real date and the
+        // "newer than its entry" refusal could never fire (spec-guardian,
+        // 2026-09-25).
+        if !is_iso_date(&e.read_on) {
+            return Err(DomainError::new(
+                ErrorId::PolicyDataInvalid,
+                format!(
+                    "provider-commands.toml: entry {} has read_on {:?}, which is not \
+                     YYYY-MM-DD",
+                    e.provider, e.read_on
                 ),
             ));
         }
@@ -277,6 +328,53 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                             e.provider
                         ),
                     ));
+                }
+            }
+        }
+        // A cell's provenance must describe a cell, say what was read and when,
+        // and not be newer than the entry (F-35). Each of the three is the way
+        // a provenance row goes quietly wrong: a misspelt key that attaches a
+        // citation to nothing while the cell it meant keeps the entry's, a row
+        // that is a citation in name only, and an entry `read_on` that stops
+        // being the newest read in it - which `policy.toml`'s version is built
+        // from.
+        for (table, cells) in &e.provenance {
+            let values = match table.as_str() {
+                "elevation" => &e.elevation,
+                "success" => &e.success,
+                other => {
+                    return Err(DomainError::new(
+                        ErrorId::PolicyDataInvalid,
+                        format!(
+                            "provider-commands.toml: entry {} gives provenance for the table \
+                             {other:?}, which has no cells; only elevation and success do",
+                            e.provider
+                        ),
+                    ));
+                }
+            };
+            for (key, cell) in cells {
+                let refuse = |why: &str| {
+                    Err(DomainError::new(
+                        ErrorId::PolicyDataInvalid,
+                        format!(
+                            "provider-commands.toml: entry {} gives provenance for \
+                             {table}.{key}, which {why}",
+                            e.provider
+                        ),
+                    ))
+                };
+                if !values.contains_key(key) {
+                    return refuse("is not a cell of that table, so it describes nothing");
+                }
+                if cell.source.trim().is_empty() || !is_iso_date(&cell.read_on) {
+                    return refuse("lacks a source or a YYYY-MM-DD read_on");
+                }
+                if cell.read_on > e.read_on {
+                    return refuse(
+                        "was read after the entry's read_on - that field is the newest \
+                         read in the entry, and the policy version is built from it",
+                    );
                 }
             }
         }
@@ -530,6 +628,125 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn invariant_20_the_two_cells_that_rest_on_their_own_reads_say_so_in_a_field() {
+        // F-35's second half. Both cells used to be explained in comments and in
+        // a mixed entry-level `source`; if either loses its field, this says so.
+        let table = load().unwrap();
+        for (provider, read_on, cites) in [
+            (
+                "homebrew",
+                "2026-09-04",
+                "560147012b9678b42ef5e83b690f0895552d1366",
+            ),
+            ("macports", "2026-09-08", "UNRESOLVED-1"),
+        ] {
+            let cell = &table[provider].provenance["elevation"]["verify"];
+            assert_eq!(cell.read_on, read_on, "{provider}");
+            assert!(cell.source.contains(cites), "{provider}: {}", cell.source);
+            assert!(cell.read_on <= table[provider].read_on, "{provider}");
+        }
+        // The same read with one argument fewer, on the same evidence; the entry
+        // `source` no longer carries it, so without this row it would carry
+        // nothing specific (spec-guardian, 2026-09-25).
+        assert_eq!(
+            table["macports"].provenance["elevation"]["verify_absent"],
+            table["macports"].provenance["elevation"]["verify"]
+        );
+    }
+
+    #[test]
+    fn invariant_20_a_provenance_row_that_describes_no_cell_is_refused() {
+        // A misspelt key would attach the citation to nothing while the cell it
+        // meant silently kept the entry's - the exact state F-35 closed.
+        for (from, to) in [
+            (
+                "\n[entry.provenance.elevation.verify]\n",
+                "\n[entry.provenance.elevation.verfy]\n",
+            ),
+            (
+                "\n[entry.provenance.elevation.verify]\n",
+                "\n[entry.provenance.elevaton.verify]\n",
+            ),
+        ] {
+            // Anchored on the line: the header is also named, in backticks, in
+            // the comments that point at it.
+            assert!(SOURCE.contains(from));
+            let err = parse(&SOURCE.replacen(from, to, 1)).expect_err(to);
+            assert_eq!(err.id, ErrorId::PolicyDataInvalid, "{to}");
+            assert!(err.detail.contains("provenance"), "{to}: {}", err.detail);
+        }
+    }
+
+    #[test]
+    fn invariant_20_a_provenance_row_without_a_source_or_a_date_is_refused() {
+        let homebrew_cell = "read_on = \"2026-09-04\"\n\n[[entry]]";
+        assert!(SOURCE.contains(homebrew_cell));
+        for bad in [
+            "",
+            "Sept 4",
+            "2026-9-4",
+            "2026/09/04",
+            "2026-13-04",
+            "2026-09-00",
+        ] {
+            let text = SOURCE.replacen(
+                homebrew_cell,
+                &format!("read_on = \"{bad}\"\n\n[[entry]]"),
+                1,
+            );
+            let err = parse(&text).expect_err(&format!("read_on {bad:?}"));
+            assert!(err.detail.contains("YYYY-MM-DD"), "{bad}: {}", err.detail);
+        }
+        let text = SOURCE.replacen(
+            "[entry.provenance.elevation.verify]\nsource = \"Homebrew/brew",
+            "[entry.provenance.elevation.verify]\nsource = \"\"\nx_was = \"",
+            1,
+        );
+        // `deny_unknown_fields` refuses the stray key as well; either refusal
+        // is a refusal, and the point is that an empty source does not load.
+        assert!(parse(&text).is_err(), "an empty source loaded");
+        let text = SOURCE.replacen(
+            "[entry.provenance.elevation.verify]\nsource = \"Homebrew/brew",
+            "[entry.provenance.elevation.verify]\nsource = \"\"\n#",
+            1,
+        );
+        let err = parse(&text).expect_err("an empty source must be refused");
+        assert!(err.detail.contains("lacks a source"), "{}", err.detail);
+    }
+
+    #[test]
+    fn invariant_20_an_entry_read_on_that_is_not_a_date_is_refused() {
+        // The comparison below it is only sound when both sides are dates.
+        let line = "read_on = \"2026-09-19\"";
+        assert!(SOURCE.contains(line));
+        for bad in ["Sept 19", "2026-9-19", "2026-19-09"] {
+            let text = SOURCE.replacen(line, &format!("read_on = \"{bad}\""), 1);
+            let err = parse(&text).expect_err(bad);
+            assert!(err.detail.contains("YYYY-MM-DD"), "{bad}: {}", err.detail);
+        }
+        let text = SOURCE.replacen(
+            "\n[entry.provenance.elevation.verify]\nsource = \"Homebrew/brew",
+            "\n[entry.provenance.elevation.verify]\nsource = \"   \"\n#",
+            1,
+        );
+        assert!(parse(&text).is_err(), "a whitespace-only source loaded");
+    }
+
+    #[test]
+    fn invariant_20_a_provenance_row_newer_than_its_entry_is_refused() {
+        // The entry's `read_on` is the newest read in it, and `policy.toml`'s
+        // version is built from the newest across the directory. A cell dated
+        // after its entry would make both quietly wrong.
+        let text = SOURCE.replacen(
+            "read_on = \"2026-09-04\"\n\n[[entry]]",
+            "read_on = \"2026-09-20\"\n\n[[entry]]",
+            1,
+        );
+        let err = parse(&text).expect_err("a cell newer than its entry must be refused");
+        assert!(err.detail.contains("after the entry"), "{}", err.detail);
     }
 
     #[test]
