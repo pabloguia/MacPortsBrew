@@ -200,7 +200,8 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
 ///
 /// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` spawns `/bin/sh -c`
 /// for the express purpose of proving the runner survives a process that
-/// outlives its parent; `timeout_kills_the_child` needs something that sleeps.
+/// outlives its parent; `timeout_kills_the_child` needs something that sleeps;
+/// `a_child_starts_in_the_root_directory_and_not_in_ours` runs `/bin/sh -c pwd`.
 /// A test that cannot name the thing it is testing is not a test.
 ///
 /// This extends the list rather than bypassing the check, so the tests run the
@@ -291,8 +292,6 @@ pub struct CommandSpec {
     pub(in crate::process) argv: Vec<String>,
     /// The complete environment. Nothing is inherited.
     pub(in crate::process) environment: BTreeMap<String, String>,
-    /// Working directory; `None` means the process's own.
-    pub(in crate::process) cwd: Option<PathBuf>,
     /// Timeout.
     pub(in crate::process) timeout: Duration,
     /// Cap per output stream.
@@ -349,7 +348,6 @@ impl CommandSpec {
             program: program.into(),
             argv,
             environment,
-            cwd: None,
             timeout: DEFAULT_TIMEOUT,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
         }

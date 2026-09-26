@@ -232,9 +232,19 @@ impl ProcessRunner for SystemRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Some(cwd) = &spec.cwd {
-            command.current_dir(cwd);
-        }
+        // Never the caller's working directory. It is not inherited any more
+        // than the environment is: `port` resolves its `current` pseudo-port,
+        // and an `info` with no names, to the Portfile in the directory it was
+        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
+        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
+        // let wherever the user happened to run this tool decide what a read
+        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
+        // made `port -q info current` report its contents). `/` is root-owned,
+        // read-only here and holds no Portfile; the Homebrew prefix would not
+        // do, since on Intel it is user-writable. There is deliberately no
+        // per-spec override - `CommandSpec` has no directory field - so no
+        // caller can reintroduce a relative or inherited one.
+        command.current_dir("/");
         // Its own process group, so a terminal signal aimed at this process's
         // foreground group (a Ctrl-C) does not also reach a provider read
         // mid-flight; cancellation is what [`CancelToken`] is for, and it is
@@ -424,6 +434,20 @@ mod tests {
             panic!("a mutating subcommand reached the kernel: {:?}", inv.status);
         };
         assert!(error.contains("read allowlist"), "{error}");
+    }
+
+    #[test]
+    fn a_child_starts_in_the_root_directory_and_not_in_ours() {
+        // The test process runs in the crate directory, so a child that
+        // inherited it would print that instead - checked first, or the test
+        // would pass vacuously when run from `/`.
+        assert_ne!(std::env::current_dir().unwrap(), std::path::Path::new("/"));
+        let runner = SystemRunner::new();
+        let spec = CommandSpec::new("/bin/sh", vec!["-c".into(), "pwd".into()], env());
+        let inv = runner.run(&spec).unwrap();
+        assert!(!inv.truncated, "the reader thread did not drain in time");
+        assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
+        assert_eq!(inv.stdout, "/\n");
     }
 
     #[test]

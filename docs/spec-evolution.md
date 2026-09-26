@@ -2537,7 +2537,7 @@ finding ids in each entry.
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04;
-  subcommand dimension 2026-09-25 (F-53)
+  subcommand dimension 2026-09-25 (F-53); working directory 2026-09-26
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: a run-time allowlist at the one spawn site, with three narrower
@@ -2669,10 +2669,15 @@ finding ids in each entry.
     portlist of `info`, `installed` or `echo` alike: `element`,
     `/opt/local/bin/port` line 1244) or the `current` pseudo-port, and `port
     info` with no names, open a Portfile from elsewhere — for `current`, from
-    the working directory, which the runner never sets, so it is the user's.
-    Theoretical: appended names cannot contain `:` or `/`, `run_info` is never
-    called without names, and no port is named `current`; only a data edit
-    could produce one (security-reviewer, 2026-09-25). (3) A
+    the working directory. Theoretical: appended names cannot contain `:` or
+    `/`, `run_info` is never called without names, and no port is named
+    `current`; only a data edit could produce one (security-reviewer,
+    2026-09-25). **The working-directory half is closed 2026-09-26**: the runner
+    starts every child in `/` (see the working-directory bullet below). The
+    URL half remains, and so does one gap in a guarded path left for the
+    owner: `scripts/capture-fixture.sh` still runs providers from the
+    repository root, so a recording is not captured from the directory the
+    binary now uses — no output differed. (3) A
     refused provider read arrives as `NotStarted`, which the detection path
     reads as "absent"; unreachable while the read lists and the adapters' argv
     are tied, and worth knowing when the executor pass edits either.
@@ -2695,6 +2700,29 @@ finding ids in each entry.
     options after them from the adapters' argv lists or dated policy data, and
     never from user input. What a verification step's command means is SE-049
     and SE-083's topic; the loader half of this is cross-referenced there.
+- **A new MUST: a child never inherits the working directory (2026-09-26).**
+  Original assumption: `CommandSpec.cwd` was documented as "`None` means the
+  process's own", nothing ever set it, and so every provider read ran in
+  whatever directory the user launched this tool from. `port` resolves its
+  `current` pseudo-port, and `info` with no names, to the Portfile in that
+  directory (`get_current_port`, `/opt/local/bin/port` lines 503-515, MacPorts
+  2.12.6, read 2026-09-25), and a Portfile is Tcl that `port` evaluates.
+  Change: `SystemRunner::run` always starts a child in `/`, and `CommandSpec`
+  loses the unused field, so there is no per-spec override to feed from input
+  or a snapshot — spec-guardian's point that "unless the spec names one" would
+  have left a door the MUST did not constrain. `/` rather than the prefix
+  because it is root-owned and read-only here, where the Homebrew prefix on
+  Intel is user-writable. Evidence (security-reviewer): from a directory
+  holding a planted Portfile, `port -q info --name --version current` printed
+  the planted port's name and version before the change and fails with "Could
+  not find Portfile in /" after it; every shipped `brew` and `port -q` read,
+  run under `env -i` with the adapters' sanitised environment, produced
+  byte-identical output from `/`, an empty directory and the repository root.
+  Test: `a_child_starts_in_the_root_directory_and_not_in_ours`, which first
+  asserts the test itself is not running in `/`. It is a Tier 3 rule, not
+  INV-10 — that invariant is about the environment — so the test is not named
+  for an invariant. Recordings do not store a directory and replay spawns
+  nothing, so INV-15 is unaffected.
 - **One thing this pass will not evade.** `invariant_06_reading_the_machine_needs_
   no_elevation` refused the elevating binary's name in a list of programs a test
   asserts are *rejected*. The invariant is right and the case was dropped: an

@@ -280,6 +280,12 @@ policy data whose loader refuses a verification verb that repeats the entry's ow
 add or remove verb; any other subcommand is refused at the spawn site. User
 input never becomes a flag (F-53, SE-050).
 
+**MUST.** A child never inherits this process's working directory; it always
+starts in `/`, which is root-owned and holds no Portfile, because a provider can
+resolve a read against the directory it was started in (`port`'s `current`
+pseudo-port; SE-050). A command spec carries no directory, so nothing can name
+another one.
+
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.
 
