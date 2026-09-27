@@ -46,8 +46,8 @@ are and are not, and why the honest statement matters here.
 
 ## Prerequisites
 
-- **Claude Code** — 2.1.258 is what this configuration was verified with on
-  2026-09-02 (`claude --version`).
+- **Claude Code** — 2.1.278 is what this configuration was last verified with,
+  on 2026-09-27 (`claude --version`; 2.1.258 on 2026-09-02).
 - **`jq` or `python3`.** The guard hooks parse their JSON input with one of
   them and *fail closed* when neither is present, so without one every Bash
   tool call is denied. `python3` from the Command Line Tools is enough.

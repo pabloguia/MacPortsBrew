@@ -26,7 +26,8 @@ Everything specified below was verified against Anthropic's Claude Code
 documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**
 (re-verified the same day at the start of the Foundation Pass; the
 permissions, hooks, skills and github-actions pages re-read **2026-09-05**
-during the security review that produced SE-072). The
+during the security review that produced SE-072), and every group re-read
+**2026-09-27** (`docs/research/tooling/2026-09-27-*.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
