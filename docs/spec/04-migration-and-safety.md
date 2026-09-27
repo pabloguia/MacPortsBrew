@@ -349,9 +349,13 @@ do not gold-plate beyond them.
   argument must be, exactly, one of the read subcommands the adapters run; no
   argument may be `port`'s action separator `;`; nothing after the subcommand
   may be a single-dash option, since `port -F <file>` runs a command file from
-  either position; and an empty argument vector — `port`'s interactive mode —
-  is refused. The `port` behaviours were read in its source on this machine,
-  MacPorts 2.12.6, 2026-09-25, and are cited where the list states them. The
+  either position; nothing after a subcommand that takes packages may contain
+  `/` or `:` — for `port` either one makes a list element a Portfile it opens
+  and evaluates, and Homebrew's own refusal of a path or URL can be turned off
+  by a `brew.env` — so only `port provides`, which takes raw strings, accepts a
+  path; and an empty argument vector — `port`'s interactive mode — is refused. The
+  `port` behaviours were read in its source on this machine, MacPorts 2.12.6,
+  2026-09-25 and 2026-09-26, and are cited where the list states them. The
   adapters' own argument-vector allowlists stay, tied to these lists in both
   directions by a test; this is what holds for a command that did not come
   from an adapter, such as a plan's verbs read out of policy data (F-53,

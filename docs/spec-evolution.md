@@ -2537,7 +2537,8 @@ finding ids in each entry.
 ## SE-050 — The no-shell guarantee needs a check, or the claim needs correcting
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04;
-  subcommand dimension 2026-09-25 (F-53); working directory 2026-09-26
+  subcommand dimension 2026-09-25 (F-53); working directory and argument
+  shape 2026-09-26
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: a run-time allowlist at the one spawn site, with three narrower
@@ -2646,7 +2647,27 @@ finding ids in each entry.
     that and with `installed -F <file>`, observed with a file of `version`
     lines. Every argv the adapters hold uses only `--long` options past the
     subcommand, so none of this refuses a read they perform. An empty argv is
-    refused: it is `port`'s interactive mode. The four macOS probes are named
+    refused: it is `port`'s interactive mode. And (2026-09-26) after any
+    subcommand except one that takes raw strings, no argument may contain `/`
+    or `:` — for both providers. `port` turns a port-list element into a
+    Portfile it evaluates, as Tcl run by the user, when it contains `/`
+    (`file://<it>`, `parseFullPortSpec`, `/opt/local/bin/port` line 1371) or
+    is shaped `word:rest` (a URL, `element`, line 1244); `info`, `installed`
+    and `echo` all take port lists, and only `provides` takes raw strings
+    (`ACTION_ARGS_STRINGS`, line 4127), MacPorts 2.12.6, read 2026-09-26.
+    Homebrew gets the same rule rather than trust in its own default refusal of
+    a formula given as a path or URL, because that default is computed from the
+    absence of `HOMEBREW_DEVELOPER` and `brew` re-exports every `HOMEBREW_*`
+    line of a `brew.env` in the user's home or in the prefix (`bin/brew` lines
+    128-180, Homebrew 7.0.4, read 2026-09-26). **The first version refused
+    only `word:rest` for `port`, and both reviewers broke it independently**:
+    an absolute path is the same read spelled without a colon, and
+    security-reviewer made `port -q info --name` evaluate a probe Portfile both
+    that way and through `‿:file://`, whose connector punctuation Tcl's `\w`
+    matches and a Rust character-class mirror did not. Refusing the two
+    characters outright needs no mirror of either parser. A validated name
+    holds neither, so no read the adapters perform is refused; the same test
+    asserts a `provides` path still passes. The four macOS probes are named
     in `SYSTEM_PROBES` rather than implied by absence from the read lists, so a
     provider added to `PERMITTED_PROGRAMS` without a read list is refused
     instead of passing unchecked; a test holds the partition. Another test ties
@@ -2665,22 +2686,20 @@ finding ids in each entry.
     this list, a `VERIFY_*` step carrying one would pass it, and the loader's
     set is only `add` ∪ `remove`. Carrying read-or-write intent into
     `CommandSpec` is executor design, which the owner retains
-    (`prompts/05-the-executor.md` §5). (2) A URL port spec (any scheme, in the
-    portlist of `info`, `installed` or `echo` alike: `element`,
-    `/opt/local/bin/port` line 1244) or the `current` pseudo-port, and `port
-    info` with no names, open a Portfile from elsewhere — for `current`, from
-    the working directory. Theoretical: appended names cannot contain `:` or
-    `/`, `run_info` is never called without names, and no port is named
-    `current`; only a data edit could produce one (security-reviewer,
-    2026-09-25). **The working-directory half is closed 2026-09-26**: the runner
-    starts every child in `/` (see the working-directory bullet below). The
-    URL half remains, and so does one gap in a guarded path left for the
-    owner: `scripts/capture-fixture.sh` still runs providers from the
+    (`prompts/05-the-executor.md` §5). (2) One gap in a guarded path, left for
+    the owner: `scripts/capture-fixture.sh` still runs providers from the
     repository root, so a recording is not captured from the directory the
     binary now uses — no output differed. (3) A
     refused provider read arrives as `NotStarted`, which the detection path
     reads as "absent"; unreachable while the read lists and the adapters' argv
-    are tied, and worth knowing when the executor pass edits either.
+    are tied, and worth knowing when the executor pass edits either. (4) A
+    version appended to a `port` argument would be refused if it held `:`
+    (`is_safe_provider_version` allows one); nothing appends a version today.
+  - **Closed on 2026-09-26, and recorded here because it was item (2) of this
+    list until then:** a `port` read evaluating a Portfile this tool did not
+    choose — through the `current` pseudo-port or `info` with no names, via the
+    inherited working directory (the working-directory bullet below), and
+    through a URL or a path in a port list (the argument-shape clause above).
   Proved by mutation, each reverted: disabling the loader rule fails
   `invariant_01_a_verification_verb_that_is_the_entrys_own_mutation_is_refused`;
   accepting any subcommand fails `a_provider_mutation_is_refused_whatever_surrounds_it`,
@@ -2688,7 +2707,11 @@ finding ids in each entry.
   and `a_provider_asked_for_a_subcommand_off_its_read_list_is_not_started`;
   dropping the separator clause fails the first two; dropping the short-option
   clause fails the first; dropping a probe fails
-  `every_permitted_program_is_a_probe_or_has_a_read_list`. The tests name no
+  `every_permitted_program_is_a_probe_or_has_a_read_list`; for the argument
+  shape, checking `:` alone passes `info --name /tmp/p`, checking `/` alone
+  passes `echo x_1:y`, dropping the raw-string exemption refuses `provides
+  /opt/local/bin/curl`, and dropping the clause passes `info --name
+  file:///tmp/p` — each failing `a_provider_mutation_is_refused_whatever_surrounds_it`. The tests name no
   mutating verb as a literal — they assemble it at run time, as
   `.claude/hooks/test-hooks.sh` does, or read it out of the table — because the
   Stop gate greps `src/` for exactly those words.

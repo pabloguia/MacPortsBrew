@@ -117,6 +117,14 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
             "list",
         ],
         separators: &[],
+        // None of Homebrew's reads here takes a path. Its default refusal of a
+        // formula given as a path or URL is not relied on: it is computed from
+        // the absence of `HOMEBREW_DEVELOPER` and two other variables, and
+        // `brew` re-exports every `HOMEBREW_*` line of a `brew.env` in the
+        // user's home or in the prefix (`bin/brew` lines 128-180, Homebrew
+        // 7.0.4;
+        // security-reviewer, 2026-09-26).
+        raw_string_subcommands: &[],
     },
     ProviderReads {
         program: "port",
@@ -142,6 +150,18 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
         // (spec-guardian, 2026-09-25). No package name can be `;`
         // (`is_safe_provider_name`), so refusing the element costs no read.
         separators: &[";"],
+        // Every read here that takes arguments, except `provides`, takes a
+        // *port list* (`version` takes none), and `port`
+        // turns a list element into a Portfile it evaluates - Tcl, run as the
+        // user - in two ways: `word:rest` is opened as a URL (`element`,
+        // `/opt/local/bin/port` line 1244), and anything containing `/` is
+        // opened as `file://<it>` (line 1371). `provides` collects its
+        // arguments as raw strings (`ACTION_ARGS_STRINGS`, line 4127), so a
+        // path reaches no parser there. MacPorts 2.12.6, read 2026-09-26;
+        // security-reviewer made both evaluate a probe Portfile, including
+        // through `‿:file://`, which a character-class mirror of Tcl's `\w`
+        // missed.
+        raw_string_subcommands: &["provides"],
     },
 ];
 
@@ -164,6 +184,11 @@ pub(crate) struct ProviderReads {
     /// Elements the provider reads as the start of another action, refused
     /// wherever they appear in the argv.
     pub(crate) separators: &'static [&'static str],
+    /// Subcommands whose arguments are raw strings. After any other
+    /// subcommand no argument may contain `/` or `:` - which a validated
+    /// package name never does, and which is how a provider is made to load
+    /// a package definition from somewhere this tool did not choose.
+    pub(crate) raw_string_subcommands: &'static [&'static str],
 }
 
 /// Whether `program` may be started with `argv`.
@@ -193,7 +218,10 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     let short_option = |a: &str| a.starts_with('-') && !a.starts_with("--");
     reads.subcommands.contains(&subcommand)
         && !argv.iter().any(|a| reads.separators.contains(&a.as_str()))
-        && rest.all(|a| !short_option(a))
+        && rest.all(|a| {
+            !short_option(a)
+                && (reads.raw_string_subcommands.contains(&subcommand) || !a.contains(['/', ':']))
+        })
 }
 
 /// The programs the executor's own tests spawn, and only in a test build.
@@ -653,6 +681,44 @@ mod tests {
                     "/tmp/x".into(),
                 ],
             ),
+            // A URL port spec, which `port` opens and evaluates as a Portfile.
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "info".into(),
+                    "--name".into(),
+                    "file:///tmp/p".into(),
+                ],
+            ),
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "installed".into(),
+                    "https://example.org/p".into(),
+                ],
+            ),
+            (port, vec!["-q".into(), "echo".into(), "x_1:y".into()]),
+            // The same Portfile read as `file://`, spelled as a path, and the
+            // Unicode spelling a character-class mirror of `\w` missed.
+            (
+                port,
+                vec!["-q".into(), "info".into(), "--name".into(), "/tmp/p".into()],
+            ),
+            (port, vec!["-q".into(), "installed".into(), "/tmp/p".into()]),
+            (port, vec!["-q".into(), "echo".into(), "tmp/p".into()]),
+            (
+                port,
+                vec!["-q".into(), "info".into(), "\u{203F}:file:///tmp/p".into()],
+            ),
+            // And for Homebrew, whose own refusal a `brew.env` can switch off.
+            (brew, vec!["info".into(), "/tmp/p.rb".into()]),
+            (brew, vec!["info".into(), "https://example.org/p.rb".into()]),
+            (
+                brew,
+                vec!["list".into(), "--versions".into(), "user/tap/p".into()],
+            ),
             // An abbreviation `port` would resolve, and a name in another case.
             (port, vec!["-q".into(), "inst".into()]),
             (port, vec!["-q".into(), "INSTALLED".into()]),
@@ -667,6 +733,15 @@ mod tests {
                 "{} {bad:?} was permitted",
                 program.display()
             );
+        }
+        // The rule does not reach what the adapters append: a validated name,
+        // and a path given to the one subcommand that takes raw strings.
+        for good in [
+            argv(&["-q", "info", "--index", "--line", "--name", "libpng"]),
+            argv(&["-q", "provides", "/opt/local/bin/curl"]),
+            argv(&["-q", "provides", "/opt/local/share/a:b"]),
+        ] {
+            assert!(is_permitted_invocation(port, &good), "{good:?} was refused");
         }
         // The dimension is per provider: a system probe has none, and a
         // provider still has to pass the program check first.
