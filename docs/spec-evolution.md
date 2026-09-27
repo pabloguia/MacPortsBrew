@@ -5038,4 +5038,63 @@ finding ids in each entry.
 - Compatibility impact: `provider-commands.toml` gains an optional table; an
   entry without it loads as before.
 
+
+## SE-092 — The executor lives in the command-line crate and re-plans rather than reading a plan document
+
+- Status: accepted
+- Date / Pass: 2026-09-27 / 05-THE-EXECUTOR
+- Original assumption: `prompts/05-the-executor.md` §5 placed the executor in a
+  new `crates/executor/` depending on `{domain, adapters}`, and left open where
+  `migrate` gets its plan — re-planned in process or deserialised from a
+  document (§6 item 1).
+- Change, placement: the executor is a module of the command-line crate,
+  `crates/cli/src/executor/`, with every *decision* it makes — the dispatch
+  guard's disposition, halt reasons, the run outcome and its exit code — as pure
+  functions in `application`, and only the I/O shell (build a spec, run it,
+  evaluate the read) in the command-line crate (DP-024, resolved the same day).
+  A new crate would need `scripts/check-layering.sh` and
+  `scripts/check-coverage.sh` edited, both guarded paths; the module moves to a
+  crate with a directory move and two manifest lines when the owner arms them.
+  What this strains, and the check that stands in for each: the command-line
+  crate has no coverage floor, so no decision lives there (the 95% floor of
+  `07-quality-and-testing.md` for planning, verification and safety logic is
+  met in `application` and `domain`); `check-layering.sh` does not scan it for
+  provider names, so a word-bounded textual test covers the executor module and
+  `app/migrate.rs` (INV-17); and nothing structural stops other command-line
+  code calling the runner, so a test asserts that crate constructs no
+  `CommandSpec` and the context's runner is reachable from `app/migrate.rs`
+  alone. This also settles the Tier 5 layering hypothesis of
+  `07-quality-and-testing.md` that places verification in `application`: the
+  *evaluation* is in `domain` (it must be callable from the loop and depends on
+  nothing), the *gate* in `application`.
+- Change, plan source: `migrate` re-plans in process from a live or replayed
+  capture and never deserialises a `MigrationPlan`. So `PlanCommand.environment`
+  is never input from a document (INV-10 keeps holding where it already held),
+  the justification for staying at plan schema v1 survives, and `dryRunOnly`
+  can describe a compile-time property instead of a boolean one JSON edit flips.
+- **What this does not settle, and why it is recorded here rather than
+  discovered later (spec-guardian).** INV-02 says the executor runs "a plan
+  object that a human has seen" and never derives destructive actions at
+  execution time. `migrate --yes` renders and executes in one process, so no
+  human saw that object first. That is compatible with INV-02 in this build
+  **only because nothing destructive is dispatched**. The mutating pass owes a
+  tie between the executed plan and the one the human saw — the same in-memory
+  object shown and then confirmed, or under `--yes` a digest of a previously
+  rendered plan that must match — and `plan.v1.md` lists it as an executor
+  obligation. If no such tie is acceptable, that is a Tier 1 question for the
+  owner, not an entry here.
+- Rationale: DP-023 (the program is re-derived inside `process/`) and this
+  entry together keep every value that decides *what runs* inside the source:
+  the binary from a literal and a detected prefix, the environment from the
+  adapter, the argv from a plan built in the same process and checked at the
+  spawn site (SE-050).
+- Evidence: the work order and its review, `prompts/05-the-executor.md`; the
+  plan and its spec-guardian review of 2026-09-27; `scripts/check-layering.sh`
+  lines 22-37 and `scripts/check-coverage.sh` line 39 (what option A would
+  edit); DP-023 and DP-024 in `docs/decisions-pending.md`.
+- User impact: none until `migrate` exists.
+- Architectural impact: the command-line crate gains an I/O module that is not
+  presentation; `AGENTS.md`'s `cli` row says so.
+- Compatibility impact: none.
+
 ---

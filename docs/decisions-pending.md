@@ -17,6 +17,21 @@ None. The last three were ruled on 2026-09-27.
 
 ## Resolved
 
+### DP-024 — Where the executor lives, given that a new crate means editing two guarded scripts — **RESOLVED 2026-09-27: a module of the command-line crate**
+
+- **Ruled 2026-09-27 by the owner**, who authorised the recommendations of the
+  executor plan.
+- **Options that were put:** (A) a new `crates/executor/`, as the work order
+  proposed — which needs `scripts/check-layering.sh` (two lines) and
+  `scripts/check-coverage.sh` (one key) edited, both guarded; (B) a module in
+  the command-line crate, needing no guarded edit; (C) `application` with I/O
+  through a trait, rejected because it contradicts INV-02's test and the work
+  order; (D) `adapters`, rejected because that layer only reads.
+- **Decision: (B)**, built so that moving to (A) is a directory move plus two
+  manifest lines once the owner arms the guard for the two scripts. Every
+  decision the executor makes is a pure function in `application`; the module
+  holds only the I/O shell. The rationale and what (B) strains are in SE-092.
+
 ### DP-023 — How the executor turns a plan command into something it may run — **RESOLVED 2026-09-27: re-derive inside `process/`**
 
 - **Ruled 2026-09-27 by the owner**, on the question `prompts/05-the-executor.md`
