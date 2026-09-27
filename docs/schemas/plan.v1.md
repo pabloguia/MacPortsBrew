@@ -96,6 +96,9 @@ a list rather than three doc comments:
    as data 2026-09-19**, and what is left is the executor's half, which is one
    sentence rather than a design. `PACKAGE_ABSENT` now carries the provider's
    inventory verb with no package argument and `success: STDOUT_OMITS_PACKAGE`.
+   **The evaluation is implemented** (2026-09-27, `crates/domain/src/verification.rs`,
+   tested in `crates/domain/tests/verification.rs`); what is still owed is an
+   executor that runs the command and calls it.
    What this entry said before, and which is why the field is shaped this way:
    the step carried no command at all, and "nonzero exit means absent" is
    verification by exit status with the sign flipped — `brew list --versions`
@@ -130,7 +133,13 @@ a list rather than three doc comments:
    killed process leaves whatever it flushed. A `brew list --versions` cut off
    at line 40 of 201 is non-empty, omits the name, and would have certified a
    removal it never saw. Found by `security-reviewer` 2026-09-19; the loader now
-   also refuses this semantic on any verb the planner appends a name to.
+   also refuses this semantic on any verb the planner appends a name to. That is
+   the general case, over the data. `expectation_for` adds the case over the
+   plan in hand: a removal check whose argv names either of **this plan's**
+   packages — the source's spelling or the destination's — is refused
+   (`ArgvNamesAPackage`), and so is one whose source name is empty or fails
+   `is_safe_provider_name`, because an empty name is no line's first token and
+   would pass on any inventory (`UnsafePackageName`).
 
    **And the stdout is never recorded.** It is the machine's complete installed
    inventory — a strong fingerprint that routinely names internal tooling. What

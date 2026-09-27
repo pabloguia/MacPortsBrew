@@ -4860,6 +4860,71 @@ finding ids in each entry.
   and defensibly by someone reading it carefully.
 - Found while discharging executor-debt item 3 (SE-088) and independently by
   `security-reviewer` on the same diff. Recorded as **F-51**.
+- **Implemented 2026-09-27 (05-THE-EXECUTOR, slice S1)**, as pure functions in
+  `crates/domain/src/verification.rs`, and the implementation had to close
+  questions the contract had left open:
+  - **Truncation fails every semantic, `EXIT_STATUS` and
+    `STDOUT_NAMES_PACKAGE` included.** A stream cut mid-line manufactures a
+    first token — `ghidra 1.0` cut after two bytes reads `gh` — so a truncated
+    answer certifies nothing, and neither does a process that did not finish.
+    `EXIT_STATUS` reads no stdout, but a read that was cut or never ended still
+    fails it: the process may have been stopped at the cap rather than exiting
+    on its own. An output of whitespace only counts as empty.
+  - **Everything a check reads is bound, by the one function that builds a
+    check.** `Expectation` is opaque and `expectation_for` is its only
+    constructor, so an `Expectation` cannot be written by hand. Nor can what it
+    is derived from: the function takes the step and the command as positions
+    in `plan.steps` and in that step's `commands`, not as references, so a
+    hand-written `MigrationStep` — public fields, the right kind and provider,
+    no `verification` — cannot reach it (`StepNotInPlan`, `CommandNotInStep`;
+    spec-guardian: the reference form let such a step clear the
+    unrecognised-check refusal and made "the command is the step's own" a check
+    against the caller's own step). It binds: the step kind
+    to the semantic — a destination by exit status or by name, a removal only
+    by absence (`SemanticNotValidForStep`); the provider to the side the kind
+    reads — destination for `VERIFY_DESTINATION`, source for `VERIFY_REMOVAL`
+    (`WrongProvider`; spec-guardian: on a package both providers hold, a
+    destination check read from the source passes whatever the install did);
+    the name to its side, through `MigrationPlan::destination_name` and
+    `source_name`, whose types cannot be swapped; the name to
+    `is_safe_provider_name` (`UnsafePackageName` — an empty or whitespace
+    source name is no line's first token, so a removal check reading it passed
+    on any inventory); an exit-status destination check to an argv whose
+    **last** element is the destination name, where the planner appends it
+    (`ArgvDoesNotNameDestination`); and a removal check to an argv naming
+    neither of this plan's packages (`ArgvNamesAPackage` — the general case is
+    the loader's). It refuses what can never be run or satisfied: a
+    placeholder, a command that is not a provider's, a step carrying an
+    unrecognised check, and an unknown semantic.
+  - **Nothing a check reads is kept.** `ReadEvidence` carries the verdict, the
+    line count and the truncation flag, has no field a stdout could go in, and
+    its fields are private with `ReadEvidence::of` as the only constructor.
+  Tests: `crates/domain/tests/verification.rs`, twenty-five, including
+  `a_step_or_command_the_plan_does_not_hold_is_refused`,
+  `invariant_01_a_removal_needs_a_clean_exit`, `_an_untruncated_inventory`,
+  `_a_non_empty_inventory`,
+  `invariant_01_a_removal_never_reads_an_empty_or_unsafe_source_name`,
+  `invariant_01_a_destination_never_reads_an_unsafe_name`,
+  `invariant_01_a_destination_is_not_certified_by_a_substring_collision` and
+  `invariant_08_a_destination_check_is_never_run_against_the_source_provider`.
+  Proved by mutation, each rule separately, in three runs: the first nineteen
+  over the evaluation, the name helpers and the bindings; then, after
+  spec-guardian's first review, eight more — the command-in-step check,
+  placeholder, target, unrecognised check, the source and destination
+  name-safety checks, last-argv against any-argv, and truncation on
+  `EXIT_STATUS` — with truncation, provider binding, the removal argv and the
+  evidence re-run over the reworked code; then, after the second review, two
+  over addressing by position — an out-of-range step falling back to the last
+  step, an out-of-range command falling back to the first — both failing
+  `a_step_or_command_the_plan_does_not_hold_is_refused`. Twenty-nine distinct
+  mutations, none surviving; one of them, the command-in-step membership test,
+  was over a check that addressing by position has since replaced, so
+  twenty-eight are over the code as it stands. The one spec-guardian found
+  surviving in the first version — exempting `EXIT_STATUS` from the truncation
+  branch — now fails `an_exit_status_check_names_the_destination_in_argv`. The
+  swap of the two names cannot be written as a mutation at all, because the
+  types do not allow it; the nearest that compiles, deriving the destination
+  name from the source field, fails five tests.
 
 ---
 

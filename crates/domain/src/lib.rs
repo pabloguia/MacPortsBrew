@@ -25,6 +25,7 @@ pub mod recommendation;
 pub mod resolution;
 pub mod snapshot;
 pub mod support;
+pub mod verification;
 pub mod version;
 
 pub use availability::{
@@ -59,4 +60,8 @@ pub use snapshot::{
     PINNED_ENVIRONMENT, SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
+pub use verification::{
+    evaluate, expectation_for, stdout_names, DestinationName, Expectation, ExpectationError,
+    FailureCause, ProcessEnd, ReadEvidence, ReadOutput, SourceName, Verdict,
+};
 pub use version::Version;

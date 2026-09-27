@@ -133,6 +133,14 @@ pub enum SuccessSemantic {
     /// 3. stdout is **non-empty**;
     /// 4. only then: the name is not the first token of any line.
     ///
+    /// Judged by `verification::evaluate`, which also fails every semantic —
+    /// exit status included — on a truncated or unfinished read: a stream cut
+    /// mid-line can manufacture a first token. What it judges against is built
+    /// only by `verification::expectation_for`, which addresses the step and
+    /// the command by position in the plan, and binds the step kind to the
+    /// semantic, the provider to the step's side, and the name to the argv and
+    /// to `is_safe_provider_name` (SE-089).
+    ///
     /// **The first draft of this comment stated only (3) and justified it with
     /// a claim that is false.** It said a provider "crashed, was killed, or
     /// whose output was truncated produces an empty stdout". Truncation does
