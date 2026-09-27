@@ -37,7 +37,9 @@ None. The last three were ruled on 2026-09-27.
   reconstructed rather than the exact document the human reviewed, so the
   refusal on disagreement is what keeps INV-02 honest.
 - **Recorded in:** `prompts/05-the-executor.md` §5, which now states the ruling.
-  The executor pass is not started by this entry.
+  The executor pass is not started by this entry. It answers §5's question
+  only; §6's item 1 — whether `migrate` re-plans in process or deserialises a
+  plan — is a separate design decision, taken in the executor pass itself.
 
 ### DP-022 — The guarded-path escape is a filter, and both ways to make it a boundary spend your workflow — **RESOLVED 2026-09-27: keep the filter**
 

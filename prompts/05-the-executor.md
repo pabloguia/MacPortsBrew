@@ -142,7 +142,8 @@ pass must choose, with `security-reviewer` on the choice:
 re-derived inside `process/` from the detected prefix and a literal; the plan
 supplies argv only, and that argv still passes the spawn-site allowlist
 (SE-050). A plan whose `program` disagrees with the re-derived one is a
-refusal cause. Item 1 of section 6 is therefore decided, not open.
+refusal cause. This answers section 5's question only; section 6's item 1 —
+where `migrate` gets its plan — is a separate decision.
 
 ## 6. Order of work
 
