@@ -11,8 +11,44 @@ are recorded.
 
 ## Open
 
-### DP-022 — The guarded-path escape is a filter, and both ways to make it a boundary spend your workflow
+None. The last three were ruled on 2026-09-27.
 
+---
+
+## Resolved
+
+### DP-023 — How the executor turns a plan command into something it may run — **RESOLVED 2026-09-27: re-derive inside `process/`**
+
+- **Ruled 2026-09-27 by the owner**, on the question `prompts/05-the-executor.md`
+  §5 left open as that pass's item 1: `CommandSpec::provider` takes the
+  executable as `&'static str` on purpose, and `PlanCommand.program` is a
+  runtime `String`, so no legal path existed from a plan to a spawn.
+- **Options that were put:** re-derive the program inside `process/` from the
+  detected prefix and a literal, taking only the argv from the plan; add a
+  constructor in `process/` that accepts a plan command (a change to a module
+  `AGENTS.md` calls dangerous, which must never take `PlanCommand.environment`
+  verbatim, INV-10); or leave it for a dedicated pass.
+- **Decision: re-derive.** Nothing outside the source chooses which binary runs,
+  which keeps the guarantee `CommandSpec::provider` exists for. The plan
+  supplies argv only, and that argv still passes the spawn-site allowlist
+  (SE-050: read subcommands, argument shape). A plan whose `program` disagrees
+  with the re-derived one is a refusal cause, not a correction. The cost the
+  work order named stands and is accepted: the executor runs a command it
+  reconstructed rather than the exact document the human reviewed, so the
+  refusal on disagreement is what keeps INV-02 honest.
+- **Recorded in:** `prompts/05-the-executor.md` §5, which now states the ruling.
+  The executor pass is not started by this entry.
+
+### DP-022 — The guarded-path escape is a filter, and both ways to make it a boundary spend your workflow — **RESOLVED 2026-09-27: keep the filter**
+
+- **Ruled 2026-09-27 by the owner: keep the filter.** Neither boundary is
+  taken; prompt-arming stays, narrowed as SE-081 and F-52 left it. The residual
+  is therefore accepted rather than open: the escape is a filter against the
+  demonstrated accident — a subagent's report quoting the token — and not a
+  boundary against a session that means to arm it. F-52 is closed on this
+  ruling. The hook headers that point here (`arm-guard-edit.sh`,
+  `test-hooks.sh`) still read "filed rather than chosen"; they are guarded
+  paths and are corrected the next time the owner arms the guard for them.
 - **Filed 2026-09-20, from F-52, which is the second time this escape armed
   itself.** Both times a reviewing subagent quoted the specification that
   describes the escape, and both times the hand-back reached the hook through
@@ -51,8 +87,15 @@ are recorded.
 - **The reversible default, taken:** the filter above, with its limits written
   where the rule is implemented rather than in a summary of it.
 
-### DP-019 — DP-008 was decided without its cost, and the cost is a second certificate plus a billed runner
+### DP-019 — DP-008 was decided without its cost, and the cost is a second certificate plus a billed runner — **RESOLVED 2026-09-27: option (a), all three artifacts**
 
+- **Ruled 2026-09-27 by the owner: option (a).** The `.app`, the `.pkg` and
+  the Intel build all ship, and the second certificate and the Intel runner are
+  costs chosen rather than inherited. DP-008 stands as decided. Still open
+  inside it, and a scheduling question rather than an audience one: whether
+  Intel builds run per commit or per release. **Default meanwhile: per
+  release**, which is the cheaper of the two and reversible. Nothing is billed
+  until a remote exists (DP-007).
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two
   numbers DP-008 did not have when it chose to publish all three artifacts —
   bare binary, `.pkg` and `.dmg` — unconditionally.
@@ -92,8 +135,19 @@ are recorded.
 - **Default meanwhile:** DP-008 stands — all three artifacts — because it is
   what is documented and because reversing it costs nothing while nothing ships.
 
-### DP-021 — A provider installed under the home directory can be analysed and can never be planned, and closing that costs either a privacy rule or an audience
+### DP-021 — A provider installed under the home directory can be analysed and can never be planned, and closing that costs either a privacy rule or an audience — **RESOLVED 2026-09-27: option (b) now, (c) as the eventual fix**
 
+- **Ruled 2026-09-27 by the owner: (b) now, (c) as the shape of the eventual
+  fix.** (b) is complete — `doctor` warns first, the refusal names the cause and
+  points at `doctor`, and both directions are tested — so a home-installed
+  provider is analysed and never planned, and says so honestly. (c), carrying
+  the un-redacted prefix only in the in-memory plan and never in a written
+  document, is the agreed design for whoever makes such a machine plannable;
+  it needs capture to keep the removed value, which it does not today. (a) is
+  rejected: it spends the privacy MUST at three exits instead of one. The
+  smaller question — the error identifier — was not ruled on; **default
+  meanwhile: accept the mismatch**, the reversible option, with the detail
+  sentence carrying the correction. F-48 is closed on this ruling.
 - **Raised 2026-09-19**, filing the design question F-48 has carried open since
   2026-09-16. F-48's other half — the curated table judged by a guard that
   blamed the user — was fixed that day; this half was left as "a design
@@ -181,8 +235,6 @@ are recorded.
   cannot express a step for this machine", which is a category the table does not
   currently have. Meanwhile the detail carries the correction in the sentence the
   user actually reads, which is the reversible half.
-
-## Resolved
 
 ### DP-020 — The weak half of the guard-edit escape can manufacture the strong half, in a file no diff shows — **RESOLVED 2026-09-17: option (c), deny the git-ignored half and leave the committed one openable**
 

@@ -4288,6 +4288,8 @@ finding ids in each entry.
   secret stops a session that means to arm itself. The two routes that would be
   boundaries — the environment variable alone, or a per-session nonce — each
   spend how the owner works, so they are **DP-022** rather than chosen here.
+  **The owner ruled on 2026-09-27: keep the filter.** The residual is accepted,
+  not open, and F-52 is closed on that ruling.
 - Found while writing it, and fixed in the same change: `test-hooks.sh`
   inherited `MPB_ALLOW_GUARD_EDIT` from the session running it, so under an
   armed session nine of its enforcement-layer `deny` assertions passed the wrong
@@ -4615,7 +4617,9 @@ finding ids in each entry.
   is a contract change rather than a wording fix. Rewording the catalogue string
   is not available either — its two other callers are genuinely about the input.
   The detail therefore carries the correction, and the identifier question goes
-  to the owner with DP-021.
+  to the owner with DP-021. **Ruled 2026-09-27: (b) now, (c) as the eventual
+  fix; the identifier question was left unruled, so the mismatch is accepted
+  as the reversible default** (DP-021, Resolved).
 - **Filed as DP-021, which is the part that was actually owed.** F-48's
   remaining half trades away an audience — users installing under `$HOME`
   because they have no administrator rights — or spends a Tier 3 MUST.

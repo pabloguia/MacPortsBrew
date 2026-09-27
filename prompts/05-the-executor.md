@@ -138,6 +138,12 @@ pass must choose, with `security-reviewer` on the choice:
   map itself; an executor reading a document moves INV-10's guarantee into the
   document.
 
+**Ruled by the owner on 2026-09-27: re-derive (DP-023).** The program is
+re-derived inside `process/` from the detected prefix and a literal; the plan
+supplies argv only, and that argv still passes the spawn-site allowlist
+(SE-050). A plan whose `program` disagrees with the re-derived one is a
+refusal cause. Item 1 of section 6 is therefore decided, not open.
+
 ## 6. Order of work
 
 1. **Where `migrate` gets its plan.** Re-planned in process, or deserialised?
@@ -201,7 +207,8 @@ The first draft named INV-01, 02, 05, 06, 07, 08, 15. A run loop also engages:
 
 INV-04 is correctly absent: reverse dependencies bind the removal path.
 
-**And one hole in the existing code, found by this review.** Nothing checks that
+**Closed 2026-09-25 (F-53, SE-050)** — kept here as the record of what this
+review found. **And one hole in the existing code, found by this review.** Nothing checks that
 a verb appearing under `verify` or `verify_absent` is not also an `add` or
 `remove` verb. `verify = ["install"]` loads clean, produces a
 `VERIFY_DESTINATION` carrying an install command, and passes every predicate in
