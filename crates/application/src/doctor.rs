@@ -97,7 +97,7 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                 if let Some(prefix) = &p.detection.prefix {
                     let text = prefix.to_string_lossy().into_owned();
                     // F-48. `planner::command` refuses to build a step whose
-                    // program is not absolute, because `Command::new` resolves a
+                    // program is not absolute, because spawning a program resolves a
                     // string containing a slash against the working directory.
                     // A prefix under the user's home arrives here as `~/...`,
                     // redacted at capture so a home-installed provider can be

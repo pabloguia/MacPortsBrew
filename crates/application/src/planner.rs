@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Building a `MigrationPlan` as data (`04-migration-and-safety.md`).
-//! Dry-run output is the deliverable; there is no executor in this pass.
+//! Dry-run output is the deliverable; whether a plan may be executed is
+//! `execution_gate`'s question, never this module's.
 
 use crate::analysis::{analyze, AnalysisOptions, AnalysisSource};
 use crate::provider_commands::{self, ProviderCommands};
-use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
+use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
     Capability, CapabilityState, CommandTarget, Confidence, DomainError, Elevation, ErrorId,
     MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk,
@@ -596,7 +597,7 @@ pub fn build_plan(
         risks,
         elevated_steps,
         policy_version: policy.version().to_string(),
-        dry_run_only: true,
+        dry_run_only: !THIS_BUILD_DISPATCHES_MUTATIONS,
     };
     plan.check_ordering()
         .map_err(|e| DomainError::new(ErrorId::Internal, e))?;
@@ -616,6 +617,55 @@ const READ_OPERATIONS: &[&str] = &["verify", "verify_absent"];
 /// sits with the rule: see `SuccessSemantic::StdoutOmitsPackage`.
 pub(crate) fn names_no_package(operation: &str) -> bool {
     operation == "verify_absent"
+}
+
+/// The success semantic the planner writes for `operation`, from the
+/// provider's table entry; `Unknown` without one.
+///
+/// Shared with `execution_gate` for the reason [`planned_argv`] is: the gate
+/// refuses a verification command whose semantic is not this, because a read
+/// whose semantic was swapped — `EXIT_STATUS` on a verb that exits 0 for an
+/// absent package — certifies nothing while looking like a check.
+pub(crate) fn planned_success(
+    entry: Option<&ProviderCommands>,
+    operation: &str,
+) -> SuccessSemantic {
+    match entry.and_then(|e| e.success.get(operation).map(String::as_str)) {
+        Some("exit_status") => SuccessSemantic::ExitStatus,
+        Some("stdout_names_package") => SuccessSemantic::StdoutNamesPackage,
+        Some("stdout_omits_package") => SuccessSemantic::StdoutOmitsPackage,
+        _ => SuccessSemantic::Unknown,
+    }
+}
+
+/// The argv the planner writes for `operation` on `package`, from the
+/// provider's table entry — or, without one, an illustration.
+///
+/// The one derivation, shared with `execution_gate`, which refuses a
+/// verification command whose argv is not this: a gate that re-derived it
+/// would be a second spelling that could drift from the first.
+pub(crate) fn planned_argv(
+    entry: Option<&ProviderCommands>,
+    operation: &str,
+    package: &str,
+) -> Vec<String> {
+    let mut argv: Vec<String> = entry
+        .and_then(|e| e.verbs.get(operation).cloned())
+        .unwrap_or_else(|| vec![format!("<{operation}>")]);
+    // `verify_absent` asks for the whole inventory and names no package, which
+    // is the entire reason it can answer at all: on both providers, asking
+    // about *one* name returns the same empty stdout for a package that was
+    // removed, a name that never was one, and a provider that could not run
+    // (observed 2026-09-19; the table states it beside both cells). So absence
+    // is the name missing from a non-empty answer, and an empty one is refused.
+    //
+    // The name still travels in the plan - the executor matches stdout against
+    // it - so every guard in `command` still applies to it. What changes is
+    // only that it is not an argument.
+    if !names_no_package(operation) {
+        argv.push(package.to_string());
+    }
+    argv
 }
 
 fn command(
@@ -699,7 +749,7 @@ fn command(
     // because it is an absolute path with the home elided by redaction and the
     // privacy machinery exists so a home-installed provider can be captured at
     // all. So the boundary passes `~/homebrew` and this guard is what stops it:
-    // `Command::new` resolves a string containing a slash against the working
+    // Spawning a program resolves a string containing a slash against the working
     // directory, which is the difference between running the provider and
     // running whatever is under the directory the user happened to be in.
     //
@@ -770,22 +820,7 @@ fn command(
     // `[entry.verbs]` cannot express today. Do not read the `GuiApp` arm below
     // as evidence that the rest of this function handles casks — only the
     // elevation lookup is kind-aware, and that asymmetry is the defect.
-    let mut argv: Vec<String> = entry
-        .and_then(|e| e.verbs.get(operation).cloned())
-        .unwrap_or_else(|| vec![format!("<{operation}>")]);
-    // `verify_absent` asks for the whole inventory and names no package, which
-    // is the entire reason it can answer at all: on both providers, asking
-    // about *one* name returns the same empty stdout for a package that was
-    // removed, a name that never was one, and a provider that could not run
-    // (observed 2026-09-19; the table states it beside both cells). So absence
-    // is the name missing from a non-empty answer, and an empty one is refused.
-    //
-    // The name still travels in the plan - the executor matches stdout against
-    // it - so every guard above still applies to it. What changes is only that
-    // it is not an argument.
-    if !names_no_package(operation) {
-        argv.push(package.to_string());
-    }
+    let argv = planned_argv(entry, operation, package);
     let elevation_key = match kind {
         PackageKind::GuiApp => format!("{operation}_gui_app"),
         PackageKind::Package => operation.to_string(),
@@ -868,12 +903,7 @@ fn command(
     // - `set_primary` is the one - would reach here with no cell and no loader
     // complaint. It cannot today, because `set_primary` does not route through
     // this function, and the fallback fails closed if it ever does.
-    let success = match entry.and_then(|e| e.success.get(operation).map(String::as_str)) {
-        Some("exit_status") => SuccessSemantic::ExitStatus,
-        Some("stdout_names_package") => SuccessSemantic::StdoutNamesPackage,
-        Some("stdout_omits_package") => SuccessSemantic::StdoutOmitsPackage,
-        _ => SuccessSemantic::Unknown,
-    };
+    let success = planned_success(entry, operation);
     Ok(PlanCommand {
         placeholder,
         target: CommandTarget::Provider,

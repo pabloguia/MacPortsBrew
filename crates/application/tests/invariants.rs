@@ -707,19 +707,36 @@ fn invariant_02_plans_are_data_and_nothing_in_this_layer_can_execute_them() {
     let json = serde_json::to_string(&plan).unwrap();
     let back: macportsbrew_domain::MigrationPlan = serde_json::from_str(&json).unwrap();
     assert_eq!(plan, back);
-    // No process execution exists in the application crate at all.
-    let src = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap();
-    for entry in src {
-        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-        assert!(
-            !text.contains("ProcessRunner"),
-            "application must not run processes"
-        );
-        assert!(
-            !text.contains("std::process"),
-            "application must not run processes"
-        );
+    // No process execution exists in the application crate at all. The walk is
+    // recursive: it used to read `src/` one level deep and call
+    // `read_to_string` on every entry, so the first subdirectory would have
+    // panicked the test rather than been scanned (F12).
+    let mut stack = vec![PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))];
+    let mut scanned = 0;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            scanned += 1;
+            assert!(
+                !text.contains("ProcessRunner"),
+                "application must not run processes: {}",
+                path.display()
+            );
+            for token in ["std::process", "process::Command", "Command::new"] {
+                assert!(
+                    !text.contains(token),
+                    "application must not run processes: {} contains {token}",
+                    path.display()
+                );
+            }
+        }
     }
+    assert!(scanned > 0, "the scan read the application sources");
 }
 
 #[test]

@@ -2,8 +2,11 @@
 
 //! Migration plans as data (`04-migration-and-safety.md`, "The plan is the
 //! contract"). A plan is serialisable, diffable and reviewable. Nothing in
-//! this crate can execute one: the executor is a later pass and the
-//! foundation pass ships no mutating code path (SE-020).
+//! this crate can execute one, and nothing in this build executes a provider
+//! command from one: the refusal gate every execution must pass
+//! (`macportsbrew_application::execution_gate`) refuses every plan this
+//! build produces, no command of this build reaches an executor yet, and
+//! [`THIS_BUILD_DISPATCHES_MUTATIONS`] is `false` (SE-020).
 //!
 //! Step kinds follow the state machine in that chapter. The verbs a step
 //! would run come from provider data files, never from code, so that the
@@ -439,9 +442,34 @@ pub struct MigrationPlan {
     pub elevated_steps: Vec<u32>,
     /// The policy version the plan was built under.
     pub policy_version: String,
-    /// `true` in this pass: the plan can be shown but never executed.
+    /// Whether the build that produced this plan can execute its mutating
+    /// steps: the planner writes `!THIS_BUILD_DISPATCHES_MUTATIONS`, so this is
+    /// `true` for every plan this build produces and describes a compile-time
+    /// property rather than a choice.
+    ///
+    /// **Not the boundary.** Execution must pass a refusal gate
+    /// (`macportsbrew_application::execution_gate`) that refuses every plan
+    /// this build produces — this field is one of its refusals
+    /// (`PLAN_NOT_DRY_RUN_ONLY`, for a plan claiming otherwise), not the
+    /// reason nothing runs. No command of this build reaches an executor at
+    /// all. The field keeps the document truthful; the gate, and the absence
+    /// of any path to a provider's mutating verbs, keep the machine
+    /// untouched.
     pub dry_run_only: bool,
 }
+
+/// Whether this build dispatches a plan's mutating steps. `false`: nothing
+/// executes a provider command that changes the machine (SE-020).
+///
+/// **Read in exactly two places in product source**, and a textual test in
+/// `crates/application/tests/execution_gate.rs` holds it there: the planner,
+/// which writes `dry_run_only: !THIS_BUILD_DISPATCHES_MUTATIONS`, and the
+/// execution gate, which refuses the first mutating step while this is
+/// `false` and a plan whose `dryRunOnly` is not its negation. Flipping it is
+/// not how the mutating pass begins — that pass owes the obligations
+/// `plan.v1.md` lists first — and no dispatch guard may read it, so that a
+/// flipped constant alone cannot reach a provider.
+pub const THIS_BUILD_DISPATCHES_MUTATIONS: bool = false;
 
 /// The current plan schema version.
 pub const PLAN_SCHEMA_VERSION: u32 = 1;

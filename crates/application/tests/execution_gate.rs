@@ -1,0 +1,928 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! The execution gate (`crates/application/src/execution_gate.rs`): one test
+//! per refusal, the invariants it enforces, and the claim that it refuses
+//! every plan this build's planner produces.
+//!
+//! Plans are built by the real planner wherever the planner can produce the
+//! case, and otherwise by editing a plan it built — never written from
+//! nothing, so that each test starts from a shape the product can emit and
+//! changes exactly one thing. Every-fixture coverage over the captured
+//! recordings is in `crates/cli/tests/execution_gate_fixtures.rs`: replaying a
+//! recording needs the adapters, which this crate may not depend on, even for
+//! tests (`scripts/check-layering.sh` reads dev-dependencies too).
+
+use macportsbrew_application::{
+    build_plan, evaluable_in_this_build, execution_refusals, AnalysisOptions, ExecutionRefusal,
+    GateReport, PlanRequest,
+};
+use macportsbrew_domain::{
+    Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
+    CommandLineTools, Elevation, EnvironmentSnapshot, ExpectationError, InstalledPackage, Machine,
+    MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata, Provenance,
+    ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
+    ProviderSnapshot, RequestedSet, Snapshot, StepKind, SuccessSemantic, Translation,
+    VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
+};
+use macportsbrew_policy::PolicyData;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+const HB: &str = "homebrew";
+const MP: &str = "macports";
+
+struct Pkg {
+    name: &'static str,
+    homepage: Option<&'static str>,
+    service: bool,
+}
+
+fn provider(id: &str, prefix: &str, packages: &[Pkg]) -> ProviderSnapshot {
+    let pid = ProviderId::new(id);
+    let mut inventory = ProviderInventory::default();
+    for p in packages {
+        inventory.installed.push(InstalledPackage {
+            identity: PackageIdentity::new(pid.clone(), p.name),
+            kind: PackageKind::Package,
+            version: Version::new("1.0"),
+            revision: None,
+            variants: BTreeSet::new(),
+            active: true,
+            requested: Some(true),
+            installed_from_prebuilt: Some(true),
+            install_path: None,
+        });
+        inventory.requested.names.insert(p.name.to_string());
+        inventory.metadata.insert(
+            p.name.to_string(),
+            PackageMetadata {
+                homepage: p.homepage.map(str::to_string),
+                defines_service: p.service,
+                ..PackageMetadata::default()
+            },
+        );
+        inventory.availability.insert(
+            p.name.to_string(),
+            AvailabilityAssessment {
+                availability: ArtifactAvailability::BinaryAvailable,
+                evidence: vec![AvailabilityEvidence {
+                    source: "test".into(),
+                    detail: "prebuilt".into(),
+                    offline: true,
+                }],
+                cached: false,
+            },
+        );
+    }
+    inventory.requested = RequestedSet {
+        names: inventory.requested.names.clone(),
+        mechanism: "test".into(),
+    };
+    ProviderSnapshot {
+        detection: ProviderDetection {
+            provider: pid,
+            presence: ProviderPresence::Present,
+            version: Some(Version::new("9.9")),
+            prefix: Some(PathBuf::from(prefix)),
+            executable: None,
+            architecture: Some(Architecture::Arm64),
+            prefix_redacted: false,
+        },
+        capabilities: ProviderCapabilities::default(),
+        inventory,
+        environment: BTreeMap::new(),
+        invocation_environment: [("PATH".to_string(), format!("{prefix}/bin:/usr/bin:/bin"))]
+            .into_iter()
+            .collect(),
+        resolutions: BTreeMap::new(),
+    }
+}
+
+fn snapshot(hb: &[Pkg], mp: &[Pkg]) -> Snapshot {
+    let mut providers = BTreeMap::new();
+    providers.insert(ProviderId::new(HB), provider(HB, "/opt/homebrew", hb));
+    providers.insert(ProviderId::new(MP), provider(MP, "/opt/local", mp));
+    Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        tool_version: "test".into(),
+        policy_version: "test".into(),
+        provenance: Provenance {
+            captured_at: "2026-09-27T00:00:00Z".into(),
+            captured_by: "execution_gate.rs".into(),
+            origin: "synthesised".into(),
+            note: None,
+        },
+        machine: Machine {
+            architecture: Architecture::Arm64,
+            macos: MacosVersion::new(15, 6, 1),
+            translation: Translation::Native,
+            command_line_tools: CommandLineTools::Installed {
+                path: PathBuf::from("/Library/Developer/CommandLineTools"),
+            },
+        },
+        environment: EnvironmentSnapshot::default(),
+        providers,
+    }
+}
+
+fn pkg(name: &'static str) -> Pkg {
+    Pkg {
+        name,
+        homepage: None,
+        service: false,
+    }
+}
+
+/// `gnu-sed` under Homebrew and `gsed` under MacPorts are paired by the
+/// curated table, so a package held by one side plans a real add on the other
+/// — in either direction (INV-17). The other side holds an unrelated package
+/// so that both providers are detected with a non-empty inventory.
+fn install_needed(source: &str) -> (Snapshot, &'static str, &'static str) {
+    if source == HB {
+        (snapshot(&[pkg("gnu-sed")], &[pkg("other")]), "gnu-sed", MP)
+    } else {
+        (snapshot(&[pkg("other")], &[pkg("gsed")]), "gsed", HB)
+    }
+}
+
+/// `tool` on both sides, paired by name and homepage: the destination already
+/// holds it, so the add step carries no command. `postgresql@17` is a service
+/// and stateful by curated data, which halts at `MANUAL_REVIEW`.
+fn both_held() -> Snapshot {
+    let tool = || Pkg {
+        name: "tool",
+        homepage: Some("https://example.org/tool"),
+        service: false,
+    };
+    snapshot(
+        &[
+            tool(),
+            Pkg {
+                name: "postgresql@17",
+                homepage: None,
+                service: true,
+            },
+        ],
+        &[tool()],
+    )
+}
+
+fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> MigrationPlan {
+    build_plan(
+        snap,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        &AnalysisOptions {
+            today: "2026-09-27".into(),
+            advanced: false,
+            only: BTreeSet::new(),
+        },
+        &PlanRequest {
+            package: package.into(),
+            to: ProviderId::new(to),
+            retain_source: retain,
+        },
+    )
+    .expect("the planner builds this plan")
+}
+
+/// A real-install plan, source removed: every step kind but `MANUAL_REVIEW`.
+fn full_plan() -> MigrationPlan {
+    let (snap, package, to) = install_needed(HB);
+    plan_for(&snap, package, to, false)
+}
+
+fn position(plan: &MigrationPlan, kind: StepKind) -> usize {
+    plan.steps
+        .iter()
+        .position(|s| s.kind == kind)
+        .unwrap_or_else(|| panic!("the plan carries a {kind:?} step"))
+}
+
+fn index_of(plan: &MigrationPlan, kind: StepKind) -> u32 {
+    plan.steps[position(plan, kind)].index
+}
+
+fn refused(report: &GateReport, predicate: impl Fn(&ExecutionRefusal) -> bool) -> bool {
+    report.refusals().iter().any(predicate)
+}
+
+/// The step a refusal names, 0 for one about the whole plan.
+fn step_of(refusal: &ExecutionRefusal) -> u32 {
+    match refusal {
+        ExecutionRefusal::Ordering
+        | ExecutionRefusal::StepIndicesNotSequential
+        | ExecutionRefusal::SameProviderOnBothSides
+        | ExecutionRefusal::PlanNotDryRunOnly => 0,
+        ExecutionRefusal::ManualReview { step }
+        | ExecutionRefusal::CheckNotEvaluableInThisBuild { step, .. }
+        | ExecutionRefusal::VerificationAssertsNothing { step }
+        | ExecutionRefusal::Expectation { step, .. }
+        | ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step }
+        | ExecutionRefusal::CommandIsNotThePlannersRead { step }
+        | ExecutionRefusal::MutationNotInThisBuild { step } => *step,
+        ExecutionRefusal::Placeholder { steps }
+        | ExecutionRefusal::UnrecognisedCheck { steps }
+        | ExecutionRefusal::UnknownSuccess { steps }
+        | ExecutionRefusal::ElevationRequired { steps }
+        | ExecutionRefusal::ElevationUnknown { steps } => *steps.iter().min().expect("a step"),
+    }
+}
+
+fn assert_refused(report: &GateReport) {
+    assert!(!report.may_execute(), "{:?}", report.refusals());
+    assert_eq!(report.exit_code(), 4, "any refusal is exit 4 (SE-009)");
+}
+
+// --- one per refusal -------------------------------------------------------
+
+#[test]
+fn an_ordering_violation_is_refused() {
+    let mut plan = full_plan();
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::Ordering
+    )));
+    let remove = position(&plan, StepKind::RemoveSource);
+    let verify = position(&plan, StepKind::VerifyDestination);
+    plan.steps.swap(remove, verify);
+    assert!(plan.check_ordering().is_err());
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::Ordering
+    )));
+    assert_refused(&report);
+}
+
+#[test]
+fn invariant_19_manual_review_refuses_execution_and_names_the_step() {
+    let plan = plan_for(&both_held(), "postgresql@17", MP, false);
+    let step = index_of(&plan, StepKind::ManualReview);
+    let report = execution_refusals(&plan);
+    assert!(
+        refused(
+            &report,
+            |r| matches!(r, ExecutionRefusal::ManualReview { step: s } if *s == step)
+        ),
+        "{:?}",
+        report.refusals()
+    );
+    assert_refused(&report);
+    // Nothing outranks it: it is refused even with every other obligation met,
+    // which this plan does, because a manual-review plan carries no commands.
+    assert!(plan.steps.iter().all(|s| s.commands.is_empty()));
+}
+
+#[test]
+fn a_placeholder_command_is_refused() {
+    let mut plan = full_plan();
+    let add = position(&plan, StepKind::AddDestination);
+    plan.steps[add].commands[0].placeholder = true;
+    let step = plan.steps[add].index;
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::Placeholder { steps } if steps == &vec![step]
+    )));
+    assert_refused(&report);
+}
+
+#[test]
+fn an_unrecognised_check_is_refused() {
+    let mut plan = full_plan();
+    let removal = position(&plan, StepKind::VerifyRemoval);
+    plan.steps[removal]
+        .verification
+        .push(VerificationCheck::Unknown);
+    let step = plan.steps[removal].index;
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::UnrecognisedCheck { steps } if steps == &vec![step]
+    )));
+    // Refused as unrecognised, never also as "recognised but not evaluable".
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::CheckNotEvaluableInThisBuild {
+            check: VerificationCheck::Unknown,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn a_recognised_check_is_not_thereby_evaluable() {
+    let liveness = VerificationCheck::LivenessProbe {
+        executable: "gsed".into(),
+        flag: "--version".into(),
+    };
+    assert!(liveness.is_satisfiable(), "the domain recognises it");
+    assert!(
+        !evaluable_in_this_build(StepKind::VerifyDestination, &liveness),
+        "this build cannot run it"
+    );
+    let dest = StepKind::VerifyDestination;
+    let removal = StepKind::VerifyRemoval;
+    for (kind, check, evaluable) in [
+        (dest, VerificationCheck::ProviderReportsActive, true),
+        (dest, VerificationCheck::PackageNewlyPresent, true),
+        (removal, VerificationCheck::PackageAbsent, true),
+        // The evaluable checks, each on a step whose read does not answer it.
+        (removal, VerificationCheck::ProviderReportsActive, false),
+        (removal, VerificationCheck::PackageNewlyPresent, false),
+        (dest, VerificationCheck::PackageAbsent, false),
+        (
+            StepKind::SetPrimary,
+            VerificationCheck::ProviderReportsActive,
+            false,
+        ),
+        (dest, VerificationCheck::ProviderIntegrityCheck, false),
+        (
+            dest,
+            VerificationCheck::ExecutablesOwnedByDestination {
+                executables: vec!["gsed".into()],
+            },
+            false,
+        ),
+        (dest, liveness.clone(), false),
+        (dest, VerificationCheck::NoCrossProviderLinkage, false),
+        (dest, VerificationCheck::Unknown, false),
+    ] {
+        assert_eq!(
+            evaluable_in_this_build(kind, &check),
+            evaluable,
+            "{kind:?} {check:?}"
+        );
+    }
+
+    let plan = full_plan();
+    let step = index_of(&plan, StepKind::VerifyDestination);
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, check }
+            if *s == step && *check == liveness
+    )));
+    // The evaluable ones on the same step are not refused.
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::CheckNotEvaluableInThisBuild {
+            step: s,
+            check: VerificationCheck::ProviderReportsActive
+                | VerificationCheck::PackageNewlyPresent,
+        } if *s == step
+    )));
+}
+
+#[test]
+fn a_verification_step_that_asserts_nothing_is_refused() {
+    let mut plan = full_plan();
+    // As built: `VERIFY_RESOLUTION` carries neither a command nor a check.
+    let resolution = index_of(&plan, StepKind::VerifyResolution);
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::VerificationAssertsNothing { step } if *step == resolution
+    )));
+    // A removal check with its command but without its check.
+    let removal = position(&plan, StepKind::VerifyRemoval);
+    let removal_index = plan.steps[removal].index;
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::VerificationAssertsNothing { step } if *step == removal_index
+    )));
+    plan.steps[removal].verification.clear();
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::VerificationAssertsNothing { step } if *step == removal_index
+    )));
+    // And one with its check but without its command.
+    let mut plan = full_plan();
+    plan.steps[removal].commands.clear();
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::VerificationAssertsNothing { step } if *step == removal_index
+    )));
+    assert_refused(&report);
+}
+
+#[test]
+fn a_command_of_unknown_success_is_refused() {
+    let mut plan = full_plan();
+    let add = position(&plan, StepKind::AddDestination);
+    plan.steps[add].commands[0].success = SuccessSemantic::Unknown;
+    let step = plan.steps[add].index;
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::UnknownSuccess { steps } if steps == &vec![step]
+    )));
+    assert_refused(&report);
+}
+
+#[test]
+fn a_missing_destination_name_on_a_names_check_is_a_refusal() {
+    let mut plan = full_plan();
+    let verify = index_of(&plan, StepKind::VerifyDestination);
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::Expectation { .. }
+    )));
+    plan.destination_package = None;
+    let report = execution_refusals(&plan);
+    assert!(
+        refused(&report, |r| matches!(
+            r,
+            ExecutionRefusal::Expectation {
+                step,
+                error: ExpectationError::NoDestinationName
+            } if *step == verify
+        )),
+        "{:?}",
+        report.refusals()
+    );
+    assert_refused(&report);
+}
+
+#[test]
+fn a_plan_on_one_provider_both_sides_is_refused() {
+    let mut plan = full_plan();
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::SameProviderOnBothSides
+    )));
+    plan.destination = plan.source.clone();
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::SameProviderOnBothSides
+    )));
+    assert_refused(&report);
+}
+
+#[test]
+fn invariant_06_elevation_refuses_execution_and_never_rendering() {
+    let mut plan = full_plan();
+    let add = position(&plan, StepKind::AddDestination);
+    let remove = position(&plan, StepKind::RemoveSource);
+    let (add_index, remove_index) = (plan.steps[add].index, plan.steps[remove].index);
+    plan.steps[add].commands[0].elevation = Elevation::Required {
+        reason: "test".into(),
+    };
+    plan.steps[remove].commands[0].elevation = Elevation::Unknown;
+
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::ElevationRequired { steps } if steps == &vec![add_index]
+    )));
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::ElevationUnknown { steps } if steps == &vec![remove_index]
+    )));
+    assert_refused(&report);
+
+    // Rendering is not the gate's question: the plan is still well-formed data
+    // that serialises and reads back unchanged, and the gate report is a
+    // separate value that leaves it untouched.
+    assert!(plan.check_ordering().is_ok());
+    let json = serde_json::to_string(&plan).expect("an elevated plan serialises");
+    let back: MigrationPlan = serde_json::from_str(&json).expect("and reads back");
+    assert_eq!(back, plan);
+}
+
+#[test]
+fn a_mutating_step_is_refused_in_this_build() {
+    let plan = full_plan();
+    let add = index_of(&plan, StepKind::AddDestination);
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::MutationNotInThisBuild { step } if *step == add
+    )));
+    // Where the destination already holds the package the add step carries no
+    // command, and the first mutating step that does is `SET_PRIMARY`.
+    let plan = plan_for(&both_held(), "tool", MP, true);
+    let add = position(&plan, StepKind::AddDestination);
+    assert!(plan.steps[add].commands.is_empty());
+    let primary = index_of(&plan, StepKind::SetPrimary);
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::MutationNotInThisBuild { step } if *step == primary
+    )));
+}
+
+#[test]
+fn a_plan_that_claims_it_can_run_mutations_is_refused() {
+    let mut plan = full_plan();
+    assert!(
+        plan.dry_run_only,
+        "the planner writes what this build can do"
+    );
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::PlanNotDryRunOnly
+    )));
+    plan.dry_run_only = false;
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::PlanNotDryRunOnly
+    )));
+    assert_refused(&report);
+}
+
+// --- the gate as a whole ---------------------------------------------------
+
+#[test]
+fn every_plan_this_planner_builds_is_refused_for_execution_in_this_build() {
+    let mut plans = Vec::new();
+    for source in [HB, MP] {
+        let (snap, package, to) = install_needed(source);
+        for retain in [false, true] {
+            plans.push(plan_for(&snap, package, to, retain));
+        }
+    }
+    for to in [HB, MP] {
+        for retain in [false, true] {
+            plans.push(plan_for(&both_held(), "tool", to, retain));
+        }
+    }
+    plans.push(plan_for(&both_held(), "postgresql@17", MP, false));
+    let directions: BTreeSet<_> = plans
+        .iter()
+        .map(|p| (p.source.clone(), p.destination.clone()))
+        .collect();
+    assert_eq!(directions.len(), 2, "both directions are covered (INV-17)");
+    for plan in &plans {
+        let report = execution_refusals(plan);
+        assert_refused(&report);
+        if plan.requires_manual_review() {
+            // A plan stopping at `MANUAL_REVIEW` carries no mutating step; it is
+            // refused as such, and not as a mutation.
+            assert!(!plan.has_mutating_steps());
+            assert!(refused(&report, |r| matches!(
+                r,
+                ExecutionRefusal::ManualReview { .. }
+            )));
+        } else {
+            assert!(
+                refused(&report, |r| matches!(
+                    r,
+                    ExecutionRefusal::MutationNotInThisBuild { .. }
+                )),
+                "a plan that would change the machine names the first step that would"
+            );
+        }
+        assert_planners_commands_pass_the_command_rules(&report);
+    }
+}
+
+/// The two command rules refuse forgeries, never what the planner wrote.
+fn assert_planners_commands_pass_the_command_rules(report: &GateReport) {
+    assert!(
+        !refused(report, |r| matches!(
+            r,
+            ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { .. }
+                | ExecutionRefusal::CommandIsNotThePlannersRead { .. }
+        )),
+        "{:?}",
+        report.refusals()
+    );
+}
+
+#[test]
+fn a_command_on_a_step_the_planner_writes_none_on_is_refused() {
+    let base = full_plan();
+    assert_planners_commands_pass_the_command_rules(&execution_refusals(&base));
+    // The read the plan is allowed to carry, moved onto each step that may
+    // carry none: a harmless argv, so only the step kind can refuse it.
+    let read = base.steps[position(&base, StepKind::VerifyRemoval)].commands[0].clone();
+    for kind in [
+        StepKind::SnapshotBefore,
+        StepKind::VerifyResolution,
+        StepKind::CleanupReview,
+        StepKind::RecordHistory,
+    ] {
+        let mut plan = base.clone();
+        let at = position(&plan, kind);
+        plan.steps[at].commands.push(read.clone());
+        let step = plan.steps[at].index;
+        let report = execution_refusals(&plan);
+        assert!(
+            refused(&report, |r| matches!(
+                r,
+                ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step: s } if *s == step
+            )),
+            "{kind:?}: {:?}",
+            report.refusals()
+        );
+        assert_refused(&report);
+    }
+    let mut plan = plan_for(&both_held(), "postgresql@17", MP, false);
+    let at = position(&plan, StepKind::ManualReview);
+    plan.steps[at].commands.push(read);
+    let step = plan.steps[at].index;
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step: s } if *s == step
+    )));
+}
+
+#[test]
+fn a_forged_verification_command_is_refused() {
+    let base = full_plan();
+    let add = position(&base, StepKind::AddDestination);
+    let remove = position(&base, StepKind::RemoveSource);
+    let verify = position(&base, StepKind::VerifyDestination);
+    let removal = position(&base, StepKind::VerifyRemoval);
+    let refused_as_forgery = |plan: &MigrationPlan, at: usize| {
+        let step = plan.steps[at].index;
+        let report = execution_refusals(plan);
+        assert_refused(&report);
+        refused(&report, |r| {
+            matches!(
+                r,
+                ExecutionRefusal::CommandIsNotThePlannersRead { step: s } if *s == step
+            )
+        })
+    };
+    assert!(!refused_as_forgery(&base, verify));
+    assert!(!refused_as_forgery(&base, removal));
+
+    // A mutating verb carried by a verification step, each way round.
+    let mut plan = base.clone();
+    plan.steps[verify].commands[0].argv = base.steps[add].commands[0].argv.clone();
+    assert!(
+        refused_as_forgery(&plan, verify),
+        "an add dressed as a read"
+    );
+    let mut plan = base.clone();
+    plan.steps[removal].commands[0].argv = base.steps[remove].commands[0].argv.clone();
+    assert!(
+        refused_as_forgery(&plan, removal),
+        "a removal dressed as a read"
+    );
+
+    // The read with one argument too many, and the inventory read naming a
+    // package — both one element away from the planner's.
+    let mut plan = base.clone();
+    plan.steps[verify].commands[0].argv.push("extra".into());
+    assert!(refused_as_forgery(&plan, verify));
+    let mut plan = base.clone();
+    let name = plan.package.name.clone();
+    plan.steps[removal].commands[0].argv.push(name);
+    assert!(refused_as_forgery(&plan, removal));
+
+    // The planner's read with its semantic swapped: on a MacPorts read,
+    // `EXIT_STATUS` is the fail-open one, because `port -q installed` exits 0
+    // for an absent port. `expectation_for` alone accepts it.
+    let mut plan = base.clone();
+    assert_eq!(plan.destination, ProviderId::new(MP));
+    plan.steps[verify].commands[0].success = SuccessSemantic::ExitStatus;
+    assert!(macportsbrew_domain::expectation_for(&plan, verify, 0).is_ok());
+    assert!(
+        refused_as_forgery(&plan, verify),
+        "a semantic the table does not state"
+    );
+
+    // A second command beside the genuine one.
+    let mut plan = base.clone();
+    let forged = base.steps[remove].commands[0].clone();
+    plan.steps[removal].commands.push(forged);
+    assert!(refused_as_forgery(&plan, removal));
+
+    // A provider the table does not hold derives only an illustration, and an
+    // illustration is never the planner's read, even written out exactly.
+    let mut plan = base.clone();
+    plan.destination = ProviderId::new("elsewhere");
+    let name = plan
+        .destination_package
+        .clone()
+        .expect("a destination name");
+    plan.steps[verify].commands[0].argv = vec!["<verify>".into(), name];
+    // The semantic too, set to what the absent entry derives, so that only
+    // the illustration itself can make this a forgery.
+    plan.steps[verify].commands[0].success = SuccessSemantic::Unknown;
+    assert!(refused_as_forgery(&plan, verify));
+    // And a plan with no destination name derives no read at all.
+    let mut plan = base;
+    plan.destination_package = None;
+    assert!(refused_as_forgery(&plan, verify));
+}
+
+#[test]
+fn refusals_are_ordered_deterministically() {
+    let mut plan = full_plan();
+    plan.dry_run_only = false;
+    plan.destination_package = None;
+    let removal = position(&plan, StepKind::VerifyRemoval);
+    plan.steps[removal]
+        .verification
+        .push(VerificationCheck::Unknown);
+    let add = position(&plan, StepKind::AddDestination);
+    plan.steps[add].commands[0].elevation = Elevation::Unknown;
+
+    let first = execution_refusals(&plan);
+    assert_eq!(first, execution_refusals(&plan), "same plan, same report");
+    assert_eq!(
+        serde_json::to_string(&first).unwrap(),
+        serde_json::to_string(&execution_refusals(&plan.clone())).unwrap(),
+        "and the same bytes (INV-15)"
+    );
+    let steps: Vec<u32> = first.refusals().iter().map(step_of).collect();
+    let mut sorted = steps.clone();
+    sorted.sort_unstable();
+    assert_eq!(steps, sorted, "ordered by the step each refusal names");
+    // Plan-level refusals lead, in declaration order.
+    assert!(matches!(
+        first.refusals()[0],
+        ExecutionRefusal::SameProviderOnBothSides | ExecutionRefusal::PlanNotDryRunOnly
+    ));
+    // Within one step, by kind in declaration order: on `VERIFY_DESTINATION`
+    // every not-evaluable check precedes the expectation refusal.
+    let verify = index_of(&plan, StepKind::VerifyDestination);
+    let on_verify: Vec<&ExecutionRefusal> = first
+        .refusals()
+        .iter()
+        .filter(|r| step_of(r) == verify)
+        .collect();
+    let last_check = on_verify
+        .iter()
+        .rposition(|r| matches!(r, ExecutionRefusal::CheckNotEvaluableInThisBuild { .. }))
+        .expect("the destination carries checks this build cannot evaluate");
+    let expectation = on_verify
+        .iter()
+        .position(|r| matches!(r, ExecutionRefusal::Expectation { .. }))
+        .expect("and no destination name");
+    assert!(last_check < expectation, "{on_verify:?}");
+}
+
+#[test]
+fn a_refusal_serialises_under_a_stable_tag() {
+    let mut plan = full_plan();
+    plan.dry_run_only = false;
+    let json = serde_json::to_value(execution_refusals(&plan)).unwrap();
+    let refusals = json["refusals"].as_array().expect("a list of refusals");
+    assert!(refusals
+        .iter()
+        .any(|r| r["refusal"] == "PLAN_NOT_DRY_RUN_ONLY"));
+    assert!(refusals
+        .iter()
+        .any(|r| r["refusal"] == "VERIFICATION_ASSERTS_NOTHING" && r["step"].is_u64()));
+}
+
+/// `THIS_BUILD_DISPATCHES_MUTATIONS` is read by the planner, which writes it
+/// into `dryRunOnly`, and by the gate — nowhere else (A11). A dispatch guard
+/// that read it would let a flipped constant reach a provider.
+#[test]
+fn the_mutation_constant_is_read_only_by_the_planner_and_the_gate() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .to_path_buf();
+    let allowed = [
+        "domain/src/plan.rs",
+        "application/src/planner.rs",
+        "application/src/execution_gate.rs",
+    ];
+    let mut readers = Vec::new();
+    let mut stack = vec![crates.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable") {
+            let path = entry.expect("entry").path();
+            let rel = path.strip_prefix(&crates).expect("under crates/");
+            if path.is_dir() {
+                if rel
+                    .components()
+                    .nth(1)
+                    .is_none_or(|c| c.as_os_str() == "src")
+                {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && std::fs::read_to_string(&path)
+                    .expect("utf-8 source")
+                    .contains("THIS_BUILD_DISPATCHES_MUTATIONS")
+            {
+                readers.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    readers.sort();
+    for reader in &readers {
+        assert!(
+            allowed.contains(&reader.as_str()),
+            "{reader} reads THIS_BUILD_DISPATCHES_MUTATIONS"
+        );
+    }
+    assert_eq!(readers.len(), allowed.len(), "{readers:?}");
+    // With the constant `false`, a planner writing a literal `true` builds the
+    // same plans, so only the text can tell the two apart — and the day the
+    // constant flips, only the derived field stays truthful.
+    let planner = std::fs::read_to_string(crates.join("application/src/planner.rs"))
+        .expect("the planner source");
+    assert!(
+        planner.contains("dry_run_only: !THIS_BUILD_DISPATCHES_MUTATIONS,"),
+        "the planner derives dryRunOnly from the constant"
+    );
+}
+
+/// Step numbers are plan data, so a refusal naming several may list them in
+/// any order; it sorts by the smallest it names, not by whichever came first.
+#[test]
+fn a_refusal_naming_several_steps_sorts_by_the_smallest() {
+    let mut plan = full_plan();
+    let add = position(&plan, StepKind::AddDestination);
+    let remove = position(&plan, StepKind::RemoveSource);
+    plan.steps[add].commands[0].elevation = Elevation::Unknown;
+    plan.steps[remove].commands[0].elevation = Elevation::Unknown;
+    let (a, r) = (plan.steps[add].index, plan.steps[remove].index);
+    plan.steps[add].index = r;
+    plan.steps[remove].index = a;
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |x| matches!(
+        x,
+        ExecutionRefusal::ElevationUnknown { steps } if steps == &vec![r, a]
+    )));
+    let steps: Vec<u32> = report.refusals().iter().map(step_of).collect();
+    let mut sorted = steps.clone();
+    sorted.sort_unstable();
+    assert_eq!(steps, sorted, "{:?}", report.refusals());
+}
+
+/// A check is answered by its own step's read, so the same check on a step
+/// that reads nothing cannot be evaluated there.
+#[test]
+fn a_check_on_a_step_with_no_provider_read_is_not_evaluable() {
+    let plan = full_plan();
+    let primary = position(&plan, StepKind::SetPrimary);
+    assert_eq!(
+        plan.steps[primary].verification,
+        vec![VerificationCheck::ProviderReportsActive],
+        "the planner puts this check on SET_PRIMARY"
+    );
+    let step = plan.steps[primary].index;
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckNotEvaluableInThisBuild {
+            step: s,
+            check: VerificationCheck::ProviderReportsActive,
+        } if *s == step
+    )));
+}
+
+#[test]
+fn step_indices_that_are_not_one_to_n_in_order_are_refused() {
+    let base = full_plan();
+    let is_refused = |plan: &MigrationPlan| {
+        refused(&execution_refusals(plan), |r| {
+            matches!(r, ExecutionRefusal::StepIndicesNotSequential)
+        })
+    };
+    assert!(!is_refused(&base));
+    let mut repeated = base.clone();
+    repeated.steps[1].index = repeated.steps[0].index;
+    assert!(is_refused(&repeated), "a repeated index");
+    let mut skipped = base.clone();
+    let last = skipped.steps.len() - 1;
+    skipped.steps[last].index += 1;
+    assert!(is_refused(&skipped), "a skipped index");
+    let mut zero = base.clone();
+    for step in &mut zero.steps {
+        step.index -= 1;
+    }
+    assert!(is_refused(&zero), "counted from 0");
+    let mut swapped = base;
+    let (a, b) = (swapped.steps[1].index, swapped.steps[2].index);
+    swapped.steps[1].index = b;
+    swapped.steps[2].index = a;
+    assert!(is_refused(&swapped), "out of order");
+}
+
+/// The smallest plan this gate lets through, pinned so that any widening of
+/// what it accepts shows up in a diff: one `VERIFY_DESTINATION`, the
+/// planner's own read toward a detected destination, checked only by
+/// `PROVIDER_REPORTS_ACTIVE`, nothing mutating, nothing elevating.
+#[test]
+fn the_minimal_plan_the_gate_accepts() {
+    let base = full_plan();
+    let mut step = base.steps[position(&base, StepKind::VerifyDestination)].clone();
+    step.index = 1;
+    step.verification = vec![VerificationCheck::ProviderReportsActive];
+    let plan = MigrationPlan {
+        steps: vec![step],
+        risks: Vec::new(),
+        elevated_steps: Vec::new(),
+        ..base
+    };
+    assert_eq!(plan.steps[0].commands.len(), 1);
+    assert_eq!(plan.steps[0].commands[0].elevation, Elevation::None);
+    let report = execution_refusals(&plan);
+    assert!(report.may_execute(), "{:?}", report.refusals());
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        serde_json::json!({ "refusals": [] })
+    );
+}

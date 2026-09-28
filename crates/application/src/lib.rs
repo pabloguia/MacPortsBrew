@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod capture;
 pub mod classify;
 pub mod doctor;
+pub mod execution_gate;
 pub mod explain;
 pub mod facts;
 pub mod mapping;
@@ -25,6 +26,9 @@ pub mod report;
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 pub use capture::{capture, CaptureContext};
 pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
+pub use execution_gate::{
+    evaluable_in_this_build, execution_refusals, ExecutionRefusal, GateReport,
+};
 pub use explain::{explain_package, Explanation};
 pub use planner::{build_plan, PlanRequest};
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};

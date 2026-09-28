@@ -1296,6 +1296,18 @@ change is made. Silent deviation remains the one unrecoverable error.
   localisation out of the machine surface.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- **Extended 2026-09-27 (05-THE-EXECUTOR, slice S2): a refused execution is
+  exit 4, whichever refusal it was.** `GateReport::exit_code` returns
+  `ErrorId::SafetyBlocked`'s code whenever the gate refuses anything, the pattern
+  `plan` already follows for a `MANUAL_REVIEW` stop. The plan first proposed
+  exit 1 when the only refusal is "mutation not in this build"; rejected, because
+  a script would learn that code as "fine, just not yet", and on the day a safety
+  refusal joined it on the same plan the script would still read the lesser one.
+  The refusals themselves are named (tag `refusal`) and ordered by the step they
+  name and then by kind, so the same plan gives the same bytes (INV-15).
+  Evidence: `GateReport::exit_code` in `crates/application/src/execution_gate.rs`;
+  `assert_refused` in `crates/application/tests/execution_gate.rs` asserts 4 on
+  every refusal test, and `refusals_are_ordered_deterministically` the order.
 
 ## SE-010 — Coverage policy differentiated by layer
 - Status: accepted
@@ -1347,6 +1359,65 @@ change is made. Silent deviation remains the one unrecoverable error.
   criterion rather than an intention, and the `Stop` gate checks it.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- **Extended 2026-09-27 (05-THE-EXECUTOR, slice S2): `dryRunOnly` describes the
+  build, and a gate refuses what the build cannot do.** `dryRunOnly` was a
+  literal `true` in the planner, so the document said "dry run only" because
+  someone typed it, not because of anything the build was. It is now
+  `!THIS_BUILD_DISPATCHES_MUTATIONS`, a `false` constant in
+  `crates/domain/src/plan.rs`, read in exactly two places — the planner, which
+  writes the field, and the execution gate — and a textual test holds it there,
+  because a dispatch guard that read it would let a flipped constant reach a
+  provider (A11). The field is not the boundary: nothing in the binary runs a
+  mutating provider subcommand, and `execution_refusals`
+  (`crates/application/src/execution_gate.rs`) refuses every plan this build
+  produces — one stopping at `MANUAL_REVIEW` is refused as such, and every
+  other one has a mutating step with a command (`MUTATION_NOT_IN_THIS_BUILD`),
+  checks this build cannot evaluate, and a `VERIFY_RESOLUTION` that asserts
+  nothing. A plan whose `dryRunOnly` is not `!THIS_BUILD_DISPATCHES_MUTATIONS`
+  is refused as `PLAN_NOT_DRY_RUN_ONLY`. The gate also checks command content,
+  not only step kinds (spec-guardian: a forged `VERIFY_*` step whose argv was a
+  mutating verb passed every other refusal): a command on a step kind the
+  planner writes none on is refused, and so is a verification command whose
+  `argv` or `success` is not what `planner::planned_argv` and
+  `planner::planned_success` derive from the provider command table — the
+  planner's own functions, not a second spelling (security-reviewer: a MacPorts
+  read relabelled `EXIT_STATUS` passed both the gate and `expectation_for`, and
+  that verb exits 0 for an absent port). `target`, `placeholder`, the provider
+  side and name safety are checked through `expectation_for`; step indices must
+  be `1..=n` in order; and evaluability is per step kind and check, so a check
+  on a step that reads nothing is refused. **`program`, `environment` and
+  `elevation` are not checked**: the spawn site re-derives the first two from
+  live detection (`plan.v1.md` item 10, owed by S4), and its allowlist remains
+  the last line. `ELEVATION_REQUIRED`
+  and `ELEVATION_UNKNOWN` are refusals about this build, like
+  `MUTATION_NOT_IN_THIS_BUILD`: INV-06 has elevation requested per operation
+  and shown to the user, and an executor asks before a step whose elevation is
+  not `NONE`. **The consent path is owed by the mutating pass**; without it a
+  migration toward a provider whose writes elevate — Homebrew to MacPorts on a
+  standard MacPorts prefix — would be refused permanently, which INV-17 does
+  not allow. The gate is pure,
+  lives in `application` (no I/O; the INV-02 source scan in
+  `crates/application/tests/invariants.rs` is now recursive, where before a
+  subdirectory under `src/` would have panicked it), and is consulted only for
+  execution — never for rendering. `plan.v1.md` "What an executor inherits"
+  lists what it enforces (items 1, 2, 4's refusal half, 6, 7) and what it
+  leaves to later slices: the plan-to-approval tie (8, from SE-092), the
+  consent decision taken from the table and the live probe, never from the
+  plan's `elevation` (9), and the spawn-site re-derivation of program and
+  environment (10). The INV-02 scan now also refuses `process::Command` and
+  `Command::new` in application source; two comments that named the latter
+  were reworded.
+  Evidence: `crates/application/tests/execution_gate.rs` (one test per refusal,
+  including `a_plan_that_claims_it_can_run_mutations_is_refused`,
+  `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
+  `the_mutation_constant_is_read_only_by_the_planner_and_the_gate`) and
+  `crates/cli/tests/execution_gate_fixtures.rs`, which replays every recording
+  under `fixtures/recordings/` and gates every plan the planner builds from it,
+  asserting at least one Homebrew-to-MacPorts plan is built. MacPorts-to-Homebrew
+  *built* plans come only from the synthesised snapshot in the application test:
+  no recording captures whether a port defines a service, so the planner
+  refuses every plan out of MacPorts from a fixture (INV-19). Each refusal was
+  disabled in turn and its named test failed.
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted

@@ -9,8 +9,12 @@ re-executable, and it is what a human reviews before anything mutates. When the
 executor lands, it will execute plan steps and nothing else (INV-02): anything
 not in the plan does not happen, and a failing step is not improvised around.
 
-**In this build nothing executes it.** `dryRunOnly` is always `true`, and there
-is no code path in the binary that runs a mutating provider subcommand.
+**In this build nothing executes it.** `dryRunOnly` is always `true` — the
+planner writes the negation of a compile-time constant,
+`THIS_BUILD_DISPATCHES_MUTATIONS`, which is `false` — and there is no code path
+in the binary that runs a mutating provider subcommand. The refusal gate an
+executor must pass (`crates/application/src/execution_gate.rs`) refuses every
+plan this build produces; see "What an executor inherits".
 
 ## Root
 
@@ -29,7 +33,7 @@ is no code path in the binary that runs a mutating provider subcommand.
 | `risks` | array of `PlanRisk`, optional | |
 | `elevatedSteps` | array of integer, optional | The `index` of every step whose elevation is not `NONE` — that is, `REQUIRED` **or** `UNKNOWN`. Consult each command's own `elevation` to distinguish them: an `UNKNOWN` is not a known requirement, and rendering this set as "needs administrator rights" is the defect F-10 recorded. It is nonetheless the set to gate consent on, because an elevation nobody has established is not one that will not happen |
 | `policyVersion` | string | |
-| `dryRunOnly` | boolean | `true` in this build |
+| `dryRunOnly` | boolean | `true` in this build: whether the build that wrote the plan can run its mutating steps. A plan carrying `false` is refused for execution (`PLAN_NOT_DRY_RUN_ONLY`). It describes the build and is not the boundary — the gate and the absence of any mutating path are |
 
 ## `MigrationStep`
 
@@ -81,17 +85,51 @@ defend it.
 
 ### What an executor inherits
 
-Five obligations are recorded in this document and enforced by nothing today,
-because nothing executes. Two of the five — items 3 and 4 — are now discharged
-as *data*: the plan carries what an executor needs, and what remains is an
-executor reading it. They are listed together so the executor pass inherits
-a list rather than three doc comments:
+Ten obligations are recorded here. **Nothing executes a provider command
+from a plan in this build**, so none is met by an executor; what exists since
+2026-09-27 is the refusal gate every execution must pass,
+`execution_refusals` in `crates/application/src/execution_gate.rs`, which
+returns every reason a plan may not run as a named refusal (tag `refusal`) and
+reports exit **4** (`GateReport::exit_code`) whenever it refuses anything — no
+command consults it yet, so nothing *exits* with it until `migrate` exists. It
+enforces items 1, 2, 6 and 7 and the refusal half of item 4, and it refuses
+every plan this build produces: a plan stopping at `MANUAL_REVIEW` is refused as
+such, and every other one carries a mutating step
+(`MUTATION_NOT_IN_THIS_BUILD`), checks this build cannot evaluate, and a
+`VERIFY_RESOLUTION` that asserts nothing. It also refuses a plan whose step
+indices are not `1..=n` in order (`STEP_INDICES_NOT_SEQUENTIAL`), since every
+refusal and every approval names a step by that number.
+
+**Which fields of a command the gate checks, exactly.** It refuses any command
+on a step kind the planner writes none on
+(`COMMAND_ON_STEP_THE_PLANNER_WRITES_NONE_ON`). On `VERIFY_DESTINATION` and
+`VERIFY_REMOVAL` it checks `argv` and `success` against what the planner's own
+functions derive from the provider command table for that side and operation
+(`COMMAND_IS_NOT_THE_PLANNERS_READ` — so a forged verification step carrying a
+mutating verb, or a MacPorts read relabelled `EXIT_STATUS`, is refused), and,
+through `verification::expectation_for`, `target`, `placeholder`, the step's
+provider side and the safety of the name read. **It does not check `program`,
+`environment` or `elevation`**: the spawn site re-derives the first two from
+live detection (item 10), the third is refused wholesale, and the spawn-site
+allowlist remains the last line. `ELEVATION_REQUIRED` and
+`ELEVATION_UNKNOWN` are refusals about this build, not about the step: INV-06
+has elevation requested per operation and shown to the user, and an executor
+*asks* before a step whose elevation is not `NONE` (`04-migration-and-safety.md`,
+"Privilege") — this build has no such consent path. Some causes are reported
+twice, under their own refusal and as an `EXPECTATION` refusal. The gate is
+consulted for execution only — it never refuses *showing* a plan. Items 3 and 4 are also
+discharged as *data*: the plan carries what an executor needs. They are listed
+together so the executor pass inherits a list rather than scattered doc
+comments:
 
 1. **Refuse a plan carrying a `placeholder` command.** It cannot be run; see
-   `PlanCommand.placeholder` above.
+   `PlanCommand.placeholder` above. **Enforced by the gate** (`PLACEHOLDER`),
+   tested by `a_placeholder_command_is_refused` in
+   `crates/application/tests/execution_gate.rs`.
 2. **Refuse a plan carrying a `check` this build does not recognise.** An
    unknown check can never count as satisfied
-   (`MigrationPlan::verification_is_performable`).
+   (`MigrationPlan::verification_is_performable`). **Enforced by the gate**
+   (`UNRECOGNISED_CHECK`), tested by `an_unrecognised_check_is_refused`.
 3. **Perform a `VERIFY_REMOVAL` only on an inventory that is complete.** **Discharged
    as data 2026-09-19**, and what is left is the executor's half, which is one
    sentence rather than a design. `PACKAGE_ABSENT` now carries the provider's
@@ -166,7 +204,10 @@ a list rather than three doc comments:
    `brew list --versions` does exit 1 when absent, so the two providers cannot
    share one rule and the check must read output. The executor's obligation is
    now the same shape as items 1 and 2: read the field, refuse what it cannot
-   perform (F-33).
+   perform (F-33). **The refusal half is enforced by the gate**
+   (`UNKNOWN_SUCCESS`), tested by `a_command_of_unknown_success_is_refused`;
+   honouring a stated semantic is `verification::evaluate`'s, and waits for a
+   loop that calls it.
 5. **A single-instance lock, and a check for a concurrently running `brew` or
    `port`.** `04-migration-and-safety.md:201` is a **MUST** and nothing
    implements it — not even a type, which every other deferred capability here
@@ -175,10 +216,59 @@ a list rather than three doc comments:
    the obligation cannot be lost, which is what this list is for. Read-only
    analysis may proceed under a concurrent provider run, flagged as possibly
    inconsistent — and it is not flagged today either (F-20).
+6. **Recognised is not evaluable.** A check this build can parse is not
+   thereby one it can perform, and a step cannot pass on the checks it can
+   read while ignoring the rest. Three have an evaluation today —
+   `PROVIDER_REPORTS_ACTIVE`, `PACKAGE_NEWLY_PRESENT`, `PACKAGE_ABSENT` — and
+   the gate refuses a step carrying any other (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
+   `a_recognised_check_is_not_thereby_evaluable`). Evaluability is per step
+   kind and check, because a check is answered by its own step's read: the
+   first two only on `VERIFY_DESTINATION`, the third only on
+   `VERIFY_REMOVAL`, so `PROVIDER_REPORTS_ACTIVE` on `SET_PRIMARY`, which reads
+   nothing, is refused too
+   (`a_check_on_a_step_with_no_provider_read_is_not_evaluable`). Each of the rest needs
+   evidence this build does not gather, and `LIVENESS_PROBE` would run the
+   package's own executable — a program outside the executor's
+   `PERMITTED_PROGRAMS`, so adding it is a security decision, not an
+   implementation detail.
+7. **A verification step that asserts nothing is refused.** A `VERIFY_*` step
+   with no command to read, or no check to read it against, could only pass by
+   saying nothing, which makes the gate it stands for an open one
+   (`VERIFICATION_ASSERTS_NOTHING`,
+   `a_verification_step_that_asserts_nothing_is_refused`). `VERIFY_RESOLUTION`
+   is such a step in every plan this build produces.
+8. **Tie the executed plan to the one the human saw** (SE-092). INV-02 wants
+   the executor to run a plan object a human has seen. `migrate --yes` would
+   render and execute in one process, which is compatible with INV-02 only
+   while nothing destructive is dispatched. The mutating pass owes the tie —
+   the same in-memory object shown and then confirmed, or under `--yes` a
+   digest of a previously rendered plan that must match — before it dispatches
+   a single mutating step.
+9. **When a consent path lands, the decision to ask comes from the provider
+   command table plus the live capability probe, never from the plan's
+   `elevation` field.** The field is what the user is *shown*; the question
+   whether a step elevates is answered where the planner answers it
+   (`provider-commands.toml`, relaxed only by a detected capability for a
+   read), re-derived at execution. A plan edited to say `NONE` must not skip
+   the question.
+10. **The spawn site re-derives `program` and `environment` from live
+    detection and never reads `PlanCommand.program` or
+    `PlanCommand.environment`.** The gate checks neither (see above): the
+    program comes from the provider's detected prefix and the table's
+    executable, the environment from the adapter's sanitised construction
+    (`sanitised_environment`, INV-10), and the plan's copies are what a person
+    reads, not what runs. Owed by the S4 slice.
 
-A plan containing a `MANUAL_REVIEW` step exits **4** when executed, naming the
-step. `plan --json` exits 4 for the same reason while still printing the plan:
-the plan is the useful output even when it cannot be run unattended.
+A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
+step (`MANUAL_REVIEW`,
+`invariant_19_manual_review_refuses_execution_and_names_the_step`), and the gate
+reports exit **4** for it — and for every other refusal: the gate has one exit
+code, so a script cannot learn a lesser one as "fine, just not yet".
+
+`plan --json` is a different thing and does not consult the gate. It exits
+**4** only when the plan it prints contains a `MANUAL_REVIEW` step, and **0**
+for any other plan it builds — including one the gate would refuse. The plan is
+the useful output even when it cannot be run unattended.
 
 ### `PlanCommand`
 
