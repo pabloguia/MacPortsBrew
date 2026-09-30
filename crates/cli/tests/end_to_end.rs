@@ -2362,6 +2362,96 @@ fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the
     );
 }
 
+/// SE-092's S3 addendum, through the real binary. A package only its
+/// destination holds is "already there" only if every *other* provider's
+/// inventory was read. The planner names no provider, so which providers a
+/// complete document must carry comes from the registry, and this is the one
+/// test that proves `plan` passes it: an application-level test supplies its
+/// own list and cannot see the command line forgetting to.
+#[test]
+fn a_package_is_not_reported_as_already_moved_on_an_inventory_nobody_read() {
+    let scratch = Scratch::new("s3-unread-inventory");
+    let path = fixture(BOTH);
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path.to_str().expect("fixture path is UTF-8"),
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+    let doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    // `nginx` is held by MacPorts alone in this fixture.
+    let plan_nginx = |label: &str, doc: &Value| {
+        let file = scratch.path().join(format!("{label}.json"));
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "nginx",
+                "--to",
+                "macports",
+                "--today",
+                TODAY,
+            ],
+        )
+    };
+
+    let control = plan_nginx("control", &doc);
+    assert_eq!(
+        control.status.code(),
+        Some(2),
+        "the control: read in full, nginx is already held by macports: {}",
+        String::from_utf8_lossy(&control.stderr)
+    );
+
+    // The other provider's entry deleted: not recorded as absent, just gone.
+    let mut missing = doc.clone();
+    missing["providers"]
+        .as_object_mut()
+        .expect("providers is an object")
+        .remove("homebrew")
+        .expect("the fixture carries homebrew");
+    let out = plan_nginx("missing", &missing);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{text}");
+    assert!(text.contains("homebrew"), "the refusal names it: {text}");
+    assert!(out.stdout.is_empty(), "a refusal writes no plan");
+
+    // The other provider broken, as `capture` records one it could not read.
+    let mut broken = doc.clone();
+    let hb = &mut broken["providers"]["homebrew"];
+    hb["detection"]["presence"] =
+        serde_json::json!({ "state": "BROKEN", "reason": "error.provider_unhealthy" });
+    hb["inventory"]["installed"] = serde_json::json!([]);
+    hb["capabilities"]["capabilities"]["MACHINE_READABLE_INVENTORY"] =
+        serde_json::json!({ "state": "UNKNOWN" });
+    let out = plan_nginx("broken", &broken);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(5), "{text}");
+    assert!(text.contains("homebrew is broken"), "it names it: {text}");
+    assert!(
+        !text.contains("error."),
+        "a message identifier reached the user: {text}"
+    );
+}
+
 #[test]
 fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // Finding F-10, reproduced exactly as it was observed: the plan for

@@ -5232,5 +5232,85 @@ finding ids in each entry.
 - Architectural impact: the command-line crate gains an I/O module that is not
   presentation; `AGENTS.md`'s `cli` row says so.
 - Compatibility impact: none.
+- **Addendum, INV-16's prerequisite, 2026-09-28 (slice S3).** Not covered by
+  the Rationale above. `plan_outcome` returns
+  `PlanOutcome::AlreadyAtDestination` when the requested destination is the
+  only holder, which lets a future `migrate` report "nothing to move" and exit
+  0 when re-run after a migration that removed its source, rather than
+  treating that as an error. The conditions: the destination must hold at
+  least one **active** copy (an inactive-only copy keeps the `Usage` refusal
+  when every other provider's inventory was read; the checks below run first);
+  every other provider must be genuinely absent or present with a readable
+  inventory — a `Broken` one (whose inventory is empty because it could not be
+  read) refuses with `ProviderUnhealthy`, exit 5, and a present one whose
+  `MachineReadableInventory` is anything but a recorded `Available` —
+  `Unknown`, `Unavailable`, or no entry at all, since an absent entry is never
+  a yes — refuses with `SafetyUnverifiable`, exit 4; and a unit no provider holds is an `Internal`
+  error, never "nothing to move". A provider this build knows
+  (`registry::known_provider_ids`, passed in as `known` because the planner
+  names none) that the input carries no entry for at all is the same unread
+  inventory and refuses with `SafetyUnverifiable`, exit 4.
+  `build_plan`, and so `plan`, still report the already-there case as
+  `ErrorId::Usage`, exit 2, with the same message.
+
+  **What changed in `plan`'s output, measured, not inferred.** HEAD (699d173)
+  and this working tree were built side by side and `plan <name> --to <p>` was
+  run by both for every installed name in every recording, toward both
+  providers: 11,492 runs. Every recording via `--replay`, unchanged, gives
+  byte-identical stdout, stderr and exit code under both builds, and so does
+  every `--from-snapshot` document derived from the two both-provider
+  recordings in which the other provider is intact or recorded `ABSENT`. No run
+  that produced a plan changed, and no stdout changed anywhere. The differences
+  are confined to documents in which the *other* provider's inventory was not
+  read, and there only to requests for a package the destination alone holds.
+  In each derived document the other provider's installed list is emptied, as
+  an unread inventory leaves it. Each of those requests used to be refused
+  "already held by", exit 2:
+
+  | Other provider in the document | HEAD | Now |
+  |---|---|---|
+  | `BROKEN`, empty inventory (what `capture` records) | exit 2, "already held by" | exit 5 `ProviderUnhealthy`, "\<id\> is broken, so whether it still holds …" |
+  | entry deleted from `providers` | exit 2, "already held by" | exit 4 `SafetyUnverifiable`, "this input carries no entry for \<id\> …" |
+  | `PRESENT`, `MACHINE_READABLE_INVENTORY: UNKNOWN` | exit 2, "already held by" | exit 4 `SafetyUnverifiable`, "this input does not record \<id\>'s inventory …" |
+  | `PRESENT`, no `MACHINE_READABLE_INVENTORY` entry | exit 2, "already held by" | exit 4, as the row above |
+
+  Per document, the requests that changed: 19 toward MacPorts and 192 (arm64)
+  or 202 (Intel) toward Homebrew for the broken, `UNKNOWN` and no-entry rows;
+  16/190 (arm64) and 18/201 (Intel) for the deleted entry, fewer only because
+  deleting a provider also deletes the names it is asked for by. Both refusals
+  render through the catalogue (`error.provider_unhealthy`,
+  `error.safety_unverifiable`); no run's stderr contains a message identifier.
+  The end-to-end test in the table's last row replays the first two rows
+  through the binary.
+
+  **Proved by mutation.** Each branch was broken on purpose, the suite run, the
+  source restored:
+
+  | Branch | Mutation | Test that failed |
+  |---|---|---|
+  | `nothing_to_move`: destination row must hold a copy | drop the `installed` filter | `planner::tests::a_unit_held_by_nobody_is_an_internal_error_not_already_at_its_destination` |
+  | known provider missing from the input | never match | `a_known_provider_missing_from_the_input_is_not_evidence_either` |
+  | skip the destination itself | question it too | `only_the_other_providers_inventories_are_questioned` |
+  | `Absent` accepted | refuse it | `an_absent_other_provider_does_not_stop_it_being_already_there` |
+  | `Broken` refused | accept it | `a_broken_other_provider_is_not_evidence_the_package_was_moved` |
+  | only a recorded `Available` is a yes | refuse only `Unavailable` | `an_other_provider_whose_inventory_cannot_be_read_is_not_evidence_either`, `an_other_provider_with_no_inventory_entry_is_not_evidence_either` |
+  | an absent entry is not a yes | accept a missing entry | `an_other_provider_with_no_inventory_entry_is_not_evidence_either` |
+  | destination copy must be active | accept inactive | `an_inactive_copy_at_the_destination_is_not_already_there` |
+  | `plan_outcome` routes to `nothing_to_move` | HEAD's refusal instead | `invariant_16_*`, `invariant_17_*` and the six refusal tests above |
+  | `build_plan` keeps `Usage` | `Internal` instead | `build_plan_still_reports_it_as_usage`, `a_package_only_the_destination_holds_is_refused_as_nothing_to_move`, `an_inactive_copy_at_the_destination_is_not_already_there` |
+  | `plan` passes the registry's `known` | pass `&[]` | `a_package_is_not_reported_as_already_moved_on_an_inventory_nobody_read` (`crates/cli/tests/end_to_end.rs`) |
+
+  Open for the
+  `migrate` slice: a `--retain-source` re-run finds both providers holding the
+  package and builds another consolidation plan instead of "nothing to move";
+  and a source row whose mapping counterpart is this destination package but
+  which sits in a different analysis unit (a name mismatch) is invisible here,
+  so `migrate` must check for it before accepting `AlreadyAtDestination`;
+  `ProviderPresence::Absent` is taken as proof the other provider holds
+  nothing, so it is only as reliable as prefix detection, and `migrate` must
+  not accept the outcome on an absence detection could have missed; and
+  `migrate`'s call site must pass the registry's provider list and carry the
+  same deleted-provider end-to-end test `plan` has, because a `known` of the
+  snapshot's own keys switches the missing-provider check off.
 
 ---

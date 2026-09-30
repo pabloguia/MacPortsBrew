@@ -241,6 +241,9 @@ fn run_inner(
                     to: macportsbrew_domain::ProviderId::new(to),
                     retain_source: *retain_source,
                 },
+                // The planner names no provider; the registry is what knows
+                // which ones a complete input must carry.
+                &macportsbrew_adapters::registry::known_provider_ids(),
             )?;
             if cli.json {
                 writeln!(stdout, "{}", json(&plan)?).map_err(io)?;

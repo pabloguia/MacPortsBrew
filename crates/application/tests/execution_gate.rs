@@ -181,6 +181,7 @@ fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> Migration
             to: ProviderId::new(to),
             retain_source: retain,
         },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
     .expect("the planner builds this plan")
 }

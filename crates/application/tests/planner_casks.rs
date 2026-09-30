@@ -124,8 +124,10 @@ fn snapshot(source_kind: PackageKind) -> Snapshot {
 
 fn plan(source_kind: PackageKind) -> macportsbrew_domain::MigrationPlan {
     let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let snap = snapshot(source_kind);
+    let known: Vec<ProviderId> = snap.providers.keys().cloned().collect();
     build_plan(
-        &snapshot(source_kind),
+        &snap,
         &policy,
         &AnalysisOptions::default(),
         &PlanRequest {
@@ -133,6 +135,7 @@ fn plan(source_kind: PackageKind) -> macportsbrew_domain::MigrationPlan {
             to: ProviderId::new(MP),
             retain_source: false,
         },
+        &known,
     )
     .expect("the request is coherent and must produce a plan")
 }

@@ -106,6 +106,7 @@ fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOpti
                             to: to.clone(),
                             retain_source: retain,
                         },
+                        &macportsbrew_adapters::registry::known_provider_ids(),
                     ) else {
                         // A refusal to plan is the planner's answer, and
                         // `planner_refusals.rs` owns it; this test is about

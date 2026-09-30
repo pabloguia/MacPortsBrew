@@ -20,7 +20,9 @@
 //! The richer two-provider fixture lives in `invariants.rs` and is built for a
 //! different question.
 
-use macportsbrew_application::{build_plan, explain_package, AnalysisOptions, PlanRequest};
+use macportsbrew_application::{
+    build_plan, explain_package, plan_outcome, AnalysisOptions, PlanOutcome, PlanRequest,
+};
 use macportsbrew_domain::{
     Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot, ErrorId,
     InstalledPackage, Machine, MacosVersion, PackageIdentity, PackageKind, PackageMetadata,
@@ -34,6 +36,12 @@ use std::path::PathBuf;
 
 const HB: &str = "homebrew";
 const MP: &str = "macports";
+
+/// The provider ids a complete input carries, as the command line passes
+/// them from the registry.
+fn known() -> Vec<ProviderId> {
+    vec![ProviderId::new(HB), ProviderId::new(MP)]
+}
 
 /// A provider holding exactly the named packages, all requested.
 ///
@@ -78,7 +86,16 @@ fn holding(id: &str, prefix: &str, names: &[(&str, Option<&str>)]) -> ProviderSn
             architecture: Some(Architecture::Arm64),
             prefix_redacted: false,
         },
-        capabilities: ProviderCapabilities::default(),
+        // The planner reads a missing inventory entry as unread, so a
+        // provider these fixtures describe as read has to say so.
+        capabilities: ProviderCapabilities {
+            capabilities: [(
+                Capability::MachineReadableInventory,
+                CapabilityState::Available,
+            )]
+            .into_iter()
+            .collect(),
+        },
         inventory,
         environment: BTreeMap::new(),
         invocation_environment: [("PATH".to_string(), format!("{prefix}/bin:/usr/bin:/bin"))]
@@ -134,6 +151,7 @@ fn plan_for(snapshot: &Snapshot, package: &str, to: &str) -> Result<(), (ErrorId
             to: ProviderId::new(to),
             retain_source: false,
         },
+        &known(),
     )
     .map(|_| ())
     .map_err(|e| (e.id, e.detail))
@@ -163,6 +181,248 @@ fn a_package_only_the_destination_holds_is_refused_as_nothing_to_move() {
         detail.contains("already held by") && detail.contains(MP),
         "the refusal must say who already holds it: {detail}"
     );
+}
+
+fn outcome_for(snapshot: &Snapshot, package: &str, to: &str) -> Result<PlanOutcome, ErrorId> {
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    plan_outcome(
+        snapshot,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: package.to_string(),
+            to: ProviderId::new(to),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .map_err(|e| e.id)
+}
+
+/// The same snapshot with `id`'s provider replaced by what `capture` records
+/// for one it could not read: `Broken`, an empty inventory, every capability
+/// `Unknown`.
+fn with_broken(mut snap: Snapshot, id: &str) -> Snapshot {
+    let p = snap
+        .providers
+        .get_mut(&ProviderId::new(id))
+        .expect("the provider is in the snapshot");
+    p.detection.presence = ProviderPresence::Broken {
+        reason: "error.provider_unhealthy".into(),
+    };
+    p.detection.version = None;
+    p.inventory = ProviderInventory::default();
+    p.capabilities = ProviderCapabilities {
+        capabilities: Capability::all()
+            .iter()
+            .map(|c| (*c, CapabilityState::Unknown))
+            .collect(),
+    };
+    snap
+}
+
+fn already_at(package: &str, provider: &str) -> PlanOutcome {
+    PlanOutcome::AlreadyAtDestination {
+        package: package.into(),
+        provider: ProviderId::new(provider),
+    }
+}
+
+#[test]
+fn invariant_16_a_package_only_its_destination_holds_is_an_outcome_not_an_error() {
+    // INV-16: a re-run after a migration that removed its source finds the
+    // package at its destination and nowhere else. That is "nothing
+    // further", which a caller has to be able to tell from a refused request
+    // without reading a message.
+    let snap = both(&[], &[("curl", None)]);
+    assert_eq!(outcome_for(&snap, "curl", MP), Ok(already_at("curl", MP)));
+}
+
+#[test]
+fn invariant_17_the_mirror_direction_is_already_at_its_destination_too() {
+    // The mirror of the INV-16 case: the direction is not special.
+    let snap = both(&[("wget", None)], &[]);
+    assert_eq!(outcome_for(&snap, "wget", HB), Ok(already_at("wget", HB)));
+}
+
+#[test]
+fn an_absent_other_provider_does_not_stop_it_being_already_there() {
+    // Genuinely absent is a fact about the other side, unlike broken.
+    let mut snap = both(&[], &[("curl", None)]);
+    let hb = snap
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("present");
+    hb.detection.presence = ProviderPresence::Absent;
+    // `capture` records an absent provider's capabilities as unknown; that
+    // must not be read as an unreadable inventory.
+    hb.capabilities = ProviderCapabilities {
+        capabilities: Capability::all()
+            .iter()
+            .map(|c| (*c, CapabilityState::Unknown))
+            .collect(),
+    };
+    assert_eq!(outcome_for(&snap, "curl", MP), Ok(already_at("curl", MP)));
+}
+
+#[test]
+fn a_broken_other_provider_is_not_evidence_the_package_was_moved() {
+    // A broken provider's inventory is empty because it could not be read.
+    // Reading that as "holds nothing" would report a package it still holds
+    // as already moved.
+    let snap = with_broken(both(&[("curl", None)], &[("curl", None)]), HB);
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let err = plan_outcome(
+        &snap,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: "curl".into(),
+            to: ProviderId::new(MP),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .expect_err("must refuse");
+    assert_eq!(err.id, ErrorId::ProviderUnhealthy);
+    assert!(
+        err.detail.contains(HB),
+        "the refusal must name it: {}",
+        err.detail
+    );
+    // `plan` gives the same refusal: before this, it said "already held".
+    assert_eq!(
+        plan_for(&snap, "curl", MP).map_err(|(id, _)| id),
+        Err(ErrorId::ProviderUnhealthy)
+    );
+    assert_eq!(ErrorId::ProviderUnhealthy.exit_code(), 5);
+    // The reason is a message identifier for the UI to render, not English.
+    assert!(!err.detail.contains("error."), "{}", err.detail);
+}
+
+#[test]
+fn an_other_provider_whose_inventory_cannot_be_read_is_not_evidence_either() {
+    let mut snap = both(&[], &[("curl", None)]);
+    snap.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("present")
+        .capabilities = ProviderCapabilities {
+        capabilities: [(
+            Capability::MachineReadableInventory,
+            CapabilityState::Unknown,
+        )]
+        .into_iter()
+        .collect(),
+    };
+    assert_eq!(
+        outcome_for(&snap, "curl", MP),
+        Err(ErrorId::SafetyUnverifiable)
+    );
+    // `plan` gives the same refusal, exit 4: before this, "already held", exit 2.
+    assert_eq!(
+        plan_for(&snap, "curl", MP).map_err(|(id, _)| id.exit_code()),
+        Err(4)
+    );
+}
+
+#[test]
+fn an_other_provider_with_no_inventory_entry_is_not_evidence_either() {
+    // A capability table that does not mention the inventory has not said it
+    // was read; an absent entry is never a yes.
+    let mut snap = both(&[], &[("curl", None)]);
+    snap.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("present")
+        .capabilities = ProviderCapabilities::default();
+    assert_eq!(
+        outcome_for(&snap, "curl", MP),
+        Err(ErrorId::SafetyUnverifiable)
+    );
+    // `plan` gives the same refusal, exit 4: before this, "already held", exit 2.
+    assert_eq!(
+        plan_for(&snap, "curl", MP).map_err(|(id, _)| id.exit_code()),
+        Err(4)
+    );
+}
+
+#[test]
+fn a_known_provider_missing_from_the_input_is_not_evidence_either() {
+    // A document with a provider's entry deleted - not recorded as absent,
+    // simply not there - has not said that provider holds nothing.
+    let mut snap = both(&[], &[("curl", None)]);
+    snap.providers.remove(&ProviderId::new(HB));
+    let err = plan_for(&snap, "curl", MP).expect_err("must refuse");
+    assert_eq!(err.0, ErrorId::SafetyUnverifiable);
+    assert_eq!(err.0.exit_code(), 4);
+    assert!(err.1.contains(HB), "the refusal must name it: {}", err.1);
+    assert_eq!(
+        outcome_for(&snap, "curl", MP),
+        Err(ErrorId::SafetyUnverifiable)
+    );
+}
+
+#[test]
+fn only_the_other_providers_inventories_are_questioned() {
+    // The rule is about whether anything *else* still holds the package; the
+    // destination's own row is what was read to find it there.
+    let mut snap = both(&[], &[("curl", None)]);
+    snap.providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("present")
+        .capabilities = ProviderCapabilities {
+        capabilities: [(
+            Capability::MachineReadableInventory,
+            CapabilityState::Unknown,
+        )]
+        .into_iter()
+        .collect(),
+    };
+    assert_eq!(outcome_for(&snap, "curl", MP), Ok(already_at("curl", MP)));
+}
+
+#[test]
+fn an_inactive_copy_at_the_destination_is_not_already_there() {
+    // An inactive copy is on disk but is not what runs.
+    let mut snap = both(&[], &[("curl", None)]);
+    for p in &mut snap
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("present")
+        .inventory
+        .installed
+    {
+        p.active = false;
+    }
+    assert_eq!(outcome_for(&snap, "curl", MP), Err(ErrorId::Usage));
+    let (id, detail) = plan_for(&snap, "curl", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::Usage);
+    assert_eq!(detail, format!("curl is already held by {MP}"));
+}
+
+#[test]
+fn a_package_held_by_nobody_is_not_already_at_its_destination() {
+    // Absent everywhere is not "already moved": reading it that way would
+    // report a migration as done that never happened.
+    let snap = both(&[("wget", None)], &[("curl", None)]);
+    assert_eq!(
+        outcome_for(&snap, "nothing-like-this", MP),
+        Err(ErrorId::PackageNotFound)
+    );
+    // And a package held elsewhere is a plan, not an outcome.
+    assert!(
+        matches!(outcome_for(&snap, "wget", MP), Ok(PlanOutcome::Plan(_))),
+        "a package the destination does not hold must be planned"
+    );
+}
+
+#[test]
+fn build_plan_still_reports_it_as_usage() {
+    // `plan`'s exit 2 and its message are a contract; the typed outcome is an
+    // addition beside it, not a change to it.
+    let snap = both(&[], &[("curl", None)]);
+    let (id, detail) = plan_for(&snap, "curl", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::Usage);
+    assert_eq!(detail, format!("curl is already held by {MP}"));
 }
 
 #[test]

@@ -6,11 +6,13 @@
 
 use crate::analysis::{analyze, AnalysisOptions, AnalysisSource};
 use crate::provider_commands::{self, ProviderCommands};
+use crate::report::ProviderRow;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
     Capability, CapabilityState, CommandTarget, Confidence, DomainError, Elevation, ErrorId,
     MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk,
-    ProviderId, ProviderPresence, Reason, Snapshot, StepKind, SuccessSemantic, VerificationCheck,
+    ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind, SuccessSemantic,
+    VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -49,16 +51,170 @@ pub struct PlanRequest {
     pub retain_source: bool,
 }
 
+/// What planning a request produced, when it produced anything.
+///
+/// A package that only its requested destination holds is not a failure of
+/// the request: it is the state a successful migration leaves behind, and
+/// INV-16 needs a re-run to recognise it and report "nothing further" rather
+/// than read it as an error. `plan` still reports it as `ErrorId::Usage`
+/// through [`build_plan`]; this type is what lets a caller tell the two apart
+/// without matching on a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanOutcome {
+    /// There is something to move, and this is the plan for it. Boxed because
+    /// a plan is large and the other variant is two names (clippy's
+    /// `large_enum_variant`); it is built once per invocation.
+    Plan(Box<MigrationPlan>),
+    /// The destination holds the package and no other provider does.
+    AlreadyAtDestination {
+        /// The unit's name, as `plan` reports it.
+        package: String,
+        /// The requested destination, which is the only holder.
+        provider: ProviderId,
+    },
+}
+
 /// Builds the plan. Never mutates; never elevates; produces a plan whose
 /// first mutating step is preceded by the automatic snapshot, whose
 /// destination is added and verified before any removal (INV-01), and which
 /// stops at a `MANUAL_REVIEW` step whenever a safety condition holds.
+///
+/// [`plan_outcome`] is the same function with a package already at its
+/// destination kept as an outcome; here that outcome is reported as
+/// `ErrorId::Usage`, the refusal `plan` has always given for it. A request
+/// `plan_outcome` refuses instead — another provider broken, unrecorded or
+/// missing from the input — is refused here with the same error.
+///
+/// `known` is every provider id this build knows. The planner does not name
+/// providers, so the caller supplies them; a known provider the snapshot
+/// omits is one whose inventory this input does not carry.
 pub fn build_plan(
     snapshot: &Snapshot,
     policy: &PolicyData,
     options: &AnalysisOptions,
     request: &PlanRequest,
+    known: &[ProviderId],
 ) -> Result<MigrationPlan, DomainError> {
+    match plan_outcome(snapshot, policy, options, request, known)? {
+        PlanOutcome::Plan(plan) => Ok(*plan),
+        PlanOutcome::AlreadyAtDestination { package, provider } => {
+            Err(already_held(&package, &provider))
+        }
+    }
+}
+
+/// The refusal `plan` gives for a package nothing needs to move.
+fn already_held(package: &str, provider: &ProviderId) -> DomainError {
+    DomainError::new(
+        ErrorId::Usage,
+        format!("{package} is already held by {provider}"),
+    )
+}
+
+/// Decides, for a unit no provider other than the destination holds, whether
+/// that is "already at the destination" or an error.
+///
+/// "No other provider holds it" is only as good as each other provider's
+/// inventory. A broken provider's inventory is empty because it could not be
+/// read, not because it holds nothing (`capture::broken`), so a package it
+/// still holds would read as already moved. Every other provider must
+/// therefore be either genuinely absent or present with an inventory that
+/// could be read; otherwise this refuses and names it. A provider in `known`
+/// that the input omits altogether is the same unread inventory: a document
+/// with a provider's entry deleted must not read as that provider holding
+/// nothing.
+///
+/// The destination must also hold an **active** copy. An inactive copy is on
+/// disk but is not what runs, and a migration is not done while it is the
+/// only one; when every other provider's inventory was read, that case keeps
+/// the refusal `plan` has always given (the checks above run first).
+///
+/// A unit with no installed row at all is not a package already moved.
+/// `analyze` builds every unit from an installed row, so it cannot be reached
+/// from a snapshot, and it is reported as the internal error it would be.
+fn nothing_to_move(
+    providers: &BTreeMap<ProviderId, ProviderSnapshot>,
+    known: &[ProviderId],
+    package: &str,
+    rows: &BTreeMap<ProviderId, ProviderRow>,
+    to: &ProviderId,
+) -> Result<PlanOutcome, DomainError> {
+    let Some(destination) = rows.get(to).filter(|r| !r.installed.is_empty()) else {
+        return Err(DomainError::new(
+            ErrorId::Internal,
+            format!("the analysis produced a unit for {package} that no provider holds"),
+        ));
+    };
+    if let Some(missing) = known
+        .iter()
+        .find(|id| *id != to && !providers.contains_key(*id))
+    {
+        return Err(DomainError::new(
+            ErrorId::SafetyUnverifiable,
+            format!(
+                "this input carries no entry for {missing}, so whether it still holds {package} \
+                 cannot be read; {package} is not reported as already at {to}"
+            ),
+        ));
+    }
+    for (id, provider) in providers {
+        if id == to {
+            continue;
+        }
+        match &provider.detection.presence {
+            ProviderPresence::Absent => {}
+            ProviderPresence::Broken { .. } => {
+                return Err(DomainError::new(
+                    ErrorId::ProviderUnhealthy,
+                    format!(
+                        "{id} is broken, so whether it still holds {package} cannot \
+                         be read; {package} is not reported as already at {to}"
+                    ),
+                ));
+            }
+            ProviderPresence::Present => {
+                // Only a recorded `Available` is a yes: `Unknown`, `Unavailable`
+                // and an entry that is missing altogether all leave the
+                // inventory unread, and an absent entry is never a yes.
+                if provider
+                    .capabilities
+                    .capabilities
+                    .get(&Capability::MachineReadableInventory)
+                    != Some(&CapabilityState::Available)
+                {
+                    return Err(DomainError::new(
+                        ErrorId::SafetyUnverifiable,
+                        format!(
+                            "this input does not record {id}'s inventory, so whether it still \
+                             holds {package} cannot be read; {package} is not reported as \
+                             already at {to}"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    if !destination.installed.iter().any(|p| p.active) {
+        return Err(already_held(package, to));
+    }
+    Ok(PlanOutcome::AlreadyAtDestination {
+        package: package.to_string(),
+        provider: to.clone(),
+    })
+}
+
+/// [`build_plan`], with a package already at its destination returned as
+/// [`PlanOutcome::AlreadyAtDestination`] rather than as an error. Every other
+/// refusal, and every plan, is exactly what `build_plan` produces; the two
+/// share the refusals `nothing_to_move` adds. `known` is as in
+/// [`build_plan`].
+pub fn plan_outcome(
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+    request: &PlanRequest,
+    known: &[ProviderId],
+) -> Result<PlanOutcome, DomainError> {
     // Analyse the whole machine and pick the unit afterwards, rather than
     // filtering the analysis down to the requested name.
     //
@@ -150,10 +306,13 @@ pub fn build_plan(
         .map(|id| (*id).clone())
     else {
         // Nothing holds it but the destination, so there is nothing to move.
-        return Err(DomainError::new(
-            ErrorId::Usage,
-            format!("{} is already held by {}", unit.name, request.to),
-        ));
+        return nothing_to_move(
+            &snapshot.providers,
+            known,
+            &unit.name,
+            &unit.rows,
+            &request.to,
+        );
     };
     // DP-016(c). INV-19 forces `MANUAL_REVIEW` on a service package, and
     // `classify` decides that from `metadata.defines_service` — a bool that the
@@ -601,7 +760,7 @@ pub fn build_plan(
     };
     plan.check_ordering()
         .map_err(|e| DomainError::new(ErrorId::Internal, e))?;
-    Ok(plan)
+    Ok(PlanOutcome::Plan(Box::new(plan)))
 }
 
 /// The operations whose job is to read, and the only ones a detected
@@ -950,6 +1109,43 @@ mod tests {
         Version,
     };
     use std::path::PathBuf;
+
+    // The no-holder arm of `nothing_to_move` is tested here rather than
+    // through `plan_outcome` because it cannot be reached from a snapshot:
+    // `analyze` builds every unit from an installed row. The guard still has
+    // to hold, so it is exercised on the function that carries it.
+    #[test]
+    fn a_unit_held_by_nobody_is_an_internal_error_not_already_at_its_destination() {
+        let dest = ProviderId::new("dest");
+        let err = nothing_to_move(&BTreeMap::new(), &[], "pkg", &BTreeMap::new(), &dest)
+            .expect_err("nobody holds it");
+        assert_eq!(err.id, ErrorId::Internal);
+        assert!(err.detail.contains("no provider holds"), "{}", err.detail);
+
+        // A destination *row* is not a destination *copy*: `analyze` also
+        // writes a row for a mapped counterpart that is not installed. Such a
+        // row with nothing in it must not pass for the package being there.
+        let mapped = ProviderRow {
+            name: "pkg".into(),
+            installed: Vec::new(),
+            ownership: macportsbrew_domain::Ownership::Unknown,
+            ownership_evidence: macportsbrew_domain::OwnershipEvidence {
+                mechanism: "not_installed".into(),
+                authoritative: true,
+            },
+            available_version: None,
+            availability: macportsbrew_domain::AvailabilityAssessment::unknown("test", "test"),
+            deprecated: false,
+            disabled: false,
+            dependency_count: 0,
+            reverse_dependency_count: 0,
+            presence: crate::report::RowPresence::Mapped,
+        };
+        let rows = BTreeMap::from([(dest.clone(), mapped)]);
+        let err = nothing_to_move(&BTreeMap::new(), &[], "pkg", &rows, &dest)
+            .expect_err("an empty destination row holds nothing");
+        assert_eq!(err.id, ErrorId::Internal, "{}", err.detail);
+    }
 
     /// A minimal snapshot of one provider, with the capability set as given.
     fn provider(detected: Option<CapabilityState>) -> macportsbrew_domain::ProviderSnapshot {

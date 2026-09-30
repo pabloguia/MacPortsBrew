@@ -247,6 +247,7 @@ fn plan_for(
             to: ProviderId::new(to),
             retain_source: retain,
         },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
     .unwrap()
 }
