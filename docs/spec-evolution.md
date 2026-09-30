@@ -1371,7 +1371,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   mutating provider subcommand, and `execution_refusals`
   (`crates/application/src/execution_gate.rs`) refuses every plan this build
   produces — one stopping at `MANUAL_REVIEW` is refused as such, and every
-  other one has a mutating step with a command (`MUTATION_NOT_IN_THIS_BUILD`),
+  other one has a mutating step (`MUTATION_NOT_IN_THIS_BUILD`, by kind, command
+  or not — see the S2 follow-up below),
   checks this build cannot evaluate, and a `VERIFY_RESOLUTION` that asserts
   nothing. A plan whose `dryRunOnly` is not `!THIS_BUILD_DISPATCHES_MUTATIONS`
   is refused as `PLAN_NOT_DRY_RUN_ONLY`. The gate also checks command content,
@@ -1409,15 +1410,98 @@ change is made. Silent deviation remains the one unrecoverable error.
   were reworded.
   Evidence: `crates/application/tests/execution_gate.rs` (one test per refusal,
   including `a_plan_that_claims_it_can_run_mutations_is_refused`,
-  `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
-  `the_mutation_constant_is_read_only_by_the_planner_and_the_gate`) and
+  `step_indices_that_are_not_one_to_n_in_order_are_refused`,
+  `every_plan_this_planner_builds_is_refused_for_execution_in_this_build`,
+  `the_mutation_constant_is_read_only_by_the_planner_and_the_gate` and
+  `the_minimal_plan_the_gate_accepts`, which pins the one plan the gate lets
+  through so that any widening of what it accepts shows up in a diff) and
   `crates/cli/tests/execution_gate_fixtures.rs`, which replays every recording
   under `fixtures/recordings/` and gates every plan the planner builds from it,
   asserting at least one Homebrew-to-MacPorts plan is built. MacPorts-to-Homebrew
   *built* plans come only from the synthesised snapshot in the application test:
   no recording captures whether a port defines a service, so the planner
-  refuses every plan out of MacPorts from a fixture (INV-19). Each refusal was
-  disabled in turn and its named test failed.
+  refuses every plan out of MacPorts from a fixture (INV-19). **Mutation
+  record, re-run 2026-09-30 against
+  `cargo test -p macportsbrew-application --test execution_gate`: 32
+  mutations, 32 killed, 0 survived.** The 16 of S2 disable each of its 16
+  refusals in turn, one mutation each, and every one fails the refusal's
+  named test. The other 16 were added in the same slice's follow-up and are
+  listed below.
+- **Extended 2026-09-30 (05-THE-EXECUTOR, S2 follow-up): the gate refuses a
+  plan of another schema version, and mutations outside their brackets.**
+  `SCHEMA_VERSION_NOT_THIS_BUILDS` (`found`, `expected`) refuses a plan whose
+  `schemaVersion` is not `PLAN_SCHEMA_VERSION` — the planner's own constant in
+  `crates/domain/src/plan.rs`, not a second copy — because every other refusal
+  reads a field under this build's meaning of it. `plan.v1.md` obligation 11:
+  a plan with a mutating step (`StepKind::is_mutating`, by kind) must have a
+  `SNAPSHOT_BEFORE` before the first one (`NO_SNAPSHOT_BEFORE_FIRST_MUTATION`,
+  naming that step) and must end with `RECORD_HISTORY`
+  (`NO_RECORD_HISTORY_AT_END`), both by position in `steps`. A plan with no
+  mutating step needs neither, so `the_minimal_plan_the_gate_accepts` still
+  passes and a plan with no mutating step, such as the planner's
+  `MANUAL_REVIEW` stop, is not refused for either bracket. The snapshot
+  bracket is partly enforced below the gate already: `check_ordering` requires
+  `SNAPSHOT_BEFORE` as the *first* step of any mutating plan, so every plan
+  missing it is refused as `ORDERING` too — `NO_SNAPSHOT_BEFORE_FIRST_MUTATION`
+  never fires alone; what it adds is the name of the unguarded step. The final
+  `RECORD_HISTORY` is the **success path**, not the only place a record is
+  written: `plan.v1.md` obligation 12 (new) has the executor write a history
+  record on every way a mutating run ends — a failed step, a partial success, a
+  `MANUAL_REVIEW` halt — as `04-migration-and-safety.md` (History; "Every
+  mutating run records…") already requires. The gate cannot enforce that, since
+  it reads a plan and not a run; the executor's dispatch loop owes it and its
+  test. A mutating plan that ends at `MANUAL_REVIEW`
+  (`[SNAPSHOT_BEFORE, ADD_DESTINATION, VERIFY_DESTINATION, MANUAL_REVIEW]`) is
+  refused both as `NO_RECORD_HISTORY_AT_END` and as `MANUAL_REVIEW`: the halt
+  does not stand in for the record. Each bracket also appears at most once, on
+  any plan (`MORE_THAN_ONE_SNAPSHOT_BEFORE`, `MORE_THAN_ONE_RECORD_HISTORY`,
+  each naming every such step): `check_ordering` reads only the first snapshot,
+  and a second record would record one run twice. A plan with no steps is
+  refused (`EMPTY_PLAN`) — before this it passed as a run that did nothing.
+  Reviewers' fail-open findings, both LOW (security-reviewer): `StepKind::
+  is_mutating` was a `matches!`, so a new kind defaulted to non-mutating and
+  slipped every bracket; it is now an exhaustive `match` with no wildcard.
+  And `MUTATION_NOT_IN_THIS_BUILD` fired only on a mutating step *carrying a
+  command*, so `[SNAPSHOT_BEFORE, CLEANUP_REVIEW, RECORD_HISTORY]` with
+  `dryRunOnly: true` passed the gate; it is now keyed on the kind alone and
+  names the first mutating step, which on a plan whose destination already
+  holds the package is the commandless `ADD_DESTINATION` rather than
+  `SET_PRIMARY`. The planner's plans are refused in this build as before.
+  Every plan the planner writes meets both brackets, holds one of each, and is
+  never empty, asserted over the synthesised snapshot and every recording
+  (`crates/cli/tests/execution_gate_fixtures.rs`, which now also checks that
+  `MUTATION_NOT_IN_THIS_BUILD` names the first mutating step). Every one of
+  these refusals exits 4, like every gate refusal (SE-009). Evidence:
+  `a_plan_of_another_schema_version_is_refused`,
+  `a_mutation_with_no_snapshot_before_it_is_refused`,
+  `a_mutating_plan_that_does_not_end_with_record_history_is_refused`,
+  `a_repeated_snapshot_or_history_record_is_refused`,
+  `a_plan_with_no_steps_is_refused`,
+  `a_mutating_step_with_no_command_is_refused_in_this_build`; the 16
+  mutations and the tests that killed them — schema check disabled, and
+  `found` reported as the expected value (both
+  `a_plan_of_another_schema_version_is_refused`); snapshot check disabled, and
+  a snapshot anywhere in the plan counted (both
+  `a_mutation_with_no_snapshot_before_it_is_refused`); record check disabled,
+  and a record anywhere counted (both
+  `a_mutating_plan_that_does_not_end_with_record_history_is_refused`); and
+  the brackets applied to a plan with no mutating step
+  (`the_minimal_plan_the_gate_accepts`,
+  `every_plan_this_planner_builds_is_refused_for_execution_in_this_build`,
+  `a_mutating_plan_that_does_not_end_with_record_history_is_refused`);
+  `CLEANUP_REVIEW` classified non-mutating in `is_mutating`
+  (`a_mutating_step_with_no_command_is_refused_in_this_build`);
+  `MUTATION_NOT_IN_THIS_BUILD` made to require a command again (that test and
+  `a_mutating_step_is_refused_in_this_build`), and made to name the last
+  mutating step instead of the first (`a_mutating_step_is_refused_in_this_build`);
+  `EMPTY_PLAN` disabled (`a_plan_with_no_steps_is_refused`); each repeat check
+  disabled, and each repeat check's threshold lowered to one — refusing the
+  planner's own plans — (all four `a_repeated_snapshot_or_history_record_is_refused`,
+  the lowered ones also `every_plan_this_planner_builds_is_refused_for_execution_in_this_build`);
+  and the record repeat check applied only to mutating plans
+  (`a_repeated_snapshot_or_history_record_is_refused`). Each mutation was
+  restored and the two source files compared byte-for-byte with their
+  pre-mutation copies.
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted

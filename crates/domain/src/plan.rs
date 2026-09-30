@@ -47,14 +47,24 @@ pub enum StepKind {
 
 impl StepKind {
     /// Whether executing this kind changes the machine.
+    ///
+    /// Exhaustive, with no wildcard, on purpose: every gate that brackets or
+    /// refuses a mutation keys on this, so a kind added to the domain must be
+    /// classified here before this compiles rather than defaulting to
+    /// non-mutating and slipping past them (fail closed).
     pub fn is_mutating(self) -> bool {
-        matches!(
-            self,
+        match self {
             StepKind::AddDestination
-                | StepKind::SetPrimary
-                | StepKind::RemoveSource
-                | StepKind::CleanupReview
-        )
+            | StepKind::SetPrimary
+            | StepKind::RemoveSource
+            | StepKind::CleanupReview => true,
+            StepKind::SnapshotBefore
+            | StepKind::VerifyDestination
+            | StepKind::VerifyResolution
+            | StepKind::VerifyRemoval
+            | StepKind::RecordHistory
+            | StepKind::ManualReview => false,
+        }
     }
 }
 

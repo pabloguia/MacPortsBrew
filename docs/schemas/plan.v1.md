@@ -20,7 +20,7 @@ plan this build produces; see "What an executor inherits".
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | integer | `1` |
+| `schemaVersion` | integer | `1` (`PLAN_SCHEMA_VERSION` in `crates/domain/src/plan.rs`). A plan carrying any other value is refused for execution (`SCHEMA_VERSION_NOT_THIS_BUILDS`, naming `found` and `expected`): every other refusal reads a field under this build's meaning of it |
 | `package` | object | `{ "provider": string, "name": string }` — the source identity |
 | `source` | string | Provider id the package is held by |
 | `destination` | string | Provider id it would move to |
@@ -61,7 +61,7 @@ the order they occur:
 | `VERIFY_RESOLUTION` | no | Confirm it actually does |
 | `REMOVE_SOURCE` | yes | Only reachable after `VERIFY_DESTINATION` passed (INV-01) |
 | `VERIFY_REMOVAL` | no | Carries `PACKAGE_ABSENT` **and, since 2026-09-19, a command**: the provider's inventory verb with **no package argument**, and `success: STDOUT_OMITS_PACKAGE`. Absence is the name missing from an answer that exited cleanly, was not truncated and is non-empty — four conditions, not one; the exit status is a precondition here rather than the answer (F-06, F-22) |
-| `CLEANUP_REVIEW` | no | What is left behind, for a human to decide about |
+| `CLEANUP_REVIEW` | yes | What is left behind, for a human to decide about. Counted as mutating so the gate fails closed; cleanup itself stays opt-in and is never a side effect of a migration (spec 04, Cleanup) |
 | `RECORD_HISTORY` | no | |
 | `MANUAL_REVIEW` | no | A human must look. Execution stops here |
 
@@ -85,20 +85,28 @@ defend it.
 
 ### What an executor inherits
 
-Ten obligations are recorded here. **Nothing executes a provider command
+Twelve obligations are recorded here. **Nothing executes a provider command
 from a plan in this build**, so none is met by an executor; what exists since
 2026-09-27 is the refusal gate every execution must pass,
 `execution_refusals` in `crates/application/src/execution_gate.rs`, which
 returns every reason a plan may not run as a named refusal (tag `refusal`) and
 reports exit **4** (`GateReport::exit_code`) whenever it refuses anything — no
 command consults it yet, so nothing *exits* with it until `migrate` exists. It
-enforces items 1, 2, 6 and 7 and the refusal half of item 4, and it refuses
+enforces items 1, 2, 6, 7 and 11 and the refusal half of item 4, and it refuses
 every plan this build produces: a plan stopping at `MANUAL_REVIEW` is refused as
 such, and every other one carries a mutating step
-(`MUTATION_NOT_IN_THIS_BUILD`), checks this build cannot evaluate, and a
+(`MUTATION_NOT_IN_THIS_BUILD`, keyed on the step's kind, whether or not it
+carries a command — `a_mutating_step_with_no_command_is_refused_in_this_build`),
+checks this build cannot evaluate, and a
 `VERIFY_RESOLUTION` that asserts nothing. It also refuses a plan whose step
 indices are not `1..=n` in order (`STEP_INDICES_NOT_SEQUENTIAL`), since every
-refusal and every approval names a step by that number.
+refusal and every approval names a step by that number, one whose
+`schemaVersion` is not the one this build writes
+(`SCHEMA_VERSION_NOT_THIS_BUILDS`,
+`a_plan_of_another_schema_version_is_refused`), since it reads every other field
+under this build's meaning of it, and a plan with no steps at all
+(`EMPTY_PLAN`, `a_plan_with_no_steps_is_refused`), which the planner never
+writes and which would otherwise pass as a run that did nothing.
 
 **Which fields of a command the gate checks, exactly.** It refuses any command
 on a step kind the planner writes none on
@@ -258,6 +266,48 @@ comments:
     executable, the environment from the adapter's sanitised construction
     (`sanitised_environment`, INV-10), and the plan's copies are what a person
     reads, not what runs. Owed by the S4 slice.
+11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
+    and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
+    migration is restored from and what the run is compared against, and the
+    record is what keeps history in agreement with the machine; a change
+    outside either bracket is one nothing can undo or account for. "Mutating"
+    is `StepKind::is_mutating` — `ADD_DESTINATION`, `SET_PRIMARY`,
+    `REMOVE_SOURCE`, `CLEANUP_REVIEW` — by kind, whether or not the step
+    carries a command, and "precedes" and "ends" are by position in `steps`,
+    the order an executor runs them. A plan with no mutating step needs neither
+    bracket. Each bracket appears **at most once**, mutating plan or not.
+    **Enforced by the gate**, with one part already enforced below it:
+    `MigrationPlan::check_ordering` requires `SNAPSHOT_BEFORE` as the *first*
+    step of any plan with a mutating step, so a plan missing the snapshot
+    bracket is always refused as `ORDERING`. `NO_SNAPSHOT_BEFORE_FIRST_MUTATION`
+    is the refusal that *names the unguarded step* — the first mutating one —
+    and it never fires alone
+    (`a_mutation_with_no_snapshot_before_it_is_refused`).
+    `NO_RECORD_HISTORY_AT_END`
+    (`a_mutating_plan_that_does_not_end_with_record_history_is_refused`,
+    including a mutating plan that ends at `MANUAL_REVIEW`, refused for both).
+    `MORE_THAN_ONE_SNAPSHOT_BEFORE` and `MORE_THAN_ONE_RECORD_HISTORY`, each
+    naming every such step (`a_repeated_snapshot_or_history_record_is_refused`):
+    `check_ordering` reads only the first snapshot, so a second is a shape no
+    rule covers, and a second record would record a run twice. The closing
+    bracket is the run's **success path**, not the only place a record is
+    written — obligation 12. Every plan the planner builds meets it, which
+    `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
+    `crates/cli/tests/execution_gate_fixtures.rs` assert over the synthesised
+    snapshot and every recording.
+12. **A mutating run writes a history record on every way it ends.** Success
+    is the plan's final `RECORD_HISTORY` step; a step that fails, a run that
+    ends in partial success, and a halt at `MANUAL_REVIEW` after a change was
+    made each end the run *before* that step, and each still writes a record
+    with its outcome (success / partial / failure), the snapshot it took and
+    whether it is restorable (`04-migration-and-safety.md`, History and
+    "Every mutating run records, in history, the snapshot it took first, the
+    plan it executed and the outcome"). An executor that writes history only
+    from `RECORD_HISTORY` loses exactly the runs a restore is needed for.
+    Obligation 11 fixes where the success path records; this one fixes that
+    it is not the only path that does. **Not enforceable by the gate**, which
+    reads a plan and not a run; owed by the executor's dispatch loop, and its
+    test is owed with it.
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,

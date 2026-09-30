@@ -121,18 +121,33 @@ fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOpti
                     );
                     assert_eq!(report.exit_code(), 4);
                     if !plan.requires_manual_review() {
-                        assert!(report
-                            .refusals()
+                        // Named by the first mutating step, command or not.
+                        let first = plan
+                            .steps
                             .iter()
-                            .any(|r| matches!(r, ExecutionRefusal::MutationNotInThisBuild { .. })));
+                            .find(|s| s.kind.is_mutating())
+                            .expect("a plan that does not stop has a mutating step")
+                            .index;
+                        assert!(report.refusals().iter().any(|r| matches!(
+                            r,
+                            ExecutionRefusal::MutationNotInThisBuild { step } if *step == first
+                        )));
                     }
                     // What the planner wrote from the real table is never
-                    // refused as a forged command.
+                    // refused as a forged command, as another schema version's
+                    // plan, as empty, or as mutations left unbracketed or
+                    // bracketed twice (obligation 11).
                     assert!(
                         !report.refusals().iter().any(|r| matches!(
                             r,
                             ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { .. }
                                 | ExecutionRefusal::CommandIsNotThePlannersRead { .. }
+                                | ExecutionRefusal::SchemaVersionNotThisBuilds { .. }
+                                | ExecutionRefusal::NoSnapshotBeforeFirstMutation { .. }
+                                | ExecutionRefusal::NoRecordHistoryAtEnd
+                                | ExecutionRefusal::EmptyPlan
+                                | ExecutionRefusal::MoreThanOneSnapshotBefore { .. }
+                                | ExecutionRefusal::MoreThanOneRecordHistory { .. }
                         )),
                         "{}: {name} -> {to}: {:?}",
                         recording.display(),

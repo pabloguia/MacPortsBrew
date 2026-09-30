@@ -16,6 +16,7 @@ use macportsbrew_application::{
     build_plan, evaluable_in_this_build, execution_refusals, AnalysisOptions, ExecutionRefusal,
     GateReport, PlanRequest,
 };
+use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
     CommandLineTools, Elevation, EnvironmentSnapshot, ExpectationError, InstalledPackage, Machine,
@@ -210,11 +211,15 @@ fn refused(report: &GateReport, predicate: impl Fn(&ExecutionRefusal) -> bool) -
 /// The step a refusal names, 0 for one about the whole plan.
 fn step_of(refusal: &ExecutionRefusal) -> u32 {
     match refusal {
-        ExecutionRefusal::Ordering
+        ExecutionRefusal::SchemaVersionNotThisBuilds { .. }
+        | ExecutionRefusal::Ordering
         | ExecutionRefusal::StepIndicesNotSequential
+        | ExecutionRefusal::EmptyPlan
+        | ExecutionRefusal::NoRecordHistoryAtEnd
         | ExecutionRefusal::SameProviderOnBothSides
         | ExecutionRefusal::PlanNotDryRunOnly => 0,
         ExecutionRefusal::ManualReview { step }
+        | ExecutionRefusal::NoSnapshotBeforeFirstMutation { step }
         | ExecutionRefusal::CheckNotEvaluableInThisBuild { step, .. }
         | ExecutionRefusal::VerificationAssertsNothing { step }
         | ExecutionRefusal::Expectation { step, .. }
@@ -225,7 +230,11 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
         | ExecutionRefusal::ElevationRequired { steps }
-        | ExecutionRefusal::ElevationUnknown { steps } => *steps.iter().min().expect("a step"),
+        | ExecutionRefusal::ElevationUnknown { steps }
+        | ExecutionRefusal::MoreThanOneSnapshotBefore { steps }
+        | ExecutionRefusal::MoreThanOneRecordHistory { steps } => {
+            *steps.iter().min().expect("a step")
+        }
     }
 }
 
@@ -502,15 +511,51 @@ fn a_mutating_step_is_refused_in_this_build() {
         ExecutionRefusal::MutationNotInThisBuild { step } if *step == add
     )));
     // Where the destination already holds the package the add step carries no
-    // command, and the first mutating step that does is `SET_PRIMARY`.
+    // command, and it is still the first mutating step: the refusal is keyed
+    // on the kind, not on whether a command is attached.
     let plan = plan_for(&both_held(), "tool", MP, true);
     let add = position(&plan, StepKind::AddDestination);
     assert!(plan.steps[add].commands.is_empty());
-    let primary = index_of(&plan, StepKind::SetPrimary);
+    let add = plan.steps[add].index;
     assert!(refused(&execution_refusals(&plan), |r| matches!(
         r,
-        ExecutionRefusal::MutationNotInThisBuild { step } if *step == primary
+        ExecutionRefusal::MutationNotInThisBuild { step } if *step == add
     )));
+}
+
+/// A mutating step with no command is still a mutation. Before the refusal was
+/// keyed on the kind alone, `[SNAPSHOT_BEFORE, CLEANUP_REVIEW, RECORD_HISTORY]`
+/// — bracketed, dry-run-only, commandless — passed the gate: nothing but this
+/// refusal stands between it and execution.
+#[test]
+fn a_mutating_step_with_no_command_is_refused_in_this_build() {
+    let mut plan = full_plan();
+    plan.steps.retain(|s| {
+        matches!(
+            s.kind,
+            StepKind::SnapshotBefore | StepKind::CleanupReview | StepKind::RecordHistory
+        )
+    });
+    renumber(&mut plan);
+    plan.elevated_steps = Vec::new();
+    let kinds: Vec<StepKind> = plan.steps.iter().map(|s| s.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            StepKind::SnapshotBefore,
+            StepKind::CleanupReview,
+            StepKind::RecordHistory
+        ]
+    );
+    assert!(plan.steps.iter().all(|s| s.commands.is_empty()));
+    assert!(plan.dry_run_only);
+    let report = execution_refusals(&plan);
+    assert_refused(&report);
+    assert_eq!(
+        report.refusals(),
+        [ExecutionRefusal::MutationNotInThisBuild { step: 2 }],
+        "the only refusal of a bracketed, commandless mutating plan"
+    );
 }
 
 #[test]
@@ -531,6 +576,265 @@ fn a_plan_that_claims_it_can_run_mutations_is_refused() {
         ExecutionRefusal::PlanNotDryRunOnly
     )));
     assert_refused(&report);
+}
+
+/// Renumbers a plan's steps `1..=n` in list order, so that an edit which
+/// removes or moves a step changes nothing but what it set out to change.
+fn renumber(plan: &mut MigrationPlan) {
+    for (step, index) in plan.steps.iter_mut().zip(1u32..) {
+        step.index = index;
+    }
+}
+
+#[test]
+fn a_plan_of_another_schema_version_is_refused() {
+    let base = full_plan();
+    assert_eq!(base.schema_version, PLAN_SCHEMA_VERSION);
+    assert!(!refused(&execution_refusals(&base), |r| matches!(
+        r,
+        ExecutionRefusal::SchemaVersionNotThisBuilds { .. }
+    )));
+    for found in [0, PLAN_SCHEMA_VERSION + 1] {
+        let mut plan = base.clone();
+        plan.schema_version = found;
+        let report = execution_refusals(&plan);
+        assert!(
+            refused(&report, |r| r
+                == &ExecutionRefusal::SchemaVersionNotThisBuilds {
+                    found,
+                    expected: PLAN_SCHEMA_VERSION,
+                }),
+            "{found}: {:?}",
+            report.refusals()
+        );
+        assert_refused(&report);
+        // A plan-level refusal, so it leads the report.
+        assert!(matches!(
+            report.refusals()[0],
+            ExecutionRefusal::SchemaVersionNotThisBuilds { .. }
+        ));
+    }
+    let mut plan = base;
+    plan.schema_version = PLAN_SCHEMA_VERSION + 1;
+    let json = serde_json::to_value(execution_refusals(&plan)).unwrap();
+    assert!(json["refusals"].as_array().unwrap().iter().any(|r| {
+        r["refusal"] == "SCHEMA_VERSION_NOT_THIS_BUILDS"
+            && r["found"] == PLAN_SCHEMA_VERSION + 1
+            && r["expected"] == PLAN_SCHEMA_VERSION
+    }));
+}
+
+#[test]
+fn a_mutation_with_no_snapshot_before_it_is_refused() {
+    let base = full_plan();
+    let is_refused = |plan: &MigrationPlan, step: u32| {
+        let report = execution_refusals(plan);
+        assert_refused(&report);
+        refused(&report, |r| {
+            matches!(
+                r,
+                ExecutionRefusal::NoSnapshotBeforeFirstMutation { step: s } if *s == step
+            )
+        })
+    };
+    assert_eq!(base.steps[0].kind, StepKind::SnapshotBefore);
+    let first = base
+        .steps
+        .iter()
+        .find(|s| s.kind.is_mutating())
+        .expect("a mutating step")
+        .index;
+    assert!(!is_refused(&base, first));
+
+    // The snapshot removed.
+    let mut plan = base.clone();
+    plan.steps.remove(0);
+    renumber(&mut plan);
+    let first = index_of(&plan, StepKind::AddDestination);
+    assert!(is_refused(&plan, first), "{:?}", execution_refusals(&plan));
+
+    // The snapshot moved after the first mutating step: present is not enough.
+    let mut plan = base.clone();
+    let add = position(&plan, StepKind::AddDestination);
+    plan.steps.swap(0, add);
+    renumber(&mut plan);
+    assert_eq!(plan.steps[0].kind, StepKind::AddDestination);
+    assert!(is_refused(&plan, 1));
+
+    // A plan whose first mutating step is not `ADD_DESTINATION`: the one the
+    // destination already holds, with the add step taken out as well.
+    let mut plan = plan_for(&both_held(), "tool", MP, true);
+    plan.steps
+        .retain(|s| !matches!(s.kind, StepKind::SnapshotBefore | StepKind::AddDestination));
+    renumber(&mut plan);
+    let primary = index_of(&plan, StepKind::SetPrimary);
+    assert!(is_refused(&plan, primary));
+}
+
+#[test]
+fn a_mutating_plan_that_does_not_end_with_record_history_is_refused() {
+    let base = full_plan();
+    let is_refused = |plan: &MigrationPlan| {
+        let report = execution_refusals(plan);
+        assert_refused(&report);
+        refused(&report, |r| {
+            matches!(r, ExecutionRefusal::NoRecordHistoryAtEnd)
+        })
+    };
+    assert_eq!(
+        base.steps.last().map(|s| s.kind),
+        Some(StepKind::RecordHistory)
+    );
+    assert!(!is_refused(&base));
+
+    // The record removed.
+    let mut plan = base.clone();
+    plan.steps.pop();
+    assert!(is_refused(&plan));
+
+    // The record present, but a mutating step after it.
+    let mut plan = base.clone();
+    let last = plan.steps.len() - 1;
+    plan.steps.swap(last - 1, last);
+    renumber(&mut plan);
+    assert_eq!(plan.steps[last].kind, StepKind::CleanupReview);
+    assert!(is_refused(&plan));
+
+    // A plan with no mutating step needs no bracket: the `MANUAL_REVIEW` stop
+    // is refused as such and not for this.
+    let stop = plan_for(&both_held(), "postgresql@17", MP, false);
+    assert!(!stop.has_mutating_steps());
+    let report = execution_refusals(&stop);
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::NoRecordHistoryAtEnd
+            | ExecutionRefusal::NoSnapshotBeforeFirstMutation { .. }
+    )));
+
+    // A mutating plan that ends at `MANUAL_REVIEW` is refused for both: the
+    // stop, and a success path whose last step is not the record. The halt
+    // does not stand in for the record (the executor writes one on a halt
+    // anyway, obligation 12).
+    let mut plan = base.clone();
+    plan.steps.retain(|s| {
+        matches!(
+            s.kind,
+            StepKind::SnapshotBefore | StepKind::AddDestination | StepKind::VerifyDestination
+        )
+    });
+    let mut review = stop.steps[position(&stop, StepKind::ManualReview)].clone();
+    review.index = 4;
+    plan.steps.push(review);
+    renumber(&mut plan);
+    let kinds: Vec<StepKind> = plan.steps.iter().map(|s| s.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::ManualReview
+        ]
+    );
+    assert!(is_refused(&plan));
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::ManualReview { step: 4 }
+    )));
+}
+
+#[test]
+fn a_repeated_snapshot_or_history_record_is_refused() {
+    let base = full_plan();
+    let is_refused = |plan: &MigrationPlan, snapshot: bool, steps: &[u32]| {
+        let report = execution_refusals(plan);
+        assert_refused(&report);
+        refused(&report, |r| match r {
+            ExecutionRefusal::MoreThanOneSnapshotBefore { steps: s } => snapshot && s == steps,
+            ExecutionRefusal::MoreThanOneRecordHistory { steps: s } => !snapshot && s == steps,
+            _ => false,
+        })
+    };
+    let report = execution_refusals(&base);
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::MoreThanOneSnapshotBefore { .. }
+            | ExecutionRefusal::MoreThanOneRecordHistory { .. }
+    )));
+
+    // A second snapshot right after the first. `check_ordering` reads only the
+    // first, so it does not see this.
+    let mut plan = base.clone();
+    plan.steps.insert(1, plan.steps[0].clone());
+    renumber(&mut plan);
+    assert!(plan.check_ordering().is_ok());
+    assert!(
+        is_refused(&plan, true, &[1, 2]),
+        "{:?}",
+        execution_refusals(&plan)
+    );
+
+    // A second record, at the end: the plan still ends with one.
+    let mut plan = base.clone();
+    let last = plan.steps.last().expect("a step").clone();
+    plan.steps.push(last);
+    renumber(&mut plan);
+    let n = u32::try_from(plan.steps.len()).expect("small");
+    assert!(plan.check_ordering().is_ok());
+    assert!(is_refused(&plan, false, &[n - 1, n]));
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::NoRecordHistoryAtEnd
+    )));
+
+    // On a plan with no mutating step too: the smallest plan the gate
+    // accepts, given two records.
+    let mut plan = base.clone();
+    plan.steps.retain(|s| {
+        matches!(
+            s.kind,
+            StepKind::VerifyDestination | StepKind::RecordHistory
+        )
+    });
+    plan.steps[0].verification = vec![VerificationCheck::ProviderReportsActive];
+    let record = plan.steps[1].clone();
+    plan.steps.push(record);
+    renumber(&mut plan);
+    plan.risks = Vec::new();
+    plan.elevated_steps = Vec::new();
+    assert!(!plan.has_mutating_steps());
+    let report = execution_refusals(&plan);
+    assert_eq!(
+        report.refusals(),
+        [ExecutionRefusal::MoreThanOneRecordHistory { steps: vec![2, 3] }]
+    );
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        json["refusals"][0]["refusal"],
+        "MORE_THAN_ONE_RECORD_HISTORY"
+    );
+}
+
+#[test]
+fn a_plan_with_no_steps_is_refused() {
+    let base = full_plan();
+    let plan = MigrationPlan {
+        steps: Vec::new(),
+        risks: Vec::new(),
+        elevated_steps: Vec::new(),
+        ..base
+    };
+    let report = execution_refusals(&plan);
+    assert_refused(&report);
+    assert_eq!(
+        report.refusals(),
+        [ExecutionRefusal::EmptyPlan],
+        "nothing else is wrong with it"
+    );
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        serde_json::json!({ "refusals": [{ "refusal": "EMPTY_PLAN" }] })
+    );
 }
 
 // --- the gate as a whole ---------------------------------------------------
@@ -579,13 +883,21 @@ fn every_plan_this_planner_builds_is_refused_for_execution_in_this_build() {
     }
 }
 
-/// The two command rules refuse forgeries, never what the planner wrote.
+/// The two command rules refuse forgeries, and the schema-version and
+/// bracketing rules refuse plans of another build's shape — never what the
+/// planner wrote.
 fn assert_planners_commands_pass_the_command_rules(report: &GateReport) {
     assert!(
         !refused(report, |r| matches!(
             r,
             ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { .. }
                 | ExecutionRefusal::CommandIsNotThePlannersRead { .. }
+                | ExecutionRefusal::SchemaVersionNotThisBuilds { .. }
+                | ExecutionRefusal::NoSnapshotBeforeFirstMutation { .. }
+                | ExecutionRefusal::NoRecordHistoryAtEnd
+                | ExecutionRefusal::EmptyPlan
+                | ExecutionRefusal::MoreThanOneSnapshotBefore { .. }
+                | ExecutionRefusal::MoreThanOneRecordHistory { .. }
         )),
         "{:?}",
         report.refusals()
@@ -904,7 +1216,9 @@ fn step_indices_that_are_not_one_to_n_in_order_are_refused() {
 /// The smallest plan this gate lets through, pinned so that any widening of
 /// what it accepts shows up in a diff: one `VERIFY_DESTINATION`, the
 /// planner's own read toward a detected destination, checked only by
-/// `PROVIDER_REPORTS_ACTIVE`, nothing mutating, nothing elevating.
+/// `PROVIDER_REPORTS_ACTIVE`, nothing mutating, nothing elevating. With no
+/// mutating step it needs neither bracket of obligation 11, so it carries no
+/// `SNAPSHOT_BEFORE` and does not end with `RECORD_HISTORY`.
 #[test]
 fn the_minimal_plan_the_gate_accepts() {
     let base = full_plan();

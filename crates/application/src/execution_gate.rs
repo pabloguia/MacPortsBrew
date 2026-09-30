@@ -16,8 +16,8 @@
 //!
 //! **In this build the gate refuses every plan the planner produces.** A plan
 //! that stops at `MANUAL_REVIEW` is refused as such; every other one has a
-//! mutating step carrying a command while [`THIS_BUILD_DISPATCHES_MUTATIONS`]
-//! is `false`, a `VERIFY_DESTINATION` carrying checks this build cannot
+//! mutating step while [`THIS_BUILD_DISPATCHES_MUTATIONS`] is `false`, a
+//! `VERIFY_DESTINATION` carrying checks this build cannot
 //! evaluate, and a `VERIFY_RESOLUTION` that asserts nothing. Those refusals
 //! are true statements about the build, not placeholders for ones to come,
 //! and the mutating pass removes each by meeting it — never by deleting the
@@ -51,7 +51,7 @@
 
 use crate::planner::{planned_argv, planned_success};
 use crate::provider_commands;
-use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
+use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
     expectation_for, ErrorId, ExpectationError, MigrationPlan, StepKind, VerificationCheck,
 };
@@ -66,6 +66,17 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "refusal")]
 pub enum ExecutionRefusal {
+    /// The plan's `schemaVersion` is not [`PLAN_SCHEMA_VERSION`], the one this
+    /// build's planner writes. Every other refusal reads the plan through this
+    /// build's meaning of each field, and a plan of another schema version
+    /// may mean something else by any of them; it is refused rather than read
+    /// under a meaning its writer did not give it.
+    SchemaVersionNotThisBuilds {
+        /// The version the plan carries.
+        found: u32,
+        /// The version this build writes.
+        expected: u32,
+    },
     /// The plan fails `MigrationPlan::check_ordering` (INV-01). The planner
     /// never emits one; a plan from anywhere else can be one.
     Ordering,
@@ -74,6 +85,50 @@ pub enum ExecutionRefusal {
     /// whose numbers are repeated, skipped or out of order cannot be refused —
     /// or approved — by a name that means one step.
     StepIndicesNotSequential,
+    /// The plan has no steps. There is nothing to execute, and a run of
+    /// nothing would report success for a migration that never happened; the
+    /// planner never emits one, so a plan with no steps is not this build's.
+    EmptyPlan,
+    /// A mutating step ([`StepKind::is_mutating`]) with no `SNAPSHOT_BEFORE`
+    /// step before it (obligation 11). The snapshot is what a failed
+    /// migration is restored from and what the run is compared against, so a
+    /// change it does not precede is one nothing can undo or account for.
+    /// Names the first mutating step, the one the snapshot would have to
+    /// precede.
+    ///
+    /// **Never fires alone.** `MigrationPlan::check_ordering` already requires
+    /// `SNAPSHOT_BEFORE` as the first step of any plan with a mutating step,
+    /// so every plan refused here is refused as [`Self::Ordering`] too. What
+    /// this refusal adds is the name of the unguarded step.
+    NoSnapshotBeforeFirstMutation {
+        /// The first mutating step.
+        step: u32,
+    },
+    /// A plan with a mutating step whose last step is not `RECORD_HISTORY`
+    /// (obligation 11). The final `RECORD_HISTORY` step is the *success
+    /// path*: the record written when every step before it ran and verified.
+    /// It is not the only place a record is written — the executor writes one
+    /// on every way a mutating run ends, a failure, a partial run and a
+    /// `MANUAL_REVIEW` halt among them (obligation 12). A mutating plan whose
+    /// success path does not end with the record has a change after the last
+    /// point a completed run is recorded, so history would disagree with the
+    /// machine.
+    NoRecordHistoryAtEnd,
+    /// More than one `SNAPSHOT_BEFORE` step (obligation 11). The planner
+    /// writes exactly one, and `check_ordering` looks only at the first, so a
+    /// second one is a shape no rule was written for: which snapshot a failed
+    /// run restores from would be the executor's guess.
+    MoreThanOneSnapshotBefore {
+        /// Every `SNAPSHOT_BEFORE` step, in plan order.
+        steps: Vec<u32>,
+    },
+    /// More than one `RECORD_HISTORY` step (obligation 11). One run is one
+    /// history record on its success path; a second would record a run that
+    /// did not happen, or record the same one twice.
+    MoreThanOneRecordHistory {
+        /// Every `RECORD_HISTORY` step, in plan order.
+        steps: Vec<u32>,
+    },
     /// The plan stops at a `MANUAL_REVIEW` step (INV-19). Nothing outranks
     /// it, so it is refused whatever else the plan says.
     ManualReview {
@@ -178,8 +233,12 @@ pub enum ExecutionRefusal {
         /// The steps, in plan order.
         steps: Vec<u32>,
     },
-    /// The first mutating step that carries a command. This build dispatches
-    /// no mutating step ([`THIS_BUILD_DISPATCHES_MUTATIONS`]).
+    /// The first mutating step, whether or not it carries a command. This
+    /// build dispatches no mutating step ([`THIS_BUILD_DISPATCHES_MUTATIONS`]),
+    /// and a mutating kind with no command — `CLEANUP_REVIEW`, or an
+    /// `ADD_DESTINATION` the destination already satisfies — is still a step
+    /// the executor would be running as a change to the machine. Keyed on the
+    /// kind alone, so a plan cannot pass by leaving its commands out.
     MutationNotInThisBuild {
         /// The step.
         step: u32,
@@ -198,22 +257,28 @@ impl ExecutionRefusal {
     fn key(&self) -> (u32, u8) {
         let first = |steps: &[u32]| steps.iter().copied().min().unwrap_or(0);
         match self {
-            Self::Ordering => (0, 0),
-            Self::StepIndicesNotSequential => (0, 1),
-            Self::ManualReview { step } => (*step, 2),
-            Self::Placeholder { steps } => (first(steps), 3),
-            Self::UnrecognisedCheck { steps } => (first(steps), 4),
-            Self::CheckNotEvaluableInThisBuild { step, .. } => (*step, 5),
-            Self::VerificationAssertsNothing { step } => (*step, 6),
-            Self::UnknownSuccess { steps } => (first(steps), 7),
-            Self::CommandOnStepThePlannerWritesNoneOn { step } => (*step, 8),
-            Self::CommandIsNotThePlannersRead { step } => (*step, 9),
-            Self::Expectation { step, .. } => (*step, 10),
-            Self::SameProviderOnBothSides => (0, 11),
-            Self::ElevationRequired { steps } => (first(steps), 12),
-            Self::ElevationUnknown { steps } => (first(steps), 13),
-            Self::MutationNotInThisBuild { step } => (*step, 14),
-            Self::PlanNotDryRunOnly => (0, 15),
+            Self::SchemaVersionNotThisBuilds { .. } => (0, 0),
+            Self::Ordering => (0, 1),
+            Self::StepIndicesNotSequential => (0, 2),
+            Self::EmptyPlan => (0, 3),
+            Self::NoSnapshotBeforeFirstMutation { step } => (*step, 4),
+            Self::NoRecordHistoryAtEnd => (0, 5),
+            Self::MoreThanOneSnapshotBefore { steps } => (first(steps), 6),
+            Self::MoreThanOneRecordHistory { steps } => (first(steps), 7),
+            Self::ManualReview { step } => (*step, 8),
+            Self::Placeholder { steps } => (first(steps), 9),
+            Self::UnrecognisedCheck { steps } => (first(steps), 10),
+            Self::CheckNotEvaluableInThisBuild { step, .. } => (*step, 11),
+            Self::VerificationAssertsNothing { step } => (*step, 12),
+            Self::UnknownSuccess { steps } => (first(steps), 13),
+            Self::CommandOnStepThePlannerWritesNoneOn { step } => (*step, 14),
+            Self::CommandIsNotThePlannersRead { step } => (*step, 15),
+            Self::Expectation { step, .. } => (*step, 16),
+            Self::SameProviderOnBothSides => (0, 17),
+            Self::ElevationRequired { steps } => (first(steps), 18),
+            Self::ElevationUnknown { steps } => (first(steps), 19),
+            Self::MutationNotInThisBuild { step } => (*step, 20),
+            Self::PlanNotDryRunOnly => (0, 21),
         }
     }
 }
@@ -302,6 +367,12 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
 pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
     let mut refusals = Vec::new();
 
+    if plan.schema_version != PLAN_SCHEMA_VERSION {
+        refusals.push(ExecutionRefusal::SchemaVersionNotThisBuilds {
+            found: plan.schema_version,
+            expected: PLAN_SCHEMA_VERSION,
+        });
+    }
     if plan.check_ordering().is_err() {
         refusals.push(ExecutionRefusal::Ordering);
     }
@@ -312,6 +383,42 @@ pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
         .all(|(step, expected)| step.index == expected)
     {
         refusals.push(ExecutionRefusal::StepIndicesNotSequential);
+    }
+    if plan.steps.is_empty() {
+        refusals.push(ExecutionRefusal::EmptyPlan);
+    }
+    // Bracketing (obligation 11), by position rather than by index: the
+    // executor runs steps in the order the plan lists them, and an index is
+    // checked above. A plan with no mutating step needs neither bracket.
+    if let Some(first) = plan.steps.iter().position(|s| s.kind.is_mutating()) {
+        if !plan.steps[..first]
+            .iter()
+            .any(|s| s.kind == StepKind::SnapshotBefore)
+        {
+            refusals.push(ExecutionRefusal::NoSnapshotBeforeFirstMutation {
+                step: plan.steps[first].index,
+            });
+        }
+        if plan.steps.last().map(|s| s.kind) != Some(StepKind::RecordHistory) {
+            refusals.push(ExecutionRefusal::NoRecordHistoryAtEnd);
+        }
+    }
+    // One of each bracket, on every plan: `check_ordering` reads only the
+    // first `SNAPSHOT_BEFORE`, and nothing else counts either kind.
+    let of_kind = |kind: StepKind| -> Vec<u32> {
+        plan.steps
+            .iter()
+            .filter(|s| s.kind == kind)
+            .map(|s| s.index)
+            .collect()
+    };
+    let snapshots = of_kind(StepKind::SnapshotBefore);
+    if snapshots.len() > 1 {
+        refusals.push(ExecutionRefusal::MoreThanOneSnapshotBefore { steps: snapshots });
+    }
+    let records = of_kind(StepKind::RecordHistory);
+    if records.len() > 1 {
+        refusals.push(ExecutionRefusal::MoreThanOneRecordHistory { steps: records });
     }
     for step in &plan.steps {
         if step.kind == StepKind::ManualReview {
@@ -438,11 +545,7 @@ pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
         refusals.push(ExecutionRefusal::ElevationUnknown { steps: unknown });
     }
     if !THIS_BUILD_DISPATCHES_MUTATIONS {
-        if let Some(step) = plan
-            .steps
-            .iter()
-            .find(|s| s.kind.is_mutating() && !s.commands.is_empty())
-        {
+        if let Some(step) = plan.steps.iter().find(|s| s.kind.is_mutating()) {
             refusals.push(ExecutionRefusal::MutationNotInThisBuild { step: step.index });
         }
     }
