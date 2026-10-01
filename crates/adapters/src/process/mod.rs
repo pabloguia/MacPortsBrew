@@ -396,6 +396,92 @@ impl CommandSpec {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()
     }
+
+    /// A provider read that a migration plan asked for (DP-023).
+    ///
+    /// The plan supplies **argv only**. The program is re-derived here from the
+    /// provider's detected `prefix` and the adapter's `executable` literal, and
+    /// the environment is whatever the adapter's own construction produced —
+    /// the caller passes that, never a plan's copy. `PlanCommand.environment`
+    /// is not a parameter of this function, so no path through it can adopt it
+    /// (`plan.v1.md`, obligation 10; INV-10).
+    ///
+    /// `planned_program` is read for one purpose: a plan whose program is not
+    /// the one derived here is refused, not corrected. The executor would
+    /// otherwise run a binary other than the one the human reviewed, and the
+    /// refusal on disagreement is what keeps INV-02 honest under re-derivation.
+    ///
+    /// The argv is checked against [`is_permitted_invocation`] **here, at
+    /// construction** — the shipped rule, never [`may_spawn`], which widens the
+    /// list in a test build. A `ReplayRunner` asks no allowlist at all, so a
+    /// check left to the spawn would let a recorded test run a plan read that
+    /// the shipped binary refuses; a check in the constructor has no runner to
+    /// be bypassed by.
+    pub(crate) fn plan_read(
+        prefix: &std::path::Path,
+        executable: &'static str,
+        target: &macportsbrew_domain::CommandTarget,
+        planned_program: &str,
+        argv: &[String],
+        environment: BTreeMap<String, String>,
+    ) -> Result<Self, PlanReadRefusal> {
+        if *target != macportsbrew_domain::CommandTarget::Provider {
+            return Err(PlanReadRefusal::NotAProviderCommand);
+        }
+        if !is_safe_path(prefix) {
+            return Err(PlanReadRefusal::UnsafePrefix {
+                prefix: prefix.to_string_lossy().into_owned(),
+            });
+        }
+        let derived = prefix.join(executable);
+        let derived_text = derived.to_string_lossy().into_owned();
+        if planned_program != derived_text {
+            return Err(PlanReadRefusal::ProgramDisagrees {
+                planned: planned_program.to_string(),
+                derived: derived_text,
+            });
+        }
+        if !is_permitted_invocation(&derived, argv) {
+            return Err(PlanReadRefusal::NotAPermittedRead {
+                argv: argv.to_vec(),
+            });
+        }
+        Ok(Self::new(derived, argv.to_vec(), environment))
+    }
+}
+
+/// Why a plan's command was not turned into something that may run.
+///
+/// Every variant is a refusal, never a correction: the spawn site does not
+/// repair a plan into a command it would accept (DP-023). There is no variant
+/// about the environment on purpose — the plan's environment is never read
+/// (`plan.v1.md`, obligation 10), so there is nothing about it to disagree
+/// with; SE-050 records why comparing it was dropped.
+///
+/// The values carry plan text verbatim (`planned`, `argv`, `prefix`). A
+/// renderer must redact the home and escape control characters before showing
+/// one (SE-050, "Not closed").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanReadRefusal {
+    /// A `TOOL` command: MacPortsBrew itself, not a provider read.
+    NotAProviderCommand,
+    /// The detected prefix is not a path an executable may be built from.
+    UnsafePrefix {
+        /// The prefix, as given.
+        prefix: String,
+    },
+    /// The plan names a program other than the one derived from the prefix.
+    ProgramDisagrees {
+        /// What the plan says.
+        planned: String,
+        /// What the detected prefix and the adapter's executable give.
+        derived: String,
+    },
+    /// The argv is not a read the shipped allowlist permits.
+    NotAPermittedRead {
+        /// The argv the plan carried.
+        argv: Vec<String>,
+    },
 }
 
 /// How an invocation ended.

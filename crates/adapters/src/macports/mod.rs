@@ -257,11 +257,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// It is `Option` rather than required because it is `None` under replay,
     /// where no process runs; `registry.rs` says so at `ctx.home`.
     pub fn environment(&self) -> EnvironmentSpec {
-        EnvironmentSpec {
-            leading_path: vec![self.prefix.join("bin"), self.prefix.join("sbin")],
-            home: self.home.clone(),
-            extra: BTreeMap::new(),
-        }
+        environment_spec(&self.prefix, self.home.clone())
     }
 
     fn spec(&self, argv: Vec<String>) -> CommandSpec {
@@ -269,7 +265,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             &self.prefix,
             EXECUTABLE_RELATIVE,
             argv,
-            crate::process::sanitised_environment(&self.environment()),
+            invocation_environment(&self.prefix, self.home.clone()),
         )
     }
 
@@ -858,10 +854,30 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             capabilities: self.capabilities()?,
             inventory: self.inventory()?,
             environment: self.environment_info()?,
-            invocation_environment: crate::process::sanitised_environment(&self.environment()),
+            invocation_environment: invocation_environment(&self.prefix, self.home.clone()),
             resolutions: BTreeMap::new(),
         })
     }
+}
+
+/// What this provider contributes to a sanitised environment, for a prefix and
+/// a home. The adapter's own invocations and a plan read the registry derives
+/// (DP-023) both go through this one function, so the two cannot drift; see
+/// [`MacPortsAdapter::environment`] for why `home` matters to `port`.
+pub(crate) fn environment_spec(prefix: &Path, home: Option<PathBuf>) -> EnvironmentSpec {
+    EnvironmentSpec {
+        leading_path: vec![prefix.join("bin"), prefix.join("sbin")],
+        home,
+        extra: BTreeMap::new(),
+    }
+}
+
+/// The complete environment every invocation of this provider runs in: the
+/// counterpart of the Homebrew adapter's `quiet_environment`, with the same
+/// signature, so the registry derives both providers through one code path
+/// (INV-17).
+pub fn invocation_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
+    crate::process::sanitised_environment(&environment_spec(prefix, home))
 }
 
 fn is_system_path(path: &Path) -> bool {

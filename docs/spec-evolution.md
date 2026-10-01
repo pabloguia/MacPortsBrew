@@ -2693,7 +2693,8 @@ finding ids in each entry.
 - Status: accepted
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04;
   subcommand dimension 2026-09-25 (F-53); working directory and argument
-  shape 2026-09-26
+  shape 2026-09-26; plan reads re-derived at construction 2026-09-30 (DP-023,
+  executor S4)
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: a run-time allowlist at the one spawn site, with three narrower
@@ -2901,6 +2902,125 @@ finding ids in each entry.
   INV-10 — that invariant is about the environment — so the test is not named
   for an invariant. Recordings do not store a directory and replay spawns
   nothing, so INV-15 is unaffected.
+- **A plan's command is re-derived, not adopted (DP-023, 2026-09-30, executor
+  S4).** Original assumption: the only callers of `CommandSpec::provider` were
+  adapters, which name their executable as a literal; a plan's
+  `PlanCommand.program` is a runtime `String`, so there was no legal path from
+  a plan to a spawn. Change: `CommandSpec::plan_read` (crate private, in
+  `process/`) behind `registry::plan_read_spec(&DetectedPrefix, &PlanCommand)`.
+  The plan supplies argv only; the program is `prefix.join(executable)` and the
+  environment the adapter's own construction — `homebrew::quiet_environment`
+  or the newly extracted `macports::invocation_environment`, which the MacPorts
+  adapter itself now goes through too, one row per provider in a table with
+  one code path over it (INV-17). Refusals, each a refusal and never a
+  correction: `NotAProviderCommand` (a `TOOL` command, whatever program it
+  names), `UnsafePrefix` (`is_safe_path`), `ProgramDisagrees { planned,
+  derived }`, `NotAPermittedRead`. The last is `is_permitted_invocation` — the
+  shipped rule, **not** `may_spawn`, which widens the list in a test build —
+  checked at construction, because `ReplayRunner` asks no allowlist and a check
+  left to the spawn would let a recorded test run what the binary refuses.
+  - **The prefix and the home are not the caller's to choose** (security-
+    reviewer, 2026-09-30). The first version took `prefix: &Path` and `home`
+    as arguments, so a caller handing it a snapshot's prefix, or `/tmp/evil`,
+    passed every check and ran that binary. They now arrive only inside a
+    `DetectedPrefix`: private fields, constructed only by
+    `registry::detected_prefix`, which resolves through the same
+    `resolve_prefix` as `build` (probe the documented candidates live, the
+    override only under replay) with no fallback candidate, and takes `home`
+    from the same `RegistryContext` the adapters are built from. An unknown
+    provider yields no `DetectedPrefix`, so the first version's
+    `UnknownProvider` refusal had no reachable case and was removed.
+  - **The environment comparison the slice plan called for was dropped.** The
+    plan (A9, F17) had the site compare `redacted(derived)` with the plan's
+    `environment` and refuse on a difference. Two reasons carry the decision.
+    It buys no safety: the derived environment is what runs, so a tampered copy
+    can only be ignored or refused, and ignoring it is total. And it would
+    refuse honest plans: capture redacts `HOME` to `~` in
+    `invocation_environment` (`capture.rs:178`), and a replayed plan carries
+    no `HOME` at all, so the comparison is right only if the site reproduces
+    capture's `HomeRedaction` exactly. `plan.v1.md` obligation 10 agrees — the
+    site never reads `PlanCommand.environment` — but is not the reason: its
+    original wording also said the site never reads `PlanCommand.program`, and
+    DP-023 superseded that half, because a disagreeing program must be refused.
+    The obligation now says the site reads `program` only to refuse a
+    disagreement. The program needs no redaction to compare: the planner
+    refuses a `~`-rooted program outright (`planner.rs:917`, F-48). The home
+    the site derives with is the same capture the adapters were built with
+    (`None` under replay), which is the half of F17 that still applies.
+  - **Not closed, owed by the run loop (S5).** (1) `plan_read_spec` is safe
+    only after the execution gate has passed the plan: the read allowlist
+    accepts any `--long` option after a permitted subcommand — `brew info
+    --github <formula>` is on it and opens a browser — and only the gate's
+    `COMMAND_IS_NOT_THE_PLANNERS_READ` pins a plan's argv to the planner's own
+    read. S5 must assert the gate passed before the first call. The stronger
+    fix is a per-subcommand allowlist of long options in
+    `PERMITTED_SUBCOMMANDS`; it is not done here because it changes the
+    spawn-site list every adapter read passes through, which this slice was
+    held to leave alone, and it needs its own two-way test against the
+    adapters' argv. (2) "A provider command reaches a spawn only through
+    `plan_read_spec`" is not enforced: `CommandSpec::provider` is public, for
+    the adapters, and nothing stops the run loop calling it with a plan's
+    values. S5 owes that rule and a test for it. (3) Refusal values carry plan
+    text verbatim — `planned`, `argv`, `prefix` — and a home may appear in
+    any of them; a renderer must redact the home and escape control
+    characters. (4) Placeholders are not refused by name here: a
+    placeholder's program never matches a derivation, so it is refused as
+    `ProgramDisagrees`; the gate refuses it by name (item 1). (5) Elevation is
+    not consulted: the gate refuses anything but `NONE` in this build, and
+    obligation 9 moves that question to the consent path. Nothing in the
+    binary reaches `plan_read_spec` yet. (7) Found on re-review: a
+    `DetectedPrefix` does not record that it was resolved under replay, and
+    `ProcessRunner::is_replay` can be overridden, so in-process code could
+    resolve an arbitrary override through a replay context and hand the
+    resulting spec to the live runner; and `RegistryContext.home` is a public
+    field, so the home is enforced by the call path, not the type. Neither is
+    reachable from a plan or a flag. S5 owes binding the site to the runner it
+    was detected through (`site.run(command)`, or a replay mark the live
+    runner refuses) and building one context shared with `registry::build`.
+    (6) Observed while settling the separator question below, 2026-09-30,
+    Homebrew 7.0.4, with the adapter's quieting variables set: `brew list
+    --versions <names>` printed "Downloading Homebrew API data" before
+    answering. `HOMEBREW_NO_AUTO_UPDATE` does not keep the planner's
+    verification read offline when it names a package; whether that matters
+    for a `VERIFY_*` step is S5's to decide, and it is recorded here rather
+    than silently relied on.
+  - **`;` is a separator for `port` only, and the injection table says so.**
+    `every_argv_injection_form_is_refused_through_the_plan_path` first asserted
+    the separator forms for both providers and failed for Homebrew, whose read
+    list has no separators. Decided on evidence, not on the test: `brew` is a
+    bash script passing its arguments on as `"$@"`, and observed on this
+    machine 2026-09-30, Homebrew 7.0.4, `brew list --versions ';' version`
+    exits 1 with no output — two names, neither an installed formula — and
+    `brew list '--versions;version'` exits 1 with "invalid option". Neither
+    starts a second action, so the separator rows are asserted for `port`,
+    where `process_cmd` splits on them (F-53), and the allowlist is unchanged.
+  - Tests, all against the captured `both-providers-intel-macos26` recording
+    with one synthesised inventory read per provider (F13), verbs read from
+    `provider-commands.toml`: `crates/adapters/tests/plan_reads.rs`, plus
+    `a_plan_read_site_on_the_live_machine_never_takes_a_prefix_it_was_handed`
+    in `registry.rs`. Proved by mutation on fresh builds, each reverted and
+    the restored file's mtime bumped so the next build could not reuse the
+    mutant (the first run did not, and a stale mutant survived in `target/`):
+    dropping the target check fails `a_tool_command_is_not_a_provider_read`;
+    the prefix check, `a_prefix_that_is_not_safe_is_refused`; the program
+    check, `a_plan_whose_program_disagrees_with_the_derived_one_is_refused`;
+    the allowlist check, `a_plan_read_is_checked_against_the_read_list_at_construction`
+    and `every_argv_injection_form_is_refused_through_the_plan_path`; merging
+    the plan's environment into the derived one fails
+    `invariant_10_a_plan_read_never_adopts_the_environment_it_carries`, and
+    deriving with no home fails it and
+    `only_detection_yields_a_prefix_and_a_provider_it_does_not_know_yields_none`;
+    giving Homebrew the MacPorts derivation fails
+    `the_two_providers_are_derived_by_the_same_code`; deriving an unknown
+    provider as Homebrew, and falling back to a first candidate when nothing
+    was detected, each fail
+    `only_detection_yields_a_prefix_and_a_provider_it_does_not_know_yields_none`;
+    honouring the override against a live runner fails
+    `a_plan_read_site_on_the_live_machine_never_takes_a_prefix_it_was_handed`
+    (and the existing `an_override_is_ignored_against_the_live_machine`); and
+    dropping the separator clause fails
+    `every_argv_injection_form_is_refused_through_the_plan_path` as well as
+    the two spawn-site tests that already held it.
 - **One thing this pass will not evade.** `invariant_06_reading_the_machine_needs_
   no_elevation` refused the elevating binary's name in a list of programs a test
   asserts are *rejected*. The invariant is right and the case was dropped: an

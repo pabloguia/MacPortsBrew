@@ -10,11 +10,11 @@
 use crate::filesystem::FilesystemScope;
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
-use crate::process::ProcessRunner;
+use crate::process::{CommandSpec, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
-use macportsbrew_domain::{ProviderId, ProviderRead};
+use macportsbrew_domain::{PlanCommand, ProviderId, ProviderRead};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The provider ids this build knows, in a stable order.
 pub fn known_provider_ids() -> Vec<ProviderId> {
@@ -60,6 +60,126 @@ pub fn environment_contracts() -> BTreeMap<String, ProviderEnvironmentContract> 
             (id.as_str().to_string(), contract)
         })
         .collect()
+}
+
+/// How one provider's invocation is derived: the executable under its prefix,
+/// and the function its adapter builds every environment with.
+///
+/// One row per provider and one code path for all of them (INV-17): nothing in
+/// [`plan_read_spec`] branches on which provider it is deriving for, so a
+/// third provider is a row here and not a second derivation.
+#[derive(Clone, Copy)]
+struct Derivation {
+    executable: &'static str,
+    environment: fn(&Path, Option<PathBuf>) -> BTreeMap<String, String>,
+}
+
+fn derivation(provider: &ProviderId) -> Option<Derivation> {
+    match provider.as_str() {
+        crate::homebrew::PROVIDER_ID => Some(Derivation {
+            executable: crate::homebrew::EXECUTABLE_RELATIVE,
+            environment: crate::homebrew::quiet_environment,
+        }),
+        crate::macports::PROVIDER_ID => Some(Derivation {
+            executable: crate::macports::EXECUTABLE_RELATIVE,
+            environment: crate::macports::invocation_environment,
+        }),
+        _ => None,
+    }
+}
+
+/// A provider prefix this build detected — the only thing a plan read may be
+/// derived from (DP-023).
+///
+/// Its fields are private and it has no public constructor: the one way to
+/// obtain one is [`detected_prefix`], which resolves the prefix exactly as
+/// [`build`] does for the adapters — probing the documented candidates on a
+/// live run, honouring `prefix_override` only under replay — and takes `home`
+/// from the same [`RegistryContext`] the adapters are built from. So no value
+/// from a plan, a snapshot or a flag can be handed to [`plan_read_spec`] as
+/// the directory a binary is resolved from: a `/tmp/evil` has no route into
+/// this type. Unlike [`build`], there is no fallback to a first candidate: a
+/// provider that was not detected has no `DetectedPrefix` at all.
+#[derive(Clone)]
+pub struct DetectedPrefix {
+    provider: ProviderId,
+    prefix: PathBuf,
+    home: Option<PathBuf>,
+    derivation: Derivation,
+}
+
+impl DetectedPrefix {
+    /// The provider this prefix was detected for.
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    /// The detected prefix.
+    pub fn prefix(&self) -> &Path {
+        &self.prefix
+    }
+}
+
+impl std::fmt::Debug for DetectedPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DetectedPrefix")
+            .field("provider", &self.provider)
+            .field("prefix", &self.prefix)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The prefix of `provider`, as this build detects it for `ctx` — or `None`
+/// when the provider is not one this build knows, or was not detected.
+pub fn detected_prefix(ctx: &RegistryContext<'_>, provider: &ProviderId) -> Option<DetectedPrefix> {
+    let derivation = derivation(provider)?;
+    let filesystem = effective_scope(ctx.runner, ctx.filesystem);
+    let prefix = resolve_prefix(ctx, provider, filesystem)?;
+    Some(DetectedPrefix {
+        provider: provider.clone(),
+        prefix,
+        home: ctx.home.clone(),
+        derivation,
+    })
+}
+
+/// Turns a plan's provider command into something that may run (DP-023).
+///
+/// The plan supplies argv only. The program is re-derived from the prefix in
+/// `site` and its adapter's executable, and the environment from the adapter's
+/// own construction for that prefix and the home the adapters were built with
+/// — `None` under replay (F17). A plan whose program disagrees with the derived
+/// one is refused, and the argv must pass the shipped read allowlist at
+/// construction (SE-050). The prefix and the home cannot come from the plan or
+/// a snapshot: [`DetectedPrefix`] is constructed only by detection.
+///
+/// **`command.environment` and `command.elevation` are never read here.** The
+/// first is a display copy — redacted by capture, so its `HOME` is `~` on any
+/// live run — and the spawn site builds its own (`plan.v1.md`, obligation 10;
+/// INV-10). The second is what the user is shown, not what decides whether to
+/// ask (obligation 9); the refusal gate refuses anything but `NONE` in this
+/// build. `command.program` is read only to refuse a disagreement.
+///
+/// **Safe only after the execution gate has passed the plan**
+/// (`execution_refusals`, `plan.v1.md` "What an executor inherits"). The read
+/// allowlist checked here fixes the subcommand and refuses separators, short
+/// options and path- or URL-shaped arguments, but accepts any `--long` option
+/// after a permitted subcommand — `brew info --github <formula>` is a read on
+/// that list and opens a browser. What keeps a plan's argv to exactly the
+/// planner's read is the gate's `COMMAND_IS_NOT_THE_PLANNERS_READ`; the caller
+/// owes that the gate passed (SE-050, "Not closed").
+pub fn plan_read_spec(
+    site: &DetectedPrefix,
+    command: &PlanCommand,
+) -> Result<CommandSpec, PlanReadRefusal> {
+    CommandSpec::plan_read(
+        &site.prefix,
+        site.derivation.executable,
+        &command.target,
+        &command.program,
+        &command.argv,
+        (site.derivation.environment)(&site.prefix, site.home.clone()),
+    )
 }
 
 /// Resolves the prebuilt-artifact tags for a provider id.
@@ -109,12 +229,10 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
     let mut out: Vec<Box<dyn ProviderRead + 'r>> = Vec::new();
     for id in known_provider_ids() {
         let candidates = candidate_prefixes(&id);
-        let overridden = override_for(ctx, &id);
         match id.as_str() {
             "homebrew" => {
-                let prefix = overridden
-                    .or_else(|| crate::homebrew::detect_prefix(&candidates, filesystem))
-                    .unwrap_or_else(|| candidates[1].clone());
+                let prefix =
+                    resolve_prefix(ctx, &id, filesystem).unwrap_or_else(|| candidates[1].clone());
                 let tags = (ctx.platform_tags)(id.as_str());
                 out.push(Box::new(HomebrewAdapter::new(
                     ctx.runner,
@@ -125,14 +243,8 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
                 )));
             }
             "macports" => {
-                let prefix = overridden
-                    .or_else(|| {
-                        MacPortsAdapter::<&dyn ProcessRunner>::detect_prefix(
-                            &candidates,
-                            filesystem,
-                        )
-                    })
-                    .unwrap_or_else(|| candidates[0].clone());
+                let prefix =
+                    resolve_prefix(ctx, &id, filesystem).unwrap_or_else(|| candidates[0].clone());
                 out.push(Box::new(MacPortsAdapter::new(
                     ctx.runner,
                     prefix,
@@ -144,6 +256,25 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
         }
     }
     out
+}
+
+/// Where `id` is installed, as detection sees it for `ctx`: the replay-only
+/// override, else the first documented candidate holding the executable. One
+/// function, so the adapters [`build`] constructs and the [`DetectedPrefix`] a
+/// plan read derives from cannot be resolved two different ways.
+fn resolve_prefix(
+    ctx: &RegistryContext<'_>,
+    id: &ProviderId,
+    filesystem: FilesystemScope,
+) -> Option<PathBuf> {
+    let candidates = candidate_prefixes(id);
+    override_for(ctx, id).or_else(|| match id.as_str() {
+        crate::homebrew::PROVIDER_ID => crate::homebrew::detect_prefix(&candidates, filesystem),
+        crate::macports::PROVIDER_ID => {
+            MacPortsAdapter::<&dyn ProcessRunner>::detect_prefix(&candidates, filesystem)
+        }
+        _ => None,
+    })
 }
 
 /// The filesystem scope an adapter is actually built with.
@@ -288,6 +419,26 @@ mod tests {
             None,
             "a live run resolves its prefix by probing, and by nothing else"
         );
+    }
+
+    #[test]
+    fn a_plan_read_site_on_the_live_machine_never_takes_a_prefix_it_was_handed() {
+        // The context names `/tmp/anything` for Homebrew. Against a live runner
+        // that is ignored, so the only prefixes a site can hold are the
+        // documented candidates detection probes (or none at all, on a machine
+        // without the provider). This probes this machine's filesystem with a
+        // stat and spawns nothing; `LiveRunner` panics if asked to run.
+        let runner = LiveRunner;
+        let ctx = context(&runner);
+        for id in known_provider_ids() {
+            if let Some(site) = detected_prefix(&ctx, &id) {
+                assert_ne!(site.prefix(), Path::new("/tmp/anything"));
+                assert!(
+                    candidate_prefixes(&id).iter().any(|c| c == site.prefix()),
+                    "{id:?}: {site:?} is not a documented candidate"
+                );
+            }
+        }
     }
 
     #[test]

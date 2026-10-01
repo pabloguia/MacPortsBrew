@@ -260,12 +260,27 @@ comments:
    read), re-derived at execution. A plan edited to say `NONE` must not skip
    the question.
 10. **The spawn site re-derives `program` and `environment` from live
-    detection and never reads `PlanCommand.program` or
+    detection. It reads `PlanCommand.program` only to refuse a plan whose
+    program disagrees with the derived one (DP-023), and never reads
     `PlanCommand.environment`.** The gate checks neither (see above): the
     program comes from the provider's detected prefix and the table's
     executable, the environment from the adapter's sanitised construction
     (`sanitised_environment`, INV-10), and the plan's copies are what a person
-    reads, not what runs. Owed by the S4 slice.
+    reads, not what runs. **Built, not yet reachable** (2026-09-30, SE-050):
+    `registry::plan_read_spec` takes argv alone from a `PROVIDER` command and
+    derives the program and the environment from a `DetectedPrefix`, which
+    only the registry's detection constructs, so neither the prefix nor the
+    home can come from a plan or a snapshot. It refuses a plan whose `program`
+    disagrees with the derived one (`ProgramDisagrees`) and checks the argv
+    against the shipped read allowlist at construction (`NotAPermittedRead`).
+    There is no refusal about the environment, because the environment is
+    never read: refusing a tampered copy would add no safety over ignoring it,
+    and comparing it would refuse honest plans, since capture redacts `HOME`
+    to `~` and a replayed plan carries none. Tests:
+    `crates/adapters/tests/plan_reads.rs`, among them
+    `invariant_10_a_plan_read_never_adopts_the_environment_it_carries`.
+    Nothing in the binary calls it until the run loop exists, and the run
+    loop owes calling it only after the gate has passed the plan.
 11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
     and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
     migration is restored from and what the run is compared against, and the

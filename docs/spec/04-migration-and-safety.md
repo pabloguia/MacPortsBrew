@@ -377,6 +377,47 @@ do not gold-plate beyond them.
   where a snapshot enters, a `prefix_override` is honoured only under replay,
   and `--from-snapshot` returns before any adapter is built, so a
   recording-derived or snapshot-derived prefix never reaches a live spawn.
+
+  **A plan names a program and an environment, and neither runs (DP-023).**
+  `migrate` re-plans in process and never deserialises a plan (SE-092), so
+  this is not a defence against an edited plan file; it is defence in depth
+  against a planner defect, or a doctored snapshot or recording, putting a
+  program, an environment or a verb into a plan that the executor would then
+  run. A plan's provider command reaches a spawn through
+  `registry::plan_read_spec`, which takes **argv alone** from it. The program is
+  re-derived from a `DetectedPrefix` and the adapter's executable literal, and
+  the environment from the adapter's own construction for that prefix and the
+  home the adapters were built with (none under replay). `DetectedPrefix` has
+  private fields and one constructor, `registry::detected_prefix`, which
+  resolves the prefix the way the adapters' own is resolved — probing the
+  documented candidates on a live run, the override only under replay, and no
+  fallback when nothing was detected — so neither the prefix nor the home can
+  be a value taken from a plan or a snapshot. Two in-process routes remain,
+  owed by the run loop below: `RegistryContext.home` is a public field the
+  caller fills, and a `DetectedPrefix` does not record that it was resolved
+  under replay, so one built from a replay context's override could be handed
+  to the live runner. The plan's `environment`
+  is not a parameter anywhere on that path, so a plan carrying
+  `DYLD_INSERT_LIBRARIES`, a build flag or a different `PATH` changes nothing
+  that is spawned (INV-10). A plan whose `program` disagrees with the derived
+  one is refused rather than corrected, because running a binary other than
+  the one the human reviewed is the INV-02 failure re-derivation would
+  otherwise hide. The argv is checked against the read allowlist above **when
+  the spec is constructed**, with the shipped rule and not the test build's
+  widened one: a replay runner asks no allowlist, so a check left to the spawn
+  would let a recorded test run a plan read the binary refuses. A `TOOL`
+  command and an unsafe prefix are refused the same way. What is **not**
+  enforced yet, and is owed by the run loop: that `plan_read_spec` is the only
+  route (`CommandSpec::provider` is public, for the adapters); that it is
+  called only on a plan the execution gate passed (the allowlist accepts any
+  `--long` option after a permitted subcommand, and only the gate pins a
+  plan's argv to the planner's own read); and that a refusal, which quotes
+  plan text, is rendered with the home redacted and control characters
+  escaped; and that a read site is bound to the runner it was detected
+  through, with its context built once and shared with `registry::build`, so
+  a replay-resolved prefix never reaches a live spawn and the home is the one
+  the adapters use. None of this is reachable from the binary yet; SE-050 records the
+  design and its mutation evidence.
 - **Executable shadowing / PATH spoofing** — resolve provider executables from
   their detected prefix, not from `PATH`, when correctness matters. Report
   writable directories that precede system paths on `PATH`.
