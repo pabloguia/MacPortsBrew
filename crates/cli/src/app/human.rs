@@ -4,11 +4,16 @@
 //! label through the catalogue, every column measured in display width.
 
 use super::context::Context;
+use crate::executor::{RenderedRefusal, RunReport, SiteRefusalKind};
 use crate::render::table::Table;
-use macportsbrew_application::{Analysis, DoctorReport, Explanation, PackageReport, Severity};
+use macportsbrew_application::{
+    execution_refusals, Analysis, CheckKind, Disposition, DoctorReport, ExecutionRefusal,
+    Explanation, HaltReason, PackageReport, RunOutcome, Severity, Unevaluable,
+};
 use macportsbrew_domain::{
-    ArtifactAvailability, MigrationPlan, Outcome, Ownership, PackageClass, ProviderPresence,
-    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, VerificationCheck,
+    ArtifactAvailability, ExpectationError, FailureCause, MigrationPlan, Outcome, Ownership,
+    PackageClass, ProviderId, ProviderPresence, SourceBuildReason, StepKind, SuccessSemantic,
+    SupportTier, Translation, VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -600,4 +605,538 @@ pub fn doctor(ctx: &Context, doc: &DoctorReport) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "doctor.deep_not_in_this_build"));
     out
+}
+
+/// `migrate`, when there is nothing to move (INV-16).
+pub fn nothing_to_move(ctx: &Context, package: &str, provider: &ProviderId) -> String {
+    let mut out = ctx.messages.render(
+        "migrate.nothing_to_move",
+        &params(&[
+            ("package", package.to_string()),
+            ("provider", provider.to_string()),
+        ]),
+    );
+    out.push('\n');
+    out
+}
+
+/// `migrate` in render mode, after the plan: what would put it to the gate.
+pub fn render_only(ctx: &Context) -> String {
+    format!("\n{}\n", label(ctx, "migrate.render_only"))
+}
+
+/// `migrate` in execute mode, after the plan: how the run ended, the gate's
+/// refusals, what became of each step, and a read site's refusal.
+///
+/// Every sentence is the catalogue's, keyed by an exhaustive `match` over the
+/// typed outcome, so a new variant is a compile error here rather than an
+/// identifier in front of a person (F-20). The gate's refusals are rendered
+/// from the gate's own typed list for this plan — the report keeps them only
+/// as cleaned documents — and only by step number and kind, so no plan text
+/// reaches this view; `--json` carries their fields, cleaned.
+pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", label(ctx, "migrate.execution_heading"));
+    let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
+    if matches!(report.outcome, RunOutcome::Refused { .. }) {
+        for refusal in execution_refusals(plan).refusals() {
+            let _ = writeln!(out, "    - {}", gate_refusal_line(ctx, refusal));
+        }
+    }
+    if !report.records.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", label(ctx, "migrate.steps_heading"));
+        for record in &report.records {
+            let _ = writeln!(
+                out,
+                "  {}. {}: {}",
+                record.index,
+                label(ctx, step_key(record.kind)),
+                disposition_text(ctx, &record.disposition)
+            );
+        }
+    }
+    if let Some(refusal) = &report.refusal {
+        let _ = writeln!(out, "  {}", site_refusal_line(ctx, refusal));
+    }
+    out
+}
+
+fn outcome_line(ctx: &Context, outcome: &RunOutcome) -> String {
+    match outcome {
+        RunOutcome::Completed => label(ctx, "migrate.outcome.completed"),
+        RunOutcome::Refused { refusals } => ctx.messages.render(
+            "migrate.outcome.refused",
+            &params(&[("count", refusals.to_string())]),
+        ),
+        RunOutcome::Halted { step, reason } => ctx.messages.render(
+            "migrate.outcome.halted",
+            &params(&[
+                ("step", step.to_string()),
+                ("reason", halt_text(ctx, reason)),
+            ]),
+        ),
+        RunOutcome::PartialSuccess { step, reason } => ctx.messages.render(
+            "migrate.outcome.partial_success",
+            &params(&[
+                ("step", step.to_string()),
+                ("reason", halt_text(ctx, reason)),
+            ]),
+        ),
+    }
+}
+
+fn disposition_text(ctx: &Context, disposition: &Disposition) -> String {
+    match disposition {
+        Disposition::Verified { evidence } => ctx.messages.render(
+            "migrate.disposition.verified",
+            &params(&[("count", evidence.len().to_string())]),
+        ),
+        Disposition::NotPerformedInThisBuild => {
+            label(ctx, "migrate.disposition.not_performed_in_this_build")
+        }
+        Disposition::NotDispatchedMutating => {
+            label(ctx, "migrate.disposition.not_dispatched_mutating")
+        }
+        Disposition::Halted { reason, .. } => ctx.messages.render(
+            "migrate.disposition.halted",
+            &params(&[("reason", halt_text(ctx, reason))]),
+        ),
+        Disposition::NotReached => label(ctx, "migrate.disposition.not_reached"),
+    }
+}
+
+/// A command position as a person counts it: the halt reason counts from 0.
+fn command_number(command: usize) -> String {
+    (command + 1).to_string()
+}
+
+fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
+    let command = |id: &str, n: usize| {
+        ctx.messages
+            .render(id, &params(&[("command", command_number(n))]))
+    };
+    match reason {
+        HaltReason::ManualReview { step } => ctx.messages.render(
+            "migrate.halt.manual_review",
+            &params(&[("step", step.to_string())]),
+        ),
+        HaltReason::UnexecutedMutation => label(ctx, "migrate.halt.unexecuted_mutation"),
+        HaltReason::NotPerformedInThisBuild => {
+            label(ctx, "migrate.halt.not_performed_in_this_build")
+        }
+        HaltReason::SiteUnavailable { command: n } => command("migrate.halt.site_unavailable", *n),
+        HaltReason::SiteRefused { command: n } => command("migrate.halt.site_refused", *n),
+        HaltReason::TransportFailed { command: n, error } => ctx.messages.render(
+            "migrate.halt.transport_failed",
+            &params(&[
+                ("command", command_number(*n)),
+                ("code", error.exit_code().to_string()),
+            ]),
+        ),
+        HaltReason::Expectation { command: n, error } => ctx.messages.render(
+            "migrate.halt.expectation",
+            &params(&[
+                ("command", command_number(*n)),
+                ("why", label(ctx, expectation_key(*error))),
+            ]),
+        ),
+        HaltReason::VerificationFailed { command: n, cause } => ctx.messages.render(
+            "migrate.halt.verification_failed",
+            &params(&[
+                ("command", command_number(*n)),
+                ("cause", label(ctx, failure_key(*cause))),
+            ]),
+        ),
+        HaltReason::ElevationNotNone { command: n } => {
+            command("migrate.halt.elevation_not_none", *n)
+        }
+        HaltReason::Unevaluable {
+            check: Some(check),
+            why,
+        } => ctx.messages.render(
+            "migrate.halt.unevaluable_check",
+            &params(&[
+                ("check", label(ctx, check_key(*check))),
+                ("why", label(ctx, unevaluable_key(*why))),
+            ]),
+        ),
+        HaltReason::Unevaluable { check: None, why } => ctx.messages.render(
+            "migrate.halt.unevaluable",
+            &params(&[("why", label(ctx, unevaluable_key(*why)))]),
+        ),
+        HaltReason::RecordsDoNotMatchPlan => label(ctx, "migrate.halt.records_do_not_match_plan"),
+    }
+}
+
+fn expectation_key(value: ExpectationError) -> &'static str {
+    match value {
+        ExpectationError::StepNotInPlan => "migrate.expectation.step_not_in_plan",
+        ExpectationError::CommandNotInStep => "migrate.expectation.command_not_in_step",
+        ExpectationError::NotAVerificationStep => "migrate.expectation.not_a_verification_step",
+        ExpectationError::PlaceholderCommand => "migrate.expectation.placeholder_command",
+        ExpectationError::NotAProviderCommand => "migrate.expectation.not_a_provider_command",
+        ExpectationError::UnrecognisedCheck => "migrate.expectation.unrecognised_check",
+        ExpectationError::SuccessUnknown => "migrate.expectation.success_unknown",
+        ExpectationError::WrongProvider => "migrate.expectation.wrong_provider",
+        ExpectationError::SemanticNotValidForStep => {
+            "migrate.expectation.semantic_not_valid_for_step"
+        }
+        ExpectationError::NoDestinationName => "migrate.expectation.no_destination_name",
+        ExpectationError::UnsafePackageName => "migrate.expectation.unsafe_package_name",
+        ExpectationError::ArgvDoesNotNameDestination => {
+            "migrate.expectation.argv_does_not_name_destination"
+        }
+        ExpectationError::ArgvNamesAPackage => "migrate.expectation.argv_names_a_package",
+    }
+}
+
+fn failure_key(value: FailureCause) -> &'static str {
+    match value {
+        FailureCause::DidNotFinish => "migrate.failure.did_not_finish",
+        FailureCause::Truncated => "migrate.failure.truncated",
+        FailureCause::NonZeroExit => "migrate.failure.non_zero_exit",
+        FailureCause::EmptyOutput => "migrate.failure.empty_output",
+        FailureCause::NameAbsent => "migrate.failure.name_absent",
+        FailureCause::NamePresent => "migrate.failure.name_present",
+    }
+}
+
+fn unevaluable_key(value: Unevaluable) -> &'static str {
+    match value {
+        Unevaluable::NoEvaluationForStepKind => "migrate.unevaluable.no_evaluation_for_step_kind",
+        Unevaluable::NoCommand => "migrate.unevaluable.no_command",
+        Unevaluable::NoCheck => "migrate.unevaluable.no_check",
+        Unevaluable::CheckHasNoEvaluation => "migrate.unevaluable.check_has_no_evaluation",
+        Unevaluable::NoPassingRead => "migrate.unevaluable.no_passing_read",
+        Unevaluable::MissingRead => "migrate.unevaluable.missing_read",
+        Unevaluable::PresenceBeforeUnknown => "migrate.unevaluable.presence_before_unknown",
+        Unevaluable::PresentBeforeTheRun => "migrate.unevaluable.present_before_the_run",
+    }
+}
+
+fn check_key(value: CheckKind) -> &'static str {
+    match value {
+        CheckKind::ProviderReportsActive => "migrate.check.provider_reports_active",
+        CheckKind::ProviderIntegrityCheck => "migrate.check.provider_integrity_check",
+        CheckKind::ExecutablesOwnedByDestination => {
+            "migrate.check.executables_owned_by_destination"
+        }
+        CheckKind::LivenessProbe => "migrate.check.liveness_probe",
+        CheckKind::NoCrossProviderLinkage => "migrate.check.no_cross_provider_linkage",
+        CheckKind::PackageAbsent => "migrate.check.package_absent",
+        CheckKind::PackageNewlyPresent => "migrate.check.package_newly_present",
+        CheckKind::Unknown => "migrate.check.unknown",
+    }
+}
+
+fn steps_text(steps: &[u32]) -> String {
+    steps
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
+    let step = |id: &str, step: u32| {
+        ctx.messages
+            .render(id, &params(&[("step", step.to_string())]))
+    };
+    let steps = |id: &str, steps: &[u32]| {
+        ctx.messages
+            .render(id, &params(&[("steps", steps_text(steps))]))
+    };
+    match refusal {
+        ExecutionRefusal::SchemaVersionNotThisBuilds { found, expected } => ctx.messages.render(
+            "migrate.refusal.schema_version_not_this_builds",
+            &params(&[
+                ("found", found.to_string()),
+                ("expected", expected.to_string()),
+            ]),
+        ),
+        ExecutionRefusal::Ordering => label(ctx, "migrate.refusal.ordering"),
+        ExecutionRefusal::StepIndicesNotSequential => {
+            label(ctx, "migrate.refusal.step_indices_not_sequential")
+        }
+        ExecutionRefusal::EmptyPlan => label(ctx, "migrate.refusal.empty_plan"),
+        ExecutionRefusal::NoSnapshotBeforeFirstMutation { step: s } => {
+            step("migrate.refusal.no_snapshot_before_first_mutation", *s)
+        }
+        ExecutionRefusal::NoRecordHistoryAtEnd => {
+            label(ctx, "migrate.refusal.no_record_history_at_end")
+        }
+        ExecutionRefusal::MoreThanOneSnapshotBefore { steps: s } => {
+            steps("migrate.refusal.more_than_one_snapshot_before", s)
+        }
+        ExecutionRefusal::MoreThanOneRecordHistory { steps: s } => {
+            steps("migrate.refusal.more_than_one_record_history", s)
+        }
+        ExecutionRefusal::ManualReview { step: s } => step("migrate.refusal.manual_review", *s),
+        ExecutionRefusal::Placeholder { steps: s } => steps("migrate.refusal.placeholder", s),
+        ExecutionRefusal::UnrecognisedCheck { steps: s } => {
+            steps("migrate.refusal.unrecognised_check", s)
+        }
+        ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, check } => ctx.messages.render(
+            "migrate.refusal.check_not_evaluable_in_this_build",
+            &params(&[
+                ("step", s.to_string()),
+                ("check", label(ctx, check_key(CheckKind::from(check)))),
+            ]),
+        ),
+        ExecutionRefusal::VerificationAssertsNothing { step: s } => {
+            step("migrate.refusal.verification_asserts_nothing", *s)
+        }
+        ExecutionRefusal::UnknownSuccess { steps: s } => {
+            steps("migrate.refusal.unknown_success", s)
+        }
+        ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step: s } => step(
+            "migrate.refusal.command_on_step_the_planner_writes_none_on",
+            *s,
+        ),
+        ExecutionRefusal::CommandIsNotThePlannersRead { step: s } => {
+            step("migrate.refusal.command_is_not_the_planners_read", *s)
+        }
+        ExecutionRefusal::Expectation { step: s, error } => ctx.messages.render(
+            "migrate.refusal.expectation",
+            &params(&[
+                ("step", s.to_string()),
+                ("why", label(ctx, expectation_key(*error))),
+            ]),
+        ),
+        ExecutionRefusal::SameProviderOnBothSides => {
+            label(ctx, "migrate.refusal.same_provider_on_both_sides")
+        }
+        ExecutionRefusal::ElevationRequired { steps: s } => {
+            steps("migrate.refusal.elevation_required", s)
+        }
+        ExecutionRefusal::ElevationUnknown { steps: s } => {
+            steps("migrate.refusal.elevation_unknown", s)
+        }
+        ExecutionRefusal::MutationNotInThisBuild { step: s } => {
+            step("migrate.refusal.mutation_not_in_this_build", *s)
+        }
+        ExecutionRefusal::PlanNotDryRunOnly => label(ctx, "migrate.refusal.plan_not_dry_run_only"),
+    }
+}
+
+/// A read site's refusal, by its kind and the values it quotes, which the
+/// report keeps cleaned (home redacted, controls escaped).
+fn site_refusal_line(ctx: &Context, refusal: &RenderedRefusal) -> String {
+    let value = |name: &str| refusal.values.get(name).cloned().unwrap_or_default();
+    let step = refusal.step.to_string();
+    match refusal.refusal {
+        SiteRefusalKind::NotAProviderCommand => ctx.messages.render(
+            "migrate.site.not_a_provider_command",
+            &params(&[("step", step)]),
+        ),
+        SiteRefusalKind::UnsafePrefix => ctx.messages.render(
+            "migrate.site.unsafe_prefix",
+            &params(&[("step", step), ("prefix", value("prefix"))]),
+        ),
+        SiteRefusalKind::ProgramDisagrees => ctx.messages.render(
+            "migrate.site.program_disagrees",
+            &params(&[
+                ("step", step),
+                ("planned", value("planned")),
+                ("derived", value("derived")),
+            ]),
+        ),
+        SiteRefusalKind::NotAPermittedRead => ctx.messages.render(
+            "migrate.site.not_a_permitted_read",
+            &params(&[("step", step), ("argv", value("argv"))]),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executor::{RenderedRefusal, RunReport, SiteRefusalKind};
+    use clap::Parser;
+    use macportsbrew_application::StepRecord;
+    use macportsbrew_domain::ErrorId;
+
+    /// A context over a committed recording; nothing here reads this machine.
+    fn context() -> Context {
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/recordings/both-providers-arm64-macos15.json"
+        );
+        let cli = super::super::Cli::parse_from([
+            "macportsbrew",
+            "--replay",
+            fixture,
+            "--today",
+            "2026-09-02",
+            "status",
+        ]);
+        Context::build(&cli, &mut Vec::new()).expect("the recording builds a context")
+    }
+
+    /// Every halt reason the run loop can record.
+    fn every_halt() -> Vec<HaltReason> {
+        let mut out = vec![
+            HaltReason::ManualReview { step: 9 },
+            HaltReason::UnexecutedMutation,
+            HaltReason::NotPerformedInThisBuild,
+            HaltReason::SiteUnavailable { command: 0 },
+            HaltReason::SiteRefused { command: 0 },
+            HaltReason::TransportFailed {
+                command: 0,
+                error: ErrorId::ProviderTimeout,
+            },
+            HaltReason::ElevationNotNone { command: 1 },
+            HaltReason::RecordsDoNotMatchPlan,
+        ];
+        for error in [
+            ExpectationError::StepNotInPlan,
+            ExpectationError::CommandNotInStep,
+            ExpectationError::NotAVerificationStep,
+            ExpectationError::PlaceholderCommand,
+            ExpectationError::NotAProviderCommand,
+            ExpectationError::UnrecognisedCheck,
+            ExpectationError::SuccessUnknown,
+            ExpectationError::WrongProvider,
+            ExpectationError::SemanticNotValidForStep,
+            ExpectationError::NoDestinationName,
+            ExpectationError::UnsafePackageName,
+            ExpectationError::ArgvDoesNotNameDestination,
+            ExpectationError::ArgvNamesAPackage,
+        ] {
+            out.push(HaltReason::Expectation { command: 0, error });
+        }
+        for cause in [
+            FailureCause::DidNotFinish,
+            FailureCause::Truncated,
+            FailureCause::NonZeroExit,
+            FailureCause::EmptyOutput,
+            FailureCause::NameAbsent,
+            FailureCause::NamePresent,
+        ] {
+            out.push(HaltReason::VerificationFailed { command: 0, cause });
+        }
+        let whys = [
+            Unevaluable::NoEvaluationForStepKind,
+            Unevaluable::NoCommand,
+            Unevaluable::NoCheck,
+            Unevaluable::CheckHasNoEvaluation,
+            Unevaluable::NoPassingRead,
+            Unevaluable::MissingRead,
+            Unevaluable::PresenceBeforeUnknown,
+            Unevaluable::PresentBeforeTheRun,
+        ];
+        let checks = [
+            CheckKind::ProviderReportsActive,
+            CheckKind::ProviderIntegrityCheck,
+            CheckKind::ExecutablesOwnedByDestination,
+            CheckKind::LivenessProbe,
+            CheckKind::NoCrossProviderLinkage,
+            CheckKind::PackageAbsent,
+            CheckKind::PackageNewlyPresent,
+            CheckKind::Unknown,
+        ];
+        for (why, check) in whys.iter().zip(checks.iter()) {
+            out.push(HaltReason::Unevaluable {
+                check: Some(*check),
+                why: *why,
+            });
+            out.push(HaltReason::Unevaluable {
+                check: None,
+                why: *why,
+            });
+        }
+        out
+    }
+
+    #[test]
+    fn every_sentence_of_a_run_report_comes_from_the_catalogue() {
+        // S5 owed this: a run's report rendered through the catalogue, with
+        // no identifier and no placeholder reaching a person. A run past the
+        // gate is unreachable from the binary, so this renders one directly.
+        let ctx = context();
+        let plan = macportsbrew_application::build_plan(
+            &ctx.snapshot,
+            &ctx.policy,
+            &macportsbrew_application::AnalysisOptions {
+                today: ctx.today.clone(),
+                ..Default::default()
+            },
+            &macportsbrew_application::PlanRequest {
+                package: "htop".into(),
+                to: ProviderId::new("macports"),
+                retain_source: false,
+            },
+            &macportsbrew_adapters::registry::known_provider_ids(),
+        )
+        .expect("a plan");
+        let mut records = Vec::new();
+        for (i, reason) in every_halt().into_iter().enumerate() {
+            let index = u32::try_from(i).expect("small");
+            records.push(StepRecord {
+                index,
+                kind: StepKind::VerifyDestination,
+                disposition: Disposition::Halted {
+                    reason,
+                    evidence: Vec::new(),
+                },
+            });
+        }
+        for disposition in [
+            Disposition::Verified {
+                evidence: Vec::new(),
+            },
+            Disposition::NotPerformedInThisBuild,
+            Disposition::NotDispatchedMutating,
+            Disposition::NotReached,
+        ] {
+            records.push(StepRecord {
+                index: 0,
+                kind: StepKind::SnapshotBefore,
+                disposition,
+            });
+        }
+        let mut outcomes = vec![RunOutcome::Completed, RunOutcome::Refused { refusals: 1 }];
+        for reason in every_halt() {
+            outcomes.push(RunOutcome::Halted {
+                step: 3,
+                reason: reason.clone(),
+            });
+            outcomes.push(RunOutcome::PartialSuccess { step: 3, reason });
+        }
+        let mut text = String::new();
+        for (kind, values) in [
+            (SiteRefusalKind::NotAProviderCommand, vec![]),
+            (SiteRefusalKind::UnsafePrefix, vec![("prefix", "/x")]),
+            (
+                SiteRefusalKind::ProgramDisagrees,
+                vec![("planned", "/a/p"), ("derived", "/b/p")],
+            ),
+            (SiteRefusalKind::NotAPermittedRead, vec![("argv", "a b")]),
+        ] {
+            for outcome in &outcomes {
+                let report = RunReport {
+                    outcome: outcome.clone(),
+                    records: records.clone(),
+                    refusal: Some(RenderedRefusal {
+                        step: 3,
+                        refusal: kind,
+                        values: values.iter().map(|(k, v)| (*k, (*v).to_string())).collect(),
+                        text: String::new(),
+                    }),
+                    gate_refusals: Vec::new(),
+                };
+                text.push_str(&run_report(&ctx, &plan, &report));
+            }
+        }
+        assert!(
+            ctx.messages.missing().is_empty(),
+            "{:?}",
+            ctx.messages.missing()
+        );
+        for raw in ["migrate.", "{", "}", "_"] {
+            assert!(!text.contains(raw), "{raw:?} reached the user:\n{text}");
+        }
+    }
 }

@@ -8,8 +8,9 @@ is the same procedure with the two names exchanged — not a second-class path.
 
 **This build plans. It does not migrate.** `macportsbrew plan` prints the
 ordered steps, the commands that would run, the risks, and where a human would
-have to decide — and then stops. There is no `migrate` command in version
-0.1.0, nothing here asks for a password, and nothing on your machine changes.
+have to decide — and then stops. `macportsbrew migrate` does the same, and
+with `--yes` reaches a refusal gate that refuses every plan version 0.1.0
+produces; nothing here asks for a password, and nothing on your machine changes.
 
 That is worth doing anyway: the plan is the thing you review, and reviewing it
 is how you find out whether the migration is a good idea before anyone acts on
@@ -47,7 +48,7 @@ On a machine with Homebrew and no MacPorts, that produces:
 
 ```
 Plan: move curl from homebrew to macports
-  This build only shows plans. Nothing here is executed, and nothing asks for elevation.
+  This build changes nothing: `migrate --yes` reaches a refusal gate that refuses every plan this build produces, so nothing here is executed and nothing asks for elevation.
   This plan overrides the recommendation (Needs a human decision); the override would be recorded with the run.
 
 Risks detected

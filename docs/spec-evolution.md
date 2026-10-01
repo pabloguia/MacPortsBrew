@@ -1520,11 +1520,12 @@ change is made. Silent deviation remains the one unrecoverable error.
   partial success here is not a partial migration:** no run of this build
   dispatches a mutating step, so the history slice (S8) must not record one as
   a migration left half done, nor take a lock or an interrupted-run marker for
-  it (`plan.v1.md` obligation 12). The loop is reachable from no command; the
-  `migrate` slice adds the one caller. What "nothing executes" now means,
+  it (`plan.v1.md` obligation 12). Its one caller is `migrate --yes`
+  (slice S6, SE-092), which reaches the gate and so runs nothing for any plan
+  this build produces. What "nothing executes" now means,
   precisely: no mutating provider command, and no read of a plan the gate
   refused — the recorded tests protect the test suite, not the shipped
-  binary, which never reaches the loop. Evidence and mutation table: SE-050,
+  binary, which never reaches the loop past the gate. Evidence and mutation table: SE-050,
   "Closed by the run loop".
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
@@ -3040,8 +3041,10 @@ finding ids in each entry.
     `PlanReadSites` captures `ctx.runner` with the sites it detects, so a read
     runs through the runner it was detected through, and
     `registry::build_with_read_sites` builds the adapters and the sites from
-    one context, so they share prefix resolution and home; the `migrate`
-    slice owes calling it rather than building a second context. A runner
+    one context, so they share prefix resolution and home. (Superseded for
+    `migrate` by review fix M1 below: the sites are built inside
+    `executor::run`, after the gate, from the context the capture's adapters
+    were built from — SE-092, S6 addendum.) A runner
     that lies `is_replay() == true` gets the override honoured and the mark
     set, so the live runner still refuses what it hands over. Tests:
     `a_prefix_resolved_under_replay_never_reaches_a_live_spawn`,
@@ -5713,5 +5716,198 @@ finding ids in each entry.
   lost: rendering a run's report through the i18n catalogue, which `migrate`
   owes since this module renders nothing a user reads; and the path-scoped
   rule file and its `CLAUDE.md` entry, which are the owner's.
+- **Addendum, `migrate`, 2026-10-01 (slice S6).** The one caller exists:
+  `crates/cli/src/app/migrate.rs`, `macportsbrew migrate <pkg> --to <id>
+  [--retain-source]`, documented as `docs/schemas/migrate.v1.md`. It renders by
+  default and executes only with `--yes` and without `--dry-run`; `--dry-run`
+  wins (`06-cli-and-ux.md`: the default for anything destructive until
+  explicitly confirmed). Execute mode with `--from-snapshot` is `USAGE`, exit 2,
+  before the context is built and before any output: a snapshot file has no
+  runner and no provenance an execution could check (SE-050). The flow is
+  `planner::migration_start` with `registry::known_provider_ids()`, then the
+  plan rendered — never refused — then, in execute mode, `executor::run` with
+  the plan paired with its snapshot and the registry context; the exit code is
+  the run's, and whenever a plan was built stdout carries it, so an exit 4 with
+  a document (refusal, manual review) is told apart from the planner's exit 4
+  with empty stdout (F16). In this build every execution ends at the gate,
+  `REFUSED`, exit 4, no step records. One `ErrorId` was added after review,
+  `PROVIDER_PRESENCE_UNPROVEN` (exit 4, `error.provider_presence_unproven`),
+  for the refusal below; reusing `SAFETY_UNVERIFIABLE` showed its remediation,
+  "the fact is absent from the document itself", which is false on a live
+  one-provider machine (`06-cli-and-ux.md`'s error-taxonomy MUST).
+
+  **"Nothing to move" is never answered on a machine where another provider was
+  not detected — decided here, and why.** `migration_start` is `plan_outcome`
+  made stricter, because `migrate` is the command that reports the answer as
+  done and exits 0 (INV-16), where `plan` refuses it as `USAGE`. Two refusals
+  close the two items the S3 addendum left open for this slice. (1) Every other
+  provider — every one in `known` and every one the input carries — must be
+  `PRESENT` with a readable inventory; an `ABSENT` one refuses with
+  `PROVIDER_PRESENCE_UNPROVEN`, exit 4. `ABSENT` is the result of probing the
+  documented prefixes, so a provider installed anywhere else reads exactly the
+  same and may hold the package; "already moved, nothing to do" there would be
+  a claim nothing established. The cost is that on a one-provider machine
+  `migrate` of a package its only provider holds refuses instead of saying
+  "nothing to move" — the refusal changes nothing either, which is what INV-16
+  protects. Which of the two answers that case should get is the owner's
+  call, DP-026; the refusal is the reversible default. (2) No other analysis unit may name the destination package: one
+  whose mapping toward the destination lists it as a candidate without
+  selecting it (ambiguous, or below the confidence a selection needs) and which
+  another provider holds refuses with `SAFETY_BLOCKED`, naming the holder — in
+  `both-providers-arm64-macos15`, `nodejs22 --to macports` is refused because
+  `node` maps ambiguously to `nodejs22` and `nodejs24`. A `--retain-source`
+  re-run still finds the source holding the package and builds a plan again;
+  recognising it as done needs the run's history, which this build does not
+  record. `plan_outcome`, `build_plan` and `plan` are unchanged. **What the
+  answer establishes, and no more:** no other provider in the input holds the
+  package, nor anything the mappings name as possibly the same package; a copy
+  under a name no mapping connects is not seen, and from a snapshot file the
+  answer is about that input, not the machine. The catalogue sentence, the
+  planner's documentation and `migrate.v1.md` say exactly that.
+
+  **The runner and the run loop are reached from `migrate` alone.** `Context`
+  keeps what the capture's `RegistryContext` was built from — the runner, the
+  filesystem scope, the home (none under replay), the machine facts and the
+  replay's prefix answers — in a private field, and builds the capture's
+  context and an execution's through one function from those values;
+  `Context::execution_registry` is the only way to it and `None` for a snapshot
+  file. That is one derivation, not one object: a `RegistryContext` borrows the
+  runner and the policy, so `Context` cannot hold one built from its own
+  fields. It supersedes SE-050's "the `migrate` slice owes calling
+  `build_with_read_sites`": since the review fix M1 the sites are built inside
+  `executor::run`, after the gate, and the word scan keeps that name out of
+  `migrate.rs`. `the_context_runner_and_the_run_loop_are_reached_from_migrate_alone`
+  (`crates/cli/tests/migrate.rs`) holds both rules; the existing scans of the
+  executor's sources now read `migrate.rs` too (INV-17 by word, the mutation
+  constant and `dryRunOnly`, read sites and command specs).
+
+  **The run's report is rendered through the catalogue**, closing what the S5
+  addendum listed as owed: every outcome, disposition, halt reason, expectation
+  error, failure cause, unevaluable reason, check kind, gate refusal and
+  read-site refusal has a `migrate.*` key in `locales/en.toml`, reached by an
+  exhaustive `match` in `app/human.rs`. The gate's refusals are rendered from
+  the gate's typed list for the plan and by step number and kind only, so no
+  plan text reaches that view; the document carries them as the loop keeps
+  them, cleaned. A read site's refusal is now kept as a typed kind
+  (`SiteRefusalKind`) with its cleaned values rather than an identifier string.
+  `every_sentence_of_a_run_report_comes_from_the_catalogue` renders every
+  variant and asserts no key is missing and no identifier, key or placeholder
+  reaches the text.
+
+  **The three sentences.** The wording the executor pass's plan fixed for them
+  (its amendment A5, 2026-09-27, in the pass's working notes rather than this
+  repository) is, verbatim: "`migrate --yes` reaches a refusal gate that
+  refuses every plan this build produces; the read-step loop exists, is tested
+  against recordings, and is unreachable from the binary." `plan.v1.md` (the
+  opening and "What an executor inherits"), the module and `dry_run_only`
+  documentation in `crates/domain/src/plan.rs`, the command line's
+  `long_about`, `--dry-run`, `--yes` and command documentation,
+  `06-cli-and-ux.md`'s command list and `04-migration-and-safety.md`'s status
+  line now say that. `plan.dry_run_only`, which a person reads, keeps
+  the first half and leaves the loop out. `README.md` and the wiki no longer
+  say there is no `migrate` command. `docs/schemas/README.md` gains the command
+  row, `SAFETY_UNVERIFIABLE` and `PROVIDER_PRESENCE_UNPROVEN` on exit 4 and
+  `INPUT_UNUSABLE` on exit 8 (F15), and a paragraph on `migrate`'s exits.
+
+  **What the tests protect.** Recordings only, never a live install: the
+  binary over `both-providers-arm64-macos15`, `both-providers-intel-macos26`
+  and `macports-only-intel-macos12`, and in process the composition `migrate`
+  runs (`migration_start`, then `executor::run`) over a `ReplayRunner` whose
+  recording answers every command of the plan, mutating ones included, so a
+  dispatch would succeed and be counted — none is. No recording yields a
+  MacPorts-to-Homebrew plan (every one refuses on the unrecorded service
+  fact), so the direction symmetry of the loop stays proved where it was,
+  `invariant_17_the_loop_treats_both_directions_identically`; **the
+  composition `migrate` runs is not exercised in process in the
+  MacPorts-to-Homebrew direction** — a gap, stated rather than closed. Its
+  refusals are mirrored: the undetected provider in the application tests,
+  and the name candidate through the binary (`postgresql@17 --to homebrew`,
+  refused because MacPorts holds `postgresql17-server`). Every gate refusal of
+  every plan the planner builds for a default-view package, toward each
+  provider, on every recording, is checked to be kept as an object
+  (`every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object`).
+  `scripts/run-fixture-matrix.sh` does not enumerate `migrate`; adding it is a
+  guarded edit and `crates/cli/tests/migrate.rs` covers the fixtures instead.
+  **Proved by mutation**, each in a scratch copy of the workspace with its own
+  target directory, the file restored by rewriting and its mtime bumped, and
+  the copy's `crates/` identical to this tree under `diff -r` afterwards:
+
+  | Rule | Mutation | Tests that failed |
+  |---|---|---|
+  | undetected provider refuses | accept `ABSENT` | `migrate_never_reports_nothing_to_move_where_another_provider_was_not_detected` and its mirror (application), `migrate_does_not_report_nothing_to_move_where_another_provider_was_not_detected` (binary) |
+  | ...as `PROVIDER_PRESENCE_UNPROVEN`, with its own remediation | `SAFETY_UNVERIFIABLE` instead | the three tests above (the binary one asserts the remediation shown) |
+  | the refusal names the holder, not the destination | `*id != to` dropped | `invariant_17_the_name_candidate_refusal_names_the_holder_in_the_mirror_direction` |
+  | a name candidate refuses | mapping candidates ignored | `migrate_never_reports_nothing_to_move_while_another_name_may_be_the_package`, `migrate_does_not_report_nothing_to_move_while_another_name_may_be_the_package` |
+  | `--dry-run` wins | `--yes` alone executes | `migrate_dry_run_wins_over_yes`, `migrate_from_snapshot_refuses_to_execute` |
+  | `--yes` executes | never executes | six `migrate.rs` tests |
+  | no execution from a snapshot file | refusal dropped | `migrate_from_snapshot_refuses_to_execute` |
+  | the registry's `known` | `&[]` | `migrate_does_not_report_nothing_to_move_on_an_inventory_nobody_read` |
+  | nothing to move exits 0 | exits 1 | `invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_and_says_so`, the deleted-provider test |
+  | the run's exit code | 0 | four `migrate.rs` tests, `invariant_06_migrate_never_elevates` among them |
+  | execution in the document | left out | three `migrate.rs` tests |
+  | refusals rendered | none rendered | `migrate_yes_is_refused_for_execution_and_still_renders_the_plan`, `invariant_06_migrate_never_elevates` |
+  | every report sentence in the catalogue | a key renamed | `every_sentence_of_a_run_report_comes_from_the_catalogue` |
+  | one caller of the registry | a second caller planted | `the_context_runner_and_the_run_loop_are_reached_from_migrate_alone` |
+  | a gate refusal is kept as an object | every refusal reported `UNSERIALISABLE` | `every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object` |
+  | quoted command-line text is escaped on stderr | escaping removed | `command_line_text_quoted_in_an_error_cannot_drive_the_terminal` |
+
+  Three mutations survive and are recorded rather than hidden. Dropping the
+  name check's same-named-destination-row clause: a row at the destination
+  reaches another unit only through a mapping whose candidates name it, so the
+  clause is defence in depth behind the candidate clause. Dropping the holder's
+  installed-copy filter: every unit holds an installed copy at a provider
+  other than the destination, so it changes only which row the refusal names
+  where a unit carries a not-installed mapped row first. And the
+  `UNSERIALISABLE` fallback itself (turned into `null`): serialising the
+  derived refusal types cannot fail, so the branch is unreachable today. A
+  first version of this table also listed "the holder may be the destination"
+  as equivalent; review showed it is not — `postgresql@17 --to homebrew` then
+  names the destination as the holder — and the mirror test now kills it.
+  **Reviews and what is not closed.** First round (spec-guardian and
+  security-reviewer, 2026-10-01): no Tier 1 violation, nothing Critical or
+  High. Acted on: the charter's example of a surface differing from the identity
+  ("has no `migrate` command") is now stale and is Tier 2, so it is DP-025, the
+  charter untouched meanwhile; a tripwire for INV-02,
+  `invariant_02_migrate_executes_a_plan_built_in_process_only_while_nothing_destructive_is_dispatched`,
+  fails the day this build can dispatch a mutating step while `migrate --yes`
+  still executes the plan it built in the same process (obligation 8); the
+  executor's word scans read `migrate.rs` unconditionally; the one-caller test
+  also catches the loop imported and called by a bare name; and a mirror test
+  for the undetected-provider refusal. Second round (independent reviews,
+  2026-10-01): no Tier 1 violation, safety clean; one Medium and several Low.
+  Resolved: (M) the undetected-provider refusal reused `SAFETY_UNVERIFIABLE`,
+  whose remediation is false on a live machine — now its own identifier,
+  `PROVIDER_PRESENCE_UNPROVEN`, with a test of the remediation shown; INV-16 on
+  a one-provider machine filed as DP-026 with the refusal as the reversible
+  default; a test of a plan stopping at `MANUAL_REVIEW` in both modes; the
+  mirrored name-candidate test above; *nothing to move* narrowed to what it
+  establishes; a gate refusal that fails to serialise is kept as
+  `UNSERIALISABLE` instead of `null`; README and CHANGELOG no longer say
+  `--yes` "exits 4 having run nothing" without the exceptions; and command-line
+  text quoted in an error (a `--to` value, a package name) is now escaped on
+  stderr like plan text — pre-existing, in the error renderer every command
+  uses. **The single-caller scan's limits**, stated: it is textual. It finds
+  `execution_registry` as a word and the loop's entry points as
+  `executor::run`/`run_with` paths or in an import list from the executor
+  module, so a module alias (`use crate::executor as x;`) or a glob import
+  passes it; and `registry::plan_read_sites` is reachable by anyone who
+  hand-builds a `RegistryContext` from a runner — the word scan keeps that name
+  out of `crates/cli/src` outside the loop, and only the context holds a
+  runner. **Not closed:** (1) the name check reads
+  other units' mappings only, which is sufficient while the mapping heuristics
+  are symmetric (normalised name, versioned family, homepage; curated data
+  builds a reverse index) — an asymmetric heuristic owes a check of the
+  package's own mappings toward the other provider; (2) a `--retain-source`
+  re-run plans again, which the history slice must close before execution
+  lands, or INV-16 is unmet that day; (3) an execution re-detects prefixes from
+  the same inputs rather than reusing the capture's `DetectedPrefix` values —
+  a live prefix that changed in between ends in `PROGRAM_DISAGREES`, never a
+  different binary; (4) DP-025 and DP-026, the owner's.
+- Evidence (S6): `crates/cli/src/app/migrate.rs`, `crates/cli/src/app/context.rs`,
+  `crates/application/src/planner.rs` (`migration_start`),
+  `crates/cli/tests/migrate.rs`, `crates/application/tests/planner_refusals.rs`,
+  `docs/schemas/migrate.v1.md` and its three checked samples; the executor plan's
+  S6 section and amendments A1, A5, A7 and A9 (2026-09-27); the S3 and S4
+  carried items (2026-09-30).
 
 ---

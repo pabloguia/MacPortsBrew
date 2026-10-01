@@ -13,8 +13,9 @@ direction — one that never removes anything before its replacement is installe
 and verified. The two providers are peers: neither is globally better, and
 neither direction is a special case.
 
-**This version plans; it does not execute.** There is no `migrate` command yet,
-and nothing in the binary runs a mutating provider subcommand. See
+**This version plans; it does not execute.** `migrate` shows a plan, and with
+`--yes` reaches a refusal gate that refuses every plan this build produces;
+nothing in the binary runs a mutating provider subcommand. See
 [What this build does *not* do](#what-this-build-does-not-do).
 
 ## Homebrew and MacPorts are peers here
@@ -72,12 +73,16 @@ migration and coexistence layer that stays useful afterwards, on any Mac.
 This is version 0.1.0, the read-only slice. It is honest about its scope, and
 the binary says so in its own `--help`:
 
-- **It executes nothing.** `plan` builds and prints a migration plan; there is
-  no `migrate` command, and no code path in the binary runs a mutating provider
-  subcommand. A gate script greps for one on every change.
+- **It executes nothing.** `plan` builds and prints a migration plan, and so
+  does `migrate`; `migrate --yes` puts the plan to an execution gate that
+  refuses every plan this build produces, so it exits 4 for every plan it
+  builds and runs nothing. A package already where you asked exits 0 as
+  *nothing to move*, and the planner's own refusals keep their codes. No
+  code path in the binary runs a mutating provider subcommand. A gate script
+  greps for one on every change.
 - **It never asks for elevation.** Analysis, inventory, mapping, planning and
   `doctor` are all unprivileged by design.
-- **Not yet implemented:** `migrate`, `restore --run`, `primary`,
+- **Not yet implemented:** executing a migration, `restore --run`, `primary`,
   `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
   interactive TUI, `doctor --deep`, caching, and translations (English ships,
   plus the `qps` pseudolocale for layout testing).

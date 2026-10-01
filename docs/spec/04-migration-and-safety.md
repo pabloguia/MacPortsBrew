@@ -1,7 +1,10 @@
 # 04 — Migration, verification and safety
 
-**Status:** Tier 3 unless marked. Not implemented in the foundation pass beyond
-plan construction and dry-run rendering.
+**Status:** Tier 3 unless marked. Implemented as far as plan construction,
+dry-run rendering and the refusal gate: `migrate --yes` reaches a refusal gate
+that refuses every plan this build produces; the read-step loop behind it
+exists, is tested against recordings, and is unreachable from the binary
+(SE-020, SE-092).
 
 ## State machine
 

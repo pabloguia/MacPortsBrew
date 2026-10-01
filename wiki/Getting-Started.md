@@ -141,8 +141,9 @@ Add `--json` to any of them for a versioned payload on stdout. See the
 
 ## What it will not do yet
 
-`plan` builds and prints a plan. **Executing one is a later pass** — there is
-no `migrate` command, and no code path in this binary runs a mutating provider
+`plan` builds and prints a plan. **Executing one is a later pass** — `migrate
+--yes` reaches a refusal gate that refuses every plan this build produces, and
+no code path in this binary runs a mutating provider
 subcommand or asks for a password. Nothing on your machine changes when you run
 any command on this page.
 

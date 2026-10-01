@@ -11,7 +11,51 @@ are recorded.
 
 ## Open
 
-None. The last three were ruled on 2026-09-27.
+### DP-026 — What `migrate` answers on a machine where the other provider was not detected
+
+Raised 2026-10-01 by the independent review of the `migrate` slice (SE-092, S6
+addendum). INV-16 says migrating a package already at its destination changes
+nothing and says so. `migrate` answers *nothing to move*, exit 0, only when
+every other provider was detected and read; on a machine with one provider —
+a common one — a package that provider holds is refused instead
+(`PROVIDER_PRESENCE_UNPROVEN`, exit 4), because detection looks only where a
+provider is documented to live and one installed elsewhere would read the same.
+Both answers change nothing. Which one a person and a script should get is an
+audience trade-off, so it is the owner's.
+
+- **(a) Keep the refusal, exit 4** (current). Never claims more than was
+  established; a script on a one-provider machine sees "blocked" for something
+  already done.
+- **(b) Exit 0 with a qualified answer** — "nothing to move here; \<provider\>
+  was not detected" — keeping the qualification in the text and in `--json`.
+  Idempotent for scripts; the claim is only as strong as detection.
+- **(c) A distinct exit code** for "done as far as can be seen". Precise, and a
+  change to the documented exit-code contract of `06-cli-and-ux.md`.
+
+**Recommendation:** (b), with the qualification a field of `nothingToMove` in
+`migrate.v1` so a script can tell the two apart without parsing text.
+**Reversible default taken:** (a) — behaviour unchanged.
+
+### DP-025 — The charter's example of a surface that differs from the identity is now stale
+
+Raised 2026-10-01 by `spec-guardian`'s review of the `migrate` slice (SE-092,
+S6 addendum). `00-charter.md` gives, as the example of a release surface
+differing from the identity, "while a build plans migrations and has no
+`migrate` command". This build has a `migrate` command: it shows a plan, and
+`migrate --yes` reaches a refusal gate that refuses every plan the build
+produces. The rule the sentence states still holds — the surfaces say plainly
+that the build executes nothing — only its example is out of date, and the
+charter is Tier 2, which an agent does not reword.
+
+- **(a) Reword the example** to "while a build plans migrations and executes
+  none of them". Keeps the rule and its point; one clause.
+- **(b) Drop the example**, leaving the rule unqualified.
+- **(c) Leave it** until the mutating pass, when the clause stops being true in
+  a second way and both can be fixed at once.
+
+**Recommendation:** (a). **Reversible default taken:** (c) — the charter is
+untouched, and `README.md`, the wiki and `plan.v1.md` were rewritten to state
+what this build does.
 
 ---
 

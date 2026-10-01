@@ -5,16 +5,19 @@ Emitted by `macportsbrew plan <package> --to <provider> --json`. Derived from
 [`README.md`](README.md).
 
 **A plan is the contract.** It is serialisable, diffable, reviewable and
-re-executable, and it is what a human reviews before anything mutates. When the
-executor lands, it will execute plan steps and nothing else (INV-02): anything
-not in the plan does not happen, and a failing step is not improvised around.
+re-executable, and it is what a human reviews before anything mutates. The
+executor runs plan steps and nothing else (INV-02): anything not in the plan
+does not happen, and a failing step is not improvised around.
 
-**In this build nothing executes it.** `dryRunOnly` is always `true` — the
-planner writes the negation of a compile-time constant,
+**In this build nothing executes it.** `migrate --yes` reaches a refusal gate
+(`crates/application/src/execution_gate.rs`) that refuses every plan this build
+produces; the read-step loop behind it exists, is tested against recordings,
+and is unreachable from the binary. `dryRunOnly` is always `true` — the planner
+writes the negation of a compile-time constant,
 `THIS_BUILD_DISPATCHES_MUTATIONS`, which is `false` — and there is no code path
-in the binary that runs a mutating provider subcommand. The refusal gate an
-executor must pass (`crates/application/src/execution_gate.rs`) refuses every
-plan this build produces; see "What an executor inherits".
+in the binary that runs a mutating provider subcommand. `migrate` carries this
+document under its own `plan` field ([`migrate.v1.md`](migrate.v1.md)); see
+"What an executor inherits".
 
 ## Root
 
@@ -90,8 +93,10 @@ from a plan in this build**, so none is met by an executor; what exists since
 2026-09-27 is the refusal gate every execution must pass,
 `execution_refusals` in `crates/application/src/execution_gate.rs`, which
 returns every reason a plan may not run as a named refusal (tag `refusal`) and
-reports exit **4** (`GateReport::exit_code`) whenever it refuses anything — no
-command consults it yet, so nothing *exits* with it until `migrate` exists. It
+reports exit **4** (`GateReport::exit_code`) whenever it refuses anything.
+Since 2026-10-01 `migrate --yes` consults it and exits with it, the refusals in
+its document ([`migrate.v1.md`](migrate.v1.md)); the read-step loop behind it
+exists, is tested against recordings, and is unreachable from the binary. It
 enforces items 1, 2, 6, 7 and 11 and the refusal half of item 4, and it refuses
 every plan this build produces: a plan stopping at `MANUAL_REVIEW` is refused as
 such, and every other one carries a mutating step
@@ -250,8 +255,8 @@ comments:
    `a_verification_step_that_asserts_nothing_is_refused`). `VERIFY_RESOLUTION`
    is such a step in every plan this build produces.
 8. **Tie the executed plan to the one the human saw** (SE-092). INV-02 wants
-   the executor to run a plan object a human has seen. `migrate --yes` would
-   render and execute in one process, which is compatible with INV-02 only
+   the executor to run a plan object a human has seen. `migrate --yes`
+   renders and executes in one process, which is compatible with INV-02 only
    while nothing destructive is dispatched. The mutating pass owes the tie —
    the same in-memory object shown and then confirmed, or under `--yes` a
    digest of a previously rendered plan that must match — before it dispatches

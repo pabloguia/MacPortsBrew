@@ -119,6 +119,167 @@ pub fn plan_run(
         .map(|plan| crate::executor::PlannedRun::new(plan, snapshot.clone()))
 }
 
+/// What `migrate` starts from: a run to render (and, with `--yes`, to put to
+/// the execution gate), or the INV-16 answer that there is nothing to move.
+#[derive(Clone, Debug)]
+pub enum MigrationStart {
+    /// There is something to move: the plan, paired with the snapshot it was
+    /// built from. Boxed for the reason [`PlanOutcome::Plan`] is.
+    Run(Box<crate::executor::PlannedRun>),
+    /// The destination holds the package, no other provider does, and
+    /// nothing that could hide a copy elsewhere stands in the way
+    /// ([`migration_start`]).
+    NothingToMove {
+        /// The unit's name.
+        package: String,
+        /// The destination, the only holder.
+        provider: ProviderId,
+    },
+}
+
+/// [`plan_outcome`] for `migrate`: a plan comes back paired with its snapshot
+/// (as [`plan_run`] pairs it), and "already at the destination" is accepted
+/// as *nothing to move* only when it can be shown — which is stricter than
+/// `plan_outcome`'s answer, because `migrate` is the command that reports it
+/// as done (INV-16) and exits 0.
+///
+/// Two more refusals, both exit 4, both naming what stands in the way:
+///
+/// - **Another provider was not detected**
+///   ([`ErrorId::ProviderPresenceUnproven`]).
+///   `plan_outcome` takes `ProviderPresence::Absent` as proof that provider
+///   holds nothing, which is only as reliable as prefix detection: a provider
+///   installed where no documented candidate points reads as absent and could
+///   still hold the package. Every other provider — every one in `known` and
+///   every one the input carries — must be present with a readable
+///   inventory. So *nothing to move* is never answered on a machine where
+///   another provider was not detected; the answer there is this refusal,
+///   which changes nothing either (SE-092, S6 addendum).
+/// - **Another unit may be the same package under another name**
+///   ([`ErrorId::SafetyBlocked`]: a finding the user can read and act on). The
+///   analysis merges a package's rows across providers only through a
+///   selected mapping; a row another provider holds whose mapping toward the
+///   destination merely *names* the destination package as a candidate
+///   (ambiguous, or below the confidence a selection needs) sits in a unit of
+///   its own and is invisible to `plan_outcome`. Any such row refuses.
+///
+/// **What the answer establishes.** No other provider in the input holds the
+/// package, nor any package whose mapping toward the destination names it as
+/// a candidate. A copy under a name no mapping connects is not seen; and from
+/// a snapshot file the answer is about that input, not the machine.
+///
+/// A `--retain-source` re-run is not affected: after it the source still holds
+/// the package, so `plan_outcome` builds a plan again, and that plan is what
+/// `migrate` shows. Recognising it as already done needs the run's history,
+/// which this build does not record.
+pub fn migration_start(
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+    request: &PlanRequest,
+    known: &[ProviderId],
+) -> Result<MigrationStart, DomainError> {
+    match plan_outcome(snapshot, policy, options, request, known)? {
+        PlanOutcome::Plan(plan) => Ok(MigrationStart::Run(Box::new(
+            crate::executor::PlannedRun::new(*plan, snapshot.clone()),
+        ))),
+        PlanOutcome::AlreadyAtDestination { package, provider } => {
+            nothing_to_move_is_shown(snapshot, policy, options, known, &package, &provider)?;
+            Ok(MigrationStart::NothingToMove { package, provider })
+        }
+    }
+}
+
+/// The two refusals [`migration_start`] adds to `plan_outcome`'s
+/// "already at the destination".
+fn nothing_to_move_is_shown(
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+    known: &[ProviderId],
+    package: &str,
+    to: &ProviderId,
+) -> Result<(), DomainError> {
+    let not_shown = |id: ErrorId, detail: String| {
+        DomainError::new(
+            id,
+            format!("{detail}; {package} is not reported as already at {to} with nothing to move"),
+        )
+    };
+    let others: std::collections::BTreeSet<&ProviderId> = known
+        .iter()
+        .chain(snapshot.providers.keys())
+        .filter(|id| *id != to)
+        .collect();
+    for id in others {
+        // `plan_outcome` has already refused a missing entry, a broken
+        // provider and an unreadable inventory; what is left to refuse here
+        // is an absence, which detection could have missed. Anything but a
+        // present provider fails closed, the cases `plan_outcome` refused
+        // first included.
+        if !matches!(
+            snapshot.providers.get(id).map(|p| &p.detection.presence),
+            Some(ProviderPresence::Present)
+        ) {
+            return Err(not_shown(
+                ErrorId::ProviderPresenceUnproven,
+                format!(
+                    "{id} was not detected, and a provider installed where detection does not \
+                     look would read the same, so whether it holds {package} cannot be shown"
+                ),
+            ));
+        }
+    }
+    let opts = AnalysisOptions {
+        advanced: true,
+        only: std::collections::BTreeSet::default(),
+        ..options.clone()
+    };
+    let analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
+    let Some(name) = analysis
+        .packages
+        .iter()
+        .find(|u| u.name == package)
+        .and_then(|u| u.rows.get(to))
+        .map(|r| r.name.clone())
+    else {
+        return Err(DomainError::new(
+            ErrorId::Internal,
+            format!("the analysis has no {to} row for {package}, which it reported as there"),
+        ));
+    };
+    for unit in &analysis.packages {
+        if unit.name == package {
+            continue;
+        }
+        // A row at the destination reaches another unit only through a
+        // mapping whose candidates name it, so the first clause is defence in
+        // depth behind the second (a mutation dropping it survives); and the
+        // holder search only chooses which row the refusal names.
+        let names_it = unit.rows.get(to).is_some_and(|r| r.name == name)
+            || unit.mappings.iter().any(|m| {
+                m.destination == *to && m.candidates.iter().any(|c| c.package.name == name)
+            });
+        if !names_it {
+            continue;
+        }
+        if let Some((holder, row)) = unit
+            .rows
+            .iter()
+            .find(|(id, r)| *id != to && !r.installed.is_empty())
+        {
+            return Err(not_shown(
+                ErrorId::SafetyBlocked,
+                format!(
+                    "{holder} holds {}, which may be {name} under another name",
+                    row.name
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The refusal `plan` gives for a package nothing needs to move.
 fn already_held(package: &str, provider: &ProviderId) -> DomainError {
     DomainError::new(

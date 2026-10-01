@@ -21,7 +21,8 @@
 //! different question.
 
 use macportsbrew_application::{
-    build_plan, explain_package, plan_outcome, AnalysisOptions, PlanOutcome, PlanRequest,
+    build_plan, explain_package, migration_start, plan_outcome, AnalysisOptions, MigrationStart,
+    PlanOutcome, PlanRequest,
 };
 use macportsbrew_domain::{
     Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot, ErrorId,
@@ -687,5 +688,147 @@ fn invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_pla
     assert!(
         plan_for(&snap, "wget", MP).is_ok(),
         "a capability nobody reported was never asked about, not undetectable"
+    );
+}
+
+/// `migration_start` for `package` toward `to`, with every other argument as
+/// `outcome_for` passes it.
+fn start_for(
+    snapshot: &Snapshot,
+    package: &str,
+    to: &str,
+) -> Result<MigrationStart, (ErrorId, String)> {
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    migration_start(
+        snapshot,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: package.to_string(),
+            to: ProviderId::new(to),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .map_err(|e| (e.id, e.detail))
+}
+
+#[test]
+fn invariant_16_migrate_reports_nothing_to_move_when_it_can_be_shown() {
+    // Both providers present and read, the destination the only holder, and
+    // nothing elsewhere that could be the same package: nothing to move.
+    let snap = both(&[("wget", None)], &[("curl", None)]);
+    match start_for(&snap, "curl", MP) {
+        Ok(MigrationStart::NothingToMove { package, provider }) => {
+            assert_eq!(package, "curl");
+            assert_eq!(provider, ProviderId::new(MP));
+        }
+        other => panic!("expected nothing to move, got {other:?}"),
+    }
+}
+
+#[test]
+fn migrate_gets_a_plan_paired_with_the_snapshot_it_was_built_from() {
+    let snap = both(&[("wget", None)], &[("curl", None)]);
+    match start_for(&snap, "wget", MP) {
+        Ok(MigrationStart::Run(run)) => {
+            assert_eq!(run.plan().package.name, "wget");
+            assert_eq!(run.plan().destination, ProviderId::new(MP));
+        }
+        other => panic!("expected a plan, got {other:?}"),
+    }
+}
+
+#[test]
+fn migrate_never_reports_nothing_to_move_where_another_provider_was_not_detected() {
+    // `plan_outcome` accepts an absent provider as holding nothing; migrate,
+    // which reports the answer as done and exits 0, does not: detection only
+    // looks where a provider is documented to live.
+    let mut snap = both(&[], &[("curl", None)]);
+    let hb = snap
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("present");
+    hb.detection.presence = ProviderPresence::Absent;
+    hb.capabilities = ProviderCapabilities {
+        capabilities: Capability::all()
+            .iter()
+            .map(|c| (*c, CapabilityState::Unknown))
+            .collect(),
+    };
+    assert_eq!(outcome_for(&snap, "curl", MP), Ok(already_at("curl", MP)));
+    let (id, detail) = start_for(&snap, "curl", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::ProviderPresenceUnproven, "{detail}");
+    assert!(
+        detail.contains(HB) && detail.contains("not detected"),
+        "{detail}"
+    );
+}
+
+#[test]
+fn migrate_never_reports_nothing_to_move_while_another_name_may_be_the_package() {
+    // One formula and two ports share a homepage: the formula's mapping
+    // toward the ports is ambiguous, so it selects neither and sits in a unit
+    // of its own, and `plan_outcome` sees the port alone at its destination.
+    // The formula may be that port under another name.
+    let home = Some("https://nodejs.org");
+    let snap = both(&[("node", home)], &[("nodejs22", home), ("nodejs24", home)]);
+    assert_eq!(
+        outcome_for(&snap, "nodejs22", MP),
+        Ok(already_at("nodejs22", MP)),
+        "the control: the outcome alone calls it already there"
+    );
+    let (id, detail) = start_for(&snap, "nodejs22", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::SafetyBlocked, "{detail}");
+    assert!(
+        detail.contains("holds node") && detail.contains("under another name"),
+        "the refusal names what may be the same package: {detail}"
+    );
+}
+
+#[test]
+fn migrate_passes_on_plan_outcomes_refusals_unchanged() {
+    let snap = with_broken(both(&[], &[("curl", None)]), HB);
+    let (id, _) = start_for(&snap, "curl", MP).expect_err("must refuse");
+    assert_eq!(id, ErrorId::ProviderUnhealthy);
+}
+
+#[test]
+fn invariant_17_the_mirror_direction_is_refused_while_another_name_may_be_the_package() {
+    // The same three packages, the formula asked for at its own provider:
+    // the ports that may be it under another name stand in the way exactly
+    // as the formula did for the port.
+    let home = Some("https://nodejs.org");
+    let snap = both(&[("node", home)], &[("nodejs22", home), ("nodejs24", home)]);
+    assert_eq!(outcome_for(&snap, "node", HB), Ok(already_at("node", HB)));
+    let (id, detail) = start_for(&snap, "node", HB).expect_err("must refuse");
+    assert_eq!(id, ErrorId::SafetyBlocked, "{detail}");
+    assert!(
+        detail.contains("macports holds nodejs2")
+            && detail.contains("may be node under another name"),
+        "the refusal names the holder and the package it may be: {detail}"
+    );
+}
+
+#[test]
+fn invariant_17_an_undetected_provider_refuses_nothing_to_move_in_the_mirror_direction_too() {
+    let mut snap = both(&[("wget", None)], &[]);
+    let mp = snap
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("present");
+    mp.detection.presence = ProviderPresence::Absent;
+    mp.capabilities = ProviderCapabilities {
+        capabilities: Capability::all()
+            .iter()
+            .map(|c| (*c, CapabilityState::Unknown))
+            .collect(),
+    };
+    assert_eq!(outcome_for(&snap, "wget", HB), Ok(already_at("wget", HB)));
+    let (id, detail) = start_for(&snap, "wget", HB).expect_err("must refuse");
+    assert_eq!(id, ErrorId::ProviderPresenceUnproven, "{detail}");
+    assert!(
+        detail.contains(MP) && detail.contains("not detected"),
+        "{detail}"
     );
 }

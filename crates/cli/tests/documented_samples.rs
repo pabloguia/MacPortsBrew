@@ -99,6 +99,12 @@ const ALLOWED: &[&str] = &[
     "explain",
     "plan",
     "doctor",
+    // `migrate --yes` against a recording: the replay runner answers from the
+    // file and spawns nothing, and the gate refuses every plan this build
+    // produces before a read site exists. `--dry-run` only narrows it.
+    "migrate",
+    "--yes",
+    "--dry-run",
 ];
 
 /// Refuses any marker argv that is not a read-only replay of a committed
@@ -140,12 +146,13 @@ fn check_argv(args: &[String], path: &Path, line: usize) {
 /// A floor, not a count. A scan that finds nothing passes every assertion
 /// below while proving nothing, which is the failure mode F-19 catalogued.
 ///
-/// Seven today: two prose `status` blocks (`README.md`,
-/// `wiki/Getting-Started.md`) and five JSON blocks under `docs/schemas/`. The number is the current count
+/// Ten today: two prose `status` blocks (`README.md`,
+/// `wiki/Getting-Started.md`) and eight JSON blocks under `docs/schemas/`
+/// (three of them `migrate.v1.md`'s). The number is the current count
 /// and is meant to be raised when a sample is added — left at 2 while four new
 /// ones existed, a whole directory could drop out of scope silently, which is
 /// the failure this constant exists for and not a different one.
-const AT_LEAST: usize = 7;
+const AT_LEAST: usize = 10;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

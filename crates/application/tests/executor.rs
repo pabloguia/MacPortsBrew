@@ -735,6 +735,7 @@ fn every_error_id() -> Vec<ErrorId> {
         ErrorId::PolicyDataInvalid,
         ErrorId::SafetyBlocked,
         ErrorId::SafetyUnverifiable,
+        ErrorId::ProviderPresenceUnproven,
         ErrorId::NotImplementedInThisPass,
         ErrorId::Io,
         ErrorId::Internal,
@@ -754,6 +755,7 @@ fn every_error_id() -> Vec<ErrorId> {
             | ErrorId::PolicyDataInvalid
             | ErrorId::SafetyBlocked
             | ErrorId::SafetyUnverifiable
+            | ErrorId::ProviderPresenceUnproven
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
             | ErrorId::Internal => {}

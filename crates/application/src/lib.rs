@@ -35,7 +35,9 @@ pub use executor::{
     PlannedRun, RunOutcome, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
-pub use planner::{build_plan, plan_outcome, plan_run, PlanOutcome, PlanRequest};
+pub use planner::{
+    build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
+};
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 
 /// The tool version, from the workspace manifest.

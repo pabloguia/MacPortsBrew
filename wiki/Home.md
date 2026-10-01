@@ -56,8 +56,9 @@ Version 0.1.0 is **read-only**. It inventories, analyses, maps, explains and
 plans. It executes nothing, elevates nothing, writes nothing into either
 provider's prefix, and makes no network calls.
 
-`plan` prints exactly what would happen and stops. There is no `migrate`
-command yet; execution is a later pass. Every page here that describes a
+`plan` prints exactly what would happen and stops, and so does `migrate`;
+`migrate --yes` reaches a refusal gate that refuses every plan this build
+produces. Execution is a later pass. Every page here that describes a
 migration says plainly where the plan ends and the not-yet-written executor
 would begin.
 

@@ -3,9 +3,10 @@
 //! Migration plans as data (`04-migration-and-safety.md`, "The plan is the
 //! contract"). A plan is serialisable, diffable and reviewable. Nothing in
 //! this crate can execute one, and nothing in this build executes a provider
-//! command from one: the refusal gate every execution must pass
-//! (`macportsbrew_application::execution_gate`) refuses every plan this
-//! build produces, no command of this build reaches an executor yet, and
+//! command from one: `migrate --yes` reaches a refusal gate
+//! (`macportsbrew_application::execution_gate`) that refuses every plan this
+//! build produces; the read-step loop behind it exists, is tested against
+//! recordings, and is unreachable from the binary; and
 //! [`THIS_BUILD_DISPATCHES_MUTATIONS`] is `false` (SE-020).
 //!
 //! Step kinds follow the state machine in that chapter. The verbs a step
@@ -461,10 +462,11 @@ pub struct MigrationPlan {
     /// (`macportsbrew_application::execution_gate`) that refuses every plan
     /// this build produces — this field is one of its refusals
     /// (`PLAN_NOT_DRY_RUN_ONLY`, for a plan claiming otherwise), not the
-    /// reason nothing runs. No command of this build reaches an executor at
-    /// all. The field keeps the document truthful; the gate, and the absence
-    /// of any path to a provider's mutating verbs, keep the machine
-    /// untouched.
+    /// reason nothing runs: `migrate --yes` reaches a refusal gate that
+    /// refuses every plan this build produces, and the read-step loop behind
+    /// it is unreachable from the binary. The field keeps the document
+    /// truthful; the gate, and the absence of any path to a provider's
+    /// mutating verbs, keep the machine untouched.
     pub dry_run_only: bool,
 }
 

@@ -23,7 +23,8 @@ macportsbrew analyze [pkg...]     inventory + mapping + assessment + recommendat
 macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
 macportsbrew plan <pkg> --to <provider> [--retain-source]   build a migration plan (no mutation)
-macportsbrew migrate ...          execute a plan            [later pass]
+macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes]
+                                  show a plan; --yes executes it [this build: the gate refuses every plan]
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)
@@ -71,7 +72,9 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
 4 when executed, with the step named; a mutating command that refuses to start
-because an interrupted run has not been looked at exits 4 and names the run.
+because an interrupted run has not been looked at exits 4 and names the run;
+and `migrate` exits 4 (`PROVIDER_PRESENCE_UNPROVEN`) rather than report
+*nothing to move* when another provider was not detected (SE-092, DP-026).
 
 **MUST.** An error taxonomy with stable identifiers, each carrying a
 user-facing remediation string. `"error: exit status 1"` is never acceptable

@@ -14,8 +14,9 @@ documentation bug worth reporting.
 
 **This build plans. It does not migrate.** `macportsbrew plan` prints the
 ordered steps, the commands that would run, the risks, and where a human would
-have to decide — and then stops. There is no `migrate` command in version
-0.1.0, nothing here asks for a password, and nothing on your machine changes.
+have to decide — and then stops. `macportsbrew migrate` does the same, and
+with `--yes` reaches a refusal gate that refuses every plan version 0.1.0
+produces; nothing here asks for a password, and nothing on your machine changes.
 
 ## When this direction is the right one
 
@@ -56,7 +57,7 @@ On a machine with MacPorts and no Homebrew:
 
 ```
 Plan: move gnutls from macports to homebrew
-  This build only shows plans. Nothing here is executed, and nothing asks for elevation.
+  This build changes nothing: `migrate --yes` reaches a refusal gate that refuses every plan this build produces, so nothing here is executed and nothing asks for elevation.
   This plan overrides the recommendation (Nothing to do); the override would be recorded with the run.
 
 Risks detected

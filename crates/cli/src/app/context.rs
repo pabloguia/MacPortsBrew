@@ -19,7 +19,9 @@ use macportsbrew_adapters::system::machine::{
 use macportsbrew_application::{
     analyze, capture, Analysis, AnalysisOptions, AnalysisSource, CaptureContext, DoctorReport,
 };
-use macportsbrew_domain::{DomainError, ErrorId, HomeRedaction, MachineRead, ProviderId, Snapshot};
+use macportsbrew_domain::{
+    DomainError, ErrorId, HomeRedaction, Machine, MachineRead, ProviderId, Snapshot,
+};
 use macportsbrew_policy::PolicyData;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,6 +45,36 @@ pub struct Context {
     /// How home paths are redacted out of anything the user might share, and
     /// why — the two reasons a home can be absent need opposite treatment.
     pub redaction: HomeRedaction,
+    /// What the capture's adapters were built from — the runner among it —
+    /// kept past the capture so an execution reads through the same runner,
+    /// prefix answers and home (SE-050, "Not closed" 7). `None` for a snapshot
+    /// file, which has no runner and must not be executed against. Private:
+    /// [`Context::execution_registry`] is the one way to it, and `migrate` is
+    /// its one caller (SE-092; a word scan in `crates/cli/tests/migrate.rs`).
+    registry: Option<Registry>,
+}
+
+/// Everything a [`RegistryContext`] is built from, owned, so that the capture
+/// and an execution build theirs through one function ([`Registry::context`])
+/// from the same values rather than from two constructions that could drift.
+struct Registry {
+    runner: Rc<dyn ProcessRunner>,
+    filesystem: FilesystemScope,
+    home: Option<PathBuf>,
+    machine: Machine,
+    prefix_override: Option<Vec<(ProviderId, PathBuf)>>,
+}
+
+impl Registry {
+    fn context<'a>(&'a self, policy: &'a PolicyData) -> RegistryContext<'a> {
+        RegistryContext {
+            runner: &*self.runner,
+            home: self.home.clone(),
+            platform_tags: Box::new(move |id| policy.artifact_tags_for(id, &self.machine)),
+            filesystem: self.filesystem,
+            prefix_override: self.prefix_override.clone(),
+        }
+    }
 }
 
 /// The language preference from the process environment, collapsed the way
@@ -79,6 +111,7 @@ impl Context {
                 // A snapshot file was redacted when it was captured, so it is
                 // read back on the same terms as a recording.
                 redaction: HomeRedaction::Recorded,
+                registry: None,
             });
         }
 
@@ -111,23 +144,22 @@ impl Context {
             },
             home_redaction.clone(),
         );
-        let machine_facts = machine.machine()?;
+        let parts = Registry {
+            runner: Rc::clone(&runner),
+            // Set here, next to every other decision `--replay` drives, so
+            // the one place that knows the machine is a recording is the
+            // one place that says so (INV-15, F-25).
+            filesystem: if replay {
+                FilesystemScope::Elsewhere
+            } else {
+                FilesystemScope::ThisMachine
+            },
+            home: if replay { None } else { home.clone() },
+            machine: machine.machine()?,
+            prefix_override,
+        };
         let snapshot = {
-            let policy_ref = &policy;
-            let providers = registry::build(&RegistryContext {
-                runner: &*runner,
-                // Set here, next to every other decision `--replay` drives, so
-                // the one place that knows the machine is a recording is the
-                // one place that says so (INV-15, F-25).
-                filesystem: if replay {
-                    FilesystemScope::Elsewhere
-                } else {
-                    FilesystemScope::ThisMachine
-                },
-                home: if replay { None } else { home.clone() },
-                platform_tags: Box::new(move |id| policy_ref.artifact_tags_for(id, &machine_facts)),
-                prefix_override,
-            });
+            let providers = registry::build(&parts.context(&policy));
             let provider_refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
                 providers.iter().map(AsRef::as_ref).collect();
             if cli.verbose {
@@ -162,7 +194,20 @@ impl Context {
             },
             home,
             redaction: home_redaction,
+            registry: Some(parts),
         })
+    }
+
+    /// The registry context the capture's adapters were built from, rebuilt
+    /// from the same parts for an execution — the runner the snapshot was read
+    /// through, the same prefix answers and the same home — or `None` when
+    /// the snapshot came from a file. **`app/migrate.rs` is the one caller**:
+    /// it hands this to the run loop, which builds read sites from it only
+    /// after the execution gate passed the plan (SE-092).
+    pub fn execution_registry(&self) -> Option<RegistryContext<'_>> {
+        self.registry
+            .as_ref()
+            .map(|parts| parts.context(&self.policy))
     }
 
     /// Runs the analysis on the context's snapshot.

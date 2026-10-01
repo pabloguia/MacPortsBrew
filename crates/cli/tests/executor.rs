@@ -14,7 +14,7 @@
 //! own where it has one. Verbs are read from `provider-commands.toml` through
 //! `provider_commands::load`, never written here.
 
-use macportsbrew::executor::{run, run_with, ReadSite, RunReport};
+use macportsbrew::executor::{run, run_with, ReadSite, RunReport, SiteRefusalKind};
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, PlanReadRefusal, RecordedInvocation, Recording, ReplayRunner,
@@ -434,7 +434,7 @@ fn gate_refused(report: &RunReport, tag: &str) -> bool {
         && report
             .gate_refusals
             .iter()
-            .any(|line| line.contains(&format!("\"refusal\":\"{tag}\"")))
+            .any(|refusal| refusal["refusal"] == tag)
 }
 
 #[test]
@@ -621,10 +621,10 @@ fn executor_sources() -> Vec<PathBuf> {
         root.join("crates/cli/src/executor"),
         root.join("crates/application/src/executor.rs"),
     ];
-    // The single caller, once the `migrate` slice adds it (SE-092).
-    if migrate_path().exists() {
-        paths.push(migrate_path());
-    }
+    // The single caller (SE-092), read unconditionally: a scan that skipped
+    // it after a rename would still pass.
+    assert!(migrate_path().exists(), "the run loop's caller moved");
+    paths.push(migrate_path());
     paths
 }
 
@@ -912,6 +912,15 @@ fn a_site_refusal_halts_and_is_rendered_with_the_home_redacted() {
     ));
     assert_eq!(report.exit_code(), 4);
     let refusal = report.refusal.clone().expect("the refusal is kept");
+    assert_eq!(refusal.refusal, SiteRefusalKind::ProgramDisagrees);
+    assert!(
+        refusal
+            .values
+            .values()
+            .all(|v| !v.contains("ada") && !v.chars().any(|c| c.is_control() || c == '\u{202E}')),
+        "{:?}",
+        refusal.values
+    );
     assert!(!refusal.text.contains("ada"), "{}", refusal.text);
     assert!(
         !refusal

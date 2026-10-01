@@ -9,6 +9,7 @@ a compatibility surface.**
 | `macportsbrew analyze --json`, `status --json`, `list --json` | [`analysis.v1.md`](analysis.v1.md) | 1 |
 | `macportsbrew explain <pkg> --json` | [`explain.v1.md`](explain.v1.md) | 1 |
 | `macportsbrew plan <pkg> --to <provider> --json` | [`plan.v1.md`](plan.v1.md) | 1 |
+| `macportsbrew migrate <pkg> --to <provider> [--yes] [--dry-run] --json` | [`migrate.v1.md`](migrate.v1.md) | 1 |
 | `macportsbrew doctor --json` | [`doctor.v1.md`](doctor.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
 
@@ -33,7 +34,7 @@ beside the `v1` one, and an entry in
 The `v1` document is not deleted when `v2` arrives. A consumer pinned to `v1`
 needs to be able to read what it agreed to.
 
-## Conventions across all five
+## Conventions across all of them
 
 - **Field names are `camelCase`.** Enumeration values are
   `SCREAMING_SNAKE_CASE`, except `machine.architecture`, which is `snake_case`
@@ -67,12 +68,22 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED` |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | — (interactive only; not reachable in this build) |
 | 7 | lock held by another instance | — (execution only; not reachable in this build) |
-| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `POLICY_DATA_INVALID` |
+| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID` |
 
 `plan` exits **4** when the plan it produced contains a `MANUAL_REVIEW` step,
 and prints the plan anyway. That is the normal outcome for anything the policy
 engine will not act on unattended, not an error in the tool.
+
+`migrate` exits as `plan` does when it only shows the plan. With `--yes` (and
+without `--dry-run`) it exits with the run's outcome — **4** when the execution
+gate refuses, which in this build it does for every plan — and prints the
+document either way. Whenever a plan was built, stdout carries it, so an exit 4
+with a document is a refusal or a manual review, and an exit 4 with empty stdout
+is the planner's own refusal (`SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE` or
+`PROVIDER_PRESENCE_UNPROVEN`, on
+stderr). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
+to move* exits **0** (INV-16).

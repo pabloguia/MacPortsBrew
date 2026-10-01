@@ -8,6 +8,7 @@
 
 mod context;
 mod human;
+mod migrate;
 
 use crate::i18n::Messages;
 use clap::{Parser, Subcommand};
@@ -32,7 +33,9 @@ use std::path::PathBuf;
     long_about = "MacPortsBrew analyses what is installed under Homebrew and MacPorts, maps \
 equivalent packages, explains which provider is the better choice for each package on this \
 machine, and builds reviewable migration plans. `mpb` is the same program under a shorter name.\n\n\
-This build is read-only: it inventories, analyses and plans, and executes nothing."
+This build changes nothing on the machine. `migrate --yes` reaches a refusal gate that refuses \
+every plan this build produces; the read-step loop behind it exists, is tested against \
+recordings, and is unreachable from this binary."
 )]
 pub struct Cli {
     /// Machine-readable output with a versioned schema, on stdout only.
@@ -55,10 +58,13 @@ pub struct Cli {
     /// same reason.
     #[arg(long, global = true)]
     pub refresh: bool,
-    /// Show what would be done. Everything in this build is a dry run.
+    /// Show what would be done and run nothing. Wins over --yes. Every
+    /// command but `migrate --yes` is a dry run in this build anyway.
     #[arg(long, global = true)]
     pub dry_run: bool,
-    /// Assume yes at prompts. Nothing in this build prompts.
+    /// Confirm: `migrate` puts its plan to the execution gate instead of only
+    /// showing it. This build's gate refuses every plan it produces, so
+    /// nothing runs; nothing in this build prompts.
     #[arg(long, global = true)]
     pub yes: bool,
     /// Analyse a captured snapshot instead of this machine. The analysis is
@@ -81,7 +87,8 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-/// The read commands of this pass.
+/// The commands of this build. Every one is a read but `migrate --yes`, which
+/// reaches a refusal gate that refuses every plan this build produces.
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Machine and provider dashboard.
@@ -104,6 +111,18 @@ pub enum Command {
     },
     /// Build a migration plan. Nothing is executed in this build.
     Plan {
+        /// Package name.
+        package: String,
+        /// Destination provider id.
+        #[arg(long)]
+        to: String,
+        /// Keep the source package after migration.
+        #[arg(long)]
+        retain_source: bool,
+    },
+    /// Show a migration plan; with --yes, put it to the execution gate. This
+    /// build's gate refuses every plan it produces, so nothing is changed.
+    Migrate {
         /// Package name.
         package: String,
         /// Destination provider id.
@@ -139,9 +158,15 @@ pub fn run(cli: &Cli, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
                 cli.language.as_deref(),
                 context::env_language().as_deref(),
             ));
-            let _ = writeln!(stderr, "macportsbrew: {}", messages.render_error(&e));
+            // The detail can quote the command line (a `--to` value, a
+            // package name), so it is escaped like any other quoted text.
+            let _ = writeln!(
+                stderr,
+                "macportsbrew: {}",
+                crate::executor::escape_controls(&messages.render_error(&e))
+            );
             if cli.verbose {
-                let _ = writeln!(stderr, "  {}", e.detail);
+                let _ = writeln!(stderr, "  {}", crate::executor::escape_controls(&e.detail));
             }
             e.exit_code()
         }
@@ -153,6 +178,14 @@ fn run_inner(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
+    // Before anything is built or printed: nothing executes against a
+    // snapshot file (`04-migration-and-safety.md`, "Process execution").
+    if matches!(cli.command, Some(Command::Migrate { .. }))
+        && migrate::Mode::of(cli) == migrate::Mode::Execute
+        && cli.from_snapshot.is_some()
+    {
+        return Err(migrate::refuse_execution_from_a_snapshot_file());
+    }
     let ctx = Context::build(cli, stderr)?;
     let advanced = cli.advanced;
     if advanced {
@@ -254,6 +287,21 @@ fn run_inner(
             // safety-check code so scripts can tell (06-cli-and-ux.md).
             Ok(if plan.requires_manual_review() { 4 } else { 0 })
         }
+        Command::Migrate {
+            package,
+            to,
+            retain_source,
+        } => migrate::migrate(
+            &ctx,
+            cli,
+            &PlanRequest {
+                package: package.clone(),
+                to: macportsbrew_domain::ProviderId::new(to),
+                retain_source: *retain_source,
+            },
+            &options(BTreeSet::new()),
+            stdout,
+        ),
         Command::Doctor { report, deep } => {
             if *deep && !cli.json {
                 let _ = writeln!(

@@ -1,0 +1,191 @@
+# `migrate` schema, version 1
+
+Emitted by `macportsbrew migrate <package> --to <provider> [--retain-source]
+[--yes] [--dry-run] --json`. Built in `crates/cli/src/app/migrate.rs`; the run's
+types are in `crates/application/src/executor.rs` and
+`crates/cli/src/executor/mod.rs`. The compatibility rule is in
+[`README.md`](README.md).
+
+**In this build nothing executes a plan.** `migrate --yes` reaches a refusal
+gate (`crates/application/src/execution_gate.rs`) that refuses every plan this
+build produces; the read-step loop behind it exists, is tested against
+recordings, and is unreachable from the binary. So every `execution` this build
+writes is `REFUSED` with an empty step list, and exits 4. The fields below that
+only a run past the gate fills — `steps`, `siteRefusal`, the other outcomes —
+are documented because the type writes them, not because this build reaches
+them.
+
+## Modes
+
+| Flags | `mode` | What happens |
+|---|---|---|
+| none, or `--dry-run`, or `--yes --dry-run` | `RENDER` | The plan is shown; nothing is run. `--dry-run` wins over `--yes` |
+| `--yes` without `--dry-run` | `EXECUTE` | The plan is put to the execution gate — only a plan the gate passes would reach the read-step loop — and then shown with the outcome; everything is decided before anything is written |
+
+`--yes` with `--from-snapshot` exits **2** (`USAGE`) before any output: a
+snapshot file has no runner and records no provenance an execution could
+check. Rendering from a snapshot file is allowed, and every answer it gives —
+*nothing to move* included — is about the input, not the machine.
+
+## Root
+
+| Field | Type | Notes |
+|---|---|---|
+| `schemaVersion` | integer | `1` |
+| `mode` | string | `RENDER` or `EXECUTE` |
+| `nothingToMove` | object, optional | `{ "package": string, "provider": string }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16) |
+| `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it. Present whenever a plan was built |
+| `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
+
+**What *nothing to move* establishes, and what it does not.** It is answered
+when the destination is the package's only holder in the input; every other
+provider this build knows was **detected** and its inventory read; and no
+package another provider holds has a mapping toward the destination that names
+this package as a candidate without selecting it. That is all it claims: no
+other provider *in the input* holds the package, nor anything the mappings name
+as possibly the same package. A copy under a name no mapping connects is not
+seen. A provider that was not detected (`PROVIDER_PRESENCE_UNPROVEN`) and a
+package that may be this one under another name (`SAFETY_BLOCKED`) are refusals
+on stderr, exit 4, with empty stdout — never *nothing to move* (SE-092, S6
+addendum; DP-026 on the one-provider case).
+
+## `Execution`
+
+| Field | Type | Notes |
+|---|---|---|
+| `outcome` | `RunOutcome` | How the run ended. Tagged by `outcome` |
+| `steps` | array of `StepRecord`, optional | One per plan step, in plan order, when the gate passed the plan; absent when it refused |
+| `gateRefusals` | array of `ExecutionRefusal`, optional | The gate's refusals in its own order (step index, then kind), each tagged by `refusal` with its fields. Every string in them has the home redacted and control and format characters escaped: a check's fields are plan text. A refusal that could not be serialised — not reachable for the derived types today — is kept as `{ "refusal": "UNSERIALISABLE" }` so the list keeps one entry per refusal |
+| `siteRefusal` | object, optional | `{ "step": integer, "refusal": string, "values"?: object }` when a read site refused a command before it ran. `refusal` is one of `NOT_A_PROVIDER_COMMAND`, `UNSAFE_PREFIX`, `PROGRAM_DISAGREES`, `NOT_A_PERMITTED_READ`; `values` holds the quoted values by name, cleaned like `gateRefusals` |
+
+### `RunOutcome` (tag `outcome`)
+
+| `outcome` | Fields | Exit |
+|---|---|---|
+| `COMPLETED` | — | 0 |
+| `REFUSED` | `refusals`: integer, the length of `gateRefusals` | 4 |
+| `HALTED` | `step`: integer (0 for the run as a whole), `reason`: `HaltReason` | the reason's error code: 4 for a safety or unverifiable stop, 1 for records that do not match the plan, the runner's own for a transport failure |
+| `PARTIAL_SUCCESS` | `step`, `reason`, as `HALTED` | 3 (INV-03). **Not a partial migration**: no run of this build dispatches a mutating step |
+
+### `StepRecord`
+
+| Field | Type | Notes |
+|---|---|---|
+| `index` | integer | The plan step's `index` |
+| `kind` | string | The plan step's `kind` |
+| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `HALTED` (`reason`, `evidence`), `NOT_REACHED` |
+
+`evidence` is an array of `ReadEvidence`, one per command that ran:
+`{ "passed": boolean, "lineCount": integer, "truncated": boolean, "cause"?:
+string }`. **There is no field for a read's output**, by construction: a removal
+check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
+
+`HaltReason` is tagged by `halt`: `MANUAL_REVIEW` (`step`),
+`UNEXECUTED_MUTATION`, `NOT_PERFORMED_IN_THIS_BUILD`, `SITE_UNAVAILABLE`
+(`command`), `SITE_REFUSED` (`command`), `TRANSPORT_FAILED` (`command`, `error`),
+`EXPECTATION` (`command`, `error`), `VERIFICATION_FAILED` (`command`, `cause`),
+`ELEVATION_NOT_NONE` (`command`), `UNEVALUABLE` (`check`?, `why`) and
+`RECORDS_DO_NOT_MATCH_PLAN`. `command` counts from 0 within the step. A
+`check` here is the check's kind only, never its fields.
+
+## Exit codes
+
+As `plan` in `RENDER` mode: 0, or **4** when the plan stops at
+`MANUAL_REVIEW`. In `EXECUTE` mode, the outcome's code above. A planner refusal
+(no plan built) exits with its own code and writes nothing to stdout, so an exit
+4 with a document is distinguishable from one without.
+
+## Samples
+
+Nothing to move, under `--yes`:
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate nginx --to macports --yes --today 2026-09-02 -->
+```json
+{
+  "schemaVersion": 1,
+  "mode": "EXECUTE",
+  "nothingToMove": {
+    "package": "nginx",
+    "provider": "macports"
+  }
+}
+```
+
+`--dry-run` wins over `--yes`:
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate htop --to macports --yes --dry-run --today 2026-09-02 at=/mode -->
+```json
+"RENDER"
+```
+
+Executed: the gate refuses the plan, so nothing runs and there are no step
+records. Step 2 is refused because it changes the machine, though it carries no
+command (`htop` is already under MacPorts); the checks are refused because this
+build cannot evaluate them.
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate htop --to macports --yes --today 2026-09-02 at=/execution exit=4 -->
+```json
+{
+  "outcome": {
+    "outcome": "REFUSED",
+    "refusals": 7
+  },
+  "gateRefusals": [
+    {
+      "refusal": "MUTATION_NOT_IN_THIS_BUILD",
+      "step": 2
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 3,
+      "check": {
+        "check": "PROVIDER_INTEGRITY_CHECK"
+      }
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 3,
+      "check": {
+        "check": "EXECUTABLES_OWNED_BY_DESTINATION",
+        "executables": [
+          "htop"
+        ]
+      }
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 3,
+      "check": {
+        "check": "LIVENESS_PROBE",
+        "executable": "htop",
+        "flag": "--version"
+      }
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 3,
+      "check": {
+        "check": "NO_CROSS_PROVIDER_LINKAGE"
+      }
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 4,
+      "check": {
+        "check": "PROVIDER_REPORTS_ACTIVE"
+      }
+    },
+    {
+      "refusal": "VERIFICATION_ASSERTS_NOTHING",
+      "step": 5
+    }
+  ]
+}
+```
+
+## Not in this version
+
+- **Concurrency** (`plan.v1.md`, obligation 5): no field says whether another
+  instance or a provider was running. It is owed with the lock it reports on.
+- **History** (obligation 12): no run of this build is a mutating run, so no
+  record is written.

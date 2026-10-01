@@ -4,10 +4,11 @@
 //! reads and nothing else, and decides as little as sequencing allows.
 //!
 //! Every decision is a pure function in `macportsbrew_application::executor`;
-//! this module obtains reads and hands them over. It is reachable from no
-//! command in this build (the `migrate` slice adds the one caller), and the
-//! execution gate refuses every plan this build's planner produces, so the
-//! loop is exercised by tests against recordings and synthesised reads only.
+//! this module obtains reads and hands them over. Its one caller is
+//! `app/migrate.rs` (`migrate --yes`), and the execution gate refuses every
+//! plan this build's planner produces, so past the gate the loop is
+//! exercised by tests against recordings and synthesised reads only — it is
+//! unreachable from the binary.
 //!
 //! **Rules for this module.** They belong in a path-scoped rule file under
 //! `.claude/rules/`, which is the owner's to add; until then they live here.
@@ -68,6 +69,7 @@ use macportsbrew_application::{
 };
 use macportsbrew_domain::{redact_home, HomeRedaction, PlanCommand, ProviderId};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 /// Where a plan's command is read.
 ///
@@ -109,8 +111,27 @@ impl<T: ReadSite + ?Sized> ReadSite for &T {
 pub struct RenderedRefusal {
     /// The step it stopped.
     pub step: u32,
+    /// Which refusal it is: what a renderer keys its sentence on.
+    pub refusal: SiteRefusalKind,
+    /// The values the refusal quotes, by name, each cleaned like `text`.
+    pub values: BTreeMap<&'static str, String>,
     /// The refusal, home redacted and control characters escaped.
     pub text: String,
+}
+
+/// A read site's refusal, by kind and without the plan text it quotes:
+/// `PlanReadRefusal`'s variants, one for one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SiteRefusalKind {
+    /// The command does not name a provider.
+    NotAProviderCommand,
+    /// The detected prefix is not a safe path.
+    UnsafePrefix,
+    /// The plan's program is not the one derived from the detected prefix.
+    ProgramDisagrees,
+    /// The argv is not on the shipped read allowlist.
+    NotAPermittedRead,
 }
 
 /// What a run produced. Holds no read output and no raw plan text.
@@ -123,8 +144,10 @@ pub struct RunReport {
     pub records: Vec<StepRecord>,
     /// The read site's refusal, when one stopped the run.
     pub refusal: Option<RenderedRefusal>,
-    /// The gate's refusals, one line each, rendered like `refusal`.
-    pub gate_refusals: Vec<String>,
+    /// The gate's refusals in the gate's own order, each the refusal's
+    /// document (its `refusal` tag and its fields) with every string in it
+    /// cleaned like `refusal`'s text: a check's fields are plan text.
+    pub gate_refusals: Vec<serde_json::Value>,
 }
 
 impl RunReport {
@@ -159,7 +182,7 @@ pub fn run_with<S: ReadSite>(
             gate_refusals: gate
                 .refusals()
                 .iter()
-                .map(|r| clean(&serde_json::to_string(r).unwrap_or_default(), home))
+                .map(|r| clean_value(refusal_document(r), home))
                 .collect(),
         };
     }
@@ -176,10 +199,7 @@ pub fn run_with<S: ReadSite>(
             Action::Dispatch => {
                 let results = dispatch(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
-                    refusal = Some(RenderedRefusal {
-                        step: step.index,
-                        text: render_refusal(r, home),
-                    });
+                    refusal = Some(rendered_refusal(step.index, r, home));
                 }
                 let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
                 judge_step(planned, position, &reads)
@@ -263,17 +283,76 @@ pub fn render_refusal(refusal: &PlanReadRefusal, home: &HomeRedaction) -> String
     }
 }
 
+/// A refusal as the report keeps it: its stable identifier, the values it
+/// quotes by name, and [`render_refusal`]'s text, every value cleaned.
+fn rendered_refusal(step: u32, refusal: &PlanReadRefusal, home: &HomeRedaction) -> RenderedRefusal {
+    let clean = |value: &str| clean(value, home);
+    let (id, values): (SiteRefusalKind, Vec<(&'static str, String)>) = match refusal {
+        PlanReadRefusal::NotAProviderCommand => (SiteRefusalKind::NotAProviderCommand, Vec::new()),
+        PlanReadRefusal::UnsafePrefix { prefix } => (
+            SiteRefusalKind::UnsafePrefix,
+            vec![("prefix", clean(prefix))],
+        ),
+        PlanReadRefusal::ProgramDisagrees { planned, derived } => (
+            SiteRefusalKind::ProgramDisagrees,
+            vec![("planned", clean(planned)), ("derived", clean(derived))],
+        ),
+        PlanReadRefusal::NotAPermittedRead { argv } => (
+            SiteRefusalKind::NotAPermittedRead,
+            vec![(
+                "argv",
+                argv.iter().map(|a| clean(a)).collect::<Vec<_>>().join(" "),
+            )],
+        ),
+    };
+    RenderedRefusal {
+        step,
+        refusal: id,
+        values: values.into_iter().collect(),
+        text: render_refusal(refusal, home),
+    }
+}
+
 /// Plan text as it may be kept: the home redacted, then every control and
 /// format character escaped.
 fn clean(value: &str, home: &HomeRedaction) -> String {
     escape_controls(&redact_home(value, home))
 }
 
+/// A gate refusal as a document. Serialising a derived enum of numbers,
+/// strings and lists cannot fail; if it ever did, the refusal is kept as
+/// `UNSERIALISABLE` rather than dropped or turned into `null`, so the list
+/// still has one entry per refusal and says which one it could not show.
+fn refusal_document(refusal: &macportsbrew_application::ExecutionRefusal) -> serde_json::Value {
+    match serde_json::to_value(refusal) {
+        Ok(value @ serde_json::Value::Object(_)) => value,
+        _ => serde_json::json!({ "refusal": "UNSERIALISABLE" }),
+    }
+}
+
+/// [`clean`], applied to every string a document holds, at any depth.
+fn clean_value(value: serde_json::Value, home: &HomeRedaction) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(s) => Value::String(clean(&s, home)),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(|v| clean_value(v, home)).collect())
+        }
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k, clean_value(v, home)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 /// Escapes every control character and every Unicode format character
 /// (category Cf), so a value cannot move a cursor, clear a line, start a
 /// terminal sequence, or reorder or hide what is shown around it (U+202E and
 /// the other bidirectional overrides, zero-width characters).
-fn escape_controls(value: &str) -> String {
+pub(crate) fn escape_controls(value: &str) -> String {
     value
         .chars()
         .map(|c| {

@@ -32,6 +32,17 @@ to answer.
 
 ### Added
 
+- **`migrate <pkg> --to <provider> [--retain-source] [--yes] [--dry-run]`.**
+  It shows the plan `plan` would, and with `--yes` (without `--dry-run`) puts it
+  to the execution gate, which refuses every plan this build produces: exit 4
+  for every plan it builds, the refusals in the output, nothing run. A package
+  already at its destination is reported as *nothing to move*, exit 0 — only
+  when every other provider was detected and read and nothing its mappings name
+  may be the package under another name; otherwise exit 4
+  (`PROVIDER_PRESENCE_UNPROVEN` or `SAFETY_BLOCKED`). The planner's own
+  refusals keep their codes.
+  `--yes` with `--from-snapshot` is a usage error. New `--json` schema:
+  [`migrate.v1.md`](docs/schemas/migrate.v1.md).
 - **`doctor` reports a provider whose recorded prefix is not absolute**
   (`provider_prefix_is_not_absolute`, `WARNING`). A provider installed under the
   user's home is captured as `~/...`, which `planner::command` refuses, so
@@ -369,7 +380,8 @@ to answer.
 ### Not yet implemented
 
 Named here because a changelog that lists only what exists invites the reader
-to assume the rest does: `migrate`, `restore --run`, `primary`,
+to assume the rest does: executing a migration (`migrate --yes` stops at the
+gate), `restore --run`, `primary`,
 `provider-priority`, `providers`, `env`, `history`, `cleanup`, the interactive
 TUI, `doctor --deep`, the cache and its TTL, and translations for `pt-BR`,
 `es`, `ja` and `zh-CN` — the i18n architecture and the complete English

@@ -77,6 +77,16 @@ pub enum ErrorId {
     /// check" and being unable to run one is why this operation stopped
     /// (DP-016).
     SafetyUnverifiable,
+    /// An answer that is only true if another provider holds nothing could
+    /// not be given, because that provider was not detected and detection
+    /// looks only where a provider is documented to live (`migrate`'s
+    /// "nothing to move", SE-092).
+    ///
+    /// Separate from [`ErrorId::SafetyUnverifiable`] for the remediation:
+    /// there the missing fact is absent from the document; here it is about
+    /// this machine, and the user may be able to settle it. Exit 4: why the
+    /// operation stopped is a safety answer that could not be given.
+    ProviderPresenceUnproven,
     /// The operation exists in the specification but not in this build
     /// (the foundation pass ships no mutating code path).
     NotImplementedInThisPass,
@@ -91,7 +101,9 @@ impl ErrorId {
     pub fn exit_code(self) -> i32 {
         match self {
             ErrorId::Usage => 2,
-            ErrorId::SafetyBlocked | ErrorId::SafetyUnverifiable => 4,
+            ErrorId::SafetyBlocked
+            | ErrorId::SafetyUnverifiable
+            | ErrorId::ProviderPresenceUnproven => 4,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
             | ErrorId::ProviderOutputChanged
@@ -124,6 +136,7 @@ impl ErrorId {
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
+            ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
             ErrorId::Io => "error.io",
             ErrorId::Internal => "error.internal",
@@ -146,6 +159,7 @@ impl ErrorId {
             ErrorId::PolicyDataInvalid,
             ErrorId::SafetyBlocked,
             ErrorId::SafetyUnverifiable,
+            ErrorId::ProviderPresenceUnproven,
             ErrorId::NotImplementedInThisPass,
             ErrorId::Io,
             ErrorId::Internal,
@@ -198,6 +212,7 @@ mod tests {
         // Same bucket, deliberately: a safety rule that cannot be evaluated is
         // why the operation stopped, which is what category 4 names (DP-016).
         assert_eq!(ErrorId::SafetyUnverifiable.exit_code(), 4);
+        assert_eq!(ErrorId::ProviderPresenceUnproven.exit_code(), 4);
         assert_eq!(ErrorId::ProviderUnhealthy.exit_code(), 5);
         assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
         // Same bucket, deliberately: `06-cli-and-ux.md:68` is "8 stale/unusable
@@ -240,7 +255,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 16;
+    const NUMBER_OF_ERROR_IDS: usize = 17;
 
     #[test]
     fn every_id_has_a_distinct_message() {
