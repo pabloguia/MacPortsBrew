@@ -1502,6 +1502,30 @@ change is made. Silent deviation remains the one unrecoverable error.
   (`a_repeated_snapshot_or_history_record_is_refused`). Each mutation was
   restored and the two source files compared byte-for-byte with their
   pre-mutation copies.
+- **Extended 2026-09-30 (05-THE-EXECUTOR, slice S5): a run loop exists, and
+  it runs reads only.** The loop (`crates/cli/src/executor/`, its decisions in
+  `crates/application/src/executor.rs`, SE-092) consults the execution gate
+  before anything else, so in this build it runs nothing for any plan the
+  planner builds; and behind the gate its dispatch guard answers `Dispatch`
+  only for `VERIFY_DESTINATION` and `VERIFY_REMOVAL`. A mutating step with a
+  command halts the run (`UNEXECUTED_MUTATION`), one without is passed over
+  (`NOT_DISPATCHED_MUTATING`), keyed on `StepKind::is_mutating` alone; neither
+  the mutation constant nor `dryRunOnly` is read by the loop, and a word scan
+  of its sources holds that (A11). `SNAPSHOT_BEFORE` and `RECORD_HISTORY` are
+  `NOT_PERFORMED_IN_THIS_BUILD`, and a run that skipped one is never
+  `COMPLETED`: it is a partial success (exit 3, carrying the reason the run
+  stopped) when a read passed, and otherwise halted, exiting with its reason's
+  `ErrorId` code — 4 for a safety or unverifiable stop, the runner's own code
+  for a transport failure, 1 for records that do not match the plan. **A
+  partial success here is not a partial migration:** no run of this build
+  dispatches a mutating step, so the history slice (S8) must not record one as
+  a migration left half done, nor take a lock or an interrupted-run marker for
+  it (`plan.v1.md` obligation 12). The loop is reachable from no command; the
+  `migrate` slice adds the one caller. What "nothing executes" now means,
+  precisely: no mutating provider command, and no read of a plan the gate
+  refused — the recorded tests protect the test suite, not the shipped
+  binary, which never reaches the loop. Evidence and mutation table: SE-050,
+  "Closed by the run loop".
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted
@@ -2694,7 +2718,8 @@ finding ids in each entry.
 - Date / Pass: 2026-09-02 / 02-ARCHITECTURE-REVIEW; implemented 2026-09-04;
   subcommand dimension 2026-09-25 (F-53); working directory and argument
   shape 2026-09-26; plan reads re-derived at construction 2026-09-30 (DP-023,
-  executor S4)
+  executor S4); bound to their runner and gated by the run loop 2026-09-30
+  (executor S5)
 - Original assumption: `04-migration-and-safety.md:257-258` — "There is no shell to
   inject into. Enforced by a lint rule, not by discipline."
 - Change: a run-time allowlist at the one spawn site, with three narrower
@@ -2984,6 +3009,136 @@ finding ids in each entry.
     verification read offline when it names a package; whether that matters
     for a `VERIFY_*` step is S5's to decide, and it is recorded here rather
     than silently relied on.
+  - **Closed by the run loop (2026-09-30, executor S5).** Item by item:
+    (1) the loop consults `execution_refusals` before it looks at a step, and
+    a refused plan dispatches nothing and records no step
+    (`the_execution_gate_is_consulted_before_any_step`, `crates/cli/tests/
+    executor.rs`); the per-subcommand long-option allowlist stays the
+    stronger fix, not done. (2) The loop builds no spec: it reads through a
+    `ReadSite` whose production implementation is
+    `registry::PlanReadSites::run`, the only caller of `plan_read_spec`
+    outside tests; `the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_loop`
+    holds the command-line crate to naming neither `CommandSpec`, `plan_read_spec` nor
+    `detected_prefix`, and
+    `a_provider_spec_is_built_only_by_an_adapter_reading_its_own_inventory`
+    holds `CommandSpec::provider(` to the two provider adapters and one
+    spawn-site test in product source. `CommandSpec::provider` stays public:
+    the adapters need it, and the textual rule is the enforcement. (3) A read
+    site's refusal is kept only as `RenderedRefusal`, with `redact_home`
+    applied to every value it quotes and every control character escaped
+    (`render_refusal`); a read is kept only as `ReadEvidence`, so no stdout or
+    stderr reaches a record (`a_recorded_read_keeps_no_stdout` serialises a
+    run whose reads carried a marker on both streams). (6) Decided, not
+    fixed: a destination read that names a package may fetch catalogue data;
+    it changes nothing on the machine, so the loop accepts it and records it
+    as a known network side effect the mutating pass inherits — this build
+    cannot reach it. (7) A `DetectedPrefix` records `replay: runner.is_replay()`
+    at detection; `plan_read_spec` passes it to `CommandSpec::plan_read`, which
+    marks the spec `replay_only`, and `SystemRunner::run` refuses a marked
+    spec before the allowlist and before anything is spawned (one field and
+    one check in `process/`, for the security review). Independently,
+    `PlanReadSites` captures `ctx.runner` with the sites it detects, so a read
+    runs through the runner it was detected through, and
+    `registry::build_with_read_sites` builds the adapters and the sites from
+    one context, so they share prefix resolution and home; the `migrate`
+    slice owes calling it rather than building a second context. A runner
+    that lies `is_replay() == true` gets the override honoured and the mark
+    set, so the live runner still refuses what it hands over. Tests:
+    `a_prefix_resolved_under_replay_never_reaches_a_live_spawn`,
+    `a_read_site_is_bound_to_the_runner_it_was_detected_through`
+    (`crates/adapters/tests/plan_reads.rs`),
+    `a_spec_resolved_under_replay_never_reaches_a_live_spawn`
+    (`process/system.rs`). Items (4) and (5) are unchanged: the gate refuses
+    placeholders and elevation by name before any read is built.
+    **Proved by mutation**, each in a scratch copy of the workspace with its
+    own target directory, the file restored by rewriting and its mtime bumped,
+    and the copy's `crates/` compared with `diff -r` against this tree
+    afterwards (identical):
+
+    | Rule | Mutation | Tests that failed |
+    |---|---|---|
+    | dispatch guard | mutating steps answer `Dispatch` | `invariant_01_the_loop_never_dispatches_a_mutating_step`, `no_step_of_any_plan_this_planner_builds_is_dispatched_unless_it_is_a_read` |
+    | INV-19 before any dispatch | plan-wide `MANUAL_REVIEW` check removed | `invariant_19_manual_review_halts_before_any_dispatch` (application) |
+    | brackets not performed (A6) | `SNAPSHOT_BEFORE`/`RECORD_HISTORY` recorded as verified | `the_bracketing_steps_are_not_performed_and_verify_resolution_cannot_pass`, `a_run_that_skipped_its_snapshot_is_never_completed`, `a_verification_failure_halts_and_names_the_check`, `invariant_17_the_loop_treats_both_directions_identically` |
+    | `VERIFY_RESOLUTION` cannot pass | dispatched | `the_bracketing_steps_are_not_performed_and_verify_resolution_cannot_pass` |
+    | recognised is not evaluable | unevaluable check dispatched | `a_verification_step_with_a_check_it_cannot_evaluate_is_not_dispatched` |
+    | a failed verdict halts | verdict ignored | `a_truncated_or_killed_read_halts`, `a_verification_failure_halts_and_names_the_check` (both crates), `invariant_03_partial_success_is_its_own_outcome_and_exit_code` |
+    | one read per command | missing read accepted | `every_check_must_be_backed_by_a_passing_read` |
+    | a check needs a passing read | backing check removed | `every_check_must_be_backed_by_a_passing_read` |
+    | `PACKAGE_NEWLY_PRESENT` needs prior absence | snapshot not consulted; unread inventory taken as absent | `newly_present_needs_the_package_absent_from_the_snapshot_before_the_run` (each) |
+    | a skipped step is not completed | only halts counted | `a_run_that_skipped_its_snapshot_is_never_completed` (both crates), `invariant_17_the_loop_treats_both_directions_identically` |
+    | INV-03 | partial reported as completed; partial exit 3 changed to 0 | `invariant_03_partial_success_is_its_own_outcome_and_exit_code` (both crates), `a_halt_is_never_reported_as_completed`, `a_run_that_skipped_its_snapshot_is_never_completed` |
+    | the gate first | shell skips the gate | `the_execution_gate_is_consulted_before_any_step`, `the_dispatch_guard_hands_no_mutating_step_to_the_runner`, `invariant_19_manual_review_halts_before_any_dispatch` (cli) |
+    | a halt stops the run | shell continues past a halt | `a_verification_failure_halts_and_names_the_check` |
+    | a killed read did not finish | `Signalled`/`TimedOut` read as exit 0 | `a_truncated_or_killed_read_halts` |
+    | refusal redacted | raw values rendered | `a_site_refusal_halts_and_is_rendered_with_the_home_redacted`, `executor::tests::a_refusal_is_rendered_with_the_home_redacted_and_controls_escaped` |
+    | live runner refuses a replay spec | check removed | `a_spec_resolved_under_replay_never_reaches_a_live_spawn`, `a_prefix_resolved_under_replay_never_reaches_a_live_spawn` |
+    | detection marks replay | `replay: false` | `a_prefix_resolved_under_replay_never_reaches_a_live_spawn` |
+    | no site is borrowed | an undetected provider falls back to the first site | survived the first run; `a_read_site_is_bound_to_the_runner_it_was_detected_through` was extended with a one-provider context and then failed |
+    | sites only after the gate (review M1) | sites built before the gate | `the_execution_gate_is_consulted_before_any_step` |
+    | INV-06 for reads (review G-M2) | an elevated read dispatched | `invariant_06_a_verification_read_is_never_dispatched_elevated` |
+    | format characters escaped (L2) | `is_format` dropped | `a_format_character_cannot_reorder_or_hide_what_is_shown`, both refusal-rendering tests |
+    | gate refusals redacted (L1) | rendered raw | `a_gate_refusal_is_rendered_with_the_home_redacted` |
+    | one replay answer (L3) | detection asks twice | `detection_asks_the_runner_whether_it_is_a_replay_exactly_once` |
+    | a partial success keeps its reason (R1) | reason dropped | `invariant_03_partial_success_is_its_own_outcome_and_exit_code` (both crates), `a_halt_is_never_reported_as_completed` |
+    | a killed read did not finish, now in the adapters (G-M1) | signalled read treated as exit 0 | `only_an_exit_with_a_code_is_an_exit_to_a_verification_read`, `a_truncated_or_killed_read_halts` |
+
+    The whole table was re-run after the review fixes (26 mutations, every one
+    killed); the copy's `crates/` again matched this tree under `diff -r`.
+
+    **Review fixes (security-reviewer and spec-guardian, 2026-09-30).**
+    (M1) Gate-first is structural: `executor::run` takes a `PlannedRun` and the
+    `RegistryContext` and calls `plan_read_sites` only after `refused(&gate)`
+    answered `None`; `run_with` takes a site *factory* for tests and calls it
+    under the same rule, so no caller holds a read site for a plan the gate
+    refused, and the word scan keeps `PlanReadSites`, `plan_read_sites` and
+    `build_with_read_sites` inside `crates/cli/src/executor/` — with no
+    exemption for `app/migrate.rs`: `run` builds the sites from the context
+    itself, so its caller never needs them, and holding them would be a way
+    to read on a plan the gate never saw (re-review; proved by planting a
+    `migrate.rs` naming `plan_read_sites`, which the scan refused). (M2) The snapshot behind
+    `PACKAGE_NEWLY_PRESENT` arrives paired with the plan:
+    `application::executor::PlannedRun` has private fields and one
+    constructor, `planner::plan_run`, which pairs `build_plan`'s plan with the
+    snapshot it read; `judge_step` and `executor::run` take it, so a caller
+    cannot hand the loop a different `before`. `PlannedRun::map_plan`, which
+    lets a test narrow the plan while keeping the snapshot, exists only under
+    `#[cfg(any(test, feature = "test-support"))]`; `test-support` is a
+    non-default feature of `application` that only the command-line crate's
+    dev-dependency enables (resolver 2 keeps it out of a non-test build; a
+    future release job must therefore build the shipped binary without
+    `--all-features` and without test or `--all-targets` targets in the same
+    invocation, or `map_plan` is compiled into the artifact), and
+    the judgement tests that need it moved from `crates/application/tests/`
+    into the crate's own `src/executor/tests.rs`, since an integration test of
+    `application` could reach it only through a self-dependency the layering
+    check forbids — the tests there use neutral prefixes, not a provider's
+    (INV-20). `the_plan_editing_test_hook_is_out_of_product_source` holds the
+    attribute in place, the feature off by default, and the name out of every
+    other `crates/*/src` file; removing the attribute and naming the method in
+    product source each made it fail. The alternative, a digest of the source snapshot carried in
+    the plan and checked by the loop, is a plan schema change and was not
+    taken; it is the option if a plan is ever read from a document (SE-092).
+    The broken and missing-provider branches of the before-read are reachable
+    only through plans the planner will not build, and are covered by reading
+    rather than by test. (L1) A halt reason names a check by `CheckKind` only,
+    never its fields, and the gate's refusals are kept as lines rendered
+    through the same redaction and escaping as a read-site refusal; the raw
+    `GateReport` no longer reaches `RunOutcome`, which carries a count.
+    (L2) Escaping covers Unicode format characters (category Cf, Unicode 16.0:
+    bidirectional overrides and isolates, zero-width characters, tags) as well
+    as controls, as `\u{...}`. (L3) `detected_prefix` and `build` ask
+    `is_replay` once and pass the answer to the scope, the override and the
+    mark. (R3) `ProcessRunner::is_replay` is now required, with no default, so
+    a new runner must say whether it is live. (G-M2) A dispatched read whose
+    elevation is not `NONE` halts (`ELEVATION_NOT_NONE`, exit 4) rather than
+    running unelevated: fail closed, behind the gate's own refusal.
+    What the tests do not show: the guard behind the shell is unreachable in
+    this build, because the gate refuses every plan with a mutating step
+    before the loop asks; the shell-level guard test therefore proves that
+    nothing reaches a site, and the guard alone is proved on the pure
+    function. The recorded tests protect the test suite; the shipped binary
+    never calls the loop.
   - **`;` is a separator for `port` only, and the injection table says so.**
     `every_argv_injection_form_is_refused_through_the_plan_path` first asserted
     the separator forms for both providers and failed for Homebrew, whose read
@@ -5516,5 +5671,47 @@ finding ids in each entry.
   `migrate`'s call site must pass the registry's provider list and carry the
   same deleted-provider end-to-end test `plan` has, because a `known` of the
   snapshot's own keys switches the missing-provider check off.
+- **Addendum, the run loop, 2026-09-30 (slice S5).** The placement above is
+  built. `crates/application/src/executor.rs` holds every decision as a pure
+  function — `next_action` (the only source of a dispatch: the plan-wide
+  `MANUAL_REVIEW` check, then the dispatch guard, then the step kind),
+  `judge_step` (a step passes only when every check is evaluable on its kind
+  and answered by a read that `verification::evaluate` passed, and
+  `PACKAGE_NEWLY_PRESENT` also needs the package absent from the snapshot the
+  run was planned from, read from an inventory recorded as readable — any
+  unknown halts), and `outcome_of` (`COMPLETED`, `HALTED`, `PARTIAL_SUCCESS`;
+  `REFUSED` when the gate refused) with `RunOutcome::exit_code` (0, 4 by the
+  `ErrorId` table, 3 for a partial success, which has no `ErrorId`, or the
+  runner's own error for a transport failure). `crates/cli/src/executor/mod.rs`
+  is the shell: gate, `next_action`, read through a `ReadSite`, `judge_step`,
+  `outcome_of`. It sees no runner and no command spec: its production
+  `ReadSite` is the adapters' `PlanReadSites` (SE-050). The rules
+  `.claude/rules/executor.md` would hold are written into the shell's module
+  comment, because `.claude/` is a guarded path; the rule file, and the
+  `CLAUDE.md` path-scoped list gaining the subtree, are the owner's to add.
+  The single-caller rule (only `app/migrate.rs` reaches the context's runner)
+  is owed with that file in the `migrate` slice; `invariant_17_the_executor_names_no_provider`
+  already scans `app/migrate.rs` when it exists, and
+  `the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_loop`
+  gives it no exemption: `migrate` calls `executor::run` with the context and
+  never holds a read site. `AGENTS.md`'s `cli` row now
+  says what this entry promised.
+  **After review (2026-09-30).** The mapping of a process's end onto a read
+  (`ExitStatus` to `ProcessEnd`) moved out of the shell into the adapters,
+  as `Invocation::read_output`, with its own test
+  (`only_an_exit_with_a_code_is_an_exit_to_a_verification_read`). Two
+  decisions stay in the shell, both sequencing: a step's reads stop at the
+  first command whose read could not be obtained, and a read-site error maps
+  onto `StepRead` (not detected, refused, transport). `crates/cli/tests/
+  executor.rs` stands in for the coverage floor there —
+  `a_provider_with_no_read_site_halts`,
+  `a_site_refusal_halts_and_is_rendered_with_the_home_redacted`,
+  `a_truncated_or_killed_read_halts` (one read, then nothing) — and the
+  shell's module comment lists them. `executor::run` now takes a
+  `PlannedRun` and the registry context and builds the read sites itself
+  after the gate (SE-050). Owed elsewhere and listed here so they are not
+  lost: rendering a run's report through the i18n catalogue, which `migrate`
+  owes since this module renders nothing a user reads; and the path-scoped
+  rule file and its `CLAUDE.md` entry, which are the owner's.
 
 ---

@@ -3,6 +3,10 @@
 //! The error taxonomy: stable identifiers, each mapping to an exit code and
 //! to a user-facing remediation message rendered by the UI
 //! (`06-cli-and-ux.md`, "Output contract").
+//!
+//! Exit 3, partial success, is deliberately no error's code: it is a run
+//! outcome, `PARTIAL_SUCCESS_EXIT_CODE` in `macportsbrew_application::executor`,
+//! and a test there holds every identifier here away from it (INV-03).
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

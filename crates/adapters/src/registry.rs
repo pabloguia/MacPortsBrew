@@ -10,9 +10,9 @@
 use crate::filesystem::FilesystemScope;
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
-use crate::process::{CommandSpec, PlanReadRefusal, ProcessRunner};
+use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
-use macportsbrew_domain::{PlanCommand, ProviderId, ProviderRead};
+use macportsbrew_domain::{DomainError, PlanCommand, ProviderId, ProviderRead};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -106,6 +106,9 @@ pub struct DetectedPrefix {
     prefix: PathBuf,
     home: Option<PathBuf>,
     derivation: Derivation,
+    /// Resolved through a replay runner. Every spec built from it is marked
+    /// so that the live runner refuses to spawn it (SE-050, "Not closed" 7).
+    replay: bool,
 }
 
 impl DetectedPrefix {
@@ -133,13 +136,18 @@ impl std::fmt::Debug for DetectedPrefix {
 /// when the provider is not one this build knows, or was not detected.
 pub fn detected_prefix(ctx: &RegistryContext<'_>, provider: &ProviderId) -> Option<DetectedPrefix> {
     let derivation = derivation(provider)?;
-    let filesystem = effective_scope(ctx.runner, ctx.filesystem);
-    let prefix = resolve_prefix(ctx, provider, filesystem)?;
+    // Asked once: the scope, the override and the replay mark must all follow
+    // from the same answer (a runner that answered differently on each call
+    // could otherwise take a probed scope with an honoured override).
+    let replay = ctx.runner.is_replay();
+    let filesystem = effective_scope(replay, ctx.filesystem);
+    let prefix = resolve_prefix(ctx, provider, filesystem, replay)?;
     Some(DetectedPrefix {
         provider: provider.clone(),
         prefix,
         home: ctx.home.clone(),
         derivation,
+        replay,
     })
 }
 
@@ -179,7 +187,85 @@ pub fn plan_read_spec(
         &command.program,
         &command.argv,
         (site.derivation.environment)(&site.prefix, site.home.clone()),
+        site.replay,
     )
+}
+
+/// Every provider's plan read site, each bound to the runner its prefix was
+/// detected through (SE-050, "Not closed" 7).
+///
+/// **The only way a plan's command is run.** [`PlanReadSites::run`] builds the
+/// spec through [`plan_read_spec`] and hands it to the runner captured from
+/// the same [`RegistryContext`] detection used, so a prefix a recording
+/// answered is answered by that recording, and a prefix probed on this machine
+/// is spawned on it. The binding is the structure, not the caller's
+/// discipline; the replay mark [`plan_read_spec`] sets is the second line, for
+/// a spec handed to another runner by some other route — the live runner
+/// refuses it.
+///
+/// **Safe only after the execution gate has passed the plan**, for the reason
+/// [`plan_read_spec`] gives.
+pub struct PlanReadSites<'r> {
+    runner: &'r dyn ProcessRunner,
+    sites: Vec<DetectedPrefix>,
+}
+
+/// Why a plan read was not run.
+#[derive(Debug)]
+pub enum PlanReadError {
+    /// The step's provider was not detected through this context, so no prefix
+    /// exists to derive a program from (no fallback candidate is taken).
+    NotDetected,
+    /// The command was refused when its spec was built.
+    Refused(PlanReadRefusal),
+    /// The runner could not record an invocation at all. A process that ran
+    /// and failed is an `Ok` invocation with its status, never this.
+    Transport(DomainError),
+}
+
+impl PlanReadSites<'_> {
+    /// Runs `command` against `provider`'s detected site, through the runner
+    /// that detected it.
+    pub fn run(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError> {
+        let site = self
+            .sites
+            .iter()
+            .find(|s| s.provider() == provider)
+            .ok_or(PlanReadError::NotDetected)?;
+        let spec = plan_read_spec(site, command).map_err(PlanReadError::Refused)?;
+        self.runner.run(&spec).map_err(PlanReadError::Transport)
+    }
+
+    /// The providers a site was detected for.
+    pub fn providers(&self) -> Vec<&ProviderId> {
+        self.sites.iter().map(DetectedPrefix::provider).collect()
+    }
+}
+
+/// The plan read sites `ctx` detects, bound to `ctx.runner`.
+pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
+    PlanReadSites {
+        runner: ctx.runner,
+        sites: known_provider_ids()
+            .iter()
+            .filter_map(|id| detected_prefix(ctx, id))
+            .collect(),
+    }
+}
+
+/// The adapters [`build`] constructs and the plan read sites, from **one**
+/// context: the prefix every site derives from is resolved the way the
+/// adapters' is, and the home is the one they were built with. The run loop
+/// takes both from here, so the two cannot be built from contexts that
+/// disagree.
+pub fn build_with_read_sites<'r>(
+    ctx: &RegistryContext<'r>,
+) -> (Vec<Box<dyn ProviderRead + 'r>>, PlanReadSites<'r>) {
+    (build(ctx), plan_read_sites(ctx))
 }
 
 /// Resolves the prebuilt-artifact tags for a provider id.
@@ -225,14 +311,15 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
     // which on a Mac that once had an Intel Homebrew is a writable
     // `/usr/local`. A runtime check and not a `debug_assert!`, for the reason
     // the executor's own allowlist is one (F-25 review).
-    let filesystem = effective_scope(ctx.runner, ctx.filesystem);
+    let replay = ctx.runner.is_replay();
+    let filesystem = effective_scope(replay, ctx.filesystem);
     let mut out: Vec<Box<dyn ProviderRead + 'r>> = Vec::new();
     for id in known_provider_ids() {
         let candidates = candidate_prefixes(&id);
         match id.as_str() {
             "homebrew" => {
-                let prefix =
-                    resolve_prefix(ctx, &id, filesystem).unwrap_or_else(|| candidates[1].clone());
+                let prefix = resolve_prefix(ctx, &id, filesystem, replay)
+                    .unwrap_or_else(|| candidates[1].clone());
                 let tags = (ctx.platform_tags)(id.as_str());
                 out.push(Box::new(HomebrewAdapter::new(
                     ctx.runner,
@@ -243,8 +330,8 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
                 )));
             }
             "macports" => {
-                let prefix =
-                    resolve_prefix(ctx, &id, filesystem).unwrap_or_else(|| candidates[0].clone());
+                let prefix = resolve_prefix(ctx, &id, filesystem, replay)
+                    .unwrap_or_else(|| candidates[0].clone());
                 out.push(Box::new(MacPortsAdapter::new(
                     ctx.runner,
                     prefix,
@@ -266,9 +353,10 @@ fn resolve_prefix(
     ctx: &RegistryContext<'_>,
     id: &ProviderId,
     filesystem: FilesystemScope,
+    replay: bool,
 ) -> Option<PathBuf> {
     let candidates = candidate_prefixes(id);
-    override_for(ctx, id).or_else(|| match id.as_str() {
+    override_for(ctx, id, replay).or_else(|| match id.as_str() {
         crate::homebrew::PROVIDER_ID => crate::homebrew::detect_prefix(&candidates, filesystem),
         crate::macports::PROVIDER_ID => {
             MacPortsAdapter::<&dyn ProcessRunner>::detect_prefix(&candidates, filesystem)
@@ -288,8 +376,8 @@ fn resolve_prefix(
 ///
 /// The converse pair is legitimate and stays: a contract test replays
 /// subprocesses while reading a scratch tree that really is its subject.
-fn effective_scope(runner: &dyn ProcessRunner, requested: FilesystemScope) -> FilesystemScope {
-    if runner.is_replay() {
+fn effective_scope(replay: bool, requested: FilesystemScope) -> FilesystemScope {
+    if replay {
         requested
     } else {
         FilesystemScope::ThisMachine
@@ -298,7 +386,8 @@ fn effective_scope(runner: &dyn ProcessRunner, requested: FilesystemScope) -> Fi
 
 /// The prefix override that applies to `id`, if any.
 ///
-/// **This asks `runner.is_replay()` on purpose, and must keep asking it.** Its
+/// **`replay` is `runner.is_replay()`, asked once by the caller, on purpose,
+/// and it must keep being the runner's answer.** Its
 /// question is whether a real executable could be spawned, which is the
 /// runner's question and not [`FilesystemScope`]'s. Answering it with the
 /// filesystem scope instead would let a caller holding a live runner supply a
@@ -311,8 +400,8 @@ fn effective_scope(runner: &dyn ProcessRunner, requested: FilesystemScope) -> Fi
 /// (`04-migration-and-safety.md`, "Process execution"). Against a recording
 /// there is no executable to run, and the recording's own `--prefix` answer is
 /// the only prefix that makes sense.
-fn override_for(ctx: &RegistryContext<'_>, id: &ProviderId) -> Option<PathBuf> {
-    if !ctx.runner.is_replay() {
+fn override_for(ctx: &RegistryContext<'_>, id: &ProviderId, replay: bool) -> Option<PathBuf> {
+    if !replay {
         return None;
     }
     ctx.prefix_override
@@ -335,11 +424,11 @@ mod tests {
         let live = SystemRunner::new();
         assert!(!live.is_replay());
         assert_eq!(
-            effective_scope(&live, FilesystemScope::Elsewhere),
+            effective_scope(live.is_replay(), FilesystemScope::Elsewhere),
             FilesystemScope::ThisMachine
         );
         assert_eq!(
-            effective_scope(&live, FilesystemScope::ThisMachine),
+            effective_scope(live.is_replay(), FilesystemScope::ThisMachine),
             FilesystemScope::ThisMachine
         );
     }
@@ -350,11 +439,11 @@ mod tests {
         // contract test replays subprocesses over a tree that is its subject.
         let runner = replay();
         assert_eq!(
-            effective_scope(&runner, FilesystemScope::Elsewhere),
+            effective_scope(runner.is_replay(), FilesystemScope::Elsewhere),
             FilesystemScope::Elsewhere
         );
         assert_eq!(
-            effective_scope(&runner, FilesystemScope::ThisMachine),
+            effective_scope(runner.is_replay(), FilesystemScope::ThisMachine),
             FilesystemScope::ThisMachine
         );
     }
@@ -370,6 +459,10 @@ mod tests {
     impl ProcessRunner for LiveRunner {
         fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
             panic!("these tests never spawn anything")
+        }
+
+        fn is_replay(&self) -> bool {
+            false
         }
     }
 
@@ -406,7 +499,11 @@ mod tests {
     fn an_override_applies_under_replay() {
         let runner = replay();
         assert_eq!(
-            override_for(&context(&runner), &ProviderId::new("homebrew")),
+            override_for(
+                &context(&runner),
+                &ProviderId::new("homebrew"),
+                runner.is_replay()
+            ),
             Some(PathBuf::from("/tmp/anything"))
         );
     }
@@ -415,10 +512,41 @@ mod tests {
     fn an_override_is_ignored_against_the_live_machine() {
         let runner = LiveRunner;
         assert_eq!(
-            override_for(&context(&runner), &ProviderId::new("homebrew")),
+            override_for(
+                &context(&runner),
+                &ProviderId::new("homebrew"),
+                runner.is_replay()
+            ),
             None,
             "a live run resolves its prefix by probing, and by nothing else"
         );
+    }
+
+    /// A runner whose `is_replay` answer changes between calls: true first.
+    struct Flipping(std::cell::Cell<usize>);
+
+    impl ProcessRunner for Flipping {
+        fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            panic!("these tests never spawn anything")
+        }
+
+        fn is_replay(&self) -> bool {
+            let n = self.0.get();
+            self.0.set(n + 1);
+            n == 0
+        }
+    }
+
+    #[test]
+    fn detection_asks_the_runner_whether_it_is_a_replay_exactly_once() {
+        // One answer decides the scope, the override and the replay mark, so
+        // a runner cannot be read as a replay for the override and as live for
+        // the mark (SE-050, "Not closed" 7).
+        let runner = Flipping(std::cell::Cell::new(0));
+        let site = detected_prefix(&context(&runner), &ProviderId::new("homebrew"))
+            .expect("the override is honoured on the first answer");
+        assert_eq!(runner.0.get(), 1);
+        assert!(site.replay, "the mark follows the same answer");
     }
 
     #[test]
@@ -445,7 +573,11 @@ mod tests {
     fn an_override_for_another_provider_is_not_borrowed() {
         let runner = replay();
         assert_eq!(
-            override_for(&context(&runner), &ProviderId::new("macports")),
+            override_for(
+                &context(&runner),
+                &ProviderId::new("macports"),
+                runner.is_replay()
+            ),
             None
         );
     }

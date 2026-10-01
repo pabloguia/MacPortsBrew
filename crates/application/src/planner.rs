@@ -103,6 +103,22 @@ pub fn build_plan(
     }
 }
 
+/// [`build_plan`], with the plan paired with the snapshot it was built from
+/// ([`crate::executor::PlannedRun`]). The only constructor of that pairing, so
+/// the run loop judges a `PACKAGE_NEWLY_PRESENT` against the snapshot the plan
+/// came from and never one handed to it separately. The `migrate` slice owes
+/// the same pairing for `plan_outcome` if it reports "nothing to move".
+pub fn plan_run(
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+    request: &PlanRequest,
+    known: &[ProviderId],
+) -> Result<crate::executor::PlannedRun, DomainError> {
+    build_plan(snapshot, policy, options, request, known)
+        .map(|plan| crate::executor::PlannedRun::new(plan, snapshot.clone()))
+}
+
 /// The refusal `plan` gives for a package nothing needs to move.
 fn already_held(package: &str, provider: &ProviderId) -> DomainError {
     DomainError::new(

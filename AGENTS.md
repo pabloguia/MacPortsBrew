@@ -69,7 +69,7 @@ layering rule; `scripts/check-layering.sh` asserts them from `cargo metadata`.
 | `policy` | `domain` | The rule engine and its versioned data. `recommend(facts, data)` is pure |
 | `application` | `domain`, `policy` | Capture, analysis, classification, mapping, planning, `doctor`. I/O only through domain traits |
 | `adapters` | `domain` | The only layer that touches the machine. Provider names appear here and nowhere above |
-| `cli` | all | Presentation: i18n catalogue, renderer, command surface |
+| `cli` | all | Presentation: i18n catalogue, renderer, command surface; and `executor/`, the run loop's I/O shell, whose every decision is in `application::executor` (SE-092) |
 
 | Path | What it holds |
 |---|---|
@@ -165,9 +165,8 @@ ownership (INV-11) and is not a global priority (INV-12).
 
 `scripts/validate.sh` (`--quick` | default | `--full`) is the one definition of
 valid; CI is the authority. Tests run against captured fixtures, never a live
-installation. Coverage floors: `domain`/`policy`/planning 95%, `adapters` 80%
-plus a contract test per parsed command, `cli` reported. Invariant tests are
-named `invariant_NN_*` in `crates/*/tests/`, plus `invariant_01`
+installation. Coverage floors are in `docs/spec/07-quality-and-testing.md`.
+Invariant tests are named `invariant_NN_*` in `crates/*/tests/`, plus `invariant_01`
 (`domain/src/plan.rs`) and `invariant_10` (`adapters/src/process/mod.rs`); find
 them with `grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change
 that touches an invariant and cannot point at its test is incomplete.**
@@ -185,7 +184,8 @@ Touch these only deliberately, and run `security-reviewer` and `spec-guardian`
 before reporting done. **`crates/adapters/src/process/`** — the only subprocess
 site; argv only, no shell, sanitised environment, so command injection is
 prevented structurally. **`crates/application/src/planner.rs`** — step ordering
-*is* INV-01; reordering is a safety change, not a refactor.
+*is* INV-01; reordering is a safety change, not a refactor. **`crates/cli/src/executor/`
+and `crates/application/src/executor.rs`** — gate first, dispatch guard, read sites only.
 **`crates/policy/src/rules/mod.rs`** — the priority constants and `all()` are a
 total order the engine depends on. **`scripts/*.sh` and `.claude/hooks/*.sh`** —
 the gates; weakening one is invisible until something it would have caught

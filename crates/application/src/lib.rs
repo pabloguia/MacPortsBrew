@@ -16,6 +16,7 @@ pub mod capture;
 pub mod classify;
 pub mod doctor;
 pub mod execution_gate;
+pub mod executor;
 pub mod explain;
 pub mod facts;
 pub mod mapping;
@@ -29,8 +30,12 @@ pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
 pub use execution_gate::{
     evaluable_in_this_build, execution_refusals, ExecutionRefusal, GateReport,
 };
+pub use executor::{
+    judge_step, next_action, outcome_of, refused, Action, CheckKind, Disposition, HaltReason,
+    PlannedRun, RunOutcome, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+};
 pub use explain::{explain_package, Explanation};
-pub use planner::{build_plan, plan_outcome, PlanOutcome, PlanRequest};
+pub use planner::{build_plan, plan_outcome, plan_run, PlanOutcome, PlanRequest};
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 
 /// The tool version, from the workspace manifest.

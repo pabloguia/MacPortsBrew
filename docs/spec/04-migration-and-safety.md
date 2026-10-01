@@ -392,11 +392,15 @@ do not gold-plate beyond them.
   resolves the prefix the way the adapters' own is resolved — probing the
   documented candidates on a live run, the override only under replay, and no
   fallback when nothing was detected — so neither the prefix nor the home can
-  be a value taken from a plan or a snapshot. Two in-process routes remain,
-  owed by the run loop below: `RegistryContext.home` is a public field the
-  caller fills, and a `DetectedPrefix` does not record that it was resolved
-  under replay, so one built from a replay context's override could be handed
-  to the live runner. The plan's `environment`
+  be a value taken from a plan or a snapshot. A `DetectedPrefix` records
+  whether it was resolved through a replay runner, every spec built from such
+  a prefix is marked replay-only, and the live runner refuses a marked spec
+  before anything is spawned; and a plan read runs through
+  `registry::PlanReadSites`, which is bound to the runner detection used, so a
+  recording's prefix is answered by the recording. `RegistryContext.home` is
+  still a public field the caller fills: the adapters and the read sites take
+  it from one context through `registry::build_with_read_sites`, which is the
+  call path the run loop's caller owes (SE-050). The plan's `environment`
   is not a parameter anywhere on that path, so a plan carrying
   `DYLD_INSERT_LIBRARIES`, a build flag or a different `PATH` changes nothing
   that is spawned (INV-10). A plan whose `program` disagrees with the derived
@@ -406,18 +410,19 @@ do not gold-plate beyond them.
   the spec is constructed**, with the shipped rule and not the test build's
   widened one: a replay runner asks no allowlist, so a check left to the spawn
   would let a recorded test run a plan read the binary refuses. A `TOOL`
-  command and an unsafe prefix are refused the same way. What is **not**
-  enforced yet, and is owed by the run loop: that `plan_read_spec` is the only
-  route (`CommandSpec::provider` is public, for the adapters); that it is
-  called only on a plan the execution gate passed (the allowlist accepts any
-  `--long` option after a permitted subcommand, and only the gate pins a
-  plan's argv to the planner's own read); and that a refusal, which quotes
-  plan text, is rendered with the home redacted and control characters
-  escaped; and that a read site is bound to the runner it was detected
-  through, with its context built once and shared with `registry::build`, so
-  a replay-resolved prefix never reaches a live spawn and the home is the one
-  the adapters use. None of this is reachable from the binary yet; SE-050 records the
-  design and its mutation evidence.
+  command and an unsafe prefix are refused the same way. The run loop
+  (`crates/cli/src/executor/`, decisions in `application::executor`) takes
+  the registry context, not read sites, and builds the sites only after the
+  execution gate passed the plan, so a plan read is built only for a plan
+  whose argv the gate pinned to the planner's own read; it builds no spec
+  itself, and a test holds the command-line crate to naming neither the
+  spec type nor `plan_read_spec`, and `CommandSpec::provider` to the two
+  provider adapters and one spawn-site test; and it renders a read site's
+  refusal and the gate's refusals, which quote plan text, with the home
+  redacted and control and format characters escaped. None of this
+  is reachable from the binary yet: no command calls the loop, and the gate
+  refuses every plan this build plans. SE-050 records the design and its
+  mutation evidence.
 - **Executable shadowing / PATH spoofing** — resolve provider executables from
   their detected prefix, not from `PATH`, when correctness matters. Report
   writable directories that precede system paths on `PATH`.

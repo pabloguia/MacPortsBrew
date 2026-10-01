@@ -1,0 +1,386 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! The run loop's I/O shell (DP-024, SE-092): it runs a plan's verification
+//! reads and nothing else, and decides as little as sequencing allows.
+//!
+//! Every decision is a pure function in `macportsbrew_application::executor`;
+//! this module obtains reads and hands them over. It is reachable from no
+//! command in this build (the `migrate` slice adds the one caller), and the
+//! execution gate refuses every plan this build's planner produces, so the
+//! loop is exercised by tests against recordings and synthesised reads only.
+//!
+//! **Rules for this module.** They belong in a path-scoped rule file under
+//! `.claude/rules/`, which is the owner's to add; until then they live here.
+//!
+//! 1. **The gate first, structurally.** [`run`] takes the registry context,
+//!    not read sites: it consults `execution_refusals` and builds the sites
+//!    only when the gate passed the plan, so no caller holds a read site for
+//!    a plan the gate refused (SE-050, "Not closed" 1). [`run_with`] takes a
+//!    factory for the same reason — it is called after the gate or not at
+//!    all. A word scan holds the read-site constructors to this module.
+//! 2. **The guard before everything else about a step.** A step is dispatched
+//!    only when `next_action` answers `Dispatch`, which it never does for a
+//!    mutating step, for a read whose elevation is not `NONE`, or for any step
+//!    of a plan carrying `MANUAL_REVIEW`. This module never reads the build's
+//!    mutation constant or the plan's own claim about it (A11); a textual
+//!    test holds it to that.
+//! 3. **No spec is built here.** A read goes through [`ReadSite::read`], whose
+//!    production implementation is the adapters' read sites: the program and
+//!    the environment are re-derived from the provider's detected prefix, the
+//!    argv is checked against the shipped read allowlist, and the read runs
+//!    through the very runner the prefix was detected through, so a prefix a
+//!    recording answered never reaches a live spawn (DP-023; SE-050, "Not
+//!    closed" 2 and 7). Nothing in this crate constructs a command spec or
+//!    calls the plan-read constructor; a textual test holds that too.
+//! 4. **Step success is judged, never inferred from an exit status alone**
+//!    (`04-migration-and-safety.md`): `judge_step` evaluates every read
+//!    against the snapshot the plan was built from, which arrives paired with
+//!    the plan (`PlannedRun`) and cannot be supplied beside it.
+//! 5. **Nothing a read printed is kept, and no plan text is kept raw.** A
+//!    record carries `ReadEvidence` — result, line count, truncation flag — a
+//!    halt reason carries a check's kind and never its fields, and the texts
+//!    this module keeps (a read site's refusal, the gate's refusals) are
+//!    rendered with the home redacted and control and format characters
+//!    escaped (SE-050, "Not closed" 3).
+//! 6. **No provider is named** here, in code or in prose (INV-17): the loop
+//!    treats both directions identically because it cannot tell them apart.
+//! 7. No verb is written as a literal, and no elevation, link or launch token
+//!    appears in code (the Stop gate's rules).
+//!
+//! **What this shell still decides** (SE-092): that a step's reads stop at the
+//! first command whose read could not be obtained, and how a read-site error
+//! maps onto `StepRead`. Both are sequencing; `crates/cli/tests/executor.rs`
+//! tests them in place of a coverage floor.
+//!
+//! **Not offline.** A destination read that names a package can make one
+//! provider fetch its catalogue data despite the quieting environment
+//! (SE-050, "Not closed" 6). A verification read only reads, so this is a
+//! network side effect and not a change to the machine; the mutating pass
+//! inherits it as a recorded fact, and this build cannot reach it.
+
+use macportsbrew_adapters::process::{Invocation, PlanReadRefusal};
+use macportsbrew_adapters::registry::{
+    plan_read_sites, PlanReadError, PlanReadSites, RegistryContext,
+};
+use macportsbrew_application::{
+    execution_refusals, judge_step, next_action, outcome_of, refused, Action, Disposition,
+    PlannedRun, RunOutcome, StepRead, StepRecord,
+};
+use macportsbrew_domain::{redact_home, HomeRedaction, PlanCommand, ProviderId};
+use serde::Serialize;
+
+/// Where a plan's command is read.
+///
+/// The production implementation is the adapters' read sites; a test double
+/// answers from synthesised invocations. Either way this module never sees a
+/// runner or a command spec.
+pub trait ReadSite {
+    /// Reads `command` from `provider`.
+    fn read(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError>;
+}
+
+impl ReadSite for PlanReadSites<'_> {
+    fn read(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError> {
+        self.run(provider, command)
+    }
+}
+
+impl<T: ReadSite + ?Sized> ReadSite for &T {
+    fn read(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError> {
+        (**self).read(provider, command)
+    }
+}
+
+/// A read site's refusal, as it may be shown or recorded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedRefusal {
+    /// The step it stopped.
+    pub step: u32,
+    /// The refusal, home redacted and control characters escaped.
+    pub text: String,
+}
+
+/// What a run produced. Holds no read output and no raw plan text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunReport {
+    /// How the run ended.
+    pub outcome: RunOutcome,
+    /// One per plan step when the gate passed the plan; empty when it refused.
+    pub records: Vec<StepRecord>,
+    /// The read site's refusal, when one stopped the run.
+    pub refusal: Option<RenderedRefusal>,
+    /// The gate's refusals, one line each, rendered like `refusal`.
+    pub gate_refusals: Vec<String>,
+}
+
+impl RunReport {
+    /// The exit code the run reports.
+    #[must_use]
+    pub fn exit_code(&self) -> i32 {
+        self.outcome.exit_code()
+    }
+}
+
+/// Runs `planned`'s verification reads through the read sites `ctx` detects —
+/// built only if the execution gate passes the plan. `home` is how any text
+/// the report keeps is redacted.
+pub fn run(planned: &PlannedRun, ctx: &RegistryContext<'_>, home: &HomeRedaction) -> RunReport {
+    run_with(planned, || plan_read_sites(ctx), home)
+}
+
+/// [`run`], with the read sites from `sites`, which is called only after the
+/// gate passed the plan and never otherwise.
+pub fn run_with<S: ReadSite>(
+    planned: &PlannedRun,
+    sites: impl FnOnce() -> S,
+    home: &HomeRedaction,
+) -> RunReport {
+    let plan = planned.plan();
+    let gate = execution_refusals(plan);
+    if let Some(outcome) = refused(&gate) {
+        return RunReport {
+            outcome,
+            records: Vec::new(),
+            refusal: None,
+            gate_refusals: gate
+                .refusals()
+                .iter()
+                .map(|r| clean(&serde_json::to_string(r).unwrap_or_default(), home))
+                .collect(),
+        };
+    }
+    let site = sites();
+    let mut records: Vec<StepRecord> = Vec::new();
+    let mut refusal = None;
+    for (position, step) in plan.steps.iter().enumerate() {
+        let disposition = match next_action(plan, position, &records) {
+            Action::PassOver(disposition) => disposition,
+            Action::Halt(reason) => Disposition::Halted {
+                reason,
+                evidence: Vec::new(),
+            },
+            Action::Dispatch => {
+                let results = dispatch(step.provider.as_ref(), &step.commands, &site);
+                if let Some(Err(PlanReadError::Refused(r))) = results.last() {
+                    refusal = Some(RenderedRefusal {
+                        step: step.index,
+                        text: render_refusal(r, home),
+                    });
+                }
+                let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
+                judge_step(planned, position, &reads)
+            }
+        };
+        let halted = matches!(disposition, Disposition::Halted { .. });
+        records.push(StepRecord {
+            index: step.index,
+            kind: step.kind,
+            disposition,
+        });
+        if halted {
+            break;
+        }
+    }
+    for step in &plan.steps[records.len()..] {
+        records.push(StepRecord {
+            index: step.index,
+            kind: step.kind,
+            disposition: Disposition::NotReached,
+        });
+    }
+    RunReport {
+        outcome: outcome_of(plan, &records),
+        records,
+        refusal,
+        gate_refusals: Vec::new(),
+    }
+}
+
+/// Reads each command in order, stopping at the first that could not be read.
+fn dispatch(
+    provider: Option<&ProviderId>,
+    commands: &[PlanCommand],
+    site: &dyn ReadSite,
+) -> Vec<Result<Invocation, PlanReadError>> {
+    let mut results = Vec::new();
+    for command in commands {
+        let result = match provider {
+            Some(provider) => site.read(provider, command),
+            None => Err(PlanReadError::NotDetected),
+        };
+        let stop = result.is_err();
+        results.push(result);
+        if stop {
+            break;
+        }
+    }
+    results
+}
+
+fn step_read(result: &Result<Invocation, PlanReadError>) -> StepRead<'_> {
+    match result {
+        Ok(invocation) => StepRead::Output(invocation.read_output()),
+        Err(PlanReadError::NotDetected) => StepRead::SiteUnavailable,
+        Err(PlanReadError::Refused(_)) => StepRead::SiteRefused,
+        Err(PlanReadError::Transport(error)) => StepRead::TransportFailed(error.id),
+    }
+}
+
+/// A refusal's text with the home redacted from every value it quotes and
+/// every control and format character escaped. The values are plan text,
+/// verbatim.
+#[must_use]
+pub fn render_refusal(refusal: &PlanReadRefusal, home: &HomeRedaction) -> String {
+    let clean = |value: &str| clean(value, home);
+    match refusal {
+        PlanReadRefusal::NotAProviderCommand => "NOT_A_PROVIDER_COMMAND".to_string(),
+        PlanReadRefusal::UnsafePrefix { prefix } => {
+            format!("UNSAFE_PREFIX prefix={}", clean(prefix))
+        }
+        PlanReadRefusal::ProgramDisagrees { planned, derived } => format!(
+            "PROGRAM_DISAGREES planned={} derived={}",
+            clean(planned),
+            clean(derived)
+        ),
+        PlanReadRefusal::NotAPermittedRead { argv } => format!(
+            "NOT_A_PERMITTED_READ argv=[{}]",
+            argv.iter().map(|a| clean(a)).collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
+
+/// Plan text as it may be kept: the home redacted, then every control and
+/// format character escaped.
+fn clean(value: &str, home: &HomeRedaction) -> String {
+    escape_controls(&redact_home(value, home))
+}
+
+/// Escapes every control character and every Unicode format character
+/// (category Cf), so a value cannot move a cursor, clear a line, start a
+/// terminal sequence, or reorder or hide what is shown around it (U+202E and
+/// the other bidirectional overrides, zero-width characters).
+fn escape_controls(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_control() || is_format(c) {
+                c.escape_unicode().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Whether `c` is in Unicode general category Cf (Format), Unicode 16.0.
+fn is_format(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_refusal_is_rendered_with_the_home_redacted_and_controls_escaped() {
+        let home = HomeRedaction::Known(PathBuf::from("/Users/ada"));
+        let text = render_refusal(
+            &PlanReadRefusal::ProgramDisagrees {
+                planned: "/Users/ada/evil/bin/x\u{1b}[2J\n".into(),
+                derived: "/opt/somewhere/bin/x".into(),
+            },
+            &home,
+        );
+        assert!(!text.contains("/Users/ada"), "{text}");
+        assert!(!text.contains("ada"), "{text}");
+        assert!(!text.chars().any(char::is_control), "{text:?}");
+        assert!(
+            text.contains("\\u{1b}") && text.contains("\\u{a}"),
+            "{text}"
+        );
+        let argv = render_refusal(
+            &PlanReadRefusal::NotAPermittedRead {
+                argv: vec!["--x=/Users/ada/f\r".into()],
+            },
+            &home,
+        );
+        assert!(
+            !argv.contains("ada") && !argv.chars().any(char::is_control),
+            "{argv:?}"
+        );
+        let prefix = render_refusal(
+            &PlanReadRefusal::UnsafePrefix {
+                prefix: "/Users/ada\t/p".into(),
+            },
+            &home,
+        );
+        assert!(
+            !prefix.contains("ada") && !prefix.chars().any(char::is_control),
+            "{prefix:?}"
+        );
+    }
+
+    #[test]
+    fn a_format_character_cannot_reorder_or_hide_what_is_shown() {
+        // U+202E would render the rest of the line right to left, so a path
+        // could display as another; the others hide or isolate text.
+        let home = HomeRedaction::Recorded;
+        for c in [
+            '\u{202E}',
+            '\u{2066}',
+            '\u{2069}',
+            '\u{200B}',
+            '\u{FEFF}',
+            '\u{E0041}',
+        ] {
+            let text = render_refusal(
+                &PlanReadRefusal::UnsafePrefix {
+                    prefix: format!("/opt/a{c}b"),
+                },
+                &home,
+            );
+            assert!(!text.contains(c), "{c:?} survived: {text:?}");
+            assert!(text.contains(&format!("{}", c.escape_unicode())), "{text}");
+        }
+        // Ordinary text is left alone.
+        assert_eq!(escape_controls("/opt/local/é"), "/opt/local/é");
+    }
+}

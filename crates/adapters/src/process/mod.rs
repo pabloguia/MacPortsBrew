@@ -324,6 +324,11 @@ pub struct CommandSpec {
     pub(in crate::process) timeout: Duration,
     /// Cap per output stream.
     pub(in crate::process) max_output_bytes: usize,
+    /// Built from a prefix resolved through a replay runner, so it may be
+    /// answered from a recording and never spawned: the live runner refuses
+    /// it (SE-050, "Not closed" item 7). Only [`CommandSpec::plan_read`] sets
+    /// it; an adapter's own spec is built from the prefix its runner detected.
+    pub(in crate::process) replay_only: bool,
 }
 
 impl CommandSpec {
@@ -378,6 +383,7 @@ impl CommandSpec {
             environment,
             timeout: DEFAULT_TIMEOUT,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            replay_only: false,
         }
     }
 
@@ -417,6 +423,11 @@ impl CommandSpec {
     /// check left to the spawn would let a recorded test run a plan read that
     /// the shipped binary refuses; a check in the constructor has no runner to
     /// be bypassed by.
+    ///
+    /// `replay_only` is true when `prefix` was resolved through a replay
+    /// runner. Such a spec is marked so that the live runner refuses it: a
+    /// prefix a recording (or a replay-only override) supplied names a binary
+    /// nobody probed on this machine, and it must never reach a spawn.
     pub(crate) fn plan_read(
         prefix: &std::path::Path,
         executable: &'static str,
@@ -424,6 +435,7 @@ impl CommandSpec {
         planned_program: &str,
         argv: &[String],
         environment: BTreeMap<String, String>,
+        replay_only: bool,
     ) -> Result<Self, PlanReadRefusal> {
         if *target != macportsbrew_domain::CommandTarget::Provider {
             return Err(PlanReadRefusal::NotAProviderCommand);
@@ -446,7 +458,10 @@ impl CommandSpec {
                 argv: argv.to_vec(),
             });
         }
-        Ok(Self::new(derived, argv.to_vec(), environment))
+        Ok(Self {
+            replay_only,
+            ..Self::new(derived, argv.to_vec(), environment)
+        })
     }
 }
 
@@ -542,6 +557,26 @@ pub struct Invocation {
 }
 
 impl Invocation {
+    /// What a verification read is judged on (`verification::evaluate`): how
+    /// the process ended, its stdout and the truncation flag. Only an exit
+    /// with a code is an exit; a signal, a timeout, a cancellation and a
+    /// program that never started all certify nothing (`DidNotFinish`). The
+    /// stderr is not part of it.
+    pub fn read_output(&self) -> macportsbrew_domain::ReadOutput<'_> {
+        let end = match self.status {
+            ExitStatus::Exited { code } => macportsbrew_domain::ProcessEnd::Exited { code },
+            ExitStatus::Signalled { .. }
+            | ExitStatus::TimedOut
+            | ExitStatus::NotStarted { .. }
+            | ExitStatus::Cancelled => macportsbrew_domain::ProcessEnd::DidNotFinish,
+        };
+        macportsbrew_domain::ReadOutput {
+            end,
+            stdout: &self.stdout,
+            truncated: self.truncated,
+        }
+    }
+
     /// Fails with `ProviderUnhealthy` unless the exit code was 0, and with
     /// `ProviderOutputChanged` when the output was cut off at the cap.
     /// Adapters call this before parsing.
@@ -597,9 +632,11 @@ pub trait ProcessRunner {
 
     /// Whether this runner is a replay of recorded output rather than the
     /// live machine, so analysis output can be labelled.
-    fn is_replay(&self) -> bool {
-        false
-    }
+    ///
+    /// Required, with no default: whether a prefix override is honoured and
+    /// whether a plan read is marked replay-only both follow from this answer,
+    /// so a new runner must state it rather than inherit "live" (SE-050).
+    fn is_replay(&self) -> bool;
 }
 
 impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
@@ -1028,5 +1065,23 @@ mod tests {
             "/{}",
             "a".repeat(MAX_PATH_LEN)
         ))));
+    }
+
+    #[test]
+    fn only_an_exit_with_a_code_is_an_exit_to_a_verification_read() {
+        use macportsbrew_domain::ProcessEnd;
+        let mut inv = invocation(false, 3);
+        assert_eq!(inv.read_output().end, ProcessEnd::Exited { code: 3 });
+        for status in [
+            ExitStatus::Signalled { signal: Some(9) },
+            ExitStatus::TimedOut,
+            ExitStatus::NotStarted { error: "x".into() },
+            ExitStatus::Cancelled,
+        ] {
+            inv.status = status;
+            assert_eq!(inv.read_output().end, ProcessEnd::DidNotFinish);
+        }
+        inv.truncated = true;
+        assert!(inv.read_output().truncated);
     }
 }

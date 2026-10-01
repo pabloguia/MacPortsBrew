@@ -143,8 +143,10 @@ comments:
    sentence rather than a design. `PACKAGE_ABSENT` now carries the provider's
    inventory verb with no package argument and `success: STDOUT_OMITS_PACKAGE`.
    **The evaluation is implemented** (2026-09-27, `crates/domain/src/verification.rs`,
-   tested in `crates/domain/tests/verification.rs`); what is still owed is an
-   executor that runs the command and calls it.
+   tested in `crates/domain/tests/verification.rs`), and since 2026-09-30 the
+   run loop runs the command and calls it (`application::executor::judge_step`,
+   SE-050), unreachable from the binary until `migrate` exists; the loop keeps
+   `ReadEvidence` only.
    What this entry said before, and which is why the field is shaped this way:
    the step carried no command at all, and "nonzero exit means absent" is
    verification by exit status with the sign flipped — `brew list --versions`
@@ -223,7 +225,9 @@ comments:
    executor's design and not this pass's to guess; what this pass owes is that
    the obligation cannot be lost, which is what this list is for. Read-only
    analysis may proceed under a concurrent provider run, flagged as possibly
-   inconsistent — and it is not flagged today either (F-20).
+   inconsistent — and it is not flagged today either (F-20). The run loop's
+   verification reads (2026-09-30) take no lock either; the mutating pass
+   inherits this obligation whole.
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
    read while ignoring the rest. Three have an evaluation today —
@@ -279,8 +283,10 @@ comments:
     to `~` and a replayed plan carries none. Tests:
     `crates/adapters/tests/plan_reads.rs`, among them
     `invariant_10_a_plan_read_never_adopts_the_environment_it_carries`.
-    Nothing in the binary calls it until the run loop exists, and the run
-    loop owes calling it only after the gate has passed the plan.
+    The run loop (2026-09-30) calls it only through
+    `registry::PlanReadSites`, bound to the runner detection used, and only
+    after the gate has passed the plan; nothing in the binary calls the loop
+    until `migrate` exists.
 11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
     and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
     migration is restored from and what the run is compared against, and the
@@ -322,7 +328,14 @@ comments:
     Obligation 11 fixes where the success path records; this one fixes that
     it is not the only path that does. **Not enforceable by the gate**, which
     reads a plan and not a run; owed by the executor's dispatch loop, and its
-    test is owed with it.
+    test is owed with it. **What the loop does today** (2026-09-30): it
+    dispatches no mutating step, so no run it can execute is a mutating run
+    and nothing is written; it returns, on every way a run ends, the per-step
+    records (`ReadEvidence`, never output) and the outcome, refused, halted,
+    partial or completed, from which the record is built. The record type and
+    its append-only store are owed by the history slice (S8), which must not
+    record a partial success of a run that dispatched no mutating step as a
+    partial migration, nor hold a lock or an interrupted-run marker for it.
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,

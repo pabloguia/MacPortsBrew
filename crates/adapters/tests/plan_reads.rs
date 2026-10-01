@@ -16,10 +16,11 @@
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, PlanReadRefusal, ProcessRunner, RecordedInvocation, Recording,
-    ReplayRunner,
+    ReplayRunner, SystemRunner,
 };
 use macportsbrew_adapters::registry::{
-    self, detected_prefix, plan_read_spec, DetectedPrefix, RegistryContext,
+    self, build_with_read_sites, detected_prefix, plan_read_sites, plan_read_spec, DetectedPrefix,
+    PlanReadError, RegistryContext,
 };
 use macportsbrew_domain::{CommandTarget, Elevation, PlanCommand, ProviderId, SuccessSemantic};
 use std::collections::BTreeMap;
@@ -484,4 +485,82 @@ fn only_detection_yields_a_prefix_and_a_provider_it_does_not_know_yields_none() 
     };
     assert_eq!(env(&with).get("HOME").map(String::as_str), Some(HOME));
     assert!(!env(&without).contains_key("HOME"));
+}
+
+/// A prefix resolved through a replay runner is a recording's answer, not a
+/// probe of this machine: a spec built from it is answered by the recording and
+/// refused by the live runner, whoever hands it over (SE-050, "Not closed" 7).
+/// The prefix does not exist, so a spec that slipped past the mark would end
+/// `NotStarted` too — from the allowlist or the kernel; the assertion is on
+/// which refusal, so it cannot pass by that route.
+#[test]
+fn a_prefix_resolved_under_replay_never_reaches_a_live_spawn() {
+    let runner = ReplayRunner::new(recording());
+    for id in registry::known_provider_ids() {
+        let nowhere = PathBuf::from("/nonexistent-mpb-replay-prefix");
+        let ctx = context(&runner, None, vec![(id.clone(), nowhere.clone())]);
+        let site = detected_prefix(&ctx, &id).expect("the override is the detection");
+        let spec = plan_read_spec(&site, &read_command(&id, &nowhere)).expect("a permitted read");
+        let inv = SystemRunner::new().run(&spec).expect("recorded");
+        let ExitStatus::NotStarted { error } = &inv.status else {
+            panic!(
+                "{id:?}: a replay-resolved spec was spawned: {:?}",
+                inv.status
+            );
+        };
+        assert!(error.contains("under replay"), "{id:?}: {error}");
+    }
+}
+
+/// A read site runs through the runner its prefix was detected through, and
+/// nothing else: a site detected from a recording is answered by that
+/// recording. One context builds the adapters and the sites, so their prefix
+/// and home cannot disagree.
+#[test]
+fn a_read_site_is_bound_to_the_runner_it_was_detected_through() {
+    let runner = ReplayRunner::new(recording());
+    let ctx = context(&runner, Some(PathBuf::from(HOME)), recorded_prefixes());
+    let (adapters, sites) = build_with_read_sites(&ctx);
+    assert_eq!(adapters.len(), registry::known_provider_ids().len());
+    assert_eq!(
+        sites.providers().len(),
+        registry::known_provider_ids().len()
+    );
+    for id in registry::known_provider_ids() {
+        let site = detected_prefix(&ctx, &id).expect("detected from the recording");
+        let command = read_command(&id, site.prefix());
+        let inv = sites.run(&id, &command).expect("answered by the recording");
+        assert_eq!(inv.argv, command.argv, "{id:?}");
+        assert_eq!(inv.environment.get("HOME").map(String::as_str), Some(HOME));
+        let key = format!("{} {}", leaf(&executable(&id)), command.argv.join(" "));
+        assert!(runner.consulted().contains(&key), "{id:?}: {key}");
+    }
+    // A provider the context did not detect has no site, and is not run.
+    let undetected = context(&runner, None, Vec::new());
+    for id in registry::known_provider_ids() {
+        let command = read_command(&id, &prefix(&id));
+        assert!(matches!(
+            plan_read_sites(&undetected).run(&id, &command),
+            Err(PlanReadError::NotDetected)
+        ));
+    }
+    // Nor is it borrowed from a provider that was detected.
+    let ids = registry::known_provider_ids();
+    let (first, second) = (&ids[0], &ids[1]);
+    let one = context(&runner, None, vec![(first.clone(), prefix(first))]);
+    assert_eq!(plan_read_sites(&one).providers(), vec![first]);
+    assert!(matches!(
+        plan_read_sites(&one).run(second, &read_command(second, &prefix(second))),
+        Err(PlanReadError::NotDetected)
+    ));
+    // A refusal at construction is reported as one, and nothing is run.
+    let id = &registry::known_provider_ids()[0];
+    let mut forged = read_command(id, &prefix(id));
+    forged.program = "/tmp/elsewhere/bin/x".into();
+    assert!(matches!(
+        sites.run(id, &forged),
+        Err(PlanReadError::Refused(
+            PlanReadRefusal::ProgramDisagrees { .. }
+        ))
+    ));
 }

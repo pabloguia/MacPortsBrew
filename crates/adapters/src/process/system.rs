@@ -203,6 +203,25 @@ impl ProcessRunner for SystemRunner {
         // and a denylist of interpreters is missing `tclsh` — which `port`
         // itself is written in — however long it grows.
         //
+        // A plan read whose prefix was resolved through a replay runner names a
+        // binary nobody probed on this machine — a recording's answer, or a
+        // replay-only override. It may be answered from that recording and is
+        // never spawned here, whoever hands it over (SE-050, "Not closed" 7).
+        if spec.replay_only {
+            return Ok(record(
+                ExitStatus::NotStarted {
+                    error: format!(
+                        "refusing to run `{}`: its prefix was resolved under replay, not \
+                         detected on this machine",
+                        spec.program.display()
+                    ),
+                },
+                String::new(),
+                String::new(),
+                false,
+            ));
+        }
+
         // And for a provider, which of its subcommands: a permitted program
         // asked to do a permitted program's mutation is the same program (F-53).
         if !crate::process::may_spawn(&spec.program, &spec.argv) {
@@ -342,6 +361,10 @@ impl ProcessRunner for SystemRunner {
         };
         Ok(record(exit, o, r, ot || rt))
     }
+
+    fn is_replay(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(unix)]
@@ -402,6 +425,24 @@ mod tests {
         assert!(!inv.stdout.contains("PKG_CONFIG_PATH="));
         let lines = inv.stdout.lines().count();
         assert_eq!(lines, spec.environment.len());
+    }
+
+    #[test]
+    fn a_spec_resolved_under_replay_never_reaches_a_live_spawn() {
+        // A program the test build would run, so a spec that got past the
+        // replay mark exits 0 from the kernel: the assertion is on the refusal.
+        let runner = SystemRunner::new();
+        let mut spec = CommandSpec::new("/bin/echo", vec!["replayed".into()], env());
+        let ran = runner.run(&spec).unwrap();
+        assert!(!ran.truncated, "the reader thread did not drain in time");
+        assert_eq!(ran.status, ExitStatus::Exited { code: 0 });
+        spec.replay_only = true;
+        let inv = runner.run(&spec).unwrap();
+        let ExitStatus::NotStarted { error } = &inv.status else {
+            panic!("a replay-resolved spec was spawned: {:?}", inv.status);
+        };
+        assert!(error.contains("under replay"), "{error}");
+        assert!(inv.stdout.is_empty());
     }
 
     #[test]

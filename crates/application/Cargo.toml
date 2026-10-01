@@ -14,6 +14,12 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
+[features]
+# Test support only, never a default: `PlannedRun::map_plan`, which pairs the
+# snapshot a plan was built from with a narrowed plan. Enabled by the
+# command-line crate's dev-dependency alone (SE-050, review of S5).
+test-support = []
+
 [dev-dependencies]
 
 [lints]
