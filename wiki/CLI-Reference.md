@@ -4,7 +4,9 @@
 shorter name** — installed alongside, not a wrapper, and behaving identically.
 Everything below works under either.
 
-Every command on this page is read-only. Nothing here changes your machine.
+Every command on this page is read-only, `migrate --yes` included: it is the
+one command that asks for execution, and its gate refuses every plan this
+build produces. Nothing here changes your machine.
 
 ## Commands
 
@@ -53,6 +55,35 @@ Prints the ordered steps, the risks, and where a human would decide. Exits **4**
 when the plan contains a step needing human review — which is a normal outcome,
 not an error, and the plan is printed anyway.
 
+### `macportsbrew migrate <PACKAGE> --to <PROVIDER>`
+
+Shows a migration plan; with `--yes`, puts it to the execution gate. **The gate
+refuses every plan this build produces, so nothing is changed** — before any
+provider command is run.
+
+| Flag | Effect |
+|---|---|
+| `--to <PROVIDER>` | Destination provider id. Required |
+| `--retain-source` | Keep the source package after migration |
+| `--yes` | Put the plan to the execution gate instead of only showing it. Nothing in this build prompts |
+| `--dry-run` | Show the plan and run nothing. Wins over `--yes` |
+
+Without `--yes` it prints the plan as `plan` does. With `--yes` it prints the
+plan and the gate's refusals, one line per reason the gate refuses, and exits
+**4** — for every plan this build produces. `--yes` with `--from-snapshot`
+exits **2** before any output: a snapshot file records nothing an execution
+could check.
+
+When the package is already where you asked for it and no other provider holds
+it, `migrate` says there is nothing to move and exits **0** — but only when
+every other provider was detected and its inventory read. On a machine where
+the other provider was not detected it refuses instead
+(`PROVIDER_PRESENCE_UNPROVEN`, exit **4**), because a provider installed
+somewhere detection does not look would read the same (an open decision,
+DP-026, in [`../docs/decisions-pending.md`](../docs/decisions-pending.md)).
+The `--json` contract is
+[`../docs/schemas/migrate.v1.md`](../docs/schemas/migrate.v1.md).
+
 ### `macportsbrew doctor`
 
 Structural checks: provider presence and health, prefixes, `PATH` order,
@@ -87,14 +118,16 @@ Read it back with `--from-snapshot`. The format is documented at
 | `--from-snapshot <FILE>` | Analyse a captured snapshot instead of this machine |
 | `--no-network` | Accepted; analysis never uses the network in this build |
 | `--refresh` | Accepted; there is no cache in this build |
-| `--dry-run` | Accepted; everything in this build is a dry run |
-| `--yes` | Accepted; nothing in this build prompts |
+| `--dry-run` | Show what would be done and run nothing; wins over `--yes`. Every command but `migrate --yes` is a dry run in this build anyway |
+| `--yes` | Confirm: `migrate` puts its plan to the execution gate instead of only showing it. The gate refuses every plan this build produces, so nothing runs; nothing in this build prompts |
 | `--help`, `-h` | Help. `--help` is the long form, `-h` the summary |
 | `--version`, `-V` | Version |
 
-The last four exist so that a script written today keeps working when the
-mutating commands arrive. They are not silently ignored — they are honestly
-inert, and the help text says so.
+`--no-network` and `--refresh` exist so that a script written today keeps
+working when the network and the cache arrive; they are inert, and the help
+text says so. `--yes` and `--dry-run` are not inert: they decide whether
+`migrate` only shows its plan or puts it to the execution gate — which, in this
+build, refuses it.
 
 `--from-snapshot` computes the analysis **as of the snapshot's capture date**,
 so a support deadline is weighed the way it was when the snapshot was taken.
@@ -129,6 +162,8 @@ affects human presentation only.
 | 8 | stale or unusable input |
 
 Codes 3, 6 and 7 belong to execution and are not reachable in this build.
+`migrate --yes` exits 4 for every plan this build produces, because the
+execution gate refuses each one.
 
 ## Not in this build
 
@@ -136,7 +171,6 @@ Specified and not yet written:
 
 ```
 macportsbrew                          the interactive overview (bare `macportsbrew` runs `status` in this build)
-macportsbrew migrate ...              execute a plan
 macportsbrew restore --run <id>       plan, review, confirm, execute
 macportsbrew primary <pkg> <provider> package-level selection
 macportsbrew provider-priority <p>    global priority
@@ -164,6 +198,9 @@ macportsbrew explain git
 # What moving it would involve, in either direction
 macportsbrew plan git --to macports
 macportsbrew plan git --to homebrew
+
+# The same plan, put to the execution gate (refused in this build, exit 4)
+macportsbrew migrate git --to macports --yes
 
 # Machine-readable, for a script
 macportsbrew analyze --json | jq '.summary'

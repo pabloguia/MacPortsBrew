@@ -115,6 +115,10 @@ tells you the category:
 where a human has to decide. The plan is printed anyway, because it is the
 useful output.
 
+**Exit 4 from `migrate --yes` is expected for every plan in this build.** The
+plan is put to the execution gate, which refuses every plan this build produces
+and lists why; nothing runs and nothing changes.
+
 `"error: exit status 1"` is never acceptable output from this tool. If you see
 something like it, that is a bug worth reporting.
 

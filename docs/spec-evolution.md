@@ -1136,7 +1136,7 @@ change is made. Silent deviation remains the one unrecoverable error.
 ## SE-057 — The reader-drain timeout, and a test flake that was a leaked pipe
 - Status: accepted
 - Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation; diagnosis
-  revised 2026-10-01, same pass
+  revised 2026-10-01 / 05-THE-EXECUTOR (commit a8343b6)
 - Original assumption: two seconds is long enough for a reader thread to hand
   back what it read, so a longer wait means a grandchild is holding the pipe —
   and, once the adapters' tests began failing on it, that the failures were the
@@ -3143,9 +3143,11 @@ finding ids in each entry.
     spec before the allowlist and before anything is spawned (one field and
     one check in `process/`, for the security review). Independently,
     `PlanReadSites` captures `ctx.runner` with the sites it detects, so a read
-    runs through the runner it was detected through, and
-    `registry::build_with_read_sites` builds the adapters and the sites from
-    one context, so they share prefix resolution and home. (Superseded for
+    runs through the runner it was detected through, and the adapters and
+    the sites are built from one context, so they share prefix resolution and
+    home (a `registry::build_with_read_sites` that paired them had only a
+    test as its caller and was removed by SE-092's end-of-pass amendment).
+    (Superseded for
     `migrate` by review fix M1 below: the sites are built inside
     `executor::run`, after the gate, from the context the capture's adapters
     were built from — SE-092, S6 addendum.) A runner
@@ -3198,8 +3200,8 @@ finding ids in each entry.
     `RegistryContext` and calls `plan_read_sites` only after `refused(&gate)`
     answered `None`; `run_with` takes a site *factory* for tests and calls it
     under the same rule, so no caller holds a read site for a plan the gate
-    refused, and the word scan keeps `PlanReadSites`, `plan_read_sites` and
-    `build_with_read_sites` inside `crates/cli/src/executor/` — with no
+    refused, and the word scan keeps `PlanReadSites` and `plan_read_sites`
+    inside `crates/cli/src/executor/` — with no
     exemption for `app/migrate.rs`: `run` builds the sites from the context
     itself, so its caller never needs them, and holding them would be a way
     to read on a plan the gate never saw (re-review; proved by planting a
@@ -5694,10 +5696,15 @@ finding ids in each entry.
   plan and its spec-guardian review of 2026-09-27; `scripts/check-layering.sh`
   lines 22-37 and `scripts/check-coverage.sh` line 39 (what option A would
   edit); DP-023 and DP-024 in `docs/decisions-pending.md`.
-- User impact: none until `migrate` exists.
+- User impact: `migrate` exists (slice S6). It renders a plan, and with `--yes`
+  puts it to the execution gate, which refuses every plan this build produces
+  before any read site is built — exit 4, and nothing changes the machine.
 - Architectural impact: the command-line crate gains an I/O module that is not
   presentation; `AGENTS.md`'s `cli` row says so.
-- Compatibility impact: none.
+- Compatibility impact: additive. A new `--json` contract,
+  `docs/schemas/migrate.v1.md`, and one new `ErrorId`,
+  `PROVIDER_PRESENCE_UNPROVEN` (exit 4), from the `migrate` slice; no existing
+  field, identifier or exit code changed meaning.
 - **Addendum, INV-16's prerequisite, 2026-09-28 (slice S3).** Not covered by
   the Rationale above. `plan_outcome` returns
   `PlanOutcome::AlreadyAtDestination` when the requested destination is the
@@ -5766,8 +5773,9 @@ finding ids in each entry.
   | `build_plan` keeps `Usage` | `Internal` instead | `build_plan_still_reports_it_as_usage`, `a_package_only_the_destination_holds_is_refused_as_nothing_to_move`, `an_inactive_copy_at_the_destination_is_not_already_there` |
   | `plan` passes the registry's `known` | pass `&[]` | `a_package_is_not_reported_as_already_moved_on_an_inventory_nobody_read` (`crates/cli/tests/end_to_end.rs`) |
 
-  Open for the
-  `migrate` slice: a `--retain-source` re-run finds both providers holding the
+  Left open for the
+  `migrate` slice, and **closed there** (S6 addendum below) except where
+  noted: a `--retain-source` re-run finds both providers holding the
   package and builds another consolidation plan instead of "nothing to move";
   and a source row whose mapping counterpart is this destination package but
   which sits in a different analysis unit (a name mismatch) is invisible here,
@@ -5777,7 +5785,11 @@ finding ids in each entry.
   not accept the outcome on an absence detection could have missed; and
   `migrate`'s call site must pass the registry's provider list and carry the
   same deleted-provider end-to-end test `plan` has, because a `known` of the
-  snapshot's own keys switches the missing-provider check off.
+  snapshot's own keys switches the missing-provider check off. S6 closed the
+  name mismatch and the absence (its refusals (1) and (2)) and passes the
+  registry's list with the deleted-provider test
+  (`crates/cli/tests/migrate.rs`); the `--retain-source` re-run is carried as
+  S6's "Not closed" (2), owed by the history store.
 - **Addendum, the run loop, 2026-09-30 (slice S5).** The placement above is
   built. `crates/application/src/executor.rs` holds every decision as a pure
   function — `next_action` (the only source of a dispatch: the plan-wide
@@ -5797,8 +5809,9 @@ finding ids in each entry.
   comment, because `.claude/` is a guarded path; the rule file, and the
   `CLAUDE.md` path-scoped list gaining the subtree, are the owner's to add.
   The single-caller rule (only `app/migrate.rs` reaches the context's runner)
-  is owed with that file in the `migrate` slice; `invariant_17_the_executor_names_no_provider`
-  already scans `app/migrate.rs` when it exists, and
+  was owed with that file in the `migrate` slice and is **closed by S6**
+  (below, with the scan's stated limits); `invariant_17_the_executor_names_no_provider`
+  scans `app/migrate.rs`, and
   `the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_loop`
   gives it no exemption: `migrate` calls `executor::run` with the context and
   never holds a read site. `AGENTS.md`'s `cli` row now
@@ -6100,5 +6113,44 @@ finding ids in each entry.
   `a_run_the_dispatch_guard_halted_changed_nothing`,
   `a_run_record_serialises_deterministically`); `04-migration-and-safety.md`
   (History); `plan.v1.md` obligations 3 and 12.
+- **Amended 2026-10-01: the end-of-pass review of the dry-run half
+  (810e0d0..8a6ddba).** Corrections made in place, so no older sentence
+  contradicts them. (1) `registry::build_with_read_sites` is removed: its only
+  caller was a test, and the call path it described is not the one `migrate`
+  takes — `Context::execution_registry` hands the loop the capture's registry
+  context and the loop builds its sites with `plan_read_sites`.
+  `04-migration-and-safety.md` (Threat model, plan reads), `plan.v1.md`
+  obligations 3, 4 and 10, and the comments in `app/context.rs` and
+  `app/migrate.rs` now say so, and that the loop **re-detects** each prefix
+  from the capture's sources rather than reusing capture's answer — a prefix
+  that changed in between is refused as `ProgramDisagrees`, never run. They
+  also no longer say the loop is unreachable: `migrate --yes` calls it, and the
+  gate refuses every plan this build produces before any read site is built.
+  `plan.v1.md`'s `success` row states that truncation fails every semantic
+  (SE-089). (2) `escape_controls` also escapes U+2028 and U+2029, which are
+  neither controls nor Cf but break a line where a renderer honours them; the
+  format-character test covers both, and the comparison is written in decimal
+  because the hexadecimal spelling reads as a year to INV-20's deadline scan.
+  (3) `the_plan_editing_test_hook_is_out_of_product_source` also holds every
+  workspace manifest to enabling `test-support` only under
+  `[dev-dependencies]`. (4) INV-07 gains a test by name,
+  `invariant_07_a_check_reads_only_its_own_providers_name`
+  (`crates/domain/tests/verification.rs`), over the two tests that hold a
+  verification to its own provider's spelling. **Mutation record**, in a
+  scratch copy with its own target directory, each mutation restored by
+  rewriting the file and touching it, the copy compared with `diff -r` at the
+  end: `test-support` moved into `crates/cli/Cargo.toml`'s `[dependencies]` —
+  killed by the manifest check; the line-separator escape removed — killed by
+  `a_format_character_cannot_reorder_or_hide_what_is_shown`.
+  **Not closed**, recorded rather than fixed here: (a) the snapshot loader's
+  check, `domain::snapshot::is_safe_provider_text`, accepts Unicode format (Cf) characters that
+  `escape_controls` treats as hostile — the two disagree about one question
+  and one shared definition is owed; (b) `RunRecord`'s `snapshot_path` normally
+  lies under the home and must be home-redacted by the future store before it
+  is written (the S8 "Owed by the mutating pass" list names it); (c) whether a
+  `brew.env` file under the user's `HOME` can override the quieting
+  environment the process executor sets is unestablished, and a
+  `provider-researcher` check of it is owed before a mutating pass relies on
+  that environment.
 
 ---

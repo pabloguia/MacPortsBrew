@@ -34,8 +34,9 @@ so on its own when the facts support it:
   MacPorts side.** That is a rule, `SOURCE_NO_PREBUILT_DESTINATION_PREBUILT`,
   and it fires in whichever direction the facts point.
 - **You want a tool in the ecosystem where its maintainers are.** A legitimate
-  reason the tool cannot see; override the recommendation and it will record
-  that you did.
+  reason the tool cannot see; override the recommendation, and the plan
+  records the override — which the run would record with it, once a build
+  executes plans.
 
 ## Should you move this package at all?
 
@@ -53,7 +54,24 @@ The same outcomes as the other direction, symmetric in every case:
 macportsbrew plan gnutls --to homebrew
 ```
 
-On a machine with MacPorts and no Homebrew:
+**From the committed recordings, this direction is refused before a plan
+exists.** Replaying `macports-only-intel-macos12`, the one committed recording
+with MacPorts and no Homebrew, prints this on stderr, nothing on stdout, and
+exits 4:
+
+```
+macportsbrew: A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: this input does not record whether macports packages define services, so the rule that forces manual review for a service package cannot be evaluated for gnutls. This is not something to fix on your machine — the fact is absent from the document itself. `analyze`, `status` and `explain` do not depend on it and still work.
+```
+
+No committed recording captures whether a MacPorts port defines a service, so
+every plan out of MacPorts from a recording is refused as unverifiable — a
+safety rule that cannot be evaluated is a refusal, never a pass (INV-19). The
+refusal is about the recording, not about this direction.
+
+On a live machine with MacPorts and no Homebrew, where that fact is read, the
+plan has the shape below. **This block is illustrative**: no committed
+recording produces it, so no test holds it to what the program prints, and the
+labels are written the way the program prints them.
 
 ```
 Plan: move gnutls from macports to homebrew
@@ -65,25 +83,32 @@ Risks detected
   ! The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
 
 Steps, in order
-  1. ManualReview - homebrew is not installed on this machine; installing a provider needs explicit consent and is a separate step.
+  1. Needs a human decision - homebrew is not installed on this machine; installing a provider needs explicit consent and is a separate step.
        Execution would stop here for a human decision (exit code 4).
-  2. ManualReview - The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  2. Needs a human decision - The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
        Execution would stop here for a human decision (exit code 4).
 ```
 
-Compare that with the example on the
-[Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) page: same wording,
-same structure, same exit code, the names swapped. That is what symmetry means
-here in practice.
+The [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) page's example
+is replayed from a recording and tested; this one is not. What the tests do
+establish about symmetry is narrower and stated where it is checked:
+`invariant_17_swapping_the_providers_swaps_the_analysis` swaps the providers in
+the input and asserts the analysis swaps with them, and the test that puts
+every plan the committed recordings produce to the execution gate reaches only
+Homebrew-to-MacPorts plans, for the reason above. The MacPorts-to-Homebrew
+direction of the gate is covered by a synthesised snapshot in
+`crates/application/tests/execution_gate.rs`.
 
-A package that owns data behaves the same way in both directions too:
+A package that owns data is refused the same way from the recording. On a live
+machine its plan carries a stateful-class risk — again illustrative, and
+abbreviated:
 
 ```
 Plan: move postgresql17-server from macports to homebrew
   ...
 Risks detected
   ! homebrew is not installed on this machine; installing a provider needs explicit consent and is a separate step.
-  ! postgresql17-server is classed as Stateful, and packages in that class are never migrated automatically. A person decides this one.
+  ! postgresql17-server is classed as Holds data, and packages in that class are never migrated automatically. A person decides this one.
   - Whether homebrew would supply postgresql17-server ready-built or compile it here could not be determined. An unknown is not a yes.
 ```
 

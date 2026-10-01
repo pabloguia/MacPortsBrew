@@ -19,8 +19,8 @@ use macportsbrew_adapters::process::{
     ReplayRunner, SystemRunner,
 };
 use macportsbrew_adapters::registry::{
-    self, build_with_read_sites, detected_prefix, plan_read_sites, plan_read_spec, DetectedPrefix,
-    PlanReadError, RegistryContext,
+    self, detected_prefix, plan_read_sites, plan_read_spec, DetectedPrefix, PlanReadError,
+    RegistryContext,
 };
 use macportsbrew_domain::{CommandTarget, Elevation, PlanCommand, ProviderId, SuccessSemantic};
 use std::collections::BTreeMap;
@@ -514,13 +514,13 @@ fn a_prefix_resolved_under_replay_never_reaches_a_live_spawn() {
 
 /// A read site runs through the runner its prefix was detected through, and
 /// nothing else: a site detected from a recording is answered by that
-/// recording. One context builds the adapters and the sites, so their prefix
-/// and home cannot disagree.
+/// recording. The sites are built from the context the adapters are, so their
+/// prefix and home cannot disagree.
 #[test]
 fn a_read_site_is_bound_to_the_runner_it_was_detected_through() {
     let runner = ReplayRunner::new(recording());
     let ctx = context(&runner, Some(PathBuf::from(HOME)), recorded_prefixes());
-    let (adapters, sites) = build_with_read_sites(&ctx);
+    let (adapters, sites) = (registry::build(&ctx), plan_read_sites(&ctx));
     assert_eq!(adapters.len(), registry::known_provider_ids().len());
     assert_eq!(
         sites.providers().len(),

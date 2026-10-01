@@ -257,17 +257,6 @@ pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
     }
 }
 
-/// The adapters [`build`] constructs and the plan read sites, from **one**
-/// context: the prefix every site derives from is resolved the way the
-/// adapters' is, and the home is the one they were built with. The run loop
-/// takes both from here, so the two cannot be built from contexts that
-/// disagree.
-pub fn build_with_read_sites<'r>(
-    ctx: &RegistryContext<'r>,
-) -> (Vec<Box<dyn ProviderRead + 'r>>, PlanReadSites<'r>) {
-    (build(ctx), plan_read_sites(ctx))
-}
-
 /// Resolves the prebuilt-artifact tags for a provider id.
 pub type PlatformTags<'r> = Box<dyn Fn(&str) -> Vec<String> + 'r>;
 

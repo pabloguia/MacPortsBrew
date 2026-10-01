@@ -305,7 +305,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # compile error rather than an identifier shown to a person (F-20). Command
 # numbers count from 1 within their step.
 "migrate.nothing_to_move" = "Nothing to move: {package} is already under {provider}. In what was read, no other provider holds it, nor anything its mappings name as possibly the same package. Nothing was changed."
-"migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which in this build refuses every plan it produces."
+"migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces."
 "migrate.execution_heading" = "Execution"
 # Whether a package manager was changing the machine while it was read
 # (`plan.v1.md`, obligation 5). This build never looks, so only the first two

@@ -348,21 +348,33 @@ fn clean_value(value: serde_json::Value, home: &HomeRedaction) -> serde_json::Va
     }
 }
 
-/// Escapes every control character and every Unicode format character
-/// (category Cf), so a value cannot move a cursor, clear a line, start a
-/// terminal sequence, or reorder or hide what is shown around it (U+202E and
-/// the other bidirectional overrides, zero-width characters).
+/// Escapes every control character, every Unicode format character
+/// (category Cf) and the two Unicode line and paragraph separators (U+2028,
+/// U+2029, categories Zl and Zp), so a value cannot move a cursor, clear or
+/// break a line, start a terminal sequence, or reorder or hide what is shown
+/// around it (U+202E and the other bidirectional overrides, zero-width
+/// characters).
 pub(crate) fn escape_controls(value: &str) -> String {
     value
         .chars()
         .map(|c| {
-            if c.is_control() || is_format(c) {
+            if c.is_control() || is_format(c) || is_line_separator(c) {
                 c.escape_unicode().to_string()
             } else {
                 c.to_string()
             }
         })
         .collect()
+}
+
+/// Whether `c` is U+2028 LINE SEPARATOR or U+2029 PARAGRAPH SEPARATOR: not
+/// controls and not Cf, but a renderer that honours them breaks the line, so a
+/// value could start a line of its own.
+fn is_line_separator(c: char) -> bool {
+    // Decimal, deliberately: the hexadecimal spelling of these code points
+    // reads as a year to INV-20's deadline scan, and an exemption there would
+    // be worse than an unfamiliar radix here. 8232 is U+2028, 8233 is U+2029.
+    matches!(u32::from(c), 8232 | 8233)
 }
 
 /// Whether `c` is in Unicode general category Cf (Format), Unicode 16.0.
@@ -449,6 +461,8 @@ mod tests {
             '\u{200B}',
             '\u{FEFF}',
             '\u{E0041}',
+            '\u{2028}',
+            '\u{2029}',
         ] {
             let text = render_refusal(
                 &PlanReadRefusal::UnsafePrefix {

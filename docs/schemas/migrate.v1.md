@@ -8,9 +8,9 @@ types are in `crates/application/src/executor.rs` and
 
 **In this build nothing executes a plan.** `migrate --yes` reaches a refusal
 gate (`crates/application/src/execution_gate.rs`) that refuses every plan this
-build produces; the read-step loop behind it exists, is tested against
-recordings, and is unreachable from the binary. So every `execution` this build
-writes is `REFUSED` with an empty step list, and exits 4. The fields below that
+build produces, before any read site is built; the read steps behind it exist,
+are tested against recordings, and are unreachable from the binary. So every
+`execution` this build writes is `REFUSED` with `steps` absent, and exits 4. The fields below that
 only a run past the gate fills — `steps`, `siteRefusal`, the other outcomes —
 are documented because the type writes them, not because this build reaches
 them.

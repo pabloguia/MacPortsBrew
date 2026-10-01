@@ -276,6 +276,17 @@ fn names_with_dots_and_pluses_are_compared_literally() {
 
 // --- Which name, which provider ----------------------------------------------
 
+/// INV-07's defence at verification: a check against one provider's inventory
+/// reads that provider's spelling of the package and never the other's, so a
+/// destination is never certified by the source's name (nor a removal by the
+/// destination's) — which is how a cross-provider coupling would enter through
+/// the step INV-01 puts in front of `REMOVE_SOURCE`.
+#[test]
+fn invariant_07_a_check_reads_only_its_own_providers_name() {
+    a_destination_check_reads_the_destination_name_never_the_source();
+    a_removal_check_reads_the_source_name_never_the_destination();
+}
+
 #[test]
 fn a_destination_check_reads_the_destination_name_never_the_source() {
     // One package, two spellings. A destination inventory lists the

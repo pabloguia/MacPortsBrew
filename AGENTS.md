@@ -119,10 +119,10 @@ table for what heuristics miss. `AMBIGUOUS` and `NONE` never act automatically.
 ## Adapters: what each must never do
 
 An adapter implements `ProviderRead` over a `process::ProcessRunner`. It must
-**never** construct `std::process::Command` itself (the executor is the only
-site, checked textually), never build a command by string interpolation, never
+**never** construct `std::process::Command` itself (the process executor is the
+only site, checked textually), never build a command by string interpolation, never
 report `CapabilityState::Unknown` as `Available`, never read a clock or the
-environment outside the executor's sanitised one, and never let provider
+environment outside the process executor's sanitised one, and never let provider
 metadata become a path or a flag. A parser that meets unrecognised output fails
 with `ErrorId::ProviderOutputChanged` rather than mis-parsing. Homebrew is
 quieted by environment, MacPorts by argv; that asymmetry lives in one place.
@@ -166,8 +166,8 @@ ownership (INV-11) and is not a global priority (INV-12).
 `scripts/validate.sh` (`--quick` | default | `--full`) is the one definition of
 valid; CI is the authority. Tests run against captured fixtures, never a live
 installation. Coverage floors are in `docs/spec/07-quality-and-testing.md`.
-Invariant tests are named `invariant_NN_*` in `crates/*/tests/`, plus `invariant_01`
-(`domain/src/plan.rs`) and `invariant_10` (`adapters/src/process/mod.rs`); find
+Invariant tests are named `invariant_NN_*`, in `crates/*/tests/` and in some `src`
+test modules (`domain/src/plan.rs`, `adapters/src/process/mod.rs`, others); find
 them with `grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change
 that touches an invariant and cannot point at its test is incomplete.**
 
@@ -184,8 +184,8 @@ Touch these only deliberately, and run `security-reviewer` and `spec-guardian`
 before reporting done. **`crates/adapters/src/process/`** — the only subprocess
 site; argv only, no shell, sanitised environment, so command injection is
 prevented structurally. **`crates/application/src/planner.rs`** — step ordering
-*is* INV-01; reordering is a safety change, not a refactor. **`crates/cli/src/executor/`
-and `crates/application/src/executor.rs`** — gate first, dispatch guard, read sites only.
+*is* INV-01; reordering is a safety change, not a refactor. **`crates/cli/src/executor/`, `application/src/executor.rs` and `execution_gate.rs`,
+`domain/src/verification.rs`, `registry::plan_read_spec`** — gate first, dispatch guard, read sites only, what certifies a step.
 **`crates/policy/src/rules/mod.rs`** — the priority constants and `all()` are a
 total order the engine depends on. **`scripts/*.sh` and `.claude/hooks/*.sh`** —
 the gates; weakening one is invisible until something it would have caught

@@ -150,8 +150,9 @@ comments:
    **The evaluation is implemented** (2026-09-27, `crates/domain/src/verification.rs`,
    tested in `crates/domain/tests/verification.rs`), and since 2026-09-30 the
    run loop runs the command and calls it (`application::executor::judge_step`,
-   SE-050), unreachable from the binary until `migrate` exists; the loop keeps
-   `ReadEvidence` only.
+   SE-050). `migrate --yes` calls the loop (`executor::run`, SE-092), and the
+   gate refuses every plan this build produces before any read site is built,
+   so no `VERIFY_REMOVAL` read runs yet; the loop keeps `ReadEvidence` only.
    What this entry said before, and which is why the field is shaped this way:
    the step carried no command at all, and "nonzero exit means absent" is
    verification by exit status with the sign flipped — `brew list --versions`
@@ -227,8 +228,10 @@ comments:
    now the same shape as items 1 and 2: read the field, refuse what it cannot
    perform (F-33). **The refusal half is enforced by the gate**
    (`UNKNOWN_SUCCESS`), tested by `a_command_of_unknown_success_is_refused`;
-   honouring a stated semantic is `verification::evaluate`'s, and waits for a
-   loop that calls it.
+   honouring a stated semantic is `verification::evaluate`'s, which the run
+   loop calls (`judge_step`). `migrate --yes` calls that loop, and the gate
+   refuses every plan this build produces before any read site is built, so no
+   semantic is evaluated against a live answer yet.
 5. **A single-instance lock, and a check for a concurrently running `brew` or
    `port`.** `04-migration-and-safety.md` ("Concurrency and locking") is a
    **MUST** in two halves, and this build owes them differently.
@@ -307,8 +310,9 @@ comments:
     `invariant_10_a_plan_read_never_adopts_the_environment_it_carries`.
     The run loop (2026-09-30) calls it only through
     `registry::PlanReadSites`, bound to the runner detection used, and only
-    after the gate has passed the plan; nothing in the binary calls the loop
-    until `migrate` exists.
+    after the gate has passed the plan. `migrate --yes` calls the loop
+    (`executor::run`, SE-092), and the gate refuses every plan this build
+    produces before any read site is built.
 11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
     and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
     migration is restored from and what the run is compared against, and the
@@ -395,7 +399,7 @@ the useful output even when it cannot be run unattended.
 | `argv` | array of string | The full argument vector. **There is no shell and no string interpolation**: package names and paths are arguments, never fragments of a command line |
 | `environment` | map of string to string, optional | The sanitised environment the command would run in. Omitted when empty, so its absence does not by itself mean `TOOL`: a `PROVIDER` command whose source snapshot carried no environment is written without it too (see F-21) |
 | `elevation` | tagged union, tag `elevation` | `NONE`, `REQUIRED` (with a `reason` — the provider's own statement or a stable identifier), `UNKNOWN` |
-| `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, `STDOUT_OMITS_PACKAGE`, or `UNKNOWN`. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. **"Appear" means equal to the first whitespace-separated token of some line, not a substring** — measured 2026-09-19, 18 of 201 installed formulae are a substring of another's name (`gh` inside `ghidra`), so a substring rule lets a failed install pass the step INV-01 puts in front of `REMOVE_SOURCE` (F-51). A prefix test does not close it either: `ghidra` begins with `gh`. `STDOUT_OMITS_PACKAGE` is how a **removal** is certified and is deliberately not that one negated: the name must be missing from a **non-empty** stdout, because asked about one name each provider answers an absent package, a name that never was one, and a provider that failed to run with the same empty output (observed 2026-09-19). The command therefore names no package and asks for the whole inventory, and an empty answer is refused rather than read as a removal. It uses the same whole-token definition of "names" as `STDOUT_NAMES_PACKAGE`, negated — one definition for the pair, because under a substring rule the two fail in opposite directions. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed |
+| `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, `STDOUT_OMITS_PACKAGE`, or `UNKNOWN`. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. **"Appear" means equal to the first whitespace-separated token of some line, not a substring** — measured 2026-09-19, 18 of 201 installed formulae are a substring of another's name (`gh` inside `ghidra`), so a substring rule lets a failed install pass the step INV-01 puts in front of `REMOVE_SOURCE` (F-51). A prefix test does not close it either: `ghidra` begins with `gh`. `STDOUT_OMITS_PACKAGE` is how a **removal** is certified and is deliberately not that one negated: the name must be missing from a **non-empty** stdout, because asked about one name each provider answers an absent package, a name that never was one, and a provider that failed to run with the same empty output (observed 2026-09-19). The command therefore names no package and asks for the whole inventory, and an empty answer is refused rather than read as a removal. It uses the same whole-token definition of "names" as `STDOUT_NAMES_PACKAGE`, negated — one definition for the pair, because under a substring rule the two fail in opposite directions. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed. **A truncated read fails every semantic** — `STDOUT_NAMES_PACKAGE` and `EXIT_STATUS` included, not only `STDOUT_OMITS_PACKAGE`: an answer cut short at the capture bound is not the answer the provider gave — a line cut mid-name can read `gh` where the provider printed `ghidra` — and a clean exit does not vouch for output nobody read whole (SE-089) |
 | `placeholder` | boolean, always present | The command is an **illustration**, not something an executor could run. A plan built for a provider that was not detected has no prefix to resolve, so the program reads `<macports prefix>/bin/macports` and the verb `<verify>`. Until this field existed nothing distinguished those from a real command, and `check_ordering` never looks at commands at all (F-20). **An executor refuses a plan carrying one** rather than running the steps around it. **Read this field before executing anything.** It is always written, but `false` is the permissive value, so a reader that ignores it — or a document produced before the field existed — sees a real command where an illustration is. Unlike an unrecognised `check`, which deserialises to a value that cannot be satisfied, a boolean has no shape that fails closed on a reader who never looks |
 
 **`TOOL` is not a provider invocation.** Exactly one step can carry one —

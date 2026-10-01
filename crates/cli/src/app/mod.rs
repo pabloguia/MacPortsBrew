@@ -63,7 +63,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub dry_run: bool,
     /// Confirm: `migrate` puts its plan to the execution gate instead of only
-    /// showing it. This build's gate refuses every plan it produces, so
+    /// showing it. The gate refuses every plan this build produces, so
     /// nothing runs; nothing in this build prompts.
     #[arg(long, global = true)]
     pub yes: bool,
@@ -120,8 +120,8 @@ pub enum Command {
         #[arg(long)]
         retain_source: bool,
     },
-    /// Show a migration plan; with --yes, put it to the execution gate. This
-    /// build's gate refuses every plan it produces, so nothing is changed.
+    /// Show a migration plan; with --yes, put it to the execution gate. The
+    /// gate refuses every plan this build produces, so nothing is changed.
     Migrate {
         /// Package name.
         package: String,

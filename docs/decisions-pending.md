@@ -36,6 +36,16 @@ audience trade-off, so it is the owner's.
 `migrate.v1` so a script can tell the two apart without parsing text.
 **Reversible default taken:** (a) — behaviour unchanged.
 
+**(a) cannot outlive the mutating pass without an INV-16 answer.** Once
+`migrate --yes` can complete a migration, the source provider can be
+uninstalled afterwards; a re-run on that machine then finds one provider and the
+package at the destination, and under (a) refuses with exit 4 rather than
+reporting done — the re-run INV-16 requires to change nothing and say so would
+say "blocked" instead. So the mutating pass must either settle this decision
+(for (b) or (c)) or give (a) a way to recognise its own completed run, such as
+the history store's record confirmed against a fresh capture (SE-092, S8 "Owed
+by the mutating pass"), before it ships.
+
 ### DP-025 — The charter's example of a surface that differs from the identity is now stale
 
 Raised 2026-10-01 by `spec-guardian`'s review of the `migrate` slice (SE-092,

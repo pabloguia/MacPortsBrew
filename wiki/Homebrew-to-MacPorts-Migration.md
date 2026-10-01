@@ -44,8 +44,11 @@ are covered in [Dependencies and Safety](Dependencies-and-Safety.md).
 macportsbrew plan curl --to macports
 ```
 
-On a machine with Homebrew and no MacPorts, that produces:
+On a machine with Homebrew and no MacPorts — here the committed recording
+`homebrew-only-intel-macos26`, replayed, so a test holds this block to what the
+program prints — that produces, and exits 4:
 
+<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json plan curl --to macports --today 2026-09-02 exit=4 -->
 ```
 Plan: move curl from homebrew to macports
   This build changes nothing: `migrate --yes` reaches a refusal gate that refuses every plan this build produces, so nothing here is executed and nothing asks for elevation.
@@ -57,11 +60,11 @@ Risks detected
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
 
 Steps, in order
-  1. ManualReview - macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.
+  1. Needs a human decision - macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.
        Execution would stop here for a human decision (exit code 4).
-  2. ManualReview - The equivalent under macports is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  2. Needs a human decision - The equivalent under macports is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
        Execution would stop here for a human decision (exit code 4).
-  3. ManualReview - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
+  3. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
        Execution would stop here for a human decision (exit code 4).
 ```
 
@@ -76,8 +79,8 @@ installs a package manager implicitly. Installing one is a separate action that
 needs your explicit consent.
 
 **Each blocking risk becomes a step.** A plan is not a summary of a decision;
-it is the decision, in order, with the reasons attached. Executing a plan that
-contains a `ManualReview` step exits 4 and names the step.
+it is the decision, in order, with the reasons attached. A plan with a step
+that needs a human decision exits 4 and names the step.
 
 Add `--json` for the machine-readable form — see
 [`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).

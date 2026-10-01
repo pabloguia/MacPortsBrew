@@ -676,7 +676,7 @@ fn the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_lo
         // would be a way to read on a plan the gate never saw (review of S5).
         let in_loop = Path::new(&file).starts_with(&executor);
         if !in_loop {
-            for banned in ["planreadsites", "plan_read_sites", "build_with_read_sites"] {
+            for banned in ["planreadsites", "plan_read_sites"] {
                 assert_ne!(word, banned, "{file} builds a read site outside the loop");
             }
             if !file.contains("/app/") {
@@ -1026,4 +1026,43 @@ fn the_plan_editing_test_hook_is_out_of_product_source() {
             .any(|l| l.trim_start().starts_with("default")),
         "test-support is never a default feature"
     );
+    // And no manifest enables it for a product build: every place that turns
+    // `test-support` on is a `[dev-dependencies]` table, so the binary that
+    // ships never compiles the hook (review of the executor pass).
+    let mut manifests = vec![root().join("Cargo.toml")];
+    let mut stack = vec![crates.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n != "target") {
+                    stack.push(path);
+                }
+            } else if path.file_name().is_some_and(|n| n == "Cargo.toml") {
+                manifests.push(path);
+            }
+        }
+    }
+    let mut enablings = 0;
+    for path in &manifests {
+        let text = std::fs::read_to_string(path).expect("manifest");
+        let mut section = String::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                section = trimmed.to_string();
+                continue;
+            }
+            if trimmed.starts_with('#') || !trimmed.contains("test-support\"") {
+                continue;
+            }
+            enablings += 1;
+            assert!(
+                section.contains("dev-dependencies"),
+                "{} enables test-support under {section}, not [dev-dependencies]",
+                path.display()
+            );
+        }
+    }
+    assert!(enablings > 0, "the scan saw the test build's enabling");
 }

@@ -434,9 +434,13 @@ do not gold-plate beyond them.
   before anything is spawned; and a plan read runs through
   `registry::PlanReadSites`, which is bound to the runner detection used, so a
   recording's prefix is answered by the recording. `RegistryContext.home` is
-  still a public field the caller fills: the adapters and the read sites take
-  it from one context through `registry::build_with_read_sites`, which is the
-  call path the run loop's caller owes (SE-050). The plan's `environment`
+  still a public field the caller fills: `migrate`'s one call path hands the
+  run loop the registry context the capture's adapters were built from
+  (`Context::execution_registry`), and the loop builds the sites from it
+  with `registry::plan_read_sites`, so the adapters and the sites share one
+  runner, one set of prefix sources and one home (SE-050, SE-092). The prefix
+  is re-detected, not reused from capture; one that changed in between is
+  refused as `ProgramDisagrees`. The plan's `environment`
   is not a parameter anywhere on that path, so a plan carrying
   `DYLD_INSERT_LIBRARIES`, a build flag or a different `PATH` changes nothing
   that is spawned (INV-10). A plan whose `program` disagrees with the derived
@@ -455,9 +459,10 @@ do not gold-plate beyond them.
   spec type nor `plan_read_spec`, and `CommandSpec::provider` to the two
   provider adapters and one spawn-site test; and it renders a read site's
   refusal and the gate's refusals, which quote plan text, with the home
-  redacted and control and format characters escaped. None of this
-  is reachable from the binary yet: no command calls the loop, and the gate
-  refuses every plan this build plans. SE-050 records the design and its
+  redacted and control, format and line-separator characters escaped.
+  `migrate --yes` calls the loop (SE-092), and the gate refuses every plan
+  this build produces before any read site is built, so no plan read is
+  spawned yet. SE-050 records the design and its
   mutation evidence.
 - **Executable shadowing / PATH spoofing** — resolve provider executables from
   their detected prefix, not from `PATH`, when correctness matters. Report

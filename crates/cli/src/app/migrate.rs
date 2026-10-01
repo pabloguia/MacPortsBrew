@@ -24,8 +24,11 @@
 //! 3. The plan is rendered. Rendering is never refused.
 //! 4. In execute mode the run loop gets the plan, paired with the snapshot it
 //!    was built from, and the registry context the capture's adapters were
-//!    built from — the same runner, prefix answers and home. The exit code
-//!    is the run's.
+//!    built from — the same runner, prefix sources and home. The loop
+//!    re-detects each prefix rather than reusing capture's answer; a prefix
+//!    that changed since capture makes the plan's program disagree with the
+//!    derived one, and the read is refused as `ProgramDisagrees`. The exit
+//!    code is the run's.
 //! 5. Whenever a plan was built, stdout carries it, so an exit 4 with a
 //!    document (a refusal or a manual review) is distinguishable from the
 //!    planner's own exit 4 with empty stdout.

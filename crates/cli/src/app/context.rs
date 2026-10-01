@@ -200,8 +200,11 @@ impl Context {
 
     /// The registry context the capture's adapters were built from, rebuilt
     /// from the same parts for an execution — the runner the snapshot was read
-    /// through, the same prefix answers and the same home — or `None` when
-    /// the snapshot came from a file. **`app/migrate.rs` is the one caller**:
+    /// through, the same prefix sources and the same home — or `None` when
+    /// the snapshot came from a file. A prefix is re-detected from those
+    /// sources, not reused from capture: one that changed in between makes a
+    /// plan's program disagree with the derived one, and the read is refused
+    /// as `ProgramDisagrees`. **`app/migrate.rs` is the one caller**:
     /// it hands this to the run loop, which builds read sites from it only
     /// after the execution gate passed the plan (SE-092).
     pub fn execution_registry(&self) -> Option<RegistryContext<'_>> {
