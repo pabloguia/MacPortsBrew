@@ -313,6 +313,39 @@ environment changes, the plan executed, verification results, outcome
 restorable (fully, partially, or not, with the reason). Never records secrets
 or environment variable values.
 
+**MUST.** The record type gives a run that dispatched no mutating step the
+status `NO_CHANGE` (nothing to restore), whatever its verification reads
+showed: it is never a partial migration, and it takes no lock and leaves no
+interrupted-run marker. Whether such a run is written to history at all is
+`plan.v1.md` obligation 12's call — today, only a mutating run is. "Dispatched"
+fails closed: a halt that cannot be placed before or after a step's dispatch
+counts as one. Whether a mutation was dispatched is derived from the steps; the
+status from the steps and the run's ending, checked against each other, so a
+supplied ending the steps do not bear out is never success (SE-092).
+
+**Status (2026-10-01): the record type exists, the store does not.**
+`RunRecord` (`crates/domain/src/history.rs`) holds every field above, built by
+`application::history::run_record` from the plan and the run loop's per-step
+records, deriving the outcome itself. A verification read enters it as
+`ReadEvidence` only — result, line count, truncation flag — so it has no field
+a provider read could occupy (`plan.v1.md` obligation 3). Its start time is supplied by
+the caller, from the one wall-clock read
+(`invariant_14_the_wall_clock_is_read_in_exactly_one_place`). The **plan
+executed** is recorded as its steps — index, kind, provider, whether each was
+dispatched and its result — not as the plan document: a command's environment
+holds variable values and its program can hold a home path. **Environment
+changes** is a list of a type with no values in this build, so it is empty by
+construction. The append-only store is **deferred to the mutating pass**: this
+build dispatches no mutating step, so no run it can execute writes a record
+(obligation 12), and a store would be unreachable code. That pass owes the
+store and a `docs/schemas/` document for its shape, how the snapshot path is
+redacted (it normally lies under the home), reading records back, and what a `--retain-source` re-run needs from
+them to be recognised as done (SE-092): the latest record for the same
+package, source, destination and destination package, with `retainSource`
+true and status `SUCCESS`, checked against a fresh capture in which the
+destination still holds the package active and the primary is still the one
+recorded — a record alone is never proof of the machine's present state.
+
 ## Threat model
 
 Package management is privileged infrastructure work. Address these concretely;

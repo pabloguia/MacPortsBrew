@@ -1623,6 +1623,14 @@ change is made. Silent deviation remains the one unrecoverable error.
   refused — the recorded tests protect the test suite, not the shipped
   binary, which never reaches the loop past the gate. Evidence and mutation table: SE-050,
   "Closed by the run loop".
+- **Extended 2026-10-01 (05-THE-EXECUTOR, slice S8): history has a record
+  type and no store.** `RunRecord` (`crates/domain/src/history.rs`) is built by
+  `application::history::run_record` and nothing in the binary calls it: this
+  build dispatches no mutating step, so obligation 12 has nothing to record and
+  an append-only store would be unreachable — the store, like every other write
+  path, belongs to the mutating pass. What the boundary gains is the S5 rule as
+  a type: a run that dispatched no mutating step is `NO_CHANGE`, never
+  `PARTIAL`, whatever its ending. Rationale, rules and evidence: SE-092, S8.
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted
@@ -6005,5 +6013,92 @@ finding ids in each entry.
   `docs/schemas/migrate.v1.md` and its three checked samples; the executor plan's
   S6 section and amendments A1, A5, A7 and A9 (2026-09-27); the S3 and S4
   carried items (2026-09-30).
+- **Extended 2026-10-01 (slice S8): the history record type; its store is
+  deferred.** `RunRecord` (`crates/domain/src/history.rs`) carries every field
+  `04-migration-and-safety.md` (History) lists, in its order; the pure
+  constructor is `application::history::run_record(run, records, start)`, from
+  a `PlannedRun` and the loop's `StepRecord`s. It derives the `RunOutcome` with
+  `outcome_of` itself: the work order had it take the outcome as an argument,
+  and spec-guardian found that a stale outcome beside the records could then
+  record a partial migration as success. Decisions, each on the record so it is not re-argued:
+  (1) **evidence only.** A read enters as `ReadEvidence` (result, line count,
+  truncation flag); neither `StepRecord` nor `RunRecord` has a field a provider
+  read could occupy, so an inventory cannot reach history through a read
+  (obligation 3). The caller's own strings — the run id, the start time, the
+  tool version, the snapshot path — are the caller's responsibility. A halt is kept as its `ErrorId`, never its text,
+  because halt reasons can derive from plan text. (2) **The start time is
+  supplied** (`RunStart`), never read: the domain has no clock, and the one
+  wall-clock read stays `persistence::time::now_secs`, which `Context::build`
+  already makes (`invariant_14_the_wall_clock_is_read_in_exactly_one_place`,
+  unchanged and passing). The run id and tool version are supplied with it; the
+  store will assign the id. (3) **Status is derived from the steps and the
+  ending, checked against each other**: success needs a completed ending *and*
+  every step verified, so an ending the steps do not bear out is recorded as
+  `PARTIAL`, never `SUCCESS` (INV-03, held against a caller of the public
+  `RunRecord::new` too). `SUCCESS`, `PARTIAL`, `FAILURE` — 04's three — and
+  `NO_CHANGE`, added here
+  as a Tier 3 extension of 04's list, for a run that dispatched no mutating
+  step. Without it this build's partial successes — a passed read beside a
+  skipped bracket, exit 3 — had only `PARTIAL` to land on, which is exactly the
+  partial migration S5 forbade recording. The loop's own ending is kept beside
+  the status (`ending`), so `NO_CHANGE` loses nothing. `FAILURE` can mean the
+  machine was changed — a mutating step dispatched and then halted — which
+  `mutationDispatched` and `restorable: NOT` say; whether such a run is
+  written at all, and the `NO_CHANGE` one is not, is obligation 12's call. (4) **Whether a mutation
+  was dispatched** is `mutationDispatched`, derived from the steps: a mutating
+  step whose result says it was handed to a runner. `RecordedStep::new` fixes
+  dispatch from the result where the result decides it (verified: yes; not
+  performed, not dispatched, not reached: no; a halt that kept a read: yes);
+  for any other halt `run_record` classifies the `HaltReason` exhaustively and
+  **fails toward "dispatched"** — a reason both `next_action` and `judge_step`
+  give, and records that do not match the plan, count — because recording a
+  change that did not happen costs a lock, while recording none when one
+  happened loses the run a restore needs. This is the one fact a store keys a
+  lock or an interrupted-run marker on. (5) **Restorability** is
+  `NOTHING_TO_RESTORE` (added, for `NO_CHANGE`), or `NOT` with
+  `NO_SNAPSHOT_TAKEN` / `RESTORE_NOT_IN_THIS_BUILD`; `FULLY` and `PARTIALLY`
+  exist in the type and this build never claims them, having no restore.
+  (6) **The plan executed** is its steps — index, kind, provider, dispatched,
+  result — not the plan document, whose commands carry environment values and
+  a program path that can name the home; whether argv joins the record, and
+  redacted how, is the mutating pass's call. (7) **Environment changes** is a
+  list of an uninhabited type: empty by construction until a pass that can make
+  one adds variants, none carrying a value. (8) **Versions**: the source's
+  active version from the snapshot the plan was built from; the destination's
+  is not established, since a verification read keeps no version.
+  **Owed by the mutating pass:** the append-only store (and a
+  `docs/schemas/` document for its shape, which no surface emits yet), reading
+  records back, how `snapshotPath` (normally under the home) is redacted,
+  obligation 12's test on every way a run ends, the lock and the
+  interrupted-run marker keyed on `mutationDispatched`, and closing "Not
+  closed" (2) above: a `--retain-source` re-run is recognised as done by the
+  latest record for the same package, source, destination and destination
+  package with `retainSource` true and status `SUCCESS`, confirmed against a
+  fresh capture in which the destination still holds the package active and the
+  primary is the one recorded — a record alone never proves the machine's
+  present state. **Mutation record**, `cargo test --no-fail-fast -p
+  macportsbrew-domain -p macportsbrew-application --test history` in a scratch
+  copy with its own target directory, each mutation restored by rewriting the
+  file and the copy compared with `diff -r` at the end: 20 mutations, 20
+  killed — the `NO_CHANGE` early return removed; the check of a completed
+  ending against the steps removed; partial, and halted/refused,
+  recorded as success; any dispatched step, and any mutating step, counted as a
+  mutation; a halt with a read trusting the caller; verified as not
+  dispatched; not-run results as dispatched; `NOTHING_TO_RESTORE` removed; the
+  two not-restorable reasons swapped; two fields reordered;
+  `UNEXECUTED_MUTATION` and `MANUAL_REVIEW` halts counted as dispatched,
+  records-mismatch and verification-failed halts not; a partial ending recorded
+  as halted; verified evidence dropped; the active-row filter and the source
+  version dropped.
+- Evidence (S8): `crates/domain/src/history.rs`, `crates/domain/tests/history.rs`,
+  `crates/application/src/history.rs`, `crates/application/tests/history.rs`
+  (`a_run_record_cannot_carry_an_inventory`,
+  `invariant_03_a_partial_run_is_recorded_as_partial_never_success`, and in
+  the domain `invariant_03_the_status_rule_never_records_partial_as_success`,
+  `a_completion_the_steps_do_not_bear_out_is_never_success`,
+  `a_partial_success_that_dispatched_no_mutation_is_not_a_partial_migration`,
+  `a_run_the_dispatch_guard_halted_changed_nothing`,
+  `a_run_record_serialises_deterministically`); `04-migration-and-safety.md`
+  (History); `plan.v1.md` obligations 3 and 12.
 
 ---

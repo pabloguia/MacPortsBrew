@@ -45,8 +45,8 @@
 //! every way it ends. This build dispatches no mutating step, so no run it can
 //! execute is a mutating run and nothing is persisted: what the loop returns
 //! is the per-step [`StepRecord`] list and the [`RunOutcome`], which is the
-//! material a record is built from. The record type and its append-only store
-//! are owed by the history slice (S8).
+//! material a record is built from: `crate::history::run_record` builds it,
+//! and the append-only store is deferred to the mutating pass.
 
 use crate::execution_gate::{evaluable_in_this_build, GateReport};
 use macportsbrew_domain::{
@@ -276,8 +276,9 @@ pub enum RunOutcome {
     ///
     /// **Not a partial migration in this build.** No run here dispatches a
     /// mutating step, so a partial success is a verification that passed
-    /// beside one that did not, or a skipped bracket; history must not record
-    /// it as a migration left half done (SE-020; `plan.v1.md` obligation 12).
+    /// beside one that did not, or a skipped bracket; history records it as
+    /// `NO_CHANGE`, never as a migration left half done (SE-020; `plan.v1.md`
+    /// obligation 12; `macportsbrew_domain::RunStatus`).
     PartialSuccess {
         /// The step that stopped the run, or else the first step that was
         /// not carried out.

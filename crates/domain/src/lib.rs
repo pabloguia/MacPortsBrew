@@ -15,6 +15,7 @@ pub mod availability;
 pub mod class;
 pub mod concurrency;
 pub mod error;
+pub mod history;
 pub mod machine;
 pub mod mapping;
 pub mod ownership;
@@ -35,6 +36,10 @@ pub use availability::{
 pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::ConcurrentProviderActivity;
 pub use error::{DomainError, ErrorId};
+pub use history::{
+    Direction, EnvironmentChange, NotRestorable, RecordedStep, RecordedVersions, Restorability,
+    RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepResult,
+};
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
 };

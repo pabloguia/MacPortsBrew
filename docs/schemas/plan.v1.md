@@ -198,6 +198,12 @@ comments:
    inventory — a strong fingerprint that routinely names internal tooling. What
    may be written to history, a log or a report is the boolean result, the line
    count and the truncation flag.
+   Since 2026-10-01 that is a type, not a convention: the history record
+   (`RunRecord`, `crates/domain/src/history.rs`) takes a read only as
+   `ReadEvidence` and has no field a provider read could occupy
+   (`a_run_record_cannot_carry_an_inventory`,
+   `crates/application/tests/history.rs`). Its store is deferred with the
+   mutating pass (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
    provider holds leaves an empty inventory and condition (3) refuses it, which
@@ -349,9 +355,25 @@ comments:
     and nothing is written; it returns, on every way a run ends, the per-step
     records (`ReadEvidence`, never output) and the outcome, refused, halted,
     partial or completed, from which the record is built. The record type and
-    its append-only store are owed by the history slice (S8), which must not
-    record a partial success of a run that dispatched no mutating step as a
-    partial migration, nor hold a lock or an interrupted-run marker for it.
+    its append-only store were owed by the history slice (S8). **The record
+    type landed 2026-10-01**: `RunRecord` (`crates/domain/src/history.rs`),
+    built by `application::history::run_record` from the run and those
+    records — it derives the outcome with `outcome_of` rather than accept one
+    beside them — with a status of `SUCCESS`, `PARTIAL`, `FAILURE` or
+    `NO_CHANGE`, and success only when every step was verified. A partial success of a run that dispatched a mutating step is
+    `PARTIAL`, never `SUCCESS`
+    (`invariant_03_a_partial_run_is_recorded_as_partial_never_success`,
+    `crates/application/tests/history.rs`), and a
+    run that dispatched none is `NO_CHANGE` whatever its ending, so it is never
+    a partial migration
+    (`a_partial_success_that_dispatched_no_mutation_is_not_a_partial_migration`);
+    `mutationDispatched` is the one fact a store may key a lock or an
+    interrupted-run marker on, and it fails toward true for a halt that cannot
+    be placed before or after a dispatch. **The store is deferred** to the
+    mutating pass: no run this build can execute is a mutating run, so it
+    would be unreachable. That pass owes the store, its test of this
+    obligation on every way a run ends, and the `--retain-source` re-run
+    recognition `04-migration-and-safety.md` (History) states.
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,
