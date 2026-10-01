@@ -43,6 +43,11 @@ to answer.
   refusals keep their codes.
   `--yes` with `--from-snapshot` is a usage error. New `--json` schema:
   [`migrate.v1.md`](docs/schemas/migrate.v1.md).
+  Every `migrate` output that shows a plan or *nothing to move* ends by saying
+  whether a package manager may have been changing the machine while it was read (`concurrentProviderActivity`): a live
+  run says it was not checked, and a run from `--replay` or `--from-snapshot`
+  says it cannot be known. Both are flagged as possibly inconsistent; this build
+  has no check that could say otherwise.
 - **`doctor` reports a provider whose recorded prefix is not absolute**
   (`provider_prefix_is_not_absolute`, `WARNING`). A provider installed under the
   user's home is captured as `~/...`, which `planner::command` refuses, so

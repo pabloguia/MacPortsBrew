@@ -46,7 +46,9 @@ use crate::executor::{self, RunReport, SiteRefusalKind};
 use macportsbrew_application::{
     migration_start, AnalysisOptions, MigrationStart, PlanRequest, RunOutcome, StepRecord,
 };
-use macportsbrew_domain::{DomainError, ErrorId, MigrationPlan, ProviderId};
+use macportsbrew_domain::{
+    ConcurrentProviderActivity, DomainError, ErrorId, MigrationPlan, ProviderId,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -100,6 +102,28 @@ struct Document<'a> {
     plan: Option<&'a MigrationPlan>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
+    /// Always written: whether a provider may have been changing the machine
+    /// while it was read, and never a check this build did not make
+    /// (`plan.v1.md`, obligation 5).
+    concurrent_provider_activity: Concurrency<'a>,
+}
+
+/// The flag `04-migration-and-safety.md` asks read-only analysis to carry:
+/// the activity as its tag, plus whether that leaves the read possibly
+/// inconsistent, so a consumer need not re-derive the rule.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Concurrency<'a> {
+    #[serde(flatten)]
+    activity: &'a ConcurrentProviderActivity,
+    possibly_inconsistent: bool,
+}
+
+fn concurrency(activity: &ConcurrentProviderActivity) -> Concurrency<'_> {
+    Concurrency {
+        activity,
+        possibly_inconsistent: activity.possibly_inconsistent(),
+    }
 }
 
 #[derive(Serialize)]
@@ -155,6 +179,9 @@ pub fn migrate(
     stdout: &mut dyn Write,
 ) -> Result<i32, DomainError> {
     let mode = Mode::of(cli);
+    // Decided by where the input came from, never by looking: a live run did
+    // not check, and a recording or a snapshot file could not have (INV-15).
+    let activity = ctx.source.concurrent_provider_activity();
     let io = |e: std::io::Error| DomainError::new(ErrorId::Io, e.to_string());
     let start = migration_start(
         &ctx.snapshot,
@@ -177,6 +204,7 @@ pub fn migrate(
                     }),
                     plan: None,
                     execution: None,
+                    concurrent_provider_activity: concurrency(&activity),
                 };
                 writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
             } else {
@@ -186,6 +214,7 @@ pub fn migrate(
                     human::nothing_to_move(ctx, &package, &provider)
                 )
                 .map_err(io)?;
+                write!(stdout, "{}", human::concurrency(ctx, &activity)).map_err(io)?;
             }
             return Ok(0);
         }
@@ -214,6 +243,7 @@ pub fn migrate(
             nothing_to_move: None,
             plan: Some(plan),
             execution: report.as_ref().map(execution),
+            concurrent_provider_activity: concurrency(&activity),
         };
         writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
     } else {
@@ -224,6 +254,7 @@ pub fn migrate(
                 write!(stdout, "{}", human::run_report(ctx, plan, report)).map_err(io)?;
             }
         }
+        write!(stdout, "{}", human::concurrency(ctx, &activity)).map_err(io)?;
     }
     Ok(match &report {
         Some(report) => report.exit_code(),

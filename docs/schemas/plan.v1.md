@@ -224,15 +224,26 @@ comments:
    honouring a stated semantic is `verification::evaluate`'s, and waits for a
    loop that calls it.
 5. **A single-instance lock, and a check for a concurrently running `brew` or
-   `port`.** `04-migration-and-safety.md:201` is a **MUST** and nothing
-   implements it — not even a type, which every other deferred capability here
-   has. It is listed rather than stubbed because the shape of the lock is the
-   executor's design and not this pass's to guess; what this pass owes is that
-   the obligation cannot be lost, which is what this list is for. Read-only
-   analysis may proceed under a concurrent provider run, flagged as possibly
-   inconsistent — and it is not flagged today either (F-20). The run loop's
-   verification reads (2026-09-30) take no lock either; the mutating pass
-   inherits this obligation whole.
+   `port`.** `04-migration-and-safety.md` ("Concurrency and locking") is a
+   **MUST** in two halves, and this build owes them differently.
+   *Read-only analysis may proceed, flagged as possibly inconsistent* — that
+   half is met for `migrate`: every document carries
+   `concurrentProviderActivity` (`migrate.v1.md`), the domain's
+   `ConcurrentProviderActivity`, and its rule is that it never claims a check
+   that was not made. A live run says `NOT_CHECKED`, because nothing looks;
+   `--replay` and `--from-snapshot` say `UNKNOWABLE`, because a recording or a
+   snapshot file carries no process table and a replay must not read this
+   host's (INV-15). Both are possibly inconsistent, and the human output says
+   so in words (`the_concurrency_flag_never_claims_a_check_it_did_not_make`,
+   `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`).
+   `plan` and `analyze` do not carry the flag yet.
+   *A single-instance lock, and detection before mutating, refusing rather
+   than interleaving* — that half is unbuilt and inherited whole by the
+   mutating pass: no detection mechanism exists, so nothing can answer
+   `NONE_OBSERVED` or `OBSERVED`, and the run loop's verification reads take no
+   lock. Why each candidate mechanism was deferred rather than chosen is SE-015;
+   the lock lands with the mutation it guards, because before then its refusal
+   path is unreachable and untestable.
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
    read while ignoring the rest. Three have an evaluation today —

@@ -291,3 +291,14 @@ The `endDate` above is a **dated fact carried as data**, not a hardcoded
 deadline: it comes from `data/policy/provider-support.toml` with the `source`
 and `readOn` shown beside it, and a consumer should re-check the source rather
 than trust the date indefinitely (INV-20).
+
+## Not in this version
+
+- **A concurrency flag** (`04-migration-and-safety.md`, "Concurrency and
+  locking"; `plan.v1.md`, obligation 5). Read-only analysis may proceed while a
+  provider is running, flagged as possibly inconsistent, and this payload does
+  not carry the flag: nothing here says whether a package manager was changing
+  the machine while it was read. `migrate` carries it
+  (`concurrentProviderActivity`, [`migrate.v1.md`](migrate.v1.md)); this
+  payload and `plan`'s will carry the same type, and no check backs any of
+  them yet, so on a live run its answer would be *not checked*.

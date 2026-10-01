@@ -11,9 +11,9 @@ use macportsbrew_application::{
     Explanation, HaltReason, PackageReport, RunOutcome, Severity, Unevaluable,
 };
 use macportsbrew_domain::{
-    ArtifactAvailability, ExpectationError, FailureCause, MigrationPlan, Outcome, Ownership,
-    PackageClass, ProviderId, ProviderPresence, SourceBuildReason, StepKind, SuccessSemantic,
-    SupportTier, Translation, VerificationCheck,
+    ArtifactAvailability, ConcurrentProviderActivity, ExpectationError, FailureCause,
+    MigrationPlan, Outcome, Ownership, PackageClass, ProviderId, ProviderPresence,
+    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -623,6 +623,34 @@ pub fn nothing_to_move(ctx: &Context, package: &str, provider: &ProviderId) -> S
 /// `migrate` in render mode, after the plan: what would put it to the gate.
 pub fn render_only(ctx: &Context) -> String {
     format!("\n{}\n", label(ctx, "migrate.render_only"))
+}
+
+/// `migrate`, last: whether a provider may have been changing the machine
+/// while it was read. Every answer this build gives says "possibly
+/// inconsistent" and says why, and none claims a check that was not made
+/// (`plan.v1.md`, obligation 5). The `match` is exhaustive, so a new answer is
+/// a compile error here rather than an identifier in front of a person.
+pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
+    let line = match activity {
+        ConcurrentProviderActivity::NotChecked => label(ctx, "migrate.concurrency.not_checked"),
+        ConcurrentProviderActivity::Unknowable => label(ctx, "migrate.concurrency.unknowable"),
+        ConcurrentProviderActivity::NoneObserved => label(ctx, "migrate.concurrency.none_observed"),
+        ConcurrentProviderActivity::Observed { providers } => ctx.messages.render(
+            "migrate.concurrency.observed",
+            &params(&[
+                ("count", providers.len().to_string()),
+                (
+                    "providers",
+                    providers
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            ]),
+        ),
+    };
+    format!("\n{line}\n")
 }
 
 /// `migrate` in execute mode, after the plan: how the run ended, the gate's

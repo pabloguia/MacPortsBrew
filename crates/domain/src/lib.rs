@@ -13,6 +13,7 @@
 
 pub mod availability;
 pub mod class;
+pub mod concurrency;
 pub mod error;
 pub mod machine;
 pub mod mapping;
@@ -32,6 +33,7 @@ pub use availability::{
     ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, SourceBuildReason,
 };
 pub use class::{ClassEvidence, ClassSet, PackageClass};
+pub use concurrency::ConcurrentProviderActivity;
 pub use error::{DomainError, ErrorId};
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,

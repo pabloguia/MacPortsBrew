@@ -371,6 +371,69 @@ change is made. Silent deviation remains the one unrecoverable error.
   without network is useless to someone on a laptop with a broken Homebrew.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- **Addendum, the read-only flag without a detector, 2026-10-01
+  (05-THE-EXECUTOR, slice S7).** The MUST's last clause — read-only analysis
+  proceeds *flagged as possibly inconsistent* — is met for `migrate`, and
+  nothing else of this entry is. The flag is the domain type
+  `ConcurrentProviderActivity` (`NOT_CHECKED`, `UNKNOWABLE`, `NONE_OBSERVED`,
+  `OBSERVED { providers }`), decided by `AnalysisSource::concurrent_provider_activity`
+  in `application` from where the input came from, never by looking: a live run
+  says `NOT_CHECKED`, `--replay` and `--from-snapshot` say `UNKNOWABLE` (both
+  are `AnalysisSource::Snapshot`). Only a check that ran may say the last two,
+  and none exists, so every answer this build gives is possibly inconsistent.
+  Telling *nobody looked* from *nobody could have looked* is the point: a
+  recording carries no process table and a replay must not consult this host's
+  (INV-15), so a replayed run reporting this host's processes would be a lie
+  about the recorded machine, not a check. `migrate.v1.md` carries it as
+  `concurrentProviderActivity` with `possiblyInconsistent`, the human output
+  ends with a catalogue sentence for it, and `plan.v1.md` obligation 5 is
+  restated in those two halves. `plan` and `analyze` do not carry it yet, and
+  `analysis.v1.md` says so under "Not in this version": the work order scopes
+  this item to the executor pass (`prompts/05-the-executor.md` §6 item 5), whose
+  one command is `migrate`, and adding a field to `analysis.v1` is a change to a
+  payload this pass otherwise leaves alone. They are owed the same type, from
+  the same `AnalysisSource`, not a second rule. Two things are left
+  open on purpose, both raised by the spec-guardian review of 2026-10-01: the choice of `Live` or
+  `Snapshot` in `Context::build` now decides a sentence a person reads, and no
+  test can drive a live run (INV-05), so only the replay and snapshot halves
+  are pinned end to end; and the `OBSERVED` sentence joins provider ids with a
+  separator outside the catalogue, which is unreachable today and is owed a
+  catalogue list form with the detector that first reaches it.
+
+  **No detection mechanism is built, and each candidate is deferred for a
+  reason that is recorded rather than rediscovered.** (1) *Spawning `ps`*
+  widens `PERMITTED_PROGRAMS` (`crates/adapters/src/process/mod.rs`), the
+  six-entry allowlist the one spawn site enforces; a seventh program is a
+  security-review change to the most guarded file in the tree, and its output
+  would be one more format to parse strictly — not something to add for a flag
+  whose answer this build cannot act on. (2) *Provider lock files* are a
+  provider fact — where each provider keeps one, when it holds it, whether a
+  stale one is distinguishable from a live one — so they need a research note
+  under `docs/research/` before any code, and reading one is a filesystem read
+  a replay must not make on this host (INV-15), so under `--replay` the answer
+  would be `UNKNOWABLE` anyway. (3) *`sysctl`*: `sysctl(8)` is on the
+  allowlist for the machine probes, but it cannot print the process table —
+  observed on this machine 2026-10-01, `sysctl kern.proc.all` answers
+  "couldn't find format of oid" — so enumeration means `sysctl(3)` through
+  FFI, which is `unsafe` code (`unsafe_code = "forbid"` in the workspace
+  lints) or a new dependency through ADR-0004's gate, the same weighing
+  ADR-0006 already made against `libc`. **The lock and the detector land with
+  the mutation they guard**: until a mutating step can be dispatched, the
+  refusal path the MUST describes is unreachable and so untestable, and a
+  mechanism chosen now would be chosen without the one caller that decides
+  its shape.
+
+  **Proved by mutation**, each in a scratch copy with its own target directory,
+  the source restored and compared with `diff -r` afterwards:
+
+  | Rule | Mutation | Test that failed |
+  |---|---|---|
+  | a live run did not check | `Live` answers `NONE_OBSERVED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
+  | a recording or snapshot file cannot be checked | `Snapshot` answers `NOT_CHECKED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make`, `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either` |
+  | only `NONE_OBSERVED` is consistent | `possibly_inconsistent` true only for `NOT_CHECKED` | `only_a_check_that_saw_nothing_is_consistent`, `the_concurrency_flag_never_claims_a_check_it_did_not_make`, both end-to-end tests above |
+  | only an observation is a check | `was_checked` true for `UNKNOWABLE` | `an_unchecked_or_unknowable_answer_is_not_a_check`, `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
+  | `migrate` asks the source, not a constant | `migrate.rs` passes `NOT_CHECKED` | `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either`, `invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_and_says_so` |
+  | the human output says it | `human::concurrency` returns nothing | the same three |
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted

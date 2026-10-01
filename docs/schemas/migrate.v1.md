@@ -36,6 +36,26 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it. Present whenever a plan was built |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
+
+## `ConcurrentProviderActivity`
+
+`04-migration-and-safety.md` lets read-only analysis proceed while a provider
+runs, *flagged as possibly inconsistent*; this is that flag (`plan.v1.md`,
+obligation 5). Its rule is that it never claims a check that was not made.
+
+| Field | Type | Notes |
+|---|---|---|
+| `activity` | string | The tag, below |
+| `providers` | array of string, only with `OBSERVED` | The providers seen running, sorted |
+| `possiblyInconsistent` | boolean | `false` only for `NONE_OBSERVED`; an unchecked answer is never a "no" |
+
+| `activity` | Meaning | Written by this build |
+|---|---|---|
+| `NOT_CHECKED` | Nobody looked | A live run: this build has no detection mechanism |
+| `UNKNOWABLE` | Nothing could have looked | `--replay` and `--from-snapshot`: a recording or a snapshot file carries no process table, and a replay must not read this host's (INV-15) |
+| `NONE_OBSERVED` | A check ran and saw no provider running | Never |
+| `OBSERVED` | A check ran and saw `providers` running | Never |
 
 **What *nothing to move* establishes, and what it does not.** It is answered
 when the destination is the package's only holder in the input; every other
@@ -107,6 +127,10 @@ Nothing to move, under `--yes`:
   "nothingToMove": {
     "package": "nginx",
     "provider": "macports"
+  },
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
   }
 }
 ```
@@ -185,7 +209,10 @@ build cannot evaluate them.
 
 ## Not in this version
 
-- **Concurrency** (`plan.v1.md`, obligation 5): no field says whether another
-  instance or a provider was running. It is owed with the lock it reports on.
+- **A concurrency check, and the single-instance lock** (`plan.v1.md`,
+  obligation 5): `concurrentProviderActivity` reports that no check was made,
+  never what one would have found. Whether another MacPortsBrew instance is
+  running is not reported at all; it is owed with the lock, which lands with the
+  mutation it guards.
 - **History** (obligation 12): no run of this build is a mutating run, so no
   record is written.

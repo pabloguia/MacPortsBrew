@@ -307,6 +307,13 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "migrate.nothing_to_move" = "Nothing to move: {package} is already under {provider}. In what was read, no other provider holds it, nor anything its mappings name as possibly the same package. Nothing was changed."
 "migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which in this build refuses every plan it produces."
 "migrate.execution_heading" = "Execution"
+# Whether a package manager was changing the machine while it was read
+# (`plan.v1.md`, obligation 5). This build never looks, so only the first two
+# are reached; none of them may claim a check that was not made.
+"migrate.concurrency.not_checked" = "Possibly inconsistent: whether a package manager was changing this machine while it was read was not checked. This build has no such check, so if one was running, rerun this once it has finished."
+"migrate.concurrency.unknowable" = "Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read."
+"migrate.concurrency.none_observed" = "No package manager was seen changing this machine while it was read."
+"migrate.concurrency.observed" = "Possibly inconsistent: {count, plural, one {a package manager was} other {# package managers were}} running while this was read ({providers}), so what was read may have been changing. Rerun this once {count, plural, one {it has} other {they have}} finished."
 "migrate.outcome.completed" = "Every step was carried out and every check passed."
 "migrate.outcome.refused" = "The execution gate refused this plan, so nothing ran ({count, plural, one {# reason} other {# reasons}}):"
 "migrate.outcome.halted" = "The run stopped at step {step} having carried out nothing: {reason}."

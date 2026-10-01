@@ -10,8 +10,9 @@ use crate::mapping::map_package;
 use crate::report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 use crate::{ANALYSIS_SCHEMA_VERSION, TOOL_VERSION};
 use macportsbrew_domain::{
-    classify_ownership_for, ExecutableOwner, Machine, Ownership, PackageIdentity, PackageKind,
-    ProviderId, ProviderPresence, ProviderSnapshot, Resolution, Snapshot,
+    classify_ownership_for, ConcurrentProviderActivity, ExecutableOwner, Machine, Ownership,
+    PackageIdentity, PackageKind, ProviderId, ProviderPresence, ProviderSnapshot, Resolution,
+    Snapshot,
 };
 use macportsbrew_policy::{recommend, PolicyData};
 use serde::{Deserialize, Serialize};
@@ -34,8 +35,29 @@ pub struct AnalysisOptions {
 pub enum AnalysisSource {
     /// Captured from this machine in the same run.
     Live,
-    /// Loaded from a snapshot file.
+    /// Loaded from a snapshot file, or captured from a replayed recording
+    /// (`Context::build` gives `--replay` this source too).
     Snapshot,
+}
+
+impl AnalysisSource {
+    /// What this build can say about a provider running while the input was
+    /// read — and it never says more than it checked (`plan.v1.md`,
+    /// obligation 5; SE-015).
+    ///
+    /// A live run says `NotChecked`: this build has no detection mechanism,
+    /// so nobody looked. A snapshot file or a replayed recording says
+    /// `Unknowable`: neither carries this host's processes, and a replay must
+    /// not consult them (INV-15), so no check *could* have answered. Neither
+    /// ever says `NoneObserved` or `Observed`; those belong to a check that
+    /// ran, which lands with the lock it serves.
+    #[must_use]
+    pub fn concurrent_provider_activity(self) -> ConcurrentProviderActivity {
+        match self {
+            Self::Live => ConcurrentProviderActivity::NotChecked,
+            Self::Snapshot => ConcurrentProviderActivity::Unknowable,
+        }
+    }
 }
 
 /// The analysis.
@@ -546,4 +568,43 @@ fn summarise(packages: &[PackageReport]) -> Summary {
         *s.by_outcome.entry(kind).or_insert(0) += 1;
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every source there is; the `match` makes a new one a compile error
+    /// here rather than a source this test silently skips.
+    fn every_source() -> [AnalysisSource; 2] {
+        let every = [AnalysisSource::Live, AnalysisSource::Snapshot];
+        for source in every {
+            match source {
+                AnalysisSource::Live | AnalysisSource::Snapshot => {}
+            }
+        }
+        every
+    }
+
+    #[test]
+    fn the_concurrency_flag_never_claims_a_check_it_did_not_make() {
+        // This build has no detection mechanism, so no source may answer as
+        // if one ran: never `NoneObserved`, never `Observed`, and always
+        // possibly inconsistent (`04-migration-and-safety.md`).
+        for source in every_source() {
+            let activity = source.concurrent_provider_activity();
+            assert!(!activity.was_checked(), "{source:?}: {activity:?}");
+            assert!(activity.possibly_inconsistent(), "{source:?}: {activity:?}");
+        }
+        // And the two that remain are told apart: nobody looked on a live
+        // run; nobody could have looked at a recording or a snapshot file.
+        assert_eq!(
+            AnalysisSource::Live.concurrent_provider_activity(),
+            ConcurrentProviderActivity::NotChecked
+        );
+        assert_eq!(
+            AnalysisSource::Snapshot.concurrent_provider_activity(),
+            ConcurrentProviderActivity::Unknowable
+        );
+    }
 }

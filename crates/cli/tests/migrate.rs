@@ -371,7 +371,9 @@ fn invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_a
             stdout(&out),
             "Nothing to move: nginx is already under macports. In what was read, no other \
              provider holds it, nor anything its mappings name as possibly the same package. \
-             Nothing was changed.\n",
+             Nothing was changed.\n\nPossibly inconsistent: this was read from a recording \
+             or a snapshot file, which cannot show whether a package manager was changing the \
+             machine it came from while it was read.\n",
             "{extra:?}"
         );
     }
@@ -401,6 +403,102 @@ fn invariant_16_repeated_migrate_dry_runs_are_byte_identical() {
         assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
         assert_eq!(first.stdout, second.stdout, "{extra:?}");
         assert_eq!(first.stderr, second.stderr, "{extra:?}");
+    }
+}
+
+/// The concurrency flag every `migrate` document carries, as JSON.
+fn activity(doc: &Value) -> &Value {
+    doc.get("concurrentProviderActivity")
+        .unwrap_or_else(|| panic!("no concurrency flag in {doc}"))
+}
+
+/// Every shape a `migrate` document takes over `input`: a rendered plan, an
+/// executed one (when `execute` is allowed), and nothing to move.
+fn every_migrate_shape(execute: bool) -> Vec<(&'static [&'static str], &'static str, i32)> {
+    let mut shapes: Vec<(&'static [&'static str], &'static str, i32)> = vec![
+        (&["--json"][..], "htop", 0),
+        (&["--json", "--dry-run"][..], "nginx", 0),
+    ];
+    if execute {
+        shapes.push((&["--json", "--yes"][..], "htop", 4));
+        shapes.push((&["--json", "--yes"][..], "nginx", 0));
+    }
+    shapes
+}
+
+fn assert_unknowable(doc: &Value, context: &str) {
+    assert_eq!(
+        activity(doc),
+        &serde_json::json!({ "activity": "UNKNOWABLE", "possiblyInconsistent": true }),
+        "{context}: {doc}"
+    );
+}
+
+fn assert_unknowable_in_words(text: &str, context: &str) {
+    assert!(
+        text.contains("Possibly inconsistent: this was read from a recording or a snapshot file"),
+        "{context}: {text}"
+    );
+    for raw in ["UNKNOWABLE", "NOT_CHECKED", "migrate.concurrency"] {
+        assert!(
+            !text.contains(raw),
+            "{context}: {raw} reached the user:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn invariant_15_a_replayed_run_cannot_observe_this_hosts_processes() {
+    // A recording carries no process table, and a replay must not consult
+    // this host's (INV-15): every answer is `UNKNOWABLE`, never a check that
+    // was not made, whatever this host's environment says.
+    let scratch = Scratch::new("replay-concurrency");
+    let file = fixture(BOTH);
+    for (extra, package, code) in every_migrate_shape(true) {
+        let out = migrate(&scratch, &file, extra, package, MP);
+        assert_eq!(
+            out.status.code(),
+            Some(code),
+            "{extra:?} {package}: {}",
+            stderr(&out)
+        );
+        assert_unknowable(&document(&out), &format!("{extra:?} {package}"));
+        let recording = file.to_str().expect("UTF-8");
+        let mut argv = vec!["--replay", recording];
+        argv.extend_from_slice(extra);
+        argv.extend_from_slice(&["migrate", package, "--to", MP, "--today", TODAY]);
+        let elsewhere = run_with_env(
+            &scratch,
+            &argv,
+            &[
+                ("HOME", "/nonexistent/elsewhere"),
+                ("PATH", "/usr/bin:/bin"),
+            ],
+        );
+        assert_eq!(out.stdout, elsewhere.stdout, "{extra:?} {package}");
+        let human = migrate(&scratch, &file, &extra[1..], package, MP);
+        assert_unknowable_in_words(&stdout(&human), &format!("{extra:?} {package}"));
+    }
+}
+
+#[test]
+fn a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either() {
+    // A snapshot file is the same as a recording here: whatever ran beside the
+    // capture it came from is not in it, so the answer is `UNKNOWABLE`, not
+    // the `NOT_CHECKED` of a live run that simply did not look.
+    let scratch = Scratch::new("snapshot-concurrency");
+    let file = snapshot_file(&scratch, BOTH);
+    for (extra, package, code) in every_migrate_shape(false) {
+        let out = from_snapshot(&scratch, &file, extra, package, MP);
+        assert_eq!(
+            out.status.code(),
+            Some(code),
+            "{extra:?} {package}: {}",
+            stderr(&out)
+        );
+        assert_unknowable(&document(&out), &format!("{extra:?} {package}"));
+        let human = from_snapshot(&scratch, &file, &extra[1..], package, MP);
+        assert_unknowable_in_words(&stdout(&human), &format!("{extra:?} {package}"));
     }
 }
 
