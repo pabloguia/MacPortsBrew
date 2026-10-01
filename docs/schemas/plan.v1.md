@@ -12,7 +12,7 @@ does not happen, and a failing step is not improvised around.
 **In this build nothing executes it.** `migrate --yes` reaches a refusal gate
 (`crates/application/src/execution_gate.rs`) that refuses every plan this build
 produces; the read-step loop behind it exists, is tested against recordings,
-and is unreachable from the binary. `dryRunOnly` is always `true` — the planner
+and reads nothing, because the gate refuses first. `dryRunOnly` is always `true` — the planner
 writes the negation of a compile-time constant,
 `THIS_BUILD_DISPATCHES_MUTATIONS`, which is `false` — and there is no code path
 in the binary that runs a mutating provider subcommand. `migrate` carries this
@@ -96,7 +96,8 @@ returns every reason a plan may not run as a named refusal (tag `refusal`) and
 reports exit **4** (`GateReport::exit_code`) whenever it refuses anything.
 Since 2026-10-01 `migrate --yes` consults it and exits with it, the refusals in
 its document ([`migrate.v1.md`](migrate.v1.md)); the read-step loop behind it
-exists, is tested against recordings, and is unreachable from the binary. It
+exists, is tested against recordings, and reads nothing, because the gate
+refuses first. It
 enforces items 1, 2, 6, 7 and 11 and the refusal half of item 4, and it refuses
 every plan this build produces: a plan stopping at `MANUAL_REVIEW` is refused as
 such, and every other one carries a mutating step

@@ -5915,7 +5915,10 @@ finding ids in each entry.
   (its amendment A5, 2026-09-27, in the pass's working notes rather than this
   repository) is, verbatim: "`migrate --yes` reaches a refusal gate that
   refuses every plan this build produces; the read-step loop exists, is tested
-  against recordings, and is unreachable from the binary." `plan.v1.md` (the
+  against recordings, and is unreachable from the binary." Its last clause
+  stopped being true when `migrate --yes` began calling the loop, so on
+  2026-10-01 (end of pass) every copy below was changed to "reads nothing,
+  because the gate refuses first"; the rest stands. `plan.v1.md` (the
   opening and "What an executor inherits"), the module and `dry_run_only`
   documentation in `crates/domain/src/plan.rs`, the command line's
   `long_about`, `--dry-run`, `--yes` and command documentation,

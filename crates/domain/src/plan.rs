@@ -6,7 +6,7 @@
 //! command from one: `migrate --yes` reaches a refusal gate
 //! (`macportsbrew_application::execution_gate`) that refuses every plan this
 //! build produces; the read-step loop behind it exists, is tested against
-//! recordings, and is unreachable from the binary; and
+//! recordings, and reads nothing, because the gate refuses first; and
 //! [`THIS_BUILD_DISPATCHES_MUTATIONS`] is `false` (SE-020).
 //!
 //! Step kinds follow the state machine in that chapter. The verbs a step
@@ -464,7 +464,7 @@ pub struct MigrationPlan {
     /// (`PLAN_NOT_DRY_RUN_ONLY`, for a plan claiming otherwise), not the
     /// reason nothing runs: `migrate --yes` reaches a refusal gate that
     /// refuses every plan this build produces, and the read-step loop behind
-    /// it is unreachable from the binary. The field keeps the document
+    /// it reads nothing, because the gate refuses first. The field keeps the document
     /// truthful; the gate, and the absence of any path to a provider's
     /// mutating verbs, keep the machine untouched.
     pub dry_run_only: bool,
