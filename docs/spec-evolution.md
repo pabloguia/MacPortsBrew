@@ -1070,49 +1070,82 @@ change is made. Silent deviation remains the one unrecoverable error.
   to be unguarded in the first place. If the key set changes before the first
   release, the version should move with it.
 
-## SE-057 — The reader-drain timeout was a bound on scheduling, not on a held pipe
+## SE-057 — The reader-drain timeout, and a test flake that was a leaked pipe
 - Status: accepted
-- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation
+- Date / Pass: 2026-09-03 / 02-ARCHITECTURE-REVIEW, implementation; diagnosis
+  revised 2026-10-01, same pass
 - Original assumption: two seconds is long enough for a reader thread to hand
-  back what it read, so a longer wait means a grandchild is holding the pipe.
-- Change: `READER_DRAIN_TIMEOUT` in `adapters::process::system` goes from two
-  seconds to six. The two tests that assert on captured `stdout` now assert
-  `!inv.truncated` first.
-- Rationale: the constant exists to bound the pathological case — a child exits
-  and leaves a grandchild holding the write end, so a blocking read never
-  returns. Two seconds does bound that. What it also did was fail on ordinary
-  *scheduling*: with a dozen test binaries and a build competing for the
-  machine, the reader for `/bin/echo` did not get its result onto the channel
-  in time, and the invocation came back with an empty `stdout` marked
-  truncated. This repository's own suite reproduced it at roughly one run in
-  fifteen.
+  back what it read, so a longer wait means a grandchild is holding the pipe —
+  and, once the adapters' tests began failing on it, that the failures were the
+  reader being starved of the CPU on a loaded machine.
+- Change: `READER_DRAIN_TIMEOUT` in `adapters::process::system` is six seconds
+  (it was two). The tests there that assert on captured `stdout` assert
+  `!inv.truncated` first. Every test in `process::system::tests` that reaches
+  `Command::spawn` holds one test-only mutex (`spawn_alone`) for its whole
+  body, so no two of them spawn at the same time.
+- Rationale: the constant bounds the pathological case — a child exits and
+  leaves a grandchild holding the write end, so a blocking read never returns.
+  The tests failed on exactly that case, but one the tests made themselves.
+  The harness runs them on parallel threads of one process, and on macOS — no
+  `pipe2` — a child's pipes are not created close-on-exec atomically, so a
+  sibling test that spawns in that window gives its child a copy of
+  `/bin/echo`'s write end. When that child is the `sleep 30` that
+  `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind, or
+  the five-second `yes` of `output_is_bounded`, `echo`'s stream cannot reach
+  end-of-file, the drain times out as designed, and the invocation comes back
+  with an empty `stdout` marked truncated. The first diagnosis — scheduling —
+  was wrong; raising the constant from two to six made the window harder to
+  hit without closing it, and the flake came back twice in this pass's gate
+  runs under load. Serialising the spawning tests removes the cause. No
+  assertion was weakened and nothing retries: a truncated read is still a
+  failure.
 - **Nothing mis-parsed, and that is the part worth keeping.**
   `Invocation::require_success` turns truncation into `ProviderOutputChanged`
   before any adapter parses, precisely because a stream cut mid-way is a
   *plausible* one: a line-oriented inventory parses perfectly into an inventory
-  silently missing packages. So the product behaviour was correct throughout —
-  a loaded machine would have refused to analyse rather than analysed wrongly.
-  What was wrong was the gate: `scripts/validate.sh` is the definition of
-  "valid", and one that fails for a reason like this teaches people to re-run
-  it, which is how a real failure gets waved through.
-- **Why six and not more.** The two streams are drained one after the other, so
-  the worst case is twice the constant, and
+  silently missing packages. A gate that fails for a reason like this,
+  though, teaches people to re-run it, which is how a real failure gets waved
+  through.
+- **The product is not exposed today, and the rule is stated where it binds.**
+  Nothing in the product calls `run` from two threads at once: the CLI's one
+  runner is an `Rc` (`!Send`) shared on one thread, the only other production
+  threads are the two pipe readers per invocation, which never spawn, and the
+  other live runners in the adapters test binary (`registry`,
+  `system::machine`) never reach a spawn. That is a property of today's
+  callers, not of the type — `ProcessRunner` carries no `Send`/`Sync` bound
+  (security-reviewer, 2026-10-01). So `run` is documented as not safe to call
+  concurrently on macOS, and the first caller that needs concurrency adds a
+  process-wide spawn lock inside `run`, held from `Command::new` through
+  `spawn()`. It is not added now: no caller needs it, and it would change the
+  one subprocess site with no production failure behind it. A future test
+  elsewhere in the adapters lib that reaches a spawn must take
+  `spawn_alone` too (or that lock moves into `run`).
+- **Why six, and why it stays.** The two streams are drained one after the
+  other, so the worst case is twice the constant, and
   `a_grandchild_holding_the_pipe_does_not_hang_the_runner` fixes twenty seconds
-  as the ceiling for a held pipe. Ten seconds sat exactly on that bound and
-  failed the test — which is how the doubling was found, and it is now written
-  beside the constant. Six keeps the worst case at twelve. Draining
-  concurrently would remove the doubling and allow a longer wait; that is a
-  change to the one subprocess site and is not made here.
-- Evidence: reproduced before the change at 1 in 12, 1 in 25 and 1 in 15 full
-  runs of the adapters crate, and confirmed by making the assertion name its
-  cause — the failure then reads "the reader thread did not drain in time"
-  rather than reporting the output as wrong. After the change, 30 consecutive
-  full runs with no failure, where roughly two would have been expected. Thirty
-  runs is evidence, not proof.
+  as the ceiling for a held pipe. Ten sat exactly on that bound and failed the
+  test; six keeps the worst case at twelve. Six was chosen on the wrong
+  diagnosis but is still a sound bound for the right one, and reverting it
+  would be a production change justified only by tidiness. Draining
+  concurrently would remove the doubling; that is a change to the one
+  subprocess site and is not made here.
+- Evidence: the original failures reproduced at 1 in 12, 1 in 25 and 1 in 15
+  full runs of the adapters crate (2026-09-03). For the revision, the test
+  binary was run filtered to `process::system::tests`, back to back, with 24
+  busy loops on a 12-core machine whose load average was between 200 and 1000
+  from other concurrent builds, while `lsof` was polled on every `sleep`, `sh`
+  and `yes`. Before: 100 runs, 1 failure (`runs_argv_without_a_shell_and_records`,
+  the drain message), and 6 children caught holding pipe descriptors above 2
+  that the runner never gives a child (3 `sleep 30`, 3 `yes`, each `yes` a
+  whole pair). After: 60 runs, 0 failures, 0 foreign descriptors in any child.
+  The failure count alone is too small to prove anything; the leak count,
+  which is the mechanism, went from six to none. `cargo test --workspace
+  --all-features` passed under the same load (751 tests).
 - User impact: none in the normal case, where the channel already has the
   answer. A machine with a grandchild holding both pipes waits up to twelve
-  seconds per invocation instead of four before recording a truncated read.
-- Architectural impact: none. One constant and two assertions.
+  seconds per invocation before recording a truncated read.
+- Architectural impact: none. One constant, a test-only lock, and a documented
+  precondition on `run`.
 - Compatibility impact: none.
 
 ## SE-056 — A plan command says what it invokes, so the rule that governs it is not inferred from its name

@@ -80,16 +80,15 @@ impl SystemRunner {
 /// Waiting for a bounded time and recording a truncated stream is the right
 /// trade — the alternative is a `macportsbrew analyze` that never comes back.
 ///
-/// Six seconds, and it was two. Two was not a bound on a held pipe, which is
-/// what this exists for; it was tight enough to be missed by *scheduling*. This
-/// repository's own test suite reproduced it at roughly one run in fifteen: the
-/// reader for `/bin/echo` did not get its result onto the channel within two
-/// seconds while a dozen test binaries and a build competed for the machine,
-/// and the invocation came back with an empty stdout marked truncated. Nothing
-/// mis-parsed — `Invocation::require_success` turns truncation into
-/// `ProviderOutputChanged`, which is the whole point of the flag — but a gate
-/// that fails for a reason like that teaches people to re-run it, and that is
-/// how a real failure gets waved through.
+/// Six seconds, and it was two. The move was made on a wrong diagnosis —
+/// that this repository's tests were failing because a loaded machine starved
+/// the reader of the CPU. They were failing on a held pipe after all: the test
+/// binary spawned on parallel threads, and a sibling test's long-lived child
+/// inherited `/bin/echo`'s write end (SE-057, and `spawn_alone` in the tests).
+/// Six was kept because it is still a sound bound for the case it exists for.
+/// Nothing mis-parsed either way — `Invocation::require_success` turns
+/// truncation into `ProviderOutputChanged`, which is the whole point of the
+/// flag.
 ///
 /// Six costs nothing when the pipe is closed, which is every normal read: the
 /// channel already has the answer. It only lengthens the pathological case, and
@@ -103,6 +102,13 @@ impl SystemRunner {
 /// seconds as the ceiling for that. Six keeps the worst case at twelve, with
 /// margin; ten would have sat exactly on the bound, which is how this value was
 /// found out.
+///
+/// That same held-pipe case is why [`SystemRunner::run`] must not be called
+/// from two threads at once on macOS: a child's pipes are not created
+/// close-on-exec atomically there, so a concurrent spawn can hand one
+/// invocation's write end to another's child, and a long-lived child then
+/// holds it. No caller does today (SE-057); the first that needs to adds a
+/// process-wide lock around the spawn in `run` first.
 const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Reads a stream up to `cap` bytes, returning the text and whether anything
@@ -382,13 +388,46 @@ fn signal_of(_status: std::process::ExitStatus) -> Option<i32> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::sync::{Mutex, MutexGuard, PoisonError};
 
     fn env() -> BTreeMap<String, String> {
         crate::process::sanitised_environment(&crate::process::EnvironmentSpec::default())
     }
 
+    /// Every test here that reaches `Command::spawn` holds this for its whole
+    /// body, so no two of them spawn at the same time (SE-057).
+    ///
+    /// The test harness runs tests on parallel threads of one process, and on
+    /// macOS - which has no `pipe2` - a child's pipes are not created
+    /// close-on-exec atomically. A thread that spawns inside that window hands
+    /// its child a copy of the *other* test's write end. When that child is the
+    /// `sleep 30` that
+    /// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
+    /// or the `yes` that `output_is_bounded` runs for five seconds, the other
+    /// test's stream cannot reach end-of-file until it dies, its reader misses
+    /// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
+    /// marked truncated. Observed under load: `sleep 30` and `yes` children
+    /// holding pipe descriptors they were never given. The runner did exactly what it should with a
+    /// held pipe - the hazard is that this test binary spawns concurrently,
+    /// which the product does not: nothing in it calls `run` from two threads
+    /// at once (its one runner is an `Rc`, shared on one thread). `run` is not
+    /// safe to call concurrently on macOS; a caller that needs that must add a
+    /// process-wide spawn lock inside it first (SE-057).
+    ///
+    /// This removes the cause rather than retrying around the symptom, so every
+    /// assertion below keeps its full strength: a truncated read is still a
+    /// failure, never a reason to try again.
+    static SPAWN_ALONE: Mutex<()> = Mutex::new(());
+
+    fn spawn_alone() -> MutexGuard<'static, ()> {
+        // A test that panicked while holding the lock has already failed on its
+        // own; it is no reason to fail every test after it as well.
+        SPAWN_ALONE.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     #[test]
     fn runs_argv_without_a_shell_and_records() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::recording();
         let spec = CommandSpec::new(
             "/bin/echo",
@@ -401,8 +440,9 @@ mod tests {
         // text then fails saying the output was wrong when what happened is
         // that it never arrived. Production cannot confuse the two -
         // `require_success` turns truncation into `ProviderOutputChanged` - but
-        // these tests call `run` directly, and under a loaded machine the flake
-        // was reproducible at roughly one run in twelve.
+        // these tests call `run` directly. Under load it used to fail here at
+        // roughly one run in twelve; the cause was a sibling test's child
+        // holding this pipe, which `spawn_alone` now rules out.
         assert!(!inv.truncated, "the reader thread did not drain in time");
         assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
         assert_eq!(inv.stdout, "hello $HOME; rm -rf /\n");
@@ -414,6 +454,7 @@ mod tests {
 
     #[test]
     fn environment_is_exactly_what_was_given() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let mut e = env();
         e.insert("MPB_TEST_MARKER".into(), "present".into());
@@ -429,6 +470,7 @@ mod tests {
 
     #[test]
     fn a_spec_resolved_under_replay_never_reaches_a_live_spawn() {
+        let _alone = spawn_alone();
         // A program the test build would run, so a spec that got past the
         // replay mark exits 0 from the kernel: the assertion is on the refusal.
         let runner = SystemRunner::new();
@@ -447,6 +489,7 @@ mod tests {
 
     #[test]
     fn missing_program_is_not_started() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/nonexistent/mpb-test-program", vec![], env());
         let inv = runner.run(&spec).unwrap();
@@ -456,6 +499,8 @@ mod tests {
 
     #[test]
     fn a_provider_asked_for_a_subcommand_off_its_read_list_is_not_started() {
+        // No `spawn_alone`: refused before anything is spawned, which is the
+        // assertion.
         // F-53 at the spawn site. The prefix does not exist, so a spec that got
         // past the guard would also end `NotStarted` - from the kernel. The
         // assertion is on *which* refusal, so it cannot pass by that route. The
@@ -479,6 +524,7 @@ mod tests {
 
     #[test]
     fn a_child_starts_in_the_root_directory_and_not_in_ours() {
+        let _alone = spawn_alone();
         // The test process runs in the crate directory, so a child that
         // inherited it would print that instead - checked first, or the test
         // would pass vacuously when run from `/`.
@@ -493,6 +539,7 @@ mod tests {
 
     #[test]
     fn timeout_kills_the_child() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/bin/sleep", vec!["5".into()], env())
             .with_timeout(Duration::from_millis(200));
@@ -507,6 +554,7 @@ mod tests {
 
     #[test]
     fn cancellation_stops_the_child() {
+        let _alone = spawn_alone();
         let token = CancelToken::new();
         let runner = SystemRunner::new().with_cancel(token.clone());
         let t = token.clone();
@@ -521,6 +569,7 @@ mod tests {
 
     #[test]
     fn output_is_bounded() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let mut spec =
             CommandSpec::new("/usr/bin/yes", vec![], env()).with_timeout(Duration::from_secs(5));
@@ -532,6 +581,8 @@ mod tests {
 
     #[test]
     fn a_program_that_is_not_an_absolute_path_is_never_spawned() {
+        // No `spawn_alone`: refused before anything is spawned, which is the
+        // assertion.
         // `echo` exists on every machine's `PATH`, so a runner that resolved
         // bare names would succeed here. Succeeding is the bug: what ran would
         // be whatever an early `PATH` entry decided (`04-migration-and-safety`,
@@ -552,6 +603,7 @@ mod tests {
 
     #[test]
     fn a_grandchild_holding_the_pipe_does_not_hang_the_runner() {
+        let _alone = spawn_alone();
         // The child exits at once and leaves a background process holding the
         // write end of the inherited pipe. Reading until end-of-file would
         // block for the grandchild's whole lifetime, so the reads are bounded:
@@ -581,6 +633,7 @@ mod tests {
 
     #[test]
     fn non_zero_exit_is_reported_not_raised() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/usr/bin/false", vec![], env());
         let inv = runner.run(&spec).unwrap();
