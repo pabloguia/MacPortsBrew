@@ -2372,6 +2372,17 @@ change is made. Silent deviation remains the one unrecoverable error.
   `disable-model-invocation: true` leaves a skill reachable only by the user,
   and that an argument without a placeholder is appended as a trailing line
   (`research/tooling/2026-09-02-subagents-skills.md`).
+- **Refined 2026-10-02 (06-HARDENING-BEFORE-MUTATION, `/tooling-recheck`).**
+  The sub-agents page now says `permissionMode` is ignored altogether when the
+  main session runs in `bypassPermissions`, `acceptEdits` or auto mode. Under
+  those modes the reviewers' read-only property rests on their `tools` list —
+  which names no file-editing tool, so `disallowedTools` is redundant rather
+  than load-bearing — and `Bash` stays the gap the `PreToolUse` guard covers.
+  `11-agentic-sdlc.md` says so. Two further facts from the same read, neither
+  acted on: a skill's `allowed-tools` pre-approves and does not restrict (a
+  wording check of the recipes is owed, in a guarded path), and a skill
+  `disallowed-tools` field now exists. Nothing under `.claude/` changed
+  (`research/tooling/2026-10-02-subagents-skills.md`).
 - Deliberately deferred: the contributor recipes named in
   `08-distribution-and-project.md` are not written. A skill for a procedure
   that does not exist reads as authoritative and is wrong in ways nobody

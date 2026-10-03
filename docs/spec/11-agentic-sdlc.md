@@ -26,8 +26,11 @@ Everything specified below was verified against Anthropic's Claude Code
 documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**
 (re-verified the same day at the start of the Foundation Pass; the
 permissions, hooks, skills and github-actions pages re-read **2026-09-05**
-during the security review that produced SE-072), and every group re-read
-**2026-09-27** (`docs/research/tooling/2026-09-27-*.md`). The
+during the security review that produced SE-072), every group re-read
+**2026-09-27** (`docs/research/tooling/2026-09-27-*.md`), and the memory and
+settings group and the subagents and skills group re-read **2026-10-02**
+(`docs/research/tooling/2026-10-02-*.md`; the hooks, permissions and CI group
+was not re-read that day, and its date stays 2026-09-27). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -230,7 +233,11 @@ harness's read-only mode for the file tools. Plan mode does **not** stop a
 2026-09-02, Foundation Pass recheck) says plan mode blocks the file-editing
 tools while "any other shell command goes through the regular permission
 flow" — which the readiness pass had already observed when a reviewer
-created files under its scratch directory through `Bash`. So `Bash` is the
+created files under its scratch directory through `Bash`. And `permissionMode`
+is ignored altogether when the main session runs in `bypassPermissions`,
+`acceptEdits` or auto mode (sub-agents documentation, read 2026-10-02); what
+still holds then is the `tools` list, which gives the reviewers no file-editing
+tool. So `Bash` is the
 documented gap, the `PreToolUse` guard is the boundary that holds during a
 review, and the reviewers' prompts are what keep them from patching. A
 reviewer that can fix what it finds stops reporting and starts patching, and
