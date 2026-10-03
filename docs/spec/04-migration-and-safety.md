@@ -277,11 +277,14 @@ of it (SE-059, finding F-10).
 **MUST.** One centralised executor. Argv arrays only — no shell, no string
 interpolation, ever. Package names and paths are arguments, never fragments of
 a command line. A provider's subcommand, and every option before it, come from a
-code-level allowlist checked at the spawn site; options after it come from the
-adapters' own argument-vector allowlists or, for a plan's verbs, from dated
-policy data whose loader refuses a verification verb that repeats the entry's own
-add or remove verb; any other subcommand is refused at the spawn site. User
-input never becomes a flag (F-53, SE-050).
+code-level allowlist checked at the spawn site; options after it come from a
+per-subcommand code-level list in the same allowlist, each matched as the whole
+argument, so an option not on that subcommand's list — an abbreviation, another
+value, a bare `--` — is refused at the spawn site as an unlisted subcommand is.
+The adapters' own argument-vector allowlists and, for a plan's verbs, dated
+policy data whose loader refuses a verification verb that repeats the entry's
+own add or remove verb, stay behind it. User input never becomes a flag (F-53,
+SE-050).
 
 **MUST.** A child never inherits this process's working directory; it always
 starts in `/`, which is root-owned and holds no Portfile, because a provider can
@@ -403,7 +406,15 @@ do not gold-plate beyond them.
   argument must be, exactly, one of the read subcommands the adapters run; no
   argument may be `port`'s action separator `;`; nothing after the subcommand
   may be a single-dash option, since `port -F <file>` runs a command file from
-  either position; nothing after a subcommand that takes packages may contain
+  either position; a `--long` option after the subcommand must be, exactly and
+  as the whole argument, one on that subcommand's own list — the options this
+  tool's reads pass and no others, so `brew info --github` (which opens a
+  browser), `--json=v1` beside the listed `--json=v2`, an abbreviation such as
+  `port info --nam` that the provider would resolve, and a bare `--` are all
+  refused. The list is a tool permission list, not a provider fact: it says
+  what this tool asks for and carries no date. Positional arguments are checked
+  for shape only, below; which ones a plan may carry is the execution gate's
+  `COMMAND_IS_NOT_THE_PLANNERS_READ`. Nothing after a subcommand that takes packages may contain
   `/` or `:` — for `port` either one makes a list element a Portfile it opens
   and evaluates, and Homebrew's own refusal of a path or URL can be turned off
   by a `brew.env` — so only `port provides`, which takes raw strings, accepts a

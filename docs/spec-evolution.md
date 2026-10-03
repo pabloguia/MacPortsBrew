@@ -3348,6 +3348,67 @@ finding ids in each entry.
     dropping the separator clause fails
     `every_argv_injection_form_is_refused_through_the_plan_path` as well as
     the two spawn-site tests that already held it.
+- **Closed 2026-10-02 (06-HARDENING-BEFORE-MUTATION, slice S2): the
+  per-subcommand long-option allowlist** — the stronger fix item (1) of the
+  S4 "Not closed" list above named. Each permitted read subcommand is a
+  `ReadSubcommand { name, long_options, raw_strings }`; `raw_string_subcommands`
+  is folded in, so what a subcommand may take is read where the subcommand is.
+  After the subcommand every element beginning with `-` must equal one of that
+  subcommand's options **as a whole element** — so a single-dash option (as
+  before), a bare `--`, an abbreviation the provider would itself resolve
+  (`list --vers`, `info --nam`), another value of a listed option
+  (`--json=v1`, `--json`, `--json=v2x`) and an unlisted one (`info --github`,
+  `--fetch-HEAD`, `config --verbose`) are refused, at construction
+  (`plan_read_spec`, `NotAPermittedRead`) and at the spawn site
+  (`SystemRunner::run`), for both providers, by one function. The lists are
+  exactly what the adapters' argument vectors and the planner's
+  `provider-commands.toml` reads pass: Homebrew `info` takes `--json=v2` and
+  `--installed`, `list` takes `--pinned` and `--versions`; MacPorts `info`
+  takes the twelve field options; every other subcommand takes none.
+  **What it does not close:** only the long-option half of item (1).
+  Positional arguments are still checked for shape alone, and which package a
+  plan's read names is still pinned only by the gate's
+  `COMMAND_IS_NOT_THE_PLANNERS_READ`, so `plan_read_spec` stays safe only after
+  the gate. **Not an INV-20 regression:** the list says what this tool asks
+  for, a permission, not what a provider does, so it carries no `source` or
+  `read_on`. **`--cask` is absent on purpose:** adding it for F-22's cask verb
+  is a deliberate, reviewed widening of this list, not a data edit. Tests:
+  `every_long_option_a_read_passes_is_permitted_and_no_other` (both
+  directions: every adapter argv, every `INFO_FIELDS_*` tail and both planner
+  reads pass, and every listed option is used by one of them),
+  `a_long_option_is_matched_whole_and_only_after_its_own_subcommand`,
+  `an_info_read_asks_only_for_a_listed_field_tail` (`macports/mod.rs`: the
+  adapter's own argv check now refuses an `info` tail off `INFO_FIELDS` on
+  every run, replayed or live, so the link between a new field and the spawn
+  list no longer rests on a text-scanning test that `ReplayRunner`, which asks
+  no allowlist, could not back up — security-reviewer, 2026-10-02),
+  `an_off_list_long_option_is_refused_at_construction` and
+  `an_off_list_long_option_is_refused_at_the_spawn_site` (`plan_reads.rs`; the
+  spawn half runs at `/nonexistent-mpb-prefix` with a control row that gets
+  past the guard, so no row reaches a real provider; the test also asserts
+  the prefix does not exist, that the table's executable is relative with no
+  `..`, and names the executable as a literal rather than leaking a table
+  string into `CommandSpec::provider`), and
+  `every_read_the_planner_writes_from_every_fixture_passes_the_read_allowlist`
+  (`crates/cli/tests/`, the only crate that can reach both the planner and
+  `plan_read_spec`; it also asserts every mutating step's command is refused).
+  **Proved by mutation**, in a scratch copy with its own target directory,
+  each file restored by rewriting and `touch`:
+
+  | Rule | Mutation | Tests that failed |
+  |---|---|---|
+  | the long-option check | any `--…` accepted | both `an_off_list_long_option_is_refused_*`, `a_long_option_is_matched_whole_and_only_after_its_own_subcommand` |
+  | the lists are complete | `--depends_build` dropped from `info` | `every_long_option_a_read_passes_is_permitted_and_no_other` |
+  | the planner's option is listed | `--versions` dropped from `list` | that test, `every_read_the_planner_writes_from_every_fixture_passes_the_read_allowlist`, and seven `plan_reads.rs` tests built on the planner's read |
+  | no spare option | `--github` added to `info` | `every_long_option_a_read_passes_is_permitted_and_no_other`, both `an_off_list_long_option_is_refused_*` |
+  | whole-element match | prefix match, either direction | `a_long_option_is_matched_whole_and_only_after_its_own_subcommand`, both refusal tests (the `--json=v2x`, `--json`, `--vers`, `--nam` rows) |
+  | raw strings | `provides` loses `raw_strings` | `a_provider_mutation_is_refused_whatever_surrounds_it`, `every_long_option_a_read_passes_is_permitted_and_no_other` |
+| the adapter checks its `info` tail | head match only | `an_info_read_asks_only_for_a_listed_field_tail` |
+| every argv prefix has a known tail | a third prefix added | `every_long_option_a_read_passes_is_permitted_and_no_other` |
+
+  The copy's `crates/` and `data/` matched this tree under `diff -r` in every
+  file this slice touched; the only differences were two files the parallel
+  hostile-text slice changed in this tree after the copy was taken.
 - **One thing this pass will not evade.** `invariant_06_reading_the_machine_needs_
   no_elevation` refused the elevating binary's name in a list of programs a test
   asserts are *rejected*. The invariant is right and the case was dropped: an

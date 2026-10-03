@@ -170,12 +170,13 @@ pub fn detected_prefix(ctx: &RegistryContext<'_>, provider: &ProviderId) -> Opti
 ///
 /// **Safe only after the execution gate has passed the plan**
 /// (`execution_refusals`, `plan.v1.md` "What an executor inherits"). The read
-/// allowlist checked here fixes the subcommand and refuses separators, short
-/// options and path- or URL-shaped arguments, but accepts any `--long` option
-/// after a permitted subcommand — `brew info --github <formula>` is a read on
-/// that list and opens a browser. What keeps a plan's argv to exactly the
-/// planner's read is the gate's `COMMAND_IS_NOT_THE_PLANNERS_READ`; the caller
-/// owes that the gate passed (SE-050, "Not closed").
+/// allowlist checked here fixes the subcommand and the exact `--long` options
+/// that subcommand may take, and refuses separators, short options and path- or
+/// URL-shaped arguments — but it checks positional arguments for shape only:
+/// which package a read names, and how many, it does not decide. What keeps a
+/// plan's argv to exactly the planner's read is the gate's
+/// `COMMAND_IS_NOT_THE_PLANNERS_READ`; the caller owes that the gate passed
+/// (SE-050, "Not closed").
 pub fn plan_read_spec(
     site: &DetectedPrefix,
     command: &PlanCommand,

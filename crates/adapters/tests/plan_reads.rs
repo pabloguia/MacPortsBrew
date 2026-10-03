@@ -15,8 +15,8 @@
 
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{
-    ExitStatus, Invocation, PlanReadRefusal, ProcessRunner, RecordedInvocation, Recording,
-    ReplayRunner, SystemRunner,
+    CommandSpec, ExitStatus, Invocation, PlanReadRefusal, ProcessRunner, RecordedInvocation,
+    Recording, ReplayRunner, SystemRunner,
 };
 use macportsbrew_adapters::registry::{
     self, detected_prefix, plan_read_sites, plan_read_spec, DetectedPrefix, PlanReadError,
@@ -563,4 +563,138 @@ fn a_read_site_is_bound_to_the_runner_it_was_detected_through() {
             PlanReadRefusal::ProgramDisagrees { .. }
         ))
     ));
+}
+
+/// Long options no read of this build passes, after a subcommand that is on
+/// the read list (SE-050): each refused at construction and at the spawn site.
+/// Keyed by the program leaf the command table names, so both providers are
+/// covered without either name being an argument a test can drift from.
+///
+/// `brew list --cask` is here on purpose: F-22's cask verb will need it, and
+/// adding it then is a deliberate, reviewed widening of the read list.
+const OFF_LIST: &[(&str, &[&str])] = &[
+    // Opens a browser.
+    ("brew", &["info", "--github", "wget"]),
+    // Fetches over the network.
+    ("brew", &["info", "--fetch-HEAD", "wget"]),
+    // `--json=v2` is on the list; nothing else spelled like it is.
+    ("brew", &["info", "--json=v1", "--installed"]),
+    ("brew", &["info", "--json=v2x", "--installed"]),
+    ("brew", &["info", "--json", "--installed"]),
+    ("brew", &["info", "--json=v2,", "--installed"]),
+    // An abbreviation of `--versions`, which the provider would resolve.
+    ("brew", &["list", "--vers"]),
+    ("brew", &["list", "--cask"]),
+    // A bare `--` ends option parsing; nothing this build runs passes one.
+    ("brew", &["list", "--versions", "--"]),
+    ("brew", &["config", "--verbose"]),
+    // An abbreviation of `--name`, which `port` would resolve.
+    ("port", &["-q", "info", "--nam", "libpng"]),
+    ("port", &["-q", "info", "--fullname", "libpng"]),
+    ("port", &["-q", "installed", "--all"]),
+    ("port", &["-q", "provides", "--foo"]),
+    ("port", &["-q", "echo", "--bogus"]),
+];
+
+/// A prefix that does not exist. A spec that got past the spawn-site guard
+/// would end `NotStarted` from the kernel instead, never reaching a provider:
+/// no row of this file ever goes through a runner at a real prefix.
+const NOWHERE: &str = "/nonexistent-mpb-prefix";
+
+/// The provider `program` names in the command table, and `row` as an argv.
+fn off_list_row(program: &str, row: &[&str]) -> (ProviderId, Vec<String>) {
+    let id = registry::known_provider_ids()
+        .into_iter()
+        .find(|id| leaf(&executable(id)) == program)
+        .unwrap_or_else(|| panic!("no provider runs `{program}`"));
+    (id, row.iter().map(|a| (*a).to_string()).collect())
+}
+
+/// `argv` through the live runner at [`NOWHERE`], for `id`'s executable.
+///
+/// The executable handed to `CommandSpec::provider` is a literal of this file,
+/// chosen by the leaf the command table names and asserted equal to the
+/// table's value - never the table's string itself, which would let a data
+/// file decide what the live runner is asked to start.
+fn spawned_at_nowhere(id: &ProviderId, argv: Vec<String>) -> ExitStatus {
+    let relative = executable(id);
+    let as_path = Path::new(&relative);
+    assert!(
+        as_path.is_relative()
+            && !as_path
+                .components()
+                .any(|c| c == std::path::Component::ParentDir),
+        "{id:?}: the table's executable {relative:?} must be relative and stay under the prefix"
+    );
+    let literal: &'static str = match leaf(&relative).as_str() {
+        "brew" => "bin/brew",
+        "port" => "bin/port",
+        other => panic!("{id:?}: no literal for `{other}`; add one deliberately"),
+    };
+    assert_eq!(
+        literal, relative,
+        "{id:?}: the table and the literal disagree"
+    );
+    assert!(
+        !Path::new(NOWHERE).exists(),
+        "{NOWHERE} exists; this test must never reach a real program"
+    );
+    let spec = CommandSpec::provider(Path::new(NOWHERE), literal, argv, BTreeMap::new());
+    SystemRunner::new()
+        .run(&spec)
+        .expect("a refusal is recorded")
+        .status
+}
+
+#[test]
+fn an_off_list_long_option_is_refused_at_construction() {
+    // Through the one door a plan's command goes through, with the honest
+    // program, so the option is the only thing wrong.
+    let runner = ReplayRunner::new(recording());
+    let mut covered = std::collections::BTreeSet::new();
+    for (program, row) in OFF_LIST {
+        let (id, argv) = off_list_row(program, row);
+        let site = site(&runner, &id, None);
+        let mut forged = read_command(&id, site.prefix());
+        forged.argv.clone_from(&argv);
+        assert_eq!(
+            plan_read_spec(&site, &forged),
+            Err(PlanReadRefusal::NotAPermittedRead { argv: argv.clone() }),
+            "{program} {argv:?}"
+        );
+        covered.insert(id);
+    }
+    assert_eq!(
+        covered.len(),
+        registry::known_provider_ids().len(),
+        "every provider has a row"
+    );
+}
+
+#[test]
+fn an_off_list_long_option_is_refused_at_the_spawn_site() {
+    // Through the live runner, at a prefix that does not exist: a spec that got
+    // past the guard would end `NotStarted` from the kernel, so the assertion
+    // is on *which* refusal.
+    for (program, row) in OFF_LIST {
+        let (id, argv) = off_list_row(program, row);
+        let status = spawned_at_nowhere(&id, argv.clone());
+        let ExitStatus::NotStarted { error } = &status else {
+            panic!("{program} {argv:?} reached the kernel: {status:?}");
+        };
+        assert!(
+            error.contains("read allowlist"),
+            "{program} {argv:?}: {error}"
+        );
+    }
+    // The control: the planner's own read, at the same prefix, is let through
+    // by the guard and refused by the kernel - so the rows above are refused
+    // for their options and not for where they point.
+    for id in registry::known_provider_ids() {
+        let status = spawned_at_nowhere(&id, verb(&id, "verify_absent"));
+        let ExitStatus::NotStarted { error } = &status else {
+            panic!("{id:?}: a program at a nonexistent prefix started: {status:?}");
+        };
+        assert!(!error.contains("read allowlist"), "{id:?}: {error}");
+    }
 }

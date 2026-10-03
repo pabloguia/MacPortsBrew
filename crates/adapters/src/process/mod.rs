@@ -99,32 +99,49 @@ pub(crate) const PERMITTED_PROGRAMS: &[&str] = &[
 /// pass that adds an executor adds its mutating subcommands here, deliberately
 /// and in review - which is the moment this list exists to make visible.
 /// `every_subcommand_an_adapter_runs_is_permitted_and_no_other` ties it to the
-/// argument vectors the adapters actually hold, in both directions.
+/// argument vectors the adapters actually hold, in both directions, and
+/// `every_long_option_a_read_passes_is_permitted_and_no_other` does the same
+/// for each subcommand's long options, against the adapters and the planner's
+/// `provider-commands.toml` reads.
 pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
     ProviderReads {
         program: "brew",
         // Homebrew takes no option before its subcommand in anything this tool
         // runs; its informational flags *are* subcommands in that position.
         leading_flags: &[],
+        // None of Homebrew's reads here takes a path, so no entry has
+        // `raw_strings`. Its default refusal of a formula given as a path or
+        // URL is not relied on: it is computed from the absence of
+        // `HOMEBREW_DEVELOPER` and two other variables, and `brew` re-exports
+        // every `HOMEBREW_*` line of a `brew.env` - in `/etc/homebrew/`, the
+        // prefix or the user's configuration directory - after the environment
+        // it is given (`bin/brew` lines 128-181, Homebrew 7.0.4;
+        // security-reviewer, 2026-09-26; R-15, 2026-10-02).
+        //
+        // The long options are exactly what `homebrew::ALLOWED_ARGV` and the
+        // `verify`/`verify_absent` verbs of `provider-commands.toml` use. Not
+        // `--github` (opens a browser), not `--fetch-HEAD` (network), not
+        // `--cask` - which F-22's cask verb will need, and adding it then is a
+        // reviewed widening of this list, not an edit to the TOML.
         subcommands: &[
-            "--version",
-            "--prefix",
-            "--cellar",
-            "--caskroom",
-            "--cache",
-            "config",
-            "info",
-            "list",
+            ReadSubcommand::bare("--version"),
+            ReadSubcommand::bare("--prefix"),
+            ReadSubcommand::bare("--cellar"),
+            ReadSubcommand::bare("--caskroom"),
+            ReadSubcommand::bare("--cache"),
+            ReadSubcommand::bare("config"),
+            ReadSubcommand {
+                name: "info",
+                long_options: &["--json=v2", "--installed"],
+                raw_strings: false,
+            },
+            ReadSubcommand {
+                name: "list",
+                long_options: &["--pinned", "--versions"],
+                raw_strings: false,
+            },
         ],
         separators: &[],
-        // None of Homebrew's reads here takes a path. Its default refusal of a
-        // formula given as a path or URL is not relied on: it is computed from
-        // the absence of `HOMEBREW_DEVELOPER` and two other variables, and
-        // `brew` re-exports every `HOMEBREW_*` line of a `brew.env` in the
-        // user's home or in the prefix (`bin/brew` lines 128-180, Homebrew
-        // 7.0.4;
-        // security-reviewer, 2026-09-26).
-        raw_string_subcommands: &[],
     },
     ProviderReads {
         program: "port",
@@ -139,8 +156,51 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
         // Matched exactly, and that matters here: `port` resolves an action it
         // does not know by case-folded unambiguous prefix (`find_action`,
         // `/opt/local/bin/port` line 4217, MacPorts 2.12.6, read 2026-09-25), so
-        // only an exact full name is certain to be the read it looks like.
-        subcommands: &["version", "installed", "echo", "info", "provides"],
+        // only an exact full name is certain to be the read it looks like. The
+        // same holds for its options: `port info --nam` is resolved too, so an
+        // option is matched as the whole element or not at all.
+        //
+        // Every read here that takes arguments, except `provides`, takes a
+        // *port list* (`version` takes none), and `port` turns a list element
+        // into a Portfile it evaluates - Tcl, run as the user - in two ways:
+        // `word:rest` is opened as a URL (`element`, `/opt/local/bin/port` line
+        // 1244), and anything containing `/` is opened as `file://<it>` (line
+        // 1371). `provides` collects its arguments as raw strings
+        // (`ACTION_ARGS_STRINGS`, line 4127), so a path reaches no parser
+        // there. MacPorts 2.12.6, read 2026-09-26; security-reviewer made both
+        // evaluate a probe Portfile, including through `‿:file://`, which a
+        // character-class mirror of Tcl's `\w` missed.
+        //
+        // The long options are exactly the `info` fields
+        // `macports::INFO_BASE` and every `macports::INFO_FIELDS` tail name.
+        subcommands: &[
+            ReadSubcommand::bare("version"),
+            ReadSubcommand::bare("installed"),
+            ReadSubcommand::bare("echo"),
+            ReadSubcommand {
+                name: "info",
+                long_options: &[
+                    "--index",
+                    "--line",
+                    "--name",
+                    "--version",
+                    "--revision",
+                    "--replaced_by",
+                    "--homepage",
+                    "--license",
+                    "--description",
+                    "--depends_lib",
+                    "--depends_run",
+                    "--depends_build",
+                ],
+                raw_strings: false,
+            },
+            ReadSubcommand {
+                name: "provides",
+                long_options: &[],
+                raw_strings: true,
+            },
+        ],
         // `port` runs one argv as a *sequence* of actions: an element that is
         // exactly `;` ends one and starts the next, and the loop continues while
         // the previous action succeeded (`process_cmd`, `/opt/local/bin/port`
@@ -150,18 +210,6 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
         // (spec-guardian, 2026-09-25). No package name can be `;`
         // (`is_safe_provider_name`), so refusing the element costs no read.
         separators: &[";"],
-        // Every read here that takes arguments, except `provides`, takes a
-        // *port list* (`version` takes none), and `port`
-        // turns a list element into a Portfile it evaluates - Tcl, run as the
-        // user - in two ways: `word:rest` is opened as a URL (`element`,
-        // `/opt/local/bin/port` line 1244), and anything containing `/` is
-        // opened as `file://<it>` (line 1371). `provides` collects its
-        // arguments as raw strings (`ACTION_ARGS_STRINGS`, line 4127), so a
-        // path reaches no parser there. MacPorts 2.12.6, read 2026-09-26;
-        // security-reviewer made both evaluate a probe Portfile, including
-        // through `‿:file://`, which a character-class mirror of Tcl's `\w`
-        // missed.
-        raw_string_subcommands: &["provides"],
     },
 ];
 
@@ -179,27 +227,60 @@ pub(crate) struct ProviderReads {
     pub(crate) program: &'static str,
     /// Options that may precede the subcommand, and nothing else may.
     pub(crate) leading_flags: &'static [&'static str],
-    /// The subcommands this tool may ask for, matched exactly.
-    pub(crate) subcommands: &'static [&'static str],
+    /// The subcommands this tool may ask for, each with what may follow it.
+    pub(crate) subcommands: &'static [ReadSubcommand],
     /// Elements the provider reads as the start of another action, refused
     /// wherever they appear in the argv.
     pub(crate) separators: &'static [&'static str],
-    /// Subcommands whose arguments are raw strings. After any other
-    /// subcommand no argument may contain `/` or `:` - which a validated
-    /// package name never does, and which is how a provider is made to load
-    /// a package definition from somewhere this tool did not choose.
-    pub(crate) raw_string_subcommands: &'static [&'static str],
+}
+
+/// One permitted read subcommand, and everything that may follow it.
+///
+/// One entry, not a list of names plus side lists keyed by name: what a
+/// subcommand may take is read where the subcommand is, so the two cannot
+/// drift apart.
+#[derive(Debug)]
+pub(crate) struct ReadSubcommand {
+    /// The subcommand, matched exactly.
+    pub(crate) name: &'static str,
+    /// The `--long` options this tool's own reads pass after it, each matched
+    /// as the whole element: `--json=v2` permits that and not `--json`,
+    /// `--json=v1` or `--json=v2x`, and an abbreviation a provider would
+    /// resolve is not the option it abbreviates. Any other element starting
+    /// `--`, a bare `--` included, is refused.
+    ///
+    /// A tool permission list, not a provider fact: it says what this tool
+    /// asks for, so it carries no `read_on` and does not go stale (INV-20).
+    pub(crate) long_options: &'static [&'static str],
+    /// Its arguments are raw strings. After any other subcommand no argument
+    /// may contain `/` or `:` - which a validated package name never does, and
+    /// which is how a provider is made to load a package definition from
+    /// somewhere this tool did not choose.
+    pub(crate) raw_strings: bool,
+}
+
+impl ReadSubcommand {
+    /// A subcommand that takes no option and no raw string.
+    const fn bare(name: &'static str) -> Self {
+        Self {
+            name,
+            long_options: &[],
+            raw_strings: false,
+        }
+    }
 }
 
 /// Whether `program` may be started with `argv`.
 ///
 /// [`is_permitted_program`]; then, for a provider, a permitted subcommand
-/// followed by nothing a provider reads as more than an argument - no action
-/// separator, and no single-dash option, since `port -F` after the action is as
-/// live as before it. Every argument vector the adapters hold uses only
-/// `--long` options past the subcommand, so this refuses nothing they run. For
-/// anything that is not a provider, membership of [`SYSTEM_PROBES`], the one
-/// set of programs with no subcommand dimension.
+/// followed by nothing a provider reads as more than an argument: no action
+/// separator, no single-dash option - `port -F` after the action is as live as
+/// before it - and no `--long` element but those that subcommand's entry lists,
+/// matched exactly (SE-050). Positional arguments are checked for shape only
+/// (no `/` or `:` outside a raw-string subcommand); which ones a plan may carry
+/// is pinned by the execution gate, not here. For anything that is not a
+/// provider, membership of [`SYSTEM_PROBES`], the one set of programs with no
+/// subcommand dimension.
 pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]) -> bool {
     if !is_permitted_program(program) {
         return false;
@@ -215,13 +296,14 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     let Some(subcommand) = rest.next() else {
         return false;
     };
-    let short_option = |a: &str| a.starts_with('-') && !a.starts_with("--");
-    reads.subcommands.contains(&subcommand)
-        && !argv.iter().any(|a| reads.separators.contains(&a.as_str()))
-        && rest.all(|a| {
-            !short_option(a)
-                && (reads.raw_string_subcommands.contains(&subcommand) || !a.contains(['/', ':']))
-        })
+    let Some(entry) = reads.subcommands.iter().find(|s| s.name == subcommand) else {
+        return false;
+    };
+    // Every element starting `-` is an option. A `--long` one must be on this
+    // subcommand's list, whole; a single-dash one never is.
+    let option_permitted = |a: &str| !a.starts_with('-') || entry.long_options.contains(&a);
+    !argv.iter().any(|a| reads.separators.contains(&a.as_str()))
+        && rest.all(|a| option_permitted(a) && (entry.raw_strings || !a.contains(['/', ':'])))
 }
 
 /// The programs the executor's own tests spawn, and only in a test build.
@@ -743,11 +825,148 @@ mod tests {
         for reads in PERMITTED_SUBCOMMANDS {
             for sub in reads.subcommands {
                 assert!(
-                    used.iter().any(|(p, s)| *p == reads.program && s == sub),
-                    "{} {sub} is permitted and no adapter runs it",
-                    reads.program
+                    used.iter()
+                        .any(|(p, s)| *p == reads.program && s == sub.name),
+                    "{} {} is permitted and no adapter runs it",
+                    reads.program,
+                    sub.name
                 );
             }
+        }
+    }
+
+    /// Every read argument vector this build can hand the spawn site, keyed by
+    /// program leaf: each the adapters hold whole, every `info` field tail the
+    /// MacPorts adapter extends its head with (each one, not a sample), the
+    /// `provides` head with a path, and every read the planner builds from
+    /// `provider-commands.toml` - `verify` with the package it appends,
+    /// `verify_absent` bare, as `application::provider_commands` reads them.
+    fn every_read_this_build_passes() -> Vec<(String, Vec<String>)> {
+        let mut reads: Vec<(String, Vec<String>)> = Vec::new();
+        for held in crate::homebrew::ALLOWED_ARGV {
+            reads.push(("brew".into(), argv(held)));
+        }
+        for held in crate::macports::ALLOWED_ARGV {
+            reads.push(("port".into(), argv(held)));
+        }
+        // Every prefix the adapter extends, each with every tail it takes. A
+        // prefix this test has no tail for fails here until it is covered,
+        // rather than being permitted unexamined.
+        for head in crate::macports::ALLOWED_ARGV_PREFIXES {
+            let tails: Vec<Vec<String>> = if *head == crate::macports::INFO_BASE {
+                crate::macports::INFO_FIELDS
+                    .iter()
+                    .map(|tail| {
+                        let mut t = argv(tail);
+                        t.push("libpng".into());
+                        t
+                    })
+                    .collect()
+            } else if *head == crate::macports::ARGV_PROVIDES {
+                vec![argv(&["/opt/local/bin/curl"])]
+            } else {
+                panic!("port {head:?}: an argv prefix this test knows no tail for");
+            };
+            for tail in tails {
+                let mut held = argv(head);
+                held.extend(tail);
+                reads.push(("port".into(), held));
+            }
+        }
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/policy/provider-commands.toml");
+        let text = std::fs::read_to_string(&path).expect("the provider command table");
+        let table: toml::Value = toml::from_str(&text).expect("the table parses");
+        let entries = table["entry"].as_array().expect("entries");
+        assert!(entries.len() >= 2, "both providers have an entry");
+        for entry in entries {
+            let leaf = std::path::Path::new(entry["executable"].as_str().expect("executable"))
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a leaf")
+                .to_string();
+            for (operation, appended) in [("verify", Some("wget")), ("verify_absent", None)] {
+                let mut held: Vec<String> = entry["verbs"][operation]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{leaf}: no {operation} verb"))
+                    .iter()
+                    .map(|v| v.as_str().expect("a verb element").to_string())
+                    .collect();
+                held.extend(appended.map(String::from));
+                reads.push((leaf.clone(), held));
+            }
+        }
+        reads
+    }
+
+    #[test]
+    fn every_long_option_a_read_passes_is_permitted_and_no_other() {
+        // Both directions, per subcommand (SE-050). Every read this build makes
+        // passes; and every long option on a subcommand's list is one some read
+        // passes after that subcommand - an option kept "just in case" is
+        // permission nobody uses, and the pass that needs it adds it in review.
+        let reads = every_read_this_build_passes();
+        let mut used: Vec<(String, String, String)> = Vec::new();
+        for (leaf, held) in &reads {
+            let program = std::path::PathBuf::from("/opt/example/bin").join(leaf);
+            assert!(
+                is_permitted_invocation(&program, held),
+                "{leaf} {held:?} is a read this build makes and was refused"
+            );
+            let provider = PERMITTED_SUBCOMMANDS
+                .iter()
+                .find(|r| r.program == leaf)
+                .expect("a provider read list");
+            let mut rest = held
+                .iter()
+                .skip_while(|a| provider.leading_flags.contains(&a.as_str()));
+            let sub = rest.next().expect("a subcommand");
+            for option in rest.filter(|a| a.starts_with("--")) {
+                used.push((leaf.clone(), sub.clone(), option.clone()));
+            }
+        }
+        for provider in PERMITTED_SUBCOMMANDS {
+            for sub in provider.subcommands {
+                for option in sub.long_options {
+                    assert!(
+                        used.iter()
+                            .any(|(p, s, o)| p == provider.program && s == sub.name && o == option),
+                        "{} {} {option} is permitted and no read passes it",
+                        provider.program,
+                        sub.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_long_option_is_matched_whole_and_only_after_its_own_subcommand() {
+        // The shapes a prefix or a substring match would let through, and an
+        // option that is on the list - but for another subcommand.
+        let brew = std::path::Path::new("/opt/example/bin/brew");
+        let port = std::path::Path::new("/opt/example/bin/port");
+        for (program, bad) in [
+            (brew, argv(&["info", "--json=v2x", "--installed"])),
+            (brew, argv(&["info", "--json=v", "--installed"])),
+            (brew, argv(&["info", "--installedx"])),
+            (brew, argv(&["list", "--version"])),
+            (brew, argv(&["list", "--installed"])),
+            (brew, argv(&["config", "--pinned"])),
+            (brew, argv(&["--prefix", "--versions"])),
+            (port, argv(&["-q", "installed", "--name"])),
+            (
+                port,
+                argv(&["-q", "provides", "--name", "/opt/local/bin/curl"]),
+            ),
+            (port, argv(&["-q", "info", "--"])),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{} {bad:?} was permitted",
+                program.display()
+            );
         }
     }
 

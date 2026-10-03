@@ -105,14 +105,29 @@ const ARGV_INSTALLED: &[&str] = &["-q", "installed"];
 const ARGV_ECHO_REQUESTED: &[&str] = &["-q", "echo", "requested"];
 const ARGV_ECHO_LEAVES: &[&str] = &["-q", "echo", "leaves"];
 const ARGV_ECHO_ACTIVE: &[&str] = &["-q", "echo", "active"];
-const INFO_BASE: &[&str] = &["-q", "info", "--index", "--line", "--name"];
+pub(crate) const INFO_BASE: &[&str] = &["-q", "info", "--index", "--line", "--name"];
 const INFO_FIELDS_VERSION: &[&str] = &["--version", "--revision", "--replaced_by"];
 const INFO_FIELDS_HOMEPAGE: &[&str] = &["--homepage", "--license"];
 const INFO_FIELDS_DESCRIPTION: &[&str] = &["--description"];
 const INFO_FIELDS_DEPENDS_LIB: &[&str] = &["--depends_lib"];
 const INFO_FIELDS_DEPENDS_RUN: &[&str] = &["--depends_run"];
 const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
-const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+pub(crate) const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+
+/// Every field tail [`INFO_BASE`] may be extended with, one entry per `info`
+/// read the snapshot makes. [`is_allowed_argv`] refuses an `info` argument
+/// vector whose fields are not exactly one of these, so the list holds on every
+/// run, live or replayed, rather than by a test reading this file; and the
+/// spawn-site read allowlist is tested against each of them rather than a
+/// sample (`every_long_option_a_read_passes_is_permitted_and_no_other`).
+pub(crate) const INFO_FIELDS: &[&[&str]] = &[
+    INFO_FIELDS_VERSION,
+    INFO_FIELDS_HOMEPAGE,
+    INFO_FIELDS_DESCRIPTION,
+    INFO_FIELDS_DEPENDS_LIB,
+    INFO_FIELDS_DEPENDS_RUN,
+    INFO_FIELDS_DEPENDS_BUILD,
+];
 
 /// Every complete argument vector this adapter may run.
 ///
@@ -140,19 +155,30 @@ pub const ALLOWED_ARGV: &[&[&str]] = &[
 pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES];
 
 /// True when `argv` is an exact allow-list entry, or extends an allow-listed
-/// prefix.
+/// prefix - and, for `info`, extends [`INFO_BASE`] with exactly one
+/// [`INFO_FIELDS`] tail followed by nothing option-shaped, so the fields an
+/// `info` read asks for are a list here and not whatever a caller appended.
 fn is_allowed_argv(argv: &[String]) -> bool {
-    let matches_head = |allowed: &&[&str]| {
-        argv.len() >= allowed.len()
-            && allowed
-                .iter()
-                .zip(argv.iter())
-                .all(|(a, b)| *a == b.as_str())
+    let after = |head: &[&str]| strip_head(argv, head);
+    let info_tail = |rest: &[String]| {
+        INFO_FIELDS.iter().any(|tail| {
+            strip_head(rest, tail).is_some_and(|names| names.iter().all(|n| !n.starts_with('-')))
+        })
     };
     ALLOWED_ARGV
         .iter()
-        .any(|allowed| allowed.len() == argv.len() && matches_head(allowed))
-        || ALLOWED_ARGV_PREFIXES.iter().any(matches_head)
+        .any(|allowed| allowed.len() == argv.len() && after(allowed).is_some())
+        || ALLOWED_ARGV_PREFIXES.iter().any(|head| match after(head) {
+            Some(rest) if *head == INFO_BASE => info_tail(rest),
+            Some(_) => true,
+            None => false,
+        })
+}
+
+/// What follows `head` in `argv`, when `argv` starts with exactly `head`.
+fn strip_head<'a>(argv: &'a [String], head: &[&str]) -> Option<&'a [String]> {
+    (argv.len() >= head.len() && head.iter().zip(argv).all(|(a, b)| *a == b.as_str()))
+        .then(|| &argv[head.len()..])
 }
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
@@ -917,6 +943,41 @@ mod tests {
     }
 
     #[test]
+    fn an_info_read_asks_only_for_a_listed_field_tail() {
+        // The adapter's own check, which runs on every invocation, replayed or
+        // live: an `info` read is the head, exactly one `INFO_FIELDS` tail and
+        // validated names - not the head and whatever follows it.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        let with = |fields: &[&str], names: &[&str]| {
+            let mut v = argv(INFO_BASE);
+            v.extend(argv(fields));
+            v.extend(argv(names));
+            v
+        };
+        for tail in INFO_FIELDS {
+            assert!(is_allowed_argv(&with(tail, &["libpng"])), "{tail:?}");
+            assert!(is_allowed_argv(&with(tail, &[])), "{tail:?}");
+        }
+        for (fields, names) in [
+            // A field no read asks for.
+            (&["--maintainers"][..], &["libpng"][..]),
+            // A listed field, but not a listed tail.
+            (&["--version"][..], &["libpng"][..]),
+            // A listed tail, and a field more.
+            (&["--description", "--maintainers"][..], &["libpng"][..]),
+            (&["--description"][..], &["libpng", "--maintainers"][..]),
+            // No tail at all.
+            (&[][..], &["libpng"][..]),
+        ] {
+            assert!(
+                !is_allowed_argv(&with(fields, names)),
+                "{fields:?} {names:?} was allowed"
+            );
+        }
+    }
+
+    #[test]
     fn the_allow_list_admits_the_fixed_vectors_and_the_two_that_carry_data() {
         let argv =
             |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
@@ -930,7 +991,7 @@ mod tests {
             "--index",
             "--line",
             "--name",
-            "--version",
+            "--description",
             "libpng"
         ])));
         assert!(is_allowed_argv(&argv(&[
