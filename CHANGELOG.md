@@ -261,6 +261,24 @@ to answer.
   check can never count as satisfied. SE-049, finding F-06.
 
 ### Security
+- **What a snapshot says can no longer reorder what you are shown or break
+  its lines.** One definition of hostile text now serves both ends: controls,
+  Unicode format characters (the right-to-left override, zero-width characters,
+  tag characters) and the line and paragraph separators. Every human rendering
+  escapes all three wherever a value is substituted into a sentence, and in the
+  tables, plans and `explain` output that print snapshot text directly. The
+  snapshot check still refuses only controls — format characters occur in real
+  directory names — and now also reads the names of the reported build
+  variables, which `doctor` prints back, and every provider identifier, which
+  must be an identifier and must match the detection filed under it. A crafted
+  snapshot with a provider id like `homebrew` followed by a terminal escape
+  reached the `status` and `analyze` tables before. Reported *values* are kept
+  as recorded: a tab in `CPPFLAGS` is a correct machine. Default-ignorable
+  characters outside the format category (Hangul fillers, variation selectors)
+  are not covered. `--json` output is unchanged. **Compatibility:** a v1
+  snapshot with a control character in a reported variable name, or a provider
+  id that is not an identifier or does not match its detection — neither of
+  which a capture writes — loaded before and is now refused. SE-092.
 - **The temporary file a write goes through no longer has a guessable name.**
   It was `.{name}.{pid}.{counter}.partial`, and the write refuses rather than
   being redirected if that name is taken — so anyone able to create files in the

@@ -27,6 +27,7 @@ pub mod recommendation;
 pub mod resolution;
 pub mod snapshot;
 pub mod support;
+pub mod text;
 pub mod verification;
 pub mod version;
 
@@ -67,6 +68,10 @@ pub use snapshot::{
     PINNED_ENVIRONMENT, SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
+pub use text::{
+    escape_hostile, hostile_class, is_control_class, is_hostile, CharacterSample, HostileClass,
+    CHARACTER_SAMPLES, LEGITIMATE_TEXT_WITH_FORMAT,
+};
 pub use verification::{
     evaluate, expectation_for, stdout_names, DestinationName, Expectation, ExpectationError,
     FailureCause, ProcessEnd, ReadEvidence, ReadOutput, SourceName, Verdict,

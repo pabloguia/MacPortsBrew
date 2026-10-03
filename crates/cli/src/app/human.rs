@@ -22,6 +22,14 @@ fn label(ctx: &Context, id: &str) -> String {
     ctx.messages.render_id(id)
 }
 
+/// Snapshot-derived text printed outside a catalogue parameter, escaped the
+/// way `Messages::render` escapes every parameter: one classification
+/// (`macportsbrew_domain::text`), one escape, so a cell, an argv or an evidence
+/// line shows a format character the way a sentence does.
+fn shown(value: &str) -> String {
+    macportsbrew_domain::escape_hostile(value)
+}
+
 fn params(pairs: &[(&str, String)]) -> BTreeMap<String, String> {
     pairs
         .iter()
@@ -139,16 +147,16 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
             ProviderPresence::Broken { .. } => label(ctx, "presence.broken"),
         };
         table.push([
-            id.to_string(),
+            shown(id.as_str()),
             presence,
             p.detection
                 .version
                 .as_ref()
-                .map_or(String::from("-"), ToString::to_string),
+                .map_or(String::from("-"), |v| shown(v.as_str())),
             p.detection
                 .prefix
                 .as_ref()
-                .map_or(String::from("-"), |x| x.display().to_string()),
+                .map_or(String::from("-"), |x| shown(&x.display().to_string())),
             // Not `{:?}`. `locales/en.toml` has said "Not supported" for
             // `Unsupported` since it was written, and the column printed
             // `unsupported` - a Rust identifier, lower-cased, that no catalogue
@@ -242,16 +250,17 @@ pub fn analysis(ctx: &Context, analysis: &Analysis, with_reasons: bool) -> Strin
                 .or_else(|| row.installed.first())
                 .map_or_else(
                     || label(ctx, "row.not_installed"),
-                    |r| r.version.to_string(),
+                    |r| shown(&r.version.to_string()),
                 );
             table.push([
                 if first {
-                    unit.name.clone()
+                    shown(&unit.name)
                 } else {
                     String::new()
                 },
                 format!(
-                    "{id}{}",
+                    "{}{}",
+                    shown(id.as_str()),
                     if row.presence == macportsbrew_application::RowPresence::Mapped {
                         " *"
                     } else {
@@ -283,7 +292,7 @@ pub fn analysis(ctx: &Context, analysis: &Analysis, with_reasons: bool) -> Strin
     if with_reasons {
         let _ = writeln!(out);
         for unit in &analysis.packages {
-            let _ = writeln!(out, "{}:", unit.name);
+            let _ = writeln!(out, "{}:", shown(&unit.name));
             for reason in &unit.recommendation.reasons {
                 let _ = writeln!(out, "  - {}", ctx.messages.render_reason(reason));
             }
@@ -326,12 +335,12 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
         out,
         "  {}: {}",
         label(ctx, "explain.policy_version"),
-        e.derivation.policy_version
+        shown(&e.derivation.policy_version)
     );
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.facts_heading"));
     for (k, v) in &e.derivation.facts_used {
-        let _ = writeln!(out, "  {k}: {v}");
+        let _ = writeln!(out, "  {}: {}", shown(k), shown(v));
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.fired_heading"));
@@ -350,18 +359,24 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
         let _ = writeln!(
             out,
             "  -> {}: {}",
-            m.destination,
+            shown(&m.destination.to_string()),
             label(ctx, confidence_key(m.confidence))
         );
         for c in &m.candidates {
             let _ = writeln!(
                 out,
                 "     {} ({})",
-                c.package.name,
+                shown(&c.package.name),
                 label(ctx, confidence_key(c.confidence))
             );
             for ev in &c.evidence {
-                let _ = writeln!(out, "       {}: {} (+{})", ev.kind, ev.detail, ev.weight);
+                let _ = writeln!(
+                    out,
+                    "       {}: {} (+{})",
+                    shown(&ev.kind),
+                    shown(&ev.detail),
+                    ev.weight
+                );
             }
         }
     }
@@ -425,7 +440,11 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             let elevation = match &c.elevation {
                 macportsbrew_domain::Elevation::None => String::new(),
                 macportsbrew_domain::Elevation::Required { reason } => {
-                    format!("  [{}: {reason}]", label(ctx, "plan.elevation_required"))
+                    format!(
+                        "  [{}: {}]",
+                        label(ctx, "plan.elevation_required"),
+                        shown(reason)
+                    )
                 }
                 macportsbrew_domain::Elevation::Unknown => {
                     format!("  [{}]", label(ctx, "plan.elevation_unknown"))
@@ -461,8 +480,8 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             let _ = writeln!(
                 out,
                 "       $ {} {}{elevation}{success}{illustrative}",
-                c.program,
-                c.argv.join(" ")
+                shown(&c.program),
+                shown(&c.argv.join(" "))
             );
         }
         for v in &step.verification {

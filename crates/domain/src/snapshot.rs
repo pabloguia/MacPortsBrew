@@ -150,10 +150,14 @@ pub const PINNED_ENVIRONMENT: &[(&str, &str)] = &[
     ("NO_COLOR", "1"),
 ];
 
+// The control half of the one classification, as for every other field a
+// snapshot keeps (`crate::text`). A format character in a path is kept like one
+// in a `PATH` entry: legitimate directory names carry them, and every renderer
+// escapes them.
 fn path_is_sane(text: &str) -> bool {
     !text.is_empty()
         && text.len() <= MAX_PATH_LEN
-        && !text.chars().any(char::is_control)
+        && !text.chars().any(crate::text::is_control_class)
         && !Path::new(text)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
@@ -214,14 +218,21 @@ pub fn is_safe_provider_name(name: &str) -> bool {
 
 /// True when free text a provider reported is safe to keep and to print.
 ///
-/// Bounded, and with no control characters, which is all that can be asked of a
-/// version string or a description: they reach a reader, never a command. The
+/// Bounded, and with no character of the [`crate::text::HostileClass::Control`]
+/// class, which is all that can be asked of a version string or a description:
+/// they reach a reader, never a command. Format characters and the line and
+/// paragraph separators are **kept** - legitimate names carry them (a ZWJ emoji
+/// sequence, ZWNJ in a Persian word), a snapshot is the record of what was
+/// reported, and every human renderer escapes them
+/// ([`crate::text::escape_hostile`]). One classification answers both
+/// questions, so the loader and the renderer cannot disagree about which
+/// characters are hostile, only about what each does with them. The
 /// stricter rule was tried and refused a real machine - Homebrew reports
 /// `>=4.3.0 (shallow or no git repository)` when it is installed from the `.pkg`
 /// or from a shallow clone, which is neither a name nor a path but is what
 /// `brew --version` says.
 pub fn is_safe_provider_text(text: &str) -> bool {
-    text.len() <= MAX_TEXT_LEN && !text.chars().any(char::is_control)
+    text.len() <= MAX_TEXT_LEN && !text.chars().any(crate::text::is_control_class)
 }
 
 /// Cap on free text kept from provider output.
@@ -937,8 +948,45 @@ impl Snapshot {
         for finding in &self.environment.path_findings {
             text("a PATH finding", &finding.entry)?;
         }
+        // The reported build variables. The two halves are held to different
+        // rules because they are different things.
+        //
+        // A **name** is a variable name, and `doctor` prints it back. Capture
+        // only ever writes names from a fixed list - `is_build_flag`'s exact
+        // names and `MANPATH` - but a file states whatever it likes, and this
+        // was the one display field the check did not read. A control
+        // character in a variable name is not a name any capture writes, so it
+        // is refused.
+        //
+        // A **value** is whatever the user's shell holds, and a tab or a
+        // newline in `CPPFLAGS` - or a `PKG_CONFIG_PATH` longer than any bound
+        // this check could pick - is a correct machine. Refusing it would make
+        // `capture` decline the machine in front of it - the class this check
+        // keeps failing by. So a value is kept as recorded and unbounded beyond
+        // the document's own size limit, which the reader applies before
+        // parsing (`persistence::snapshot_store::read_bounded`,
+        // `MAX_DOCUMENT_BYTES`); it is escaped wherever it is shown, and today
+        // nothing renders one (`doctor` only searches it for a prefix).
+        for variable in self.environment.reported.keys() {
+            text("a reported variable", variable)?;
+        }
         for (id, provider) in &self.providers {
-            // The prefix, first and unconditionally. It is the one field that
+            // The identifier, before anything that names it. A provider id is an
+            // identifier, never prose: every renderer and every refusal below
+            // prints it, and a key like `homebrew\u{1b}[2J` reached the terminal
+            // through the `status` and `analyze` tables. And the map's key must
+            // be the provider the detection says it is - two spellings of one
+            // fact are how a plan gets built for the wrong provider.
+            if !is_safe_provider_name(id.as_str()) {
+                return refuse("a provider identifier", id.as_str());
+            }
+            if provider.detection.provider != *id {
+                return refuse(
+                    &format!("the detection filed under provider {id}"),
+                    provider.detection.provider.as_str(),
+                );
+            }
+            // The prefix, next and unconditionally. It is the one field that
             // becomes a command's `program` - `planner.rs` joins it with the
             // executable name from the table - and it was the field this check
             // originally left out while validating `detection.executable`, which
@@ -1238,6 +1286,180 @@ mod tests {
         // Free text still reaches a terminal, so control characters do not.
         assert!(!is_safe_provider_text("\u{1b}[31mPWNED\u{1b}[0m"));
         assert!(!is_safe_provider_text(&"a".repeat(MAX_TEXT_LEN + 1)));
+    }
+
+    /// A provider identifier is an identifier: every renderer and every
+    /// refusal prints it. A hostile map key is refused, and so is a key that
+    /// disagrees with the detection filed under it.
+    #[test]
+    fn a_provider_identifier_is_an_identifier_and_matches_its_detection() {
+        use crate::provider::{
+            ProviderCapabilities, ProviderDetection, ProviderInventory, ProviderPresence,
+        };
+        let contracts = BTreeMap::new();
+        let provider = |detected: &str| ProviderSnapshot {
+            detection: ProviderDetection {
+                provider: ProviderId::new(detected),
+                presence: ProviderPresence::Absent,
+                version: None,
+                prefix: None,
+                executable: None,
+                architecture: None,
+                prefix_redacted: false,
+            },
+            capabilities: ProviderCapabilities::default(),
+            inventory: ProviderInventory::default(),
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+        };
+        let with = |key: &str, detected: &str| {
+            let mut snapshot = snapshot_with(EnvironmentSnapshot::default());
+            snapshot
+                .providers
+                .insert(ProviderId::new(key), provider(detected));
+            snapshot.check(&contracts)
+        };
+        with("alpha", "alpha").expect("an ordinary identifier loads");
+        for &(c, class) in crate::text::CHARACTER_SAMPLES {
+            if class.is_some() {
+                let key = format!("al{c}pha");
+                assert!(with(&key, &key).is_err(), "{} in an id", c.escape_unicode());
+            }
+        }
+        assert!(with("--force", "--force").is_err());
+        let error = with("alpha", "beta").expect_err("a mismatched key is refused");
+        assert_eq!(error.id, crate::error::ErrorId::SnapshotUnusable);
+    }
+
+    fn snapshot_with(environment: EnvironmentSnapshot) -> Snapshot {
+        use crate::machine::{Architecture, CommandLineTools, MacosVersion, Translation};
+        Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            tool_version: "test".into(),
+            policy_version: "test".into(),
+            provenance: Provenance {
+                captured_at: "2026-10-02T00:00:00Z".into(),
+                captured_by: "snapshot.rs".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            machine: Machine {
+                macos: MacosVersion::new(26, 0, 0),
+                architecture: Architecture::Arm64,
+                translation: Translation::Native,
+                command_line_tools: CommandLineTools::Missing,
+            },
+            environment,
+            providers: BTreeMap::new(),
+        }
+    }
+
+    /// The loader's half of the one classification, over the shared table:
+    /// the Control class is refused in every display field the check reads,
+    /// `reported` names included; Format and the line separators are kept,
+    /// because legitimate names carry them and a snapshot is the record. A
+    /// `reported` value is kept whatever it carries and however long it is.
+    #[test]
+    fn the_check_refuses_the_control_class_and_keeps_format_characters_and_reported_values() {
+        use crate::text::{HostileClass, CHARACTER_SAMPLES, LEGITIMATE_TEXT_WITH_FORMAT};
+        let contracts = BTreeMap::new();
+        let cases = |text: &str| {
+            vec![
+                EnvironmentSnapshot {
+                    path: vec![format!("/opt/a{text}b")],
+                    ..EnvironmentSnapshot::default()
+                },
+                EnvironmentSnapshot {
+                    path_findings: vec![PathFinding {
+                        entry: format!("/opt/a{text}b"),
+                        index: 0,
+                        kind: PathFindingKind::Duplicate,
+                    }],
+                    ..EnvironmentSnapshot::default()
+                },
+                EnvironmentSnapshot {
+                    reported: BTreeMap::from([(format!("CPP{text}FLAGS"), "-I/x".to_string())]),
+                    ..EnvironmentSnapshot::default()
+                },
+            ]
+        };
+        // A reported value is what the user's shell holds: kept as recorded,
+        // whatever its class, and bounded.
+        let value = |text: &str| EnvironmentSnapshot {
+            reported: BTreeMap::from([("CPPFLAGS".to_string(), format!("-I/a{text}b"))]),
+            ..EnvironmentSnapshot::default()
+        };
+        for &(c, class) in CHARACTER_SAMPLES {
+            assert_eq!(
+                is_safe_provider_text(&format!("a{c}b")),
+                class != Some(HostileClass::Control),
+                "{}",
+                c.escape_unicode()
+            );
+            for environment in cases(&c.to_string()) {
+                let result = snapshot_with(environment.clone()).check(&contracts);
+                if class == Some(HostileClass::Control) {
+                    let error = result.expect_err("a control character is refused");
+                    assert_eq!(error.id, crate::error::ErrorId::SnapshotUnusable);
+                } else {
+                    assert!(
+                        result.is_ok(),
+                        "{} in {environment:?} was refused: {result:?}",
+                        c.escape_unicode()
+                    );
+                }
+            }
+        }
+        for &(c, _) in CHARACTER_SAMPLES {
+            let environment = value(&c.to_string());
+            assert!(
+                snapshot_with(environment.clone()).check(&contracts).is_ok(),
+                "a reported value carrying {} was refused; a correct machine has one",
+                c.escape_unicode()
+            );
+        }
+        assert!(
+            snapshot_with(value(&"a".repeat(MAX_TEXT_LEN * 4)))
+                .check(&contracts)
+                .is_ok(),
+            "a reported value is kept unbounded; the document's size limit bounds it"
+        );
+        for text in LEGITIMATE_TEXT_WITH_FORMAT {
+            for environment in cases(text) {
+                assert!(
+                    snapshot_with(environment.clone()).check(&contracts).is_ok(),
+                    "a legitimate name was refused: {environment:?}"
+                );
+            }
+        }
+    }
+
+    /// One door: what a capture builds and what a load reads back are refused
+    /// by the same call with the same words, so `capture` followed by
+    /// `--from-snapshot` cannot disagree with the live run (INV-15). The load
+    /// route is mirrored as `load_snapshot` runs it - deserialise, fill unrecorded
+    /// capabilities, check; the end-to-end version with the real adapters is
+    /// `crates/cli/tests/hostile_text.rs`
+    /// (`invariant_15_a_hostile_reported_name_is_refused_identically_by_capture_and_by_load`).
+    #[test]
+    fn invariant_15_a_hostile_reported_name_is_refused_identically_at_capture_and_at_load() {
+        let contracts = BTreeMap::new();
+        let captured = snapshot_with(EnvironmentSnapshot {
+            reported: BTreeMap::from([("LDFLAGS\u{1b}[2J".to_string(), "-L/x".to_string())]),
+            ..EnvironmentSnapshot::default()
+        });
+        let at_capture = captured.check(&contracts).expect_err("capture refuses it");
+        let file = serde_json::to_string(&captured).expect("a snapshot serialises");
+        let mut loaded: Snapshot = serde_json::from_str(&file).expect("and deserialises");
+        loaded.mark_unrecorded_capabilities_unknown();
+        let at_load = loaded.check(&contracts).expect_err("load refuses it");
+        assert_eq!(at_capture, at_load);
+        assert!(
+            at_load.detail.contains("a reported variable"),
+            "{}",
+            at_load.detail
+        );
     }
 
     #[test]

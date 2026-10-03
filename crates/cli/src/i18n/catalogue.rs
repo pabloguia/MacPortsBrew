@@ -236,6 +236,44 @@ fn pseudo_value(source: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Templates are trusted text and `Messages::render` does not escape them,
+    /// so none may carry a hostile character (`macportsbrew_domain::text`): a
+    /// right-to-left mark or an embedded line break added to a template must
+    /// fail here rather than reorder or break what a user reads. A template
+    /// that genuinely needs one is listed here, by key and character, with
+    /// the reason beside it.
+    #[test]
+    fn no_template_carries_a_hostile_character() {
+        const ALLOWED: &[(&str, char)] = &[];
+        let locales = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales");
+        let mut catalogues = vec![("pseudolocale".to_string(), Catalogue::pseudolocale())];
+        for entry in std::fs::read_dir(&locales).expect("locales/ is readable") {
+            let path = entry.expect("a directory entry").path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                let text = std::fs::read_to_string(&path).expect("a readable catalogue");
+                let catalogue = Catalogue::from_toml(&text).expect("a catalogue that parses");
+                catalogues.push((path.display().to_string(), catalogue));
+            }
+        }
+        assert!(
+            catalogues.len() >= 2,
+            "no catalogue was read from {}",
+            locales.display()
+        );
+        let mut offenders = Vec::new();
+        for (name, catalogue) in &catalogues {
+            for key in catalogue.keys() {
+                let template = catalogue.get(key).unwrap_or_default();
+                for c in template.chars() {
+                    if macportsbrew_domain::is_hostile(c) && !ALLOWED.contains(&(key, c)) {
+                        offenders.push(format!("{name}: {key}: {}", c.escape_unicode()));
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+    }
+
     #[test]
     fn english_parses() {
         let catalogue = Catalogue::english();

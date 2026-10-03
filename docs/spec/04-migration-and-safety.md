@@ -501,7 +501,18 @@ do not gold-plate beyond them.
   writing; write atomically.
 - **Malicious or malformed provider metadata** — treat all provider output as
   untrusted input. Bound sizes, validate shapes, never `eval`, never let
-  metadata become a path or a flag.
+  metadata become a path or a flag. Text that reaches a reader is held to one
+  classification (`domain::text`): controls, Unicode format characters, and
+  the line and paragraph separators. A snapshot refuses controls in every
+  display field `check_names` reads and in reported variable names (the
+  fields it does not read are listed in SE-092 and are escaped when shown), refuses a provider id that is
+  not an identifier or does not match its detection, and keeps format
+  characters and reported values as recorded — the same way on capture and on
+  load. Every human rendering escapes all three classes, at the catalogue's
+  parameter substitution and wherever snapshot text is printed directly, so a
+  kept character cannot reorder text or break a line; default-ignorable
+  characters outside Cf are not covered. `--json` is not escaped beyond JSON's own rules: a consumer that
+  renders it must escape them itself (SE-092, end-of-pass amendment (a)).
 - **Privilege boundaries** — elevation is per-operation, enumerated, visible,
   never cached, never inherited by unrelated steps.
 - **State and configuration integrity** — MacPortsBrew's own state directory is

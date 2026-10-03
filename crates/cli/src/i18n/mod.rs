@@ -195,9 +195,33 @@ impl Messages {
     }
 
     /// Renders an identifier with parameters.
+    ///
+    /// **Every parameter value is escaped here** with
+    /// [`macportsbrew_domain::escape_hostile`], before it is substituted. This
+    /// is the one place catalogue parameters reach text, and parameters are
+    /// where snapshot-derived values travel into human output - a `PATH` entry,
+    /// a `reported` variable's name and value in `doctor`, a provider's
+    /// version. A snapshot keeps format characters and the line separators
+    /// (legitimate names carry them); this is where they stop being able to
+    /// reorder text or break a line, and stop hiding text as far as Unicode
+    /// format characters can (other default-ignorable characters - Hangul
+    /// fillers, variation selectors - are not in the classification). The
+    /// template is the catalogue's own text and is not escaped;
+    /// `catalogue::tests::no_template_carries_a_hostile_character` holds it
+    /// to that.
+    ///
+    /// **Every** parameter is escaped, with no exception: a multi-line value,
+    /// or a fragment already rendered from the catalogue and passed in as a
+    /// parameter, has its line breaks and format characters escaped too. No
+    /// caller does that today. One that needs to compose trusted fragments is
+    /// owed a separate, explicitly trusted path - not a way round this one.
     pub fn render(&self, id: &str, params: &BTreeMap<String, String>) -> String {
         if let Some(template) = self.catalogue.get(id) {
-            let params = &self.resolve_identifiers(params);
+            let params: BTreeMap<String, String> = params
+                .iter()
+                .map(|(k, v)| (k.clone(), macportsbrew_domain::escape_hostile(v)))
+                .collect();
+            let params = &self.resolve_identifiers(&params);
             return format::format_message(&self.locale, template, params);
         }
         self.missing.borrow_mut().insert(id.to_string());
@@ -400,6 +424,45 @@ mod tests {
         let messages = Messages::english();
         assert!(!messages.render_id("cli.about").is_empty());
         assert!(messages.missing().is_empty());
+    }
+
+    #[test]
+    fn every_hostile_parameter_value_is_escaped_and_benign_text_is_not() {
+        use macportsbrew_domain::{CHARACTER_SAMPLES, LEGITIMATE_TEXT_WITH_FORMAT};
+        let m = Messages::english();
+        // `doctor`'s leaked-variable finding, whose `{variable}` comes straight
+        // from a snapshot's `reported` keys.
+        let template = m
+            .catalogue()
+            .get("doctor.build_variable_names_prefix")
+            .expect("the finding exists");
+        assert!(template.contains("{variable}"), "{template}");
+        for &(c, class) in CHARACTER_SAMPLES {
+            let value = format!("CPP{c}FLAGS");
+            let text = m.render(
+                "doctor.build_variable_names_prefix",
+                &crate::params! { variable: value.clone(), provider: "p" },
+            );
+            if class.is_some() {
+                assert!(!text.contains(c), "{c:?} survived: {text:?}");
+                assert!(
+                    text.contains(&format!("CPP{}FLAGS", c.escape_unicode())),
+                    "{text}"
+                );
+            } else {
+                assert!(text.contains(&value), "{c:?} was altered: {text:?}");
+            }
+        }
+        for name in LEGITIMATE_TEXT_WITH_FORMAT {
+            let text = m.render(
+                "doctor.build_variable_names_prefix",
+                &crate::params! { variable: *name, provider: "p" },
+            );
+            assert!(
+                !text.chars().any(macportsbrew_domain::is_hostile),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]

@@ -6281,5 +6281,86 @@ finding ids in each entry.
   that environment. **(c) answered 2026-10-02** (pass 06, R-15): it can, from
   any of three files, and nothing the executor sets wins; SE-016 item 3 has
   the finding and DP-027 the mechanism the mutating pass owes.
+  **(a) closed 2026-10-02** (pass 06, slice S3). One classification,
+  `domain::text`: `HostileClass` is Control (`char::is_control`, Cc), Format
+  (Unicode 16.0 Cf, the range table moved out of the executor, not copied) or
+  LineSeparator (U+2028 and U+2029, written 8232 and 8233). Each boundary asks
+  its own question of it, and that is the decision the work order asked for in
+  writing. **The snapshot check refuses the Control class only**, in the same
+  fields as before, through `is_control_class`, and keeps Format and
+  LineSeparator: legitimate directory and file names carry them (ZWJ emoji
+  sequences, ZWNJ in Persian words, soft hyphen, tag characters), and a
+  snapshot is the record of what the machine reported, so nothing is escaped
+  or rewritten at capture. Refusing them would make `capture` decline a correct
+  machine, the failure `check_names` keeps being written against. INV-15 holds
+  because `Snapshot::check` is the one door for capture and load; the two
+  `invariant_15_a_hostile_reported_name_*` tests hold both routes to the same
+  refusal text. **The check now also reads two things it did not.** *Provider
+  ids*: every `providers` key must be an identifier (`is_safe_provider_name`)
+  and equal its entry's `detection.provider` — both reviewers built a snapshot
+  whose id carried a terminal escape and an RLO, which `analyze` and `list`
+  printed raw (reproduced, now `no_human_command_prints_a_hostile_character_a_snapshot_keeps`,
+  which also runs `migrate` in both directions and `--verbose`, and poisons
+  availability evidence).
+  *`EnvironmentSnapshot.reported` names*, which `doctor` prints back and capture
+  writes only from a fixed list (`MANPATH` and `is_build_flag`'s exact names):
+  Control refused, bounded. `reported` **values** are kept as recorded and
+  unbounded beyond the document's own limit (`MAX_DOCUMENT_BYTES`, enforced by
+  `read_bounded` before parsing): a tab in `CPPFLAGS` or a long
+  `PKG_CONFIG_PATH` is a correct machine. Two earlier versions refused
+  controls in values and then bounded them at 4096 bytes; both were reversed
+  on review for that reason (spec-guardian, 2026-10-02). No renderer prints a
+  value; `doctor` only searches one for a prefix. **Compatibility:** a v1
+  file with a control character in a reported name, or an id that is not an
+  identifier or does not match its detection, loaded before and is now
+  refused — no capture writes one; a tightening of the load check, as SE-051's
+  was. **Every human renderer escapes all three classes**: `Messages::render`
+  escapes every parameter with no exception (a multi-line value or a
+  pre-rendered catalogue fragment passed as a parameter is escaped too, and a
+  caller that needs trusted fragments is owed a separate, explicitly trusted
+  path), `human::shown` escapes cells, argv, facts, evidence and ids printed
+  outside parameters, `escape_controls` is `escape_hostile`, and templates are
+  held free of hostile characters by `no_template_carries_a_hostile_character`
+  — so the first right-to-left mark or embedded newline in a template fails a
+  test instead of printing `\u{200f}`. **The guarantee is narrow:** a kept
+  character cannot reorder the text around it or break a line, and hides
+  nothing as far as format characters go; default-ignorable characters outside
+  Cf (Hangul fillers, variation selectors) are not covered (security-reviewer,
+  accepted). **Risk, stated and not changed:** `--json` escapes only what JSON
+  requires, so format and line-separator characters in display fields,
+  controls in `reported` values, and fields `check_names` does not read
+  (provider `environment` values, capability reasons including
+  `ARTIFACT_AVAILABILITY`'s, metadata values, availability evidence detail,
+  `machine.commandLineTools.path`, provenance strings, the recorded tool and
+  policy versions — which may carry C1) reach a JSON consumer as recorded; one
+  that renders them must escape them. Every one of them is escaped by the
+  human renderers (security re-review, 2026-10-02, 150 field shapes poisoned,
+  nothing reached a terminal). `installed[].identity.provider` can disagree
+  with its provider's map key — the same two-spellings shape the id check
+  closed — and is inert today, since nothing above the adapters reads it;
+  recorded, not checked. `path_is_sane` takes the control
+  half, like every other kept field; `policy/src/data.rs`'s artifact tags
+  refuse all three classes, being this repository's own data that becomes a
+  file name in a capability reason. One shared table, `pub const`
+  `CHARACTER_SAMPLES` and `LEGITIMATE_TEXT_WITH_FORMAT` in `domain::text`, is
+  iterated by the classification test, the snapshot check test, the
+  executor's escaping test and the catalogue's. **Proved by mutation**, in a
+  scratch copy with its own target directory, each file restored by rewriting
+  and `touch`, the copy's `crates/` identical to this tree under `diff -r`
+  (one run hit a full disk and printed nothing; it was discarded and re-run,
+  and the counted log carries no such error):
+
+  | Mutation | Tests that failed |
+  |---|---|
+  | Format dropped from the classification | `every_sample_is_given_its_class`, `escaping_replaces_exactly_the_hostile_characters`, `a_format_character_cannot_reorder_or_hide_what_is_shown`, `every_hostile_parameter_value_is_escaped_and_benign_text_is_not`, `a_format_character_a_snapshot_keeps_is_escaped_when_doctor_prints_it` |
+  | 8232 dropped | the first four of those |
+  | the loader ignores the classification | `the_check_refuses_the_control_class_and_keeps_format_characters_and_reported_values`, `a_variant_and_a_reported_version_are_read_by_people_not_by_providers`, both `invariant_15_a_hostile_reported_name_*` |
+  | the loader also refuses Format | `the_check_refuses_…_and_reported_values`, `a_format_character_a_snapshot_keeps_is_escaped_when_doctor_prints_it` |
+  | the `reported` name check dropped | `the_check_refuses_…_and_reported_values`, both `invariant_15_a_hostile_reported_name_*` |
+  | `reported` values refuse controls | `the_check_refuses_…_and_reported_values`, `invariant_15_a_hostile_reported_name_is_refused_identically_by_capture_and_by_load` |
+  | the catalogue stops escaping | `every_hostile_parameter_value_is_escaped_and_benign_text_is_not`, `a_format_character_a_snapshot_keeps_is_escaped_when_doctor_prints_it` |
+  | one `shown(...)` removed (`status`'s version cell) | `no_human_command_prints_a_hostile_character_a_snapshot_keeps` |
+  | the provider-id identifier check dropped | `a_provider_identifier_is_an_identifier_and_matches_its_detection` |
+  | the id-matches-detection check dropped | `a_provider_identifier_is_an_identifier_and_matches_its_detection` |
 
 ---

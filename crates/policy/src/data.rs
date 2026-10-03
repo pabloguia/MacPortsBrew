@@ -677,7 +677,12 @@ fn check_artifact_tags(sets: &[ArtifactTagSet]) -> Result<(), DomainError> {
             || value.contains('/')
             || value.contains('\\')
             || value.contains("..")
-            || value.chars().any(char::is_control)
+            // Every hostile class, not the control half a snapshot refuses: this
+            // is the repository's own data, never a name a machine reported, and
+            // it becomes a file name quoted into a capability reason, so there is
+            // no legitimate name to keep and nothing is lost by refusing a
+            // format character too (`macportsbrew_domain::text`).
+            || value.chars().any(macportsbrew_domain::is_hostile)
         {
             return Err(invalid(format!(
                 "artifact tag {what} {value:?} for {provider:?} is not a single file-name \
@@ -1012,6 +1017,12 @@ mod tests {
             ("../../../etc/passwd", "arm64_{release}", "tahoe"),
             ("all", "a/b_{release}", "tahoe"),
             ("", "arm64_{release}", "tahoe"),
+            // Any hostile class, not only the control half a snapshot refuses
+            // (`macportsbrew_domain::text`): TOML's own escapes, so the bytes
+            // reach the check as the characters.
+            ("a\\u001Bb", "arm64_{release}", "tahoe"),
+            ("a\\u200Bb", "arm64_{release}", "tahoe"),
+            ("all", "arm64_{release}", "ta\\u202Ehoe"),
         ] {
             let mut sources = embedded_sources();
             let bad = tagset(universal, template, release_name);

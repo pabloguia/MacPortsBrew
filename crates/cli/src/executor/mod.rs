@@ -348,61 +348,19 @@ fn clean_value(value: serde_json::Value, home: &HomeRedaction) -> serde_json::Va
     }
 }
 
-/// Escapes every control character, every Unicode format character
-/// (category Cf) and the two Unicode line and paragraph separators (U+2028,
-/// U+2029, categories Zl and Zp), so a value cannot move a cursor, clear or
-/// break a line, start a terminal sequence, or reorder or hide what is shown
-/// around it (U+202E and the other bidirectional overrides, zero-width
-/// characters).
+/// Escapes every character of every [`macportsbrew_domain::HostileClass`]:
+/// controls, Unicode format characters (Cf) and the line and paragraph
+/// separators, so a value cannot move a cursor, clear or break a line, start a
+/// terminal sequence, or reorder what is shown around it (U+202E and the other
+/// bidirectional overrides). It hides nothing as far as format characters go
+/// (zero-width characters, tag characters); default-ignorable characters
+/// outside Cf - Hangul fillers, variation selectors - are not covered.
+///
+/// The classification is the domain's, one definition shared with the snapshot
+/// check (SE-092): the check refuses the control class and keeps the rest,
+/// every renderer escapes all of it.
 pub(crate) fn escape_controls(value: &str) -> String {
-    value
-        .chars()
-        .map(|c| {
-            if c.is_control() || is_format(c) || is_line_separator(c) {
-                c.escape_unicode().to_string()
-            } else {
-                c.to_string()
-            }
-        })
-        .collect()
-}
-
-/// Whether `c` is U+2028 LINE SEPARATOR or U+2029 PARAGRAPH SEPARATOR: not
-/// controls and not Cf, but a renderer that honours them breaks the line, so a
-/// value could start a line of its own.
-fn is_line_separator(c: char) -> bool {
-    // Decimal, deliberately: the hexadecimal spelling of these code points
-    // reads as a year to INV-20's deadline scan, and an exemption there would
-    // be worse than an unfamiliar radix here. 8232 is U+2028, 8233 is U+2029.
-    matches!(u32::from(c), 8232 | 8233)
-}
-
-/// Whether `c` is in Unicode general category Cf (Format), Unicode 16.0.
-fn is_format(c: char) -> bool {
-    matches!(
-        u32::from(c),
-        0x00AD
-            | 0x0600..=0x0605
-            | 0x061C
-            | 0x06DD
-            | 0x070F
-            | 0x0890..=0x0891
-            | 0x08E2
-            | 0x180E
-            | 0x200B..=0x200F
-            | 0x202A..=0x202E
-            | 0x2060..=0x2064
-            | 0x2066..=0x206F
-            | 0xFEFF
-            | 0xFFF9..=0xFFFB
-            | 0x110BD
-            | 0x110CD
-            | 0x13430..=0x1343F
-            | 0x1BCA0..=0x1BCA3
-            | 0x1D173..=0x1D17A
-            | 0xE0001
-            | 0xE0020..=0xE007F
-    )
+    macportsbrew_domain::escape_hostile(value)
 }
 
 #[cfg(test)]
@@ -422,7 +380,10 @@ mod tests {
         );
         assert!(!text.contains("/Users/ada"), "{text}");
         assert!(!text.contains("ada"), "{text}");
-        assert!(!text.chars().any(char::is_control), "{text:?}");
+        assert!(
+            !text.chars().any(macportsbrew_domain::is_hostile),
+            "{text:?}"
+        );
         assert!(
             text.contains("\\u{1b}") && text.contains("\\u{a}"),
             "{text}"
@@ -434,7 +395,7 @@ mod tests {
             &home,
         );
         assert!(
-            !argv.contains("ada") && !argv.chars().any(char::is_control),
+            !argv.contains("ada") && !argv.chars().any(macportsbrew_domain::is_hostile),
             "{argv:?}"
         );
         let prefix = render_refusal(
@@ -444,7 +405,7 @@ mod tests {
             &home,
         );
         assert!(
-            !prefix.contains("ada") && !prefix.chars().any(char::is_control),
+            !prefix.contains("ada") && !prefix.chars().any(macportsbrew_domain::is_hostile),
             "{prefix:?}"
         );
     }
@@ -452,28 +413,40 @@ mod tests {
     #[test]
     fn a_format_character_cannot_reorder_or_hide_what_is_shown() {
         // U+202E would render the rest of the line right to left, so a path
-        // could display as another; the others hide or isolate text.
+        // could display as another; the others hide or isolate text. The
+        // characters are the domain's shared table, every class and every Cf
+        // range's endpoints, so this test and the snapshot check's read one
+        // list.
         let home = HomeRedaction::Recorded;
-        for c in [
-            '\u{202E}',
-            '\u{2066}',
-            '\u{2069}',
-            '\u{200B}',
-            '\u{FEFF}',
-            '\u{E0041}',
-            '\u{2028}',
-            '\u{2029}',
-        ] {
+        let mut hostile = 0;
+        for &(c, class) in macportsbrew_domain::CHARACTER_SAMPLES {
             let text = render_refusal(
                 &PlanReadRefusal::UnsafePrefix {
                     prefix: format!("/opt/a{c}b"),
                 },
                 &home,
             );
-            assert!(!text.contains(c), "{c:?} survived: {text:?}");
-            assert!(text.contains(&format!("{}", c.escape_unicode())), "{text}");
+            if class.is_some() {
+                hostile += 1;
+                assert!(!text.contains(c), "{c:?} survived: {text:?}");
+                assert!(text.contains(&format!("{}", c.escape_unicode())), "{text}");
+            } else {
+                // Ordinary text, non-ASCII included, is left alone.
+                assert!(
+                    text.contains(&format!("/opt/a{c}b")),
+                    "{c:?} was altered: {text:?}"
+                );
+            }
         }
-        // Ordinary text is left alone.
+        assert!(hostile > 0, "the table names hostile characters");
+        // And the names a snapshot keeps are shown with their joiners escaped.
+        for name in macportsbrew_domain::LEGITIMATE_TEXT_WITH_FORMAT {
+            let shown = escape_controls(name);
+            assert!(
+                !shown.chars().any(macportsbrew_domain::is_hostile),
+                "{shown:?}"
+            );
+        }
         assert_eq!(escape_controls("/opt/local/é"), "/opt/local/é");
     }
 }
