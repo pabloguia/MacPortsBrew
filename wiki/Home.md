@@ -54,7 +54,8 @@ the order.
 
 Version 0.1.0 is **read-only**. It inventories, analyses, maps, explains and
 plans. It executes nothing, elevates nothing, writes nothing into either
-provider's prefix, and makes no network calls.
+provider's prefix, and makes no network calls of its own (Homebrew, which it
+asks to read, may fetch its package catalogue; see the FAQ).
 
 `plan` prints exactly what would happen and stops, and so does `migrate`;
 `migrate --yes` reaches a refusal gate that refuses every plan this build

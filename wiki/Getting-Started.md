@@ -148,8 +148,10 @@ subcommand or asks for a password. Nothing on your machine changes when you run
 any command on this page.
 
 `--dry-run`, `--yes`, `--no-network` and `--refresh` are accepted and do
-nothing, because this build is always a dry run, never prompts, never uses the
-network and has no cache. They exist so a script written today keeps working.
+nothing, because this build is always a dry run, never prompts, makes no
+network call of its own and has no cache. They exist so a script written today
+keeps working. `--no-network` does not stop Homebrew, asked to read, fetching
+its catalogue on an empty cache (DP-027).
 
 ## Where to go next
 

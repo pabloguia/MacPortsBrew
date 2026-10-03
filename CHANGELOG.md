@@ -282,6 +282,16 @@ to answer.
   check can never count as satisfied. SE-049, finding F-06.
 
 ### Security
+- **A read can no longer carry an option this tool never asks for.** The
+  spawn-site read allowlist accepted any `--long` option after a permitted
+  subcommand, so `brew info --github` — which opens a browser — passed it, and
+  only the execution gate stood between a plan and that. Each read subcommand
+  now carries the exact long options it may take, matched as whole elements:
+  `brew info --github`, another value of a listed option (`--json=v1` beside
+  `--json=v2`), an abbreviation a provider would resolve (`port info --nam`)
+  and a bare `--` are refused at construction (`plan_read_spec`) and at the
+  spawn site, for both providers, by one function. Positional arguments are
+  still pinned only by the gate. SE-050.
 - **What a snapshot says can no longer reorder what you are shown or break
   its lines.** One definition of hostile text now serves both ends: controls,
   Unicode format characters (the right-to-left override, zero-width characters,
@@ -441,8 +451,20 @@ catalogue are in place, the translations are not.
   finding F-12.
 
 - `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted and are
-  no-ops in a build that never uses the network, never caches, is always a dry
-  run and never prompts. They exist so scripts written now keep working.
+  no-ops in a build that makes no network call of its own, never caches, is
+  always a dry run and never prompts. They exist so scripts written now keep
+  working. `--no-network` does not stop a Homebrew read fetching its catalogue
+  on an empty cache (next item).
+- **A Homebrew read is not as quiet as the environment this tool gives it.**
+  On an empty Homebrew API cache, every Ruby read this tool runs (`config`,
+  `info`, `list`) downloads the package catalogue — about 15 MB, writing about
+  30 MB under your cache directory — and `--no-network` does not prevent it. A
+  `brew.env` in `/etc/homebrew/`, `<prefix>/etc/homebrew/` or `~/.homebrew/`
+  outranks the quieting environment, `HOMEBREW_NO_ANALYTICS` included, so it
+  can switch analytics and network fetches back on for those reads. MacPortsBrew
+  itself makes no network call of its own. Observed on Homebrew 7.0.4,
+  2026-10-02 ([R-15](docs/research/R-15-homebrew-brew-env.md)); what to do about
+  it is open ([DP-027](docs/decisions-pending.md)).
 - `Catalogue::for_locale` returns the English catalogue for every tag except
   the pseudolocale, so `--language pt-BR` selects the locale's plural rules and
   layout while the text stays English.

@@ -252,7 +252,9 @@ test named after it, findable with
 
 Version 0.1.0 is read-only. It inventories, analyses, maps, explains and plans;
 it executes nothing, elevates nothing, writes nothing into either provider's
-prefix, and makes no network calls. A gate script greps the source on every
+prefix, and makes no network call of its own — Homebrew, asked to read, may
+fetch its catalogue on an empty cache, and a `brew.env` can switch its analytics
+and network back on (DP-027, R-15). A gate script greps the source on every
 change for a mutating provider subcommand literal or an elevation token and
 fails the build if it finds one. That materially reduces the current attack
 surface, and it will grow when the executor lands.

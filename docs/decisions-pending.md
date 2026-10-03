@@ -22,8 +22,8 @@ environment it was started with, so a file beats what the process executor
 sets; an empty value deletes a key (Homebrew 7.0.4 source, observed against a
 temporary `HOME`, 2026-10-02). No variable switches the files off, and the
 prefix file was user-writable on the Intel machine observed. For the reads this build
-performs, a file can make them fetch API data (already accepted as a read's
-side effect, SE-050 item 6), switch analytics back on, and — through the
+performs, a file can make them fetch API data (SE-050 item 6 accepted this on a
+premise R-15 refutes; SE-016 item 3 records it as an open gap), switch analytics back on, and — through the
 deprecated `HOMEBREW_NO_REQUIRE_TAP_TRUST` — load untrusted tap Ruby during
 `info --installed`. For a mutating pass it is sharper: `install` and
 `upgrade` run `brew update` first once a file blanks `HOMEBREW_NO_AUTO_UPDATE`.
@@ -67,6 +67,20 @@ invocation", so neither direction becomes a special case (INV-17). (3) The
 file locations and any key list are dated provider facts: they live in
 `data/policy/*.toml` with `source` and `read_on`, never in a Rust constant
 (INV-20).
+
+**Two questions in this are above the specification, and only yours
+(spec-guardian, end of pass 06).** The charter's non-goals say MacPortsBrew
+does not "require … network access" and does not "send telemetry"
+(`docs/spec/00-charter.md`, Non-goals): this tool sends nothing, but whether a
+Homebrew read it runs fetching the catalogue on an empty cache, or reporting
+Homebrew's own analytics because a `brew.env` switched them back on, is
+consistent with those sentences is a charter reading, Tier 2. And INV-10 says
+provider invocations run "in a controlled environment": R-15 shows the
+environment `brew` runs with is ours overridden by up to three files, so
+whether INV-10 is met by what this tool sets or must also cover what `brew`
+reads is a Tier 1 question. The specification records both gaps and changes
+neither sentence; the reversible default below keeps the build's behaviour
+while you decide.
 
 **Recommendation:** (b) for mutating steps, (c) for reads, and not (a) — (a)
 silently changes how the user's own trust decisions apply, which is the kind

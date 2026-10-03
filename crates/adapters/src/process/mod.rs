@@ -239,6 +239,11 @@ pub(crate) struct ProviderReads {
 /// One entry, not a list of names plus side lists keyed by name: what a
 /// subcommand may take is read where the subcommand is, so the two cannot
 /// drift apart.
+///
+/// It says which options may appear, not which must: `brew info <name>` with
+/// no `--json=v2` passes here. Nothing in this build produces that argv - the
+/// adapters hold exact vectors and the gate pins a plan's read - and it is
+/// recorded in SE-050 for whoever adds the next read path.
 #[derive(Debug)]
 pub(crate) struct ReadSubcommand {
     /// The subcommand, matched exactly.

@@ -50,8 +50,9 @@ pub struct Cli {
     /// More detail on stderr.
     #[arg(long, global = true)]
     pub verbose: bool,
-    /// Do not use the network. Analysis never does in this build; accepted
-    /// so scripts written now keep working.
+    /// Accepted so scripts keep working; this build makes no network call of
+    /// its own, and it does not stop a Homebrew read fetching its catalogue
+    /// on an empty cache.
     #[arg(long, global = true)]
     pub no_network: bool,
     /// Bypass caches. There is no cache in this build; accepted for the

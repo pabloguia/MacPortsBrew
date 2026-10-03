@@ -116,7 +116,7 @@ Read it back with `--from-snapshot`. The format is documented at
 | `--verbose` | More detail on stderr |
 | `--advanced` | Include dependency-level packages, which are managed automatically by their provider (INV-13) |
 | `--from-snapshot <FILE>` | Analyse a captured snapshot instead of this machine |
-| `--no-network` | Accepted; analysis never uses the network in this build |
+| `--no-network` | Accepted; this build makes no network call of its own, and the flag does not stop a Homebrew read fetching its catalogue on an empty cache (DP-027, [`../docs/decisions-pending.md`](../docs/decisions-pending.md)) |
 | `--refresh` | Accepted; there is no cache in this build |
 | `--dry-run` | Show what would be done and run nothing; wins over `--yes`. Every command but `migrate --yes` is a dry run in this build anyway |
 | `--yes` | Confirm: `migrate` puts its plan to the execution gate instead of only showing it. The gate refuses every plan this build produces, so nothing runs; nothing in this build prompts |

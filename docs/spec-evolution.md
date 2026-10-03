@@ -509,7 +509,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   2. **Quieting a provider is not only an environment concern.**
      `04-migration-and-safety.md`'s "Provider invocations set the environment"
      was Homebrew-shaped. Homebrew is quieted by environment
-     (`HOMEBREW_NO_AUTO_UPDATE` does the offline work, with
+     (`HOMEBREW_NO_AUTO_UPDATE` does the offline work — *narrowed by item 3
+     below: only with a present cache, and a `brew.env` can outrank it* — with
      `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS`); MacPorts is quieted
      by argv — `-q`, which implies `-N` — plus never invoking the two
      network-touching update actions. No `MACPORTS_*` variable serves the
@@ -556,7 +557,12 @@ change is made. Silent deviation remains the one unrecoverable error.
      relying on the environment meanwhile. `04-migration-and-safety.md`
      (Process execution) and `quiet_environment`'s documentation now say so;
      the same sentence in `.claude/rules/adapters.md` is a guarded path, owed
-     to the owner. SE-051 part 1's premise that the recorded environment is
+     to the owner. The public surfaces said the absolute — `06-cli-and-ux.md`'s
+     "no telemetry" and "works with no network" MUSTs, README's Privacy
+     section, the FAQ, Home and Architecture wiki pages — and now say that the
+     tool itself sends nothing while Homebrew, asked to read, may fetch its
+     catalogue and can have its own analytics switched back on by a
+     `brew.env`, pointing at DP-027 (security-reviewer, end of pass 06). SE-051 part 1's premise that the recorded environment is
      the one `brew` ran with holds only where no `brew.env` exists. One older
      claim is put in doubt rather than corrected: pass-02 finding F-21
      observed `HOMEBREW_NO_AUTO_UPDATE=0` turn a read into a write, and at
@@ -3190,7 +3196,8 @@ finding ids in each entry.
   - **Not closed, owed by the run loop (S5).** (1) `plan_read_spec` is safe
     only after the execution gate has passed the plan: the read allowlist
     accepts any `--long` option after a permitted subcommand — `brew info
-    --github <formula>` is on it and opens a browser — and only the gate's
+    --github <formula>` is on it and opens a browser (*long-option half closed
+    2026-10-02, pass 06 S2, below; the positional half stays open*) — and only the gate's
     `COMMAND_IS_NOT_THE_PLANNERS_READ` pins a plan's argv to the planner's own
     read. S5 must assert the gate passed before the first call. The stronger
     fix is a per-subcommand allowlist of long options in
@@ -3229,7 +3236,7 @@ finding ids in each entry.
     a refused plan dispatches nothing and records no step
     (`the_execution_gate_is_consulted_before_any_step`, `crates/cli/tests/
     executor.rs`); the per-subcommand long-option allowlist stays the
-    stronger fix, not done. (2) The loop builds no spec: it reads through a
+    stronger fix, not done (*done for long options 2026-10-02, pass 06 S2, below*). (2) The loop builds no spec: it reads through a
     `ReadSite` whose production implementation is
     `registry::PlanReadSites::run`, the only caller of `plan_read_spec`
     outside tests; `the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_loop`
@@ -3419,7 +3426,11 @@ finding ids in each entry.
   `COMMAND_IS_NOT_THE_PLANNERS_READ`, so `plan_read_spec` stays safe only after
   the gate. **Not an INV-20 regression:** the list says what this tool asks
   for, a permission, not what a provider does, so it carries no `source` or
-  `read_on`. **`--cask` is absent on purpose:** adding it for F-22's cask verb
+  `read_on`. **Permitted, not required:** the list says which options may
+appear, not which must, so `brew info <name>` without `--json=v2` passes the
+spawn site; no argv this build builds has that shape (the adapters hold exact
+vectors, the gate pins a plan's read), and a required-options entry is owed to
+the next read path (security-reviewer, end of pass 06). **`--cask` is absent on purpose:** adding it for F-22's cask verb
   is a deliberate, reviewed widening of this list, not a data edit. Tests:
   `every_long_option_a_read_passes_is_permitted_and_no_other` (both
   directions: every adapter argv, every `INFO_FIELDS_*` tail and both planner

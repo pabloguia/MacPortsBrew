@@ -5,7 +5,9 @@
 //! This module implements [`ProviderRead`] over the central process executor.
 //! It reads and never writes: the eight commands it may run are a code-level
 //! allowlist ([`ALLOWED_ARGV`]), and every one of them is a read that works
-//! offline (R-1 finding 11, R-6 finding 15). The executable is resolved from
+//! offline once Homebrew's API cache is present (R-1 finding 11, R-6 finding
+//! 15; on an empty cache a Ruby read downloads it first, and a `brew.env` can
+//! outrank the quieting environment - R-15). The executable is resolved from
 //! a prefix the caller detected, never from `PATH` — a path-prefix lookup is
 //! the executable-shadowing item of the threat model
 //! (`04-migration-and-safety.md`).

@@ -409,9 +409,13 @@ do not gold-plate beyond them.
   either position; a `--long` option after the subcommand must be, exactly and
   as the whole argument, one on that subcommand's own list — the options this
   tool's reads pass and no others, so `brew info --github` (which opens a
-  browser), `--json=v1` beside the listed `--json=v2`, an abbreviation such as
-  `port info --nam` that the provider would resolve, and a bare `--` are all
-  refused. The list is a tool permission list, not a provider fact: it says
+  browser: R-15, E4 and finding 4, Homebrew 7.0.4, read 2026-10-02),
+  `--json=v1` beside the listed `--json=v2`, an abbreviation such as
+  `port info --nam` that the provider would resolve (`port` resolves a long
+  option by unambiguous prefix in `cmd_option_matches`, as it resolves an
+  action in `find_action`: `/opt/local/bin/port`, MacPorts 2.12.6, read
+  2026-09-25, the option path 2026-10-03; for `brew`, Ruby's option parser may
+  resolve an unambiguous prefix too), and a bare `--` are all refused. The list is a tool permission list, not a provider fact: it says
   what this tool asks for and carries no date. Positional arguments are checked
   for shape only, below; which ones a plan may carry is the execution gate's
   `COMMAND_IS_NOT_THE_PLANNERS_READ`. Nothing after a subcommand that takes packages may contain
@@ -511,8 +515,9 @@ do not gold-plate beyond them.
   load. Every human rendering escapes all three classes, at the catalogue's
   parameter substitution and wherever snapshot text is printed directly, so a
   kept character cannot reorder text or break a line; default-ignorable
-  characters outside Cf are not covered. `--json` is not escaped beyond JSON's own rules: a consumer that
-  renders it must escape them itself (SE-092, end-of-pass amendment (a)).
+  characters outside Cf are not covered. `--json` is not escaped beyond JSON's own rules, except `migrate`'s
+  `gateRefusals`, which are cleaned like the human view (`migrate.v1.md`): a
+  consumer that renders it must escape them itself (SE-092, end-of-pass amendment (a)).
 - **Privilege boundaries** — elevation is per-operation, enumerated, visible,
   never cached, never inherited by unrelated steps.
 - **State and configuration integrity** — MacPortsBrew's own state directory is

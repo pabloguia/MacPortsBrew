@@ -91,8 +91,10 @@ the binary says so in its own `--help`:
   interactive TUI, `doctor --deep`, caching, and translations (English ships,
   plus the `qps` pseudolocale for layout testing).
   `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted so that
-  scripts written today keep working, and are no-ops in a build that never uses
-  the network, never caches, is always a dry run and never prompts.
+  scripts written today keep working, and are no-ops in a build that makes no
+  network call of its own, never caches, is always a dry run and never prompts.
+  `--no-network` does not stop a Homebrew read fetching its catalogue on an
+  empty cache (see [Privacy](#privacy)).
 
 ## Quick start
 
@@ -258,7 +260,12 @@ supported path.
 
 No telemetry. No network calls that report anything about you. `analyze` works
 with no network at all, marking network-dependent facts `UNKNOWN` rather than
-guessing. `doctor --report` writes a redacted diagnostic file locally — never
+guessing. MacPortsBrew itself sends nothing. The reads it asks Homebrew for are run
+with Homebrew's update, analytics and hint switches off, but Homebrew still
+downloads its package catalogue when its own cache is empty, and a `brew.env`
+file in Homebrew's configuration can switch its analytics and network fetches
+back on for those reads; what this tool should do about that is an open
+decision ([DP-027](docs/decisions-pending.md), [R-15](docs/research/R-15-homebrew-brew-env.md)). `doctor --report` writes a redacted diagnostic file locally — never
 usernames, home paths, environment variable values or tokens — which you read
 and choose to share; MacPortsBrew never uploads it.
 

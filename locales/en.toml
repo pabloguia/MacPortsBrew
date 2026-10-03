@@ -54,7 +54,7 @@ error.provider_unhealthy = "The provider is present but did not answer correctly
 # the whole reason the identifier exists (F-41).
 error.recording_unusable = "The recording could not be read, or its schema is from an incompatible version: {detail}. Capture a fresh one with `scripts/capture-fixture.sh`, or point --replay at a readable file."
 error.provider_output_changed = "The provider's output did not have the shape this version expects: {detail}. The provider was probably updated; run `macportsbrew doctor --report` and attach the report to an issue."
-error.provider_timeout = "The provider did not answer within its time limit: {detail}. Try again, or pass --no-network if the delay is a metadata fetch."
+error.provider_timeout = "The provider did not answer within its time limit: {detail}. A first Homebrew read on an empty cache downloads its catalogue, so a retry usually succeeds."
 error.package_not_found = "That package is not present under that provider: {detail}. Run `macportsbrew list` to see what is there, and check the spelling."
 error.capability_missing = "The provider cannot supply something this operation needs: {detail}. Run `macportsbrew doctor` to see which capabilities were detected on this machine."
 error.snapshot_unusable = "The snapshot could not be read, or its schema is from an incompatible version: {detail}. Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file."

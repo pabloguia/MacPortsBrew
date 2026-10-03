@@ -10,13 +10,13 @@
   "Recommended next tasks" 5; work order `prompts/06-hardening-before-mutation.md`
   §5 item 1). Also bears on SE-050's argument-shape clause, on
   `docs/spec/04-migration-and-safety.md` ("Process execution": "`HOMEBREW_NO_AUTO_UPDATE`
-  is the one that does the offline work") and on R-1 finding 2.
+  is the one that does the offline work" — 04's wording on 2026-10-02, since
+  narrowed) and on R-1 finding 2.
 
-**About the identifier.** `docs/spec/09-research-checklist.md` has no item for
-this question. Its items run to R-14, so this note takes the next free number,
-R-15. It is not filed as `R-1a`, because R-1 asks what Homebrew's read
+**About the identifier.** Filed as R-15 in `docs/spec/09-research-checklist.md`;
+follow-up R-16. It is not filed as `R-1a`, because R-1 asks what Homebrew's read
 interfaces are, and this note asks whether the environment those reads run in
-can be trusted. Whether the checklist gains an R-15 entry is for the main agent.
+can be trusted.
 
 ## Question
 
@@ -226,15 +226,15 @@ readability (line 132).
 
 ```
 $ ls -la /usr/local/etc/homebrew/ /etc/homebrew/ ~/.homebrew/ ~/.config/homebrew
-ls: /Users/pirado/.config/homebrew: No such file or directory
+ls: ~/.config/homebrew: No such file or directory
 ls: /etc/homebrew/: No such file or directory
 ls: /usr/local/etc/homebrew/: No such file or directory
-/Users/pirado/.homebrew/:
--rw-------@ 1 pirado  staff     0 Sep  2 09:20 trust.json.lock
+~/.homebrew/:
+-rw-------@ 1 <user>  staff     0 Sep  2 09:20 trust.json.lock
 $ ls -ld /usr/local/etc /usr/local /etc
 lrwxr-xr-x@  1 root    wheel   11 Sep 24 23:06 /etc -> private/etc
 drwxr-xr-x  16 root    wheel  512 Sep 30 09:23 /usr/local
-drwxrwxr-x@ 27 pirado  admin  864 Sep  1 20:19 /usr/local/etc
+drwxrwxr-x@ 27 <user>  admin  864 Sep  1 20:19 /usr/local/etc
 ```
 
 None of the three files exists here. The user owns and can write the
@@ -244,7 +244,7 @@ prefix's `etc`.
 
 Every run used the environment shape `quiet_environment` builds, with `HOME`
 pointed at a throw-away directory. `$T` is
-`/private/tmp/claude-501/-Users-pirado-projects-MacPortsBrew/d7cdfceb-8261-4040-b3b7-0317e77372cc/scratchpad/brewenv.HH8i`,
+`<scratch>/brewenv.HH8i` (a session scratch directory),
 and `$H = $T/home`. The only files written were under `$T`. The only
 subcommands run were `--cache`, `--prefix`, `config` and `list`.
 
@@ -302,18 +302,18 @@ user's real `HOME`, to see what `config` prints:
 
 ```
 $ du -sh ~/Library/Caches/Homebrew/api
-du: /Users/pirado/Library/Caches/Homebrew/api: No such file or directory
+du: ~/Library/Caches/Homebrew/api: No such file or directory
 $ env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin LANG=C LC_ALL=C TERM=dumb NO_COLOR=1 HOME="$HOME" \
     HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
     HOMEBREW_NO_COLOR=1 HOMEBREW_NO_EMOJI=1 /usr/local/bin/brew config
 $ find ~/Library/Caches/Homebrew -maxdepth 3 -exec ls -ldT {} +
-drwxr-xr-x  ... Oct  2 23:06:22 2026 /Users/pirado/Library/Caches/Homebrew
+drwxr-xr-x  ... Oct  2 23:06:22 2026 ~/Library/Caches/Homebrew
 -rw-r--r--  ... 15473642 Oct  2 23:06:24 2026 .../api/internal/packages.tahoe.jws.json
 -rw-r--r--  ... 14219630 Oct  2 23:06:24 2026 .../api/internal/packages.tahoe.jws.json.payload
 -rw-r--r--  ...   453175 Oct  2 23:06:24 2026 .../api/internal/packages.tahoe.jws.json.payload.index
 drwxr-xr-x  ... Oct  2 23:06:17 2026 .../bootsnap
 $ du -sh ~/Library/Caches/Homebrew
- 35M	/Users/pirado/Library/Caches/Homebrew
+ 35M	~/Library/Caches/Homebrew
 ```
 
 With all six quieting variables set, one `brew config` downloaded about 15 MB
@@ -517,7 +517,8 @@ for `brew list --versions` on 2026-09-30, and it is the finding that
   `HOMEBREW_FORBID_PACKAGES_FROM_PATHS` (finding 4). SE-050 cites `bin/brew`
   lines 128-180; at 7.0.4 the loader runs from 128 to 181.
 - **Contradicts, in part,** `docs/spec/04-migration-and-safety.md`
-  ("`HOMEBREW_NO_AUTO_UPDATE` is the one that does the offline work") and the
+  ("`HOMEBREW_NO_AUTO_UPDATE` is the one that does the offline work" — 04's
+  wording on 2026-10-02, since narrowed) and the
   doc comment on `quiet_environment` (`crates/adapters/src/homebrew/mod.rs`
   lines 132-133, "it is what makes a read offline and side-effect-free"). The
   claim fails in two ways. First, `HOMEBREW_NO_AUTO_UPDATE` does not prevent
@@ -540,8 +541,7 @@ for `brew list --versions` on 2026-09-30, and it is the finding that
   shell gate and Ruby (finding 3, E6 e). That finding was reproduced at the
   time, possibly through a different mechanism or version. It is worth
   re-checking rather than citing.
-- `docs/spec/09-research-checklist.md` has no R-15 entry. The main agent
-  decides whether to add one.
+- Filed as R-15 in `docs/spec/09-research-checklist.md`; follow-up R-16.
 
 ## Re-check when
 

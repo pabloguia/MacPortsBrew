@@ -84,7 +84,7 @@ addendum; DP-026 on the one-provider case).
 |---|---|---|
 | `outcome` | `RunOutcome` | How the run ended. Tagged by `outcome` |
 | `steps` | array of `StepRecord`, optional | One per plan step, in plan order, when the gate passed the plan; absent when it refused |
-| `gateRefusals` | array of `ExecutionRefusal`, optional | The gate's refusals in its own order (step index, then kind), each tagged by `refusal` with its fields. Every string in them has the home redacted and control and format characters escaped: a check's fields are plan text. A refusal that could not be serialised — not reachable for the derived types today — is kept as `{ "refusal": "UNSERIALISABLE" }` so the list keeps one entry per refusal |
+| `gateRefusals` | array of `ExecutionRefusal`, optional | The gate's refusals in its own order (step index, then kind), each tagged by `refusal` with its fields. Every string in them has the home redacted and control and format characters and the line and paragraph separators escaped: a check's fields are plan text. A refusal that could not be serialised — not reachable for the derived types today — is kept as `{ "refusal": "UNSERIALISABLE" }` so the list keeps one entry per refusal |
 | `siteRefusal` | object, optional | `{ "step": integer, "refusal": string, "values"?: object }` when a read site refused a command before it ran. `refusal` is one of `NOT_A_PROVIDER_COMMAND`, `UNSAFE_PREFIX`, `PROGRAM_DISAGREES`, `NOT_A_PERMITTED_READ`; `values` holds the quoted values by name, cleaned like `gateRefusals` |
 
 ### `RunOutcome` (tag `outcome`)

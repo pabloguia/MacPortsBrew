@@ -206,6 +206,5 @@ the known exceptions, are stated once in [`README.md`](README.md).
 - **A concurrency flag.** `analyze`, `status`, `list`, `plan` and `migrate`
   carry `concurrentProviderActivity`
   ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)); this payload
-  does not yet, nor does `doctor`'s. Both are read-only analyses of the same
-  input, so the answer they would give is the same *possibly inconsistent* —
-  never a check that saw nothing. Carrying it is owed (SE-015).
+  does not yet. It is a read-only analysis, so the answer it would give is
+  *possibly inconsistent* — never a check that saw nothing. Carrying it is owed (SE-015).

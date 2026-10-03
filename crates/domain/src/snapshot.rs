@@ -328,9 +328,10 @@ pub struct ProviderEnvironmentContract {
     /// values it sets them to.
     ///
     /// A map and not a set, because permitting a key by name is not equality:
-    /// `HOMEBREW_NO_AUTO_UPDATE` is what makes a read-only command read-only,
-    /// and a snapshot that set it to `"0"` was accepted while the rule claimed
-    /// to assert what the builder emits.
+    /// a snapshot that set `HOMEBREW_NO_AUTO_UPDATE` to `"0"` was accepted
+    /// while the rule claimed to assert what the builder emits. (That key keeps
+    /// a read from updating Homebrew; it does not keep a read offline on an
+    /// empty cache, and a `brew.env` can outrank it - R-15, SE-016 item 3.)
     pub extra: BTreeMap<String, String>,
 }
 
@@ -691,14 +692,18 @@ impl Snapshot {
     /// `/OPT/Local` compares unequal and opens the same file, because the boot
     /// volume is case-insensitive; a `HOME` of the attacker's choosing makes
     /// `brew` read `$HOME/.homebrew/brew.env` and export `SUDO_ASKPASS` and
-    /// every `HOMEBREW_*` from it, reinstating the whole refused key set; and
+    /// every `HOMEBREW_*` from it, reinstating the whole refused key set (the
+    /// files in `/etc/homebrew/` and the prefix can do the same whatever `HOME`
+    /// is, so this rule closes the snapshot's route, not the files' - R-15,
+    /// DP-027); and
     /// `/usr/local/bin`, group-writable on any Mac, is "under a known Homebrew
     /// prefix". So the rule is now: exactly the variables the builder sets,
     /// exactly the values it sets them to, and a `PATH` of this provider's own
     /// directories followed by the system ones. The third round added the two
-    /// that mattered most: a quieting variable was permitted by name, so a
-    /// snapshot could set `HOMEBREW_NO_AUTO_UPDATE=0` and turn a read-only
-    /// command into one that writes; and a prefix shallow enough to contain
+    /// that mattered most: a quieting variable was permitted by name, not by
+    /// value, so a snapshot could replay a read under a value the builder
+    /// never sets (a blanked one deletes the key in Homebrew, R-15, and the
+    /// rule is exact-value rather than resting on what `0` does); and a prefix shallow enough to contain
     /// other things - `/opt`, or `/` - made every rule below vacuous, which was
     /// a working bypass of the whole check.
     ///
@@ -810,7 +815,9 @@ impl Snapshot {
                 // `$HOME/.homebrew/brew.env` and exports `SUDO_ASKPASS` and any
                 // `HOMEBREW_*` it finds there (observed in `bin/brew`,
                 // 2026-09-03). A `HOME` a snapshot chooses hands back every key
-                // the list above refuses.
+                // the list above refuses. The `/etc/homebrew/` and prefix files
+                // do so whatever `HOME` is; this rule is about what a snapshot
+                // may claim, not about those files (R-15, DP-027).
                 if let Some(expected) = contract.extra.get(key) {
                     if value != expected {
                         return refuse(format!(

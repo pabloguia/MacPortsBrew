@@ -94,7 +94,9 @@ unscriptable and untestable.
 ## Caching and network
 
 **MUST.** `analyze` works with no network, degrading clearly-marked network
-dependent facts to `UNKNOWN` rather than failing or guessing.
+dependent facts to `UNKNOWN` rather than failing or guessing. *Untested on a
+machine whose Homebrew cache is empty, where Homebrew's own reads try to
+download the catalogue first (R-15, an open residual).*
 
 **MUST.** A cache with an explicit TTL, provenance (which command produced it,
 when, against which provider version) and a `--refresh` bypass. Cached facts are
@@ -132,6 +134,12 @@ alignment. This is tested with the pseudolocale and with CJK fixtures.
 ## Privacy and diagnostics
 
 **MUST.** No telemetry, no network calls that report anything about the user.
+**Not met in one respect, recorded rather than relied on (R-15, 2026-10-02):**
+this tool reports nothing, but a `brew.env` in Homebrew's configuration can
+switch Homebrew's own analytics back on for the reads this tool asks of it,
+and Homebrew downloads its catalogue on an empty cache. Whether the tool
+detects, refuses or merely discloses that is DP-027; README and wiki say so
+(SE-016 item 3).
 
 **MUST.** `doctor --report` writes a redacted local diagnostic file the user can
 attach to an issue: versions, architecture, macOS version, provider prefixes,

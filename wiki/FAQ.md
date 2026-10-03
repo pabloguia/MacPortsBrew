@@ -56,9 +56,14 @@ anything runs, and never cached or inherited.
 
 ## Does it send anything anywhere?
 
-No. No telemetry, no analytics, no network call that reports anything about
-you. `analyze` works with no network at all, marking network-dependent facts
-`UNKNOWN` rather than guessing.
+MacPortsBrew does not: no telemetry, no analytics, no network call of its own
+that reports anything about you, and `analyze` works with no network at all,
+marking network-dependent facts `UNKNOWN` rather than guessing. Homebrew,
+which it asks to read, is another matter: it downloads its package catalogue
+when its own cache is empty, and a `brew.env` file in Homebrew's configuration
+can switch Homebrew's analytics and network fetches back on for those reads.
+What this tool should do about that is an open decision (DP-027 in the
+repository's `docs/decisions-pending.md`).
 
 `doctor --report` writes a **local** redacted file — no usernames, home paths,
 environment variable values or tokens — which you read and choose to share.
