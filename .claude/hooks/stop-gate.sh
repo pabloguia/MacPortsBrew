@@ -129,8 +129,8 @@ fi
 #    The checks themselves live in scripts/validate.sh - one implementation,
 #    three entry points (07-quality-and-testing.md). The gate only decides
 #    how much of it to run: --quick (format, lint, layering, SPDX, licences,
-#    i18n parity) on every turn end; the test suite too when code, tests,
-#    fixtures or catalogues changed, or when MPB_GATE_FULL=1.
+#    i18n parity) on every turn end; the test suite only when MPB_GATE_FULL=1,
+#    because commit-gate.sh runs it before every commit (SE-093).
 # Whether this turn touched anything the code checks cover.
 #
 # The working tree alone is not the answer: this repository commits mid-turn, so
@@ -166,8 +166,12 @@ if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
   PATH="$HOME/.cargo/bin:$PATH"
   touched="$(touched_paths)"
   if command -v cargo >/dev/null 2>&1; then
+    # Since 2026-10-03 (SE-093) the turn-end gate runs --quick only; the test
+    # suite and the fixture matrix run before every `git commit`
+    # (commit-gate.sh), which is where "every commit passes validate.sh"
+    # binds. Running them here held a turn hostage to work a subagent was
+    # still doing. MPB_GATE_FULL=1 still asks for them.
     run_tests="${MPB_GATE_FULL:-0}"
-    [ "$run_tests" != "1" ] && [ "$touched" != "no" ] && run_tests=1
     mode=--quick
     [ "$run_tests" = "1" ] && mode=default
     if ! validate_out="$(scripts/validate.sh "$mode" 2>&1)"; then

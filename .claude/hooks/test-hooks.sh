@@ -396,7 +396,11 @@ assert "editing a hook is denied"             "$P" deny   "$(edit_input "$CLAUDE
 assert "editing the codex layer is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.codex/hooks/stop-gate.sh")"
 assert "editing a generated skill is denied"  "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.agents/skills/adr/SKILL.md")"
 assert "editing the generator is denied"      "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/scripts/generate-codex-layer.sh")"
-assert "editing a subagent is denied"         "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/agents/spec-guardian.md")"
+# Guidance, not controls, since SE-093: a session may edit its subagents,
+# skills and rules; the generated layers they feed stay guarded.
+assert "editing a subagent is allowed"        "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/agents/spec-guardian.md")"
+assert "editing a skill is allowed"           "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/skills/adr/SKILL.md")"
+assert "editing a path rule is allowed"       "$P" allow  "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/rules/adapters.md")"
 assert "editing local settings is denied"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/settings.local.json")"
 assert "editing settings.json is denied"      "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/.claude/settings.json")"
 assert "editing validate.sh is denied"        "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/scripts/validate.sh")"

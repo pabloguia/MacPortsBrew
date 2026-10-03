@@ -34,9 +34,10 @@ git-ignored.
 | `lib.sh` | — | JSON field extraction. Fails closed when neither `jq` nor `python3` is present. |
 | `session-start.sh` | `SessionStart` | Injects the active pass, the hard boundary and the open decisions. |
 | `guard-provider-mutation.sh` | `PreToolUse(Bash)` | Denies elevation and every mutating `brew`/`port` subcommand, plus toolchain switching, shell-file writes and launch machinery — including absolute-path and wrapped forms. |
-| `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths. |
+| `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths, and into the controls (`hooks/`, `settings.json`, `scripts/*.sh`, workflows, the generated layers). Since SE-093, `agents/`, `skills/` and `rules/` are editable: guidance, not controls. |
+| `commit-gate.sh` | `PreToolUse(Bash)` | Runs `scripts/validate.sh` before every `git commit` (the default mode when code changed, `--quick` otherwise) and refuses the commit while it fails. Escape: `MPB_SKIP_COMMIT_GATE=1`, disclosed in the report (SE-093). |
 | `post-edit-checks.sh` | `PostToolUse(Edit\|Write)` | Per-file: shell format and lint, JSON validity, Markdown link resolution, SPDX header. Never blocks. |
-| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh` (`--quick` on every turn; the test suite too when code, tests, fixtures, data or catalogues changed; `MPB_GATE_FULL=1` forces it). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
+| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh --quick` (`MPB_GATE_FULL=1` adds the test suite; since SE-093 the suite runs before every commit instead, in `commit-gate.sh`). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
 | `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI is configured to run it, and has never run. |
 
 Two layers, on purpose: the deny rules in `settings.json` are what Claude Code

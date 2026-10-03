@@ -244,6 +244,12 @@
             "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/guard-provider-mutation.sh",
             "timeout": 15,
             "statusMessage": "Checking command against INV-05 / INV-06"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/commit-gate.sh",
+            "timeout": 1500,
+            "statusMessage": "Validating before the commit"
           }
         ]
       },

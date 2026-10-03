@@ -203,10 +203,15 @@ check() {
       # `run-fixture-matrix.sh` were unguarded for the same reason and became
       # validate.sh stages in F-45.
       #
-      # `.claude/agents/` and `.claude/skills/` are the generator's other
-      # inputs. Instruction text rather than code, but they reach a generated
-      # tree that is itself guarded, and an input weaker than its output is
-      # the asymmetry backwards.
+      # `.claude/agents/` and `.claude/skills/` were here as the generator's
+      # other inputs. Since 2026-10-03 (SE-093, the owner's decision) they are
+      # not: they are guidance, not controls, and keeping them guarded turned
+      # every pass's housekeeping into an owner's to-do list. What a session
+      # writes there reaches `.codex/` and `.agents/skills/` only through the
+      # generator, whose output `validate.sh` checks for drift, and every
+      # change is a reviewed commit. The controls - hooks, settings, scripts,
+      # workflows - stay guarded: those are what would let a session switch
+      # its own brake off.
       #
       # `settings.local.json` was here, added because the pass report claimed
       # the agent could not set `MPB_ALLOW_GUARD_EDIT` itself - it could, since
@@ -217,7 +222,7 @@ check() {
       # escape's weak half manufactures its strong half (DP-020).
       # `settings.json` stays here, refusable-but-openable, because a change to
       # it is committed and reviewable.
-    */.claude/hooks/*|*/.claude/settings.json|*/.claude/agents/*|*/.claude/skills/*|*/scripts/*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
+    */.claude/hooks/*|*/.claude/settings.json|*/scripts/*.sh|*/.github/workflows/*|*/.codex/*|*/.agents/skills/*)
       if [ -z "$ARMED_BY" ]; then
         mpb_deny "PreToolUse" "Blocked: $1 is part of the enforcement layer that is meant to constrain this session, so changing it from inside the session defeats it. If the change is intended, the human authorises it - either by putting MPB_ALLOW_GUARD_EDIT=1 in a message, which arms it for that message alone, or by starting the session with it set in the environment - and the end-of-pass report says what was edited and why, the same disclosed-escape pattern as MPB_SKIP_STOP_GATE. See docs/spec/11-agentic-sdlc.md."
       fi

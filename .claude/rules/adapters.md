@@ -32,7 +32,7 @@ Inside the executor:
 - **Every invocation records** argv, sanitised environment, exit status, stdout,
   stderr and duration, and supports timeout and cancellation.
 - **The environment is sanitised, not inherited.** Homebrew is quieted by
-  environment variables (`HOMEBREW_NO_AUTO_UPDATE` does the offline work,
+  environment variables (`HOMEBREW_NO_AUTO_UPDATE` keeps a read from updating Homebrew - it does not keep a read offline on an empty cache, and a `brew.env` can outrank it, R-15 and DP-027 -
   alongside `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS` — R-1 and R-2,
   2026-09-02); MacPorts is quieted by argv (`-q`, which implies `-N`) plus never
   invoking its update or sync verbs, because no `MACPORTS_*` variable serves the

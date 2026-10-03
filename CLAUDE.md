@@ -98,12 +98,12 @@ or `CLAUDE.local.md`; both are git-ignored for a reason.
 the pinned toolchain holds the macOS floor (ADR-0002 has the reasoning). `cargo
 fmt`, `clippy`, `test`, `build` and `tree` are allowed.
 
-The `Stop` gate does not implement its own checks: it runs
-`scripts/validate.sh`, which is the one implementation of "valid" and the same
-one CI runs. `--quick` runs every static check on every turn end; the default
-mode adds the test suite and the fixture matrix, when `crates/`, `tests/`,
-`fixtures/`, `locales/`, `data/` or `Cargo.lock` changed. `MPB_GATE_FULL=1`
-forces the tests regardless. **Do not add a check anywhere else.**
+The gates do not implement their own checks: they run `scripts/validate.sh`,
+which is the one implementation of "valid" and the same one CI runs. The `Stop`
+gate runs `--quick` on every turn end; `commit-gate.sh` runs the default mode
+(the test suite and the fixture matrix) before every `git commit` that touches
+code, and refuses the commit while it fails (SE-093). `MPB_GATE_FULL=1` makes
+the `Stop` gate run the tests too. **Do not add a check anywhere else.**
 
 **The stage list is in `validate.sh`'s own header and nowhere else.** It used to
 be written here and in `CONTRIBUTING.md` as well, and both copies drifted by five
