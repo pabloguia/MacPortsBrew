@@ -35,7 +35,7 @@ pub use availability::{
     ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, SourceBuildReason,
 };
 pub use class::{ClassEvidence, ClassSet, PackageClass};
-pub use concurrency::ConcurrentProviderActivity;
+pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use history::{
     Direction, EnvironmentChange, NotRestorable, RecordedStep, RecordedVersions, Restorability,

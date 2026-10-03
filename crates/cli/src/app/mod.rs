@@ -14,7 +14,7 @@ use crate::i18n::Messages;
 use clap::{Parser, Subcommand};
 use context::Context;
 use macportsbrew_application::{AnalysisOptions, DoctorReport, PlanRequest, Severity};
-use macportsbrew_domain::{DomainError, ErrorId};
+use macportsbrew_domain::{ConcurrencyFlag, DomainError, ErrorId};
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
@@ -230,6 +230,9 @@ fn run_inner(
                 writeln!(stdout, "{}", json(&analysis)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::analysis(&ctx, &analysis, true)).map_err(io)?;
+                // The analysis's own flag, the one its `--json` carries.
+                let activity = analysis.concurrent_provider_activity.activity();
+                write!(stdout, "{}", human::concurrency(&ctx, activity)).map_err(io)?;
             }
             Ok(0)
         }
@@ -278,10 +281,21 @@ fn run_inner(
                 // which ones a complete input must carry.
                 &macportsbrew_adapters::registry::known_provider_ids(),
             )?;
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&plan)?).map_err(io)?;
+                let document = PlanDocument {
+                    plan: &plan,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::plan(&ctx, &plan)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             // A plan that stops at manual review is reported with the
             // safety-check code so scripts can tell (06-cli-and-ux.md).
@@ -353,6 +367,22 @@ fn run_inner(
             Ok(0)
         }
     }
+}
+
+/// What `plan --json` writes: the plan exactly as `plan.v1.md` documents it,
+/// then the concurrency flag at the same root (`plan.v1.md`, obligation 5).
+///
+/// The domain's `MigrationPlan` is not given the field: it is the contract the
+/// planner, the execution gate and the run loop share, and `migrate` carries
+/// it under its own `plan` key with the flag at *its* root. The plan is
+/// flattened first, so every byte `plan --json` wrote before this field keeps
+/// its place and the flag is appended after `dryRunOnly`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanDocument<'a> {
+    #[serde(flatten)]
+    plan: &'a macportsbrew_domain::MigrationPlan,
+    concurrent_provider_activity: ConcurrencyFlag,
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {

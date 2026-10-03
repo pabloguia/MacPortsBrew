@@ -199,3 +199,12 @@ templates live in `locales/en.toml`, keyed by the same identifiers, with a
 `{placeholder}` per parameter. A consumer either renders through that catalogue
 or displays the identifier; **the identifiers themselves are never localised**,
 regardless of `--language`.
+
+## Not in this version
+
+- **A concurrency flag.** `analyze`, `status`, `list`, `plan` and `migrate`
+  carry `concurrentProviderActivity`
+  ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)); this payload
+  does not yet, nor does `doctor`'s. Both are read-only analyses of the same
+  input, so the answer they would give is the same *possibly inconsistent* —
+  never a check that saw nothing. Carrying it is owed (SE-015).

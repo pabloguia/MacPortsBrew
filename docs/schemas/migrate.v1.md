@@ -34,7 +34,7 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `schemaVersion` | integer | `1` |
 | `mode` | string | `RENDER` or `EXECUTE` |
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16) |
-| `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it. Present whenever a plan was built |
+| `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
 
@@ -43,6 +43,15 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 `04-migration-and-safety.md` lets read-only analysis proceed while a provider
 runs, *flagged as possibly inconsistent*; this is that flag (`plan.v1.md`,
 obligation 5). Its rule is that it never claims a check that was not made.
+The same object, written by the same type (the domain's `ConcurrencyFlag`), is
+the root `concurrentProviderActivity` of [`plan.v1.md`](plan.v1.md) and of
+[`analysis.v1.md`](analysis.v1.md) — so of `status --json` and `list --json`
+as well — and those documents point here for its definition. There it was
+added after those schemas were first documented, without a `schemaVersion`
+bump, which the compatibility rule allows for an additive field; every
+document this build writes carries it, and a consumer reads its absence — a
+document from an earlier development build — as *possibly inconsistent*,
+never as a check that saw nothing.
 
 | Field | Type | Notes |
 |---|---|---|

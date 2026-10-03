@@ -16,8 +16,9 @@ and reads nothing, because the gate refuses first. `dryRunOnly` is always `true`
 writes the negation of a compile-time constant,
 `THIS_BUILD_DISPATCHES_MUTATIONS`, which is `false` — and there is no code path
 in the binary that runs a mutating provider subcommand. `migrate` carries this
-document under its own `plan` field ([`migrate.v1.md`](migrate.v1.md)); see
-"What an executor inherits".
+document under its own `plan` field ([`migrate.v1.md`](migrate.v1.md)) — every
+field below but the root's `concurrentProviderActivity`, which `migrate` writes
+once at its own root; see "What an executor inherits".
 
 ## Root
 
@@ -37,6 +38,7 @@ document under its own `plan` field ([`migrate.v1.md`](migrate.v1.md)); see
 | `elevatedSteps` | array of integer, optional | The `index` of every step whose elevation is not `NONE` — that is, `REQUIRED` **or** `UNKNOWN`. Consult each command's own `elevation` to distinguish them: an `UNKNOWN` is not a known requirement, and rendering this set as "needs administrator rights" is the defect F-10 recorded. It is nonetheless the set to gate consent on, because an elevation nobody has established is not one that will not happen |
 | `policyVersion` | string | |
 | `dryRunOnly` | boolean | `true` in this build: whether the build that wrote the plan can run its mutating steps. A plan carrying `false` is refused for execution (`PLAN_NOT_DRY_RUN_ONLY`). It describes the build and is not the boundary — the gate and the absence of any mutating path are |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider may have been changing the machine while the input was read (obligation 5). Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, and every `plan --json` this build writes carries it, always last, after `dryRunOnly`; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity). It belongs to the `plan` command's document, not to `MigrationPlan`: `migrate` carries the plan under its own `plan` key *without* it and writes the flag once at its own root, and the execution gate neither reads nor requires it |
 
 ## `MigrationStep`
 
@@ -246,7 +248,15 @@ comments:
    host's (INV-15). Both are possibly inconsistent, and the human output says
    so in words (`the_concurrency_flag_never_claims_a_check_it_did_not_make`,
    `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`).
-   `plan` and `analyze` do not carry the flag yet.
+   `plan` and `analyze` carry the same flag from the same source: `plan --json`
+   writes it at its root after the plan's own fields, `analysis.v1` carries it
+   as a root field (so `status --json` and `list --json` do too), and the human
+   output of `plan` and `analyze` ends with the sentence `migrate`'s does. One
+   type, the domain's `ConcurrencyFlag`, writes it for all three, so the shape
+   cannot drift between them
+   (`analyze_plan_and_migrate_share_the_one_concurrency_serialiser`,
+   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`,
+   `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather
    than interleaving* — that half is unbuilt and inherited whole by the
    mutating pass: no detection mechanism exists, so nothing can answer
@@ -713,7 +723,11 @@ non-mutating and the command exits 4:
     }
   ],
   "policyVersion": "2026.09.19-3",
-  "dryRunOnly": true
+  "dryRunOnly": true,
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  }
 }
 ```
 

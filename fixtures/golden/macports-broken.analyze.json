@@ -1,4 +1,8 @@
 {
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  },
   "machine": {
     "architecture": "x86_64",
     "commandLineTools": {

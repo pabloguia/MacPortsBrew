@@ -201,3 +201,11 @@ before the value ever reaches the payload.
 that it is not part of this build. Every other check runs, and every one of
 them works identically from `--from-snapshot` and under `--replay`, because
 `doctor` reads the snapshot and the policy data and nothing else.
+
+## Not in this version
+
+- **A concurrency flag.** `analyze`, `status`, `list`, `plan` and `migrate`
+  carry `concurrentProviderActivity`
+  ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)); this payload
+  does not yet. Its answer would be the same *possibly inconsistent*, never a
+  check that saw nothing. Carrying it is owed (SE-015).

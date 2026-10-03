@@ -644,18 +644,21 @@ pub fn render_only(ctx: &Context) -> String {
     format!("\n{}\n", label(ctx, "migrate.render_only"))
 }
 
-/// `migrate`, last: whether a provider may have been changing the machine
-/// while it was read. Every answer this build gives says "possibly
-/// inconsistent" and says why, and none claims a check that was not made
-/// (`plan.v1.md`, obligation 5). The `match` is exhaustive, so a new answer is
-/// a compile error here rather than an identifier in front of a person.
+/// `migrate`, `plan` and `analyze`, last: whether a provider may have been
+/// changing the machine while it was read. Every answer this build gives says
+/// "possibly inconsistent" and says why, and none claims a check that was not
+/// made (`plan.v1.md`, obligation 5). The `match` is exhaustive, so a new
+/// answer is a compile error here rather than an identifier in front of a
+/// person. `status` and `list` do not end with it: their `--json` carries the
+/// flag, but their human views are an overview and an inventory, not an
+/// answer to act on (SE-015).
 pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
     let line = match activity {
-        ConcurrentProviderActivity::NotChecked => label(ctx, "migrate.concurrency.not_checked"),
-        ConcurrentProviderActivity::Unknowable => label(ctx, "migrate.concurrency.unknowable"),
-        ConcurrentProviderActivity::NoneObserved => label(ctx, "migrate.concurrency.none_observed"),
+        ConcurrentProviderActivity::NotChecked => label(ctx, "concurrency.not_checked"),
+        ConcurrentProviderActivity::Unknowable => label(ctx, "concurrency.unknowable"),
+        ConcurrentProviderActivity::NoneObserved => label(ctx, "concurrency.none_observed"),
         ConcurrentProviderActivity::Observed { providers } => ctx.messages.render(
-            "migrate.concurrency.observed",
+            "concurrency.observed",
             &params(&[
                 ("count", providers.len().to_string()),
                 (

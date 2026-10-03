@@ -11,11 +11,11 @@ use macportsbrew_application::{
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
     AvailabilityEvidence, Capability, CapabilityState, CommandLineTools, CommandTarget,
-    DependencyEdge, Elevation, EnvironmentSnapshot, ExecutableOwner, InstalledPackage, Machine,
-    MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind, PackageMetadata,
-    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot, StepKind,
-    SuccessSemantic, Translation, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
+    ConcurrencyFlag, DependencyEdge, Elevation, EnvironmentSnapshot, ExecutableOwner,
+    InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind,
+    PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
+    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot,
+    StepKind, SuccessSemantic, Translation, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -756,6 +756,31 @@ fn invariant_03_a_broken_provider_degrades_the_analysis_instead_of_failing_it() 
     assert!(
         !analysis.packages.is_empty(),
         "the healthy provider is still analysed"
+    );
+}
+
+#[test]
+fn the_analysis_carries_the_concurrency_flag_its_source_decides() {
+    // The flag is the source's answer, never a constant: the same snapshot
+    // analysed as a live capture and as a loaded file says two different
+    // things, and both say possibly inconsistent (SE-015).
+    let snap = both_present();
+    for source in [AnalysisSource::Live, AnalysisSource::Snapshot] {
+        let analysis = analyze(&snap, &policy(), &options(), source);
+        assert_eq!(
+            analysis.concurrent_provider_activity,
+            ConcurrencyFlag::of(source.concurrent_provider_activity()),
+            "{source:?}"
+        );
+        assert!(analysis
+            .concurrent_provider_activity
+            .possibly_inconsistent());
+    }
+    let live = analyze(&snap, &policy(), &options(), AnalysisSource::Live);
+    let loaded = analyze(&snap, &policy(), &options(), AnalysisSource::Snapshot);
+    assert_ne!(
+        live.concurrent_provider_activity,
+        loaded.concurrent_provider_activity
     );
 }
 

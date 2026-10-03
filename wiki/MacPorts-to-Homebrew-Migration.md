@@ -87,7 +87,13 @@ Steps, in order
        Execution would stop here for a human decision (exit code 4).
   2. Needs a human decision - The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
        Execution would stop here for a human decision (exit code 4).
+
+Possibly inconsistent: whether a package manager was changing this machine while it was read was not checked. This build has no such check, so if one was running, rerun this once it has finished.
 ```
+
+On a live machine the last line says the read was *not checked*; the replayed
+example on the other page says it *cannot be known*. `--json` carries both as
+`concurrentProviderActivity`.
 
 The [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) page's example
 is replayed from a recording and tested; this one is not. What the tests do

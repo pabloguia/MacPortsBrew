@@ -387,18 +387,66 @@ change is made. Silent deviation remains the one unrecoverable error.
   about the recorded machine, not a check. `migrate.v1.md` carries it as
   `concurrentProviderActivity` with `possiblyInconsistent`, the human output
   ends with a catalogue sentence for it, and `plan.v1.md` obligation 5 is
-  restated in those two halves. `plan` and `analyze` do not carry it yet, and
-  `analysis.v1.md` says so under "Not in this version": the work order scopes
-  this item to the executor pass (`prompts/05-the-executor.md` §6 item 5), whose
-  one command is `migrate`, and adding a field to `analysis.v1` is a change to a
-  payload this pass otherwise leaves alone. They are owed the same type, from
-  the same `AnalysisSource`, not a second rule. Two things are left
+  restated in those two halves. `plan` and `analyze` were left without it
+  then, the executor pass's one command being `migrate`; **that gap is closed,
+  2026-10-03 (06-HARDENING-BEFORE-MUTATION, slice S4)**, with the same type
+  from the same `AnalysisSource` and no second rule. The serialised shape
+  `{ "activity", "possiblyInconsistent" }` moved out of `migrate.rs` into one
+  domain type, `ConcurrencyFlag` (domain, not application: it is a
+  provider-neutral serde shape that `application`'s `Analysis` and the CLI's
+  documents both hold, and `domain` depends on serde only), whose sole
+  constructor derives the boolean from the activity and whose deserialiser
+  refuses a document where they disagree; all three commands write it.
+  `analysis.v1` gains the root field `concurrentProviderActivity`, set in
+  `analyze()` from its `source` argument, so `status --json` and `list --json`
+  carry it too. `plan --json` writes a CLI-side document that flattens the plan
+  first and appends the field after `dryRunOnly`, so every earlier byte keeps
+  its place; `MigrationPlan` is untouched, because it is the contract the
+  planner, the gate and the run loop share and `migrate` already writes the
+  flag once at its own root (its embedded `plan` does not repeat it). A refused
+  plan writes nothing to stdout, so it has no document to carry the flag. Both
+  additions are additive under `docs/schemas/README.md`'s rule, `schemaVersion`
+  stays 1, and both schemas say this build always writes the field and that a
+  consumer reads its absence as possibly inconsistent. The human output of
+  `plan` and `analyze` ends with `migrate`'s sentence, whose catalogue keys
+  moved from `migrate.concurrency.*` to a neutral `concurrency.*`; `status`
+  and `list` do not repeat it in words — an overview and an inventory rather
+  than an answer to act on, and `status` has two documented samples (README,
+  Getting Started) that would change for no reader's benefit — while their `--json`
+  carries it. Tests: `crates/cli/tests/concurrency_flag.rs` (replay and
+  snapshot halves for both commands, in JSON and in words;
+  `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`
+  and `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`
+  re-run under another `HOME` and `PATH` and compare bytes;
+  `analyze_plan_and_migrate_share_the_one_concurrency_serialiser` compares the
+  raw fragment across `analyze`, `status`, `list`, `plan` and `migrate`), and
+  `the_analysis_carries_the_concurrency_flag_its_source_decides` in
+  `crates/application/tests/invariants.rs`. Mutation, each in a scratch copy
+  restored afterwards: `analyze()` writing a `NOT_CHECKED` constant fails the
+  replay, snapshot and sharing tests and the application test; the plan
+  document skipping the field fails four; the sentence dropped from `plan`, or
+  from `analyze`, fails the replay, snapshot and sharing tests; `plan`'s field
+  serialised with `possiblyInconsistent: false` fails the same three. Two things are left
   open on purpose, both raised by the spec-guardian review of 2026-10-01: the choice of `Live` or
   `Snapshot` in `Context::build` now decides a sentence a person reads, and no
   test can drive a live run (INV-05), so only the replay and snapshot halves
   are pinned end to end; and the `OBSERVED` sentence joins provider ids with a
   separator outside the catalogue, which is unreachable today and is owed a
   catalogue list form with the detector that first reaches it.
+
+  **Still without the flag, recorded rather than left silent (spec-guardian,
+  2026-10-03):** `explain` (explain.v1) and `doctor` (doctor.v1) are read-only
+  analyses of the same input and do not carry it; both schemas' "Not in this
+  version" say so, and carrying it is owed. `explain` and the planner build
+  their internal `Analysis` with a fixed `AnalysisSource::Snapshot`, which
+  decides nothing shown today — the call sites say so, because a future
+  reader of that analysis's flag would report `UNKNOWABLE` on a live run.
+  `ConcurrentProviderActivity` has no fallback for an `activity` value it does
+  not know, so a new value would not be additive under
+  `docs/schemas/README.md`'s rule; true before this pass, and the detector
+  that adds one owes the fallback. `ConcurrencyFlag`'s reader refuses a
+  `possiblyInconsistent` that contradicts its `activity`, which enforces what
+  `migrate.v1.md` already defines and changes no wire format.
 
   **No detection mechanism is built, and each candidate is deferred for a
   reason that is recorded rather than rediscovered.** (1) *Spawning `ps`*

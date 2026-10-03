@@ -36,6 +36,10 @@ pub fn explain_package(
         only: [name.to_string()].into_iter().collect(),
         ..options.clone()
     };
+    // `Snapshot` here is not a claim about where the input came from: only
+    // the package report is read, and the analysis's own provenance and
+    // concurrency flag are never shown. A caller that needs either takes it
+    // from its own `AnalysisSource` (spec-guardian, 2026-10-03).
     let analysis: Analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
     let unit = analysis
         .packages

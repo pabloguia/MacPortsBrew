@@ -19,6 +19,7 @@ it references. The compatibility rule is in [`README.md`](README.md).
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
 | `source` | `AnalysisSource` | `LIVE` or `SNAPSHOT` |
 | `snapshotProvenance` | `Provenance`, optional | Present only when `source` is `SNAPSHOT` |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider may have been changing the machine while the input was read (`04-migration-and-safety.md`, "Concurrency and locking"; `plan.v1.md`, obligation 5). Decided from `source`, never by looking: `LIVE` says `NOT_CHECKED`, `SNAPSHOT` (a snapshot file or a replayed recording) says `UNKNOWABLE`, and both are `possiblyInconsistent`. The same object reaches `status --json` and `list --json`, which render this payload; their human views do not repeat it, while `analyze`'s ends with it in words. Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, always written by this build; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity) |
 | `machine` | `Machine` | |
 | `providers` | map of provider id to `ProviderReport` | Ordered by provider id |
 | `packages` | array of `PackageReport` | Ordered by package name |
@@ -254,6 +255,7 @@ to end.
   "policyStale": false,
   "today": "2026-09-02",
   "source": "LIVE",
+  "concurrentProviderActivity": { "activity": "NOT_CHECKED", "possiblyInconsistent": true },
   "machine": {
     "architecture": "x86_64",
     "macos": { "major": 26, "minor": 6, "patch": 2 },
@@ -294,11 +296,7 @@ than trust the date indefinitely (INV-20).
 
 ## Not in this version
 
-- **A concurrency flag** (`04-migration-and-safety.md`, "Concurrency and
-  locking"; `plan.v1.md`, obligation 5). Read-only analysis may proceed while a
-  provider is running, flagged as possibly inconsistent, and this payload does
-  not carry the flag: nothing here says whether a package manager was changing
-  the machine while it was read. `migrate` carries it
-  (`concurrentProviderActivity`, [`migrate.v1.md`](migrate.v1.md)); this
-  payload and `plan`'s will carry the same type, and no check backs any of
-  them yet, so on a live run its answer would be *not checked*.
+- **A concurrency check** (`plan.v1.md`, obligation 5; SE-015). The flag is
+  here — `concurrentProviderActivity`, above — and it reports that no check was
+  made, never what one would have found: this build has no detection
+  mechanism, so it never writes `NONE_OBSERVED` or `OBSERVED`.

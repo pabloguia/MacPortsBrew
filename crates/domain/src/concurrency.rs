@@ -10,7 +10,8 @@
 //! a replayed recording or a snapshot file, which carry nothing about this
 //! host's processes (INV-15) — says [`ConcurrentProviderActivity::Unknowable`].
 //! Only a check that ran may answer `NoneObserved` or `Observed`, and this
-//! build has no such check (`plan.v1.md`, obligation 5; SE-015).
+//! build has no such check (`plan.v1.md`, obligation 5; SE-015). [`ConcurrencyFlag`]
+//! is the one shape every `--json` document writes it in.
 
 use crate::provider::ProviderId;
 use serde::{Deserialize, Serialize};
@@ -53,6 +54,80 @@ impl ConcurrentProviderActivity {
         match self {
             Self::NoneObserved | Self::Observed { .. } => true,
             Self::NotChecked | Self::Unknowable => false,
+        }
+    }
+}
+
+/// The flag as every `--json` document carries it: the activity as its tag,
+/// plus whether that leaves the read possibly inconsistent, so a consumer need
+/// not re-derive the rule.
+///
+/// It is the one serialised shape of the flag, `{ "activity": …,
+/// "possiblyInconsistent": bool }`, and `analyze` (with `status` and `list`,
+/// which render the same object), `plan` and `migrate` all write it through
+/// this type (SE-015). The two fields cannot disagree: the only constructor
+/// derives the second from the first, and a document whose
+/// `possiblyInconsistent` contradicts its `activity` is refused on reading
+/// rather than believed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", try_from = "FlagShape")]
+pub struct ConcurrencyFlag {
+    #[serde(flatten)]
+    activity: ConcurrentProviderActivity,
+    possibly_inconsistent: bool,
+}
+
+impl ConcurrencyFlag {
+    /// The flag for `activity`.
+    #[must_use]
+    pub fn of(activity: ConcurrentProviderActivity) -> Self {
+        let possibly_inconsistent = activity.possibly_inconsistent();
+        Self {
+            activity,
+            possibly_inconsistent,
+        }
+    }
+
+    /// What is known about providers running alongside the read.
+    #[must_use]
+    pub fn activity(&self) -> &ConcurrentProviderActivity {
+        &self.activity
+    }
+
+    /// Whether what was read may have been changing underneath the read.
+    #[must_use]
+    pub fn possibly_inconsistent(&self) -> bool {
+        self.possibly_inconsistent
+    }
+}
+
+impl From<ConcurrentProviderActivity> for ConcurrencyFlag {
+    fn from(activity: ConcurrentProviderActivity) -> Self {
+        Self::of(activity)
+    }
+}
+
+/// What a document says, before it is checked against the rule.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FlagShape {
+    #[serde(flatten)]
+    activity: ConcurrentProviderActivity,
+    possibly_inconsistent: bool,
+}
+
+impl TryFrom<FlagShape> for ConcurrencyFlag {
+    type Error = String;
+
+    fn try_from(shape: FlagShape) -> Result<Self, Self::Error> {
+        let flag = Self::of(shape.activity);
+        if flag.possibly_inconsistent == shape.possibly_inconsistent {
+            Ok(flag)
+        } else {
+            Err(format!(
+                "possiblyInconsistent is {} but the activity makes it {}",
+                shape.possibly_inconsistent, flag.possibly_inconsistent
+            ))
         }
     }
 }
@@ -113,6 +188,39 @@ mod tests {
             let back: ConcurrentProviderActivity =
                 serde_json::from_str(&text).expect("deserialises");
             assert_eq!(back, activity);
+        }
+    }
+
+    #[test]
+    fn the_flag_serialises_flat_with_the_rule_derived_from_the_activity() {
+        assert_eq!(
+            serde_json::to_string(&ConcurrencyFlag::of(ConcurrentProviderActivity::Unknowable))
+                .expect("serialises"),
+            r#"{"activity":"UNKNOWABLE","possiblyInconsistent":true}"#
+        );
+        for activity in every() {
+            let flag = ConcurrencyFlag::of(activity.clone());
+            assert_eq!(flag.activity(), &activity);
+            assert_eq!(
+                flag.possibly_inconsistent(),
+                activity.possibly_inconsistent()
+            );
+            let text = serde_json::to_string(&flag).expect("serialises");
+            let back: ConcurrencyFlag = serde_json::from_str(&text).expect("deserialises");
+            assert_eq!(back, flag);
+        }
+    }
+
+    #[test]
+    fn a_flag_that_contradicts_its_activity_is_refused_on_reading() {
+        for text in [
+            r#"{"activity":"UNKNOWABLE","possiblyInconsistent":false}"#,
+            r#"{"activity":"NONE_OBSERVED","possiblyInconsistent":true}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<ConcurrencyFlag>(text).is_err(),
+                "{text}"
+            );
         }
     }
 }

@@ -66,9 +66,11 @@ Steps, in order
        Execution would stop here for a human decision (exit code 4).
   3. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
        Execution would stop here for a human decision (exit code 4).
+
+Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read.
 ```
 
-Three things to notice.
+Four things to notice.
 
 **The plan records that it overrode the recommendation.** You asked to move
 something the engine would not have moved. That is allowed — it is your
@@ -81,6 +83,12 @@ needs your explicit consent.
 **Each blocking risk becomes a step.** A plan is not a summary of a decision;
 it is the decision, in order, with the reasons attached. A plan with a step
 that needs a human decision exits 4 and names the step.
+
+**The last line says what the read cannot vouch for.** Whether a package
+manager was changing the machine while it was read is not something this build
+checks, so the output of `plan`, `analyze` and `migrate` ends by saying it may be
+inconsistent and why — here, because a recording cannot show what was running
+beside it. `--json` carries the same answer as `concurrentProviderActivity`.
 
 Add `--json` for the machine-readable form — see
 [`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).

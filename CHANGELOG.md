@@ -48,6 +48,18 @@ to answer.
   run says it was not checked, and a run from `--replay` or `--from-snapshot`
   says it cannot be known. Both are flagged as possibly inconsistent; this build
   has no check that could say otherwise.
+- **`plan` and `analyze` carry the concurrency flag too.** `analysis.v1` gains
+  a root field `concurrentProviderActivity` — so `analyze --json`,
+  `status --json` and `list --json` all carry it — and `plan --json` gains the
+  same field at its root, written after `dryRunOnly` so every earlier byte
+  keeps its place. Both are additive, `schemaVersion` stays 1, and a consumer
+  reads the field's absence (an older build's document) as possibly
+  inconsistent. The object is the one `migrate` writes, from the same source,
+  through one shared type. The human output of `plan` and `analyze` now ends
+  with the sentence `migrate`'s does; `status` and `list` carry it only in
+  `--json`.
+  `migrate`'s embedded `plan` does not gain the field: it is written once, at
+  `migrate`'s root.
 - **`doctor` reports a provider whose recorded prefix is not absolute**
   (`provider_prefix_is_not_absolute`, `WARNING`). A provider installed under the
   user's home is captured as `~/...`, which `planner::command` refuses, so

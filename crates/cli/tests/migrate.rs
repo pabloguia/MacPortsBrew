@@ -439,7 +439,7 @@ fn assert_unknowable_in_words(text: &str, context: &str) {
         text.contains("Possibly inconsistent: this was read from a recording or a snapshot file"),
         "{context}: {text}"
     );
-    for raw in ["UNKNOWABLE", "NOT_CHECKED", "migrate.concurrency"] {
+    for raw in ["UNKNOWABLE", "NOT_CHECKED", "concurrency."] {
         assert!(
             !text.contains(raw),
             "{context}: {raw} reached the user:\n{text}"

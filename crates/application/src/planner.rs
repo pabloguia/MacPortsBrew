@@ -235,6 +235,8 @@ fn nothing_to_move_is_shown(
         only: std::collections::BTreeSet::default(),
         ..options.clone()
     };
+    // Only `packages` is read; `Snapshot` decides nothing that is shown (the
+    // command's own flag comes from its context's source).
     let analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
     let Some(name) = analysis
         .packages
@@ -413,6 +415,8 @@ pub fn plan_outcome(
         only: std::collections::BTreeSet::default(),
         ..options.clone()
     };
+    // Only `packages` is read; `Snapshot` decides nothing that is shown (the
+    // command's own flag comes from its context's source).
     let analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
     // An exact unit name wins outright; only if nothing matches by name do we
     // look at what each provider calls its rows.

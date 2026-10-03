@@ -10,9 +10,9 @@ use crate::mapping::map_package;
 use crate::report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 use crate::{ANALYSIS_SCHEMA_VERSION, TOOL_VERSION};
 use macportsbrew_domain::{
-    classify_ownership_for, ConcurrentProviderActivity, ExecutableOwner, Machine, Ownership,
-    PackageIdentity, PackageKind, ProviderId, ProviderPresence, ProviderSnapshot, Resolution,
-    Snapshot,
+    classify_ownership_for, ConcurrencyFlag, ConcurrentProviderActivity, ExecutableOwner, Machine,
+    Ownership, PackageIdentity, PackageKind, ProviderId, ProviderPresence, ProviderSnapshot,
+    Resolution, Snapshot,
 };
 use macportsbrew_policy::{recommend, PolicyData};
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,15 @@ pub struct Analysis {
     /// The snapshot's provenance note, when loaded from one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_provenance: Option<macportsbrew_domain::Provenance>,
+    /// Whether a provider may have been changing the machine while the input
+    /// was read, decided by [`AnalysisSource::concurrent_provider_activity`]
+    /// from `source` and never claiming a check that was not made. Written in
+    /// the one shape `plan` and `migrate` also use (`analysis.v1.md`; SE-015).
+    /// Required when deserialising: `Analysis` is not a reader of every v1
+    /// document, and a consumer of an earlier build's document — which lacks
+    /// the field — reads its absence as possibly inconsistent, as the schema
+    /// says.
+    pub concurrent_provider_activity: ConcurrencyFlag,
     /// The machine.
     pub machine: Machine,
     /// Providers.
@@ -301,6 +310,7 @@ pub fn analyze(
         source,
         snapshot_provenance: (source == AnalysisSource::Snapshot)
             .then(|| snapshot.provenance.clone()),
+        concurrent_provider_activity: ConcurrencyFlag::of(source.concurrent_provider_activity()),
         machine: snapshot.machine.clone(),
         providers,
         packages,
