@@ -35,13 +35,17 @@ Every mapping carries a confidence:
 | **Ambiguous** | Several candidates, none clearly right. |
 | **None** | No equivalent identified. |
 
-**Acting needs Strong or better.** `Ambiguous` and `None` never produce an
-automatic action; they produce "needs a human decision" *with the candidate
-list*, so you can look at what was considered. In a plan this appears as:
+**Acting needs Strong or better.** `Probable`, `Ambiguous` and `None` never
+produce an automatic action; a plan that depends on one stops at "needs a human
+decision". `macportsbrew explain <package>` lists the candidates that were
+considered, each with its confidence and the evidence for it, so you can look
+at what was weighed. In a plan the stop appears as the excerpt below. **This
+block is illustrative**: it is an excerpt, no test holds it to what the program
+prints, and the wording is written the way the program prints it.
 
 ```
-! The equivalent under macports is only a None match, and acting on one needs
-  Strong or better. Look at the candidate before deciding.
+! No equivalent under macports reaches confidence level Strong: the best is at
+  level None. Check whether macports has an equivalent before deciding.
 ```
 
 ## Evidence

@@ -85,13 +85,17 @@ reason.unknown = "Reason {id}."
 # `--json` and for `explain`, where a missing value is simply a missing key,
 # and the renderer presents them alongside the sentence rather than inside it.
 #
-# Parameters carrying a stable identifier from the domain (`{class}`,
-# `{cause}`, `{confidence}`, `{state}`, `{tier}`) are rendered through the
-# matching `class.*` / `source_build.*` / `support.*` key before substitution.
+# Parameters carrying a stable identifier from the domain are rendered through
+# the matching label before substitution: `{class}` through `class.*`,
+# `{cause}` through `source_build.*`, `{confidence}` and `{threshold}` through
+# `confidence.*`, `{tier}` through `support.*`. `{state}` is not one of them:
+# no `state.*` family exists, so a withdrawal state is printed as the emitter
+# spelled it. A label is a noun-like name, so a sentence introduces it ("at
+# level {confidence}") rather than using it as an adjective.
 
 reason.class_requires_review = "{package} is classed as {class}, and packages in that class are never migrated automatically. A person decides this one."
 reason.package_owns_persistent_data = "{package} belongs to the {family} family, which keeps data outside the package's own directory under {provider}. Moving it would leave that data behind, so it needs a data-and-service plan first."
-reason.mapping_confidence_below_threshold = "The equivalent under {destination} is only a {confidence} match, and acting on one needs {threshold} or better. Look at the candidate before deciding."
+reason.mapping_confidence_below_threshold = "No equivalent under {destination} reaches confidence level {threshold}: the best is at level {confidence}. Check whether {destination} has an equivalent before deciding."
 reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
 reason.reverse_dependencies_present = "{count, plural, one {# package} other {# packages}} under {provider} depend on this one, and removing or moving it on its own can break them."
 reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."

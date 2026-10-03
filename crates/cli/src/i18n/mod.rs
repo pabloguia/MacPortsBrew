@@ -239,15 +239,23 @@ impl Messages {
     /// *application* layer, which is a display string above the layer allowed to
     /// have one (F-20).
     ///
+    /// A family is keyed by parameter *name*, across every template: a
+    /// `{confidence}` or `{threshold}` anywhere is read as a mapping
+    /// confidence. `crates/cli/tests/reasons_catalogue.rs` holds every such
+    /// parameter to that vocabulary, so a later reason cannot reuse the name
+    /// for something else and have it rendered as a confidence label.
+    ///
     /// A value that names no key is left exactly as it is. That is deliberate
-    /// and not a fallback to be tidied away: `{state}` also carries values from
-    /// families this does not cover, and silently blanking one would be worse
-    /// than showing an identifier.
+    /// and not a fallback to be tidied away: `{state}` carries values no family
+    /// covers, and silently blanking one would be worse than showing an
+    /// identifier.
     fn resolve_identifiers(&self, params: &BTreeMap<String, String>) -> BTreeMap<String, String> {
         const FAMILIES: &[(&str, &str)] = &[
             ("tier", "support"),
             ("class", "class"),
             ("cause", "source_build"),
+            ("confidence", "confidence"),
+            ("threshold", "confidence"),
         ];
         let mut out = params.clone();
         for (name, family) in FAMILIES {

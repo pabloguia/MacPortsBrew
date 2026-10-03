@@ -635,19 +635,20 @@ pub fn plan_outcome(
         mapping.as_ref().map_or(Confidence::None, |m| m.confidence)
     };
     if !confidence.is_strong() {
-        push_block(
-            &mut risks,
-            &mut manual,
-            "mapping",
-            Reason::new("reason.mapping_confidence_below_threshold")
-                .with("destination", &request.to)
-                .with("confidence", &format!("{confidence:?}"))
-                .with("threshold", &"Strong")
-                .with(
-                    "candidates",
-                    &mapping.as_ref().map_or(0, |m| m.candidates.len()),
-                ),
-        );
+        // The same parameters, in the same identifier spelling, as the policy
+        // rule that raises this reason: `Debug` output is not a wire format.
+        let reason = macportsbrew_policy::labels::mapping_confidence_params(confidence)
+            .into_iter()
+            .fold(
+                Reason::new("reason.mapping_confidence_below_threshold")
+                    .with("destination", &request.to),
+                |reason, (name, value)| reason.with(name, &value),
+            )
+            .with(
+                "candidates",
+                &mapping.as_ref().map_or(0, |m| m.candidates.len()),
+            );
+        push_block(&mut risks, &mut manual, "mapping", reason);
     }
     if !request.retain_source && source_row.reverse_dependency_count > 0 {
         push_block(

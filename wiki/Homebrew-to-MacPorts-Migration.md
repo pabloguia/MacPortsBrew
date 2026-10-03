@@ -56,13 +56,13 @@ Plan: move curl from homebrew to macports
 
 Risks detected
   ! macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.
-  ! The equivalent under macports is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  ! No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
 
 Steps, in order
   1. Needs a human decision - macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.
        Execution would stop here for a human decision (exit code 4).
-  2. Needs a human decision - The equivalent under macports is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  2. Needs a human decision - No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
        Execution would stop here for a human decision (exit code 4).
   3. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
        Execution would stop here for a human decision (exit code 4).

@@ -153,6 +153,15 @@ to answer.
   the maximum across providers and reported it under the source's name, telling
   the user that three MacPorts ports depended on a package when none did and the
   three were Homebrew's. The count is per-provider (SE-045, DP-010).
+- **A weak mapping is no longer called "a None match".** The sentence used the
+  confidence label as an adjective, and the planner filled it from Rust's
+  `Debug` spelling (`None`, `Strong`) while the policy rule raising the same
+  reason passed identifiers (`NONE`, `STRONG`). Both now take the parameters
+  from one helper, the renderer resolves them through the `confidence.*` labels,
+  and the sentence reads "No equivalent under macports reaches confidence level
+  Strong: the best is at level None." In `plan --json` the planner's
+  `confidence` and `threshold` parameters change from `None`/`Strong` to
+  `NONE`/`STRONG`; `schemaVersion` stays 1 (SE-064).
 
 ### Documentation
 - **Four claims about Homebrew and MacPorts carried no source and no read date**,

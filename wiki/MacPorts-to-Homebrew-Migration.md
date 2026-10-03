@@ -80,12 +80,12 @@ Plan: move gnutls from macports to homebrew
 
 Risks detected
   ! homebrew is not installed on this machine; installing a provider needs explicit consent and is a separate step.
-  ! The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  ! No equivalent under homebrew reaches confidence level Strong: the best is at level None. Check whether homebrew has an equivalent before deciding.
 
 Steps, in order
   1. Needs a human decision - homebrew is not installed on this machine; installing a provider needs explicit consent and is a separate step.
        Execution would stop here for a human decision (exit code 4).
-  2. Needs a human decision - The equivalent under homebrew is only a None match, and acting on one needs Strong or better. Look at the candidate before deciding.
+  2. Needs a human decision - No equivalent under homebrew reaches confidence level Strong: the best is at level None. Check whether homebrew has an equivalent before deciding.
        Execution would stop here for a human decision (exit code 4).
 
 Possibly inconsistent: whether a package manager was changing this machine while it was read was not checked. This build has no such check, so if one was running, rerun this once it has finished.

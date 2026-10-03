@@ -668,9 +668,9 @@ non-mutating and the command exits 4:
         "id": "reason.mapping_confidence_below_threshold",
         "params": {
           "candidates": "0",
-          "confidence": "None",
+          "confidence": "NONE",
           "destination": "macports",
-          "threshold": "Strong"
+          "threshold": "STRONG"
         }
       }
     },
@@ -703,9 +703,9 @@ non-mutating and the command exits 4:
         "id": "reason.mapping_confidence_below_threshold",
         "params": {
           "candidates": "0",
-          "confidence": "None",
+          "confidence": "NONE",
           "destination": "macports",
-          "threshold": "Strong"
+          "threshold": "STRONG"
         }
       },
       "blocking": true
@@ -730,6 +730,10 @@ non-mutating and the command exits 4:
   }
 }
 ```
+
+The `confidence` and `threshold` parameters above are `Confidence`
+identifiers; what a reason parameter carries is stated once in
+[`README.md`](README.md).
 
 Note `recommendation` and `overrode` together: the engine's own answer was
 `MANUAL_REVIEW`, the user asked to migrate anyway, and the plan records both.

@@ -54,7 +54,13 @@ needs to be able to read what it agreed to.
 - **`reason` objects carry no text.** A `Reason` is
   `{ id, params?, rule? }` — a stable identifier, its named string parameters,
   and the rule that emitted it where one did. The consumer renders it, or
-  displays the identifier.
+  displays the identifier. The `confidence` and `threshold` parameters of
+  `reason.mapping_confidence_below_threshold` are `Confidence` identifiers
+  (`NONE` … `EXACT`), whichever rule or planner guard emitted the reason. Not
+  every enumeration-valued parameter is held to that yet: the planner's `class`
+  (on `reason.class_requires_review`) and `state` (on
+  `reason.destination_deprecated`) still carry other spellings than the policy
+  rules' — see SE-064 in `docs/spec-evolution.md`.
 
 ## Exit codes
 

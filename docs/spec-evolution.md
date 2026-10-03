@@ -3974,6 +3974,86 @@ finding ids in each entry.
   nothing did it. `Messages::render` does now, for `{tier}`, `{class}` and
   `{cause}`; a value naming no key passes through unchanged, because blanking one
   silently would be worse than showing an identifier.
+- **`{confidence}` and `{threshold}`, closed 2026-10-03 (06-HARDENING-BEFORE-MUTATION,
+  item 5).** The comment claimed `{confidence}` was resolved too, and nothing
+  did it; worse, `reason.mapping_confidence_below_threshold` had two emitters
+  that disagreed. The policy rule passed `labels::confidence` (`NONE`,
+  `STRONG`); the planner's own mapping guard passed `format!("{confidence:?}")`
+  and a literal `"Strong"`. So the sentence printed whatever it was given —
+  "only a None match" in every `plan` that stops on a missing mapping, a label
+  used as an adjective it cannot be — and `plan --json` carried the `Debug`
+  spelling. **`Debug` was the defect, not the casing:** it is a developer
+  convenience no compatibility promise covers, and here it had quietly become
+  a wire format, the same failure `labels.rs`'s own header warns of. Now
+  `labels::mapping_confidence_params` returns both parameters in identifier
+  form (beside `MAPPING_CONFIDENCE_THRESHOLD`, the value `Confidence::is_strong`
+  draws) and both emitters build the reason from it; it lives in `policy`
+  because that is the one crate both emitters already depend on, so no edge is
+  added. `resolve_identifiers` gains `confidence` and `threshold`, both
+  resolving through `confidence.*`. A family is keyed by parameter *name* across
+  every template, so the name is now reserved: a test holds the catalogue to one
+  template using either, and the workspace source to no literal
+  `.with("confidence"` / `.with("threshold"` outside the helper (the scan
+  strips whitespace from the whole file, so a call rustfmt wrapped across
+  lines is caught too). The sentence introduces the label as a level instead
+  of qualifying with it — "No equivalent under {destination} reaches
+  confidence level {threshold}: the best is at level {confidence}. Check
+  whether {destination} has an equivalent before deciding." A first draft
+  ("The mapping toward {destination} has confidence {confidence}") was
+  rejected in review: "has confidence None" reads like a null, it asserts a
+  mapping exists when there are no candidates, and "toward" is unlike the
+  "under {destination}" of its sibling sentences. No quotes: the catalogue has
+  no quoting convention, and the class and tier labels are already introduced
+  the same way ("is classed as {class}"). The comment's `{state}` claim was
+  simply wrong — no `state.*` family exists — and is corrected rather than
+  implemented.
+  - **Two siblings with the same defect, left for a later slice.** `{class}` on
+    `reason.class_requires_review`: `planner.rs` passes
+    `format!("{:?}", unit.class.dominant())` (`GuiApp`, `ThirdPartySourced`)
+    where `MANUAL_REVIEW_CLASS` passes `labels::class` (`GUI_APP`).
+    `resolve_identifiers` lower-cases the planner's value and looks up
+    `class.guiapp`, which does not exist, so `plan` on a cask prints "classed
+    as GuiApp", and `plan --json` carries `GuiApp` where `analyze` carries
+    `GUI_APP`; the single-word classes resolve only by coincidence. `{state}`
+    on `reason.destination_deprecated`: the planner passes `deprecated` /
+    `disabled` where the rules pass `DEPRECATED` / `DISABLED` / `REPLACED`.
+    `docs/schemas/README.md` names both as exceptions to the identifier rule
+    until they are fixed.
+  - Compatibility: a reason parameter's *value spelling* is not a field, a type
+    or an enumeration value under `docs/schemas/README.md`'s rule — `params` is
+    documented as named string rendering inputs — and the same reason id was
+    already emitted with `NONE`/`STRONG` by the rule, so a consumer handling
+    both emitters already met this spelling. Nothing is released. Recorded as a
+    fix, `schemaVersion` unchanged; `plan.v1.md`, `explain.v1.md`,
+    `analysis.v1.md` and the README now say these parameters carry `Confidence`
+    identifiers (the rule is stated once, in the README, with the two
+    exceptions above; the other schema documents link to it). The
+    `plan.v1.md` and `Homebrew-to-MacPorts-Migration.md` samples were
+    regenerated from their markers; the two unchecked wiki blocks
+    were rewritten by hand, and `Package-Mapping.md`'s is now declared an
+    illustrative excerpt, with its claim corrected: `Probable` is blocked as
+    well as `Ambiguous` and `None`, and the candidate list is what `explain`
+    prints, not the plan; `fixtures/golden/` did not change (`analyze` only
+    ever carried the rule's spelling), confirmed by
+    `scripts/run-fixture-matrix.sh` without `--update`.
+  - Tests: `a_mapping_confidence_is_named_in_the_sentence_never_used_as_an_adjective`
+    and `confidence_and_threshold_parameters_only_ever_carry_a_confidence`
+    (`crates/cli/tests/reasons_catalogue.rs`),
+    `the_planners_mapping_confidence_params_are_confidence_identifiers`
+    (`crates/application/tests/planner_refusals.rs`),
+    `the_threshold_is_the_one_is_strong_draws` and the rule's `threshold`
+    assertion (`manual_review_mapping_confidence.rs`). Each mutation was made in
+    a scratch copy, the named test run, and the copy restored and compared with
+    `diff -r` over `crates/`, `data/` and `locales/`:
+
+    | Mutation | Fails |
+    |---|---|
+    | Drop the `confidence`/`threshold` families from `resolve_identifiers` | `a_mapping_confidence_is_named_in_the_sentence_never_used_as_an_adjective` (the identifier `NONE` reaches the sentence) |
+    | Planner back to `format!("{confidence:?}")` and `"Strong"` | `the_planners_mapping_confidence_params_are_confidence_identifiers`, and `confidence_and_threshold_parameters_only_ever_carry_a_confidence` |
+    | Sentence reverted to "is only a {confidence} match" | `a_mapping_confidence_is_named_in_the_sentence_never_used_as_an_adjective` (at its "level <label>" assertion; the bare-adjective patterns are the backstop behind it) |
+    | A rustfmt-wrapped `.with(\n "confidence",\n &format!("{confidence:?}"),\n)` planted in `planner.rs` | `confidence_and_threshold_parameters_only_ever_carry_a_confidence` |
+
+    `diff -r` after restoring: identical.
 - **The literal scan had to widen too.** Six call shapes were recognised;
   `ErrorId::message_id` writes thirteen ids as bare `match` arms, and every one
   of them looked orphaned under the new direction. Any string literal shaped like

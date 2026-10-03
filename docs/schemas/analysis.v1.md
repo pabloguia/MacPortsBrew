@@ -199,7 +199,7 @@ results. `AMBIGUOUS` and `NONE` never produce an automatic action: they produce
 | Field | Type | Notes |
 |---|---|---|
 | `outcome` | tagged union, tag `kind` | See below |
-| `reasons` | array of `Reason` | Each carries the `rule` that emitted it |
+| `reasons` | array of `Reason` | Each carries the `rule` that emitted it. The `confidence` and `threshold` parameters of `reason.mapping_confidence_below_threshold` are `Confidence` identifiers; the planner's `class` and `state` parameters are known exceptions ([README](README.md), SE-064) |
 | `rulesNotFired` | array of string, optional | Rule ids considered that did not fire. Sorted |
 | `policyVersion` | string | |
 

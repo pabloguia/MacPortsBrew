@@ -832,3 +832,44 @@ fn invariant_17_an_undetected_provider_refuses_nothing_to_move_in_the_mirror_dir
         "{detail}"
     );
 }
+
+/// The planner raises `reason.mapping_confidence_below_threshold` as well as
+/// the policy rule, and its `confidence` and `threshold` parameters must be in
+/// the vocabulary the rule uses - the one the renderer resolves through the
+/// `confidence.*` labels. It used to pass `format!("{confidence:?}")`, so the
+/// same reason id arrived as `None` from one emitter and `NONE` from the other,
+/// and the sentence printed whichever it was given.
+#[test]
+fn the_planners_mapping_confidence_params_are_confidence_identifiers() {
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let vocabulary = macportsbrew_policy::labels::confidence_vocabulary();
+    let snapshot = both(&[("onlyhere", None)], &[("unrelated", None)]);
+    let plan = build_plan(
+        &snapshot,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: "onlyhere".to_string(),
+            to: ProviderId::new(MP),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .expect("a package with no counterpart still gets a plan that halts for review");
+    let reason = plan
+        .risks
+        .iter()
+        .map(|risk| &risk.reason)
+        .find(|reason| reason.id.as_str() == "reason.mapping_confidence_below_threshold")
+        .expect("no counterpart is below the mapping threshold");
+    for (name, expected) in macportsbrew_policy::labels::mapping_confidence_params(
+        macportsbrew_domain::Confidence::None,
+    ) {
+        let value = reason.params.get(name).map(String::as_str);
+        assert_eq!(value, Some(expected), "parameter {name}");
+        assert!(
+            vocabulary.contains(&expected),
+            "{expected} is a Confidence identifier"
+        );
+    }
+}

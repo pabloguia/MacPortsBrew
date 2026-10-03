@@ -198,7 +198,8 @@ Every `Reason` is `{ id, params?, rule? }` with no display text. English
 templates live in `locales/en.toml`, keyed by the same identifiers, with a
 `{placeholder}` per parameter. A consumer either renders through that catalogue
 or displays the identifier; **the identifiers themselves are never localised**,
-regardless of `--language`.
+regardless of `--language`. Which parameters carry a domain identifier, and
+the known exceptions, are stated once in [`README.md`](README.md).
 
 ## Not in this version
 
