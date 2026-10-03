@@ -1031,7 +1031,10 @@ One installed cask, complete (`visualdiffer`), for contrast:
    `HOMEBREW_NO_ENV_HINTS=1` suppresses advisory stderr noise; neither affects
    the network path. **Record for the adapter: the three variables the project
    already sets are necessary, and `HOMEBREW_NO_AUTO_UPDATE` is the one doing
-   the offline work.**
+   the offline work.** *(Narrowed 2026-10-02 by
+   [R-15](R-15-homebrew-brew-env.md): this holds for a present cache — with
+   none, a Ruby read downloads it first — and a `brew.env` can outrank or
+   delete the variable.)*
 
 3. **Metadata is answerable offline, from a signed local cache — but the cache
    is platform-filtered.** Homebrew 6.0.21 does **not** use

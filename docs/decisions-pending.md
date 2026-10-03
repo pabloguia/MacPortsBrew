@@ -11,6 +11,73 @@ are recorded.
 
 ## Open
 
+### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's
+
+Raised 2026-10-02 by the research item of pass 06
+([`research/R-15-homebrew-brew-env.md`](research/R-15-homebrew-brew-env.md)).
+`brew` reads up to three `brew.env` files — `/etc/homebrew/`, the prefix's
+`etc/homebrew/`, and the user's (`$XDG_CONFIG_HOME/homebrew/` or
+`~/.homebrew/`) — and `export`s every `HOMEBREW_*` line **after** the
+environment it was started with, so a file beats what the process executor
+sets; an empty value deletes a key (Homebrew 7.0.4 source, observed against a
+temporary `HOME`, 2026-10-02). No variable switches the files off, and the
+prefix file was user-writable on the Intel machine observed. For the reads this build
+performs, a file can make them fetch API data (already accepted as a read's
+side effect, SE-050 item 6), switch analytics back on, and — through the
+deprecated `HOMEBREW_NO_REQUIRE_TAP_TRUST` — load untrusted tap Ruby during
+`info --installed`. For a mutating pass it is sharper: `install` and
+`upgrade` run `brew update` first once a file blanks `HOMEBREW_NO_AUTO_UPDATE`.
+Nothing an executor sets can win, so the answer is detection, relocation or
+acceptance, and each costs the user something.
+
+- **(a) Point `XDG_CONFIG_HOME` at an empty directory MacPortsBrew owns.**
+  Suppresses the user file (observed). Moves Homebrew's tap trust store with
+  it, so taps the user explicitly trusted read as untrusted to this tool's
+  invocations; needs a state directory this build does not have; does nothing
+  about the prefix and system files.
+- **(b) Detect and refuse.** Read the three files read-only, in `bin/brew`'s
+  order and with its line filter, before a Homebrew invocation (capture records
+  it as a provider fact; the gate refuses to run a mutating step against it),
+  when a line blanks a quieting key or sets one of a reviewed list
+  (`HOMEBREW_FORCE_API_AUTO_UPDATE`, `HOMEBREW_CACHE`, `HOMEBREW_API_DOMAIN`,
+  `HOMEBREW_CURLRC`, `HOMEBREW_NO_REQUIRE_TAP_TRUST`, `HOMEBREW_DEVELOPER`,
+  the proxies, …). Covers all three files. Refuses users who configured those
+  keys on purpose; the list is a denylist that must be re-read at each Homebrew
+  version, with a check-then-use window.
+- **(c) Detect and report, never refuse.** As (b), surfaced by `doctor` and in
+  the plan's risks. Costs nobody a migration; protects nobody either.
+- **(d) Accept, and say so.** Document that a `brew.env` governs `brew` and
+  this tool does not override it. Its cost is a public one: a file that blanks
+  `HOMEBREW_NO_ANALYTICS` turns Homebrew's own analytics back on for this
+  tool's reads, where `06-cli-and-ux.md` ("no telemetry") and the README
+  promise none. The argument that this is the user asking Homebrew, not this
+  tool reporting, is yours to accept or reject.
+
+**Whatever is chosen, three things are owed with it.** (1) The survey above is
+of *reads* and of auto-update; the keys that steer a mutating install or build
+— `HOMEBREW_CC`, `HOMEBREW_SVN`, `HOMEBREW_BOTTLE_DOMAIN`,
+`HOMEBREW_ARTIFACT_DOMAIN`, `HOMEBREW_TEMP`, `HOMEBREW_MAKE_JOBS`, and any the
+next version adds — bear on INV-10 ("or equivalents") and are not yet
+surveyed (spec-guardian, 2026-10-02). (2) The question is not Homebrew's
+alone: `port` reads `~/.macports/macports.conf` and `user.conf` under the
+same real `HOME` (`macports.tcl` lines 1158 and 1202, MacPorts 2.12.6, cited
+by spec-guardian 2026-10-02, not yet a research note — R-16). The mechanism is
+framed as a provider capability, "provider configuration can outrank the
+invocation", so neither direction becomes a special case (INV-17). (3) The
+file locations and any key list are dated provider facts: they live in
+`data/policy/*.toml` with `source` and `read_on`, never in a Rust constant
+(INV-20).
+
+**Recommendation:** (b) for mutating steps, (c) for reads, and not (a) — (a)
+silently changes how the user's own trust decisions apply, which is the kind
+of side effect this tool exists not to have, and it still leaves two of three
+files open. **What it blocks:** the mutating half of the executor relying on
+the quieting environment; nothing in this build, which dispatches no mutation.
+**Reversible default taken:** (d) for reads — behaviour unchanged, and the
+specification now says the environment does not bind `brew` against a
+`brew.env` (SE-016) — and nothing for mutation, because the gate refuses every
+mutating step this build produces.
+
 ### DP-026 — What `migrate` answers on a machine where the other provider was not detected
 
 Raised 2026-10-01 by the independent review of the `migrate` slice (SE-092, S6

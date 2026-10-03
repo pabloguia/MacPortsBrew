@@ -296,11 +296,29 @@ stdout, stderr and duration, and supports timeout and cancellation.
 quiet and side-effect-free during analysis — no auto-update, no interactive
 prompts, no pager, stable locale for parsing. The mechanism is not the same on
 both sides and the specification does not pretend otherwise: Homebrew is quieted
-by environment (`HOMEBREW_NO_AUTO_UPDATE` is the one that does the offline work,
-alongside `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS` — R-1, R-2,
-2026-09-02), while MacPorts is quieted by argv — `-q`, which implies `-N` — plus
+by environment (`HOMEBREW_NO_AUTO_UPDATE` keeps a read from updating
+Homebrew, alongside `HOMEBREW_NO_ANALYTICS` and `HOMEBREW_NO_ENV_HINTS` — R-1,
+R-2, 2026-09-02; it does not keep a read offline on its own, as the next
+paragraph says), while MacPorts is quieted by argv — `-q`, which implies `-N` — plus
 never invoking `selfupdate` or `sync`; no `MACPORTS_*` variable serves the
 purpose (R-3, 2026-09-02). Both live in one place.
+
+**What the Homebrew half does not do, stated rather than relied on (R-15,
+2026-10-02).** `HOMEBREW_NO_AUTO_UPDATE` keeps a read off the network only
+while Homebrew's API cache is present: with no cache, every Ruby read
+(`config`, `info`, `list`) downloads it first and writes it under the user's
+cache (~30 MB at 7.0.4). **So the side-effect-free MUST above is not met on a
+machine whose Homebrew cache is cold**, and that is recorded as an open gap,
+not accepted (SE-016 item 3): what a cold cache does with no network at all is
+not yet established. And the environment is not the
+last word: `brew` reads a `brew.env` from `/etc/homebrew/`, from the prefix's
+`etc/homebrew/` and from the user's configuration directory, and exports its
+`HOMEBREW_*` lines *after* the environment it was started with — a file
+outranks every quieting variable, and an empty value deletes one. No
+variable switches the files off. So the quieting environment is what this
+tool asks for, not what `brew` is guaranteed to run with; how a mutating step
+answers that is DP-027, and until it is decided no mutating step relies on it
+(none is dispatched in this build).
 
 ## History
 

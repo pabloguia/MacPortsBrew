@@ -468,6 +468,52 @@ change is made. Silent deviation remains the one unrecoverable error.
      purpose. The MUST now says "environment *and flags*" and names both
      mechanisms, so an adapter author does not go looking for a variable that
      does not exist.
+  3. **Refined 2026-10-02 (06-HARDENING-BEFORE-MUTATION, R-15): the Homebrew
+     half is a request, not a guarantee.** "`HOMEBREW_NO_AUTO_UPDATE` does the
+     offline work" was true only of a machine whose API cache is present: with
+     none, every Ruby read downloads it before the variable is consulted
+     (`api.rb`, observed — the research run itself downloaded ~15 MB into the
+     developer's cache once, before moving to a temporary `HOME`). And `brew`
+     exports the `HOMEBREW_*` lines of up to three `brew.env` files —
+     `/etc/homebrew/`, the prefix's `etc/homebrew/`, the user's
+     configuration directory — **after** the environment it is started with,
+     so a file outranks every quieting key and an empty value deletes one; no
+     variable switches the files off, and the prefix file was user-writable on
+     the machine observed (Homebrew 7.0.4 `bin/brew` 116-181 and 300-344,
+     observed against a temporary `HOME`, 2026-10-02). **The cold-cache fetch
+     is not accepted here, and was not accepted before.** SE-050 item 6
+     accepted that an executor's *verification read naming a package* may
+     fetch catalogue data, on the premise that it changes nothing on the
+     machine; R-15's E7 refutes the premise (~30 MB written under the user's
+     cache) and shows the fetch reaches every *analysis* read on a cold cache.
+     That is a standing gap against 04's "side-effect-free during analysis"
+     and, untested, possibly against `06-cli-and-ux.md`'s "`analyze` works with
+     no network": recorded as not met, owed a fix (the offline-metadata probe
+     already knows whether the cache is there), and the no-network case is an
+     open residual of R-15. For this build's reads a `brew.env` can further
+     reach: that fetch on a warm cache; Homebrew's analytics — which a user
+     who configures it is asking *Homebrew* for, against which
+     `06-cli-and-ux.md`'s "no telemetry" MUST and the README promise are
+     about this tool's own reporting, an argument DP-027 leaves to the owner
+     because the promise is public — and, through the deprecated
+     `HOMEBREW_NO_REQUIRE_TAP_TRUST`, untrusted tap Ruby loaded by `info
+     --installed`; a browser stays unreachable (`--github` is off every read
+     list) and a formula from a path stays closed by the argument-shape clause,
+     which R-15 confirms is needed (a file can set `HOMEBREW_DEVELOPER`). For a
+     mutating step, a blanked `HOMEBREW_NO_AUTO_UPDATE` makes `install` and
+     `upgrade` update first. Since no variable can win, closing it means
+     detection, relocation of the user's configuration directory, or
+     acceptance, each spending something of the user's — DP-027, with
+     acceptance for reads as the reversible default and no mutating step
+     relying on the environment meanwhile. `04-migration-and-safety.md`
+     (Process execution) and `quiet_environment`'s documentation now say so;
+     the same sentence in `.claude/rules/adapters.md` is a guarded path, owed
+     to the owner. SE-051 part 1's premise that the recorded environment is
+     the one `brew` ran with holds only where no `brew.env` exists. One older
+     claim is put in doubt rather than corrected: pass-02 finding F-21
+     observed `HOMEBREW_NO_AUTO_UPDATE=0` turn a read into a write, and at
+     7.0.4 `0` keeps the key on (all six are "on if non-empty"); it should be
+     re-observed before it is cited again.
 - Evidence: `docs/research/R-5-privilege-requirements.md` findings 1, 5, 6 and
   14 with its per-operation table — observed for Homebrew as uid 501, with the
   MacPorts rows cited and flagged there as citation-only;
@@ -905,7 +951,11 @@ change is made. Silent deviation remains the one unrecoverable error.
      the four pinned variables, and that provider's own quieting variables),
      each present and equal to the value the adapter gives it — by name alone
      was not enough, since `HOMEBREW_NO_AUTO_UPDATE` is what makes a read-only
-     command read-only and a snapshot could set it to `"0"` — `HOME` exactly
+     command read-only and a snapshot could set it to `"0"` (that `"0"` turns a
+     read into a write is F-21's observation, which R-15 could not reproduce at
+     Homebrew 7.0.4 — the exact-value rule stands, its stated reason is to be
+     re-observed; and a `brew.env` can outrank the recorded environment,
+     SE-016 item 3) — `HOME` exactly
      `~`, and a `PATH`
      ending in the system directories with every leading entry under the prefix
      that provider was *detected* at; a provider the file calls present must
@@ -2955,8 +3005,9 @@ finding ids in each entry.
     Homebrew gets the same rule rather than trust in its own default refusal of
     a formula given as a path or URL, because that default is computed from the
     absence of `HOMEBREW_DEVELOPER` and `brew` re-exports every `HOMEBREW_*`
-    line of a `brew.env` in the user's home or in the prefix (`bin/brew` lines
-    128-180, Homebrew 7.0.4, read 2026-09-26). **The first version refused
+    line of a `brew.env` in `/etc/homebrew/`, the prefix or the user's
+    configuration directory (`bin/brew` lines 128-181, Homebrew 7.0.4, read
+    2026-09-26; locations completed by R-15, 2026-10-02). **The first version refused
     only `word:rest` for `port`, and both reviewers broke it independently**:
     an absolute path is the same read spelled without a colon, and
     security-reviewer made `port -q info --name` evaluate a probe Portfile both
@@ -3146,9 +3197,10 @@ finding ids in each entry.
     stderr reaches a record (`a_recorded_read_keeps_no_stdout` serialises a
     run whose reads carried a marker on both streams). (6) Decided, not
     fixed: a destination read that names a package may fetch catalogue data;
-    it changes nothing on the machine, so the loop accepts it and records it
-    as a known network side effect the mutating pass inherits — this build
-    cannot reach it. (7) A `DetectedPrefix` records `replay: runner.is_replay()`
+    the loop accepts it and records it as a known network side effect the
+    mutating pass inherits — this build cannot reach it. (The premise first
+    written here, that the fetch changes nothing on the machine, is false: it
+    writes Homebrew's API cache, ~30 MB, R-15 E7; SE-016 item 3.) (7) A `DetectedPrefix` records `replay: runner.is_replay()`
     at detection; `plan_read_spec` passes it to `CommandSpec::plan_read`, which
     marks the spec `replay_only`, and `SystemRunner::run` refuses a marked
     spec before the allowlist and before anything is spawned (one field and
@@ -6165,6 +6217,8 @@ finding ids in each entry.
   `brew.env` file under the user's `HOME` can override the quieting
   environment the process executor sets is unestablished, and a
   `provider-researcher` check of it is owed before a mutating pass relies on
-  that environment.
+  that environment. **(c) answered 2026-10-02** (pass 06, R-15): it can, from
+  any of three files, and nothing the executor sets wins; SE-016 item 3 has
+  the finding and DP-027 the mechanism the mutating pass owes.
 
 ---

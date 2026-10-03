@@ -129,11 +129,19 @@ pub const QUIETING_KEYS: &[&str] = &[
 
 /// The environment every invocation of this provider runs in.
 ///
-/// `HOMEBREW_NO_AUTO_UPDATE` is the load-bearing one: it is what makes a
-/// read offline and side-effect-free (R-1 finding 6). The rest suppress
-/// analytics, hints, colour and emoji so the output parses stably. Nothing
-/// is inherited — [`sanitised_environment`] builds the whole environment,
-/// drops build-affecting variables, and pins the locale (INV-10).
+/// `HOMEBREW_NO_AUTO_UPDATE` is the load-bearing one: it keeps a read from
+/// updating Homebrew (R-1 finding 2). The rest suppress analytics, hints,
+/// colour and emoji so the output parses stably. Nothing is inherited —
+/// [`sanitised_environment`] builds the whole environment, drops
+/// build-affecting variables, and pins the locale (INV-10).
+///
+/// This is what the tool asks for, not what `brew` is guaranteed to run
+/// with (R-15, Homebrew 7.0.4, read 2026-10-02): a read still downloads the
+/// API data when Homebrew's cache is missing, and a `brew.env` in
+/// `/etc/homebrew/`, the prefix or the user's configuration directory is
+/// exported after this environment, so a line there outranks or deletes any
+/// of these keys. No variable turns the files off; DP-027 holds the answer a
+/// mutating step owes.
 pub fn quiet_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
     let mut extra = BTreeMap::new();
     for key in QUIETING_KEYS {

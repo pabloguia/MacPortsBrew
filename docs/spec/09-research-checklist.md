@@ -347,6 +347,28 @@ deleting a release leaves the tag, the `SHA256SUMS` asset and the build
 provenance attestations in place — the plan's step 2 depends on the last of
 these and states it without a citation.
 
+### R-15 · Whether a `brew.env` can undo the quieting environment
+*Answered 2026-10-02 — `docs/research/R-15-homebrew-brew-env.md`.* Raised by
+SE-092's end-of-pass amendment; blocks the mutating half of the executor
+relying on that environment. Answers: yes — `brew` exports the `HOMEBREW_*`
+lines of up to three `brew.env` files after the environment it is given, an
+empty value deletes a key, and nothing switches the files off (Homebrew 7.0.4).
+Also found: `HOMEBREW_NO_AUTO_UPDATE` does not keep a read offline when the API
+cache is missing. What to do about it is DP-027. Left open: whether a
+substituted API domain or curl configuration can get altered API data
+accepted, and what a Ruby read does on a cold cache with no network at all
+(it bears on "`analyze` works with no network").
+
+### R-16 · Whether a MacPorts user configuration can outrank the invocation
+*Open. Raised 2026-10-02 by the review of R-15 (DP-027).* `port` reads
+`~/.macports/macports.conf` and `user.conf` under the real `HOME` the process
+executor passes (`macports.tcl` lines 1158 and 1202, MacPorts 2.12.6, cited
+from source by spec-guardian, not yet observed). What an answer needs: which
+keys those files may set, whether any undoes `-q`/`-N` or reaches the network
+or a Portfile this tool did not choose for the reads the adapters run, and
+for an install. DP-027's mechanism waits on it so the answer is one provider
+capability rather than a Homebrew special case (INV-17).
+
 ---
 
 ## Non-blocking research
