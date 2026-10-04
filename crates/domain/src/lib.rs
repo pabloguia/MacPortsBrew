@@ -39,7 +39,8 @@ pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use history::{
     Direction, EnvironmentChange, NotRestorable, RecordedStep, RecordedVersions, Restorability,
-    RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepResult,
+    RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepResult, StoredEnvelope,
+    StoredRunRecord, HISTORY_SCHEMA_VERSION,
 };
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,

@@ -401,8 +401,9 @@ fn token_lines(stdout: &str) -> usize {
 /// **There is no field for the output, by construction.** A removal check's
 /// stdout is the machine's complete installed inventory, a strong fingerprint
 /// (obligation 3), and a type that cannot hold it cannot disclose it. The fields
-/// are private and [`ReadEvidence::of`] is the only constructor, so `passed`
-/// cannot disagree with `cause`, nor the counts with the read they describe.
+/// are private and [`ReadEvidence::of`] is the only public constructor, so
+/// `passed` cannot disagree with `cause`, nor the counts with the read they
+/// describe; the crate-private read-back refuses a record where they disagree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadEvidence {
@@ -426,6 +427,26 @@ impl ReadEvidence {
             truncated: output.truncated,
             cause,
         }
+    }
+
+    /// Evidence as a stored record states it, read back by
+    /// `RunRecord::from_stored` and nowhere else: crate-private, so no adapter
+    /// or presentation code can make evidence (pass 08). `None` when the
+    /// record says `passed` and names a cause, or neither — a combination
+    /// [`ReadEvidence::of`] cannot produce, so the record was not written by
+    /// it.
+    pub(crate) fn from_recorded(
+        passed: bool,
+        line_count: usize,
+        truncated: bool,
+        cause: Option<FailureCause>,
+    ) -> Option<Self> {
+        (passed == cause.is_none()).then_some(Self {
+            passed,
+            line_count,
+            truncated,
+            cause,
+        })
     }
 
     /// Whether the read passed.

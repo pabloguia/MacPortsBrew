@@ -77,7 +77,7 @@ Documented once, in
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | — (interactive only; not reachable in this build) |
 | 7 | lock held by another instance | — (execution only; not reachable in this build) |
-| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID` |
+| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE` |
 
 `plan` exits **4** when the plan it produced contains a `MANUAL_REVIEW` step,
 and prints the plan anyway. That is the normal outcome for anything the policy

@@ -62,6 +62,15 @@ pub enum ErrorId {
     InputUnusable,
     /// Policy data could not be loaded or is inconsistent.
     PolicyDataInvalid,
+    /// The history store could not be read, or holds an entry it cannot trust
+    /// (`04-migration-and-safety.md`, History).
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] for the remediation: the
+    /// store is MacPortsBrew's own state, not an input the user pointed a flag
+    /// at, so the user looks at the named entry rather than taking a fresh
+    /// capture. Exit 8, the category "8 stale/unusable input": a record that
+    /// cannot be trusted is never read as "no record" (fail closed).
+    HistoryUnusable,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
     SafetyBlocked,
     /// A safety rule could not be evaluated, because the input does not carry
@@ -112,7 +121,8 @@ impl ErrorId {
             ErrorId::SnapshotUnusable
             | ErrorId::RecordingUnusable
             | ErrorId::InputUnusable
-            | ErrorId::PolicyDataInvalid => 8,
+            | ErrorId::PolicyDataInvalid
+            | ErrorId::HistoryUnusable => 8,
             ErrorId::PackageNotFound
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
@@ -134,6 +144,7 @@ impl ErrorId {
             ErrorId::RecordingUnusable => "error.recording_unusable",
             ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
+            ErrorId::HistoryUnusable => "error.history_unusable",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
             ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
@@ -157,6 +168,7 @@ impl ErrorId {
             ErrorId::RecordingUnusable,
             ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
+            ErrorId::HistoryUnusable,
             ErrorId::SafetyBlocked,
             ErrorId::SafetyUnverifiable,
             ErrorId::ProviderPresenceUnproven,
@@ -222,6 +234,9 @@ mod tests {
         assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
         // And the planner's, which names no route at all (F-43).
         assert_eq!(ErrorId::InputUnusable.exit_code(), 8);
+        // And the history store's: an untrusted record is unusable input,
+        // never "no record" (pass 08).
+        assert_eq!(ErrorId::HistoryUnusable.exit_code(), 8);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 
@@ -255,7 +270,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 17;
+    const NUMBER_OF_ERROR_IDS: usize = 18;
 
     #[test]
     fn every_id_has_a_distinct_message() {

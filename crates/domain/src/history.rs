@@ -24,13 +24,17 @@
 //!    [`RunRecord::mutation_dispatched`] is the one fact a store keys a lock or
 //!    an interrupted-run marker on.
 //!
-//! **Persistence is deferred.** Nothing in this build dispatches a mutating
-//! step, so an append-only store would be unreachable code; the type exists so
-//! the shape is fixed and tested before the mutating pass writes one
-//! (`04-migration-and-safety.md`, History, status note).
+//! **A record is read back only through [`RunRecord::from_stored`]**, which
+//! re-derives every derived field and refuses a record that disagrees with
+//! itself (INV-03): a file never supplies its own status. The store that
+//! writes and reads the file is in the adapters (`persistence::history_store`);
+//! nothing in this build dispatches a mutating step, so the shipped binary
+//! writes no record yet (pass 08, slice 1).
 
+use crate::text::is_control_class;
+use crate::{DomainError, FailureCause};
 use crate::{ErrorId, Outcome, PackageIdentity, ProviderId, ReadEvidence, StepKind, Version};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// What only the caller can supply: how the run is named and when it began.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,7 +102,7 @@ pub struct RecordedVersions {
 /// the list is always empty, by type. The mutating pass adds variants, and
 /// none may carry an environment variable's value (`04-migration-and-safety.md`,
 /// History: "Never records secrets or environment variable values").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvironmentChange {}
 
 /// What became of one step, as history keeps it.
@@ -214,7 +218,7 @@ pub enum RunEnding {
 
 /// The run's outcome as history states it: 04's success / partial / failure,
 /// and a fourth for a run that changed nothing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RunStatus {
     /// A mutating run that completed.
@@ -267,7 +271,7 @@ pub enum Restorability {
 }
 
 /// Why a run's changes cannot be (fully) put back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NotRestorable {
     /// No snapshot was taken before the first change.
@@ -395,5 +399,408 @@ impl RunRecord {
     /// Whether its changes can be put back.
     pub fn restorability(&self) -> Restorability {
         self.restorability
+    }
+}
+
+// --- Read-back --------------------------------------------------------------
+
+/// The schema version a stored record carries (`docs/schemas/history.v1.md`).
+pub const HISTORY_SCHEMA_VERSION: u32 = 1;
+
+/// Characters in a compact UTC stamp, `YYYYMMDDTHHMMSSZ`.
+const STAMP_CHARS: usize = 16;
+/// Lowercase hex characters after the stamp in a run id.
+const RUN_ID_SUFFIX_CHARS: usize = 16;
+/// The longest stamp a snapshot file name may carry; the adapters' writer
+/// emits no longer one, and a test there holds the two together.
+pub const SNAPSHOT_STAMP_MAX_CHARS: usize = 32;
+
+/// Whether `id` is a run id: `<YYYYMMDDTHHMMSSZ>-<16 lowercase hex>`. The one
+/// grammar for an id a record states and an id a user types, checked before
+/// either becomes part of a path (pass 08).
+pub fn is_run_id(id: &str) -> bool {
+    let Some((stamp, suffix)) = id.split_once('-') else {
+        return false;
+    };
+    is_compact_stamp(stamp)
+        && suffix.len() == RUN_ID_SUFFIX_CHARS
+        && suffix
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether `name` is a file name the snapshot writer can emit:
+/// `snapshot-<1..=32 ASCII alphanumerics>.json`. A record keeps only this name,
+/// so no record can point outside the snapshot directory (no separator, no
+/// `..`, nothing absolute, nothing empty).
+pub fn is_snapshot_file_name(name: &str) -> bool {
+    name.strip_prefix("snapshot-")
+        .and_then(|rest| rest.strip_suffix(".json"))
+        .is_some_and(|stamp| {
+            !stamp.is_empty()
+                && stamp.len() <= SNAPSHOT_STAMP_MAX_CHARS
+                && stamp.bytes().all(|b| b.is_ascii_alphanumeric())
+        })
+}
+
+/// `YYYYMMDDTHHMMSSZ`, digits where digits go.
+fn is_compact_stamp(stamp: &str) -> bool {
+    let b = stamp.as_bytes();
+    b.len() == STAMP_CHARS
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 => *c == b'T',
+            15 => *c == b'Z',
+            _ => c.is_ascii_digit(),
+        })
+}
+
+/// The compact stamp of an RFC 3339 UTC instant written as
+/// `YYYY-MM-DDTHH:MM:SSZ`, or `None` for anything else.
+fn compact_of(started_at: &str) -> Option<String> {
+    let b = started_at.as_bytes();
+    let shaped = b.len() == 20
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            10 => *c == b'T',
+            13 | 16 => *c == b':',
+            19 => *c == b'Z',
+            _ => c.is_ascii_digit(),
+        });
+    shaped.then(|| {
+        started_at
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect()
+    })
+}
+
+/// The envelope a record is stored in: the schema version, then the record.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredEnvelope<'a> {
+    schema_version: u32,
+    #[serde(flatten)]
+    record: &'a RunRecord,
+}
+
+impl RunRecord {
+    /// The record as it is stored, under [`HISTORY_SCHEMA_VERSION`].
+    pub fn stored(&self) -> StoredEnvelope<'_> {
+        StoredEnvelope {
+            schema_version: HISTORY_SCHEMA_VERSION,
+            record: self,
+        }
+    }
+
+    /// Reads a stored record back. **Nothing derived is taken from the file**
+    /// (INV-03): the steps' dispatch, the status, whether a mutation was
+    /// dispatched and the restorability are derived again exactly as
+    /// [`RunRecord::new`] derives them, and a record whose stored values
+    /// disagree is refused — disagreement is corruption or tampering, never
+    /// something to overwrite silently.
+    ///
+    /// Also refused: another schema version; an id outside the run-id grammar
+    /// or naming another instant than `startedAt`; a `startedAt` that is not
+    /// `YYYY-MM-DDTHH:MM:SSZ`; a Control-class character in any string (a
+    /// Format character such as a joiner is a legal part of a package name,
+    /// as in a snapshot); a snapshot path that is anything but a snapshot file
+    /// name; evidence whose result disagrees with its cause. The detail names
+    /// the field, never its value.
+    pub fn from_stored(stored: StoredRunRecord) -> Result<Self, DomainError> {
+        let unusable =
+            |what: &str| DomainError::new(ErrorId::HistoryUnusable, format!("the record {what}"));
+        if stored.schema_version != HISTORY_SCHEMA_VERSION {
+            return Err(unusable("has a schema version this build does not read"));
+        }
+        if stored.strings().any(|s| s.chars().any(is_control_class)) {
+            return Err(unusable("contains a control character"));
+        }
+        if !is_run_id(&stored.id) {
+            return Err(unusable("has an id outside the run-id grammar"));
+        }
+        let Some(compact) = compact_of(&stored.started_at) else {
+            return Err(unusable("has a start time that is not RFC 3339 UTC"));
+        };
+        if !stored.id.starts_with(&compact) {
+            return Err(unusable(
+                "has an id naming another instant than its start time",
+            ));
+        }
+        if stored
+            .snapshot_path
+            .as_deref()
+            .is_some_and(|name| !is_snapshot_file_name(name))
+        {
+            return Err(unusable(
+                "has a snapshot path that is not a snapshot file name",
+            ));
+        }
+
+        // The field is required, and a non-empty list cannot be parsed: no
+        // variant exists in this build. Matching on it says so to the reader.
+        if let Some(change) = stored.environment_changes.first() {
+            match *change {}
+        }
+
+        let mut steps = Vec::with_capacity(stored.steps.len());
+        for step in stored.steps {
+            let result = step
+                .result
+                .into_result()
+                .ok_or_else(|| unusable("has evidence whose result disagrees with its cause"))?;
+            let recorded = RecordedStep::new(
+                step.index,
+                step.kind,
+                step.provider,
+                result,
+                step.dispatched,
+            );
+            if recorded.dispatched != step.dispatched {
+                return Err(unusable("states a step's dispatch its result contradicts"));
+            }
+            steps.push(recorded);
+        }
+
+        let record = RunRecord::new(
+            RunStart {
+                id: stored.id,
+                started_at: stored.started_at,
+                tool_version: stored.tool_version,
+            },
+            RunSubject {
+                plan_schema_version: stored.plan_schema_version,
+                policy_version: stored.policy_version,
+                package: PackageIdentity::new(stored.package.provider, stored.package.name),
+                direction: Direction {
+                    source: stored.direction.source,
+                    destination: stored.direction.destination,
+                },
+                destination_package: stored.destination_package,
+                versions: RecordedVersions {
+                    source: stored.versions.source,
+                    destination: stored.versions.destination,
+                },
+                action: stored.action,
+                overrode: stored.overrode,
+                retain_source: stored.retain_source,
+                primary_after: stored.primary_after,
+            },
+            steps,
+            stored.ending.into_ending(),
+            stored.snapshot_path,
+        );
+        if record.mutation_dispatched != stored.mutation_dispatched {
+            return Err(unusable("states a mutation dispatch its steps contradict"));
+        }
+        if record.status != stored.status {
+            return Err(unusable("states a status its steps contradict"));
+        }
+        if record.restorability != stored.restorability.into_restorability() {
+            return Err(unusable("states a restorability its steps contradict"));
+        }
+        Ok(record)
+    }
+}
+
+/// A record exactly as a file states it, before [`RunRecord::from_stored`]
+/// has checked anything. Its fields are private: the only thing to do with
+/// one is hand it to `from_stored`. Every level refuses unknown fields.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StoredRunRecord {
+    schema_version: u32,
+    id: String,
+    started_at: String,
+    tool_version: String,
+    plan_schema_version: u32,
+    policy_version: String,
+    package: StoredPackage,
+    direction: StoredDirection,
+    destination_package: Option<String>,
+    versions: StoredVersions,
+    action: Outcome,
+    overrode: Option<Outcome>,
+    retain_source: bool,
+    primary_after: ProviderId,
+    environment_changes: Vec<EnvironmentChange>,
+    steps: Vec<StoredStep>,
+    ending: StoredEnding,
+    status: RunStatus,
+    mutation_dispatched: bool,
+    snapshot_path: Option<String>,
+    restorability: StoredRestorability,
+}
+
+impl StoredRunRecord {
+    /// Every string the record states, for the control-character check.
+    fn strings(&self) -> impl Iterator<Item = &str> {
+        let fixed = [
+            Some(self.id.as_str()),
+            Some(self.started_at.as_str()),
+            Some(self.tool_version.as_str()),
+            Some(self.policy_version.as_str()),
+            Some(self.package.provider.as_str()),
+            Some(self.package.name.as_str()),
+            Some(self.direction.source.as_str()),
+            Some(self.direction.destination.as_str()),
+            self.destination_package.as_deref(),
+            self.versions.source.as_ref().map(Version::as_str),
+            self.versions.destination.as_ref().map(Version::as_str),
+            outcome_provider(&self.action),
+            self.overrode.as_ref().and_then(outcome_provider),
+            Some(self.primary_after.as_str()),
+            self.snapshot_path.as_deref(),
+        ];
+        fixed.into_iter().flatten().chain(
+            self.steps
+                .iter()
+                .filter_map(|s| s.provider.as_ref().map(ProviderId::as_str)),
+        )
+    }
+}
+
+/// The provider an outcome names, when it names one.
+fn outcome_provider(outcome: &Outcome) -> Option<&str> {
+    match outcome {
+        Outcome::Keep { provider } | Outcome::MigrateTo { provider } => Some(provider.as_str()),
+        Outcome::KeepBoth { primary } => Some(primary.as_str()),
+        Outcome::UseRuntimeManager | Outcome::ManualReview | Outcome::NoAction => None,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredPackage {
+    provider: ProviderId,
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredDirection {
+    source: ProviderId,
+    destination: ProviderId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredVersions {
+    source: Option<Version>,
+    destination: Option<Version>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredStep {
+    index: u32,
+    kind: StepKind,
+    provider: Option<ProviderId>,
+    dispatched: bool,
+    result: StoredStepResult,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(
+    rename_all = "SCREAMING_SNAKE_CASE",
+    tag = "result",
+    deny_unknown_fields
+)]
+enum StoredStepResult {
+    Verified {
+        evidence: Vec<StoredEvidence>,
+    },
+    NotPerformedInThisBuild {},
+    NotDispatchedMutating {},
+    Halted {
+        error: ErrorId,
+        evidence: Vec<StoredEvidence>,
+    },
+    NotReached {},
+}
+
+impl StoredStepResult {
+    /// The result, or `None` when a piece of evidence contradicts itself.
+    fn into_result(self) -> Option<StepResult> {
+        let evidence = |list: Vec<StoredEvidence>| {
+            list.into_iter()
+                .map(StoredEvidence::into_evidence)
+                .collect::<Option<Vec<_>>>()
+        };
+        Some(match self {
+            Self::Verified { evidence: e } => StepResult::Verified {
+                evidence: evidence(e)?,
+            },
+            Self::NotPerformedInThisBuild {} => StepResult::NotPerformedInThisBuild,
+            Self::NotDispatchedMutating {} => StepResult::NotDispatchedMutating,
+            Self::Halted { error, evidence: e } => StepResult::Halted {
+                error,
+                evidence: evidence(e)?,
+            },
+            Self::NotReached {} => StepResult::NotReached,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredEvidence {
+    passed: bool,
+    line_count: usize,
+    truncated: bool,
+    #[serde(default)]
+    cause: Option<FailureCause>,
+}
+
+impl StoredEvidence {
+    fn into_evidence(self) -> Option<ReadEvidence> {
+        ReadEvidence::from_recorded(self.passed, self.line_count, self.truncated, self.cause)
+    }
+}
+
+// Unit variants are written as struct variants here because serde accepts
+// unknown keys beside the tag of an internally tagged *unit* variant even
+// under `deny_unknown_fields`; an empty struct variant refuses them.
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "kind", deny_unknown_fields)]
+enum StoredEnding {
+    Completed {},
+    PartialSuccess { step: u32, error: ErrorId },
+    Halted { step: u32, error: ErrorId },
+    Refused { refusals: usize },
+}
+
+impl StoredEnding {
+    fn into_ending(self) -> RunEnding {
+        match self {
+            Self::Completed {} => RunEnding::Completed,
+            Self::PartialSuccess { step, error } => RunEnding::PartialSuccess { step, error },
+            Self::Halted { step, error } => RunEnding::Halted { step, error },
+            Self::Refused { refusals } => RunEnding::Refused { refusals },
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(
+    rename_all = "SCREAMING_SNAKE_CASE",
+    tag = "restorable",
+    deny_unknown_fields
+)]
+enum StoredRestorability {
+    NothingToRestore {},
+    Fully {},
+    Partially { reason: NotRestorable },
+    Not { reason: NotRestorable },
+}
+
+impl StoredRestorability {
+    fn into_restorability(self) -> Restorability {
+        match self {
+            Self::NothingToRestore {} => Restorability::NothingToRestore,
+            Self::Fully {} => Restorability::Fully,
+            Self::Partially { reason } => Restorability::Partially { reason },
+            Self::Not { reason } => Restorability::Not { reason },
+        }
     }
 }
