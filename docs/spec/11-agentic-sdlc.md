@@ -122,6 +122,17 @@ Which surfaces do, as of 2026-09-18 (code.claude.com/docs/en/overview):
   silent, which is the same shape as F-12 and F-42: a path that enforced nothing
   was indistinguishable from a path that enforced everything.
 
+Two conditions inside a surface that *does* read them, from the settings page
+re-read 2026-10-03 (`../research/tooling/2026-10-03-memory-settings-plugins.md`):
+
+- **A session started outside the repository root.** Claude Code reads the
+  shared `.claude/settings.json` from the session's primary working directory,
+  so a session opened in `crates/` or `docs/` runs no hook and no deny rule —
+  and the `SessionStart` hook that could warn is one of the things not loaded.
+  Start sessions at the root.
+- **A cloud session with several repositories** reads only `enabledPlugins` and
+  `extraKnownMarketplaces` from the project file: no permission rule, no hook.
+
 This was asked and answered because a session ended with the owner moving to the
 desktop app; the answer is reassuring and the question was not obviously so, and
 an unwritten "it depends which window you are in" is exactly the kind of thing

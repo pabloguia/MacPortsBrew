@@ -6599,3 +6599,15 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - User impact: none on the product. Architectural impact: none. Compatibility impact: none.
 
 ---
+- **Extended 2026-10-04 (pass 07): where the controls are absent although the
+  harness reads them.** The 2026-10-03 tooling recheck found two documented
+  conditions under which a Claude Code session runs no hook and no deny rule: a
+  session started outside the repository root (the shared settings are read
+  from the primary working directory) and a multi-repository cloud session
+  (only two plugin keys are read from the project file). `11-agentic-sdlc.md`'s
+  "property of the harness" MUST now names both, because an absence nothing in
+  the checkout reports is the F-12 shape again. The same recheck's four
+  contract defects in the guarded controls (inert `Write(...)` deny rules, two
+  fail-open exits in `commit-gate.sh` and its timeout, `arm-guard-edit.sh`'s
+  exit 2 rejecting the owner's prompt, the CI job not skipping the commit gate)
+  are owed to the owner's escape; the pass-07 report lists them.

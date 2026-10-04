@@ -798,7 +798,7 @@ fn invariant_16_migrate_reports_nothing_to_move_where_another_provider_was_not_d
         text.contains(
             "homebrew was not detected in what was read, so this is as far as \
                        detection can see"
-        ) && text.contains("a copy of gnutls installed anywhere else would not be found"),
+        ) && text.contains("with any copy of gnutls under it, would not be found"),
         "{text}"
     );
     assert!(

@@ -266,11 +266,14 @@ downloads its package catalogue when its own cache is empty, and a `brew.env`
 file in Homebrew's configuration can switch its analytics and network fetches
 back on for those reads. `doctor` tells you when such a file sets anything —
 it names the file and the settings, never their values — and the same goes for
-a MacPorts
-`~/.macports/macports.conf`; a migration step against a provider configured
-that way is refused ([DP-027](docs/decisions-pending.md),
-[R-15](docs/research/R-15-homebrew-brew-env.md),
-[R-16](docs/research/R-16-macports-user-configuration.md)). `doctor --report` writes a redacted diagnostic file locally — never
+a MacPorts `~/.macports/macports.conf`, which can redirect where MacPorts reads
+its registry and ports from. A migration step against a provider configured
+that way is refused — this build refuses every step regardless, and this is the
+refusal that remains once migration lands ([DP-027](docs/decisions-pending.md);
+observed on Homebrew 7.0.4, 2026-10-02, [R-15](docs/research/R-15-homebrew-brew-env.md),
+and MacPorts 2.12.6, 2026-10-03, [R-16](docs/research/R-16-macports-user-configuration.md)).
+Whether that is enough to meet the no-network and no-telemetry promises is an
+open decision ([DP-028](docs/decisions-pending.md)). `doctor --report` writes a redacted diagnostic file locally — never
 usernames, home paths, environment variable values or tokens — which you read
 and choose to share; MacPortsBrew never uploads it.
 

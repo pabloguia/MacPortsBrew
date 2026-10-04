@@ -626,7 +626,7 @@ the *next* value added, which is the point of adding the tolerant reader now.
 | `reason` | `Reason` | |
 | `blocking` | boolean | A blocking risk means the plan cannot run unattended |
 
-**`provider_configuration`** (since 2026-10-03, DP-027). Raised for the plan's
+**`provider_configuration`** (since 2026-10-04; DP-027, ruled 2026-10-03). Raised for the plan's
 source and its destination — whether or not the plan ends up changing the source
 (`--retain-source`) — once per configuration file that sets a key the provider's
 own reader accepts (`reason.provider_configuration_outranks`, parameters
@@ -638,8 +638,8 @@ recording, a snapshot from before the field
 never captured. **Not blocking** — the plan is still the plan and still renders —
 but the execution gate refuses every mutating step that would change that
 provider (`PROVIDER_CONFIGURATION`, below), whatever a later build can dispatch:
-nothing an invocation sets can outrank a provider's own configuration (R-15,
-R-16), and `migrate --replay --yes` reaches the gate, so an unknown is refused
+a provider's own configuration applies settings this tool did not choose, and
+this tool does not override them (R-15, R-16), and `migrate --replay --yes` reaches the gate, so an unknown is refused
 like a finding.
 
 The gate's refusal is `{ "refusal": "PROVIDER_CONFIGURATION", "step": n,

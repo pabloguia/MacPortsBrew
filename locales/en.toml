@@ -46,7 +46,7 @@ cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` 
 # diagnostic detail the domain attached.
 
 error.usage = "That command line is not valid: {detail}. Run `macportsbrew --help` for the accepted commands and flags."
-error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew doctor` to see which providers were detected and where this tool looks for them."
+error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew doctor` to see which providers were detected."
 error.provider_unhealthy = "The provider is present but did not answer correctly: {detail}. Run `macportsbrew doctor` for a full diagnosis before relying on its answers."
 # A recording is not a snapshot: it comes from scripts/capture-fixture.sh and is
 # consumed by --replay. Same exit code 8 as a snapshot - 06-cli-and-ux.md:68 is
@@ -98,9 +98,9 @@ reason.mapping_confidence_below_threshold = "No equivalent under {destination} r
 reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
 reason.reverse_dependencies_present = "{count, plural, one {# package} other {# packages}} under {provider} depend on this one, and removing or moving it on its own can break them."
 reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."
-reason.provider_configuration_outranks = "{provider}'s own configuration ({file}) sets {keys}, which {provider} applies over the settings this tool would run it with. A step that changes {provider} is refused while it does."
-reason.provider_configuration_unreadable = "{provider}'s configuration file {file} exists but could not be read, so whether it overrides how this tool runs {provider} is unknown. A step that changes {provider} is refused while it is."
-reason.provider_configuration_unknown = "Whether {provider}'s own configuration overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes {provider} is refused while it is unknown."
+reason.provider_configuration_outranks = "The configuration of {provider} ({file}) sets {keys}, which {provider} applies over the settings this tool would run it with. A step that changes {provider} is refused while it does."
+reason.provider_configuration_unreadable = "The configuration file {file} of {provider} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A step that changes {provider} is refused while it is."
+reason.provider_configuration_unknown = "Whether the configuration of {provider} overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes {provider} is refused while it is unknown."
 reason.runtime_family_managed_elsewhere = "{family} is a language runtime, and a version manager usually handles one better than either package manager does. This is a suggestion; nothing has been changed."
 reason.source_support_ending = "{provider} has published {endDate} as the end of its support for this machine, and already reports this machine as {tier}. {destination} offers a ready-built equivalent today."
 reason.destination_offers_prebuilt = "Under {source} this would be compiled here ({cause}), while {destination} has it ready-built for this machine."
@@ -323,7 +323,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # compile error rather than an identifier shown to a person (F-20). Command
 # numbers count from 1 within their step.
 "migrate.nothing_to_move" = "Nothing to move: {package} is already under {provider}. In what was read, no other provider holds it, nor anything its mappings name as possibly the same package. Nothing was changed."
-"migrate.nothing_to_move_not_detected" = "{provider} was not detected in what was read, so this is as far as detection can see: detection looks only where a provider is documented to live, and a copy of {package} installed anywhere else would not be found."
+"migrate.nothing_to_move_not_detected" = "{provider} was not detected in what was read, so this is as far as detection can see: detection looks only where a provider is documented to live, and a {provider} installed anywhere else, with any copy of {package} under it, would not be found."
 "migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces."
 "migrate.execution_heading" = "Execution"
 "migrate.outcome.completed" = "Every step was carried out and every check passed."
@@ -404,7 +404,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "migrate.refusal.elevation_required" = "Steps that need administrator rights, which this build has no way to ask for: {steps}."
 "migrate.refusal.elevation_unknown" = "Steps where nobody has established whether administrator rights are needed, and this build has no way to ask: {steps}."
 "migrate.refusal.mutation_not_in_this_build" = "Step {step} changes the machine, and this build changes nothing."
-"migrate.refusal.provider_configuration" = "Step {step} changes {provider}, whose own configuration overrides the settings this tool would run it with (see the plan's risks)."
+"migrate.refusal.provider_configuration" = "Step {step} is refused: the plan carries a configuration risk for {provider} - the configuration of {provider} overrides, or may override, the settings this tool would run it with (see the plan's risks)."
 "migrate.refusal.plan_not_dry_run_only" = "The plan says it was written by a build that can change the machine; this build is not one."
 "migrate.site.not_a_provider_command" = "Step {step}: the command was refused before it ran, because it does not invoke a provider."
 "migrate.site.unsafe_prefix" = "Step {step}: the command was refused before it ran, because the provider's location {prefix} is not a safe path."
@@ -414,8 +414,8 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # --- doctor ---------------------------------------------------------------
 "doctor.provider_present" = "{provider} {version} is present."
 "doctor.provider_configuration_none" = "{provider}: none of the configuration files this tool reviews sets anything that would override how it runs {provider}."
-"doctor.provider_configuration_outranks" = "{provider}: {file} sets {keys}. {provider} applies that file over the settings this tool runs it with, so its reads may not behave as this tool asks - for example by going online or sending {provider}'s own usage statistics - and a migration step that changes {provider} will be refused while the file sets them."
-"doctor.provider_configuration_unreadable" = "{provider}: {file} exists but could not be read, so whether it overrides how this tool runs {provider} is unknown. A migration step that changes {provider} will be refused while it is."
+"doctor.provider_configuration_outranks" = "{provider}: {file} sets {keys}. {provider} applies that file over the settings this tool runs it with, so its reads may not behave as this tool asks - they may report from somewhere else, or fetch differently - and a migration step that changes {provider} will be refused while the file sets them."
+"doctor.provider_configuration_unreadable" = "{provider}: {file} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A migration step that changes {provider} will be refused while it is."
 "doctor.provider_configuration_unknown" = "{provider}: this input does not record {provider}'s own configuration files - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs {provider} is unknown."
 "doctor.provider_absent" = "{provider} is not installed."
 # `{reason}` is deliberately absent. Every construction of

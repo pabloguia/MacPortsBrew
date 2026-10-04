@@ -319,16 +319,17 @@ last word: `brew` reads a `brew.env` from `/etc/homebrew/`, from the prefix's
 `HOMEBREW_*` lines *after* the environment it was started with — a file
 outranks every quieting variable, and an empty value deletes one. No
 variable switches the files off. So the quieting environment is what this
-tool asks for, not what `brew` is guaranteed to run with. MacPorts has the
-same property through a user `~/.macports/macports.conf`, which overlays its
-system file key by key (R-16). **MUST** (DP-027, ruled 2026-10-03): capture
+tool asks for, not what `brew` is guaranteed to run with. MacPorts has a
+related property: a user `~/.macports/macports.conf` overlays its system file
+key by key. It cannot undo `-q`/`-N`, which are argv-only, but it can redirect
+what a read reports and steer an install (R-16). **MUST** (DP-027, ruled 2026-10-03): capture
 records, for each present provider, which of those files exist and which
 keys they set — every key the provider's own reader would accept, by name only,
 never a value; the file list and the line syntax are dated data — reads report
 it (`doctor`, a plan's risks), and the execution gate refuses every mutating
 step against a provider whose configuration sets a key, cannot be read, or was
 not recorded by the input. Detection reads before the
-provider does, so a mutating executor re-reads immediately before each step
+provider does, so a mutating executor must re-read immediately before each step
 (SE-016).
 
 ## History

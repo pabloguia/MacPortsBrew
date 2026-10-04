@@ -161,7 +161,10 @@ Nothing to move, under `--yes`:
 Executed: the gate refuses the plan, so nothing runs and there are no step
 records. Step 2 is refused because it changes the machine, though it carries no
 command (`htop` is already under MacPorts); the checks are refused because this
-build cannot evaluate them.
+build cannot evaluate them. Every mutating step is also refused as
+`PROVIDER_CONFIGURATION`: a replay cannot record either provider's own
+configuration, so each side carries an unknown `provider_configuration` risk,
+and the gate refuses every mutating step against it.
 
 <!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate htop --to macports --yes --today 2026-09-02 at=/execution exit=4 -->
 ```json

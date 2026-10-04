@@ -66,14 +66,17 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `provider_configuration_unreadable` | `WARNING` | `doctor.provider_configuration_unreadable` | `provider`, `file` |
 | `provider_configuration_unknown` | `WARNING` | `doctor.provider_configuration_unknown` | `provider` |
 
-**A provider's own configuration is reported, per present provider** (DP-027,
-since 2026-10-03). Homebrew applies its `brew.env` files and MacPorts a user
-`macports.conf` over the environment this tool runs them with, and nothing the
-tool sets can win (R-15, R-16). Which files are looked for and how a line is
+**A provider's own configuration is reported, per present provider** (since
+2026-10-04; DP-027, ruled 2026-10-03). Homebrew applies its `brew.env` files over the environment this tool runs it
+with, and nothing in that environment can win (R-15, Homebrew 7.0.4, read
+2026-10-02). MacPorts overlays a user `macports.conf` on its system file; it
+cannot undo the `-q` this tool passes, but it can redirect what a read reports
+and steer an install (R-16, MacPorts 2.12.6, read 2026-10-03). Which files are looked for and how a line is
 read is dated data, `data/policy/provider-configuration.toml`. A file setting
 any key the provider's reader accepts, or one that exists and cannot be read, or
 whose key cannot be named, is a `WARNING` naming the
-file and the key names — never a value. Nothing found is an `OK`. An input that
+file and, when it was read, the key names (a key that cannot be named is
+reported as unreadable) — never a value. Nothing found is an `OK`. An input that
 does not record the files — a replay, or a snapshot taken before they were
 recorded — is a `WARNING` that it is unknown, never the `OK` it could be mistaken
 for.

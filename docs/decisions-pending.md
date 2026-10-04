@@ -36,7 +36,7 @@ specification, and the ruling of 2026-10-03 adopted the *mechanism*
   configuration this tool did not choose, which a user may read as "controlled"
   not meaning what it says.
 - **(b) INV-10 covers what the provider reads.** Then reads must also refuse
-  (or relocate, DP-027 (a)) when a reviewed key is set, and the invariant's
+  (or relocate, DP-027 (a)) when a key is set, and the invariant's
   wording says so. Cost: refuses users who configured those keys on purpose,
   and an owner's edit to Tier 1.
 - **(c) Amend the wording** of INV-10 and the non-goals to say what this tool

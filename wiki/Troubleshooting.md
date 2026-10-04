@@ -145,6 +145,23 @@ manages them for you.
 See
 [Using Homebrew and MacPorts Together](Using-Homebrew-and-MacPorts-Together.md).
 
+## `doctor` warns about a provider's configuration
+
+Homebrew reads `brew.env` files (`/etc/homebrew/`, its prefix's
+`etc/homebrew/`, `~/.homebrew/`) and applies them over the settings this tool
+runs it with; MacPorts reads `~/.macports/macports.conf` over its system file.
+`doctor` names any such file that sets something — the file and the setting
+names, never their values — and a plan carries it as a risk.
+
+- **"sets …"**: the setting is yours to keep. Reads still run, but may behave
+  differently from what this tool asks; a migration step against that provider
+  will be refused while the file sets it. Remove or move the setting if you
+  want this tool to migrate packages of that provider.
+- **"exists but could not be read"**: check the file's permissions, or whether
+  it is a link to something that is not a regular file.
+- **"this input does not record …"**: the output came from a recording or an
+  older snapshot. Run `macportsbrew doctor` live to read the files.
+
 ## Reporting a problem
 
 Pick the matching template in

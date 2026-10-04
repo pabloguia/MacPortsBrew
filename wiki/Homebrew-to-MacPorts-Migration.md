@@ -58,7 +58,7 @@ Risks detected
   ! macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.
   ! No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
-  - Whether homebrew's own configuration overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes homebrew is refused while it is unknown.
+  - Whether the configuration of homebrew overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes homebrew is refused while it is unknown.
 
 Steps, in order
   1. Needs a human decision - macports is not installed on this machine; installing a provider needs explicit consent and is a separate step.

@@ -62,11 +62,15 @@ marking network-dependent facts `UNKNOWN` rather than guessing. Homebrew,
 which it asks to read, is another matter: it downloads its package catalogue
 when its own cache is empty, and a `brew.env` file in Homebrew's configuration
 can switch Homebrew's analytics and network fetches back on for those reads.
-`doctor` tells you when such a file sets one of the settings this tool reviews
-(it names the file and the setting, never the value), and does the same for a
-MacPorts `~/.macports/macports.conf`; a migration step against a provider
-configured that way is refused (DP-027 in the repository's
-`docs/decisions-pending.md`).
+`doctor` tells you when such a file sets anything (it names the file and the
+setting, never the value), and does the same for a MacPorts
+`~/.macports/macports.conf`, which can redirect where MacPorts reads its
+registry and ports from; a migration step against a provider configured that
+way is refused (this build refuses every step regardless; this is the refusal
+that remains once migration lands). Observed on Homebrew 7.0.4, 2026-10-02,
+and MacPorts 2.12.6, 2026-10-03. DP-027 decided this; whether it is enough to
+meet the no-network and no-telemetry promises is an open decision, DP-028 in
+the repository's `docs/decisions-pending.md`.
 
 `doctor --report` writes a **local** redacted file — no usernames, home paths,
 environment variable values or tokens — which you read and choose to share.
