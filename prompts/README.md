@@ -13,7 +13,8 @@ authority you have, what this pass must not do, and how it is accepted.
 | [03-unknown-is-never-a-yes.md](03-unknown-is-never-a-yes.md) | First instance of the template. An answer that carries no information never reaches a plan as a yes: a per-provider success semantic on every plan command (F-33), and a loaded snapshot that does not record the service question refuses to plan (F-29). Completed 2026-09-18. |
 | [04-closing-the-register.md](04-closing-the-register.md) | Closes the architecture review's findings register. Report in `../docs/passes/`. |
 | [05-the-executor.md](05-the-executor.md) | The executor's dry-run half: `migrate`, the execution gate, the read-step loop; nothing changes the machine. Completed 2026-10-01. |
-| [06-hardening-before-mutation.md](06-hardening-before-mutation.md) | Closes what pass 05 found before any mutation may land: per-subcommand long-option allowlist, `brew.env` research, one hostile-text definition, the concurrency flag on `plan` and `analyze`, the "None match" wording. |
+| [06-hardening-before-mutation.md](06-hardening-before-mutation.md) | Closes what pass 05 found before any mutation may land: per-subcommand long-option allowlist, `brew.env` research, one hostile-text definition, the concurrency flag on `plan` and `analyze`, the "None match" wording. Completed 2026-10-03. |
+| [07-owner-rulings-and-housekeeping.md](07-owner-rulings-and-housekeeping.md) | Implements the owner's rulings on DP-025, DP-026 and DP-027, answers R-16, and clears pass 06's maintenance list. Mutation stays off. |
 
 `.claude/current-pass` names the active one in a single line. The session-start
 hook reads it and announces it; keep it accurate.

@@ -29,8 +29,9 @@ permissions, hooks, skills and github-actions pages re-read **2026-09-05**
 during the security review that produced SE-072), every group re-read
 **2026-09-27** (`docs/research/tooling/2026-09-27-*.md`), and the memory and
 settings group and the subagents and skills group re-read **2026-10-02**
-(`docs/research/tooling/2026-10-02-*.md`; the hooks, permissions and CI group
-was not re-read that day, and its date stays 2026-09-27). The
+(`docs/research/tooling/2026-10-02-*.md`), and all three groups re-read
+**2026-10-03** at the start of pass 07 (`docs/research/tooling/2026-10-03-*.md`;
+what they found and what was left is in that pass's report). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

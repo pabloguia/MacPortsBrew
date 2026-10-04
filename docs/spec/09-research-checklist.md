@@ -360,14 +360,21 @@ accepted, and what a Ruby read does on a cold cache with no network at all
 (it bears on "`analyze` works with no network").
 
 ### R-16 · Whether a MacPorts user configuration can outrank the invocation
-*Open. Raised 2026-10-02 by the review of R-15 (DP-027).* `port` reads
-`~/.macports/macports.conf` and `user.conf` under the real `HOME` the process
-executor passes (`macports.tcl` lines 1158 and 1202, MacPorts 2.12.6, cited
-from source by spec-guardian, not yet observed). What an answer needs: which
-keys those files may set, whether any undoes `-q`/`-N` or reaches the network
-or a Portfile this tool did not choose for the reads the adapters run, and
-for an install. DP-027's mechanism waits on it so the answer is one provider
-capability rather than a Homebrew special case (INV-17).
+*Answered 2026-10-03 — `docs/research/R-16-macports-user-configuration.md`.*
+Raised 2026-10-02 by the review of R-15 (DP-027). Answers: yes, per key —
+`mportinit` overlays the system `macports.conf`, then
+`~/.macports/macports.conf` (read under the `HOME` the executor passes, only
+if `~/.macports` is a directory), then `$PORTSRC`, last one wins; `user.conf`
+is opened but accepts no key, because `user_options` is empty (MacPorts
+2.12.6). No file can undo `-q`/`-N`, which are argv-only. A user file can
+redirect what a read reports (`portdbpath`, `sources_conf`, `prefix`) and
+steers nearly every part of an install (`binpath`, `pubkeys_conf`,
+`sources_conf`, `buildfromsource`, …). No read was found to reach the network or
+evaluate a Portfile. Pointing `HOME` at an empty directory suppresses the
+user file at almost no cost, because `port` replaces `HOME` itself. The
+system files are root-owned. What to do about it is DP-027. Left open: which
+user's file an elevated `port` reads (depends on the sudo policy), and the
+network finding was established from source, not from a traced run.
 
 ---
 

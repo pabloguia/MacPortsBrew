@@ -7,8 +7,8 @@ says what each piece is and how an operator sets up and runs a session. If the
 two disagree, the specification wins and this file is the bug.
 
 **Tooling facts here were verified against Anthropic's Claude Code
-documentation on 2026-09-02, and re-verified at the start of the Foundation
-Pass the same day** — the pages `/tooling-recheck` names; the notes
+documentation on 2026-09-02, re-verified at the start of the Foundation Pass
+the same day, and most recently on 2026-10-03, every group** — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 
@@ -48,7 +48,7 @@ are and are not, and why the honest statement matters here.
 ## Prerequisites
 
 - **Claude Code** — 2.1.278 is what this configuration was last verified with,
-  on 2026-09-27 (`claude --version`; 2.1.258 on 2026-09-02).
+  on 2026-10-03 (`claude --version`; 2.1.258 on 2026-09-02).
 - **`jq` or `python3`.** The guard hooks parse their JSON input with one of
   them and *fail closed* when neither is present, so without one every Bash
   tool call is denied. `python3` from the Command Line Tools is enough.
