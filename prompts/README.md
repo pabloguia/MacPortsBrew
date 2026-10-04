@@ -15,6 +15,7 @@ authority you have, what this pass must not do, and how it is accepted.
 | [05-the-executor.md](05-the-executor.md) | The executor's dry-run half: `migrate`, the execution gate, the read-step loop; nothing changes the machine. Completed 2026-10-01. |
 | [06-hardening-before-mutation.md](06-hardening-before-mutation.md) | Closes what pass 05 found before any mutation may land: per-subcommand long-option allowlist, `brew.env` research, one hostile-text definition, the concurrency flag on `plan` and `analyze`, the "None match" wording. Completed 2026-10-03. |
 | [07-owner-rulings-and-housekeeping.md](07-owner-rulings-and-housekeeping.md) | Implements the owner's rulings on DP-025, DP-026 and DP-027, answers R-16, and clears pass 06's maintenance list. Mutation stays off. Completed 2026-10-04. |
+| [08-the-mutating-executor.md](08-the-mutating-executor.md) | What a mutating step needs before one may be dispatched: history store, lock and detector, configuration re-read, the positional pin, a mirror recording, elevation consent, and a proposal to the owner. Dispatch stays off. |
 
 `.claude/current-pass` names the active one in a single line. The session-start
 hook reads it and announces it; keep it accurate.

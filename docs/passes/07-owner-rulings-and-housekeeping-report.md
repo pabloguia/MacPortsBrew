@@ -208,3 +208,25 @@ the commit gate's `cargo test` with `ANTHROPIC_API_KEY` in its environment
    positional half of the spawn-site pin. *Focused implementation, its own
    reviewed pass.* DP-026 and DP-027 no longer block it.
 5. **R-15 residuals and R-16's elevated-home question.** *Research.*
+
+## Addendum, 2026-10-04 — the owner's armed message
+
+The owner armed `MPB_ALLOW_GUARD_EDIT=1` and asked for every recommendation.
+`.claude/.guard-edit-log` records five permitted writes in that message:
+`.github/workflows/claude.yml` (D4, committed as `a773e10`), and
+`commit-gate.sh` and `test-hooks.sh` (D2/D2b and their tests). Running the hook
+tests mid-message disarmed the escape (SE-093, extended 2026-10-04), which left
+the commit-gate change half-applied and *weaker* than before, so both files
+were restored to their committed versions with `git restore`. D1, D2, D2b, D3,
+`migrate` in the fixture matrix and the commit-gate test cases remain owed;
+SE-093 records the corrected design and the rule (guarded writes first, hook
+tests last).
+
+Also in that message: `doctor` says "not detected" rather than "not
+installed"; the MacPorts-to-Homebrew guide describes the configuration risk;
+the stray `.agents/skills/tooling-recheck/` reappeared at 15:08 the same day,
+outside any session of this pass, and was moved aside again — whatever creates
+it (a Codex session is the likely source) needs either the generator to emit it
+or a stop; and the next work order, `prompts/08-the-mutating-executor.md`, is
+written and active.
+
