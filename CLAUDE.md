@@ -50,9 +50,12 @@ a human and an agent follow identical steps: `/add-mapping`,
 consistently, and you invoke them yourself — a pass runs autonomously.
 
 **Path-scoped rules.** `.claude/rules/*.md` carry `paths:` frontmatter and load
-the relevant specification chapter when you touch `crates/adapters/**`,
-`crates/policy/**`, `crates/domain/**`, `data/policy/**` or `locales/**`. Do not
-restate their content in this file; extend the rule.
+the relevant specification chapter when the Read, Edit or Write tool opens a file
+under `crates/adapters/**`, `crates/policy/**`, `crates/domain/**`,
+`data/policy/**`, `locales/**` or the executor (`crates/cli/src/executor/**`,
+`crates/application/src/executor*`, `execution_gate.rs`, `verification.rs`) —
+a shell or MCP reader loads nothing, so open a file with Read before changing
+it. Do not restate their content in this file; extend the rule.
 
 **Verify before you claim.** `/preflight` runs the definition-of-done checks.
 The `Stop` hook runs the mechanical part of it whether you ask or not, and will

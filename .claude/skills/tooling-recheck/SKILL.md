@@ -19,7 +19,10 @@ configuration written the same day — do not skip it because the configuration
 
 ## 1. Delegate, in parallel
 
-One read-only subagent per group, all launched in one message. Each fetches
+One subagent per group, all launched in one message, each told to return its
+note as text and write nothing — the Agent call does not enforce that unless the
+subagent type's `tools` list excludes `Write`, `Edit` and `NotebookEdit`, so the
+runner checks `git status` afterwards. Each fetches
 the current page at `https://code.claude.com/docs/en/<page>` (trying the
 `.md` variant or locating the moved page when a URL fails, and saying so),
 reads the repository files named, and reports drift with the page URL and

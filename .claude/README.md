@@ -21,7 +21,7 @@ that skill re-verifies them at the start of every pass.
 | `current-pass` | The pass id the session-start hook announces. One line. |
 | `hooks/` | Mechanical enforcement. See below. |
 | `agents/` | Subagents: `provider-researcher` plus the three read-only reviewers `spec-guardian`, `security-reviewer`, `docs-auditor`. |
-| `skills/` | Repeatable procedures, invoked as `/name`: `tooling-recheck`, `spec-evolution`, `adr`, `research-note`, `decision-pending`, `preflight`, `pass-report`. |
+| `skills/` | Repeatable procedures, invoked as `/name`: `tooling-recheck`, `spec-evolution`, `adr`, `research-note`, `decision-pending`, `preflight`, `pass-report`, and the contributor recipes `add-mapping`, `add-policy-rule`, `add-locale`, `add-doctor-check`, `capture-fixture`, `add-provider`. |
 
 At the repository root, `CLAUDE.md` is the thin Claude Code layer that imports
 `@AGENTS.md`; `CLAUDE.local.md`, if you create one for personal notes, is

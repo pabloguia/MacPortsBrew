@@ -10,8 +10,9 @@
 //! exercised by tests against recordings and synthesised reads only — it is
 //! unreachable from the binary.
 //!
-//! **Rules for this module.** They belong in a path-scoped rule file under
-//! `.claude/rules/`, which is the owner's to add; until then they live here.
+//! **Rules for this module.** `.claude/rules/executor.md` loads them with the
+//! specification chapters they come from; they are kept here as well because
+//! this is where a reader of the code meets them.
 //!
 //! 1. **The gate first, structurally.** [`run`] takes the registry context,
 //!    not read sites: it consults `execution_refusals` and builds the sites
