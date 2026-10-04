@@ -77,10 +77,10 @@ the binary says so in its own `--help`:
   does `migrate`; `migrate --yes` puts the plan to an execution gate that
   refuses every plan this build produces, so it exits 4 for every plan it
   builds and runs nothing. A package already where you asked exits 0 as
-  *nothing to move* — when every other provider was detected and read; on a
-  machine where one was not, it refuses with `PROVIDER_PRESENCE_UNPROVEN`,
-  exit 4, because a provider installed where detection does not look would
-  read the same (an open decision, DP-026). The planner's own refusals keep
+  *nothing to move*; on a machine where the other provider was not detected
+  it says so, because a provider installed where detection does not look
+  would read the same, and `--json` names it in `notDetected` (DP-026). The
+  planner's own refusals keep
   their codes. No
   code path in the binary runs a mutating provider subcommand. A gate script
   greps for one on every change.

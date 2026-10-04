@@ -74,7 +74,7 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | — (interactive only; not reachable in this build) |
 | 7 | lock held by another instance | — (execution only; not reachable in this build) |
@@ -89,7 +89,6 @@ without `--dry-run`) it exits with the run's outcome — **4** when the executio
 gate refuses, which in this build it does for every plan — and prints the
 document either way. Whenever a plan was built, stdout carries it, so an exit 4
 with a document is a refusal or a manual review, and an exit 4 with empty stdout
-is the planner's own refusal (`SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE` or
-`PROVIDER_PRESENCE_UNPROVEN`, on
+is the planner's own refusal (`SAFETY_BLOCKED` or `SAFETY_UNVERIFIABLE`, on
 stderr). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
 to move* exits **0** (INV-16).

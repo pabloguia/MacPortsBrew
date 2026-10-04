@@ -11,7 +11,66 @@ are recorded.
 
 ## Open
 
-### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's
+### DP-028 — Whether INV-10 and the charter's non-goals cover what a provider reads from its own configuration
+
+Raised 2026-10-03 by `spec-guardian`'s review of how the agent recorded
+DP-027's ruling. DP-027 put two questions to the owner that sit above the
+specification, and the ruling of 2026-10-03 adopted the *mechanism*
+((b) for mutation, (c) for reads) without answering them:
+
+1. **INV-10 (Tier 1)** says provider invocations run "in a controlled
+   environment, or equivalents". R-15 shows the environment `brew` runs with
+   is this tool's, overridden by up to three `brew.env` files; R-16 shows the
+   same for `port` through a user `macports.conf`. Is INV-10 met by what this
+   tool sets — so the ruling's detection is extra care — or must it also cover
+   what the provider reads, so that a read under (c) still falls short of it?
+2. **The charter's non-goals (Tier 2)** say MacPortsBrew does not "require …
+   network access" and does not "send telemetry". This tool sends nothing, but
+   a Homebrew read it runs fetches the catalogue on an empty cache, and reports
+   Homebrew's own analytics when a `brew.env` switches them back on. Are those
+   consistent with the two sentences?
+
+- **(a) INV-10 is met by what this tool sets; the non-goals are about this
+  tool's own behaviour.** Detection and disclosure (DP-027 (c)) is the honest
+  addition; no Tier 1 or Tier 2 text changes. Cost: a read can run under a
+  configuration this tool did not choose, which a user may read as "controlled"
+  not meaning what it says.
+- **(b) INV-10 covers what the provider reads.** Then reads must also refuse
+  (or relocate, DP-027 (a)) when a reviewed key is set, and the invariant's
+  wording says so. Cost: refuses users who configured those keys on purpose,
+  and an owner's edit to Tier 1.
+- **(c) Amend the wording** of INV-10 and the non-goals to say what this tool
+  sets and what it discloses, so neither reads as a promise about the
+  provider's own configuration. Cost: an owner's edit to Tiers 1 and 2.
+
+**Recommendation:** (c) — say precisely what holds, rather than leave a reader
+to infer (a) from silence. **What it blocks:** nothing in this build; the
+mutating pass already refuses under DP-027 (b). **Reversible default taken:**
+(a), with the reading stated here rather than written into either tier.
+
+---
+
+---
+
+## Resolved
+
+### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's — **RESOLVED 2026-10-03: (b) for mutating steps, (c) for reads**
+
+- **Ruled 2026-10-03 by the owner**, adopting the recommendation below:
+  **(b) detect and refuse** before a mutating step, **(c) detect and report**
+  on reads, and **not (a)**. To be implemented in pass 07
+  (`../prompts/07-owner-rulings-and-housekeeping.md`, order of work item 6);
+  until that slice lands, the reversible default below — (d) for reads —
+  stays in force, and SE-016 records the ruling with the slice.
+- **The two questions above the specification are not settled by this
+  ruling.** They are DP-028, open, with the agent's recommendation.
+- **Obligations carried:** the survey of keys that steer a mutating install
+  (owed by the mutating pass); R-16 for MacPorts, answered 2026-10-03
+  (`research/R-16-macports-user-configuration.md` — the user `macports.conf`
+  overlays the system file key by key; `user.conf` is opened but accepts no
+  key in 2.12.6); key lists and file locations as dated data (INV-20).
+
+**As raised:**
 
 Raised 2026-10-02 by the research item of pass 06
 ([`research/R-15-homebrew-brew-env.md`](research/R-15-homebrew-brew-env.md)).
@@ -92,7 +151,16 @@ specification now says the environment does not bind `brew` against a
 `brew.env` (SE-016) — and nothing for mutation, because the gate refuses every
 mutating step this build produces.
 
-### DP-026 — What `migrate` answers on a machine where the other provider was not detected
+### DP-026 — What `migrate` answers on a machine where the other provider was not detected — **RESOLVED 2026-10-03: (b), exit 0 with a qualified answer**
+
+- **Ruled 2026-10-03 by the owner**, adopting the recommendation below:
+  **(b)**. `migrate` answers *nothing to move*, exit 0, on a package already at
+  its destination when the other provider was not detected, and `migrate.v1`'s
+  `nothingToMove` carries the qualification so a script can tell the two cases
+  apart. Implemented in pass 07; recorded in SE-092. This also settles the
+  INV-16 re-run question the paragraph below raised for the mutating pass.
+
+**As raised:**
 
 Raised 2026-10-01 by the independent review of the `migrate` slice (SE-092, S6
 addendum). INV-16 says migrating a package already at its destination changes
@@ -127,7 +195,14 @@ say "blocked" instead. So the mutating pass must either settle this decision
 the history store's record confirmed against a fresh capture (SE-092, S8 "Owed
 by the mutating pass"), before it ships.
 
-### DP-025 — The charter's example of a surface that differs from the identity is now stale
+### DP-025 — The charter's example of a surface that differs from the identity is now stale — **RESOLVED 2026-10-03: (a), reword the example**
+
+- **Ruled 2026-10-03 by the owner**, adopting the recommendation below:
+  **(a)**. `00-charter.md`'s example now reads "while a build plans migrations
+  and executes none of them". Edited in pass 07 as the owner's explicit Tier 2
+  decision; recorded in SE-092.
+
+**As raised:**
 
 Raised 2026-10-01 by `spec-guardian`'s review of the `migrate` slice (SE-092,
 S6 addendum). `00-charter.md` gives, as the example of a release surface
@@ -148,9 +223,6 @@ charter is Tier 2, which an agent does not reword.
 untouched, and `README.md`, the wiki and `plan.v1.md` were rewritten to state
 what this build does.
 
----
-
-## Resolved
 
 ### DP-024 — Where the executor lives, given that a new crate means editing two guarded scripts — **RESOLVED 2026-09-27: a module of the command-line crate**
 

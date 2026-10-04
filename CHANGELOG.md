@@ -36,11 +36,12 @@ to answer.
   It shows the plan `plan` would, and with `--yes` (without `--dry-run`) puts it
   to the execution gate, which refuses every plan this build produces: exit 4
   for every plan it builds, the refusals in the output, nothing run. A package
-  already at its destination is reported as *nothing to move*, exit 0 — only
-  when every other provider was detected and read and nothing its mappings name
-  may be the package under another name; otherwise exit 4
-  (`PROVIDER_PRESENCE_UNPROVEN` or `SAFETY_BLOCKED`). The planner's own
-  refusals keep their codes.
+  already at its destination is reported as *nothing to move*, exit 0, unless
+  something its mappings name may be the package under another name
+  (`SAFETY_BLOCKED`, exit 4). Where another provider was not detected, the
+  answer says so and `nothingToMove.notDetected` names it, because a provider
+  installed where detection does not look would read the same (DP-026). The
+  planner's own refusals keep their codes.
   `--yes` with `--from-snapshot` is a usage error. New `--json` schema:
   [`migrate.v1.md`](docs/schemas/migrate.v1.md).
   Every `migrate` output that shows a plan or *nothing to move* ends by saying

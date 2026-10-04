@@ -134,6 +134,11 @@ pub enum MigrationStart {
         package: String,
         /// The destination, the only holder.
         provider: ProviderId,
+        /// The other providers that were not detected, in identifier order.
+        /// Empty when every other provider was detected and read; otherwise
+        /// the answer is only as strong as detection, which looks where a
+        /// provider is documented to live (DP-026).
+        not_detected: Vec<ProviderId>,
     },
 }
 
@@ -143,18 +148,23 @@ pub enum MigrationStart {
 /// `plan_outcome`'s answer, because `migrate` is the command that reports it
 /// as done (INV-16) and exits 0.
 ///
-/// Two more refusals, both exit 4, both naming what stands in the way:
+/// **Another provider was not detected.** `plan_outcome` takes
+/// `ProviderPresence::Absent` as proof that provider holds nothing, which is
+/// only as reliable as prefix detection: a provider installed where no
+/// documented candidate points reads as absent and could still hold the
+/// package. *Nothing to move* is still the answer — it changes nothing, which
+/// is what INV-16 asks, and a re-run after a completed migration whose source
+/// provider was then uninstalled must say so rather than "blocked" — but it
+/// names every provider that was not detected in `not_detected`, so the
+/// claim's strength travels with it (DP-026, ruled (b) on 2026-10-03). Any
+/// other state of another provider — broken, missing from the input, or with
+/// an inventory nobody read — never reaches here: `plan_outcome` has refused
+/// it first (`PROVIDER_UNHEALTHY`, `SAFETY_UNVERIFIABLE`).
+/// [`ErrorId::ProviderPresenceUnproven`] is therefore no longer raised; the
+/// identifier is kept because exit codes are a documented contract.
 ///
-/// - **Another provider was not detected**
-///   ([`ErrorId::ProviderPresenceUnproven`]).
-///   `plan_outcome` takes `ProviderPresence::Absent` as proof that provider
-///   holds nothing, which is only as reliable as prefix detection: a provider
-///   installed where no documented candidate points reads as absent and could
-///   still hold the package. Every other provider — every one in `known` and
-///   every one the input carries — must be present with a readable
-///   inventory. So *nothing to move* is never answered on a machine where
-///   another provider was not detected; the answer there is this refusal,
-///   which changes nothing either (SE-092, S6 addendum).
+/// One more refusal, exit 4, naming what stands in the way:
+///
 /// - **Another unit may be the same package under another name**
 ///   ([`ErrorId::SafetyBlocked`]: a finding the user can read and act on). The
 ///   analysis merges a package's rows across providers only through a
@@ -184,14 +194,19 @@ pub fn migration_start(
             crate::executor::PlannedRun::new(*plan, snapshot.clone()),
         ))),
         PlanOutcome::AlreadyAtDestination { package, provider } => {
-            nothing_to_move_is_shown(snapshot, policy, options, known, &package, &provider)?;
-            Ok(MigrationStart::NothingToMove { package, provider })
+            let not_detected =
+                nothing_to_move_is_shown(snapshot, policy, options, known, &package, &provider)?;
+            Ok(MigrationStart::NothingToMove {
+                package,
+                provider,
+                not_detected,
+            })
         }
     }
 }
 
-/// The two refusals [`migration_start`] adds to `plan_outcome`'s
-/// "already at the destination".
+/// The refusals [`migration_start`] adds to `plan_outcome`'s "already at the
+/// destination", and the providers the answer could not see.
 fn nothing_to_move_is_shown(
     snapshot: &Snapshot,
     policy: &PolicyData,
@@ -199,7 +214,7 @@ fn nothing_to_move_is_shown(
     known: &[ProviderId],
     package: &str,
     to: &ProviderId,
-) -> Result<(), DomainError> {
+) -> Result<Vec<ProviderId>, DomainError> {
     let not_shown = |id: ErrorId, detail: String| {
         DomainError::new(
             id,
@@ -211,23 +226,22 @@ fn nothing_to_move_is_shown(
         .chain(snapshot.providers.keys())
         .filter(|id| *id != to)
         .collect();
+    let mut not_detected = Vec::new();
     for id in others {
         // `plan_outcome` has already refused a missing entry, a broken
-        // provider and an unreadable inventory; what is left to refuse here
-        // is an absence, which detection could have missed. Anything but a
-        // present provider fails closed, the cases `plan_outcome` refused
-        // first included.
-        if !matches!(
-            snapshot.providers.get(id).map(|p| &p.detection.presence),
-            Some(ProviderPresence::Present)
-        ) {
-            return Err(not_shown(
-                ErrorId::ProviderPresenceUnproven,
-                format!(
-                    "{id} was not detected, and a provider installed where detection does not \
-                     look would read the same, so whether it holds {package} cannot be shown"
-                ),
-            ));
+        // provider and an unreadable inventory; what is left is an absence,
+        // which detection could have missed and which the answer names
+        // rather than refuses (DP-026). The last arm is unreachable for that
+        // reason, and fails closed as the defect it would be.
+        match snapshot.providers.get(id).map(|p| &p.detection.presence) {
+            Some(ProviderPresence::Present) => {}
+            Some(ProviderPresence::Absent) => not_detected.push(id.clone()),
+            _ => {
+                return Err(not_shown(
+                    ErrorId::Internal,
+                    format!("{id} reached the nothing-to-move check unread"),
+                ));
+            }
         }
     }
     let opts = AnalysisOptions {
@@ -279,7 +293,7 @@ fn nothing_to_move_is_shown(
             ));
         }
     }
-    Ok(())
+    Ok(not_detected)
 }
 
 /// The refusal `plan` gives for a package nothing needs to move.

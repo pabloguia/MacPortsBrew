@@ -75,12 +75,12 @@ exits **2** before any output: a snapshot file records nothing an execution
 could check.
 
 When the package is already where you asked for it and no other provider holds
-it, `migrate` says there is nothing to move and exits **0** — but only when
-every other provider was detected and its inventory read. On a machine where
-the other provider was not detected it refuses instead
-(`PROVIDER_PRESENCE_UNPROVEN`, exit **4**), because a provider installed
-somewhere detection does not look would read the same (an open decision,
-DP-026, in [`../docs/decisions-pending.md`](../docs/decisions-pending.md)).
+it, `migrate` says there is nothing to move and exits **0**. On a machine where
+the other provider was not detected, it says so in the same answer: a provider
+installed somewhere detection does not look would read the same, so the answer
+is as far as detection can see, and `--json` lists the provider in
+`notDetected` (DP-026, in
+[`../docs/decisions-pending.md`](../docs/decisions-pending.md)).
 The `--json` contract is
 [`../docs/schemas/migrate.v1.md`](../docs/schemas/migrate.v1.md).
 

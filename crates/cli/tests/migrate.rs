@@ -383,6 +383,7 @@ fn invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_a
     assert_eq!(doc["mode"], "EXECUTE");
     assert_eq!(doc["nothingToMove"]["package"], "nginx");
     assert_eq!(doc["nothingToMove"]["provider"], MP);
+    assert_eq!(doc["nothingToMove"]["notDetected"], serde_json::json!([]));
     assert!(
         doc.get("plan").is_none() && doc.get("execution").is_none(),
         "{doc}"
@@ -781,31 +782,37 @@ fn migrate_does_not_report_nothing_to_move_on_an_inventory_nobody_read() {
 }
 
 #[test]
-fn migrate_does_not_report_nothing_to_move_where_another_provider_was_not_detected() {
-    // MacPorts alone was detected. `gnutls` is held by it alone, which is
-    // "already there" to the planner; whether a Homebrew installed where
-    // detection does not look holds it cannot be shown, so migrate refuses
-    // rather than report it done.
+fn invariant_16_migrate_reports_nothing_to_move_where_another_provider_was_not_detected() {
+    // MacPorts alone was detected. `gnutls` is held by it alone: nothing to
+    // move, exit 0 (INV-16) - qualified, because a Homebrew installed where
+    // detection does not look would read the same (DP-026 (b)).
     let scratch = Scratch::new("undetected");
     let out = migrate(&scratch, &fixture(MACPORTS_ONLY), &[], "gnutls", MP);
-    let text = stderr(&out);
-    assert_eq!(out.status.code(), Some(4), "{text}");
-    assert!(out.stdout.is_empty(), "{}", stdout(&out));
-    assert!(text.contains("homebrew was not detected"), "{text}");
-    // Its own remediation: the fact is about this machine, which the user may
-    // be able to settle, not one absent from a document.
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let text = stdout(&out);
     assert!(
-        text.contains("Detection looks only where a provider is documented to live")
-            && text.contains("is not reported as already done"),
+        text.starts_with("Nothing to move: gnutls is already under macports."),
         "{text}"
     );
     assert!(
-        !text.contains("not something to fix on your machine"),
+        text.contains(
+            "homebrew was not detected in what was read, so this is as far as \
+                       detection can see"
+        ) && text.contains("a copy of gnutls installed anywhere else would not be found"),
         "{text}"
     );
     assert!(
-        !text.contains("error."),
+        !text.contains("migrate."),
         "an identifier reached the user: {text}"
+    );
+    assert!(stderr(&out).is_empty(), "{}", stderr(&out));
+    let json = migrate(&scratch, &fixture(MACPORTS_ONLY), &["--json"], "gnutls", MP);
+    assert_eq!(json.status.code(), Some(0), "{}", stderr(&json));
+    let doc = document(&json);
+    assert_eq!(doc["nothingToMove"]["package"], "gnutls");
+    assert_eq!(
+        doc["nothingToMove"]["notDetected"],
+        serde_json::json!(["homebrew"])
     );
 }
 

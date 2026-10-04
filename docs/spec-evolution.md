@@ -6116,21 +6116,30 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   "the fact is absent from the document itself", which is false on a live
   one-provider machine (`06-cli-and-ux.md`'s error-taxonomy MUST).
 
-  **"Nothing to move" is never answered on a machine where another provider was
-  not detected — decided here, and why.** `migration_start` is `plan_outcome`
-  made stricter, because `migrate` is the command that reports the answer as
-  done and exits 0 (INV-16), where `plan` refuses it as `USAGE`. Two refusals
-  close the two items the S3 addendum left open for this slice. (1) Every other
+  **"Nothing to move" names every provider that was not detected — DP-026,
+  ruled 2026-10-03.** `migration_start` is `plan_outcome` made stricter,
+  because `migrate` is the command that reports the answer as done and exits 0
+  (INV-16), where `plan` refuses it as `USAGE`. Two rules close the two items
+  the S3 addendum left open for this slice. (1) Every other
   provider — every one in `known` and every one the input carries — must be
-  `PRESENT` with a readable inventory; an `ABSENT` one refuses with
-  `PROVIDER_PRESENCE_UNPROVEN`, exit 4. `ABSENT` is the result of probing the
-  documented prefixes, so a provider installed anywhere else reads exactly the
-  same and may hold the package; "already moved, nothing to do" there would be
-  a claim nothing established. The cost is that on a one-provider machine
-  `migrate` of a package its only provider holds refuses instead of saying
-  "nothing to move" — the refusal changes nothing either, which is what INV-16
-  protects. Which of the two answers that case should get is the owner's
-  call, DP-026; the refusal is the reversible default. (2) No other analysis unit may name the destination package: one
+  `PRESENT` with a readable inventory, or `ABSENT` and named. `ABSENT` is the
+  result of probing the documented prefixes, so a provider installed anywhere
+  else reads exactly the same and may hold the package; the answer therefore
+  names every such provider (`MigrationStart::NothingToMove::not_detected`,
+  `nothingToMove.notDetected` in `migrate.v1`, and one sentence per provider in
+  the text) instead of claiming more than detection established. This is
+  DP-026's ruling, (b), of 2026-10-03; until then an `ABSENT` provider refused
+  with `PROVIDER_PRESENCE_UNPROVEN`, exit 4, which made a re-run after a
+  completed migration whose source provider was then uninstalled say "blocked"
+  where INV-16 requires "nothing to do". A broken or missing provider, or
+  one whose inventory nobody read, never reaches this check: `plan_outcome` refuses it first
+  (`PROVIDER_UNHEALTHY`, `SAFETY_UNVERIFIABLE`), so `PROVIDER_PRESENCE_UNPROVEN`
+  is no longer raised and is kept only because exit codes are a documented
+  contract (spec-guardian, 2026-10-03). Tests:
+  `invariant_16_migrate_reports_nothing_to_move_naming_a_provider_that_was_not_detected`,
+  `invariant_17_an_undetected_provider_is_named_in_the_mirror_direction_too`,
+  `invariant_16_migrate_reports_nothing_to_move_where_another_provider_was_not_detected`
+  (fixture, both renderings). (2) No other analysis unit may name the destination package: one
   whose mapping toward the destination lists it as a candidate without
   selecting it (ambiguous, or below the confidence a selection needs) and which
   another provider holds refuses with `SAFETY_BLOCKED`, naming the holder — in
@@ -6203,8 +6212,10 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `invariant_17_the_loop_treats_both_directions_identically`; **the
   composition `migrate` runs is not exercised in process in the
   MacPorts-to-Homebrew direction** — a gap, stated rather than closed. Its
-  refusals are mirrored: the undetected provider in the application tests,
-  and the name candidate through the binary (`postgresql@17 --to homebrew`,
+  undetected provider is named in both directions in the application tests
+  (through the binary only with Homebrew undetected — no MacPorts-only
+  recording yields the case — a gap stated), and the name-candidate refusal is
+  mirrored through the binary (`postgresql@17 --to homebrew`,
   refused because MacPorts holds `postgresql17-server`). Every gate refusal of
   every plan the planner builds for a default-view package, toward each
   provider, on every recording, is checked to be kept as an object
@@ -6217,8 +6228,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 
   | Rule | Mutation | Tests that failed |
   |---|---|---|
-  | undetected provider refuses | accept `ABSENT` | `migrate_never_reports_nothing_to_move_where_another_provider_was_not_detected` and its mirror (application), `migrate_does_not_report_nothing_to_move_where_another_provider_was_not_detected` (binary) |
-  | ...as `PROVIDER_PRESENCE_UNPROVEN`, with its own remediation | `SAFETY_UNVERIFIABLE` instead | the three tests above (the binary one asserts the remediation shown) |
+  | an undetected provider is named, not refused (DP-026, 2026-10-03; mutated in the tree, restored by copy and `cmp`) | the `ABSENT` arm pushes nothing | `invariant_16_migrate_reports_nothing_to_move_naming_a_provider_that_was_not_detected`, `invariant_17_an_undetected_provider_is_named_in_the_mirror_direction_too` (application), `invariant_16_migrate_reports_nothing_to_move_where_another_provider_was_not_detected` (binary) |
   | the refusal names the holder, not the destination | `*id != to` dropped | `invariant_17_the_name_candidate_refusal_names_the_holder_in_the_mirror_direction` |
   | a name candidate refuses | mapping candidates ignored | `migrate_never_reports_nothing_to_move_while_another_name_may_be_the_package`, `migrate_does_not_report_nothing_to_move_while_another_name_may_be_the_package` |
   | `--dry-run` wins | `--yes` alone executes | `migrate_dry_run_wins_over_yes`, `migrate_from_snapshot_refuses_to_execute` |
@@ -6249,8 +6259,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   **Reviews and what is not closed.** First round (spec-guardian and
   security-reviewer, 2026-10-01): no Tier 1 violation, nothing Critical or
   High. Acted on: the charter's example of a surface differing from the identity
-  ("has no `migrate` command") is now stale and is Tier 2, so it is DP-025, the
-  charter untouched meanwhile; a tripwire for INV-02,
+  ("has no `migrate` command") was stale and Tier 2, so it was DP-025; the
+  owner ruled (a) on 2026-10-03 and the clause now reads "plans migrations and
+  executes none of them"; a tripwire for INV-02,
   `invariant_02_migrate_executes_a_plan_built_in_process_only_while_nothing_destructive_is_dispatched`,
   fails the day this build can dispatch a mutating step while `migrate --yes`
   still executes the plan it built in the same process (obligation 8); the
@@ -6261,8 +6272,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   Resolved: (M) the undetected-provider refusal reused `SAFETY_UNVERIFIABLE`,
   whose remediation is false on a live machine — now its own identifier,
   `PROVIDER_PRESENCE_UNPROVEN`, with a test of the remediation shown; INV-16 on
-  a one-provider machine filed as DP-026 with the refusal as the reversible
-  default; a test of a plan stopping at `MANUAL_REVIEW` in both modes; the
+  a one-provider machine filed as DP-026, since ruled (see (1) above); a test of a plan stopping at `MANUAL_REVIEW` in both modes; the
   mirrored name-candidate test above; *nothing to move* narrowed to what it
   establishes; a gate refusal that fails to serialise is kept as
   `UNSERIALISABLE` instead of `null`; README and CHANGELOG no longer say
@@ -6285,7 +6295,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   lands, or INV-16 is unmet that day; (3) an execution re-detects prefixes from
   the same inputs rather than reusing the capture's `DetectedPrefix` values —
   a live prefix that changed in between ends in `PROGRAM_DISAGREES`, never a
-  different binary; (4) DP-025 and DP-026, the owner's.
+  different binary. DP-025 and DP-026 were ruled on 2026-10-03.
 - Evidence (S6): `crates/cli/src/app/migrate.rs`, `crates/cli/src/app/context.rs`,
   `crates/application/src/planner.rs` (`migration_start`),
   `crates/cli/tests/migrate.rs`, `crates/application/tests/planner_refusals.rs`,

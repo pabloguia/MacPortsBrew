@@ -34,7 +34,7 @@ artifacts and repository metadata. **The identity describes the finished
 product; a release surface describes that release** — README, wiki, CLI help,
 release artifacts and repository metadata, and not the specification, which
 answers to the charter like everything else here. Where the two differ, as they
-do while a build plans migrations and has no `migrate` command, the surface
+do while a build plans migrations and executes none of them, the surface
 states what the build does, plainly and in its lead, rather than quietly
 narrowing the sentence above. That is a deliberate exception to "consistently" and not drift:
 an audit that finds the charter claiming more than the README has found the two

@@ -33,7 +33,7 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 |---|---|---|
 | `schemaVersion` | integer | `1` |
 | `mode` | string | `RENDER` or `EXECUTE` |
-| `nothingToMove` | object, optional | `{ "package": string, "provider": string }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16) |
+| `nothingToMove` | object, optional | `{ "package": string, "provider": string, "notDetected": [string] }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16). `notDetected` is always written: the other providers that were not detected, in identifier order; empty when every other provider was detected and read (DP-026) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
@@ -68,15 +68,21 @@ never as a check that saw nothing.
 
 **What *nothing to move* establishes, and what it does not.** It is answered
 when the destination is the package's only holder in the input; every other
-provider this build knows was **detected** and its inventory read; and no
+provider this build knows was either **detected** and its inventory read, or
+**not detected** and named in `notDetected`; and no
 package another provider holds has a mapping toward the destination that names
 this package as a candidate without selecting it. That is all it claims: no
 other provider *in the input* holds the package, nor anything the mappings name
 as possibly the same package. A copy under a name no mapping connects is not
-seen. A provider that was not detected (`PROVIDER_PRESENCE_UNPROVEN`) and a
-package that may be this one under another name (`SAFETY_BLOCKED`) are refusals
-on stderr, exit 4, with empty stdout — never *nothing to move* (SE-092, S6
-addendum; DP-026 on the one-provider case).
+seen. With a provider in `notDetected` the answer is only as strong as
+detection, which looks where a provider is documented to live; a copy under a
+provider installed elsewhere is not seen either, and a script that needs the
+stronger claim checks that the array is empty (DP-026, ruled 2026-10-03). A
+provider that is broken (`PROVIDER_UNHEALTHY`, exit 5), missing from the input
+or unread (`SAFETY_UNVERIFIABLE`, exit 4), and a package that may be this one
+under another name (`SAFETY_BLOCKED`, exit 4) are refusals on stderr with empty
+stdout — never *nothing to move* (SE-092, S6 addendum).
+`PROVIDER_PRESENCE_UNPROVEN` is reserved: no longer raised since DP-026.
 
 ## `Execution`
 
@@ -135,7 +141,8 @@ Nothing to move, under `--yes`:
   "mode": "EXECUTE",
   "nothingToMove": {
     "package": "nginx",
-    "provider": "macports"
+    "provider": "macports",
+    "notDetected": []
   },
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

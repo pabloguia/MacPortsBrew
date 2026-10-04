@@ -627,7 +627,12 @@ pub fn doctor(ctx: &Context, doc: &DoctorReport) -> String {
 }
 
 /// `migrate`, when there is nothing to move (INV-16).
-pub fn nothing_to_move(ctx: &Context, package: &str, provider: &ProviderId) -> String {
+pub fn nothing_to_move(
+    ctx: &Context,
+    package: &str,
+    provider: &ProviderId,
+    not_detected: &[ProviderId],
+) -> String {
     let mut out = ctx.messages.render(
         "migrate.nothing_to_move",
         &params(&[
@@ -636,6 +641,17 @@ pub fn nothing_to_move(ctx: &Context, package: &str, provider: &ProviderId) -> S
         ]),
     );
     out.push('\n');
+    // DP-026: the answer stands, and says how far it could see.
+    for other in not_detected {
+        out.push_str(&ctx.messages.render(
+            "migrate.nothing_to_move_not_detected",
+            &params(&[
+                ("provider", other.to_string()),
+                ("package", package.to_string()),
+            ]),
+        ));
+        out.push('\n');
+    }
     out
 }
 

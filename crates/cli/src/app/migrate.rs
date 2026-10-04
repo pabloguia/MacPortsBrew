@@ -114,6 +114,10 @@ struct Document<'a> {
 struct NothingToMove<'a> {
     package: &'a str,
     provider: &'a ProviderId,
+    /// Always written: the other providers that were not detected, so a
+    /// script tells "seen to be done" from "done as far as detection can
+    /// see" without parsing text (DP-026).
+    not_detected: &'a [ProviderId],
 }
 
 /// What the run loop returned, as the document carries it: no read output and
@@ -176,7 +180,11 @@ pub fn migrate(
         &macportsbrew_adapters::registry::known_provider_ids(),
     )?;
     let planned = match start {
-        MigrationStart::NothingToMove { package, provider } => {
+        MigrationStart::NothingToMove {
+            package,
+            provider,
+            not_detected,
+        } => {
             if cli.json {
                 let doc = Document {
                     schema_version: MIGRATE_SCHEMA_VERSION,
@@ -184,6 +192,7 @@ pub fn migrate(
                     nothing_to_move: Some(NothingToMove {
                         package: &package,
                         provider: &provider,
+                        not_detected: &not_detected,
                     }),
                     plan: None,
                     execution: None,
@@ -194,7 +203,7 @@ pub fn migrate(
                 write!(
                     stdout,
                     "{}",
-                    human::nothing_to_move(ctx, &package, &provider)
+                    human::nothing_to_move(ctx, &package, &provider, &not_detected)
                 )
                 .map_err(io)?;
                 write!(

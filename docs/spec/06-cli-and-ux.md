@@ -73,8 +73,11 @@ A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
 4 when executed, with the step named; a mutating command that refuses to start
 because an interrupted run has not been looked at exits 4 and names the run;
-and `migrate` exits 4 (`PROVIDER_PRESENCE_UNPROVEN`) rather than report
-*nothing to move* when another provider was not detected (SE-092, DP-026).
+and `migrate` reports *nothing to move*, exit 0, when another provider was not
+detected, naming it in the text and in `notDetected` (SE-092, DP-026). Another
+provider that is broken refuses as `PROVIDER_UNHEALTHY` (exit 5), and one
+missing from the input or with an unread inventory as `SAFETY_UNVERIFIABLE`
+(exit 4); `PROVIDER_PRESENCE_UNPROVEN` is reserved and no longer raised.
 
 **MUST.** An error taxonomy with stable identifiers, each carrying a
 user-facing remediation string. `"error: exit status 1"` is never acceptable

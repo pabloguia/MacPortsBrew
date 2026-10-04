@@ -719,9 +719,14 @@ fn invariant_16_migrate_reports_nothing_to_move_when_it_can_be_shown() {
     // nothing elsewhere that could be the same package: nothing to move.
     let snap = both(&[("wget", None)], &[("curl", None)]);
     match start_for(&snap, "curl", MP) {
-        Ok(MigrationStart::NothingToMove { package, provider }) => {
+        Ok(MigrationStart::NothingToMove {
+            package,
+            provider,
+            not_detected,
+        }) => {
             assert_eq!(package, "curl");
             assert_eq!(provider, ProviderId::new(MP));
+            assert!(not_detected.is_empty(), "{not_detected:?}");
         }
         other => panic!("expected nothing to move, got {other:?}"),
     }
@@ -740,10 +745,11 @@ fn migrate_gets_a_plan_paired_with_the_snapshot_it_was_built_from() {
 }
 
 #[test]
-fn migrate_never_reports_nothing_to_move_where_another_provider_was_not_detected() {
-    // `plan_outcome` accepts an absent provider as holding nothing; migrate,
-    // which reports the answer as done and exits 0, does not: detection only
-    // looks where a provider is documented to live.
+fn invariant_16_migrate_reports_nothing_to_move_naming_a_provider_that_was_not_detected() {
+    // DP-026 (b): an absent provider is not proof it holds nothing, because
+    // detection only looks where a provider is documented to live - so the
+    // answer stands and names it, rather than refusing a re-run that changes
+    // nothing (INV-16).
     let mut snap = both(&[], &[("curl", None)]);
     let hb = snap
         .providers
@@ -757,12 +763,12 @@ fn migrate_never_reports_nothing_to_move_where_another_provider_was_not_detected
             .collect(),
     };
     assert_eq!(outcome_for(&snap, "curl", MP), Ok(already_at("curl", MP)));
-    let (id, detail) = start_for(&snap, "curl", MP).expect_err("must refuse");
-    assert_eq!(id, ErrorId::ProviderPresenceUnproven, "{detail}");
-    assert!(
-        detail.contains(HB) && detail.contains("not detected"),
-        "{detail}"
-    );
+    match start_for(&snap, "curl", MP) {
+        Ok(MigrationStart::NothingToMove { not_detected, .. }) => {
+            assert_eq!(not_detected, vec![ProviderId::new(HB)]);
+        }
+        other => panic!("expected nothing to move, got {other:?}"),
+    }
 }
 
 #[test]
@@ -811,7 +817,7 @@ fn invariant_17_the_mirror_direction_is_refused_while_another_name_may_be_the_pa
 }
 
 #[test]
-fn invariant_17_an_undetected_provider_refuses_nothing_to_move_in_the_mirror_direction_too() {
+fn invariant_17_an_undetected_provider_is_named_in_the_mirror_direction_too() {
     let mut snap = both(&[("wget", None)], &[]);
     let mp = snap
         .providers
@@ -825,12 +831,12 @@ fn invariant_17_an_undetected_provider_refuses_nothing_to_move_in_the_mirror_dir
             .collect(),
     };
     assert_eq!(outcome_for(&snap, "wget", HB), Ok(already_at("wget", HB)));
-    let (id, detail) = start_for(&snap, "wget", HB).expect_err("must refuse");
-    assert_eq!(id, ErrorId::ProviderPresenceUnproven, "{detail}");
-    assert!(
-        detail.contains(MP) && detail.contains("not detected"),
-        "{detail}"
-    );
+    match start_for(&snap, "wget", HB) {
+        Ok(MigrationStart::NothingToMove { not_detected, .. }) => {
+            assert_eq!(not_detected, vec![ProviderId::new(MP)]);
+        }
+        other => panic!("expected nothing to move, got {other:?}"),
+    }
 }
 
 /// The planner raises `reason.mapping_confidence_below_threshold` as well as
