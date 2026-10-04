@@ -553,7 +553,9 @@ $GUARD_TOKEN is the disclosed escape")"
     "$(prompt_input "$GUARD_TOKEN this session was opened deliberately, to edit the gates")"
   [ -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a human line opening with the token arms")
 
-  assert "unreadable prompt input fails closed" "$A" closed '{bad'
+  # Closed means "not armed", never "the owner's message is rejected": exit 2 on
+  # UserPromptSubmit blocks the prompt itself (tooling recheck D3).
+  assert "unreadable prompt input arms nothing and lets the prompt through" "$A" exit0 '{bad'
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("an unreadable prompt disarms rather than leaving it armed")
 
   # --- the five a security review found untested, each one a real defect ---
@@ -574,8 +576,9 @@ $GUARD_TOKEN is the disclosed escape")"
   for t in bash rm cat date sed tr cut mkdir; do
     p="$(command -v "$t")" && ln -sf "$p" "$MINIBIN/$t"
   done
-  PATH="$MINIBIN" "$HERE/$A" <<<"$(prompt_input "no token here")" >/dev/null 2>&1
+  rc=0; PATH="$MINIBIN" "$HERE/$A" <<<"$(prompt_input "no token here")" >/dev/null 2>&1 || rc=$?
   [ ! -f "$MARK" ] && pass=$((pass + 1)) || failures+=("a hook that cannot run its parser still disarms")
+  [ "$rc" -eq 0 ] && pass=$((pass + 1)) || failures+=("a hook that cannot run its parser does not reject the prompt (rc=$rc)")
 
   # A symlinked marker is not the marker. `[ -f ]` follows one, and pointing it
   # at a file the Write tool will happily write turns "needs Bash once per
@@ -634,6 +637,28 @@ unset MPB_UNATTENDED
 # /opt/Homebrew and /opt/homebrew are one file that `case` saw as two.
 assert "a user .homebrew prefix is denied"    "$P" deny   "$(edit_input "$HOME/.homebrew/bin/x")"
 assert "a case-variant prefix is denied"      "$P" deny   "$(edit_input '/opt/Homebrew/etc/x')"
+
+# --- the commit gate (SE-093; tooling recheck D2, D2b) -----------------------
+# Every way it can fail to validate must refuse: Claude Code proceeds on an
+# exit 1 and on a timed-out hook. Each case runs here, not in a subshell, so a
+# failure reaches the report.
+C=commit-gate.sh
+COMMIT="git ""commit -m x"
+d="$(scratch_repo)"
+if out="$(printf '%s' "$(bash_input 'git status')" | CLAUDE_PROJECT_DIR="$d" "$HERE/$C" 2>&1)" && [ -z "$out" ]; then
+  pass=$((pass + 1))
+else
+  failures+=("the commit gate ignores a command that is not a commit: $out")
+fi
+CLAUDE_PROJECT_DIR="$d" assert "a passing validator lets a commit through" "$C" allow "$(bash_input "$COMMIT")"
+printf '#!/bin/sh\necho broken; exit 1\n' >"$d/scripts/validate.sh"
+CLAUDE_PROJECT_DIR="$d" assert "a failing validator refuses the commit" "$C" deny "$(bash_input "$COMMIT")"
+printf '#!/bin/sh\nsleep 30\n' >"$d/scripts/validate.sh"
+CLAUDE_PROJECT_DIR="$d" MPB_COMMIT_GATE_DEADLINE=1 assert "a validator past the deadline refuses" "$C" deny "$(bash_input "$COMMIT")"
+rm -f "$d/scripts/validate.sh"
+CLAUDE_PROJECT_DIR="$d" assert "a missing validator refuses the commit" "$C" deny "$(bash_input "$COMMIT")"
+CLAUDE_PROJECT_DIR="$d/does-not-exist" assert "an unreachable project refuses the commit" "$C" deny "$(bash_input "$COMMIT")"
+rm -rf "$d"
 
 # --- report -----------------------------------------------------------------
 total=$((pass + ${#failures[@]}))

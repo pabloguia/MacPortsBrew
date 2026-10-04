@@ -104,9 +104,7 @@
       "Bash(port unarchive *)",
       "Bash(rustup update*)",
       "Edit(./rust-toolchain.toml)",
-      "Write(./rust-toolchain.toml)",
-      "Edit(./docs/spec/01-invariants.md)",
-      "Write(./docs/spec/01-invariants.md)"
+      "Edit(./docs/spec/01-invariants.md)"
     ],
     "ask": [
       "Bash(git init*)"

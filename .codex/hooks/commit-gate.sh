@@ -44,8 +44,17 @@ if [ "${MPB_SKIP_COMMIT_GATE:-0}" = "1" ]; then
   exit 0
 fi
 
-cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
-[ -x scripts/validate.sh ] || exit 0
+# Every way this hook can fail to validate refuses the commit. A failed `cd`
+# under `set -e` used to exit 1 and a missing `validate.sh` exit 0, and Claude
+# Code proceeds on both - "exit code 1 [is] a non-blocking error" (hooks page,
+# read 2026-10-03) - so the commit landed unvalidated (tooling recheck D2).
+ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+if ! cd "$ROOT" 2>/dev/null; then
+  mpb_deny "PreToolUse" "Commit refused: the commit gate could not enter the project directory, so it cannot validate this commit."
+fi
+if [ ! -x scripts/validate.sh ]; then
+  mpb_deny "PreToolUse" "Commit refused: scripts/validate.sh is missing or not executable, so this commit cannot be validated. Restore it, or set MPB_SKIP_COMMIT_GATE=1 and disclose it in the pass report."
+fi
 PATH="$HOME/.cargo/bin:$PATH"
 
 mode=--quick
@@ -53,7 +62,32 @@ if [ -n "$(git status --porcelain -- crates src tests fixtures locales data scri
   mode=default
 fi
 
-if ! out="$(scripts/validate.sh "$mode" 2>&1)"; then
+# A PreToolUse hook that reaches its own timeout does not block the tool call
+# (same page), so a validation slower than the 1500 s the settings give this
+# hook would let the commit through (D2b). The run is bounded below that, its
+# whole process group killed at the deadline, and the deadline refuses. Perl
+# is the watchdog because it ships with macOS and every CI image, and
+# coreutils' `timeout` does not.
+#
+# `|| rc=$?` on the same line, not `rc=$?` after it: under `set -e` a failing
+# command substitution would end the script there with exit 1 - which lets the
+# commit through, the D2 defect again (it did, in the first draft of this fix).
+DEADLINE="${MPB_COMMIT_GATE_DEADLINE:-1380}"
+rc=0
+out="$(perl -e '
+  my $limit = shift;
+  my $pid = fork();
+  die "fork: $!" unless defined $pid;
+  if ($pid == 0) { setpgrp(0, 0); exec @ARGV or die "exec: $!"; }
+  $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 2; kill "KILL", -$pid; exit 124 };
+  alarm $limit;
+  waitpid($pid, 0);
+  exit($? >> 8);
+' "$DEADLINE" scripts/validate.sh "$mode" 2>&1)" || rc=$?
+if [ "$rc" -eq 124 ]; then
+  mpb_deny "PreToolUse" "Commit refused: scripts/validate.sh $mode did not finish within ${DEADLINE}s, and a hook that runs out of time lets the commit through. Run it by hand to see why it is slow, then commit again."
+fi
+if [ "$rc" -ne 0 ]; then
   tail_out="$(printf '%s\n' "$out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -40 | sed "s#${HOME}#~#g")"
   mpb_deny "PreToolUse" "Commit refused: scripts/validate.sh $mode fails, and every commit here must pass it. Fix the failure, then commit again.
 $tail_out"

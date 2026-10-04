@@ -6630,4 +6630,18 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   hook timeout, `perl` being on every macOS and CI image where coreutils'
   `timeout` is not), D3, `migrate` in the fixture matrix, and commit-gate cases
   in `test-hooks.sh`.
+- **Extended 2026-10-04, second armed message: D1, D2, D2b and D3 landed.**
+  `commit-gate.sh` denies on an unreachable project, a missing validator, a
+  failing one and one past a Perl process-group deadline below the hook timeout;
+  `arm-guard-edit.sh` exits 0 with an explanation where it used to exit 2 and
+  reject the owner's prompt; the two inert `Write(...)` deny rules are gone;
+  `test-hooks.sh` gains six commit-gate cases (178/178). **The cause of the
+  mid-message disarm is now known:** `test-hooks.sh`'s "session start injects
+  context" case runs `session-start.sh` against the real project root, and its
+  first act is `rm` of the live marker. So the same thing happened again, and
+  `migrate` in `run-fixture-matrix.sh` - written, then found to break under
+  macOS's bash 3.2 (`set -u` treats an empty array as unbound; the fix is
+  `${extra[@]+"${extra[@]}"}`) - could not be corrected and was restored rather
+  than left breaking every code commit. Owed under the next escape: that fix,
+  and pointing the session-start case at a scratch root.
 

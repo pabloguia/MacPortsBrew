@@ -145,16 +145,24 @@ marker="$PROJECT_ROOT/.claude/.guard-edit-marker"
 # hook's 10s timeout in settings.json produces the same outcome.
 rm -f "$marker"
 
-mpb_require_json_parser
+# Fail closed - but here "closed" is "not armed", which the `rm` above already
+# made true. This hook used to exit 2 on an unreadable input or a missing JSON
+# parser, and on UserPromptSubmit exit 2 "blocks the prompt, so it never
+# reaches Claude" (hooks page, read 2026-10-03): with neither `jq` nor `python3`
+# on PATH, every message the owner typed was rejected, and the disarm needed no
+# block to hold (tooling recheck D3). So it says why nothing was armed, as
+# plain stdout - context for the session - and lets the prompt through.
+if ! mpb_have jq && ! mpb_have python3; then
+  echo "MacPortsBrew hook: neither jq nor python3 is available, so this message"
+  echo "cannot be checked for the guard-edit token. Nothing was armed."
+  exit 0
+fi
 input="$(cat)"
 
-# Fail closed, like every other guard here: an unreadable input is not "no
-# token". The marker is already gone by this point, so the exit cannot leave one
-# behind.
 if ! prompt="$(mpb_json_field "$input" "prompt")"; then
-  echo "MacPortsBrew hook: the prompt payload was not readable JSON, so this" >&2
-  echo "hook cannot tell whether it carries the guard-edit token. Disarming." >&2
-  exit 2
+  echo "MacPortsBrew hook: the prompt payload was not readable JSON, so whether"
+  echo "it carries the guard-edit token cannot be told. Nothing was armed."
+  exit 0
 fi
 
 # The token must appear on a line that starts at column zero.
