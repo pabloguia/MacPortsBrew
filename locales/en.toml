@@ -416,8 +416,8 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.provider_configuration_none" = "{provider}: none of the configuration files this tool reviews sets anything that would override how it runs {provider}."
 "doctor.provider_configuration_outranks" = "{provider}: {file} sets {keys}. {provider} applies that file over the settings this tool runs it with, so its reads may not behave as this tool asks - they may report from somewhere else, or fetch differently - and a migration step that changes {provider} will be refused while the file sets them."
 "doctor.provider_configuration_unreadable" = "{provider}: {file} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A migration step that changes {provider} will be refused while it is."
-"doctor.provider_configuration_unknown" = "{provider}: this input does not record {provider}'s own configuration files - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs {provider} is unknown."
-"doctor.provider_absent" = "{provider} is not installed."
+"doctor.provider_configuration_unknown" = "{provider}: this input does not record the configuration files of {provider} - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs {provider} is unknown."
+"doctor.provider_absent" = "{provider} was not detected where it is documented to live."
 # `{reason}` is deliberately absent. Every construction of
 # `ProviderPresence::Broken` sets it to an `ErrorId::*.message_id()` - an
 # identifier, never prose - so interpolating it printed

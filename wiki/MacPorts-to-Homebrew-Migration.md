@@ -121,6 +121,12 @@ Risks detected
 "An unknown is not a yes" is the rule, not a turn of phrase: a fact that could
 not be determined is never quietly treated as favourable.
 
+On a live machine, a `~/.macports/macports.conf` that sets anything, or a
+Homebrew `brew.env` that does, adds one more risk naming that provider and the
+file: its own configuration overrides how this tool would run it, and a step
+that changes it is refused while it does. `macportsbrew doctor` lists the same
+files. The same holds in the other direction.
+
 Add `--json` for the machine-readable form — see
 [`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).
 
