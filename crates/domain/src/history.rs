@@ -804,3 +804,74 @@ impl StoredRestorability {
         }
     }
 }
+
+// --- What a consulted history says about one migration ----------------------
+
+/// Which migration a record is about, for recognising a re-run (INV-16):
+/// the package under its source provider, the destination provider and the
+/// destination package. Direction-neutral — nothing here knows which provider
+/// is which (INV-17).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationKey {
+    /// The package, under its source provider.
+    pub package: PackageIdentity,
+    /// Where it was to go.
+    pub destination: ProviderId,
+    /// The destination package name.
+    pub destination_package: Option<String>,
+}
+
+impl MigrationKey {
+    /// Whether `record` is about this migration.
+    pub fn matches(&self, record: &RunRecord) -> bool {
+        let subject = record.subject();
+        subject.package == self.package
+            && subject.direction.source == self.package.provider
+            && subject.direction.destination == self.destination
+            && subject.destination_package == self.destination_package
+    }
+}
+
+/// What a consulted history says about one [`MigrationKey`], as the store
+/// read it: newest first, stopping at the first record for the key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryView {
+    newest_stamp: Option<String>,
+    latest_for_key: Vec<RunRecord>,
+}
+
+impl HistoryView {
+    /// A history with no record at all.
+    pub fn empty() -> Self {
+        Self {
+            newest_stamp: None,
+            latest_for_key: Vec::new(),
+        }
+    }
+
+    /// The store's answer. `newest_stamp` is the compact stamp of the newest
+    /// record of any key; `latest_for_key` is every record for the key that
+    /// carries the newest stamp among that key's records — more than one is a
+    /// tie the reader cannot order, which is never recognised (D1).
+    pub fn new(newest_stamp: Option<String>, latest_for_key: Vec<RunRecord>) -> Self {
+        Self {
+            newest_stamp,
+            latest_for_key,
+        }
+    }
+
+    /// The compact stamp of the newest record of any key.
+    pub fn newest_stamp(&self) -> Option<&str> {
+        self.newest_stamp.as_deref()
+    }
+
+    /// The key's latest records (one, unless the stamp ties).
+    pub fn latest_for_key(&self) -> &[RunRecord] {
+        &self.latest_for_key
+    }
+}
+
+/// The compact stamp a run id begins with, when it is one.
+pub fn run_id_stamp(id: &str) -> Option<&str> {
+    is_run_id(id).then(|| &id[..STAMP_CHARS])
+}

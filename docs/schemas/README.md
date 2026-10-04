@@ -12,6 +12,7 @@ a compatibility surface.**
 | `macportsbrew migrate <pkg> --to <provider> [--yes] [--dry-run] --json` | [`migrate.v1.md`](migrate.v1.md) | 1 |
 | `macportsbrew doctor --json` | [`doctor.v1.md`](doctor.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
+| A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v1.md`](history.v1.md) | 1 |
 
 ## The compatibility rule
 

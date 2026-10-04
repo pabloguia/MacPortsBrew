@@ -154,7 +154,7 @@ pub fn usable_home(value: &str) -> Option<PathBuf> {
 /// file. The technique is the one `persistence::state_dir` already uses. A
 /// directory that will not take the probe yields `None`, and the caller reports
 /// that the check did not run rather than reporting nothing.
-fn effective_uid() -> Option<u32> {
+pub fn effective_uid() -> Option<u32> {
     let probe = std::env::temp_dir().join(format!(".macportsbrew-uid.{}", std::process::id()));
     std::fs::remove_file(&probe).ok();
     let uid = std::fs::OpenOptions::new()

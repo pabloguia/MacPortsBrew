@@ -38,9 +38,9 @@ pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use history::{
-    Direction, EnvironmentChange, NotRestorable, RecordedStep, RecordedVersions, Restorability,
-    RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepResult, StoredEnvelope,
-    StoredRunRecord, HISTORY_SCHEMA_VERSION,
+    Direction, EnvironmentChange, HistoryView, MigrationKey, NotRestorable, RecordedStep,
+    RecordedVersions, Restorability, RunEnding, RunRecord, RunStart, RunStatus, RunSubject,
+    StepResult, StoredEnvelope, StoredRunRecord, HISTORY_SCHEMA_VERSION,
 };
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
