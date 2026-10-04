@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The concurrency flag on `plan` and `analyze`, end to end, and the one
-//! serialiser all three commands share (`plan.v1.md`, obligation 5; SE-015).
+//! The concurrency flag on `plan`, `analyze`, `explain` and `doctor`, end to
+//! end, and the one serialiser every command shares (`plan.v1.md`,
+//! obligation 5; SE-015).
 //!
 //! `04-migration-and-safety.md` lets read-only analysis proceed while a
 //! provider runs, *flagged as possibly inconsistent*. `migrate` carried the
@@ -138,15 +139,17 @@ fn snapshot_file(scratch: &Scratch, name: &str) -> String {
     path
 }
 
-/// The `plan` and `analyze` invocations this file pins, with their exit
-/// codes: a plan that exits 0, a plan that stops at manual review (exit 4),
-/// and an analysis.
+/// The invocations this file pins, with their exit codes: a plan that exits
+/// 0, a plan that stops at manual review (exit 4), an analysis, an
+/// explanation and a doctor report.
 fn invocations() -> Vec<(&'static str, Vec<&'static str>, i32)> {
     vec![
         (BOTH, vec!["plan", "htop", "--to", MP], 0),
         (HOMEBREW_ONLY, vec!["plan", "curl", "--to", MP], 4),
         (BOTH, vec!["analyze"], 0),
         (HOMEBREW_ONLY, vec!["analyze", "curl"], 0),
+        (BOTH, vec!["explain", "htop"], 0),
+        (HOMEBREW_ONLY, vec!["doctor"], 0),
     ]
 }
 
@@ -373,21 +376,24 @@ fn fragment(text: &str) -> String {
 }
 
 #[test]
-fn analyze_plan_and_migrate_share_the_one_concurrency_serialiser() {
+fn every_command_that_carries_the_flag_shares_the_one_serialiser() {
     // One type writes the flag for every command (`ConcurrencyFlag`), so the
     // same input yields the same bytes under the same key in every document:
-    // `analyze`, `status` and `list` (one `Analysis`), `plan`, `migrate`. A
+    // `analyze`, `status` and `list` (one `Analysis`), `plan`, `migrate`,
+    // `explain` and `doctor`. A
     // command that grew its own shape — another field order, a hard-coded
     // `possiblyInconsistent` — would differ here.
     let scratch = Scratch::new("shared");
     let file = fixture(BOTH);
     let input = ["--replay", file.as_str(), "--json"];
-    let commands: [&[&str]; 5] = [
+    let commands: [&[&str]; 7] = [
         &["analyze"],
         &["status"],
         &["list"],
         &["plan", "htop", "--to", MP],
         &["migrate", "htop", "--to", MP],
+        &["explain", "htop"],
+        &["doctor"],
     ];
     let expected = {
         let flag = ConcurrencyFlag::of(AnalysisSource::Snapshot.concurrent_provider_activity());
@@ -401,7 +407,7 @@ fn analyze_plan_and_migrate_share_the_one_concurrency_serialiser() {
         assert_eq!(fragment(&stdout(&out)), expected, "{args:?}");
     }
 
-    // And in words: the three commands that end with the flag end with the
+    // And in words: the five commands that end with the flag end with the
     // one sentence; `status` and `list` carry it in `--json` only (SE-015).
     let human = ["--replay", file.as_str()];
     let mut last_lines = Vec::new();
@@ -429,7 +435,7 @@ fn analyze_plan_and_migrate_share_the_one_concurrency_serialiser() {
             );
         }
     }
-    assert_eq!(last_lines.len(), 3);
+    assert_eq!(last_lines.len(), 5);
     assert!(
         last_lines.windows(2).all(|w| w[0] == w[1]),
         "{last_lines:?}"

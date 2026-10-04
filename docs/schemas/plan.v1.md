@@ -251,10 +251,11 @@ comments:
    `plan` and `analyze` carry the same flag from the same source: `plan --json`
    writes it at its root after the plan's own fields, `analysis.v1` carries it
    as a root field (so `status --json` and `list --json` do too), and the human
-   output of `plan` and `analyze` ends with the sentence `migrate`'s does. One
-   type, the domain's `ConcurrencyFlag`, writes it for all three, so the shape
-   cannot drift between them
-   (`analyze_plan_and_migrate_share_the_one_concurrency_serialiser`,
+   output of `plan` and `analyze` ends with the sentence `migrate`'s does;
+   `explain` and `doctor` carry it the same way since 2026-10-03. One type, the
+   domain's `ConcurrencyFlag`, writes it for every command, so the shape cannot
+   drift between them
+   (`every_command_that_carries_the_flag_shares_the_one_serialiser`,
    `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`,
    `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather

@@ -22,6 +22,7 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `machine` | `Machine` | **`--report` only.** As in `snapshot.v1.md` |
 | `pathEntries` | integer | **`--report` only.** How many `PATH` entries were seen. The entries themselves are not emitted; only findings quote one, redacted |
 | `providers` | object | **`--report` only.** Keyed by provider id: `presence`, `version`, `prefix`, `packages` |
+| `concurrentProviderActivity` | object | Always written by `doctor --json`, last (not in the `--report` file): whether a provider may have been changing the machine while it was read, never a check this build did not make — the one shape every document writes it in ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)). Added 2026-10-03; additive, so no version bump (SE-015) |
 
 ## `DoctorFinding`
 
@@ -188,7 +189,11 @@ it, and makes no network call that reports anything about the user.**
       },
       "provider": "homebrew"
     }
-  ]
+  ],
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  }
 }
 ```
 
@@ -204,8 +209,7 @@ them works identically from `--from-snapshot` and under `--replay`, because
 
 ## Not in this version
 
-- **A concurrency flag.** `analyze`, `status`, `list`, `plan` and `migrate`
-  carry `concurrentProviderActivity`
-  ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)); this payload
-  does not yet. Its answer would be the same *possibly inconsistent*, never a
-  check that saw nothing. Carrying it is owed (SE-015).
+Nothing outstanding. The concurrency flag, listed here until 2026-10-03, is
+now carried at the root of what `doctor --json` prints (SE-015). The file
+`--report` writes does not carry it: that file is a redacted diagnostic about
+the machine, written before and independently of the printed document.

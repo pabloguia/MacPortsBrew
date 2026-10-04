@@ -257,10 +257,21 @@ fn run_inner(
                 &options(BTreeSet::new()),
                 package,
             )?;
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&explanation)?).map_err(io)?;
+                let document = Flagged {
+                    body: &explanation,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::explanation(&ctx, &explanation)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             Ok(0)
         }
@@ -284,8 +295,8 @@ fn run_inner(
             )?;
             let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                let document = PlanDocument {
-                    plan: &plan,
+                let document = Flagged {
+                    body: &plan,
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -340,10 +351,21 @@ fn run_inner(
                     )
                 );
             }
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
+                let document = Flagged {
+                    body: &doc,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::doctor(&ctx, &doc)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             Ok(match doc.worst() {
                 Severity::Error => 5,
@@ -370,19 +392,22 @@ fn run_inner(
     }
 }
 
-/// What `plan --json` writes: the plan exactly as `plan.v1.md` documents it,
-/// then the concurrency flag at the same root (`plan.v1.md`, obligation 5).
+/// What `plan`, `explain` and `doctor` write with `--json`: the payload
+/// exactly as its schema documents it, then the concurrency flag at the same
+/// root (`plan.v1.md`, obligation 5; SE-015).
 ///
-/// The domain's `MigrationPlan` is not given the field: it is the contract the
-/// planner, the execution gate and the run loop share, and `migrate` carries
-/// it under its own `plan` key with the flag at *its* root. The plan is
-/// flattened first, so every byte `plan --json` wrote before this field keeps
-/// its place and the flag is appended after `dryRunOnly`.
+/// The payload types are not given the field: `MigrationPlan` is the contract
+/// the planner, the execution gate and the run loop share, and `migrate`
+/// carries it under its own `plan` key with the flag at *its* root; the
+/// explanation and the doctor report are the application's answers, and where
+/// the input came from is the command's to say. The payload is flattened
+/// first, so every byte it wrote before this field keeps its place and the
+/// flag is appended after it.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PlanDocument<'a> {
+struct Flagged<'a, T: serde::Serialize> {
     #[serde(flatten)]
-    plan: &'a macportsbrew_domain::MigrationPlan,
+    body: &'a T,
     concurrent_provider_activity: ConcurrencyFlag,
 }
 

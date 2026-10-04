@@ -418,8 +418,9 @@ change is made. Silent deviation remains the one unrecoverable error.
   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`
   and `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`
   re-run under another `HOME` and `PATH` and compare bytes;
-  `analyze_plan_and_migrate_share_the_one_concurrency_serialiser` compares the
-  raw fragment across `analyze`, `status`, `list`, `plan` and `migrate`), and
+  `every_command_that_carries_the_flag_shares_the_one_serialiser` compares the
+  raw fragment across `analyze`, `status`, `list`, `plan`, `migrate`,
+  `explain` and `doctor`), and
   `the_analysis_carries_the_concurrency_flag_its_source_decides` in
   `crates/application/tests/invariants.rs`. Mutation, each in a scratch copy
   restored afterwards: `analyze()` writing a `NOT_CHECKED` constant fails the
@@ -434,10 +435,14 @@ change is made. Silent deviation remains the one unrecoverable error.
   separator outside the catalogue, which is unreachable today and is owed a
   catalogue list form with the detector that first reaches it.
 
-  **Still without the flag, recorded rather than left silent (spec-guardian,
-  2026-10-03):** `explain` (explain.v1) and `doctor` (doctor.v1) are read-only
-  analyses of the same input and do not carry it; both schemas' "Not in this
-  version" say so, and carrying it is owed. `explain` and the planner build
+  **`explain` and `doctor` carry it since 2026-10-03 (pass 07)**, at the root
+  of explain.v1 and doctor.v1 after every field they already had, and as the
+  last sentence of their human output — the same command-level wrapper
+  `plan --json` uses, so the application's explanation and report types are
+  unchanged; the `--report` file, a redacted diagnostic written separately,
+  does not carry it. Both are now in
+  `concurrency_flag.rs`'s replay, snapshot and shared-serialiser tests.
+  `explain` and the planner build
   their internal `Analysis` with a fixed `AnalysisSource::Snapshot`, which
   decides nothing shown today — the call sites say so, because a future
   reader of that analysis's flag would report `UNKNOWABLE` on a live run.

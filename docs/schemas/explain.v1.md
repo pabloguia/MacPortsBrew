@@ -20,6 +20,7 @@ here.
 | `package` | `PackageReport` | The full unit, exactly as in [`analysis.v1.md`](analysis.v1.md) |
 | `facts` | `Facts` | The engine's entire input, besides the policy data |
 | `derivation` | `Derivation` | |
+| `concurrentProviderActivity` | object | Always written, last: whether a provider may have been changing the machine while it was read, never a check this build did not make — the one shape every document writes it in ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)). Added 2026-10-03; additive, so no version bump (SE-015) |
 
 ## `Facts`
 
@@ -203,8 +204,5 @@ the known exceptions, are stated once in [`README.md`](README.md).
 
 ## Not in this version
 
-- **A concurrency flag.** `analyze`, `status`, `list`, `plan` and `migrate`
-  carry `concurrentProviderActivity`
-  ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)); this payload
-  does not yet. It is a read-only analysis, so the answer it would give is
-  *possibly inconsistent* — never a check that saw nothing. Carrying it is owed (SE-015).
+Nothing outstanding. The concurrency flag, listed here until 2026-10-03, is
+now carried at the root (SE-015).
