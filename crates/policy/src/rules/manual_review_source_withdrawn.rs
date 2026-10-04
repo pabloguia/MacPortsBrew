@@ -3,7 +3,7 @@
 //! `MANUAL_REVIEW_SOURCE_WITHDRAWN`: the provider holding the package has
 //! withdrawn it.
 
-use super::PRIORITY_MANUAL_REVIEW;
+use super::{labels, PRIORITY_MANUAL_REVIEW};
 use crate::data::PolicyData;
 use crate::facts::Facts;
 use crate::reasons;
@@ -44,13 +44,7 @@ impl Rule for ManualReviewSourceWithdrawn {
         if !withdrawn {
             return None;
         }
-        let state = if per.disabled {
-            "DISABLED"
-        } else if per.deprecated {
-            "DEPRECATED"
-        } else {
-            "REPLACED"
-        };
+        let state = labels::withdrawal_state(per.disabled, per.deprecated);
         let mut reason = Reason::new(reasons::SOURCE_WITHDRAWN)
             .with("provider", &facts.package.source)
             .with("package", &facts.package.name)

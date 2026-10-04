@@ -246,9 +246,8 @@ impl Messages {
     /// for something else and have it rendered as a confidence label.
     ///
     /// A value that names no key is left exactly as it is. That is deliberate
-    /// and not a fallback to be tidied away: `{state}` carries values no family
-    /// covers, and silently blanking one would be worse than showing an
-    /// identifier.
+    /// and not a fallback to be tidied away: silently blanking a value no
+    /// family covers would be worse than showing an identifier.
     fn resolve_identifiers(&self, params: &BTreeMap<String, String>) -> BTreeMap<String, String> {
         const FAMILIES: &[(&str, &str)] = &[
             ("tier", "support"),
@@ -256,6 +255,7 @@ impl Messages {
             ("cause", "source_build"),
             ("confidence", "confidence"),
             ("threshold", "confidence"),
+            ("state", "state"),
         ];
         let mut out = params.clone();
         for (name, family) in FAMILIES {

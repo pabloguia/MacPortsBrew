@@ -616,7 +616,10 @@ pub fn plan_outcome(
             "class",
             Reason::new("reason.class_requires_review")
                 .with("package", &unit.name)
-                .with("class", &format!("{:?}", unit.class.dominant())),
+                .with(
+                    "class",
+                    &macportsbrew_policy::labels::class(unit.class.dominant()),
+                ),
         );
     }
     // Only the unit's own side is exempt from the mapping threshold, and only
@@ -684,11 +687,10 @@ pub fn plan_outcome(
                     .with("destination", &request.to)
                     .with(
                         "state",
-                        &if dest_row.disabled {
-                            "disabled"
-                        } else {
-                            "deprecated"
-                        },
+                        &macportsbrew_policy::labels::withdrawal_state(
+                            dest_row.disabled,
+                            dest_row.deprecated,
+                        ),
                     ),
             );
         }

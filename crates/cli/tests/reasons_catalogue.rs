@@ -197,3 +197,55 @@ fn confidence_and_threshold_parameters_only_ever_carry_a_confidence() {
         "set confidence/threshold through labels::mapping_confidence_params: {offenders:?}"
     );
 }
+
+#[test]
+fn a_withdrawal_state_is_rendered_through_its_label_never_as_an_identifier() {
+    // `{state}` used to be printed as the emitter spelled it: `DISABLED` from
+    // the policy rules, `disabled` from the planner. Every emitter now takes it
+    // from `labels::withdrawal_state`, and the renderer resolves it through
+    // `state.*`, so a sentence never shows the identifier (SE-064).
+    use macportsbrew::i18n::Messages;
+    use macportsbrew_domain::Reason;
+    let messages = Messages::english();
+    for state in macportsbrew_policy::labels::withdrawal_state_vocabulary() {
+        let label = messages
+            .catalogue()
+            .get(&format!("state.{}", state.to_ascii_lowercase()))
+            .unwrap_or_else(|| panic!("locales/en.toml has no label for {state}"))
+            .to_string();
+        for id in [reasons::DESTINATION_DEPRECATED, reasons::SOURCE_WITHDRAWN] {
+            let reason = Reason::new(id)
+                .with("state", &state)
+                .with("destination", &"macports")
+                .with("provider", &"homebrew")
+                .with("package", &"bvi");
+            let rendered = messages.render_reason(&reason);
+            assert!(
+                rendered.contains(&label) && !rendered.contains(state),
+                "{id} with {state}: {rendered}"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_package_class_has_a_label() {
+    use macportsbrew_domain::PackageClass;
+    let catalogue = Catalogue::english();
+    for class in [
+        PackageClass::Simple,
+        PackageClass::Stateful,
+        PackageClass::Service,
+        PackageClass::Runtime,
+        PackageClass::GuiApp,
+        PackageClass::ThirdPartySourced,
+        PackageClass::ProviderInternal,
+    ] {
+        let id = macportsbrew_policy::labels::class(class);
+        let key = format!("class.{}", id.to_ascii_lowercase());
+        assert!(
+            catalogue.get(&key).is_some(),
+            "locales/en.toml has no {key}"
+        );
+    }
+}

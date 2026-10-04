@@ -4020,10 +4020,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   mapping exists when there are no candidates, and "toward" is unlike the
   "under {destination}" of its sibling sentences. No quotes: the catalogue has
   no quoting convention, and the class and tier labels are already introduced
-  the same way ("is classed as {class}"). The comment's `{state}` claim was
-  simply wrong — no `state.*` family exists — and is corrected rather than
-  implemented.
-  - **Two siblings with the same defect, left for a later slice.** `{class}` on
+  the same way ("is classed as {class}"). `{state}` had no `state.*` family
+  then; pass 07 added one (below).
+  - **Two siblings with the same defect, closed 2026-10-03 (pass 07).** `{class}` on
     `reason.class_requires_review`: `planner.rs` passes
     `format!("{:?}", unit.class.dominant())` (`GuiApp`, `ThirdPartySourced`)
     where `MANUAL_REVIEW_CLASS` passes `labels::class` (`GUI_APP`).
@@ -4033,8 +4032,19 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     `GUI_APP`; the single-word classes resolve only by coincidence. `{state}`
     on `reason.destination_deprecated`: the planner passes `deprecated` /
     `disabled` where the rules pass `DEPRECATED` / `DISABLED` / `REPLACED`.
-    `docs/schemas/README.md` names both as exceptions to the identifier rule
-    until they are fixed.
+    **Closed:** the planner takes `class` from `labels::class` and `state` from
+    a new `labels::withdrawal_state`, which the two withdrawal rules use too, so
+    every emitter writes one vocabulary; the renderer resolves `{state}` through
+    a new `state.*` family (`disabled`, `deprecated`, `replaced`). A plan on a
+    cask now reads "classed as Application", its `--json` carries `GUI_APP`, and
+    a withdrawal sentence reads "marks bvi disabled" where the rules' value used
+    to print as `DISABLED`. Tests: `crates/cli/tests/reason_params.rs` (both,
+    through the binary, on recordings) and
+    `a_withdrawal_state_is_rendered_through_its_label_never_as_an_identifier`,
+    `every_package_class_has_a_label` in `reasons_catalogue.rs`; proved by
+    mutation (the planner's Debug spelling restored; the `state` family
+    removed). Same compatibility reading as below: a parameter's value
+    spelling, not a field; the README's two exceptions are removed.
   - Compatibility: a reason parameter's *value spelling* is not a field, a type
     or an enumeration value under `docs/schemas/README.md`'s rule — `params` is
     documented as named string rendering inputs — and the same reason id was

@@ -46,7 +46,7 @@ cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` 
 # diagnostic detail the domain attached.
 
 error.usage = "That command line is not valid: {detail}. Run `macportsbrew --help` for the accepted commands and flags."
-error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew providers` to see what was detected and how to add it."
+error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew doctor` to see which providers were detected and where this tool looks for them."
 error.provider_unhealthy = "The provider is present but did not answer correctly: {detail}. Run `macportsbrew doctor` for a full diagnosis before relying on its answers."
 # A recording is not a snapshot: it comes from scripts/capture-fixture.sh and is
 # consumed by --replay. Same exit code 8 as a snapshot - 06-cli-and-ux.md:68 is
@@ -88,9 +88,8 @@ reason.unknown = "Reason {id}."
 # Parameters carrying a stable identifier from the domain are rendered through
 # the matching label before substitution: `{class}` through `class.*`,
 # `{cause}` through `source_build.*`, `{confidence}` and `{threshold}` through
-# `confidence.*`, `{tier}` through `support.*`. `{state}` is not one of them:
-# no `state.*` family exists, so a withdrawal state is printed as the emitter
-# spelled it. A label is a noun-like name, so a sentence introduces it ("at
+# `confidence.*`, `{tier}` through `support.*`, `{state}` through `state.*`.
+# A label is a noun-like name, so a sentence introduces it ("at
 # level {confidence}") rather than using it as an adjective.
 
 reason.class_requires_review = "{package} is classed as {class}, and packages in that class are never migrated automatically. A person decides this one."
@@ -479,6 +478,12 @@ verification.package_absent = "the source no longer reports it installed"
 verification.package_newly_present = "the destination reports it installed and did not before"
 verification.unknown = "a check this build does not recognise, which can never count as satisfied"
 
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.disabled = "disabled"
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.deprecated = "deprecated"
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.replaced = "replaced"
 confidence.none = "None"
 confidence.ambiguous = "Ambiguous"
 confidence.probable = "Probable"

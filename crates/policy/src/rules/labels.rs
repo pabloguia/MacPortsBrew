@@ -47,6 +47,28 @@ pub fn class(value: PackageClass) -> &'static str {
     }
 }
 
+/// Stable text for how a provider has withdrawn a package: `DISABLED` wins
+/// over `DEPRECATED`, and a package only replaced is `REPLACED`.
+///
+/// Three emitters raise a reason with a `state` parameter - the two
+/// withdrawal rules and the planner's destination guard - and the planner
+/// used to spell it in lower case while the rules wrote the identifier. All
+/// take it from here, so the renderer's `state.*` labels see one vocabulary.
+pub fn withdrawal_state(disabled: bool, deprecated: bool) -> &'static str {
+    if disabled {
+        "DISABLED"
+    } else if deprecated {
+        "DEPRECATED"
+    } else {
+        "REPLACED"
+    }
+}
+
+/// Every value [`withdrawal_state`] can produce.
+pub fn withdrawal_state_vocabulary() -> [&'static str; 3] {
+    ["DISABLED", "DEPRECATED", "REPLACED"]
+}
+
 /// Stable text for a mapping confidence.
 pub fn confidence(value: Confidence) -> &'static str {
     match value {

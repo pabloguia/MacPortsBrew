@@ -3,7 +3,7 @@
 //! `MANUAL_REVIEW_DESTINATION_DEPRECATED`: the other side has withdrawn the
 //! equivalent.
 
-use super::PRIORITY_MANUAL_REVIEW;
+use super::{labels, PRIORITY_MANUAL_REVIEW};
 use crate::data::PolicyData;
 use crate::facts::Facts;
 use crate::reasons;
@@ -55,13 +55,7 @@ impl Rule for ManualReviewDestinationDeprecated {
             })
         })?;
 
-        let state = if per.disabled {
-            "DISABLED"
-        } else if per.deprecated {
-            "DEPRECATED"
-        } else {
-            "REPLACED"
-        };
+        let state = labels::withdrawal_state(per.disabled, per.deprecated);
 
         let mut reason = Reason::new(reasons::DESTINATION_DEPRECATED)
             .with("destination", &destination)

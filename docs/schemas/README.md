@@ -56,11 +56,10 @@ needs to be able to read what it agreed to.
   and the rule that emitted it where one did. The consumer renders it, or
   displays the identifier. The `confidence` and `threshold` parameters of
   `reason.mapping_confidence_below_threshold` are `Confidence` identifiers
-  (`NONE` … `EXACT`), whichever rule or planner guard emitted the reason. Not
-  every enumeration-valued parameter is held to that yet: the planner's `class`
-  (on `reason.class_requires_review`) and `state` (on
-  `reason.destination_deprecated`) still carry other spellings than the policy
-  rules' — see SE-064 in `docs/spec-evolution.md`.
+  (`NONE` … `EXACT`), whichever rule or planner guard emitted the reason; a
+  `class` parameter is a class identifier (`GUI_APP`, …), and a `state`
+  parameter a withdrawal state (`DISABLED`, `DEPRECATED`, `REPLACED`), by the
+  same rule (SE-064).
 
 ## Exit codes
 
