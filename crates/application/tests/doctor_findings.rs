@@ -50,6 +50,7 @@ fn provider(id: &str, prefix: &str, arch: Architecture) -> ProviderSnapshot {
         environment: BTreeMap::new(),
         invocation_environment: BTreeMap::new(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
     }
 }
 
@@ -427,4 +428,106 @@ fn what_capture_recorded_catches_the_redaction_shape_the_string_hides() {
         "and the limit: without the field, a USER-shaped prefix is indistinguishable \
          from a directory somebody named USER"
     );
+}
+
+// --- DP-027 (c): a provider's own configuration ------------------------------
+
+fn configured(
+    id: &str,
+    configuration: macportsbrew_domain::ProviderConfiguration,
+) -> ProviderSnapshot {
+    let mut p = provider(id, "/opt/homebrew", Architecture::Arm64);
+    p.configuration = configuration;
+    p
+}
+
+fn file(path: &str, readable: bool, keys: &[&str]) -> macportsbrew_domain::ConfigurationFile {
+    macportsbrew_domain::ConfigurationFile {
+        path: path.into(),
+        scope: macportsbrew_domain::ConfigurationScope::User,
+        readable,
+        keys: keys.iter().map(|k| (*k).to_string()).collect(),
+    }
+}
+
+fn configuration_findings(
+    configuration: macportsbrew_domain::ProviderConfiguration,
+) -> Vec<(String, Severity, String)> {
+    let snap = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/usr/bin"],
+        vec![("homebrew", configured("homebrew", configuration))],
+    );
+    let report = doctor(
+        &snap,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        TODAY,
+    );
+    report
+        .findings
+        .iter()
+        .filter(|f| f.id.starts_with("provider_configuration"))
+        .map(|f| {
+            let detail = format!("{:?}", f.reason.params);
+            (f.id.clone(), f.severity, detail)
+        })
+        .collect()
+}
+
+#[test]
+fn a_configuration_file_setting_a_reviewed_key_is_a_warning_naming_file_and_keys() {
+    let found = configuration_findings(macportsbrew_domain::ProviderConfiguration::Read {
+        files: vec![file(
+            "~/.homebrew/brew.env",
+            true,
+            &["HOMEBREW_NO_ANALYTICS", "HOMEBREW_CACHE"],
+        )],
+    });
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (id, severity, detail) = &found[0];
+    assert_eq!(id, "provider_configuration_outranks");
+    assert_eq!(*severity, Severity::Warning);
+    assert!(
+        detail.contains("~/.homebrew/brew.env")
+            && detail.contains("HOMEBREW_CACHE, HOMEBREW_NO_ANALYTICS"),
+        "{detail}"
+    );
+}
+
+#[test]
+fn an_unreadable_configuration_file_is_a_warning_and_never_a_clean_bill() {
+    let found = configuration_findings(macportsbrew_domain::ProviderConfiguration::Read {
+        files: vec![file("/etc/homebrew/brew.env", false, &[])],
+    });
+    let ids: Vec<&str> = found.iter().map(|f| f.0.as_str()).collect();
+    assert_eq!(ids, ["provider_configuration_unreadable"]);
+    assert_eq!(found[0].1, Severity::Warning);
+}
+
+#[test]
+fn nothing_found_is_said_and_is_the_only_ok() {
+    for configuration in [
+        macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
+        macportsbrew_domain::ProviderConfiguration::Read {
+            files: vec![file("~/.homebrew/brew.env", true, &[])],
+        },
+    ] {
+        let found = configuration_findings(configuration);
+        let ids: Vec<(&str, Severity)> = found.iter().map(|f| (f.0.as_str(), f.1)).collect();
+        assert_eq!(ids, [("provider_configuration_none", Severity::Ok)]);
+    }
+}
+
+#[test]
+fn an_input_that_cannot_say_is_a_warning_that_it_is_unknown() {
+    // An unknown is never a "none" (DP-027; the `path_unknown` precedent).
+    for configuration in [
+        macportsbrew_domain::ProviderConfiguration::Unknowable,
+        macportsbrew_domain::ProviderConfiguration::NotRecorded,
+    ] {
+        let found = configuration_findings(configuration);
+        let ids: Vec<(&str, Severity)> = found.iter().map(|f| (f.0.as_str(), f.1)).collect();
+        assert_eq!(ids, [("provider_configuration_unknown", Severity::Warning)]);
+    }
 }

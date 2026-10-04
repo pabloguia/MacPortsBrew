@@ -626,6 +626,26 @@ the *next* value added, which is the point of adding the tolerant reader now.
 | `reason` | `Reason` | |
 | `blocking` | boolean | A blocking risk means the plan cannot run unattended |
 
+**`provider_configuration`** (since 2026-10-03, DP-027). Raised for the plan's
+source and its destination — whether or not the plan ends up changing the source
+(`--retain-source`) — once per configuration file that sets a key the provider's
+own reader accepts (`reason.provider_configuration_outranks`, parameters
+`provider`, `file`, `keys`) or that exists and could not be read
+(`reason.provider_configuration_unreadable`, `provider`, `file`), and once for a
+present provider whose configuration the input did not record — a replayed
+recording, a snapshot from before the field
+(`reason.provider_configuration_unknown`, `provider`). Key names only; a value is
+never captured. **Not blocking** — the plan is still the plan and still renders —
+but the execution gate refuses every mutating step that would change that
+provider (`PROVIDER_CONFIGURATION`, below), whatever a later build can dispatch:
+nothing an invocation sets can outrank a provider's own configuration (R-15,
+R-16), and `migrate --replay --yes` reaches the gate, so an unknown is refused
+like a finding.
+
+The gate's refusal is `{ "refusal": "PROVIDER_CONFIGURATION", "step": n,
+"provider": id }`, once per mutating step naming that provider, and for a
+mutating step that names no provider whenever any provider carries the risk.
+
 ## Worked example
 
 `macportsbrew plan curl --to macports --json` on a machine with Homebrew and no
@@ -721,9 +741,19 @@ non-mutating and the command exits 4:
         }
       },
       "blocking": true
+    },
+    {
+      "id": "provider_configuration",
+      "reason": {
+        "id": "reason.provider_configuration_unknown",
+        "params": {
+          "provider": "homebrew"
+        }
+      },
+      "blocking": false
     }
   ],
-  "policyVersion": "2026.09.19-3",
+  "policyVersion": "2026.10.03-1",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

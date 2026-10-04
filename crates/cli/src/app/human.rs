@@ -984,6 +984,10 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
             step("migrate.refusal.mutation_not_in_this_build", *s)
         }
         ExecutionRefusal::PlanNotDryRunOnly => label(ctx, "migrate.refusal.plan_not_dry_run_only"),
+        ExecutionRefusal::ProviderConfiguration { step: s, provider } => ctx.messages.render(
+            "migrate.refusal.provider_configuration",
+            &params(&[("step", s.to_string()), ("provider", provider.to_string())]),
+        ),
     }
 }
 

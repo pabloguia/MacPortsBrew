@@ -37,6 +37,110 @@ pub struct ProviderSnapshot {
     /// Resolutions of the executables the inventory names, keyed by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resolutions: BTreeMap<String, Resolution>,
+    /// The provider's own configuration files that can outrank how this tool
+    /// invokes it, and the keys they set (DP-027). Absent from a
+    /// document written before it existed, which reads as
+    /// [`ProviderConfiguration::NotRecorded`].
+    #[serde(
+        default,
+        skip_serializing_if = "ProviderConfiguration::is_not_recorded"
+    )]
+    pub configuration: ProviderConfiguration,
+}
+
+/// What capture established about a provider's own configuration files.
+///
+/// R-15 and R-16 found that each provider reads configuration that applies
+/// over the environment this tool invokes it with: Homebrew exports its
+/// `brew.env` files after it, MacPorts overlays a user `macports.conf` on its
+/// system file. Nothing an invocation sets can win against them, so the answer
+/// DP-027 ruled is to detect them - report on reads, refuse before a mutation.
+/// This is the record of that detection, a capability of any provider rather
+/// than a Homebrew special case (INV-17). Key *names* only: a value can carry a
+/// credential (a proxy URL), and nothing here needs one.
+///
+/// An unknown is never a "none": a recording or a snapshot file of one says
+/// [`Self::Unknowable`], and a document from before this field says
+/// [`Self::NotRecorded`]. Only a capture that read this host says [`Self::Read`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProviderConfiguration {
+    /// Nothing could have read it: the capture was a replay of a recording,
+    /// which carries no files (INV-15).
+    Unknowable,
+    /// The files were looked for on the captured machine. Only the ones that
+    /// exist are listed, so an empty list means none was there.
+    Read {
+        /// Each file that exists, in the provider's reading order.
+        files: Vec<ConfigurationFile>,
+    },
+    /// The capture did not record it - a provider that is not installed, a
+    /// document older than the field, or a state this build does not know,
+    /// from a newer one.
+    #[default]
+    #[serde(other)]
+    NotRecorded,
+}
+
+impl ProviderConfiguration {
+    /// Whether the document carries nothing about it.
+    #[must_use]
+    pub fn is_not_recorded(&self) -> bool {
+        matches!(self, Self::NotRecorded)
+    }
+
+    /// Whether what was read may change how the provider runs: a file sets a
+    /// key, or a file exists that could not be read. `None` when it
+    /// was not read at all, so a caller has to decide what an unknown means
+    /// rather than receive a "no".
+    #[must_use]
+    pub fn outranks(&self) -> Option<bool> {
+        match self {
+            Self::Read { files } => Some(files.iter().any(|f| !f.readable || !f.keys.is_empty())),
+            Self::NotRecorded | Self::Unknowable => None,
+        }
+    }
+}
+
+/// One configuration file that exists.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationFile {
+    /// Where it is, redacted: a `~/...` path never names the home.
+    pub path: String,
+    /// Whose file it is.
+    pub scope: ConfigurationScope,
+    /// Whether it could be read. A file that exists and could not be read is
+    /// an unknown, never an empty file.
+    pub readable: bool,
+    /// Every key the provider's reader accepts from it, by name, in order.
+    /// Values are never kept.
+    #[serde(default)]
+    pub keys: std::collections::BTreeSet<String>,
+}
+
+/// Whose configuration a file is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConfigurationScope {
+    /// The whole machine's (`/etc/...`).
+    System,
+    /// The installation's, under its prefix.
+    Prefix,
+    /// The user's, under the home.
+    User,
+    /// A scope this build does not know, from a newer one.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Whether a configuration key name is one a snapshot may carry: the
+/// characters both providers' readers accept in a key, bounded.
+#[must_use]
+pub fn is_safe_configuration_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_COMPONENT_LEN
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The shell environment as observed, redacted.
@@ -1082,6 +1186,22 @@ impl Snapshot {
                     }
                 }
             }
+            // DP-027: a configuration file's path is shown by `doctor` and in a
+            // plan's risks, and a key name is printed back; capture writes a
+            // path from data and a name that passed this same rule, a file states
+            // whatever it likes.
+            if let ProviderConfiguration::Read { files } = &provider.configuration {
+                for file in files {
+                    if !is_safe_captured_path(&file.path) {
+                        return refuse(&format!("a configuration file of {id}"), &file.path);
+                    }
+                    for key in &file.keys {
+                        if !is_safe_configuration_key(key) {
+                            return refuse(&format!("a configuration key of {id}"), key);
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1176,6 +1296,25 @@ impl Snapshot {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_configuration_state_or_scope_from_a_newer_build_reads_as_an_unknown() {
+        // `docs/schemas/snapshot.v1.md` promises both fallbacks; an unknown
+        // `state` - with or without fields beside it - is not recorded, which
+        // `doctor` and the planner treat as unknown, never as "nothing found".
+        for text in [
+            r#"{"state":"FUTURE"}"#,
+            r#"{"state":"FUTURE","files":[{"path":"~/x","scope":"USER","readable":true}]}"#,
+        ] {
+            let read: ProviderConfiguration = serde_json::from_str(text).expect(text);
+            assert_eq!(read, ProviderConfiguration::NotRecorded, "{text}");
+            assert_eq!(read.outranks(), None);
+        }
+        let file: ConfigurationFile =
+            serde_json::from_str(r#"{"path":"~/x","scope":"FUTURE","readable":true,"keys":["A"]}"#)
+                .expect("an unknown scope");
+        assert_eq!(file.scope, ConfigurationScope::Unknown);
+    }
     use super::*;
 
     /// The premise `planner::command`'s home-installed refusal rests on.
@@ -1319,6 +1458,7 @@ mod tests {
             environment: BTreeMap::new(),
             invocation_environment: BTreeMap::new(),
             resolutions: BTreeMap::new(),
+            configuration: crate::ProviderConfiguration::NotRecorded,
         };
         let with = |key: &str, detected: &str| {
             let mut snapshot = snapshot_with(EnvironmentSnapshot::default());

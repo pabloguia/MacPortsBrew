@@ -82,6 +82,7 @@ fn holding(id: &str, prefix: &str, name: &str, kind: PackageKind) -> ProviderSna
             .into_iter()
             .collect(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
     }
 }
 

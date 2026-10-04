@@ -277,6 +277,38 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         "a symlink on this host was followed for another machine"
     );
 
+    // --- the providers' own configuration (DP-027) --------------------------
+    // Both readers, given files that would answer: the prefix file and the
+    // user file for Homebrew, the user file for MacPorts.
+    let brew_env = root.join("etc/homebrew");
+    std::fs::create_dir_all(&brew_env).unwrap();
+    std::fs::write(brew_env.join("brew.env"), b"HOMEBREW_NO_ANALYTICS=\n").unwrap();
+    std::fs::create_dir_all(home.join(".macports")).unwrap();
+    std::fs::write(home.join(".macports/macports.conf"), b"portdbpath /x\n").unwrap();
+    for provider in ["homebrew", "macports"] {
+        assert_eq!(
+            macportsbrew_adapters::configuration::read(
+                provider,
+                &root,
+                Some(&home),
+                FilesystemScope::Elsewhere
+            ),
+            macportsbrew_domain::ProviderConfiguration::Unknowable,
+            "{provider}'s configuration on this host was read for another machine"
+        );
+        assert_eq!(
+            macportsbrew_adapters::configuration::read(
+                provider,
+                &root,
+                Some(&home),
+                FilesystemScope::ThisMachine
+            )
+            .outranks(),
+            Some(true),
+            "the control: on this machine {provider}'s file is read"
+        );
+    }
+
     // --- the cask receipt ---------------------------------------------------
     // Added when the receipt read landed (DP-012). The point of this test is
     // that it enumerates *every* guarded read; F-25 exists because one was

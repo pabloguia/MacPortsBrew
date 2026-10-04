@@ -53,7 +53,8 @@ use crate::planner::{planned_argv, planned_success};
 use crate::provider_commands;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
-    expectation_for, ErrorId, ExpectationError, MigrationPlan, StepKind, VerificationCheck,
+    expectation_for, ErrorId, ExpectationError, MigrationPlan, ProviderId, StepKind,
+    VerificationCheck,
 };
 use serde::Serialize;
 
@@ -248,6 +249,24 @@ pub enum ExecutionRefusal {
     /// this build that is a plan claiming `dryRunOnly: false` — built by
     /// something that can run mutating steps, so not a plan of this build's.
     PlanNotDryRunOnly,
+    /// A mutating step that would change a provider whose own configuration
+    /// overrides how this tool runs it — the plan carries a
+    /// `provider_configuration` risk naming it (DP-027 (b)).
+    ///
+    /// **Not a refusal about this build.** Unlike
+    /// [`Self::MutationNotInThisBuild`], it holds when mutation lands: nothing
+    /// an invocation sets can outrank a provider's own configuration file
+    /// (R-15, R-16), which is why DP-027 (b) refuses here rather than trusting
+    /// the environment. The risk is raised for a file that sets a key, one that
+    /// could not be read, and a configuration this input could not record - an
+    /// unknown is never a yes. A step with no provider named is refused whenever
+    /// any provider carries the risk, for the same reason.
+    ProviderConfiguration {
+        /// The step.
+        step: u32,
+        /// The provider the risk names.
+        provider: ProviderId,
+    },
 }
 
 impl ExecutionRefusal {
@@ -279,6 +298,7 @@ impl ExecutionRefusal {
             Self::ElevationUnknown { steps } => (first(steps), 19),
             Self::MutationNotInThisBuild { step } => (*step, 20),
             Self::PlanNotDryRunOnly => (0, 21),
+            Self::ProviderConfiguration { step, .. } => (*step, 22),
         }
     }
 }
@@ -547,6 +567,28 @@ pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
     if !THIS_BUILD_DISPATCHES_MUTATIONS {
         if let Some(step) = plan.steps.iter().find(|s| s.kind.is_mutating()) {
             refusals.push(ExecutionRefusal::MutationNotInThisBuild { step: step.index });
+        }
+    }
+    // DP-027 (b). Read from the plan's risks, so the gate still reads nothing
+    // but the plan: the planner reports the configuration it saw, and a step
+    // that would change that provider is refused whatever this build can do.
+    let configured: std::collections::BTreeSet<ProviderId> = plan
+        .risks
+        .iter()
+        .filter(|r| r.id == crate::planner::PROVIDER_CONFIGURATION_RISK)
+        .filter_map(|r| r.reason.params.get("provider"))
+        .map(ProviderId::new)
+        .collect();
+    for step in plan.steps.iter().filter(|s| s.kind.is_mutating()) {
+        let affected: Vec<&ProviderId> = match &step.provider {
+            Some(provider) => configured.iter().filter(|c| *c == provider).collect(),
+            None => configured.iter().collect(),
+        };
+        for provider in affected {
+            refusals.push(ExecutionRefusal::ProviderConfiguration {
+                step: step.index,
+                provider: provider.clone(),
+            });
         }
     }
     // What the planner writes; a plan saying anything else is not this build's.

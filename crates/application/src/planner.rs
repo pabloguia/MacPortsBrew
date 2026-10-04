@@ -28,6 +28,9 @@ pub const REASON_IDS: &[&str] = &[
     "reason.reverse_dependencies_present",
     "reason.destination_deprecated",
     "reason.availability_unknown",
+    "reason.provider_configuration_outranks",
+    "reason.provider_configuration_unreadable",
+    "reason.provider_configuration_unknown",
     "reason.snapshot_before_mutation",
     "reason.add_under_destination",
     "reason.already_under_destination",
@@ -39,6 +42,11 @@ pub const REASON_IDS: &[&str] = &[
     "reason.cleanup_review",
     "reason.record_history",
 ];
+
+/// The id of the risk a provider's own configuration raises (DP-027). Its
+/// reason's `provider` parameter names the provider; the execution gate reads
+/// both to refuse a step that would change it.
+pub const PROVIDER_CONFIGURATION_RISK: &str = "provider_configuration";
 
 /// What the user asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -700,6 +708,63 @@ pub fn plan_outcome(
                 reason: Reason::new("reason.availability_unknown")
                     .with("provider", &request.to)
                     .with("package", &unit.name),
+                blocking: false,
+            });
+        }
+    }
+    // DP-027 (c): a provider whose own configuration overrides how this tool
+    // would run it is reported on the plan, for both sides of it. Not
+    // blocking - the plan is still the plan - but the execution gate refuses
+    // every mutating step against that provider while the risk stands (DP-027
+    // (b)). A present side whose configuration was not read - a replay's
+    // `UNKNOWABLE`, a document from before the field - raises it too, as an
+    // unknown: `migrate --replay --yes` reaches the gate, and an unknown is
+    // never a yes (spec-guardian, 2026-10-04).
+    let mut sides = vec![source.clone(), request.to.clone()];
+    sides.dedup();
+    for side in sides {
+        let Some(snap) = snapshot.providers.get(&side) else {
+            continue;
+        };
+        let reasons: Vec<Reason> = match &snap.configuration {
+            macportsbrew_domain::ProviderConfiguration::Read { files } => files
+                .iter()
+                .filter_map(|file| {
+                    if !file.readable {
+                        Some(
+                            Reason::new("reason.provider_configuration_unreadable")
+                                .with("provider", &side)
+                                .with("file", &file.path),
+                        )
+                    } else if file.keys.is_empty() {
+                        None
+                    } else {
+                        let keys: Vec<&str> = file.keys.iter().map(String::as_str).collect();
+                        Some(
+                            Reason::new("reason.provider_configuration_outranks")
+                                .with("provider", &side)
+                                .with("file", &file.path)
+                                .with("keys", &keys.join(", ")),
+                        )
+                    }
+                })
+                .collect(),
+            macportsbrew_domain::ProviderConfiguration::Unknowable
+            | macportsbrew_domain::ProviderConfiguration::NotRecorded => {
+                if matches!(snap.detection.presence, ProviderPresence::Present) {
+                    vec![Reason::new("reason.provider_configuration_unknown")
+                        .with("provider", &side)]
+                } else {
+                    // An absent destination is its own blocking risk, and an
+                    // absent provider is never run.
+                    Vec::new()
+                }
+            }
+        };
+        for reason in reasons {
+            risks.push(PlanRisk {
+                id: PROVIDER_CONFIGURATION_RISK.into(),
+                reason,
                 blocking: false,
             });
         }
@@ -1367,6 +1432,7 @@ mod tests {
             environment: BTreeMap::new(),
             invocation_environment: BTreeMap::new(),
             resolutions: BTreeMap::new(),
+            configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
         }
     }
 

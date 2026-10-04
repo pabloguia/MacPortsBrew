@@ -35,6 +35,7 @@ the adapter can observe; add one for what it cannot.
 | `policy.toml` | The manifest: `version` (the policy version every recommendation carries) and `stale_after_days` |
 | `provider-support.toml` | Support tier, published end date, prebuilt-artifact availability, per architecture and macOS range |
 | `provider-prefixes.toml` | Where each provider installs, in detection order. Read by `crates/adapters/src/prefixes.rs`, not by `application` — the loader is in the layer that needs it |
+| `provider-configuration.toml` | Which configuration files each provider reads over the environment this tool invokes it with, and how a line names a key (DP-027). Read by `crates/adapters/src/configuration.rs` |
 | `curated-mappings.toml` | Package equivalences the heuristics miss |
 | `provider-commands.toml` | Provider verbs and per-operation elevation |
 | `bottle-tags.toml` | Which prebuilt-artifact tags satisfy a machine |

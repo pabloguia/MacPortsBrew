@@ -548,8 +548,8 @@ change is made. Silent deviation remains the one unrecoverable error.
      reach: that fetch on a warm cache; Homebrew's analytics — which a user
      who configures it is asking *Homebrew* for, against which
      `06-cli-and-ux.md`'s "no telemetry" MUST and the README promise are
-     about this tool's own reporting, an argument DP-027 leaves to the owner
-     because the promise is public — and, through the deprecated
+     about this tool's own reporting, an argument now DP-028's, open — and,
+     through the deprecated
      `HOMEBREW_NO_REQUIRE_TAP_TRUST`, untrusted tap Ruby loaded by `info
      --installed`; a browser stays unreachable (`--github` is off every read
      list) and a formula from a path stays closed by the argument-shape clause,
@@ -557,12 +557,60 @@ change is made. Silent deviation remains the one unrecoverable error.
      mutating step, a blanked `HOMEBREW_NO_AUTO_UPDATE` makes `install` and
      `upgrade` update first. Since no variable can win, closing it means
      detection, relocation of the user's configuration directory, or
-     acceptance, each spending something of the user's — DP-027, with
-     acceptance for reads as the reversible default and no mutating step
-     relying on the environment meanwhile. `04-migration-and-safety.md`
-     (Process execution) and `quiet_environment`'s documentation now say so;
-     the same sentence in `.claude/rules/adapters.md` is a guarded path, owed
-     to the owner. The public surfaces said the absolute — `06-cli-and-ux.md`'s
+     acceptance, each spending something of the user's — DP-027. **Ruled
+     2026-10-03, (b) for mutation and (c) for reads, and implemented in pass
+     07:** capture records, per present provider, which configuration files
+     that can outrank the invocation exist and **every key the provider's own
+     reader would accept from them** — names only, never values
+     (`ProviderSnapshot.configuration`, `crates/adapters/src/configuration.rs`,
+     the files and line syntax dated data in
+     `data/policy/provider-configuration.toml`); a replay records `UNKNOWABLE`.
+     `doctor` reports it per provider (`provider_configuration_*`), a plan
+     carries a non-blocking `provider_configuration` risk for each side — for a
+     file that sets a key, one that cannot be read, and a present provider whose
+     configuration the input did not record — and the execution gate refuses
+     every mutating step against such a provider (`PROVIDER_CONFIGURATION`): a
+     refusal about the machine, not about this build, so it holds when mutation
+     lands. **A deliberate widening of the ruled option (b), recorded here.**
+     DP-027's recommendation named "a reviewed list" of keys; the first
+     implementation kept one, and both reviewers (security-reviewer and
+     spec-guardian, 2026-10-04) showed what a denylist does — `SUDO_ASKPASS`,
+     `HOMEBREW_XDG_CONFIG_HOME` (which relocates the user file this reader then
+     never sees), `HOMEBREW_NO_INSTALL_FROM_API` and
+     `HOMEBREW_SYSTEM_ENV_TAKES_PRIORITY`, all on R-15's own minimum list,
+     passed as "nothing found"; so did `KEY+=value` (bash exports it as `KEY`)
+     and a MacPorts key after a lone carriage return (Tcl `gets` ends a line
+     there). Now any accepted key counts, `+=` is read as the key, lines split as
+     each provider splits them, a key that cannot be named makes the file
+     unreadable, a provider absent from the data is `NOT_RECORDED`, and an
+     unknown travels as a risk because `migrate --replay --yes` reaches the gate.
+     The cost the ruling named grows with it: a user with *any* setting in a
+     `brew.env` — a GitHub token, say — has a mutation against Homebrew refused,
+     with `doctor` naming the setting. That is the conservative reading of (b),
+     and the owner may narrow it by naming keys that do not outrank anything. The same mechanism covers
+     MacPorts' user `macports.conf` (R-16): one provider capability, INV-17.
+     Tests: `crates/adapters/src/configuration.rs` (reading, replay, absent,
+     unreadable, no home, values never kept), `doctor_findings.rs`,
+     `planner_refusals.rs` and `execution_gate.rs` (both sides),
+     `crates/cli/tests/provider_configuration.rs` (end to end from a snapshot,
+     and the loader refusing a hostile key or path),
+     `invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk`
+     (both readers, `UNKNOWABLE` under `Elsewhere`, read under `ThisMachine`),
+     the mirror direction in `planner_refusals.rs`, and the schema fallbacks in
+     the domain; the reader's tests root absolute paths in a scratch tree, so
+     none reads this host's `/etc`. Proved by mutation (the gate's push, the
+     planner's push, the loader's key check and the replay early return each
+     removed). **Not closed:** detection is a read before the provider's own, so
+     a file changed between capture and an invocation is a check-then-use
+     window the mutating pass must close by re-reading immediately before a
+     step; the line syntax is each provider's reader as read on the dated
+     source, re-read at each provider version; an elevated `port` may take its
+     home from `SUDO_USER` rather than the `HOME` capture read (R-16); and the
+     survey of which keys steer a mutating install, owed by DP-027, now matters
+     only for narrowing the refusal, since every key already refuses.
+     `04-migration-and-safety.md` (Process execution) and
+     `quiet_environment`'s documentation say what the environment does not
+     bind; `.claude/rules/adapters.md` now does too. The public surfaces said the absolute — `06-cli-and-ux.md`'s
      "no telemetry" and "works with no network" MUSTs, README's Privacy
      section, the FAQ, Home and Architecture wiki pages — and now say that the
      tool itself sends nothing while Homebrew, asked to read, may fetch its

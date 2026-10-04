@@ -59,9 +59,16 @@ mutating pass already refuses under DP-027 (b). **Reversible default taken:**
 - **Ruled 2026-10-03 by the owner**, adopting the recommendation below:
   **(b) detect and refuse** before a mutating step, **(c) detect and report**
   on reads, and **not (a)**. To be implemented in pass 07
-  (`../prompts/07-owner-rulings-and-housekeeping.md`, order of work item 6);
-  until that slice lands, the reversible default below — (d) for reads —
-  stays in force, and SE-016 records the ruling with the slice.
+  (`../prompts/07-owner-rulings-and-housekeeping.md`, order of work item 6),
+  recorded in SE-016.
+- **Implemented 2026-10-04, wider than the recommendation's wording, and the
+  owner may narrow it.** The recommendation named "a reviewed list" of keys;
+  review showed a list lets keys R-15 itself flags (`SUDO_ASKPASS`,
+  `HOMEBREW_XDG_CONFIG_HOME`, …) pass as "nothing found", so every key a
+  provider's reader accepts now counts, and an unrecorded configuration is
+  refused as an unknown. Its cost: any setting in a `brew.env` (a GitHub token,
+  say) refuses a mutation against Homebrew, with `doctor` naming it. Narrowing
+  means naming keys that do not outrank anything. SE-016 holds the detail.
 - **The two questions above the specification are not settled by this
   ruling.** They are DP-028, open, with the agent's recommendation.
 - **Obligations carried:** the survey of keys that steer a mutating install

@@ -142,8 +142,9 @@ pub const QUIETING_KEYS: &[&str] = &[
 /// API data when Homebrew's cache is missing, and a `brew.env` in
 /// `/etc/homebrew/`, the prefix or the user's configuration directory is
 /// exported after this environment, so a line there outranks or deletes any
-/// of these keys. No variable turns the files off; DP-027 holds the answer a
-/// mutating step owes.
+/// of these keys. No variable turns the files off, so capture records which
+/// of those files set a reviewed key ([`crate::configuration`]), and the
+/// execution gate refuses a mutating step against them (DP-027).
 pub fn quiet_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
     let mut extra = BTreeMap::new();
     for key in QUIETING_KEYS {
@@ -1017,6 +1018,18 @@ impl ProviderRead for HomebrewAdapter<'_> {
             },
             invocation_environment: self.environment.clone(),
             resolutions: BTreeMap::new(),
+            // Only for a provider that is here: an absent one is never
+            // invoked, so nothing of its configuration can outrank anything.
+            configuration: if present {
+                crate::configuration::read(
+                    PROVIDER_ID,
+                    &self.prefix,
+                    self.home.as_deref(),
+                    self.filesystem,
+                )
+            } else {
+                macportsbrew_domain::ProviderConfiguration::NotRecorded
+            },
         })
     }
 }

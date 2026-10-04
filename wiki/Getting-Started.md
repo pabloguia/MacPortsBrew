@@ -52,7 +52,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 packages in the default view; 15 need manual review. Policy 2026.09.19-3.
+56 packages in the default view; 15 need manual review. Policy 2026.10.03-1.
 Ownership is unknown for 10 row(s): the provider kept no record, or this analysis could not read one.
 ```
 
@@ -96,7 +96,7 @@ rules that were considered and did not fire**, and the mapping evidence.
 ```
 curl (held by homebrew)
   Recommendation: Needs a human decision
-  Policy version: 2026.09.19-3
+  Policy version: 2026.10.03-1
 
 Facts the policy engine read
   ...
@@ -151,7 +151,7 @@ any command on this page.
 nothing, because this build is always a dry run, never prompts, makes no
 network call of its own and has no cache. They exist so a script written today
 keeps working. `--no-network` does not stop Homebrew, asked to read, fetching
-its catalogue on an empty cache (DP-027).
+its catalogue on an empty cache (DP-028, open).
 
 ## Where to go next
 

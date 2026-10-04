@@ -96,6 +96,7 @@ fn provider(id: &str, prefix: &str, packages: &[Pkg]) -> ProviderSnapshot {
             .into_iter()
             .collect(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
     }
 }
 
@@ -225,7 +226,8 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::Expectation { step, .. }
         | ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step }
         | ExecutionRefusal::CommandIsNotThePlannersRead { step }
-        | ExecutionRefusal::MutationNotInThisBuild { step } => *step,
+        | ExecutionRefusal::MutationNotInThisBuild { step }
+        | ExecutionRefusal::ProviderConfiguration { step, .. } => *step,
         ExecutionRefusal::Placeholder { steps }
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
@@ -1239,5 +1241,116 @@ fn the_minimal_plan_the_gate_accepts() {
     assert_eq!(
         serde_json::to_value(&report).unwrap(),
         serde_json::json!({ "refusals": [] })
+    );
+}
+
+// --- DP-027 (b): a provider's own configuration ------------------------------
+
+/// The risk the planner writes when a provider's configuration overrides how
+/// this tool runs it (`planner::PROVIDER_CONFIGURATION_RISK`).
+fn configuration_risk(provider: &str) -> macportsbrew_domain::PlanRisk {
+    macportsbrew_domain::PlanRisk {
+        id: macportsbrew_application::planner::PROVIDER_CONFIGURATION_RISK.into(),
+        reason: macportsbrew_domain::Reason::new("reason.provider_configuration_outranks")
+            .with("provider", &provider)
+            .with("file", &"~/.homebrew/brew.env")
+            .with("keys", &"HOMEBREW_NO_ANALYTICS"),
+        blocking: false,
+    }
+}
+
+fn configuration_refusals(report: &GateReport) -> Vec<(u32, String)> {
+    report
+        .refusals()
+        .iter()
+        .filter_map(|r| match r {
+            ExecutionRefusal::ProviderConfiguration { step, provider } => {
+                Some((*step, provider.to_string()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_plan_with_no_configuration_risk_draws_no_configuration_refusal() {
+    assert!(configuration_refusals(&execution_refusals(&full_plan())).is_empty());
+}
+
+#[test]
+fn a_step_that_changes_a_provider_whose_configuration_overrides_this_tool_is_refused() {
+    // The destination's configuration: every mutating step naming it is
+    // refused, and no step naming only the source.
+    let mut plan = full_plan();
+    let to = plan.destination.to_string();
+    plan.risks.push(configuration_risk(&to));
+    let report = execution_refusals(&plan);
+    assert_refused(&report);
+    let refused = configuration_refusals(&report);
+    let expected: Vec<(u32, String)> = plan
+        .steps
+        .iter()
+        .filter(|s| s.kind.is_mutating())
+        .filter(|s| s.provider.as_ref().is_none_or(|p| p.to_string() == to))
+        .map(|s| (s.index, to.clone()))
+        .collect();
+    assert!(!expected.is_empty(), "the plan changes the destination");
+    assert_eq!(refused, expected);
+    assert!(refused
+        .iter()
+        .any(|(step, _)| *step == index_of(&plan, StepKind::AddDestination)));
+}
+
+#[test]
+fn invariant_17_the_source_side_is_refused_the_same_way() {
+    let mut plan = full_plan();
+    let from = plan.source.to_string();
+    plan.risks.push(configuration_risk(&from));
+    let refused = configuration_refusals(&execution_refusals(&plan));
+    assert!(
+        refused
+            .iter()
+            .any(|(step, p)| *step == index_of(&plan, StepKind::RemoveSource) && *p == from),
+        "{refused:?}"
+    );
+    assert!(
+        !refused
+            .iter()
+            .any(|(step, _)| *step == index_of(&plan, StepKind::AddDestination)),
+        "the destination's step is not the source's: {refused:?}"
+    );
+}
+
+#[test]
+fn a_configuration_risk_on_a_provider_the_plan_does_not_change_refuses_nothing_of_its_own() {
+    let mut plan = full_plan();
+    plan.risks.push(configuration_risk("pkgsrc"));
+    let refused = configuration_refusals(&execution_refusals(&plan));
+    // Only a mutating step with no provider named is refused for it.
+    assert!(
+        refused.iter().all(|(step, _)| plan
+            .steps
+            .iter()
+            .any(|s| s.index == *step && s.provider.is_none())),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn an_unknown_configuration_risk_is_refused_like_a_found_one() {
+    let mut plan = full_plan();
+    let to = plan.destination.to_string();
+    plan.risks.push(macportsbrew_domain::PlanRisk {
+        id: macportsbrew_application::planner::PROVIDER_CONFIGURATION_RISK.into(),
+        reason: macportsbrew_domain::Reason::new("reason.provider_configuration_unknown")
+            .with("provider", &to),
+        blocking: false,
+    });
+    let refused = configuration_refusals(&execution_refusals(&plan));
+    assert!(
+        refused
+            .iter()
+            .any(|(step, p)| *step == index_of(&plan, StepKind::AddDestination) && *p == to),
+        "{refused:?}"
     );
 }

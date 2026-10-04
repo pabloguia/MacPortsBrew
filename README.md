@@ -144,7 +144,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 packages in the default view; 15 need manual review. Policy 2026.09.19-3.
+56 packages in the default view; 15 need manual review. Policy 2026.10.03-1.
 Ownership is unknown for 10 row(s): the provider kept no record, or this analysis could not read one.
 ```
 
@@ -264,8 +264,13 @@ guessing. MacPortsBrew itself sends nothing. The reads it asks Homebrew for are 
 with Homebrew's update, analytics and hint switches off, but Homebrew still
 downloads its package catalogue when its own cache is empty, and a `brew.env`
 file in Homebrew's configuration can switch its analytics and network fetches
-back on for those reads; what this tool should do about that is an open
-decision ([DP-027](docs/decisions-pending.md), [R-15](docs/research/R-15-homebrew-brew-env.md)). `doctor --report` writes a redacted diagnostic file locally — never
+back on for those reads. `doctor` tells you when such a file sets anything —
+it names the file and the settings, never their values — and the same goes for
+a MacPorts
+`~/.macports/macports.conf`; a migration step against a provider configured
+that way is refused ([DP-027](docs/decisions-pending.md),
+[R-15](docs/research/R-15-homebrew-brew-env.md),
+[R-16](docs/research/R-16-macports-user-configuration.md)). `doctor --report` writes a redacted diagnostic file locally — never
 usernames, home paths, environment variable values or tokens — which you read
 and choose to share; MacPortsBrew never uploads it.
 

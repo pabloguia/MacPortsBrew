@@ -140,9 +140,10 @@ alignment. This is tested with the pseudolocale and with CJK fixtures.
 **Not met in one respect, recorded rather than relied on (R-15, 2026-10-02):**
 this tool reports nothing, but a `brew.env` in Homebrew's configuration can
 switch Homebrew's own analytics back on for the reads this tool asks of it,
-and Homebrew downloads its catalogue on an empty cache. Whether the tool
-detects, refuses or merely discloses that is DP-027; README and wiki say so
-(SE-016 item 3).
+and Homebrew downloads its catalogue on an empty cache. The tool detects and
+discloses the first (`doctor`, a plan's risks; DP-027), and refuses a mutation
+under it; whether that disclosure meets this MUST is DP-028, open. README and
+wiki say so (SE-016 item 3).
 
 **MUST.** `doctor --report` writes a redacted local diagnostic file the user can
 attach to an issue: versions, architecture, macOS version, provider prefixes,

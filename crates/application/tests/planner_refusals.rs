@@ -103,6 +103,7 @@ fn holding(id: &str, prefix: &str, names: &[(&str, Option<&str>)]) -> ProviderSn
             .into_iter()
             .collect(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
     }
 }
 
@@ -878,4 +879,141 @@ fn the_planners_mapping_confidence_params_are_confidence_identifiers() {
             "{expected} is a Confidence identifier"
         );
     }
+}
+
+// --- DP-027 (c): a provider's own configuration on the plan ------------------
+
+fn with_configuration(mut snap: Snapshot, provider: &str, keys: &[&str]) -> Snapshot {
+    snap.providers
+        .get_mut(&ProviderId::new(provider))
+        .expect("present")
+        .configuration = macportsbrew_domain::ProviderConfiguration::Read {
+        files: vec![macportsbrew_domain::ConfigurationFile {
+            path: "~/.config-file".into(),
+            scope: macportsbrew_domain::ConfigurationScope::User,
+            readable: true,
+            keys: keys.iter().map(|k| (*k).to_string()).collect(),
+        }],
+    };
+    snap
+}
+
+fn configuration_risks(snap: &Snapshot, package: &str, to: &str) -> Vec<(String, bool)> {
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let plan = build_plan(
+        snap,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: package.to_string(),
+            to: ProviderId::new(to),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .expect("a plan");
+    plan.risks
+        .iter()
+        .filter(|r| r.id == macportsbrew_application::planner::PROVIDER_CONFIGURATION_RISK)
+        .map(|r| {
+            (
+                r.reason.params.get("provider").cloned().unwrap_or_default(),
+                r.blocking,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_provider_whose_configuration_overrides_this_tool_is_a_non_blocking_plan_risk() {
+    let snap = with_configuration(
+        both(&[("wget", None)], &[("curl", None)]),
+        HB,
+        &["HOMEBREW_NO_ANALYTICS"],
+    );
+    assert_eq!(
+        configuration_risks(&snap, "wget", MP),
+        vec![(HB.to_string(), false)]
+    );
+}
+
+#[test]
+fn invariant_17_the_destination_side_raises_it_too() {
+    let snap = with_configuration(
+        both(&[("wget", None)], &[("curl", None)]),
+        MP,
+        &["portdbpath"],
+    );
+    assert_eq!(
+        configuration_risks(&snap, "wget", MP),
+        vec![(MP.to_string(), false)]
+    );
+}
+
+#[test]
+fn a_configuration_file_that_sets_no_key_raises_nothing() {
+    let snap = with_configuration(both(&[("wget", None)], &[("curl", None)]), HB, &[]);
+    assert!(configuration_risks(&snap, "wget", MP).is_empty());
+}
+
+#[test]
+fn a_configuration_nobody_could_read_is_an_unknown_on_the_plan() {
+    // A recording's answer. `migrate --replay --yes` reaches the gate, so the
+    // unknown travels as a risk the gate refuses from (spec-guardian,
+    // 2026-10-04); an unknown is never a yes.
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    for state in [
+        macportsbrew_domain::ProviderConfiguration::Unknowable,
+        macportsbrew_domain::ProviderConfiguration::NotRecorded,
+    ] {
+        let mut snap = both(&[("wget", None)], &[("curl", None)]);
+        snap.providers
+            .get_mut(&ProviderId::new(HB))
+            .expect("present")
+            .configuration = state.clone();
+        let plan = build_plan(
+            &snap,
+            &policy,
+            &AnalysisOptions::default(),
+            &PlanRequest {
+                package: "wget".to_string(),
+                to: ProviderId::new(MP),
+                retain_source: false,
+            },
+            &known(),
+        )
+        .expect("a plan");
+        let unknown: Vec<&str> = plan
+            .risks
+            .iter()
+            .filter(|r| r.id == macportsbrew_application::planner::PROVIDER_CONFIGURATION_RISK)
+            .map(|r| r.reason.id.as_str())
+            .collect();
+        assert_eq!(
+            unknown,
+            ["reason.provider_configuration_unknown"],
+            "{state:?}"
+        );
+    }
+}
+
+#[test]
+fn invariant_17_the_mirror_direction_raises_it_on_both_sides() {
+    // MacPorts to Homebrew: the source's configuration and the destination's
+    // each raise their own risk, exactly as in the other direction.
+    let snap = with_configuration(
+        with_configuration(
+            both(&[("wget", None)], &[("curl", None)]),
+            MP,
+            &["portdbpath"],
+        ),
+        HB,
+        &["HOMEBREW_CACHE"],
+    );
+    let mut risks = configuration_risks(&snap, "curl", HB);
+    risks.sort();
+    assert_eq!(
+        risks,
+        vec![(HB.to_string(), false), (MP.to_string(), false)]
+    );
 }

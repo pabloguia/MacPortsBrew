@@ -94,6 +94,9 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                         ),
                     Some(id.clone()),
                 );
+                for (finding, severity, reason) in configuration_findings(id, &p.configuration) {
+                    add(finding, severity, reason, Some(id.clone()));
+                }
                 if let Some(prefix) = &p.detection.prefix {
                     let text = prefix.to_string_lossy().into_owned();
                     // F-48. `planner::command` refuses to build a step whose
@@ -469,4 +472,57 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
         policy_version: policy.version().to_string(),
         findings,
     }
+}
+
+/// What `doctor` says about a present provider's own configuration files
+/// (DP-027 (c): detect and report on reads).
+///
+/// A file that sets a key, or that exists and could not be read, is a
+/// warning naming the file and the keys - never their values, which capture
+/// does not keep. Nothing found is said, so a clean machine reads as checked
+/// rather than as silence. An input that carries no record of the files - a
+/// replayed recording, a snapshot from before the field - is a warning that it
+/// is unknown, never the "nothing found" a reader would take it for.
+fn configuration_findings(
+    id: &ProviderId,
+    configuration: &macportsbrew_domain::ProviderConfiguration,
+) -> Vec<(&'static str, Severity, Reason)> {
+    use macportsbrew_domain::ProviderConfiguration;
+    let ProviderConfiguration::Read { files } = configuration else {
+        return vec![(
+            "provider_configuration_unknown",
+            Severity::Warning,
+            Reason::new("doctor.provider_configuration_unknown").with("provider", id),
+        )];
+    };
+    let mut out = Vec::new();
+    for file in files {
+        if !file.readable {
+            out.push((
+                "provider_configuration_unreadable",
+                Severity::Warning,
+                Reason::new("doctor.provider_configuration_unreadable")
+                    .with("provider", id)
+                    .with("file", &file.path),
+            ));
+        } else if !file.keys.is_empty() {
+            let keys: Vec<&str> = file.keys.iter().map(String::as_str).collect();
+            out.push((
+                "provider_configuration_outranks",
+                Severity::Warning,
+                Reason::new("doctor.provider_configuration_outranks")
+                    .with("provider", id)
+                    .with("file", &file.path)
+                    .with("keys", &keys.join(", ")),
+            ));
+        }
+    }
+    if out.is_empty() {
+        out.push((
+            "provider_configuration_none",
+            Severity::Ok,
+            Reason::new("doctor.provider_configuration_none").with("provider", id),
+        ));
+    }
+    out
 }

@@ -87,6 +87,7 @@ fn snapshot_with(requested: Option<bool>) -> Snapshot {
                 environment: BTreeMap::new(),
                 invocation_environment: BTreeMap::new(),
                 resolutions: BTreeMap::new(),
+                configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
             },
         )]
         .into_iter()

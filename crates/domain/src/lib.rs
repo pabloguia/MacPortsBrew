@@ -61,11 +61,12 @@ pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
 pub use resolution::{ExecutableOwner, Resolution};
 pub use snapshot::{
-    is_build_flag, is_safe_captured_path, is_safe_path, is_safe_provider_name,
-    is_safe_provider_text, is_safe_provider_version, path_starts_with_insensitive, redact_home,
+    is_build_flag, is_safe_captured_path, is_safe_configuration_key, is_safe_path,
+    is_safe_provider_name, is_safe_provider_text, is_safe_provider_version,
+    path_starts_with_insensitive, redact_home, ConfigurationFile, ConfigurationScope,
     EnvironmentSnapshot, HomeRedaction, PathFinding, PathFindingKind, Provenance,
-    ProviderEnvironmentContract, ProviderSnapshot, Snapshot, MAX_PATH_LEN, MAX_TEXT_LEN,
-    PINNED_ENVIRONMENT, SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
+    ProviderConfiguration, ProviderEnvironmentContract, ProviderSnapshot, Snapshot, MAX_PATH_LEN,
+    MAX_TEXT_LEN, PINNED_ENVIRONMENT, SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use text::{

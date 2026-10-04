@@ -124,6 +124,7 @@ fn provider(
             .into_iter()
             .collect(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
     }
 }
 

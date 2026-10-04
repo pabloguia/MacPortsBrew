@@ -61,6 +61,22 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `running_translated` | `WARNING` | `doctor.running_translated` | — |
 | `command_line_tools` | `OK`, `WARNING` or `ERROR` | `doctor.command_line_tools_present` / `_missing` / `_unknown` | — |
 | `policy_stale` | `WARNING` | (policy staleness) | the read date and the threshold |
+| `provider_configuration_none` | `OK` | `doctor.provider_configuration_none` | `provider` |
+| `provider_configuration_outranks` | `WARNING` | `doctor.provider_configuration_outranks` | `provider`, `file`, `keys` |
+| `provider_configuration_unreadable` | `WARNING` | `doctor.provider_configuration_unreadable` | `provider`, `file` |
+| `provider_configuration_unknown` | `WARNING` | `doctor.provider_configuration_unknown` | `provider` |
+
+**A provider's own configuration is reported, per present provider** (DP-027,
+since 2026-10-03). Homebrew applies its `brew.env` files and MacPorts a user
+`macports.conf` over the environment this tool runs them with, and nothing the
+tool sets can win (R-15, R-16). Which files are looked for and how a line is
+read is dated data, `data/policy/provider-configuration.toml`. A file setting
+any key the provider's reader accepts, or one that exists and cannot be read, or
+whose key cannot be named, is a `WARNING` naming the
+file and the key names — never a value. Nothing found is an `OK`. An input that
+does not record the files — a replay, or a snapshot taken before they were
+recorded — is a `WARNING` that it is unknown, never the `OK` it could be mistaken
+for.
 
 **An `ERROR` is a search path somebody other than this user decides.** A
 world-writable directory ahead of the system ones means any account on the
@@ -122,7 +138,7 @@ it, and makes no network call that reports anything about the user.**
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.09.19-3",
+  "policyVersion": "2026.10.03-1",
   "findings": [
     {
       "id": "path_unknown",
@@ -130,6 +146,17 @@ it, and makes no network call that reports anything about the user.**
       "reason": {
         "id": "doctor.path_unknown"
       }
+    },
+    {
+      "id": "provider_configuration_unknown",
+      "severity": "WARNING",
+      "reason": {
+        "id": "doctor.provider_configuration_unknown",
+        "params": {
+          "provider": "homebrew"
+        }
+      },
+      "provider": "homebrew"
     },
     {
       "id": "provider_support_degraded",

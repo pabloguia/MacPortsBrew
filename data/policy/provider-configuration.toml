@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Provider configuration that can outrank how this tool invokes a provider
+# (DP-027, ruled 2026-10-03; INV-17, INV-20).
+#
+# Each entry names the files a provider reads *as this tool invokes it* - with
+# the sanitised environment of `crates/adapters/src/process/environment.rs`,
+# which sets `HOME` and nothing XDG - and how a line in them names a key. A path
+# is either absolute, `{prefix}/...` (the detected installation prefix) or
+# `~/...` (the home this tool passes the provider).
+#
+# `syntax` mirrors the provider's own reader:
+#   ENV_ASSIGNMENT  - Homebrew's `bin/brew` `export_homebrew_env_file`: `read -r`
+#                     lines starting HOMEBREW_, SUDO_ASKPASS= or a proxy
+#                     variable, exported as written, so the key is what
+#                     precedes `=` (or `+=`).
+#   WORD_VALUE      - MacPorts' `macports.tcl` reader over Tcl `gets` lines (a
+#                     line ends at \n, \r\n or a lone \r):
+#                     `^(\w+)([ \t]+(.*))?$`, the key being the word.
+#
+# EVERY key a provider's reader accepts from these files is recorded, by name,
+# and any one makes a mutating step against that provider refused (DP-027 (b))
+# and is reported on reads (DP-027 (c)). The first version kept a reviewed list
+# instead, and review found it let SUDO_ASKPASS and HOMEBREW_XDG_CONFIG_HOME
+# through as "nothing found" (2026-10-04, SE-016). Values are never recorded.
+
+[[entry]]
+provider = "homebrew"
+syntax = "ENV_ASSIGNMENT"
+files = [
+  { path = "/etc/homebrew/brew.env", scope = "SYSTEM" },
+  { path = "{prefix}/etc/homebrew/brew.env", scope = "PREFIX" },
+  { path = "~/.homebrew/brew.env", scope = "USER" },
+]
+source = "https://github.com/Homebrew/brew/blob/master/bin/brew (export_homebrew_env_file, lines 128-181 at Homebrew 7.0.4); docs/research/R-15-homebrew-brew-env.md"
+read_on = "2026-10-02"
+note = """
+This tool's environment sets neither `XDG_CONFIG_HOME` nor
+`HOMEBREW_XDG_CONFIG_HOME`, so `bin/brew` takes the user file from
+`${HOME}/.homebrew` - unless the system or prefix file, which it exports first,
+sets `HOMEBREW_XDG_CONFIG_HOME`. That line is itself a recorded key, so the
+relocation is reported and refused even though the relocated file is not read.
+The system file is read again last when it sets
+HOMEBREW_SYSTEM_ENV_TAKES_PRIORITY; the order changes which value wins, not
+which keys are set.
+"""
+
+[[entry]]
+provider = "macports"
+syntax = "WORD_VALUE"
+files = [
+  # The system file is the baseline every key starts from and is root-owned
+  # (R-16): it does not outrank anything this tool sets, so it is not listed.
+  { path = "~/.macports/macports.conf", scope = "USER" },
+]
+source = "/opt/local/libexec/macports/lib/macports1.0/macports.tcl lines 53-73 and 1157-1199, MacPorts 2.12.6; docs/research/R-16-macports-user-configuration.md"
+read_on = "2026-10-03"
+note = """
+`user.conf` is opened by MacPorts 2.12.6 but accepts no key (R-16), so it is not
+listed. `PORTSRC` names a further file, but this tool never passes it.
+"""

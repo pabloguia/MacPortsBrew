@@ -62,8 +62,11 @@ marking network-dependent facts `UNKNOWN` rather than guessing. Homebrew,
 which it asks to read, is another matter: it downloads its package catalogue
 when its own cache is empty, and a `brew.env` file in Homebrew's configuration
 can switch Homebrew's analytics and network fetches back on for those reads.
-What this tool should do about that is an open decision (DP-027 in the
-repository's `docs/decisions-pending.md`).
+`doctor` tells you when such a file sets one of the settings this tool reviews
+(it names the file and the setting, never the value), and does the same for a
+MacPorts `~/.macports/macports.conf`; a migration step against a provider
+configured that way is refused (DP-027 in the repository's
+`docs/decisions-pending.md`).
 
 `doctor --report` writes a **local** redacted file — no usernames, home paths,
 environment variable values or tokens — which you read and choose to share.
@@ -153,7 +156,7 @@ index on a recorded date.
 ## What is the "policy version"?
 
 The identifier of the dated provider facts a recommendation was computed from —
-`2026.09.19-3`. It is stamped on every recommendation and carried in every
+`2026.10.03-1`. It is stamped on every recommendation and carried in every
 `--json` payload, so an answer is always attributable to a specific set of
 facts. It moves independently of the tool version, because the tool changing
 and what it believes about a provider changing are different events.

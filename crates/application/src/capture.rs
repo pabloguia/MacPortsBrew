@@ -191,6 +191,14 @@ fn redact_provider(snap: &mut ProviderSnapshot, home: &HomeRedaction) {
         redact_option_path(&mut resolution.path, home);
         redact_option_path(&mut resolution.canonical_path, home);
     }
+    // A configuration file under a prefix that is itself under the home - a
+    // Homebrew installed in the user's directory (DP-021) - is named by that
+    // prefix. A `~/` file is already written without the home.
+    if let macportsbrew_domain::ProviderConfiguration::Read { files } = &mut snap.configuration {
+        for file in files {
+            file.path = redact_home(&file.path, home);
+        }
+    }
 }
 
 /// Redacts in place, and answers whether that changed anything.
@@ -245,6 +253,7 @@ fn broken(provider: &ProviderId, error: &DomainError) -> ProviderSnapshot {
         environment: BTreeMap::new(),
         invocation_environment: BTreeMap::new(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
     }
 }
 
@@ -326,6 +335,7 @@ mod tests {
             environment: BTreeMap::new(),
             invocation_environment: BTreeMap::new(),
             resolutions: BTreeMap::new(),
+            configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
         };
         redact_provider(&mut snap, &home);
         let CapabilityState::Unavailable { reason } =

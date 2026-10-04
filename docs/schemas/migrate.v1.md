@@ -168,12 +168,17 @@ build cannot evaluate them.
 {
   "outcome": {
     "outcome": "REFUSED",
-    "refusals": 7
+    "refusals": 11
   },
   "gateRefusals": [
     {
       "refusal": "MUTATION_NOT_IN_THIS_BUILD",
       "step": 2
+    },
+    {
+      "refusal": "PROVIDER_CONFIGURATION",
+      "step": 2,
+      "provider": "macports"
     },
     {
       "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
@@ -216,8 +221,23 @@ build cannot evaluate them.
       }
     },
     {
+      "refusal": "PROVIDER_CONFIGURATION",
+      "step": 4,
+      "provider": "macports"
+    },
+    {
       "refusal": "VERIFICATION_ASSERTS_NOTHING",
       "step": 5
+    },
+    {
+      "refusal": "PROVIDER_CONFIGURATION",
+      "step": 6,
+      "provider": "homebrew"
+    },
+    {
+      "refusal": "PROVIDER_CONFIGURATION",
+      "step": 8,
+      "provider": "homebrew"
     }
   ]
 }

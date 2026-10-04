@@ -102,6 +102,7 @@ fn provider(id: &str, prefix: &str, packages: &[Pkg]) -> ProviderSnapshot {
         environment: BTreeMap::new(),
         invocation_environment: BTreeMap::new(),
         resolutions: BTreeMap::new(),
+        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
     }
 }
 

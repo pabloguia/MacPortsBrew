@@ -32,6 +32,20 @@ to answer.
 
 ### Added
 
+- **A provider's own configuration is detected and reported (DP-027).** Capture
+  records which Homebrew `brew.env` files and which MacPorts user
+  `macports.conf` exist and which settings they set — names only,
+  never values — from dated data (`data/policy/provider-configuration.toml`).
+  `doctor` reports it per provider, a plan carries a non-blocking
+  `provider_configuration` risk, and the execution gate refuses any step that
+  would change such a provider (`PROVIDER_CONFIGURATION`). New optional
+  `configuration` field in `snapshot.v1`; a replay records `UNKNOWABLE`.
+- **`explain --json` and `doctor --json` carry `concurrentProviderActivity`**,
+  and their human output ends with the same sentence as `plan` and `analyze`.
+- **`migrate`'s `nothingToMove` carries `notDetected`** — the other providers
+  that were not detected; the answer is *nothing to move*, exit 0, where it
+  used to refuse (DP-026).
+
 - **`migrate <pkg> --to <provider> [--retain-source] [--yes] [--dry-run]`.**
   It shows the plan `plan` would, and with `--yes` (without `--dry-run`) puts it
   to the execution gate, which refuses every plan this build produces: exit 4
@@ -113,6 +127,14 @@ to answer.
   written from the same source as the recipes.
 
 ### Fixed
+
+- A plan on a cask said "classed as GuiApp", and a withdrawal sentence printed
+  `DISABLED`: the `{class}` and `{state}` parameters now carry one identifier
+  vocabulary from every emitter and render through their labels.
+- The top-level error message and its `--verbose` detail redact the home
+  directory, like every other output a person may paste into a bug report.
+- `error.provider_not_found` no longer points at `macportsbrew providers`, a
+  command this build does not have; it points at `doctor`.
 - The executor's reader-drain timeout was two seconds, which bounded a held
   pipe but also failed on ordinary scheduling: under load a reader thread could
   miss the window and the invocation came back with empty output marked
@@ -464,8 +486,10 @@ catalogue are in place, the translations are not.
   outranks the quieting environment, `HOMEBREW_NO_ANALYTICS` included, so it
   can switch analytics and network fetches back on for those reads. MacPortsBrew
   itself makes no network call of its own. Observed on Homebrew 7.0.4,
-  2026-10-02 ([R-15](docs/research/R-15-homebrew-brew-env.md)); what to do about
-  it is open ([DP-027](docs/decisions-pending.md)).
+  2026-10-02 ([R-15](docs/research/R-15-homebrew-brew-env.md)). `doctor` now
+  reports such a file and a mutation against it is refused (DP-027); whether
+  that meets the "no network" and "no telemetry" non-goals is open
+  ([DP-028](docs/decisions-pending.md)).
 - `Catalogue::for_locale` returns the English catalogue for every tag except
   the pseudolocale, so `--language pt-BR` selects the locale's plural rules and
   layout while the text stays English.

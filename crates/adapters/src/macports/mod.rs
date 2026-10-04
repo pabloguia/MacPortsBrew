@@ -875,13 +875,27 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
     }
 
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
+        let detection = self.detect()?;
+        // Only for a provider that is here, as the Homebrew adapter does: an
+        // absent one is never invoked.
+        let configuration = if matches!(detection.presence, ProviderPresence::Present) {
+            crate::configuration::read(
+                PROVIDER_ID,
+                &self.prefix,
+                self.home.as_deref(),
+                self.filesystem,
+            )
+        } else {
+            macportsbrew_domain::ProviderConfiguration::NotRecorded
+        };
         Ok(ProviderSnapshot {
-            detection: self.detect()?,
+            detection,
             capabilities: self.capabilities()?,
             inventory: self.inventory()?,
             environment: self.environment_info()?,
             invocation_environment: invocation_environment(&self.prefix, self.home.clone()),
             resolutions: BTreeMap::new(),
+            configuration,
         })
     }
 }
