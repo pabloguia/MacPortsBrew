@@ -105,6 +105,96 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
     Ok(())
 }
 
+/// Why [`write_new_atomic`] did not publish.
+#[derive(Debug)]
+pub enum PublishError {
+    /// Something is already at the target and it is not this call's file.
+    /// The caller chooses another name; nothing was replaced.
+    Exists,
+    /// Anything else, including a filesystem that cannot publish without
+    /// replacing. Nothing was replaced and nothing of this call's is left.
+    Failed(DomainError),
+}
+
+/// Writes `bytes` to `path` **only if nothing is there**, atomically, at mode
+/// `0o600`: the publish an append-only store needs (pass 08, the history
+/// store), where [`write_atomic`]'s rename would replace.
+///
+/// The temporary sibling is written and flushed, then `link`ed to the target.
+/// `link` never replaces and never follows a symbolic reference at the
+/// target, so no check before it is needed or made — one would only open a
+/// window between the check and the write.
+///
+/// - The mode is set on the open handle (`fchmod`) after creation, so an
+///   unusual umask cannot leave a record `0400` and unreadable forever.
+/// - `sync_all` is `fcntl(F_FULLFSYNC)` on Apple targets
+///   (`library/std/src/sys/fs/unix.rs`, `File::fsync`, rust-lang/rust master,
+///   read 2026-10-04): the bytes reach the medium before the name exists.
+/// - **It never falls back to `rename`.** A `link` error other than "already
+///   exists" means this filesystem cannot publish without replacing (exFAT, a
+///   network share), and that is reported, not worked around.
+/// - "Already exists" with the temporary at two links means the link landed
+///   and only its reply was lost (a network filesystem's retransmission):
+///   that is success. Otherwise it is [`PublishError::Exists`].
+/// - The temporary is a dot-entry, which every listing of the state directory
+///   ignores; a kill between the link and its removal leaves it hidden.
+pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let failed = |what: String| PublishError::Failed(DomainError::new(ErrorId::Io, what));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| failed(format!("{} has no directory to write into", path.display())))?;
+    let temporary = temporary_sibling(path, parent);
+
+    let write = || -> std::io::Result<File> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(FILE_MODE)
+            .open(&temporary)?;
+        file.set_permissions(std::fs::Permissions::from_mode(FILE_MODE))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(file)
+    };
+    let file = match write() {
+        Ok(file) => file,
+        Err(e) => {
+            // As in `write_atomic`: a name taken before this call is not ours.
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                std::fs::remove_file(&temporary).ok();
+            }
+            return Err(failed(format!(
+                "{} could not be written: {e}",
+                temporary.display()
+            )));
+        }
+    };
+    let linked = std::fs::hard_link(&temporary, path);
+    let outcome = match linked {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => match file.metadata() {
+            Ok(meta) if meta.nlink() == 2 => Ok(()),
+            _ => Err(PublishError::Exists),
+        },
+        Err(e) => Err(failed(format!(
+            "{} could not be published without replacing: {e}",
+            path.display()
+        ))),
+    };
+    std::fs::remove_file(&temporary).ok();
+    if outcome.is_ok() {
+        // Best effort, as in `write_atomic`: the entry is durable once the
+        // directory reaches disk; a power loss before then can lose the
+        // record, which the interrupted-run marker exists to notice.
+        if let Ok(directory) = File::open(parent) {
+            directory.sync_all().ok();
+        }
+    }
+    outcome
+}
+
 /// A name no other writer will pick, next to the target.
 ///
 /// The process id and the sequence keep two of *our* writers apart. The random
@@ -246,5 +336,58 @@ mod tests {
             assert!(name.starts_with(".state.json."), "{name}");
             assert!(name.ends_with(".partial"), "{name}");
         }
+    }
+
+    #[test]
+    fn a_new_write_lands_privately_and_leaves_nothing_behind() {
+        let dir = scratch("atomic-new");
+        let target = dir.join("run.json");
+        write_new_atomic(&target, b"first").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        let meta = std::fs::metadata(&target).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, FILE_MODE);
+        assert_eq!(std::os::unix::fs::MetadataExt::nlink(&meta), 1);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_write_never_replaces_what_is_there() {
+        let dir = scratch("atomic-new-exists");
+        let target = dir.join("run.json");
+        std::fs::write(&target, b"theirs").unwrap();
+        assert!(matches!(
+            write_new_atomic(&target, b"ours"),
+            Err(PublishError::Exists)
+        ));
+        assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no leftover");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_write_never_writes_through_a_symbolic_reference() {
+        let dir = scratch("atomic-new-link");
+        let elsewhere = dir.join("elsewhere");
+        let target = dir.join("run.json");
+        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+        assert!(matches!(
+            write_new_atomic(&target, b"ours"),
+            Err(PublishError::Exists)
+        ));
+        assert!(!elsewhere.exists(), "the reference was not followed");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_new_write_into_a_directory_that_is_not_there_fails_without_a_leftover() {
+        let dir = scratch("atomic-new-absent");
+        let target = dir.join("no-such-directory").join("run.json");
+        assert!(matches!(
+            write_new_atomic(&target, b"x"),
+            Err(PublishError::Failed(e)) if e.id == ErrorId::Io
+        ));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

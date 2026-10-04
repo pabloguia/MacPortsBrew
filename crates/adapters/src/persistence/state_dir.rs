@@ -249,6 +249,21 @@ fn create_private_directory(path: &Path, owner: Option<u32>) -> Result<(), Domai
                 ),
             )
         })?;
+        // A filesystem that ignores permissions (a FAT or exFAT volume, some
+        // network shares) accepts the call and changes nothing. Read the mode
+        // back rather than trust the call, or every later private read of the
+        // tree fails while this reported success (pass 08).
+        let repaired =
+            std::fs::symlink_metadata(path).map_or(0, |m| m.permissions().mode() & 0o777);
+        if repaired != STATE_DIR_MODE {
+            return Err(DomainError::new(
+                ErrorId::SafetyBlocked,
+                format!(
+                    "{} could not be made private: its filesystem does not keep permissions",
+                    path.display()
+                ),
+            ));
+        }
     }
     Ok(())
 }
