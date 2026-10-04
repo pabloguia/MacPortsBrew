@@ -14,7 +14,7 @@ use crate::i18n::Messages;
 use clap::{Parser, Subcommand};
 use context::Context;
 use macportsbrew_application::{AnalysisOptions, DoctorReport, PlanRequest, Severity};
-use macportsbrew_domain::{ConcurrencyFlag, DomainError, ErrorId};
+use macportsbrew_domain::{redact_home, ConcurrencyFlag, DomainError, ErrorId, HomeRedaction};
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
@@ -160,14 +160,25 @@ pub fn run(cli: &Cli, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
                 context::env_language().as_deref(),
             ));
             // The detail can quote the command line (a `--to` value, a
-            // package name), so it is escaped like any other quoted text.
+            // package name), so it is escaped like any other quoted text. It
+            // can also carry a path under this host's home - a snapshot file
+            // given on the command line, the state directory - and an error is
+            // what a person pastes into a bug report, so both lines are
+            // redacted against this host's home the way `doctor --report` is
+            // (`06-cli-and-ux.md`, privacy). Always against *this* host, even
+            // under replay: an error is about the run, not the recording, and
+            // the analysis output INV-15 governs is never written here.
+            let (_, _, home) = macportsbrew_adapters::system::machine::from_process_environment();
+            let redaction = HomeRedaction::live(home);
+            let shown =
+                |text: &str| crate::executor::escape_controls(&redact_home(text, &redaction));
             let _ = writeln!(
                 stderr,
                 "macportsbrew: {}",
-                crate::executor::escape_controls(&messages.render_error(&e))
+                shown(&messages.render_error(&e))
             );
             if cli.verbose {
-                let _ = writeln!(stderr, "  {}", crate::executor::escape_controls(&e.detail));
+                let _ = writeln!(stderr, "  {}", shown(&e.detail));
             }
             e.exit_code()
         }

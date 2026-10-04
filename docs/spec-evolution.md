@@ -769,6 +769,18 @@ change is made. Silent deviation remains the one unrecoverable error.
   needs the `libc`/`getpwuid` decision above. Recorded here rather than only in a
   code comment, because a knowingly-retained deviation from a MUST that lives in
   a doc comment is a deviation nobody will find.
+- **Extended 2026-10-04 (pass 07): the top-level error path.** The security
+  review of pass 06 found the one surface still writing this host's home
+  verbatim: an error's message and its `--verbose` detail on stderr (a snapshot
+  file named on the command line, the state directory). Both lines now go
+  through `redact_home` with `HomeRedaction::live`, always against this host —
+  under replay too, because an error describes the run rather than the
+  recording and no analysis output INV-15 governs is written there; the
+  `Recorded` policy exists so a *recording's* content is not rewritten, which
+  an error message is not. Test:
+  `an_error_under_the_home_never_prints_the_home_or_the_user_name`
+  (`crates/cli/tests/error_redaction.rs`), proved by mutation (the redaction
+  removed).
 
 ## SE-045 — Reverse-dependency counts are per-provider; SE-042 change (2) is withdrawn
 - Status: accepted
