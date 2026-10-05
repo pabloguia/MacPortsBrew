@@ -43,14 +43,19 @@
 //! after the gate; and it reads neither the build's mutation constant nor the
 //! plan's claim about it.
 
-use super::context::Context;
+use super::context::{Context, HistoryScope};
 use super::{human, json, Cli};
 use crate::executor::{self, RunReport, SiteRefusalKind};
+use macportsbrew_adapters::persistence::history_store::read_view;
+use macportsbrew_adapters::persistence::state_dir::StateDir;
+use macportsbrew_adapters::system::machine::{effective_uid, state_dir_override};
 use macportsbrew_application::{
-    migration_start, AnalysisOptions, HistoryConsultation, MigrationStart, PlanRequest, RunOutcome,
-    StepRecord,
+    migration_key, migration_start, AnalysisOptions, HistoryConsultation, MigrationStart,
+    NotRecognised, PlanRequest, RunOutcome, StepRecord,
 };
-use macportsbrew_domain::{ConcurrencyFlag, DomainError, ErrorId, MigrationPlan, ProviderId};
+use macportsbrew_domain::{
+    ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -100,6 +105,14 @@ struct Document<'a> {
     mode: Mode,
     #[serde(skip_serializing_if = "Option::is_none")]
     nothing_to_move: Option<NothingToMove<'a>>,
+    /// A `--retain-source` re-run history and a fresh capture show done
+    /// (INV-16; pass 08 slice 1). Additive to v1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retained_run_done: Option<RetainedRunDone<'a>>,
+    /// Why a consulted history did not recognise this re-run as done, when it
+    /// had a record to say something about. Additive to v1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retained_run_not_recognised: Option<NotRecognisedDoc<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     plan: Option<&'a MigrationPlan>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,6 +132,57 @@ struct NothingToMove<'a> {
     /// script tells "seen to be done" from "done as far as detection can
     /// see" without parsing text (DP-026).
     not_detected: &'a [ProviderId],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RetainedRunDone<'a> {
+    package: &'a str,
+    provider: &'a ProviderId,
+    run_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotRecognisedDoc<'a> {
+    reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_id: Option<&'a str>,
+}
+
+/// The stable name of a reason, as the document and the catalogue key it.
+/// Exhaustive: a new reason is a compile error here, not a silent gap.
+fn not_recognised(why: &NotRecognised) -> NotRecognisedDoc<'_> {
+    let (reason, run_id) = match why {
+        NotRecognised::LatestRunNotSuccess { run_id } => ("LATEST_RUN_NOT_SUCCESS", Some(run_id)),
+        NotRecognised::LatestRunRemovedSource { run_id } => {
+            ("LATEST_RUN_REMOVED_SOURCE", Some(run_id))
+        }
+        NotRecognised::Tie => ("TIE", None),
+        NotRecognised::RecordFromTheFuture => ("RECORD_FROM_THE_FUTURE", None),
+        NotRecognised::DestinationNotActive { run_id } => ("DESTINATION_NOT_ACTIVE", Some(run_id)),
+        NotRecognised::PrimaryIsShim { run_id } => ("PRIMARY_IS_SHIM", Some(run_id)),
+        NotRecognised::PrimaryNotConfirmed { run_id } => ("PRIMARY_NOT_CONFIRMED", Some(run_id)),
+    };
+    NotRecognisedDoc {
+        reason,
+        run_id: run_id.map(String::as_str),
+    }
+}
+
+/// Reads what this machine's history says about `key`, through the store.
+/// The state directory is resolved as `snapshot` resolves it; nothing is
+/// created by reading.
+fn read_history(ctx: &Context, key: &MigrationKey) -> Result<HistoryView, DomainError> {
+    let state = StateDir::resolve(ctx.home.as_deref(), state_dir_override().as_deref())?;
+    let euid = effective_uid().ok_or_else(|| {
+        DomainError::new(
+            ErrorId::SafetyBlocked,
+            "who this process runs as could not be established, so its migration history \
+             cannot be checked and nothing was changed",
+        )
+    })?;
+    read_view(&state, key, euid)
 }
 
 /// What the run loop returned, as the document carries it: no read output and
@@ -166,6 +230,29 @@ pub fn migrate(
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
 ) -> Result<i32, DomainError> {
+    migrate_with(ctx, cli, request, options, stdout, &|key| {
+        read_history(ctx, key)
+    })
+}
+
+/// [`migrate`], with the history read through `history`: the store on every
+/// real run, a scratch store in this module's tests — the one way the live
+/// branch is exercised, since every binary-level test runs under `--replay`,
+/// which never consults history (pass 08 plan, H3).
+///
+/// History is read only when the context's scope is
+/// [`HistoryScope::ThisMachine`] and the request retains the source, and
+/// only after the planner has built a plan to recognise: a plain `migrate`,
+/// a refusal and *nothing to move* never touch it, so a stray file in the
+/// store blocks nothing else (pass 08 plan, L5).
+fn migrate_with(
+    ctx: &Context,
+    cli: &Cli,
+    request: &PlanRequest,
+    options: &AnalysisOptions,
+    stdout: &mut dyn Write,
+    history: &dyn Fn(&MigrationKey) -> Result<HistoryView, DomainError>,
+) -> Result<i32, DomainError> {
     let mode = Mode::of(cli);
     // Decided by where the input came from, never by looking: a live run did
     // not check, and a recording or a snapshot file could not have (INV-15).
@@ -179,11 +266,30 @@ pub fn migrate(
         // The planner names no provider; the registry is what knows which
         // ones a complete input must carry (SE-092, S3 addendum).
         &macportsbrew_adapters::registry::known_provider_ids(),
-        // History is not consulted yet; the live-only wiring lands with its
-        // rendering (pass 08 slice 1, C6).
         HistoryConsultation::NotConsulted,
     )?;
-    let planned = match start {
+    let start = match start {
+        MigrationStart::Run(planned, _)
+            if ctx.history == HistoryScope::ThisMachine && request.retain_source =>
+        {
+            let view = history(&migration_key(planned.plan()))?;
+            // Planning is pure, so asking again with the history is the same
+            // plan, now judged against it.
+            migration_start(
+                &ctx.snapshot,
+                &ctx.policy,
+                options,
+                request,
+                &macportsbrew_adapters::registry::known_provider_ids(),
+                HistoryConsultation::Consulted {
+                    view: &view,
+                    run_stamp: &ctx.run_stamp,
+                },
+            )?
+        }
+        other => other,
+    };
+    let (planned, note) = match start {
         MigrationStart::NothingToMove {
             package,
             provider,
@@ -198,6 +304,8 @@ pub fn migrate(
                         provider: &provider,
                         not_detected: &not_detected,
                     }),
+                    retained_run_done: None,
+                    retained_run_not_recognised: None,
                     plan: None,
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
@@ -219,15 +327,48 @@ pub fn migrate(
             }
             return Ok(0);
         }
-        MigrationStart::Run(planned, _) => planned,
-        // Reachable only with a consulted history, which this does not pass.
-        MigrationStart::RetainedRunDone { .. } => {
-            return Err(DomainError::new(
-                ErrorId::Internal,
-                "a retained run was recognised from a history that was not consulted",
-            ))
+        MigrationStart::RetainedRunDone {
+            package,
+            provider,
+            run_id,
+        } => {
+            // Nothing is planned and nothing is written: the run that did it
+            // is already in history (INV-16).
+            if cli.json {
+                let doc = Document {
+                    schema_version: MIGRATE_SCHEMA_VERSION,
+                    mode,
+                    nothing_to_move: None,
+                    retained_run_done: Some(RetainedRunDone {
+                        package: &package,
+                        provider: &provider,
+                        run_id: &run_id,
+                    }),
+                    retained_run_not_recognised: None,
+                    plan: None,
+                    execution: None,
+                    concurrent_provider_activity: concurrency.clone(),
+                };
+                writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
+            } else {
+                write!(
+                    stdout,
+                    "{}",
+                    human::retained_run_done(ctx, &package, &provider, &run_id)
+                )
+                .map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(ctx, concurrency.activity())
+                )
+                .map_err(io)?;
+            }
+            return Ok(0);
         }
+        MigrationStart::Run(planned, note) => (planned, note),
     };
+    let note_doc = note.as_ref().map(not_recognised);
     let report = match mode {
         Mode::Render => None,
         Mode::Execute => {
@@ -249,12 +390,17 @@ pub fn migrate(
             schema_version: MIGRATE_SCHEMA_VERSION,
             mode,
             nothing_to_move: None,
+            retained_run_done: None,
+            retained_run_not_recognised: note_doc,
             plan: Some(plan),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
         };
         writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
     } else {
+        if let Some(why) = &note {
+            write!(stdout, "{}", human::retained_run_not_recognised(ctx, why)).map_err(io)?;
+        }
         write!(stdout, "{}", human::plan(ctx, plan)).map_err(io)?;
         match &report {
             None => write!(stdout, "{}", human::render_only(ctx)).map_err(io)?,
@@ -276,3 +422,10 @@ pub fn migrate(
         None => 0,
     })
 }
+
+// The live branch's tests name the providers of the recording they replay, so
+// they live in their own file: this one is scanned word by word for a
+// provider name (`invariant_17_the_executor_names_no_provider`).
+#[cfg(test)]
+#[path = "migrate_history_tests.rs"]
+mod tests;

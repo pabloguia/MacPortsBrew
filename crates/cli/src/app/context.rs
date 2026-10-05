@@ -52,6 +52,43 @@ pub struct Context {
     /// [`Context::execution_registry`] is the one way to it, and `migrate` is
     /// its one caller (SE-092; a word scan in `crates/cli/tests/migrate.rs`).
     registry: Option<Registry>,
+    /// Whether this run may consult MacPortsBrew's migration history
+    /// (pass 08 slice 1). Decided once, beside every other fact the input's
+    /// origin decides, by [`HistoryScope::of`].
+    pub history: HistoryScope,
+    /// This run's compact UTC stamp, from the one clock read: what a history
+    /// record must not be later than to be trusted for ordering.
+    pub run_stamp: String,
+}
+
+/// Whether a run may read MacPortsBrew's own history.
+///
+/// **Only a live run does.** A recording is another machine and a snapshot
+/// file is another moment; history is this machine's, now (INV-15). The
+/// state directory can still be resolved under `--replay` — through
+/// `MACPORTSBREW_STATE_DIR`, with no home at all — which is why the answer is
+/// a field decided here rather than whatever happens to resolve: a user who
+/// exports that variable must not have a replay read their real store
+/// (security review, M5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryScope {
+    /// History may be read for this machine.
+    ThisMachine,
+    /// History is not consulted.
+    NotConsulted,
+}
+
+impl HistoryScope {
+    /// The scope of a run built from a recording (`replay`), a snapshot file
+    /// (`from_snapshot`), or neither.
+    #[must_use]
+    pub fn of(replay: bool, from_snapshot: bool) -> Self {
+        if replay || from_snapshot {
+            Self::NotConsulted
+        } else {
+            Self::ThisMachine
+        }
+    }
 }
 
 /// Everything a [`RegistryContext`] is built from, owned, so that the capture
@@ -112,6 +149,8 @@ impl Context {
                 // read back on the same terms as a recording.
                 redaction: HomeRedaction::Recorded,
                 registry: None,
+                history: HistoryScope::of(false, true),
+                run_stamp: time::compact_stamp(now),
             });
         }
 
@@ -195,6 +234,8 @@ impl Context {
             home,
             redaction: home_redaction,
             registry: Some(parts),
+            history: HistoryScope::of(replay, false),
+            run_stamp: time::compact_stamp(now),
         })
     }
 
@@ -350,6 +391,14 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn only_a_live_run_consults_history() {
+        assert_eq!(HistoryScope::of(false, false), HistoryScope::ThisMachine);
+        assert_eq!(HistoryScope::of(true, false), HistoryScope::NotConsulted);
+        assert_eq!(HistoryScope::of(false, true), HistoryScope::NotConsulted);
+        assert_eq!(HistoryScope::of(true, true), HistoryScope::NotConsulted);
     }
 
     #[test]

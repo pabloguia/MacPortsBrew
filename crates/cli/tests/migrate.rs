@@ -1127,3 +1127,111 @@ fn command_line_text_quoted_in_an_error_cannot_drive_the_terminal() {
         assert!(text.contains("mac\\u{"), "{text:?}");
     }
 }
+
+/// Fills `scratch`'s state directory with a history the store refuses
+/// outright — a stranger entry, in a history open to others — so that any
+/// read of it would be `HISTORY_UNUSABLE` and any write would show.
+fn poison_history(scratch: &Scratch) {
+    use std::os::unix::fs::PermissionsExt;
+    let history = scratch.state_dir().join("history");
+    std::fs::create_dir_all(&history).expect("history directory");
+    std::fs::write(history.join("notes.txt"), b"not a record").expect("stranger entry");
+    std::fs::set_permissions(&history, std::fs::Permissions::from_mode(0o755))
+        .expect("history mode");
+}
+
+/// Every path under `dir` with its contents, for "nothing changed".
+fn tree(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path.clone());
+                out.insert(path, Vec::new());
+            } else {
+                out.insert(path.clone(), std::fs::read(&path).expect("file"));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
+    // A recording is another machine, so its history is not this one's, even
+    // with MACPORTSBREW_STATE_DIR exported and pointing at a real store
+    // (security review, M5): a history any read would refuse changes nothing.
+    let scratch = Scratch::new("history-replay");
+    poison_history(&scratch);
+    let before = tree(&scratch.state_dir());
+    // `htop --to macports --retain-source` is a full plan in this recording.
+    let recording = fixture(BOTH);
+    let recording = recording.to_str().unwrap();
+    for mode in [&["--json"][..], &["--json", "--yes"][..]] {
+        let mut extra = mode.to_vec();
+        extra.push("--retain-source");
+        let argv: Vec<&str> = ["--replay", recording]
+            .into_iter()
+            .chain(["migrate", "htop", "--to", "macports", "--today", TODAY])
+            .chain(extra)
+            .collect();
+        let out = run(&scratch, &argv);
+        assert_ne!(
+            out.status.code(),
+            Some(8),
+            "history was read: {}",
+            stderr(&out)
+        );
+        let doc = document(&out);
+        assert!(doc.get("plan").is_some(), "{doc}");
+        assert!(doc.get("retainedRunNotRecognised").is_none(), "{doc}");
+    }
+    assert_eq!(tree(&scratch.state_dir()), before, "history was written");
+}
+
+#[test]
+fn invariant_15_analyze_and_plan_output_is_independent_of_history() {
+    let clean = Scratch::new("history-clean");
+    let poisoned = Scratch::new("history-poisoned");
+    poison_history(&poisoned);
+    let recording = fixture(BOTH);
+    let recording = recording.to_str().unwrap();
+    for args in [
+        vec!["--replay", recording, "--today", TODAY, "--json", "analyze"],
+        vec![
+            "--replay",
+            recording,
+            "--today",
+            TODAY,
+            "--json",
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+            "--retain-source",
+        ],
+        vec!["--replay", recording, "--today", TODAY, "status"],
+    ] {
+        let a = run(&clean, &args);
+        let b = run(&poisoned, &args);
+        assert_eq!(a.status.code(), b.status.code(), "{args:?}");
+        // The capture instant is the one wall-clock value in the output; two
+        // runs a second apart differ there and nowhere else.
+        let stable = |out: &Output| -> String {
+            stdout(out)
+                .lines()
+                .filter(|l| !l.contains("capturedAt"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert!(
+            stable(&a) == stable(&b),
+            "history changed the output of {args:?}"
+        );
+    }
+}

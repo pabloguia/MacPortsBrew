@@ -6,6 +6,7 @@
 use super::context::Context;
 use crate::executor::{RenderedRefusal, RunReport, SiteRefusalKind};
 use crate::render::table::Table;
+use macportsbrew_application::NotRecognised;
 use macportsbrew_application::{
     execution_refusals, Analysis, CheckKind, Disposition, DoctorReport, ExecutionRefusal,
     Explanation, HaltReason, PackageReport, RunOutcome, Severity, Unevaluable,
@@ -652,6 +653,65 @@ pub fn nothing_to_move(
         ));
         out.push('\n');
     }
+    out
+}
+
+/// `migrate --retain-source` when history and a fresh capture show the
+/// migration done (INV-16): nothing planned, nothing changed.
+pub fn retained_run_done(
+    ctx: &Context,
+    package: &str,
+    provider: &ProviderId,
+    run_id: &str,
+) -> String {
+    let mut out = ctx.messages.render(
+        "migrate.retained_run_done",
+        &params(&[
+            ("package", package.to_string()),
+            ("provider", provider.to_string()),
+            ("run", run_id.to_string()),
+        ]),
+    );
+    out.push('\n');
+    out
+}
+
+/// `migrate --retain-source`, before the plan, when history had a record to
+/// say something about and it was not enough: why the migration is planned
+/// again rather than reported done. Exhaustive, with literal keys, so a new
+/// reason is a compile error here and every key is seen rendered.
+pub fn retained_run_not_recognised(ctx: &Context, why: &NotRecognised) -> String {
+    let (key, run) = match why {
+        NotRecognised::LatestRunNotSuccess { run_id } => (
+            "migrate.history_not_recognised.latest_run_not_success",
+            Some(run_id),
+        ),
+        NotRecognised::LatestRunRemovedSource { run_id } => (
+            "migrate.history_not_recognised.latest_run_removed_source",
+            Some(run_id),
+        ),
+        NotRecognised::Tie => ("migrate.history_not_recognised.tie", None),
+        NotRecognised::RecordFromTheFuture => (
+            "migrate.history_not_recognised.record_from_the_future",
+            None,
+        ),
+        NotRecognised::DestinationNotActive { run_id } => (
+            "migrate.history_not_recognised.destination_not_active",
+            Some(run_id),
+        ),
+        NotRecognised::PrimaryIsShim { run_id } => (
+            "migrate.history_not_recognised.primary_is_shim",
+            Some(run_id),
+        ),
+        NotRecognised::PrimaryNotConfirmed { run_id } => (
+            "migrate.history_not_recognised.primary_not_confirmed",
+            Some(run_id),
+        ),
+    };
+    let mut out = ctx
+        .messages
+        .render(key, &params(&[("run", run.cloned().unwrap_or_default())]));
+    out.push_str("\n\n");
     out
 }
 
