@@ -385,11 +385,17 @@ comments:
     (`a_partial_success_that_dispatched_no_mutation_is_not_a_partial_migration`);
     `mutationDispatched` is the one fact a store may key a lock or an
     interrupted-run marker on, and it fails toward true for a halt that cannot
-    be placed before or after a dispatch. **The store is deferred** to the
-    mutating pass: no run this build can execute is a mutating run, so it
-    would be unreachable. That pass owes the store, its test of this
-    obligation on every way a run ends, and the `--retain-source` re-run
-    recognition `04-migration-and-safety.md` (History) states.
+    be placed before or after a dispatch. **The store landed 2026-10-04**
+    (pass 08 slice 1, [`history.v1.md`](history.v1.md)) with the write
+    predicate `application::history::must_record` (iff `mutationDispatched`)
+    and the `--retain-source` re-run recognition `04-migration-and-safety.md`
+    (History) states. **Still owed by the pass that dispatches mutations**,
+    and named preconditions of its proposal: the call that writes a record on
+    every way a run ends, with this obligation's test over success, partial,
+    a halt after a dispatch, a `MANUAL_REVIEW` after a change and a refusal
+    contradicted by dispatched steps; `SNAPSHOT_BEFORE` and `RECORD_HISTORY`
+    performed, the latter judged by reading the published record back; and
+    the store's probe before the first mutating step.
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,

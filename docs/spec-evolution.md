@@ -6127,7 +6127,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   name mismatch and the absence (its refusals (1) and (2)) and passes the
   registry's list with the deleted-provider test
   (`crates/cli/tests/migrate.rs`); the `--retain-source` re-run is carried as
-  S6's "Not closed" (2), owed by the history store.
+  S6's "Not closed" (2), owed by the history store. **Still open after pass
+  08 slice 1**: the store and the recognition rule exist, but every plan sets
+  its primary through MacPortsBrew's shim and no capture can yet say which
+  provider a shim points at, so a real re-run is planned again with
+  `PRIMARY_IS_SHIM` (S8, pass 08 slice 1, D3).
 - **Addendum, the run loop, 2026-09-30 (slice S5).** The placement above is
   built. `crates/application/src/executor.rs` holds every decision as a pure
   function — `next_action` (the only source of a dispatch: the plan-wide
@@ -6430,17 +6434,20 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   one adds variants, none carrying a value. (8) **Versions**: the source's
   active version from the snapshot the plan was built from; the destination's
   is not established, since a verification read keeps no version.
-  **Owed by the mutating pass:** the append-only store (and a
-  `docs/schemas/` document for its shape, which no surface emits yet), reading
-  records back, how `snapshotPath` (normally under the home) is redacted,
-  obligation 12's test on every way a run ends, the lock and the
-  interrupted-run marker keyed on `mutationDispatched`, and closing "Not
-  closed" (2) above: a `--retain-source` re-run is recognised as done by the
-  latest record for the same package, source, destination and destination
-  package with `retainSource` true and status `SUCCESS`, confirmed against a
-  fresh capture in which the destination still holds the package active and the
-  primary is the one recorded — a record alone never proves the machine's
-  present state. **Mutation record**, `cargo test --no-fail-fast -p
+  **Landed in pass 08 slice 1 (2026-10-04)**, below: the store, its schema
+  document, reading records back, the snapshot path as a file name, and the
+  recognition rule. **Still owed by the mutating pass**, each a named
+  precondition of item 7's proposal to dispatch mutations: the call that writes
+  a record on every way a run ends, with obligation 12's test; `SNAPSHOT_BEFORE`
+  and `RECORD_HISTORY` performed, the latter judged by reading the published
+  record back so that a record never states its own verification; the store's
+  probe before the first mutating step, and the D4 output; shim-backed
+  recognition, without which "Not closed" (2) above stays open; the lock
+  (item 2) and the interrupted-run marker, carried into item 2's scope here
+  because the work order named only the lock and the concurrent-provider
+  detector; refusing to run as root at all, which slice 1 applies to history
+  only (item 6, elevation consent); and `history` / `restore --run <id>`
+  (item 7). **Mutation record**, `cargo test --no-fail-fast -p
   macportsbrew-domain -p macportsbrew-application --test history` in a scratch
   copy with its own target directory, each mutation restored by rewriting the
   file and the copy compared with `diff -r` at the end: 20 mutations, 20
@@ -6498,7 +6505,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `escape_controls` treats as hostile — the two disagree about one question
   and one shared definition is owed; (b) `RunRecord`'s `snapshot_path` normally
   lies under the home and must be home-redacted by the future store before it
-  is written (the S8 "Owed by the mutating pass" list names it); (c) whether a
+  is written (the S8 "Owed by the mutating pass" list names it) — **closed
+  2026-10-04** (pass 08 slice 1): the record keeps the snapshot's file name
+  only, so no home path is in it; (c) whether a
   `brew.env` file under the user's `HOME` can override the quieting
   environment the process executor sets is unestablished, and a
   `provider-researcher` check of it is owed before a mutating pass relies on
@@ -6586,6 +6595,90 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   | one `shown(...)` removed (`status`'s version cell) | `no_human_command_prints_a_hostile_character_a_snapshot_keeps` |
   | the provider-id identifier check dropped | `a_provider_identifier_is_an_identifier_and_matches_its_detection` |
   | the id-matches-detection check dropped | `a_provider_identifier_is_an_identifier_and_matches_its_detection` |
+
+- **Addendum, the history store, 2026-10-04 (pass 08 slice 1).** Plan
+  `docs/passes/08-the-mutating-executor-plan.md`, reviewed by `spec-guardian`
+  and `security-reviewer` before code. **S8's "a store would be unreachable
+  code" is superseded**: the work order builds the executor's obligations before
+  proposing the flip, and the store is reached by its own tests and by the
+  recognition tests; the shipped binary still writes no record, and reads one
+  only on a live `migrate --retain-source`. What landed:
+  - **Read-back** (`RunRecord::from_stored`, domain): every derived field is
+    derived again and a disagreeing record is refused, never corrected (INV-03);
+    unknown fields refused at every level — internally tagged *unit* variants
+    are mirrored as empty struct variants, because serde accepts extra keys
+    beside them under `deny_unknown_fields`; Control-class characters refused,
+    Format kept (as in a snapshot, S3); the id grammar
+    `<YYYYMMDDTHHMMSSZ>-<16 lowercase hex>` must name `startedAt`'s instant;
+    `snapshotPath` must be a snapshot file name; `ReadEvidence::from_recorded`
+    is crate-private. New `HISTORY_UNUSABLE`, exit 8: an untrusted record is
+    never read as "no record".
+  - **Publish without replace** (`write_new_atomic`): a hard link, never a
+    rename and never a fallback to one; the mode set on the handle; a lost reply
+    (two links on the temporary) is success. `StateDir::ensure` reads a
+    repaired mode back and refuses a filesystem that ignores `chmod`.
+  - **The store** (`persistence::history_store`, `history.v1.md`): reading
+    creates nothing, stops at the key's newest stamp, and checks every entry met
+    on the way, so an unusable record newer than the key's latest fails closed;
+    every check on the opened handle, `nlink` deliberately not checked (a kill
+    between link and unlink leaves two, and a link attack needs this uid);
+    owner and mode checked on the root, the directory and each record against
+    the effective uid; an entry cap; root neither reads nor writes (an elevated
+    process keeps the user's home on macOS). A collision on write is refused,
+    not retried under a new id: the id is fixed before `SNAPSHOT_BEFORE`.
+  - **argv does not join the record** (S8 decision 6): the steps already carry
+    each command's target, and argv would bring values the record keeps out.
+  - **Recognition** (`application::history::recognise_retained_run`,
+    `migration_start`): replaces only a plan with no `MANUAL_REVIEW` step;
+    every other answer is the plan, with `retainedRunNotRecognised` saying why.
+  - **The CLI**: `HistoryScope` decided once in `Context::build` by a pure
+    function of (replay, from-snapshot), unit-tested; history read only when
+    `ThisMachine` and `--retain-source`. The live branch is exercised by
+    `app::migrate`'s own tests, which build a context from a recording, set its
+    scope, and read a scratch store — the plan's option (b) realised without a
+    feature flag, because a binary-level seam would need the product binary to
+    carry it; option (a), replay reading a scratch store, was rejected because
+    replay would then read a real store whenever the variable is exported.
+  **Decisions (Tier 3).** **D1** "latest" is the latest record for the key and
+  must itself be a retain-source `SUCCESS`; a later failure withdraws
+  recognition (so will a later restore); a tie at the newest stamp, or any
+  record stamped after the current run, fails closed. **D2** a record is
+  written iff `mutationDispatched` (`must_record`). **D3** a shim resolution is
+  not recognised, leaving S6 "Not closed" (2) open. **D4** the probe makes an
+  unwritable store a refusal before dispatch; a write that fails anyway after a
+  mutating run keeps a non-zero exit, turns 0 into `IO`, reports the outcome, a
+  separate "history not written" error and the snapshot path, and never prints
+  `restore --run` for the unwritten id — that run can never be recognised, a
+  known fail-closed gap. The probe call and the D4 output land with the write
+  call they guard (above), since nothing reaches them before mutations
+  dispatch. **INV-15 is not touched**: recognition is not a recommendation, and
+  nothing INV-15 covers (`analyze`, `plan`, `status`, `--from-snapshot`,
+  `--replay`) consults history —
+  `invariant_15_analyze_and_plan_output_is_independent_of_history` and
+  `invariant_15_a_replayed_migrate_neither_reads_nor_writes_history` hold it
+  with a poisoned store under an exported `MACPORTSBREW_STATE_DIR`.
+  **Proved by mutation**, each file restored and compared with `cmp`: read-back
+  — 15 of 15 killed (each derived-field comparison, the step dispatch, the
+  schema version, the control scan and its step-provider strings, the id
+  grammar and instant, the `Z`, the snapshot-name length, the evidence
+  agreement); publish — the rename fallback, the lost-reply rule, the temporary
+  left behind; store — 11 of 11 (root, record owner and mode, directory owner
+  and mode, the stop, the cap, the id match, dot-entries, the tie); recognition
+  — 11 of 11 (future, tie, status, retained, active, shim, an empty owner list,
+  the primary check, the manual-review guard, the retain-source guard, the
+  note); CLI — the scope function each way, the scope field, the scope and
+  retain-source conditions, the read, and the note in both renderings.
+- Evidence (pass 08 slice 1): `crates/domain/tests/history_read_back.rs`,
+  `crates/adapters/tests/history_store.rs`,
+  `crates/adapters/src/persistence/atomic.rs` (tests),
+  `crates/application/tests/history_recognition.rs`
+  (`invariant_17_retained_run_recognition_is_direction_neutral`,
+  `invariant_16_a_retained_run_whose_primary_is_the_shim_is_not_recognised_and_says_why`
+  and the other `invariant_16_*`), `crates/cli/src/app/migrate.rs` and
+  `crates/cli/src/app/context.rs` (tests), `crates/cli/tests/migrate.rs`
+  (the two `invariant_15_*` above); `docs/schemas/history.v1.md`,
+  `migrate.v1.md`, `plan.v1.md` obligation 12, `04-migration-and-safety.md`
+  (History).
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)

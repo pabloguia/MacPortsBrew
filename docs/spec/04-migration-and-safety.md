@@ -353,28 +353,44 @@ counts as one. Whether a mutation was dispatched is derived from the steps; the
 status from the steps and the run's ending, checked against each other, so a
 supplied ending the steps do not bear out is never success (SE-092).
 
-**Status (2026-10-01): the record type exists, the store does not.**
-`RunRecord` (`crates/domain/src/history.rs`) holds every field above, built by
-`application::history::run_record` from the plan and the run loop's per-step
-records, deriving the outcome itself. A verification read enters it as
-`ReadEvidence` only — result, line count, truncation flag — so it has no field
-a provider read could occupy (`plan.v1.md` obligation 3). Its start time is supplied by
-the caller, from the one wall-clock read
-(`invariant_14_the_wall_clock_is_read_in_exactly_one_place`). The **plan
-executed** is recorded as its steps — index, kind, provider, whether each was
-dispatched and its result — not as the plan document: a command's environment
-holds variable values and its program can hold a home path. **Environment
-changes** is a list of a type with no values in this build, so it is empty by
-construction. The append-only store is **deferred to the mutating pass**: this
-build dispatches no mutating step, so no run it can execute writes a record
-(obligation 12), and a store would be unreachable code. That pass owes the
-store and a `docs/schemas/` document for its shape, how the snapshot path is
-redacted (it normally lies under the home), reading records back, and what a `--retain-source` re-run needs from
-them to be recognised as done (SE-092): the latest record for the same
-package, source, destination and destination package, with `retainSource`
-true and status `SUCCESS`, checked against a fresh capture in which the
-destination still holds the package active and the primary is still the one
-recorded — a record alone is never proof of the machine's present state.
+**Status (2026-10-04): the record type and the store exist; nothing in this
+build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
+every field above, built by `application::history::run_record` from the plan
+and the run loop's per-step records, deriving the outcome itself. A
+verification read enters it as `ReadEvidence` only — result, line count,
+truncation flag — so it has no field a provider read could occupy (`plan.v1.md`
+obligation 3). Its start time is supplied by the caller, from the one
+wall-clock read (`invariant_14_the_wall_clock_is_read_in_exactly_one_place`).
+The **plan executed** is recorded as its steps — index, kind, provider, whether
+each was dispatched and its result — not as the plan document or its argv: a
+command's environment holds variable values and its program can hold a home
+path. **Environment changes** is a list of a type with no values in this build,
+so it is empty by construction.
+
+**MUST.** The store (`persistence::history_store`, shape in
+`docs/schemas/history.v1.md`) is one file per mutating run,
+`history/run-<id>.json`, published by a link that can never replace a record.
+Reading creates nothing, and a record is never trusted: `RunRecord::from_stored`
+derives every derived field again and refuses one that disagrees, and anything
+the writer would not have left — a stranger entry, a symbolic reference, group
+or other access, another owner — is `HISTORY_UNUSABLE` (exit 8), never "no
+record". History is neither read nor written as root, nor under `--replay` or
+`--from-snapshot` (INV-15). The **snapshot path** is the snapshot's file name
+only, inside the same state directory: a run is restorable only from the state
+directory it was recorded in, and moving `MACPORTSBREW_STATE_DIR` leaves its
+history behind. Before a mutating step is dispatched, the store's ability to
+publish is proved by a probe; a run never finds out after a change that it
+cannot record it.
+
+**MUST.** A `--retain-source` re-run is recognised as done only when the latest
+record for the same package, source, destination and destination package is the
+only one at its stamp, is a retain-source `SUCCESS`, no record is stamped after
+the current run, and a fresh capture shows the destination holding the package
+active and the executable resolving to that record's primary — a record alone is
+never proof of the machine's present state. Recognition replaces only a plan
+with no `MANUAL_REVIEW` step. **A shim resolution is not recognised** — no
+capture can yet say which provider a shim points at — so INV-16 for a re-run is
+not closed until shims record their target (SE-092).
 
 ## Threat model
 
