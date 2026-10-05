@@ -18,7 +18,8 @@ use macportsbrew_adapters::process::{
 };
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_application::{
-    migration_start, provider_commands, AnalysisOptions, MigrationStart, PlanRequest, RunOutcome,
+    migration_start, provider_commands, AnalysisOptions, HistoryConsultation, MigrationStart,
+    PlanRequest, RunOutcome,
 };
 use macportsbrew_domain::{HomeRedaction, ProviderId};
 use macportsbrew_policy::PolicyData;
@@ -685,9 +686,10 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
                 retain_source: false,
             },
             &registry::known_provider_ids(),
+            HistoryConsultation::NotConsulted,
         )
         .expect("a plan");
-        let MigrationStart::Run(planned) = start else {
+        let MigrationStart::Run(planned, _) = start else {
             panic!("{package} has something to move");
         };
         let runner = ReplayRunner::new(rec.clone());
@@ -1061,7 +1063,7 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
         let runner = ReplayRunner::new(rec.clone());
         for name in &names {
             for to in registry::known_provider_ids() {
-                let Ok(MigrationStart::Run(planned)) = migration_start(
+                let Ok(MigrationStart::Run(planned, _)) = migration_start(
                     &snapshot,
                     &policy,
                     &AnalysisOptions {
@@ -1074,6 +1076,7 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
                         retain_source: false,
                     },
                     &registry::known_provider_ids(),
+                    HistoryConsultation::NotConsulted,
                 ) else {
                     continue;
                 };

@@ -21,8 +21,8 @@
 //! different question.
 
 use macportsbrew_application::{
-    build_plan, explain_package, migration_start, plan_outcome, AnalysisOptions, MigrationStart,
-    PlanOutcome, PlanRequest,
+    build_plan, explain_package, migration_start, plan_outcome, AnalysisOptions,
+    HistoryConsultation, MigrationStart, PlanOutcome, PlanRequest,
 };
 use macportsbrew_domain::{
     Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot, ErrorId,
@@ -710,6 +710,7 @@ fn start_for(
             retain_source: false,
         },
         &known(),
+        HistoryConsultation::NotConsulted,
     )
     .map_err(|e| (e.id, e.detail))
 }
@@ -737,7 +738,7 @@ fn invariant_16_migrate_reports_nothing_to_move_when_it_can_be_shown() {
 fn migrate_gets_a_plan_paired_with_the_snapshot_it_was_built_from() {
     let snap = both(&[("wget", None)], &[("curl", None)]);
     match start_for(&snap, "wget", MP) {
-        Ok(MigrationStart::Run(run)) => {
+        Ok(MigrationStart::Run(run, _)) => {
             assert_eq!(run.plan().package.name, "wget");
             assert_eq!(run.plan().destination, ProviderId::new(MP));
         }

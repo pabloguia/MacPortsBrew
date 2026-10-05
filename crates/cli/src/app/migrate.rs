@@ -47,7 +47,8 @@ use super::context::Context;
 use super::{human, json, Cli};
 use crate::executor::{self, RunReport, SiteRefusalKind};
 use macportsbrew_application::{
-    migration_start, AnalysisOptions, MigrationStart, PlanRequest, RunOutcome, StepRecord,
+    migration_start, AnalysisOptions, HistoryConsultation, MigrationStart, PlanRequest, RunOutcome,
+    StepRecord,
 };
 use macportsbrew_domain::{ConcurrencyFlag, DomainError, ErrorId, MigrationPlan, ProviderId};
 use serde::Serialize;
@@ -178,6 +179,9 @@ pub fn migrate(
         // The planner names no provider; the registry is what knows which
         // ones a complete input must carry (SE-092, S3 addendum).
         &macportsbrew_adapters::registry::known_provider_ids(),
+        // History is not consulted yet; the live-only wiring lands with its
+        // rendering (pass 08 slice 1, C6).
+        HistoryConsultation::NotConsulted,
     )?;
     let planned = match start {
         MigrationStart::NothingToMove {
@@ -215,7 +219,14 @@ pub fn migrate(
             }
             return Ok(0);
         }
-        MigrationStart::Run(planned) => planned,
+        MigrationStart::Run(planned, _) => planned,
+        // Reachable only with a consulted history, which this does not pass.
+        MigrationStart::RetainedRunDone { .. } => {
+            return Err(DomainError::new(
+                ErrorId::Internal,
+                "a retained run was recognised from a history that was not consulted",
+            ))
+        }
     };
     let report = match mode {
         Mode::Render => None,

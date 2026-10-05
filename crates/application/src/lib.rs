@@ -36,7 +36,10 @@ pub use executor::{
     PlannedRun, RunOutcome, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
-pub use history::run_record;
+pub use history::{
+    migration_key, must_record, recognise_retained_run, run_record, HistoryConsultation,
+    NotRecognised, Recognition,
+};
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
 };

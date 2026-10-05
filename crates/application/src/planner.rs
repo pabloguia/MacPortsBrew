@@ -132,8 +132,24 @@ pub fn plan_run(
 #[derive(Clone, Debug)]
 pub enum MigrationStart {
     /// There is something to move: the plan, paired with the snapshot it was
-    /// built from. Boxed for the reason [`PlanOutcome::Plan`] is.
-    Run(Box<crate::executor::PlannedRun>),
+    /// built from. Boxed for the reason [`PlanOutcome::Plan`] is. The second
+    /// field is why a consulted history did not recognise a retain-source
+    /// re-run as done, when it had a record to say something about.
+    Run(
+        Box<crate::executor::PlannedRun>,
+        Option<crate::history::NotRecognised>,
+    ),
+    /// A `--retain-source` re-run that history and a fresh capture both show
+    /// done (INV-16): nothing is planned, nothing is written
+    /// ([`crate::history::recognise_retained_run`]).
+    RetainedRunDone {
+        /// The unit's name.
+        package: String,
+        /// The destination, holding it active and resolving it.
+        provider: ProviderId,
+        /// The run that did it.
+        run_id: String,
+    },
     /// The destination holds the package, no other provider does, and
     /// nothing that could hide a copy elsewhere stands in the way
     /// ([`migration_start`]).
@@ -186,21 +202,44 @@ pub enum MigrationStart {
 /// a candidate. A copy under a name no mapping connects is not seen; and from
 /// a snapshot file the answer is about that input, not the machine.
 ///
-/// A `--retain-source` re-run is not affected: after it the source still holds
-/// the package, so `plan_outcome` builds a plan again, and that plan is what
-/// `migrate` shows. Recognising it as already done needs the run's history,
-/// which this build does not record.
+/// **A `--retain-source` re-run.** After one, the source still holds the
+/// package, so `plan_outcome` builds a plan again. With a consulted
+/// `history`, that plan is replaced by [`MigrationStart::RetainedRunDone`]
+/// when [`crate::history::recognise_retained_run`] recognises it — and only
+/// a plan with no `MANUAL_REVIEW` step is ever replaced: every refusal above
+/// and every manual review keeps its precedence, so a safety stop is never
+/// hidden behind "already done" (pass 08 plan, M3).
 pub fn migration_start(
     snapshot: &Snapshot,
     policy: &PolicyData,
     options: &AnalysisOptions,
     request: &PlanRequest,
     known: &[ProviderId],
+    history: crate::history::HistoryConsultation<'_>,
 ) -> Result<MigrationStart, DomainError> {
     match plan_outcome(snapshot, policy, options, request, known)? {
-        PlanOutcome::Plan(plan) => Ok(MigrationStart::Run(Box::new(
-            crate::executor::PlannedRun::new(*plan, snapshot.clone()),
-        ))),
+        PlanOutcome::Plan(plan) => {
+            let mut note = None;
+            if let crate::history::HistoryConsultation::Consulted { view, run_stamp } = history {
+                if plan.retain_source && !plan.requires_manual_review() {
+                    match crate::history::recognise_retained_run(view, run_stamp, &plan, snapshot) {
+                        crate::history::Recognition::Recognised { run_id } => {
+                            return Ok(MigrationStart::RetainedRunDone {
+                                package: plan.package.name.clone(),
+                                provider: plan.destination.clone(),
+                                run_id,
+                            });
+                        }
+                        crate::history::Recognition::NotRecognised(why) => note = Some(why),
+                        crate::history::Recognition::NoRecord => {}
+                    }
+                }
+            }
+            Ok(MigrationStart::Run(
+                Box::new(crate::executor::PlannedRun::new(*plan, snapshot.clone())),
+                note,
+            ))
+        }
         PlanOutcome::AlreadyAtDestination { package, provider } => {
             let not_detected =
                 nothing_to_move_is_shown(snapshot, policy, options, known, &package, &provider)?;
