@@ -232,6 +232,41 @@ Detect a concurrently running `brew` or `port` before mutating and refuse
 rather than interleave. Read-only analysis may proceed, flagged as possibly
 inconsistent.
 
+**Status (2026-10-05): the lock and the marker exist; the detector does not;
+nothing in this build takes either.** The lock is an exclusive advisory
+`flock` on `run.lock` in the state root (`persistence::run_lock`), taken only by
+a run that will dispatch a provider-mutating step — after the execution gate
+and the history probe, before the interrupted-run marker — and held for the
+life of the run, so a killed process releases it and there is no stale lock. A
+held lock is exit 7. It is never waited for, never unlinked or truncated, and
+`run.lock` is checked against its path after it is taken and again when the
+marker is written; deleting it during a run is unsupported. Taking it also
+proves it works, by a second open that must be refused: a volume where `flock`
+does nothing is refused (`SAFETY_BLOCKED`), but **a volume shared between hosts
+on which it is host-local is not detected**, and nothing here checks the state
+root's ancestors (`state_dir.rs`). It is **not** the detector: it excludes
+nothing about `brew` or `port`, which take their own locks (R-17), and it
+protects against no other user.
+
+The **interrupted-run marker** (`persistence::run_marker`,
+`docs/schemas/run-marker.v1.md`) names the run, is written durably immediately
+before the first provider change and cleared once the run's record is published
+(at once when it dispatched nothing), by that run only. A marker found by a
+mutating command refuses it, exit 4, naming the run; analysis, plan and dry runs
+never read it. Until `history` and `restore` exist the remedy is the user's own
+act, documented in the error text and the schema: look for the run's record,
+look at what it changed, then remove that one file when no other run is active.
+
+**The detector is not built, and the refusal it serves is owed (SE-015,
+DP-030).** No filesystem read can tell that a provider is mutating without
+`fcntl(F_GETLK)` (R-17), which needs `unsafe` or a new dependency, and the
+alternatives disturb a provider or grow the process allowlist. A live run says
+`NOT_CHECKED`; a test fails the build that turns mutations on while it does.
+Owed with the wiring, each a precondition of the flag-flip proposal: re-running
+the state-dependent part of the gate under the lock (SE-092), a stranded marker
+in `doctor`, and the application-level refusal on an observed or unchecked
+provider.
+
 ## Privilege
 
 **MUST.** The design assumes MacPorts operations generally require elevation

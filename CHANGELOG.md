@@ -32,6 +32,18 @@ to answer.
 
 ### Added
 
+- **The single-instance run lock and the interrupted-run marker (pass 08,
+  slice 2).** An exclusive advisory lock on `run.lock` in the state directory
+  (a second run is `RUN_LOCK_HELD`, exit 7; a killed holder frees it), and an
+  `interrupted-run.json` naming a run that began changing packages and was
+  never accounted for (the next mutating command refuses, `RUN_INTERRUPTED`,
+  exit 4, naming the run). Shape in `docs/schemas/run-marker.v1.md`. **Nothing
+  in this build takes the lock or writes the marker**, because nothing
+  dispatches a mutation; tests fail the build that turns mutations on without
+  wiring both, in order. **The detector for a concurrently running `brew` or
+  `port` is not built** (R-17, DP-030): every live run is still flagged
+  possibly inconsistent, and a test fails the same build while it says so.
+  `HISTORY_UNUSABLE`'s message now covers the lock and the marker too.
 - **The migration history store (pass 08).** One file per mutating run in the
   state directory's `history/`, published so that no record is ever replaced,
   and read back without trusting it: a record that disagrees with itself, or
