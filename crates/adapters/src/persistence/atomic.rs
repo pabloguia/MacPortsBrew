@@ -366,20 +366,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_write_never_writes_through_a_symbolic_reference() {
-        let dir = scratch("atomic-new-link");
-        let elsewhere = dir.join("elsewhere");
-        let target = dir.join("run.json");
-        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
-        assert!(matches!(
-            write_new_atomic(&target, b"ours"),
-            Err(PublishError::Exists)
-        ));
-        assert!(!elsewhere.exists(), "the reference was not followed");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
     fn a_new_write_into_a_directory_that_is_not_there_fails_without_a_leftover() {
         let dir = scratch("atomic-new-absent");
         let target = dir.join("no-such-directory").join("run.json");

@@ -476,3 +476,18 @@ fn the_documented_sample_is_a_record_this_version_reads() {
     let rewritten = serde_json::to_string_pretty(&back.stored()).unwrap();
     assert_eq!(rewritten.trim(), json.trim());
 }
+
+#[test]
+fn a_new_write_never_writes_through_a_symbolic_reference() {
+    use macportsbrew_adapters::persistence::{write_new_atomic, PublishError};
+    let (base, _) = scratch("publish-through-reference");
+    let elsewhere = base.join("elsewhere");
+    let target = base.join("run.json");
+    std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+    assert!(matches!(
+        write_new_atomic(&target, b"ours"),
+        Err(PublishError::Exists)
+    ));
+    assert!(!elsewhere.exists(), "the reference was not followed");
+    std::fs::remove_dir_all(&base).ok();
+}
