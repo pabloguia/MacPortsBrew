@@ -241,10 +241,11 @@ pub fn migrate(
 /// which never consults history (pass 08 plan, H3).
 ///
 /// History is read only when the context's scope is
-/// [`HistoryScope::ThisMachine`] and the request retains the source, and
-/// only after the planner has built a plan to recognise: a plain `migrate`,
-/// a refusal and *nothing to move* never touch it, so a stray file in the
-/// store blocks nothing else (pass 08 plan, L5).
+/// [`HistoryScope::ThisMachine`], the request retains the source, and the
+/// planner built a plan with no `MANUAL_REVIEW` step: a plain `migrate`, a
+/// refusal, a manual review and *nothing to move* never touch it, so a stray
+/// file in the store blocks nothing else (pass 08 plan, L5). A dry run does
+/// read it, so that what it shows is what `--yes` would do (D5, SE-092).
 fn migrate_with(
     ctx: &Context,
     cli: &Cli,
@@ -270,7 +271,9 @@ fn migrate_with(
     )?;
     let start = match start {
         MigrationStart::Run(planned, _)
-            if ctx.history == HistoryScope::ThisMachine && request.retain_source =>
+            if ctx.history == HistoryScope::ThisMachine
+                && request.retain_source
+                && !planned.plan().requires_manual_review() =>
         {
             let view = history(&migration_key(planned.plan()))?;
             // Planning is pure, so asking again with the history is the same

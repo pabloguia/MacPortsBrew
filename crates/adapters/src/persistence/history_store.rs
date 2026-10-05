@@ -98,12 +98,17 @@ pub fn probe(state: &StateDir, euid: u32) -> Result<(), DomainError> {
         .history()
         .join(format!(".probe-{}", std::process::id()));
     let published = write_new_atomic(&target, b"");
-    std::fs::remove_file(&target).ok();
     match published {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            // Only a probe this call published is removed; a name taken
+            // before it is not ours.
+            std::fs::remove_file(&target).ok();
+            Ok(())
+        }
         Err(PublishError::Exists) => Err(DomainError::new(
             ErrorId::SafetyBlocked,
-            "the history store's probe name was taken; another run may be in progress",
+            "the history store's probe name was already taken, most likely a leftover \
+             from a run that was killed; nothing was changed",
         )),
         Err(PublishError::Failed(e)) => Err(DomainError::new(
             ErrorId::SafetyBlocked,
@@ -206,7 +211,8 @@ fn listed_ids(
     for (count, entry) in entries.enumerate() {
         if count >= MAX_ENTRIES {
             return Err(unusable(format!(
-                "the history directory holds more than {MAX_ENTRIES} entries"
+                "the history directory holds more than {MAX_ENTRIES} entries, hidden \
+                 leftovers of killed runs included"
             )));
         }
         let entry = entry
@@ -258,7 +264,8 @@ fn private_directory(meta: &Metadata, euid: u32) -> Result<(), &'static str> {
 
 /// Reads and checks one record.
 fn read_record(directory: &Path, id: &str, euid: u32) -> Result<RunRecord, DomainError> {
-    let name = format!("run-{id}.json");
+    let name = record_file_name(id)
+        .ok_or_else(|| unusable("the history directory names a record that is not a run".into()))?;
     let accept = |meta: &Metadata| -> Result<(), &'static str> {
         if meta.uid() != euid {
             return Err("is owned by somebody else");
@@ -289,8 +296,16 @@ fn read_record(directory: &Path, id: &str, euid: u32) -> Result<RunRecord, Domai
             BoundedReadError::Grew => format!("{name} grew while it was read"),
         })
     })?;
-    let stored: StoredRunRecord = serde_json::from_str(&text)
-        .map_err(|e| unusable(format!("{name} is not a record this version reads: {e}")))?;
+    // serde's message can quote the file's own values; only where the
+    // problem is, and what kind it is, are kept.
+    let stored: StoredRunRecord = serde_json::from_str(&text).map_err(|e| {
+        unusable(format!(
+            "{name} is not a record this version reads ({:?} at line {}, column {})",
+            e.classify(),
+            e.line(),
+            e.column()
+        ))
+    })?;
     let record =
         RunRecord::from_stored(stored).map_err(|e| unusable(format!("{name}: {}", e.detail)))?;
     if record.id() != id {

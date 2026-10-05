@@ -268,6 +268,11 @@ fn a_record_of_another_schema_version_or_with_unknown_fields_is_unusable() {
         ("versions", tamper(&|v| v["versions"]["extra"] = 1.into())),
         ("step", tamper(&|v| v["steps"][0]["extra"] = 1.into())),
         ("ending", tamper(&|v| v["ending"]["extra"] = 1.into())),
+        ("action", tamper(&|v| v["action"]["extra"] = 1.into())),
+        (
+            "a unit outcome",
+            tamper(&|v| v["overrode"] = serde_json::json!({"kind": "MANUAL_REVIEW", "extra": 1})),
+        ),
         (
             "restorability",
             tamper(&|v| v["restorability"]["extra"] = 1.into()),
@@ -305,11 +310,14 @@ fn evidence_whose_result_disagrees_with_its_cause_is_unusable() {
         with_evidence(serde_json::json!({"passed": true, "lineCount": 1, "truncated": false}))
             .is_ok()
     );
-    assert!(with_evidence(
-        serde_json::json!({"passed": false, "lineCount": 0, "truncated": false, "cause": "NAME_ABSENT"})
-    )
-    .is_ok());
+    // A failed read is legal evidence for a halt, never for a verified step:
+    // the writer verifies a step only when every read passed (INV-03).
+    let failed = serde_json::json!({"passed": false, "lineCount": 0, "truncated": false, "cause": "NAME_ABSENT"});
+    let mut halted = stored_json(&record(halted_steps(), RunEnding::Completed, None));
+    halted["steps"][1]["result"]["evidence"] = serde_json::json!([failed.clone()]);
+    assert!(read_back(halted).is_ok());
     for evidence in [
+        failed,
         serde_json::json!({"passed": true, "lineCount": 1, "truncated": false, "cause": "NAME_ABSENT"}),
         serde_json::json!({"passed": false, "lineCount": 1, "truncated": false}),
         serde_json::json!({"passed": true, "lineCount": 1, "truncated": false, "stdout": "x"}),
@@ -489,4 +497,12 @@ fn a_refusal_names_the_field_never_its_value() {
     let error = RunRecord::from_stored(stored).unwrap_err();
     assert_eq!(error.id, ErrorId::HistoryUnusable);
     assert!(!error.detail.contains("secret"), "{}", error.detail);
+}
+
+#[test]
+fn a_manual_review_stored_as_carried_out_is_unusable() {
+    let mut steps = completed_steps();
+    steps[1] = step(2, StepKind::ManualReview, verified(), false);
+    let base = stored_json(&record(steps, RunEnding::Completed, None));
+    assert_eq!(read_back(base), Err(ErrorId::HistoryUnusable));
 }

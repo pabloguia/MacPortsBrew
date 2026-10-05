@@ -55,10 +55,10 @@ pub struct Context {
     /// Whether this run may consult MacPortsBrew's migration history
     /// (pass 08 slice 1). Decided once, beside every other fact the input's
     /// origin decides, by [`HistoryScope::of`].
-    pub history: HistoryScope,
+    pub(crate) history: HistoryScope,
     /// This run's compact UTC stamp, from the one clock read: what a history
     /// record must not be later than to be trusted for ordering.
-    pub run_stamp: String,
+    pub(crate) run_stamp: String,
 }
 
 /// Whether a run may read MacPortsBrew's own history.

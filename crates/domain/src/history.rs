@@ -544,10 +544,9 @@ impl RunRecord {
 
         let mut steps = Vec::with_capacity(stored.steps.len());
         for step in stored.steps {
-            let result = step
-                .result
-                .into_result()
-                .ok_or_else(|| unusable("has evidence whose result disagrees with its cause"))?;
+            let result = step.result.into_result().ok_or_else(|| {
+                unusable("has evidence that disagrees with its cause or with its step's result")
+            })?;
             let recorded = RecordedStep::new(
                 step.index,
                 step.kind,
@@ -555,6 +554,13 @@ impl RunRecord {
                 result,
                 step.dispatched,
             );
+            // A manual review is never carried out: it stops the run, so it is
+            // never dispatched and never verified.
+            if step.kind == StepKind::ManualReview
+                && (step.dispatched || matches!(recorded.result, StepResult::Verified { .. }))
+            {
+                return Err(unusable("states a manual review that was carried out"));
+            }
             if recorded.dispatched != step.dispatched {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
@@ -580,8 +586,8 @@ impl RunRecord {
                     source: stored.versions.source,
                     destination: stored.versions.destination,
                 },
-                action: stored.action,
-                overrode: stored.overrode,
+                action: stored.action.into_outcome(),
+                overrode: stored.overrode.map(StoredOutcome::into_outcome),
                 retain_source: stored.retain_source,
                 primary_after: stored.primary_after,
             },
@@ -618,8 +624,8 @@ pub struct StoredRunRecord {
     direction: StoredDirection,
     destination_package: Option<String>,
     versions: StoredVersions,
-    action: Outcome,
-    overrode: Option<Outcome>,
+    action: StoredOutcome,
+    overrode: Option<StoredOutcome>,
     retain_source: bool,
     primary_after: ProviderId,
     environment_changes: Vec<EnvironmentChange>,
@@ -660,11 +666,41 @@ impl StoredRunRecord {
 }
 
 /// The provider an outcome names, when it names one.
-fn outcome_provider(outcome: &Outcome) -> Option<&str> {
+fn outcome_provider(outcome: &StoredOutcome) -> Option<&str> {
     match outcome {
-        Outcome::Keep { provider } | Outcome::MigrateTo { provider } => Some(provider.as_str()),
-        Outcome::KeepBoth { primary } => Some(primary.as_str()),
-        Outcome::UseRuntimeManager | Outcome::ManualReview | Outcome::NoAction => None,
+        StoredOutcome::Keep { provider } | StoredOutcome::MigrateTo { provider } => {
+            Some(provider.as_str())
+        }
+        StoredOutcome::KeepBoth { primary } => Some(primary.as_str()),
+        StoredOutcome::UseRuntimeManager {}
+        | StoredOutcome::ManualReview {}
+        | StoredOutcome::NoAction {} => None,
+    }
+}
+
+/// [`Outcome`] as a record states it: refuses unknown keys, unit variants
+/// included (see the note above [`StoredEnding`]).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "kind", deny_unknown_fields)]
+enum StoredOutcome {
+    Keep { provider: ProviderId },
+    MigrateTo { provider: ProviderId },
+    KeepBoth { primary: ProviderId },
+    UseRuntimeManager {},
+    ManualReview {},
+    NoAction {},
+}
+
+impl StoredOutcome {
+    fn into_outcome(self) -> Outcome {
+        match self {
+            Self::Keep { provider } => Outcome::Keep { provider },
+            Self::MigrateTo { provider } => Outcome::MigrateTo { provider },
+            Self::KeepBoth { primary } => Outcome::KeepBoth { primary },
+            Self::UseRuntimeManager {} => Outcome::UseRuntimeManager,
+            Self::ManualReview {} => Outcome::ManualReview,
+            Self::NoAction {} => Outcome::NoAction,
+        }
     }
 }
 
@@ -727,9 +763,15 @@ impl StoredStepResult {
                 .collect::<Option<Vec<_>>>()
         };
         Some(match self {
-            Self::Verified { evidence: e } => StepResult::Verified {
-                evidence: evidence(e)?,
-            },
+            Self::Verified { evidence: e } => {
+                let evidence = evidence(e)?;
+                // The writer marks a step verified only when every read
+                // passed (`judge_step` halts on the first failure).
+                if !evidence.iter().all(ReadEvidence::passed) {
+                    return None;
+                }
+                StepResult::Verified { evidence }
+            }
             Self::NotPerformedInThisBuild {} => StepResult::NotPerformedInThisBuild,
             Self::NotDispatchedMutating {} => StepResult::NotDispatchedMutating,
             Self::Halted { error, evidence: e } => StepResult::Halted {

@@ -1235,3 +1235,36 @@ fn invariant_15_analyze_and_plan_output_is_independent_of_history() {
         );
     }
 }
+
+#[test]
+fn invariant_15_a_migrate_from_a_snapshot_file_neither_reads_nor_writes_history() {
+    // A snapshot file is another moment, so its history is not this one's:
+    // the branch that builds its context says so, and this holds it.
+    let scratch = Scratch::new("history-snapshot");
+    let file = snapshot_file(&scratch, BOTH);
+    poison_history(&scratch);
+    let before = tree(&scratch.state_dir());
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            file.to_str().expect("UTF-8"),
+            "--json",
+            "migrate",
+            "htop",
+            "--to",
+            "macports",
+            "--retain-source",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_ne!(
+        out.status.code(),
+        Some(8),
+        "history was read: {}",
+        stderr(&out)
+    );
+    assert!(document(&out).get("plan").is_some());
+    assert_eq!(tree(&scratch.state_dir()), before, "history was written");
+}

@@ -341,7 +341,7 @@ fn history_is_read_only_by_a_live_retained_run() {
 }
 
 #[test]
-fn recognition_never_replaces_a_manual_review() {
+fn invariant_19_recognition_never_replaces_a_manual_review_plan() {
     let cli = cli("ncurses", "macports", true);
     let mut ctx = live(&cli);
     let request = request("ncurses", "macports");
@@ -354,5 +354,21 @@ fn recognition_never_replaces_a_manual_review() {
     assert_eq!(code.unwrap(), ErrorId::SafetyBlocked.exit_code());
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert!(doc.get("retainedRunDone").is_none());
+    assert!(doc.get("plan").is_some());
+}
+
+#[test]
+fn a_manual_review_plan_never_reads_history() {
+    // The stop keeps its precedence over anything history could say: an
+    // unusable store does not turn the exit-4 plan into an exit 8.
+    let cli = cli("ncurses", "macports", true);
+    let ctx = live(&cli);
+    let request = request("ncurses", "macports");
+    let store = Store::new("manual-poisoned");
+    store.state.ensure().unwrap();
+    std::fs::write(store.state.history().join("notes.txt"), b"").unwrap();
+    let (code, out) = run(&ctx, &cli, &request, &store);
+    assert_eq!(code.unwrap(), ErrorId::SafetyBlocked.exit_code());
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert!(doc.get("plan").is_some());
 }
