@@ -19,7 +19,9 @@
 //! and a link attack needs this user's own uid, which is outside the threat
 //! model (security review, M2).
 //!
-//! **Never as root.** sudo keeps `HOME` on macOS, so a root process would
+//! **Never as root.** An elevated process can keep the invoking user's
+//! `HOME` (whether it does depends on how it was elevated, so this is not
+//! relied on either way), and then a root process would
 //! read, and trust, records the user can write, and would leave root-owned
 //! records in the user's home. Both directions refuse at euid 0.
 //!
@@ -71,7 +73,7 @@ fn refuse_root(euid: u32) -> Result<(), DomainError> {
         return Err(DomainError::new(
             ErrorId::SafetyBlocked,
             "the migration history is never read or written as root: an elevated \
-             process keeps the invoking user's home, so it would trust records that user \
+             process can keep the invoking user's home, so it would trust records that user \
              can write and leave records that user cannot",
         ));
     }

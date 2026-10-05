@@ -1800,6 +1800,10 @@ change is made. Silent deviation remains the one unrecoverable error.
   path, belongs to the mutating pass. What the boundary gains is the S5 rule as
   a type: a run that dispatched no mutating step is `NO_CHANGE`, never
   `PARTIAL`, whatever its ending. Rationale, rules and evidence: SE-092, S8.
+  **Superseded in part 2026-10-04** (pass 08 slice 1): the store exists and is
+  reached by its tests and by `migrate --retain-source`'s read; writing a
+  record still waits for the mutating dispatch (SE-092, history store
+  addendum).
 
 ## SE-037 — CI runners: Intel is testable, the old range is not, and both facts have dates
 - Status: accepted
@@ -6381,8 +6385,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `docs/schemas/migrate.v1.md` and its three checked samples; the executor plan's
   S6 section and amendments A1, A5, A7 and A9 (2026-09-27); the S3 and S4
   carried items (2026-09-30).
-- **Extended 2026-10-01 (slice S8): the history record type; its store is
-  deferred.** `RunRecord` (`crates/domain/src/history.rs`) carries every field
+- **Extended 2026-10-01 (slice S8): the history record type (its store:
+  pass 08 slice 1, the addendum below).** `RunRecord` (`crates/domain/src/history.rs`) carries every field
   `04-migration-and-safety.md` (History) lists, in its order; the pure
   constructor is `application::history::run_record(run, records, start)`, from
   a `PlannedRun` and the loop's `StepRecord`s. It derives the `RunOutcome` with
@@ -6624,7 +6628,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     between link and unlink leaves two, and a link attack needs this uid);
     owner and mode checked on the root, the directory and each record against
     the effective uid; an entry cap; root neither reads nor writes (an elevated
-    process keeps the user's home on macOS). A collision on write is refused,
+    process can keep the user's home, depending on how it was elevated, which
+    is not relied on either way). A collision on write is refused,
     not retried under a new id: the id is fixed before `SNAPSHOT_BEFORE`.
   - **argv does not join the record** (S8 decision 6): the steps already carry
     each command's target, and argv would bring values the record keeps out.
@@ -6668,6 +6673,36 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the primary check, the manual-review guard, the retain-source guard, the
   note); CLI — the scope function each way, the scope field, the scope and
   retain-source conditions, the read, and the note in both renderings.
+- **Amended 2026-10-04: the review of the slice as built** (`spec-guardian`,
+  `security-reviewer`, `docs-auditor`; no Tier 1/2 escalation). Fixed: read-back
+  refuses a `VERIFIED` step whose evidence failed (the writer verifies only
+  when every read passed) and a `MANUAL_REVIEW` step stated as carried out;
+  `action` and `overrode` refuse unknown keys (`StoredOutcome`); `migrate`
+  reads history only for a plan with no `MANUAL_REVIEW` step, so an unusable
+  store never turns the exit-4 plan into an exit 8; the probe removes only what
+  it published; a serde failure reports kind and position, never the file's
+  values; `Context`'s history fields are crate-private; a `--from-snapshot`
+  INV-15 test; INV-19's recognition test carries its name; and two tripwires,
+  `crates/cli/tests/history_preconditions.rs`, fail the build that sets
+  `THIS_BUILD_DISPATCHES_MUTATIONS` without the executor shell probing the
+  store and writing a record — the preconditions above become a gate. Each
+  new read-back check was proved by mutation (3 of 3 killed). **Decisions
+  added (Tier 3).** **D5** a dry run reads history too, so it shows what
+  `--yes` would do (the plan said it would not; changed deliberately).
+  **D6** a path-prefix resolution (`authoritative: false`) may confirm the
+  recorded primary: the fresh capture is a second witness, and requiring an
+  authoritative answer would make recognition depend on a provider query the
+  capture does not always make. **Recorded, not changed.** A write collision
+  is refused rather than retried under a new id (the plan said retry). The
+  mutation record above overclaims one rule: for the lost reply only the
+  direction "always success" is killed; removing the rule survives, because
+  no test reaches `EEXIST` with two links. **Owed tests**: a lost reply, a
+  crash after the link leaving a readable store, and a `0277` umask (the umask
+  is process-wide, so it needs a test of its own process). **Provisional**:
+  `RECORD_HISTORY` is stored as `VERIFIED` in a successful record, which has
+  the record certify its own write, against the plan; the representation is
+  settled before any build writes records (a pending result judged on
+  read-back, or a revised v1), with the write call.
 - Evidence (pass 08 slice 1): `crates/domain/tests/history_read_back.rs`,
   `crates/adapters/tests/history_store.rs`,
   `crates/adapters/src/persistence/atomic.rs` (tests),

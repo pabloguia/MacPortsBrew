@@ -206,8 +206,9 @@ comments:
    (`RunRecord`, `crates/domain/src/history.rs`) takes a read only as
    `ReadEvidence` and has no field a provider read could occupy
    (`a_run_record_cannot_carry_an_inventory`,
-   `crates/application/tests/history.rs`). Its store is deferred with the
-   mutating pass (obligation 12).
+   `crates/application/tests/history.rs`). The store
+   ([`history.v1.md`](history.v1.md)) keeps the same evidence-only shape;
+   writing a record is owed (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
    provider holds leaves an empty inventory and condition (3) refuses it, which

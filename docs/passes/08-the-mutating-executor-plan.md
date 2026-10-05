@@ -10,6 +10,14 @@ security-reviewer). Sources: SE-092's S8 addendum and its "Owed by the mutating
 pass" list; `plan.v1.md` obligations 11–12; `04-migration-and-safety.md`
 (History, Rollback, Concurrency).
 
+> **As built (2026-10-04).** What landed, what changed and why, and what
+> stays owed are in SE-092's history-store addendum and its amendment. In
+> short: the probe call and the D4 output were deferred with the write call
+> (commit 6 below did not wire them); a collision is refused, not retried;
+> reading stops after the key's newest stamp group, not at its first record;
+> a dry run reads history (D5); a heuristic resolution may confirm (D6);
+> there is no error table in `06`, so none was edited.
+
 ## Facts that shape it
 
 1. `RunRecord` serialises but cannot be read back, and its derived fields

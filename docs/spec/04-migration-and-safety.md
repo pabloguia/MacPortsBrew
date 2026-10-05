@@ -371,7 +371,8 @@ so it is empty by construction.
 `docs/schemas/history.v1.md`) is one file per mutating run,
 `history/run-<id>.json`, published by a link that can never replace a record.
 Reading creates nothing, and a record is never trusted: `RunRecord::from_stored`
-derives every derived field again and refuses one that disagrees, and anything
+derives every derived field again and refuses one that disagrees (only a halt
+with no evidence keeps the record's own word on whether it was dispatched), and anything
 the writer would not have left — a stranger entry, a symbolic reference, group
 or other access, another owner — is `HISTORY_UNUSABLE` (exit 8), never "no
 record". History is neither read nor written as root, nor under `--replay` or
@@ -380,7 +381,9 @@ only, inside the same state directory: a run is restorable only from the state
 directory it was recorded in, and moving `MACPORTSBREW_STATE_DIR` leaves its
 history behind. Before a mutating step is dispatched, the store's ability to
 publish is proved by a probe; a run never finds out after a change that it
-cannot record it.
+cannot record it. (The probe exists; its call lands with the write call, and
+a test fails the build that dispatches mutations without both —
+`plan.v1.md` obligation 12.)
 
 **MUST.** A `--retain-source` re-run is recognised as done only when the latest
 record for the same package, source, destination and destination package is the

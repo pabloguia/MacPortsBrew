@@ -9,7 +9,7 @@ in [`README.md`](README.md).
 **This build writes none.** A record is written iff the run dispatched a
 mutating step (`mutationDispatched`), and this build dispatches none; the
 format is fixed and tested now so the pass that turns mutations on writes
-this shape (pass 08, slice 1).
+this shape. The store landed in pass 08, slice 1.
 
 ## How it is written and read
 
@@ -17,18 +17,27 @@ this shape (pass 08, slice 1).
   replace an existing file; nothing deletes a record.
 - **Read back without being trusted.** `RunRecord::from_stored` derives the
   steps' `dispatched`, `status`, `mutationDispatched` and `restorability` again
-  and refuses a file that states anything else (INV-03).
+  and refuses a file that states anything else (INV-03). The one exception is
+  a `HALTED` step with no evidence, whose `dispatched` is the record's own
+  statement: nothing else in the record can settle it.
 - **Anything this writer would not have left is `HISTORY_UNUSABLE`** (exit 8),
   never "no record": another `schemaVersion`, a field this version does not
   know (at any level), an `id` outside the grammar below or naming another
   instant than `startedAt`, a Control-class character in any string, a
   `snapshotPath` that is not a snapshot file name, evidence whose `passed`
-  disagrees with its `cause`, a file that is a symbolic reference, larger than
-  256 KiB, owned by another user or readable by one, or a directory entry in
-  `history/` that is not a record (dot-entries are the writer's temporaries
-  and are ignored).
-- **Never read or written as root**, and never under `--replay` or
-  `--from-snapshot`.
+  disagrees with its `cause`, a `VERIFIED` step with failed evidence, a
+  `MANUAL_REVIEW` step stated as carried out, a record under another run's
+  file name, a file that is a symbolic reference, larger than 256 KiB, owned
+  by another user or open to group or other access, a directory entry in
+  `history/` that is not a record or whose name is not text, a `history/` or
+  state directory that is a symbolic reference, not a directory, another
+  user's or open to others, and more than 10,000 entries in `history/` —
+  hidden ones included, since nothing prunes the store yet. Dot-entries are
+  the writer's temporaries and are otherwise ignored.
+- **Never read or written as root** (`SAFETY_BLOCKED`, exit 4), and never
+  under `--replay` or `--from-snapshot`. A write that meets an existing record
+  of the same id is refused (`IO`) rather than given another id: the id is
+  fixed before the run's first step.
 
 ## Root
 
@@ -73,7 +82,13 @@ obligation 3).
 
 ## Sample
 
-A retain-source migration that completed. Checked by
+An illustrative record of a retain-source migration that completed, as the
+mutating pass will write it — no build writes one yet, and this build records
+`SNAPSHOT_BEFORE` and `RECORD_HISTORY` as `NOT_PERFORMED_IN_THIS_BUILD`.
+**`RECORD_HISTORY`'s representation is provisional**: the plan has the record
+never certify its own write, which a `VERIFIED` `RECORD_HISTORY` inside the
+record does; settling it (a pending result judged on read-back, or a revised
+v1 before any build writes records) is owed with the write call (SE-092). Checked by
 `the_documented_sample_is_a_record_this_version_reads`
 (`crates/adapters/tests/history_store.rs`), which reads it back and
 re-serialises it byte for byte.

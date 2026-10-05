@@ -34,8 +34,8 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `schemaVersion` | integer | `1` |
 | `mode` | string | `RENDER` or `EXECUTE` |
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string, "notDetected": [string] }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16). `notDetected` is always written: the other providers that were not detected, in identifier order; empty when every other provider was detected and read (DP-026) |
-| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08) |
-| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history, history had a record for the migration, and it was not enough to call it done. `reason` is one of `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`. Additive (pass 08) |
+| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record, and every plan's primary is a shim (`PRIMARY_IS_SHIM`) |
+| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`. Additive (pass 08) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
@@ -126,15 +126,17 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 `check` here is the check's kind only, never its fields.
 
 **When history is consulted.** Only by a live `migrate --retain-source` whose
-planner built a plan with no `MANUAL_REVIEW` step: `--replay` and
-`--from-snapshot` never read history (INV-15), a run without `--retain-source`
-never does, and every refusal and *nothing to move* keeps its precedence. A
-history the store cannot trust is `HISTORY_UNUSABLE` (exit 8) with empty stdout,
-never read as "no record" ([`history.v1.md`](history.v1.md)). **In this build
-nothing writes a record**, so a re-run is recognised only from records a later
-build writes; and because every plan sets its primary through MacPortsBrew's
-shim, which no capture can yet trace to a provider, such a re-run is planned
-again with `PRIMARY_IS_SHIM` until shims record their target.
+planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run
+shows what `--yes` would do. `--replay` and `--from-snapshot` never read
+history (INV-15), a run without `--retain-source` never does, and every
+refusal, every manual review and *nothing to move* keeps its precedence. A
+history the store cannot trust is `HISTORY_UNUSABLE` (exit 8) with empty
+stdout, never read as "no record" ([`history.v1.md`](history.v1.md)); a run as
+root is refused as `SAFETY_BLOCKED` (exit 4) before history is read. **In this
+build nothing writes a record**, so a re-run is recognised only from records a
+later build writes; and because every plan sets its primary through
+MacPortsBrew's shim, which no capture can yet trace to a provider, such a
+re-run is planned again with `PRIMARY_IS_SHIM` until shims record their target.
 
 ## Exit codes
 

@@ -38,10 +38,11 @@ to answer.
   anything the store would not have written, is the new `HISTORY_UNUSABLE`
   (exit 8) rather than "no record" (`docs/schemas/history.v1.md`). Nothing in
   this build writes a record, because nothing dispatches a mutation.
-- **`migrate --retain-source` can recognise a re-run as already done.** On a
-  live run only, when this machine's history and a fresh capture agree, it
-  answers `retainedRunDone` (exit 0) instead of planning again; otherwise the
-  plan carries `retainedRunNotRecognised` with the reason. Additive to
+- **`migrate --retain-source` consults this machine's history; recognising a
+  re-run is not yet reachable.** On a live run only, when this machine's
+  history and a fresh capture agree, it would answer `retainedRunDone` (exit 0)
+  instead of planning again; when history has something to say that is not
+  enough, the plan carries `retainedRunNotRecognised` with the reason. Additive to
   `migrate.v1`. Until shims record which provider they point at, a real re-run
   is still planned again, with `PRIMARY_IS_SHIM`.
 
