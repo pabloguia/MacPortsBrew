@@ -79,7 +79,7 @@ use std::path::Path;
 /// exactness and then omits its own subject is how a reader is misled later,
 /// so it is written down instead.
 #[cfg(target_os = "macos")]
-const fn open_flags(policy: OpenPolicy) -> i32 {
+pub(crate) const fn open_flags(policy: OpenPolicy) -> i32 {
     const O_NOFOLLOW: i32 = 0x0100;
     const O_NONBLOCK: i32 = 0x0004;
     match policy {
@@ -96,7 +96,7 @@ const fn open_flags(policy: OpenPolicy) -> i32 {
 // at all. This project ships only to macOS (`docs/spec/00-charter.md`); this
 // arm exists so the repository gate can compile on `ubuntu-latest`.
 #[cfg(not(target_os = "macos"))]
-const fn open_flags(_policy: OpenPolicy) -> i32 {
+pub(crate) const fn open_flags(_policy: OpenPolicy) -> i32 {
     0
 }
 

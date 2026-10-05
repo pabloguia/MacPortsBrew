@@ -139,16 +139,55 @@ pub enum PublishError {
 /// - The temporary is a dot-entry, which every listing of the state directory
 ///   ignores; a kill between the link and its removal leaves it hidden.
 pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
-    write_new_with(path, bytes, |from, to| std::fs::hard_link(from, to))
+    write_new_with(
+        path,
+        bytes,
+        |from, to| std::fs::hard_link(from, to),
+        Durability::BestEffort,
+        sync_directory,
+    )
 }
 
-/// [`write_new_atomic`] with the publishing call passed in, so a test can make
-/// it lose its reply the way a network filesystem does (the entry lands, the
-/// caller is told it exists). Private: no production caller supplies another.
+/// [`write_new_atomic`], but the directory entry must reach the medium before
+/// this returns `Ok`: the interrupted-run marker exists to survive a power
+/// loss, and a lost entry after the first provider change would leave neither
+/// a marker nor a record. When the directory cannot be synced the result is
+/// [`PublishError::Failed`] **though the entry is published**: the caller
+/// treats the write as not having happened (it dispatches nothing) and clears
+/// what it wrote.
+pub fn write_new_durable(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
+    write_new_with(
+        path,
+        bytes,
+        |from, to| std::fs::hard_link(from, to),
+        Durability::Required,
+        sync_directory,
+    )
+}
+
+/// Whether a failed directory sync fails the write.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Durability {
+    /// A record: the marker notices a power loss before the sync.
+    BestEffort,
+    /// The marker itself: nothing notices if it is lost.
+    Required,
+}
+
+fn sync_directory(directory: &Path) -> std::io::Result<()> {
+    File::open(directory)?.sync_all()
+}
+
+/// [`write_new_atomic`] with the publishing call and the directory sync passed
+/// in, so a test can make the first lose its reply the way a network filesystem
+/// does (the entry lands, the caller is told it exists) and the second fail.
+/// Private: no production caller supplies another.
 fn write_new_with(
     path: &Path,
     bytes: &[u8],
     publish: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    durability: Durability,
+    sync: impl Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), PublishError> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let failed = |what: String| PublishError::Failed(DomainError::new(ErrorId::Io, what));
@@ -196,11 +235,17 @@ fn write_new_with(
     };
     std::fs::remove_file(&temporary).ok();
     if outcome.is_ok() {
-        // Best effort, as in `write_atomic`: the entry is durable once the
-        // directory reaches disk; a power loss before then can lose the
-        // record, which the interrupted-run marker exists to notice.
-        if let Ok(directory) = File::open(parent) {
-            directory.sync_all().ok();
+        // Best effort for a record, as in `write_atomic`: the entry is durable
+        // once the directory reaches disk; a power loss before then can lose
+        // the record, which the interrupted-run marker exists to notice. For
+        // the marker itself the sync must succeed.
+        if let Err(e) = sync(parent) {
+            if durability == Durability::Required {
+                return Err(failed(format!(
+                    "{} was published but its directory could not be synced: {e}",
+                    path.display()
+                )));
+            }
         }
     }
     outcome
@@ -417,7 +462,14 @@ mod tests {
     fn a_publish_whose_reply_was_lost_is_a_success_and_leaves_nothing_behind() {
         let dir = scratch("atomic-lost-reply");
         let target = dir.join("run.json");
-        write_new_with(&target, b"ours", lost).unwrap();
+        write_new_with(
+            &target,
+            b"ours",
+            lost,
+            Durability::BestEffort,
+            sync_directory,
+        )
+        .unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"ours");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no leftover");
         std::fs::remove_dir_all(&dir).ok();
@@ -431,7 +483,13 @@ mod tests {
         let refused =
             |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
         assert!(matches!(
-            write_new_with(&target, b"ours", refused),
+            write_new_with(
+                &target,
+                b"ours",
+                refused,
+                Durability::BestEffort,
+                sync_directory
+            ),
             Err(PublishError::Exists)
         ));
         assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
@@ -440,16 +498,63 @@ mod tests {
 
     #[test]
     fn a_publish_error_that_is_not_exists_fails_without_replacing() {
-        let dir = scratch("atomic-cannot-link");
+        let dir = scratch("atomic-cannot-publish");
         let target = dir.join("run.json");
         let cannot =
             |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::Unsupported));
         assert!(matches!(
-            write_new_with(&target, b"x", cannot),
+            write_new_with(&target, b"x", cannot, Durability::BestEffort, sync_directory),
             Err(PublishError::Failed(e)) if e.id == ErrorId::Io
         ));
         assert!(!target.exists());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "no leftover");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn failing_sync(_: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+
+    fn link(from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::hard_link(from, to)
+    }
+
+    #[test]
+    fn a_required_directory_sync_that_fails_fails_the_write() {
+        let dir = scratch("atomic-sync-required");
+        let target = dir.join("marker.json");
+        let result = write_new_with(&target, b"m", link, Durability::Required, failing_sync);
+        assert!(matches!(result, Err(PublishError::Failed(e)) if e.id == ErrorId::Io));
+        // Published all the same: the caller treats it as not written and clears it.
+        assert!(target.exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_best_effort_directory_sync_that_fails_does_not_fail_the_write() {
+        let dir = scratch("atomic-sync-best-effort");
+        let target = dir.join("run.json");
+        write_new_with(&target, b"r", link, Durability::BestEffort, failing_sync).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"r");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_durable_write_lands_privately_and_never_replaces() {
+        let dir = scratch("atomic-durable");
+        let target = dir.join("marker.json");
+        write_new_durable(&target, b"first").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            FILE_MODE
+        );
+        assert!(matches!(
+            write_new_durable(&target, b"second"),
+            Err(PublishError::Exists)
+        ));
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
