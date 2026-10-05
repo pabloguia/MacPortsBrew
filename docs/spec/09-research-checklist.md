@@ -376,6 +376,33 @@ system files are root-owned. What to do about it is DP-027. Left open: which
 user's file an elevated `port` reads (depends on the sudo policy), and the
 network finding was established from source, not from a traced run.
 
+### R-17 · Where each provider holds a lock while it mutates, and whether a filesystem read can see it
+*Answered 2026-10-05 — `docs/research/R-17-provider-mutation-locks.md`.*
+Answers: both providers use held advisory `flock`s whose files are left behind
+after release, so a file's presence proves nothing and a "stale lock" does not
+exist (Homebrew 7.0.4 `var/homebrew/locks/<name>.<type>.lock`, `update`,
+`vendor-install-<name>`; MacPorts 2.12.6 `<portdbpath>/registry/.registry.lock`,
+taken only by a registry-writable `port`). Casks, Homebrew cleanup, and MacPorts
+`sync`/`selfupdate`/`clean` take none. A filesystem-only detector can say "a
+lock is held right now" (positive evidence) through `fcntl(F_GETLK)` on an
+`O_RDONLY` fd, observed to see `flock` locks on macOS 26.7.1 without acquiring,
+creating or altering anything; it cannot say "idle". The `flock(LOCK_SH|LOCK_NB)`
+probe is unsafe against Homebrew, whose `EX|NB` taker aborts. Left open: no real
+provider mutation was observed holding a lock; other macOS versions and network
+volumes; the official documentation.
+
+### R-18 · Whether advisory file locks are available on the pinned toolchain
+*Answered 2026-10-05 — `docs/research/R-18-advisory-file-locks-on-the-pinned-toolchain.md`.*
+Answers: yes — `File::lock`, `lock_shared`, `try_lock`, `try_lock_shared` and
+`unlock` are stable since 1.89.0 and the pinned 1.98.0 compiles them;
+`TryLockError` is `Error(io::Error) | WouldBlock`. On Apple targets std calls
+`flock(2)`; contention is per open file description (two opens in one process
+conflict), the lock is released when its holder dies (observed with SIGKILL),
+and a lock file must never be unlinked (a recreated path is a second inode that
+locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
+(`man flock` is silent and this machine has none), and whether std opens with
+close-on-exec, which decides whether a spawned child can keep a lock alive.
+
 ---
 
 ## Non-blocking research
