@@ -81,6 +81,38 @@ blocks:** nothing. **Reversible default taken:** (a).
 
 ## Resolved
 
+### DP-030 — How, if at all, MacPortsBrew detects a `brew` or `port` that is mutating
+
+Raised 2026-10-05, pass 08 slice 2, from R-17 and R-18. 04's MUST asks for
+detection of a concurrently running `brew` or `port` before mutating, and a
+refusal. Observation (R-17): both providers hold a kernel `flock` for the
+duration of a mutation, so a file's presence proves nothing and a stale lock
+does not exist; the only probe that acquires nothing is `fcntl(F_GETLK)`. It is
+unreachable from `std`; the workspace forbids `unsafe`; `libc` would be a new
+dependency; a process listing grows the spawn allowlist. Nothing in this slice
+does any of those, so **the detector is not built and the refusal is owed**.
+
+- **(a) Stay owed.** Every live run is flagged "possibly inconsistent" and no
+  mutation is dispatched in this build anyway. A test fails the build that sets
+  `THIS_BUILD_DISPATCHES_MUTATIONS` while a live run says `NOT_CHECKED`, so the
+  flip proposal must come back to this decision. Cost: nothing now; before the
+  flip, the owner decides.
+- **(b) One `libc` dependency and one reviewed `unsafe` call** for `F_GETLK` on
+  each provider's lock file (Homebrew's `locks/*.lock`, MacPorts'
+  `.registry.lock`). Honest claim: "a lock is held right now", never "idle".
+  Cost: a new dependency (an ADR), lifting `forbid` for one module, and an
+  asymmetry between providers that is theirs (MacPorts' lock is taken only by a
+  `port` that can write the registry), to be reviewed under INV-17.
+- **(c) A MacPorts-only `try_lock_shared` probe.** Safe there (MacPorts waits);
+  unsafe for Homebrew (it aborts), so it covers one provider. Cost: violates
+  the peer-provider rule in spirit; rejected unless (b) is refused.
+
+**Recommendation:** (a) now, (b) at the flip proposal if the owner accepts the
+dependency. **What it blocks:** the flag-flip proposal, by test, not by
+convention. **Reversible default taken:** (a).
+
+---
+
 ### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's — **RESOLVED 2026-10-03: (b) for mutating steps, (c) for reads**
 
 - **Ruled 2026-10-03 by the owner**, adopting the recommendation below:

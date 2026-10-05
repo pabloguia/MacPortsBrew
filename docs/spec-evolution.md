@@ -487,6 +487,30 @@ change is made. Silent deviation remains the one unrecoverable error.
   | only an observation is a check | `was_checked` true for `UNKNOWABLE` | `an_unchecked_or_unknowable_answer_is_not_a_check`, `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
   | `migrate` asks the source, not a constant | `migrate.rs` passes `NOT_CHECKED` | `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either`, `invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_and_says_so` |
   | the human output says it | `human::concurrency` returns nothing | the same three |
+- **Addendum, the lock and the marker built; the detector not, 2026-10-05
+  (pass 08, slice 2).** Plan and reviews: `docs/passes/08-slice-2-plan.md`;
+  evidence: R-17 and R-18. **Built (adapters, not yet reached by the
+  executor):** a single-instance lock — an exclusive advisory `try_lock` on
+  `run.lock` in the state root, held for the life of a mutating run, released by
+  drop or by the kernel on death (so there is no stale lock to clean up), a held
+  lock being exit 7 — and an interrupted-run marker naming the run, written
+  before the first provider change, cleared after the record is published,
+  refusing the next mutating command with exit 4 naming the run. **Not built:
+  the "detect a concurrently running `brew` or `port` before mutating and
+  refuse" half of this entry's MUST** (a Tier 3 deviation, recorded here
+  rather than left implicit). R-17: neither provider has a stale lock, a lock
+  file's presence proves nothing, and the one probe that cannot disturb a
+  provider is `fcntl(F_GETLK)`; `std` has none, the workspace forbids `unsafe`
+  and a `libc` dependency is new. The alternative in `std`, `try_lock_shared`,
+  was observed to make Homebrew abort when it races an exclusive taker, and a
+  process listing needs `ps`/`pgrep`/`lsof`, which grows the spawn allowlist —
+  the owner's. So a live run still answers `NOT_CHECKED`, a replay
+  `UNKNOWABLE` (INV-15), **every live run is still "possibly inconsistent"**,
+  and the refusal-before-mutating is owed; **a test fails the build that sets
+  `THIS_BUILD_DISPATCHES_MUTATIONS` while a live run still answers
+  `NOT_CHECKED`**, so it is a gate. The owner's options are DP-030. The
+  MacPortsBrew-against-MacPortsBrew lock excludes nothing about `brew` or
+  `port`; it is not the detector and must not be described as one.
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted
@@ -6720,6 +6744,37 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the record certify its own write, against the plan; the representation is
   settled before any build writes records (a pending result judged on
   read-back, or a revised v1), with the write call.
+- **Slice 2 (pass 08, 2026-10-05): the lock and the marker.** Plan, with both
+  reviews folded in: `docs/passes/08-slice-2-plan.md`. Decisions (Tier 3):
+  **D-L1** exclusive advisory `try_lock` on `<state root>/run.lock`, held for the
+  life of a mutating run. **D-L2** the file is persistent and empty, created
+  `O_EXCL`, opened `O_NOFOLLOW`, `0600` set on the handle (a `0277` umask
+  leaves a created file `0400`, R-18), never unlinked or truncated (an unlink
+  lets two inodes lock at once, R-18), and re-checked against its path after
+  the lock and at the marker write. **D-L3** taken by a mutating run only,
+  after the gate and the history probe, before the marker; **owed with the
+  wiring: re-run the state-dependent part of the gate under the lock**, because
+  a second run can change the machine while this one waits or fails with exit 7,
+  and the plan this run validated would then be stale (security review M4; a
+  precondition of the flag-flip proposal). **D-L4** the lock proves itself real
+  by a second in-process open that must be refused, because `flock` can be
+  host-local on a network volume (R-18 left it unknown). **D-M1** one marker
+  naming one run, durable (its directory sync must succeed), written
+  immediately before the first provider change — not before `SNAPSHOT_BEFORE`,
+  which writes only this tool's state — and cleared on every ending that returns
+  control, after the record when the run dispatched anything, at once when it
+  dispatched nothing; a run whose record could not be published keeps it.
+  **D-M2** an unreadable or unusable lock or marker is `HISTORY_UNUSABLE`, never
+  "absent". **D-M3** the user's remedy for a stranded marker is documented and by
+  hand — look for the run's record, look at what it changed, remove that one
+  file when no other run is active — until `history` and `restore` exist
+  (item 7); no code path deletes a marker but the run's own `clear`, **D-M4**.
+  **D-E1** two identifiers: `RunLockHeld` (7) and `RunInterrupted` (4); a lock
+  that cannot be established is `SAFETY_BLOCKED` (nothing was changed) rather
+  than `IO`. **Owed with the wiring:** the state-dependent gate under the lock;
+  a stranded marker in `doctor`; the application-level refusal on an observed
+  or unchecked provider; a `&RunLock` witness on the dispatch function. Shim-
+  backed recognition (INV-16) is still open, as above.
 - Evidence (pass 08 slice 1): `crates/domain/tests/history_read_back.rs`,
   `crates/adapters/tests/history_store.rs`,
   `crates/adapters/src/persistence/atomic.rs` (tests),
