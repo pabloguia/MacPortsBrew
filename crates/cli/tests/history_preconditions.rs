@@ -12,6 +12,12 @@
 //! good stub and on one mutant per rule. So the proof that a tripwire would
 //! fire is a permanent test that runs on every build, not a one-off scratch run
 //! that nobody can repeat.
+//!
+//! **Necessary, not sufficient.** The text scan sees that the calls exist, are
+//! kept and come in order; it cannot see reachability (a call under `if false`
+//! or in a closure that is never run). The real check is the review of the
+//! wiring pass and, there, a behavioural test of the executor with a recording
+//! fake — owed with the wiring (SE-092).
 
 use macportsbrew_application::AnalysisSource;
 use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
@@ -44,24 +50,61 @@ fn executor_files() -> Vec<SourceFile> {
 }
 
 /// The executable code of a file: no test module (the convention is that it is
-/// last), no comment line, no string literal's content. A token inside any of
-/// those is not wiring.
+/// last), no comment of any kind, no string literal's content. A token inside
+/// any of those is not wiring.
 fn code_of(text: &str) -> String {
     let before_tests = text.split("#[cfg(test)]").next().unwrap_or("");
-    let without_comments: String = before_tests
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let chars: Vec<char> = without_comments.chars().collect();
+    let chars: Vec<char> = before_tests.chars().collect();
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     let mut out = String::with_capacity(chars.len());
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        // A character literal holding a quote must not open a string.
-        if c == '\'' && i + 2 < chars.len() && chars[i + 1] == '"' && chars[i + 2] == '\'' {
+        let next = chars.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            // A line comment, doc comments included: up to the newline.
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+        } else if c == '\'' && chars.get(i + 1) == Some(&'"') && chars.get(i + 2) == Some(&'\'') {
+            // A character literal holding a quote must not open a string.
             out.push_str("' '");
             i += 3;
+        } else if c == 'r'
+            && matches!(next, Some('"' | '#'))
+            && !out.chars().next_back().is_some_and(is_ident)
+        {
+            // A raw string: r"..." or r#"..."#, any number of hashes.
+            let mut hashes = 0;
+            let mut k = i + 1;
+            while chars.get(k) == Some(&'#') {
+                hashes += 1;
+                k += 1;
+            }
+            if chars.get(k) == Some(&'"') {
+                k += 1;
+                loop {
+                    if k >= chars.len() {
+                        break;
+                    }
+                    if chars[k] == '"' && (0..hashes).all(|h| chars.get(k + 1 + h) == Some(&'#')) {
+                        k += 1 + hashes;
+                        break;
+                    }
+                    k += 1;
+                }
+                out.push_str("\"\"");
+                i = k;
+            } else {
+                out.push(c);
+                i += 1;
+            }
         } else if c == '"' {
             out.push('"');
             i += 1;
@@ -97,6 +140,24 @@ fn calls_of(code: &str, token: &str) -> Vec<usize> {
         from = start + token.len();
     }
     found
+}
+
+/// The name `run_lock::acquire(` is bound to, when it is `let [mut] name =`
+/// and the name is not the discarding `_`.
+fn lock_binding(code: &str, at: Option<usize>) -> Option<String> {
+    let before = code[..at?].trim_end();
+    let before = before.strip_suffix('=')?.trim_end();
+    let name: String = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    let head = before[..before.len() - name.len()].trim_end();
+    let bound = head.ends_with("let") || head.ends_with("let mut");
+    (bound && !name.is_empty() && name != "_").then_some(name)
 }
 
 const PROBE: &str = "history_store::probe(";
@@ -163,6 +224,44 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
             }
         }
     };
+    // The lock must be bound to a name that stays alive: a bare statement or
+    // `let _ =` drops it at once, and a `drop` before the first dispatch lets go
+    // of it. The marker calls must be handed that name.
+    let bound = if ordered {
+        lock_binding(code, calls_of(code, ACQUIRE).first().copied())
+    } else {
+        None
+    };
+    if ordered {
+        match &bound {
+            None => violations.push(format!(
+                "[lock] {name}: the result of {ACQUIRE} is not bound to a name that is kept"
+            )),
+            Some(lock) => {
+                for token in [MARKER_READ, MARKER_WRITE, MARKER_CLEAR] {
+                    let handed = calls_of(code, token)
+                        .iter()
+                        .all(|at| code[at + token.len()..].starts_with(&format!("&{lock}")));
+                    if !handed {
+                        violations.push(format!(
+                            "[lock] {name}: {token} is not handed the lock `{lock}`"
+                        ));
+                    }
+                }
+                let dispatch_at = calls_of(code, DISPATCH).first().copied();
+                let dropped = calls_of(code, "drop(")
+                    .into_iter()
+                    .find(|at| code[at + 5..].starts_with(&format!("{lock})")));
+                if let (Some(d), Some(x)) = (dispatch_at, dropped) {
+                    if d > x {
+                        violations.push(format!(
+                            "[lock] {name}: the lock `{lock}` is dropped before the first dispatch"
+                        ));
+                    }
+                }
+            }
+        }
+    }
     let probe = once(&mut violations, "record", PROBE);
     let acquire = if ordered {
         once(&mut violations, "lock", ACQUIRE)
@@ -385,6 +484,96 @@ fn a_call_in_a_comment_a_string_or_a_test_module_is_not_wiring() {
         "    let q = '\"'; let lock = run_lock::acquire(&state, uid)?;",
     );
     assert_eq!(violations_of(&in_char_then_string), Vec::<String>::new());
+}
+
+#[test]
+fn a_lock_that_is_dropped_discarded_or_not_handed_on_is_not_a_lock() {
+    let bare = GOOD.replace(
+        "    let lock = run_lock::acquire(&state, uid)?;",
+        "    run_lock::acquire(&state, uid)?;",
+    );
+    let discarded = GOOD.replace(
+        "    let lock = run_lock::acquire(&state, uid)?;",
+        "    let _ = run_lock::acquire(&state, uid)?;",
+    );
+    let dropped = GOOD.replace("    let results", "    drop(lock);\n    let results");
+    let not_handed = GOOD.replace("run_marker::write(&lock,", "run_marker::write(&other,");
+    for (what, text) in [
+        ("a bare statement", bare),
+        ("let _ =", discarded),
+        ("a drop before the dispatch", dropped),
+        ("a marker call without the lock", not_handed),
+    ] {
+        assert!(
+            violations_of(&text).iter().any(|v| v.starts_with("[lock]")),
+            "{what}: {:?}",
+            violations_of(&text)
+        );
+    }
+    // A named, kept binding of either spelling is fine.
+    let kept = GOOD.replace("let lock =", "let mut lock =");
+    assert_eq!(violations_of(&kept), Vec::<String>::new());
+    let underscored = GOOD
+        .replace("let lock =", "let _lock =")
+        .replace("&lock,", "&_lock,");
+    assert_eq!(violations_of(&underscored), Vec::<String>::new());
+}
+
+#[test]
+fn a_call_named_in_a_comment_or_a_string_is_not_counted_beside_the_real_one() {
+    // The real wiring is there; each decoy repeats a token the rules count
+    // once. Only an uncommented, unquoted call counts, so none is a second site.
+    for decoy in [
+        "    // run_lock::acquire(&state, uid); history_store::probe(); run_marker::write()",
+        "    /* run_lock::acquire( history_store::probe( run_marker::write( */",
+        "    /// run_lock::acquire( history_store::probe( run_marker::write(",
+        "    let _text = r#\"run_lock::acquire( history_store::probe( run_marker::write(\"#;",
+        "    let _text = r\"run_lock::acquire( history_store::probe( run_marker::write(\";",
+        "    let _text = \"run_lock::acquire( history_store::probe( run_marker::write(\";",
+        "    let _text = r##\"a\"b run_lock::acquire( c\"# d\"##;",
+        "    let _ok = 1; // run_lock::acquire(",
+    ] {
+        let text = GOOD.replace("    let results", &format!("{decoy}\n    let results"));
+        assert_eq!(violations_of(&text), Vec::<String>::new(), "{decoy}");
+    }
+}
+
+#[test]
+fn every_kind_of_comment_and_string_hides_a_call() {
+    let hide = |replacement: &str| {
+        GOOD.replace(
+            "    let lock = run_lock::acquire(&state, uid)?;",
+            replacement,
+        )
+    };
+    for (what, text) in [
+        (
+            "a trailing comment",
+            hide("    let lock = (); // run_lock::acquire("),
+        ),
+        (
+            "a block comment",
+            hide("    let lock = (); /* run_lock::acquire( */"),
+        ),
+        (
+            "a doc comment",
+            hide("    /// run_lock::acquire(\n    let lock = ();"),
+        ),
+        (
+            "a raw string",
+            hide("    let lock = r#\"run_lock::acquire(\"#;"),
+        ),
+        (
+            "a plain raw string",
+            hide("    let lock = r\"run_lock::acquire(\";"),
+        ),
+    ] {
+        assert!(
+            violations_of(&text).iter().any(|v| v.starts_with("[lock]")),
+            "{what}: {:?}",
+            violations_of(&text)
+        );
+    }
 }
 
 #[test]

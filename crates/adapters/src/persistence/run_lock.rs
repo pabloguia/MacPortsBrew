@@ -33,11 +33,12 @@
 //! gives group or other access is refused rather than repaired (it is somebody's
 //! file, not a umask accident); and only then is `0600` set on the handle.
 //!
-//! **Close-on-exec.** `std` opens files with `O_CLOEXEC`, and the only way to
-//! clear it is `custom_flags`; the only flags passed here are
-//! [`open_flags`]'s, and a test fails if that ever changes. A provider child
-//! that held the descriptor would keep the lock for as long as it lives and
-//! every later mutating run would exit 7 with nothing this tool could clear.
+//! **Close-on-exec.** `std` opens every file with `O_CLOEXEC` and ORs
+//! `custom_flags` in after it, so the descriptor is not inherited by a spawned
+//! child; the flags passed here are [`open_flags`]'s and a test pins that, as a
+//! second line. It matters because a provider child that held the descriptor
+//! would keep the lock for as long as it lives and every later mutating run
+//! would exit 7 with nothing this tool could clear. (R-18 did not observe it.)
 //!
 //! **Never as root**, for the reason the history store gives: an elevated
 //! process can keep the invoking user's home.
@@ -61,12 +62,28 @@ pub struct RunLock {
     path: PathBuf,
 }
 
+/// `result`, or [`io_blocked`] naming `what`. One place for the failure, so the
+/// call sites carry no branch of their own.
+fn or_blocked<T>(result: std::io::Result<T>, what: &str) -> Result<T, DomainError> {
+    result.map_err(|e| io_blocked(what, &e))
+}
+
+fn io_unusable(what: &str, e: &std::io::Error) -> DomainError {
+    unusable(format!("{LOCK_FILE} {what}: {}", e.kind()))
+}
+
 fn unusable(detail: String) -> DomainError {
     DomainError::new(ErrorId::HistoryUnusable, detail)
 }
 
 fn blocked(detail: String) -> DomainError {
     DomainError::new(ErrorId::SafetyBlocked, detail)
+}
+
+/// `{LOCK_FILE} {what}: {kind}` as a refusal that changed nothing. The kind of
+/// the I/O error, never its text: that can hold a path.
+fn io_blocked(what: &str, e: &std::io::Error) -> DomainError {
+    blocked(format!("{LOCK_FILE} {what}: {}", e.kind()))
 }
 
 /// Why an entry at the lock's path is not the file this writer leaves, from the
@@ -157,11 +174,13 @@ fn acquire_with(
     second_lock: impl FnOnce(&File) -> Result<(), TryLockError>,
 ) -> Result<RunLock, DomainError> {
     refuse_root(euid)?;
-    state.ensure().map_err(|e| {
-        blocked(format!(
-            "the state directory cannot hold the run lock, so nothing was changed: {}",
-            e.detail
-        ))
+    // `ensure`'s own detail names an absolute path, so it is not quoted.
+    state.ensure().map_err(|_| {
+        blocked(
+            "the state directory cannot hold the run lock, so nothing was changed: it is not \
+             the private directory this version creates"
+                .to_string(),
+        )
     })?;
     let path = state.root().join(LOCK_FILE);
     let flags = open_flags(OpenPolicy::RefuseSymlink);
@@ -180,33 +199,27 @@ fn acquire_with(
             .custom_flags(flags)
             .open(&path)
             .map_err(|e| {
-                unusable(format!(
-                    "{LOCK_FILE} could not be opened as a plain file (a symbolic reference, or \
-                     unreadable): {}",
-                    e.kind()
-                ))
+                io_unusable(
+                    "could not be opened as a plain file (a symbolic reference, or unreadable)",
+                    &e,
+                )
             })?,
         Err(e) => {
-            return Err(blocked(format!(
-                "{LOCK_FILE} could not be created, so nothing was changed: {}",
-                e.kind()
-            )))
+            return Err(io_blocked(
+                "could not be created, so nothing was changed",
+                &e,
+            ))
         }
     };
 
-    let meta = file
-        .metadata()
-        .map_err(|e| blocked(format!("{LOCK_FILE} could not be inspected: {}", e.kind())))?;
+    let meta = or_blocked(file.metadata(), "could not be inspected")?;
     refuse_entry(&meta, euid)?;
     // The umask can leave a created file `0400`; the owner, mode and links are
     // already known good, so this only ever repairs.
-    file.set_permissions(std::fs::Permissions::from_mode(FILE_MODE))
-        .map_err(|e| {
-            blocked(format!(
-                "{LOCK_FILE} could not be made private: {}",
-                e.kind()
-            ))
-        })?;
+    or_blocked(
+        file.set_permissions(std::fs::Permissions::from_mode(FILE_MODE)),
+        "could not be made private",
+    )?;
 
     match file.try_lock() {
         Ok(()) => {}
@@ -217,10 +230,10 @@ fn acquire_with(
             ))
         }
         Err(TryLockError::Error(e)) => {
-            return Err(blocked(format!(
-                "{LOCK_FILE} could not be locked, so nothing was changed: {}",
-                e.kind()
-            )))
+            return Err(io_blocked(
+                "could not be locked, so nothing was changed",
+                &e,
+            ))
         }
     }
 
@@ -230,16 +243,13 @@ fn acquire_with(
     same_object(&meta, &path)?;
 
     // Is the lock real here? A separate open of the same path must be refused.
-    let probe = OpenOptions::new()
-        .read(true)
-        .custom_flags(flags)
-        .open(&path)
-        .map_err(|e| {
-            blocked(format!(
-                "{LOCK_FILE} could not be opened a second time to check that locking works: {}",
-                e.kind()
-            ))
-        })?;
+    let probe = or_blocked(
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(&path),
+        "could not be opened a second time to check that locking works",
+    )?;
     let second = second_lock(&probe);
     if second.is_ok() {
         probe.unlock().ok();
@@ -262,10 +272,7 @@ impl RunLock {
     /// when the marker is written, the last point before a provider change:
     /// deleting `run.lock` mid-run is unsupported and this is what notices.
     pub fn verify_still_current(&self) -> Result<(), DomainError> {
-        let meta = self
-            .file
-            .metadata()
-            .map_err(|e| blocked(format!("{LOCK_FILE} could not be inspected: {}", e.kind())))?;
+        let meta = or_blocked(self.file.metadata(), "could not be inspected")?;
         same_object(&meta, &self.path)
     }
 }
@@ -306,6 +313,35 @@ mod tests {
         assert_eq!(
             entry_problem(true, EUID, 0, 0o600, EUID),
             Some("has more than one name")
+        );
+    }
+
+    #[test]
+    fn an_io_failure_is_named_by_its_kind_and_never_its_text() {
+        let denied = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "/Users/somebody/Library/secret",
+        );
+        let blocked = io_blocked("could not be inspected", &denied);
+        assert_eq!(blocked.id, ErrorId::SafetyBlocked);
+        assert_eq!(
+            blocked.detail,
+            "run.lock could not be inspected: permission denied"
+        );
+        let unusable = io_unusable("could not be opened", &denied);
+        assert_eq!(unusable.id, ErrorId::HistoryUnusable);
+        assert!(!unusable.detail.contains("somebody"), "{}", unusable.detail);
+    }
+
+    #[test]
+    fn a_failed_call_is_a_refusal_that_names_what_failed_and_a_good_one_passes_through() {
+        assert_eq!(or_blocked(Ok(7), "x").unwrap(), 7);
+        let failed: std::io::Result<u8> = Err(std::io::ErrorKind::NotFound.into());
+        assert_eq!(
+            or_blocked(failed, "could not be inspected")
+                .unwrap_err()
+                .detail,
+            "run.lock could not be inspected: entity not found"
         );
     }
 

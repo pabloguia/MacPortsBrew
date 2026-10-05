@@ -227,3 +227,24 @@ fn the_lock_open_passes_no_flag_that_could_clear_close_on_exec() {
     assert_eq!(uses, code.matches(".custom_flags(flags)").count());
     assert!(uses >= 3, "the opens use the shared flags: {uses}");
 }
+
+#[test]
+fn a_state_directory_that_cannot_be_made_whole_is_a_refusal_that_changed_nothing() {
+    let (base, state) = scratch("not-whole");
+    let uid = euid(&base);
+    // A file where a directory of the state tree belongs: `ensure` refuses.
+    std::fs::remove_dir_all(state.history()).unwrap();
+    std::fs::write(state.history(), b"in the way").unwrap();
+    let error = acquire(&state, uid).unwrap_err();
+    assert_eq!(error.id, ErrorId::SafetyBlocked);
+    assert!(
+        !lock_path(&state).exists(),
+        "no lock file for a refused run"
+    );
+    assert!(
+        !error.detail.contains(base.to_str().unwrap()),
+        "{}",
+        error.detail
+    );
+    std::fs::remove_dir_all(&base).ok();
+}

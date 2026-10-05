@@ -194,7 +194,7 @@ fn write_new_with(
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .ok_or_else(|| failed(format!("{} has no directory to write into", path.display())))?;
+        .ok_or_else(|| failed(format!("{} has no directory to write into", name_of(path))))?;
     let temporary = temporary_sibling(path, parent);
 
     let write = || -> std::io::Result<File> {
@@ -216,8 +216,9 @@ fn write_new_with(
                 std::fs::remove_file(&temporary).ok();
             }
             return Err(failed(format!(
-                "{} could not be written: {e}",
-                temporary.display()
+                "{} could not be written: {}",
+                name_of(&temporary),
+                e.kind()
             )));
         }
     };
@@ -229,8 +230,9 @@ fn write_new_with(
             _ => Err(PublishError::Exists),
         },
         Err(e) => Err(failed(format!(
-            "{} could not be published without replacing: {e}",
-            path.display()
+            "{} could not be published without replacing: {}",
+            name_of(path),
+            e.kind()
         ))),
     };
     std::fs::remove_file(&temporary).ok();
@@ -242,13 +244,21 @@ fn write_new_with(
         if let Err(e) = sync(parent) {
             if durability == Durability::Required {
                 return Err(failed(format!(
-                    "{} was published but its directory could not be synced: {e}",
-                    path.display()
+                    "{} was published but its directory could not be synced: {}",
+                    name_of(path),
+                    e.kind()
                 )));
             }
         }
     }
     outcome
+}
+
+/// A path's last component, for an error text: the full path holds the user's
+/// name, and these details can be quoted into output meant for an issue.
+fn name_of(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
 }
 
 /// Whether an "already exists" from the publishing call was this call's own
@@ -555,6 +565,32 @@ mod tests {
             Err(PublishError::Exists)
         ));
         assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_path_with_no_directory_part_is_refused_by_both_writers_without_a_leftover() {
+        let bare = Path::new("no-directory-part.json");
+        assert!(write_atomic(bare, b"x").is_err());
+        assert!(matches!(
+            write_new_atomic(bare, b"x"),
+            Err(PublishError::Failed(e)) if e.detail.contains("no directory")
+        ));
+        assert!(matches!(
+            write_new_durable(bare, b"x"),
+            Err(PublishError::Failed(_))
+        ));
+        assert!(!bare.exists());
+    }
+
+    #[test]
+    fn a_write_over_a_directory_fails_and_leaves_no_temporary() {
+        let dir = scratch("atomic-over-directory");
+        let target = dir.join("is-a-directory");
+        std::fs::create_dir(&target).unwrap();
+        assert!(write_atomic(&target, b"x").is_err());
+        assert!(target.is_dir());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

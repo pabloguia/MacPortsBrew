@@ -57,12 +57,26 @@ pub enum ClearOutcome {
     /// There was none: a hand removal does not turn a finished run into an
     /// error, and the caller says so.
     AlreadyAbsent,
-    /// Another run's marker is there and was left alone.
+    /// Another run's marker is there and was left alone. Under the held lock
+    /// that is an anomaly, and the caller surfaces it rather than treating the
+    /// clear as done.
     NotOurs,
 }
 
 fn unusable(detail: String) -> DomainError {
     DomainError::new(ErrorId::HistoryUnusable, detail)
+}
+
+/// `{MARKER_FILE} {what}: {kind}`: the kind of the I/O error, never its text,
+/// which can hold a path.
+/// `result`, or [`io_unusable`] naming `what`: one place for the failure, so the
+/// call sites carry no branch of their own.
+fn or_unusable<T>(result: std::io::Result<T>, what: &str) -> Result<T, DomainError> {
+    result.map_err(|e| io_unusable(what, &e))
+}
+
+fn io_unusable(what: &str, e: &std::io::Error) -> DomainError {
+    unusable(format!("{MARKER_FILE} {what}: {}", e.kind()))
 }
 
 /// The exact bytes [`write`] leaves for `run`: compact JSON and a newline.
@@ -122,12 +136,7 @@ pub fn read(
     match std::fs::symlink_metadata(&path) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => {
-            return Err(unusable(format!(
-                "{MARKER_FILE} could not be inspected: {}",
-                e.kind()
-            )))
-        }
+        Err(e) => return Err(io_unusable("could not be inspected", &e)),
     }
     let text = match read_bounded(&path, MAX_MARKER_BYTES, OpenPolicy::RefuseSymlink, |meta| {
         accept(meta, euid)
@@ -169,9 +178,22 @@ pub fn write(
     run: &InterruptedRun,
     euid: u32,
 ) -> Result<(), DomainError> {
+    write_with(lock, state, run, euid, write_new_durable)
+}
+
+/// [`write`] with the publishing call passed in, so a test can make it publish
+/// and then report that the directory could not be synced. Private: no
+/// production caller supplies another.
+fn write_with(
+    lock: &RunLock,
+    state: &StateDir,
+    run: &InterruptedRun,
+    euid: u32,
+    publish: impl FnOnce(&Path, &[u8]) -> Result<(), PublishError>,
+) -> Result<(), DomainError> {
     lock.verify_still_current()?;
     let path = state.root().join(MARKER_FILE);
-    match write_new_durable(&path, canonical(run).as_bytes()) {
+    match publish(&path, canonical(run).as_bytes()) {
         Ok(()) => Ok(()),
         Err(PublishError::Exists) => match read(lock, state, euid)? {
             Some(earlier) => Err(DomainError::new(
@@ -183,13 +205,28 @@ pub fn write(
                 format!("{MARKER_FILE} appeared and went again while it was written, so nothing was changed"),
             )),
         },
-        Err(PublishError::Failed(_)) => Err(DomainError::new(
-            ErrorId::SafetyBlocked,
-            format!(
-                "{MARKER_FILE} could not be written durably, so nothing was changed. Check that \
-                 the state directory has room and is on a local volume"
-            ),
-        )),
+        // A failed durable publish may have left the marker: it is published
+        // before its directory is synced. This run changed nothing, so it takes
+        // its own marker back — otherwise the next run would be refused for a
+        // run that did nothing — and says so only if that worked.
+        Err(PublishError::Failed(_)) => match clear(lock, state, run, euid) {
+            Ok(ClearOutcome::Cleared | ClearOutcome::AlreadyAbsent) => Err(DomainError::new(
+                ErrorId::SafetyBlocked,
+                format!(
+                    "{MARKER_FILE} could not be written durably, so nothing was changed. Check \
+                     that the state directory has room and is on a local volume"
+                ),
+            )),
+            Ok(ClearOutcome::NotOurs) | Err(_) => Err(DomainError::new(
+                ErrorId::SafetyBlocked,
+                format!(
+                    "{MARKER_FILE} could not be written durably and could not be taken back: \
+                     nothing was changed, but the file is still there and will refuse the next \
+                     run until it is removed by hand. Check that the state directory has room \
+                     and is on a local volume"
+                ),
+            )),
+        },
     }
 }
 
@@ -225,26 +262,17 @@ fn clear_with(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(ClearOutcome::AlreadyAbsent)
         }
-        Err(e) => {
-            return Err(unusable(format!(
-                "{MARKER_FILE} could not be opened as a plain file (a symbolic reference, or \
-                 unreadable): {}",
-                e.kind()
-            )))
-        }
+        Err(e) => return Err(io_unusable("could not be opened as a plain file", &e)),
     };
-    let meta = file.metadata().map_err(|e| {
-        unusable(format!(
-            "{MARKER_FILE} could not be inspected: {}",
-            e.kind()
-        ))
-    })?;
+    let meta = or_unusable(file.metadata(), "could not be inspected")?;
     accept(&meta, euid).map_err(|why| unusable(format!("{MARKER_FILE} {why}")))?;
     let mut text = String::new();
-    (&mut file)
-        .take(MAX_MARKER_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|e| unusable(format!("{MARKER_FILE} could not be read: {}", e.kind())))?;
+    or_unusable(
+        (&mut file)
+            .take(MAX_MARKER_BYTES + 1)
+            .read_to_string(&mut text),
+        "could not be read",
+    )?;
     // Nothing longer than the marker's canonical text parses, so the read being
     // bounded by `take` is the whole size rule; a device or a pipe reads as
     // something that is not that text.
@@ -261,15 +289,20 @@ fn clear_with(
                 "{MARKER_FILE} was replaced while it was being cleared, and was left in place"
             )))
         }
-        Err(_) => return Ok(ClearOutcome::AlreadyAbsent),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ClearOutcome::AlreadyAbsent)
+        }
+        Err(e) => {
+            return Err(io_unusable(
+                "could not be inspected before it was cleared",
+                &e,
+            ))
+        }
     }
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(ClearOutcome::Cleared),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ClearOutcome::AlreadyAbsent),
-        Err(e) => Err(unusable(format!(
-            "{MARKER_FILE} could not be removed: {}",
-            e.kind()
-        ))),
+        Err(e) => Err(io_unusable("could not be removed", &e)),
     }
 }
 
@@ -305,6 +338,169 @@ mod tests {
         ] {
             assert!(parse(&bad).is_err(), "{bad:?}");
         }
+    }
+
+    fn scratch(tag: &str) -> (std::path::PathBuf, StateDir, u32) {
+        let base =
+            std::env::temp_dir().join(format!("mpb-marker-unit-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).unwrap();
+        let euid = std::fs::metadata(&base).unwrap().uid();
+        let state = StateDir::resolve(None, Some(base.join("state").to_str().unwrap())).unwrap();
+        (base, state, euid)
+    }
+
+    fn published_then_failed(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
+        super::super::atomic::write_new_atomic(path, bytes).unwrap();
+        Err(PublishError::Failed(DomainError::new(ErrorId::Io, "sync")))
+    }
+
+    #[test]
+    fn a_marker_published_and_then_failed_is_taken_back_by_the_run_that_wrote_it() {
+        let (base, state, euid) = scratch("taken-back");
+        let lock = acquire(&state, euid).unwrap();
+        let error = write_with(&lock, &state, &run(ID), euid, published_then_failed).unwrap_err();
+        assert_eq!(error.id, ErrorId::SafetyBlocked);
+        assert!(
+            error.detail.contains("nothing was changed"),
+            "{}",
+            error.detail
+        );
+        assert!(!error.detail.contains("still there"), "{}", error.detail);
+        assert!(!state.root().join(MARKER_FILE).exists());
+        // The next run is not refused for a run that did nothing.
+        assert!(write(&lock, &state, &run(ID), euid).is_ok());
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_marker_that_cannot_be_taken_back_says_it_is_still_there() {
+        let (base, state, euid) = scratch("stuck");
+        let lock = acquire(&state, euid).unwrap();
+        // Somebody else's marker is in the way when the failure is handled.
+        let other = InterruptedRun::new("20261005T130000Z-00000000000000bb").unwrap();
+        let swap = |path: &Path, _: &[u8]| {
+            std::fs::write(path, canonical(&other)).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            Err(PublishError::Failed(DomainError::new(ErrorId::Io, "sync")))
+        };
+        let error = write_with(&lock, &state, &run(ID), euid, swap).unwrap_err();
+        assert_eq!(error.id, ErrorId::SafetyBlocked);
+        assert!(error.detail.contains("still there"), "{}", error.detail);
+        assert!(state.root().join(MARKER_FILE).exists());
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_marker_that_cannot_be_inspected_is_not_reported_as_cleared() {
+        let (base, state, euid) = scratch("uninspectable");
+        let lock = acquire(&state, euid).unwrap();
+        write(&lock, &state, &run(ID), euid).unwrap();
+        let root = state.root().to_path_buf();
+        let error = clear_with(&lock, &state, &run(ID), euid, |_| {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+        })
+        .unwrap_err();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(error.id, ErrorId::HistoryUnusable);
+        assert!(state.root().join(MARKER_FILE).exists());
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_state_root_that_cannot_be_looked_into_makes_the_marker_unreadable_not_absent() {
+        let (base, state, euid) = scratch("unlookable");
+        let lock = acquire(&state, euid).unwrap();
+        let root = state.root().to_path_buf();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let error = read(&lock, &state, euid).unwrap_err();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(error.id, ErrorId::HistoryUnusable);
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_marker_that_cannot_be_removed_is_reported_and_left() {
+        let (base, state, euid) = scratch("unremovable");
+        let lock = acquire(&state, euid).unwrap();
+        write(&lock, &state, &run(ID), euid).unwrap();
+        let root = state.root().to_path_buf();
+        let error = clear_with(&lock, &state, &run(ID), euid, |_| {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        })
+        .unwrap_err();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(error.id, ErrorId::HistoryUnusable);
+        assert!(
+            error.detail.contains("could not be removed"),
+            "{}",
+            error.detail
+        );
+        assert!(state.root().join(MARKER_FILE).exists());
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_marker_that_appeared_and_went_while_it_was_written_is_a_refusal_that_changed_nothing() {
+        let (base, state, euid) = scratch("came-and-went");
+        let lock = acquire(&state, euid).unwrap();
+        let error = write_with(&lock, &state, &run(ID), euid, |_, _| {
+            Err(PublishError::Exists)
+        })
+        .unwrap_err();
+        assert_eq!(error.id, ErrorId::SafetyBlocked);
+        assert!(
+            error.detail.contains("nothing was changed"),
+            "{}",
+            error.detail
+        );
+        assert!(!state.root().join(MARKER_FILE).exists());
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_marker_removed_by_hand_while_it_is_being_cleared_is_already_absent() {
+        let (base, state, euid) = scratch("hand-removed");
+        let lock = acquire(&state, euid).unwrap();
+        write(&lock, &state, &run(ID), euid).unwrap();
+        let outcome = clear_with(&lock, &state, &run(ID), euid, |path| {
+            std::fs::remove_file(path).unwrap();
+        })
+        .unwrap();
+        assert_eq!(outcome, ClearOutcome::AlreadyAbsent);
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn a_failed_call_is_unusable_by_name_and_a_good_one_passes_through() {
+        assert_eq!(or_unusable(Ok(7), "x").unwrap(), 7);
+        let failed: std::io::Result<u8> = Err(std::io::ErrorKind::NotFound.into());
+        let error = or_unusable(failed, "could not be read").unwrap_err();
+        assert_eq!(error.id, ErrorId::HistoryUnusable);
+        assert!(error
+            .detail
+            .ends_with("could not be read: entity not found"));
+    }
+
+    #[test]
+    fn an_io_failure_is_named_by_its_kind_and_never_its_text() {
+        let denied = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "/Users/somebody/Library/secret",
+        );
+        let error = io_unusable("could not be read", &denied);
+        assert_eq!(error.id, ErrorId::HistoryUnusable);
+        assert_eq!(
+            error.detail,
+            "interrupted-run.json could not be read: permission denied"
+        );
     }
 
     #[test]

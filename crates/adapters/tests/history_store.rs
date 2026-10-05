@@ -516,3 +516,30 @@ fn a_crash_after_the_link_leaves_a_readable_store() {
     assert!(read_view(&state, &key("tool"), uid).is_ok());
     std::fs::remove_dir_all(&base).ok();
 }
+
+#[test]
+fn a_probe_name_left_by_a_killed_run_is_a_refusal_that_changed_nothing() {
+    let (base, state) = scratch("probe-collision");
+    let uid = euid(&base);
+    probe(&state, uid).unwrap();
+    let taken = state
+        .history()
+        .join(format!(".probe-{}", std::process::id()));
+    std::fs::write(&taken, b"left behind").unwrap();
+    let error = probe(&state, uid).unwrap_err();
+    assert_eq!(error.id, ErrorId::SafetyBlocked);
+    assert!(error.detail.contains("probe name"), "{}", error.detail);
+    // Not ours, so not removed.
+    assert_eq!(std::fs::read(&taken).unwrap(), b"left behind");
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn a_state_root_that_is_a_file_cannot_be_made_a_state_directory() {
+    let (base, state) = scratch("root-is-a-file");
+    std::fs::write(state.root(), b"a file").unwrap();
+    let error = state.ensure().unwrap_err();
+    assert_eq!(error.id, ErrorId::Io);
+    assert_eq!(std::fs::read(state.root()).unwrap(), b"a file");
+    std::fs::remove_dir_all(&base).ok();
+}

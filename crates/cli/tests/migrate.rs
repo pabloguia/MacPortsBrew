@@ -1196,6 +1196,8 @@ fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
 
 #[test]
 fn invariant_15_a_replayed_migrate_creates_neither_the_lock_nor_the_marker() {
+    // A tripwire, not a proof: it holds for any build in which nothing takes
+    // the lock, and starts to mean something when the executor shell does.
     // The single-instance lock and the interrupted-run marker belong to a run
     // that changes this machine. A recording is another machine, so a replayed
     // run, mutating flag or not, takes no lock and leaves no marker, and
