@@ -60,10 +60,17 @@ error.capability_missing = "The provider cannot supply something this operation 
 error.snapshot_unusable = "The snapshot could not be read, or its schema is from an incompatible version: {detail}. Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file."
 error.input_unusable = "The input this run was built from cannot be used: {detail}. Run `macportsbrew doctor` to see what this machine looks like; if the input came from a snapshot file or a recording, check whatever produced it."
 error.policy_data_invalid = "The policy data could not be loaded or is inconsistent: {detail}. This is a defect in the build rather than something on this machine, so nothing you change here will fix it. Please report it and quote this message."
-# MacPortsBrew's own history store, not an input the user named: the remedy is
-# to look at the entry, never to re-capture. A record that cannot be trusted is
-# never read as "no record", so this stops the command rather than guessing.
-error.history_unusable = "The migration history could not be read, or holds something that cannot be trusted, so nothing was changed: {detail}. Look at what that names in MacPortsBrew's state directory: an entry this version did not write, a record altered after it was written, or a directory open to other users."
+# MacPortsBrew's own state (the history store, the run lock, the interrupted-run
+# marker), not an input the user named: the remedy is to look at the entry,
+# never to re-capture. Something that cannot be trusted is never read as
+# "nothing there", so this stops the command rather than guessing.
+error.history_unusable = "MacPortsBrew's own state could not be read, or holds something that cannot be trusted, so nothing was changed: {detail}. Look at what that names in MacPortsBrew's state directory: an entry this version did not write, a record or marker altered after it was written, a lock file that is not the one this version creates, or a directory open to other users."
+# Exit 7. The lock is held by a MacPortsBrew run, not by brew or port, and no
+# process is named because none is recorded.
+error.run_lock_held = "Another MacPortsBrew run is changing packages on this machine, so nothing was changed: {detail}. Wait for it to finish and run the command again; analysis, plan and dry runs do not need the lock and still work."
+# Exit 4. The marker file and its directory are named separately on purpose: the
+# default directory contains a space, and a pasted command line would be wrong.
+error.run_interrupted = "An earlier run was interrupted and has not been looked at, so nothing was changed: {detail}. Analysis, plan and dry runs still work. First check whether MacPortsBrew's history holds a record for that run; if it does not, look at what that run changed on this machine. Then, only when no other MacPortsBrew run is active, remove the single file named interrupted-run.json from MacPortsBrew's state directory (the one MACPORTSBREW_STATE_DIR names, or Application Support/macportsbrew in your Library); a later release will do this for you."
 error.safety_unverifiable = "A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: {detail}. This is not something to fix on your machine — the fact is absent from the document itself. `analyze`, `status` and `explain` do not depend on it and still work."
 error.provider_presence_unproven = "Nothing was changed, and this is not reported as already done: {detail}. Detection looks only where a provider is documented to live. If that provider is installed somewhere else, check it with that provider's own tools; if it is not installed at all, the package is under the provider you asked for and there is nothing to migrate."
 error.safety_blocked = "A safety check stopped this operation and nothing was changed: {detail}. Read the finding, resolve it, and run the command again."

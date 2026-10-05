@@ -71,6 +71,16 @@ pub enum ErrorId {
     /// capture. Exit 8, the category "8 stale/unusable input": a record that
     /// cannot be trusted is never read as "no record" (fail closed).
     HistoryUnusable,
+    /// Another MacPortsBrew run holds the single-instance lock
+    /// (`04-migration-and-safety.md`, Concurrency and locking). Exit 7, "lock
+    /// held by another instance". No process is named: none is recorded, and
+    /// the lock belongs to whoever holds it, not to a pid.
+    RunLockHeld,
+    /// A previous mutating run left its marker and was never accounted for
+    /// (`06-cli-and-ux.md`: "exits 4 and names the run"). Separate from
+    /// [`ErrorId::SafetyBlocked`] for the remediation: the user looks at the
+    /// named run, not at a finding. Exit 4.
+    RunInterrupted,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
     SafetyBlocked,
     /// A safety rule could not be evaluated, because the input does not carry
@@ -112,7 +122,9 @@ impl ErrorId {
             ErrorId::Usage => 2,
             ErrorId::SafetyBlocked
             | ErrorId::SafetyUnverifiable
-            | ErrorId::ProviderPresenceUnproven => 4,
+            | ErrorId::ProviderPresenceUnproven
+            | ErrorId::RunInterrupted => 4,
+            ErrorId::RunLockHeld => 7,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
             | ErrorId::ProviderOutputChanged
@@ -145,6 +157,8 @@ impl ErrorId {
             ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::HistoryUnusable => "error.history_unusable",
+            ErrorId::RunLockHeld => "error.run_lock_held",
+            ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
             ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
@@ -169,6 +183,8 @@ impl ErrorId {
             ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
             ErrorId::HistoryUnusable,
+            ErrorId::RunLockHeld,
+            ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
             ErrorId::SafetyUnverifiable,
             ErrorId::ProviderPresenceUnproven,
@@ -237,6 +253,8 @@ mod tests {
         // And the history store's: an untrusted record is unusable input,
         // never "no record" (pass 08).
         assert_eq!(ErrorId::HistoryUnusable.exit_code(), 8);
+        assert_eq!(ErrorId::RunLockHeld.exit_code(), 7);
+        assert_eq!(ErrorId::RunInterrupted.exit_code(), 4);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 
@@ -270,7 +288,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 18;
+    const NUMBER_OF_ERROR_IDS: usize = 20;
 
     #[test]
     fn every_id_has_a_distinct_message() {

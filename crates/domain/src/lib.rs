@@ -16,6 +16,7 @@ pub mod class;
 pub mod concurrency;
 pub mod error;
 pub mod history;
+pub mod interrupted_run;
 pub mod machine;
 pub mod mapping;
 pub mod ownership;
@@ -42,6 +43,7 @@ pub use history::{
     RecordedVersions, Restorability, RunEnding, RunRecord, RunStart, RunStatus, RunSubject,
     StepResult, StoredEnvelope, StoredRunRecord, HISTORY_SCHEMA_VERSION,
 };
+pub use interrupted_run::{InterruptedRun, StoredInterruptedRun, MARKER_SCHEMA_VERSION};
 pub use machine::{
     Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
 };

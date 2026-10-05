@@ -72,7 +72,9 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
 4 when executed, with the step named; a mutating command that refuses to start
-because an interrupted run has not been looked at exits 4 and names the run;
+because an interrupted run has not been looked at exits 4 and names the run
+(`RUN_INTERRUPTED`); a mutating command that finds another MacPortsBrew run
+holding the single-instance lock exits 7 (`RUN_LOCK_HELD`);
 and `migrate` reports *nothing to move*, exit 0, when another provider was not
 detected, naming it in the text and in `notDetected` (SE-092, DP-026). Another
 provider that is broken refuses as `PROVIDER_UNHEALTHY` (exit 5), and one

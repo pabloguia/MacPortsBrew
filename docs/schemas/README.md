@@ -74,10 +74,10 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026) |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | — (interactive only; not reachable in this build) |
-| 7 | lock held by another instance | — (execution only; not reachable in this build) |
+| 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |
 | 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE` |
 
 `plan` exits **4** when the plan it produced contains a `MANUAL_REVIEW` step,
