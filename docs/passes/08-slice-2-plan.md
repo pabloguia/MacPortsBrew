@@ -31,7 +31,8 @@ security-reviewer). Sources: [R-17](../research/R-17-provider-mutation-locks.md)
    `<prefix>/var/homebrew/locks/<name>.<type>.lock` that is never unlinked;
    MacPorts 2.12.6 holds one on `<prefix>/var/macports/registry/.registry.lock`
    (`root:wheel 0644`), taken only by a `port` that can write the registry, so
-   a non-root `port` takes none and a cask path takes none.
+   a non-root `port` takes none and a cask path takes none (both read
+   from source, R-17; none was observed holding a lock).
 5. **A filesystem-only detector needs `fcntl(F_GETLK)`.** That is the only
    probe that acquires nothing and so cannot disturb a provider (R-17,
    observed). `flock(SH|NB)` is unsafe against Homebrew: a concurrent
@@ -202,8 +203,8 @@ security-reviewer). Sources: [R-17](../research/R-17-provider-mutation-locks.md)
 - Touches: `crates/domain/src/error.rs` (`exit_code`, `message_id`, `all()`,
   `NUMBER_OF_ERROR_IDS` 18 → 20, `exit_codes_follow_the_contract` gains 7 and
   4), the exhaustive list in `crates/application/tests/executor.rs`,
-  `locales/en.toml`, `docs/schemas/README.md` (row 7 loses "not reachable"; row
-  4 gains one), `06-cli-and-ux.md`.
+  `locales/en.toml`, `docs/schemas/README.md` (row 7 gains `RUN_LOCK_HELD` and keeps
+  "not reachable in this build", which is true of the code; row 4 gains one), `06-cli-and-ux.md`.
 
 ### The detector — not built; SE-015 records it in the same commit as the tripwires [SG M2]
 
@@ -214,7 +215,7 @@ process at this instant", never "a mutation is in progress" and never "idle";
 an `open` or `F_GETLK` failure is the unknown fallback; the detector is
 asymmetric between providers by their own design (Homebrew: per-formula lock
 files, 208 on the research machine; MacPorts: one registry lock taken only by
-a `port` that can write the registry, **observed on 2.12.6** [SG, consistency])
+a `port` that can write the registry, **from `registry.tcl` 2.12.6, read 2026-10-05 (R-17 E3); no run was observed** [SG, consistency])
 and so must be reviewed under INV-17 when built. Options are DP-030:
 (a) stay owed, (b) one `libc` dependency and one `unsafe` call, (c) a
 MacPorts-only `try_lock_shared` probe (safe there, MacPorts waits; unsafe for
@@ -330,3 +331,56 @@ Homebrew). **Recommendation (a)**, then (b) when the owner chooses it.
   close-on-exec; L4 → `nlink`, grammar, `Exists`, ancestors. **Accepted, not
   fixed:** the check-to-unlink window in `clear` (same-uid, documented); the
   `euid` is the caller's, as the store's (CLI-derived once).
+
+- **End-of-slice reviews (2026-10-05)** — `spec-guardian`, `security-reviewer`,
+  `docs-auditor`, over `a365d93..HEAD`. No Tier 1 or Tier 2 finding; no step
+  grew the spawn allowlist, used `unsafe`, added a dependency or touched a
+  guarded path. Findings and their disposition are in SE-092's slice 2
+  end-of-slice entry: the marker published-then-failed is taken back (D-M5),
+  `clear` fails closed, error details name files not paths, the tripwires are
+  stronger and say they are necessary, not sufficient, and eleven statements in
+  eight documents were corrected. Accepted without a change: the caller's
+  `euid`, the `0200` lock file's message, the generic remedy for a `0644` file.
+
+## As built (2026-10-05)
+
+**Commits** (`a365d93..HEAD`):
+
+| | |
+|---|---|
+| `f87b1bd` | Part A — the lost-reply rule is a pure function and the publishing call is injectable; a crash after the link is tested. SE-092's overclaim corrected. |
+| `ab50b3e` | Part B — R-17 (provider locks) and R-18 (advisory locks on the pinned toolchain). |
+| `ea90722` | This plan, reviewed; SE-015 and DP-030 record the unbuilt detector. |
+| `568658a` | Domain: `InterruptedRun`, `RUN_LOCK_HELD` (7), `RUN_INTERRUPTED` (4). |
+| `b3dd97d` | `write_new_durable`. |
+| `0f4143d` | `run_lock`. |
+| `cddc515` | `run_marker`, `run-marker.v1.md`. |
+| `44c3acb` | Tripwires and the INV-15 replay test. |
+| `f755fb0` | 04, CHANGELOG. |
+| `afcb550` | Review fixes. |
+| (docs) | Review corrections, this section. |
+
+**Differences from the plan.** (1) The `0277` umask test could not be written
+cleanly (`unsafe` and a shell wrapper are both forbidden to a test) and stays
+owed, DP-029. (2) `PublishError` was not split: a failed durable publish makes
+the marker's writer take its own marker back, which is the same safety without
+touching the enum's other users (D-M5). (3) `RunLock::acquire` takes the
+`euid` from its caller, as the store does. (4) The detector was not built, as
+planned, and the tripwire for it uses `was_checked()`.
+
+**What stays owed.** The `0277` umask test (DP-029); detection of a concurrent
+`brew`/`port` and the refusal it serves (DP-030, SE-015); and, with the
+executor wiring and as preconditions of the flag-flip proposal: the lock and
+marker calls in the shell in the planned order, the state-dependent gate re-run
+under the lock, `verify_still_current` before each mutating dispatch, the
+application-level refusal on an observed or unchecked provider, a stranded
+marker surfaced in `doctor`, `history` and `restore` (which replace the by-hand
+remedy), and shim-backed recognition (INV-16, from slice 1).
+
+**For the owner.** DP-029 (umask test: leave owed, a reviewed exception in
+`check-no-shell.sh`, or one `unsafe` call) and DP-030 (detector: leave owed, one
+`libc` dependency and one `unsafe` call, or a one-provider probe) — both have a
+recommendation and a reversible default taken. R-17's researcher took a
+momentary shared `flock` on the real MacPorts registry lock and ran
+`port version`, once, with nothing running; neither changes anything, and it is
+disclosed here because the instruction was read-only observation.

@@ -37,7 +37,9 @@ authority.
   after the first change cannot lose it.
 - **Cleared by the run that wrote it**, on every ending that returns control: after
   its record is published when it dispatched anything, at once when it
-  dispatched nothing. A run whose record could not be published keeps it. Only
+  dispatched nothing. A run whose record could not be published keeps it. A run whose marker could not be made durable (its directory
+  sync failed) changed nothing, so it takes the marker back before reporting
+  `SAFETY_BLOCKED`, and says so only if that worked. Only
   its own marker is removed; another run's is left in place. There is no other
   deletion by this tool.
 - **Read without being trusted.** A missing marker is "no earlier run" and
@@ -62,4 +64,5 @@ look at what that run changed; then, **only when no other MacPortsBrew run is
 active**, remove the single file `interrupted-run.json` from the state directory
 (`MACPORTSBREW_STATE_DIR`, or `Application Support/macportsbrew` under the
 user's Library). The remedy text names the file and the directory separately,
-because the default path contains a space.
+because the default path contains a space. If you are unsure whether another
+run is active, wait for any other MacPortsBrew window to finish first.

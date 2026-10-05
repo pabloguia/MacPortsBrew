@@ -266,8 +266,9 @@ and the gate refuses every mutating step against it.
 - **A concurrency check, and the single-instance lock** (`plan.v1.md`,
   obligation 5): `concurrentProviderActivity` reports that no check was made,
   never what one would have found. Whether another MacPortsBrew instance is
-  running is not reported at all; it is owed with the lock, which lands with the
-  mutation it guards.
+  running is not reported at all. The single-instance lock exists (`RUN_LOCK_HELD`,
+  exit 7; `docs/spec/04-migration-and-safety.md`, Concurrency and locking) and
+  nothing in this build takes it, because nothing dispatches a mutation.
 - **Writing history** (obligation 12): no run of this build is a mutating run,
   so no record is written. The store and its read-back exist
   ([`history.v1.md`](history.v1.md)); reading serves the recognition above.

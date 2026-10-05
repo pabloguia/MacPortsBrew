@@ -260,12 +260,15 @@ comments:
    `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`,
    `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather
-   than interleaving* — that half is unbuilt and inherited whole by the
-   mutating pass: no detection mechanism exists, so nothing can answer
-   `NONE_OBSERVED` or `OBSERVED`, and the run loop's verification reads take no
-   lock. Why each candidate mechanism was deferred rather than chosen is SE-015;
-   the lock lands with the mutation it guards, because before then its refusal
-   path is unreachable and untestable.
+   than interleaving* — the lock and the
+   interrupted-run marker are built and not wired (pass 08 slice 2; `04`,
+   Concurrency and locking; `run-marker.v1.md`): nothing in this build takes the
+   lock, because nothing dispatches a mutation, and tests fail the build that
+   turns mutations on without wiring both. **Detection before mutating is
+   unbuilt and inherited whole by the mutating pass**: no detection mechanism
+   exists, so nothing can answer `NONE_OBSERVED` or `OBSERVED`, and the run
+   loop's verification reads take no lock. Why each candidate mechanism was
+   deferred rather than chosen is SE-015 and DP-030.
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
    read while ignoring the rest. Three have an evaluation today —

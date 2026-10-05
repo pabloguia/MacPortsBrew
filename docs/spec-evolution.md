@@ -470,11 +470,11 @@ change is made. Silent deviation remains the one unrecoverable error.
   "couldn't find format of oid" — so enumeration means `sysctl(3)` through
   FFI, which is `unsafe` code (`unsafe_code = "forbid"` in the workspace
   lints) or a new dependency through ADR-0004's gate, the same weighing
-  ADR-0006 already made against `libc`. **The lock and the detector land with
-  the mutation they guard**: until a mutating step can be dispatched, the
-  refusal path the MUST describes is unreachable and so untestable, and a
-  mechanism chosen now would be chosen without the one caller that decides
-  its shape.
+  ADR-0006 already made against `libc`. **The detector lands with the
+  mutation it guards** (the lock was built ahead of it, in pass 08 slice 2 —
+  the addendum below): until a mutating step can be dispatched, the refusal path the MUST describes is
+  unreachable and so untestable, and a mechanism chosen now would be chosen
+  without the one caller that decides its shape.
 
   **Proved by mutation**, each in a scratch copy with its own target directory,
   the source restored and compared with `diff -r` afterwards:
@@ -502,7 +502,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   file's presence proves nothing, and the one probe that cannot disturb a
   provider is `fcntl(F_GETLK)`; `std` has none, the workspace forbids `unsafe`
   and a `libc` dependency is new. The alternative in `std`, `try_lock_shared`,
-  was observed to make Homebrew abort when it races an exclusive taker, and a
+  was established, from Homebrew 7.0.4's `lock_file.rb` (R-17, read 2026-10-05; not observed in a live run), to make Homebrew abort when it races an exclusive taker, and a
   process listing needs `ps`/`pgrep`/`lsof`, which grows the spawn allowlist —
   the owner's. So a live run still answers `NOT_CHECKED`, a replay
   `UNKNOWABLE` (INV-15), **every live run is still "possibly inconsistent"**,
@@ -6775,6 +6775,44 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   a stranded marker in `doctor`; the application-level refusal on an observed
   or unchecked provider; a `&RunLock` witness on the dispatch function. Shim-
   backed recognition (INV-16) is still open, as above.
+- **Slice 2, end-of-slice review and mutation record (2026-10-05).** Reviewed
+  by `spec-guardian`, `security-reviewer` and `docs-auditor` over the built
+  range; no Tier 1 or Tier 2 finding. **Changed because of them:** a marker
+  published and then failed (its directory sync) is taken back by the run that
+  wrote it, so the next run is not refused for a run that did nothing (**D-M5**;
+  tested through a seam, and the case where it cannot be taken back says so);
+  `clear` fails closed on an `lstat` error other than "not found"; the details
+  of the durable write name files, never absolute paths; the tripwires strip
+  line, block and doc comments, plain and raw strings, require the lock to be
+  bound to a name that is kept and handed to every marker call and not dropped
+  before the first dispatch; and three documents that said the lock was unbuilt
+  or a source reading was "observed" were reworded. **Mutation record:** the
+  lock, every rule killed once the two that cannot be reached on a local volume
+  got a private seam (a lock file swapped at the instant it is taken; a volume
+  where locking does nothing); the marker, every rule killed, with two
+  redundant backstops removed rather than tested because the parse refuses the
+  same input; the tripwires, each rule of `wiring_violations` killed, and a
+  simulated flip with the shell unwired fails four of the five public
+  tripwires and the detector's (the fifth, the order, fires only on a wrong
+  order, by design). **Survivors, recorded:** the durable write's wrapper
+  choosing `Required` (a directory sync cannot be made to fail on a local
+  volume, so it is observable only through the seam); `clear` opening without
+  `O_NOFOLLOW` (the device-and-inode comparison refuses the same swap: two
+  independent checks, either suffices); the INV-15 replay test holds for any
+  implementation until the lock is wired, and is a tripwire, not a proof.
+  **Owed with the wiring, additions:** `verify_still_current` before each
+  mutating dispatch (the lock file deleted mid-run is otherwise noticed only at
+  the marker write and the clear); `NotOurs` under the held lock surfaced, not
+  read as done; a behavioural executor test with a recording fake asserting call
+  order (the text scan is necessary, not sufficient); and the order rule's one
+  declared strictness: it demands the marker before the first `dispatch(`
+  token, and that site also dispatches read steps, so the wiring pass either
+  writes the marker before read steps (against "immediately before the first
+  step that can change a provider") or loosens the rule, **declared in its own
+  entry**. **Accepted, not changed:** the `euid` is the caller's, derived once
+  by the CLI as the store's is; a user-made `0200` lock file is refused with a
+  slightly misleading message; a restored backup at `0644` blocks every
+  mutating run until fixed, and the generic remedy does not say how.
 - Evidence (pass 08 slice 1): `crates/domain/tests/history_read_back.rs`,
   `crates/adapters/tests/history_store.rs`,
   `crates/adapters/src/persistence/atomic.rs` (tests),

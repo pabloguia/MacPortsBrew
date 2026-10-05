@@ -77,10 +77,6 @@ blocks:** nothing. **Reversible default taken:** (a).
 
 ---
 
----
-
-## Resolved
-
 ### DP-030 — How, if at all, MacPortsBrew detects a `brew` or `port` that is mutating
 
 Raised 2026-10-05, pass 08 slice 2, from R-17 and R-18. 04's MUST asks for
@@ -112,6 +108,8 @@ dependency. **What it blocks:** the flag-flip proposal, by test, not by
 convention. **Reversible default taken:** (a).
 
 ---
+
+## Resolved
 
 ### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's — **RESOLVED 2026-10-03: (b) for mutating steps, (c) for reads**
 
