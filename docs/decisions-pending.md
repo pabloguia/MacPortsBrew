@@ -50,6 +50,33 @@ mutating pass already refuses under DP-027 (b). **Reversible default taken:**
 
 ---
 
+### DP-029 — How a test may run code under a different umask
+
+Raised 2026-10-05, pass 08 slice 2, Part A. SE-092 owes a test that a history
+record lands `0600` and reads back under a `0277` umask. The umask is
+process-wide, so the test needs a child process under it. Setting a umask takes
+`unsafe` (`unsafe_code = "forbid"` in the workspace) or a shell wrapper, and
+`scripts/check-no-shell.sh` refuses any test that names a program by a string
+literal — deliberately, because such a test can reach a developer's real
+provider (INV-05). Both guards are the owner's; this session does not edit or
+route around either.
+
+- **(a) Leave it owed and hold the rule by reading.** The code sets the mode on
+  the open handle after creation. Cost: removing that line survives every test.
+- **(b) A reviewed exception in `check-no-shell.sh`** for one fixed helper (a
+  literal path to the system shell, used only to set a umask and exec this
+  crate's own test binary). Cost: an edit to a guarded script, and a hole the
+  guard's author closed on purpose.
+- **(c) `unsafe` for one `umask` call in a single test crate.** Cost: lifts
+  `forbid` for that crate; the call is one line and has no memory-safety
+  content, but the workspace lint is Tier-3 policy that would need an entry.
+
+**Recommendation:** (a) for now — the property is one line and is read in
+review; take (b) only if a second umask-dependent rule appears. **What it
+blocks:** nothing. **Reversible default taken:** (a).
+
+---
+
 ---
 
 ## Resolved

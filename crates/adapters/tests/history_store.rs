@@ -491,3 +491,28 @@ fn a_new_write_never_writes_through_a_symbolic_reference() {
     assert!(!elsewhere.exists(), "the reference was not followed");
     std::fs::remove_dir_all(&base).ok();
 }
+
+/// A kill between the publishing link and the temporary's removal leaves the
+/// record at two links beside a hidden dot-temporary. The store must still read
+/// it: `nlink` is deliberately not tested, and a dot-entry is never a stranger
+/// (SE-092, owed by slice 1).
+#[test]
+fn a_crash_after_the_link_leaves_a_readable_store() {
+    let (base, state) = scratch("crash-after-link");
+    let uid = euid(&base);
+    let written = record(NEW, "tool", RunEnding::Completed);
+    write_record(&state, &written, uid).unwrap();
+    let leftover = state.history().join(format!(
+        ".{}.4242.00000000deadbeef.partial",
+        record_file_name(NEW).unwrap()
+    ));
+    std::fs::hard_link(file(&state, NEW), &leftover).unwrap();
+    assert_eq!(std::fs::metadata(&leftover).unwrap().nlink(), 2);
+
+    let view = read_view(&state, &key("tool"), uid).unwrap();
+    assert_eq!(view.latest_for_key(), &[written]);
+    // The next run still publishes beside it.
+    write_record(&state, &record(OLD, "tool", RunEnding::Completed), uid).unwrap();
+    assert!(read_view(&state, &key("tool"), uid).is_ok());
+    std::fs::remove_dir_all(&base).ok();
+}

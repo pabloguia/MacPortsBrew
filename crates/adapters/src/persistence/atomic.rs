@@ -139,6 +139,17 @@ pub enum PublishError {
 /// - The temporary is a dot-entry, which every listing of the state directory
 ///   ignores; a kill between the link and its removal leaves it hidden.
 pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
+    write_new_with(path, bytes, |from, to| std::fs::hard_link(from, to))
+}
+
+/// [`write_new_atomic`] with the publishing call passed in, so a test can make
+/// it lose its reply the way a network filesystem does (the entry lands, the
+/// caller is told it exists). Private: no production caller supplies another.
+fn write_new_with(
+    path: &Path,
+    bytes: &[u8],
+    publish: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), PublishError> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let failed = |what: String| PublishError::Failed(DomainError::new(ErrorId::Io, what));
     let parent = path
@@ -171,11 +182,11 @@ pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
             )));
         }
     };
-    let linked = std::fs::hard_link(&temporary, path);
+    let linked = publish(&temporary, path);
     let outcome = match linked {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => match file.metadata() {
-            Ok(meta) if meta.nlink() == 2 => Ok(()),
+            Ok(meta) if lost_reply(meta.nlink()) => Ok(()),
             _ => Err(PublishError::Exists),
         },
         Err(e) => Err(failed(format!(
@@ -193,6 +204,14 @@ pub fn write_new_atomic(path: &Path, bytes: &[u8]) -> Result<(), PublishError> {
         }
     }
     outcome
+}
+
+/// Whether an "already exists" from the publishing call was this call's own
+/// link, only its reply lost: the temporary then has exactly two links, its own
+/// name and the target. Anything else is somebody else's entry. Separate and
+/// pure so the rule is tested without a network filesystem to lose a reply on.
+fn lost_reply(links_to_temporary: u64) -> bool {
+    links_to_temporary == 2
 }
 
 /// A name no other writer will pick, next to the target.
@@ -374,6 +393,63 @@ mod tests {
             Err(PublishError::Failed(e)) if e.id == ErrorId::Io
         ));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_lost_reply_is_only_a_temporary_at_exactly_two_links() {
+        // The link landed and its reply was lost: the temporary is the target.
+        assert!(lost_reply(2));
+        // Our link did not land (the temporary is alone), or somebody else has
+        // also linked the entry: not ours, so a collision.
+        assert!(!lost_reply(1));
+        assert!(!lost_reply(3));
+        assert!(!lost_reply(0));
+    }
+
+    /// The link lands; the caller is told the name exists.
+    fn lost(from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::hard_link(from, to)?;
+        Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists))
+    }
+
+    #[test]
+    fn a_publish_whose_reply_was_lost_is_a_success_and_leaves_nothing_behind() {
+        let dir = scratch("atomic-lost-reply");
+        let target = dir.join("run.json");
+        write_new_with(&target, b"ours", lost).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"ours");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no leftover");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_exists_that_was_not_this_calls_link_is_a_collision() {
+        let dir = scratch("atomic-not-ours");
+        let target = dir.join("run.json");
+        std::fs::write(&target, b"theirs").unwrap();
+        let refused =
+            |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        assert!(matches!(
+            write_new_with(&target, b"ours", refused),
+            Err(PublishError::Exists)
+        ));
+        assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_publish_error_that_is_not_exists_fails_without_replacing() {
+        let dir = scratch("atomic-cannot-link");
+        let target = dir.join("run.json");
+        let cannot =
+            |_: &Path, _: &Path| Err(std::io::Error::from(std::io::ErrorKind::Unsupported));
+        assert!(matches!(
+            write_new_with(&target, b"x", cannot),
+            Err(PublishError::Failed(e)) if e.id == ErrorId::Io
+        ));
+        assert!(!target.exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "no leftover");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -6694,11 +6694,28 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   authoritative answer would make recognition depend on a provider query the
   capture does not always make. **Recorded, not changed.** A write collision
   is refused rather than retried under a new id (the plan said retry). The
-  mutation record above overclaims one rule: for the lost reply only the
-  direction "always success" is killed; removing the rule survives, because
-  no test reaches `EEXIST` with two links. **Owed tests**: a lost reply, a
-  crash after the link leaving a readable store, and a `0277` umask (the umask
-  is process-wide, so it needs a test of its own process). **Provisional**:
+  mutation record above overclaimed one rule: for the lost reply only the
+  direction "always success" was killed; removing the rule survived, because
+  no test reached `EEXIST` with two links. **Closed in pass 08 slice 2
+  (2026-10-05):** the rule is the pure `lost_reply(links)`, the publishing call
+  is passed into a private `write_new_with` so a test can make it lose its
+  reply for real (link, then report "exists"), and a lost reply, a collision
+  that is not ours and a filesystem that cannot publish are each a test; five
+  mutants of the rule and its call site (always, never, `>= 2`, guard removed,
+  guard ignored) are all killed. The other two owed tests exist too: a crash
+  after the link leaves a record beside a two-link dot-temporary and the store
+  reads and publishes on. **The `0277` umask test stays owed, and cannot be
+  written cleanly here:** the umask is process-wide, so it needs a child
+  process under `umask 0277`; setting it takes either an `unsafe` call
+  (`unsafe_code = "forbid"` in the workspace) or a shell wrapper, and
+  `scripts/check-no-shell.sh` refuses any test that names a program by a string
+  literal — a guard this change does not route around. Until it exists,
+  removing the `fchmod` after creation survives every test (the default umask
+  `022` leaves `0600` alone); the rule is held by reading, not by a test. The
+  way out is an owner decision (a reviewed exception in that guard for one
+  fixed test helper, or an `unsafe` allowance in a single test crate), recorded
+  in `docs/decisions-pending.md` as DP-029.
+  **Provisional**:
   `RECORD_HISTORY` is stored as `VERIFIED` in a successful record, which has
   the record certify its own write, against the plan; the representation is
   settled before any build writes records (a pending result judged on
