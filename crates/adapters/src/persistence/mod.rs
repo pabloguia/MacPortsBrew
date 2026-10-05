@@ -23,6 +23,7 @@ pub mod atomic;
 pub(crate) mod bounded_read;
 pub mod history_store;
 pub mod run_lock;
+pub mod run_marker;
 pub mod snapshot_store;
 pub mod state_dir;
 pub mod time;
