@@ -1195,6 +1195,49 @@ fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
 }
 
 #[test]
+fn invariant_15_a_replayed_migrate_creates_neither_the_lock_nor_the_marker() {
+    // The single-instance lock and the interrupted-run marker belong to a run
+    // that changes this machine. A recording is another machine, so a replayed
+    // run, mutating flag or not, takes no lock and leaves no marker, and
+    // neither file is created in the state directory (pass 08 slice 2).
+    let scratch = Scratch::new("lock-replay");
+    let recording = fixture(BOTH);
+    let recording = recording.to_str().unwrap();
+    for yes in [false, true] {
+        let mut argv = vec![
+            "--replay",
+            recording,
+            "migrate",
+            "htop",
+            "--to",
+            "macports",
+            "--today",
+            TODAY,
+            "--json",
+            "--retain-source",
+        ];
+        if yes {
+            argv.push("--yes");
+        }
+        let out = run(&scratch, &argv);
+        assert_ne!(
+            out.status.code(),
+            Some(7),
+            "the lock was taken: {}",
+            stderr(&out)
+        );
+        assert!(document(&out).get("plan").is_some());
+        let root = scratch.state_dir();
+        for name in ["run.lock", "interrupted-run.json"] {
+            assert!(
+                !root.join(name).exists(),
+                "{name} was created under --replay"
+            );
+        }
+    }
+}
+
+#[test]
 fn invariant_15_analyze_and_plan_output_is_independent_of_history() {
     let clean = Scratch::new("history-clean");
     let poisoned = Scratch::new("history-poisoned");
