@@ -16,6 +16,15 @@ authority you have, what this pass must not do, and how it is accepted.
 | [06-hardening-before-mutation.md](06-hardening-before-mutation.md) | Closes what pass 05 found before any mutation may land: per-subcommand long-option allowlist, `brew.env` research, one hostile-text definition, the concurrency flag on `plan` and `analyze`, the "None match" wording. Completed 2026-10-03. |
 | [07-owner-rulings-and-housekeeping.md](07-owner-rulings-and-housekeeping.md) | Implements the owner's rulings on DP-025, DP-026 and DP-027, answers R-16, and clears pass 06's maintenance list. Mutation stays off. Completed 2026-10-04. |
 | [08-the-mutating-executor.md](08-the-mutating-executor.md) | What a mutating step needs before one may be dispatched: history store, lock and detector, configuration re-read, the positional pin, a mirror recording, elevation consent, and a proposal to the owner. Dispatch stays off. |
+| [08-slice-2-lock-marker-detector.md](08-slice-2-lock-marker-detector.md) | Pass 08, slice 2: the run lock and the interrupted-run marker; the detector recorded as owed (DP-030). Completed 2026-10-05. |
+| [08-slice-3-config-pin-mirror.md](08-slice-3-config-pin-mirror.md) | Pass 08, slice 3: configuration re-read, the positional spawn-site pin, a MacPorts-to-Homebrew recording that yields a plan. |
+| [08-slice-4-wiring-and-consent.md](08-slice-4-wiring-and-consent.md) | Pass 08, slice 4: the run loop wired behind the switch, proved behaviourally; elevation consent. |
+| [08-slice-5-history-and-restore.md](08-slice-5-history-and-restore.md) | Pass 08, slice 5: `history`, `restore` (plan only), the stranded marker in `doctor`. |
+| [08-slice-6-detector-and-flip-proposal.md](08-slice-6-detector-and-flip-proposal.md) | Pass 08, slice 6: DP-030 as ruled, and the written proposal to turn mutations on. |
+| [09-release-engineering.md](09-release-engineering.md) | Build, sign, notarise, package and checksum per architecture; the release workflow, proven unsigned. |
+| [10-read-only-release-candidate.md](10-read-only-release-candidate.md) | v0.1.0: the read-only build made honest and worth installing. |
+| [11-first-mutating-release.md](11-first-mutating-release.md) | v0.2.0: acceptance on disposable machines and the owner's go/no-go. |
+| [ROADMAP-to-first-release.md](ROADMAP-to-first-release.md) | Not a work order: the owner's run sheet — order, owner prerequisites, and which model to start each session with (SE-017 keeps model names out of work orders). |
 
 `.claude/current-pass` names the active one in a single line. The session-start
 hook reads it and announces it; keep it accurate.

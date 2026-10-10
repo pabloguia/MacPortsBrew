@@ -2372,6 +2372,15 @@ change is made. Silent deviation remains the one unrecoverable error.
   outlives them; the useful content was always the role.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- **Addendum, the owner's run sheet, 2026-10-10.** At the owner's request,
+  `prompts/ROADMAP-to-first-release.md` names a model for each remaining work
+  order. It is not a work order: it is the sheet of "the person starting a
+  session", who this entry says decides, so the rule above holds — every work
+  order stays role-only. The sheet is dated, states its criterion (judgement
+  needed times the cost of being wrong) and is to be re-read when a model
+  family changes. The same change adds work orders 08 slices 3–6, 09, 10 and 11
+  (the path to a read-only v0.1.0 and then a first mutating v0.2.0); none
+  changes the specification.
 
 ## SE-024 — Orientation documents: `AGENTS.md` canonical, `CLAUDE.md` a thin layer, one operator runbook
 - Status: accepted
