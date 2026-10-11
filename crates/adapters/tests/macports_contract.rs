@@ -22,7 +22,7 @@ use macportsbrew_domain::{
     Machine, MacosVersion, Ownership, PackageIdentity, ProviderId, ProviderInventory,
     ProviderPresence, ProviderRead, Translation,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const MACPORTS_FIXTURE: &str = "macports-only-intel-macos12";
@@ -646,28 +646,157 @@ fn the_inventory_serialises_identically_twice_and_across_adapters() {
 
 // -- service detection -----------------------------------------------------
 
-#[test]
-fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
-    // R-8 E-7: a StartupItem writes
-    // ${prefix}/etc/LaunchDaemons/org.macports.<name>/org.macports.<name>.plist.
+/// A scratch MacPorts prefix: `etc/macports` and nothing else.
+fn macports_prefix(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "macportsbrew-service-{}-{:?}",
+        "macportsbrew-service-{tag}-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));
-    let daemons = root.join("etc/LaunchDaemons");
-    let entry = daemons.join("org.macports.nginx");
-    std::fs::create_dir_all(&entry).unwrap();
-    std::fs::write(entry.join("org.macports.nginx.plist"), "<plist/>").unwrap();
-    // A directory with no plist is not a service.
-    std::fs::create_dir_all(daemons.join("org.macports.leftover")).unwrap();
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(root.join("etc/macports")).unwrap();
+    root
+}
 
-    let scan = service::scan(&root, FilesystemScope::ThisMachine);
+/// A default-named StartupItem for `port` under `location`.
+fn item(root: &Path, location: &str, port: &str) {
+    let dir = root.join(location).join(format!("org.macports.{port}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("org.macports.{port}.plist")), "<plist/>").unwrap();
+}
+
+fn active(names: &[&str]) -> BTreeMap<String, bool> {
+    names.iter().map(|n| ((*n).to_string(), true)).collect()
+}
+
+/// A change made to a scratch prefix before scanning it.
+type TreeChange = Box<dyn Fn(&Path)>;
+
+fn scan_of(root: &Path, installed: &BTreeMap<String, bool>) -> service::ServiceScan {
+    service::scan(root, FilesystemScope::ThisMachine, installed)
+}
+
+#[test]
+fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
+    // R-8 E-7; portstartupitem.tcl 2.12.6: an item is
+    // ${prefix}/etc/<location>/org.macports.<name>/org.macports.<name>.plist,
+    // under LaunchDaemons or LaunchAgents.
+    let root = macports_prefix("detected");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    item(&root, "etc/LaunchAgents", "syncthing");
+    let scan = scan_of(&root, &active(&["nginx", "syncthing", "wget"]));
     assert!(scan.is_known());
     assert!(scan.defines_service("nginx"));
-    assert!(!scan.defines_service("leftover"));
+    assert!(
+        scan.defines_service("syncthing"),
+        "a LaunchAgents item is a service"
+    );
     assert!(!scan.defines_service("wget"));
+    std::fs::remove_dir_all(&root).ok();
+}
 
+#[test]
+fn a_prefix_with_no_startup_item_is_known_to_define_none() {
+    // The ordinary install: no port has an item, so neither location exists.
+    // Before pass 08 slice 3 this was "unknown", which made MacPorts unplannable
+    // as a source on every such machine.
+    let root = macports_prefix("none");
+    let scan = scan_of(&root, &active(&["jq", "htop"]));
+    assert_eq!(scan, service::ServiceScan::Scanned(BTreeSet::new()));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn invariant_19_a_service_under_a_custom_uniquename_is_never_reported_serviceless() {
+    // dbus's Portfile names its items org.freedesktop.dbus-system and
+    // org.freedesktop.dbus-session; nothing ties them to a port by name, so the
+    // whole answer is unknown rather than "dbus defines none".
+    let root = macports_prefix("custom-uniquename");
+    let dir = root.join("etc/LaunchDaemons/org.freedesktop.dbus-system");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("org.freedesktop.dbus-system.plist"), "<plist/>").unwrap();
+    let scan = scan_of(&root, &active(&["dbus"]));
+    assert!(!scan.is_known());
+    assert!(!scan.defines_service("dbus"));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn anything_the_scan_cannot_attribute_makes_the_answer_unknown() {
+    let cases: Vec<(&str, TreeChange)> = vec![
+        (
+            "a directory without its plist",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("etc/LaunchDaemons/org.macports.nginx")).unwrap();
+            }),
+        ),
+        (
+            "a plist renamed inside its directory",
+            Box::new(|r: &Path| {
+                let d = r.join("etc/LaunchDaemons/org.macports.nginx");
+                std::fs::create_dir_all(&d).unwrap();
+                std::fs::write(d.join("nginx.plist"), "<plist/>").unwrap();
+            }),
+        ),
+        (
+            "a stray plist in the location",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("etc/LaunchAgents")).unwrap();
+                std::fs::write(r.join("etc/LaunchAgents/stray.plist"), "<plist/>").unwrap();
+            }),
+        ),
+        (
+            "an item for a port that is not installed",
+            Box::new(|r: &Path| {
+                item(r, "etc/LaunchDaemons", "postgresql17-server");
+            }),
+        ),
+        (
+            "a location that is a symbolic reference",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("elsewhere")).unwrap();
+                std::os::unix::fs::symlink(r.join("elsewhere"), r.join("etc/LaunchDaemons"))
+                    .unwrap();
+            }),
+        ),
+        (
+            "a location that is a dangling symbolic reference",
+            Box::new(|r: &Path| {
+                std::os::unix::fs::symlink(r.join("nowhere"), r.join("etc/LaunchAgents")).unwrap();
+            }),
+        ),
+        (
+            "a location that is a file",
+            Box::new(|r: &Path| {
+                std::fs::write(r.join("etc/LaunchDaemons"), "x").unwrap();
+            }),
+        ),
+    ];
+    for (what, make) in cases {
+        let root = macports_prefix("unattributable");
+        make(&root);
+        let scan = scan_of(&root, &active(&["nginx", "jq"]));
+        assert!(!scan.is_known(), "{what} was read as a known answer");
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[test]
+fn invariant_19_an_inactive_service_port_is_not_reported_as_serviceless() {
+    // Deactivation deletes the item directory, so with an inactive port the
+    // absent location proves nothing about it.
+    let root = macports_prefix("inactive");
+    let mut installed = active(&["jq"]);
+    installed.insert("postgresql17-server".to_string(), false);
+    assert!(!scan_of(&root, &installed).is_known());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_tree_that_is_not_a_macports_prefix_is_unknown_not_empty() {
+    let root = macports_prefix("not-macports");
+    std::fs::remove_dir_all(root.join("etc/macports")).unwrap();
+    assert!(!scan_of(&root, &active(&["jq"])).is_known());
     std::fs::remove_dir_all(&root).ok();
 }
 
@@ -676,6 +805,7 @@ fn an_unreadable_service_directory_is_unknown_not_empty() {
     let scan = service::scan(
         Path::new("/opt/local-that-does-not-exist"),
         FilesystemScope::ThisMachine,
+        &active(&["nginx"]),
     );
     assert!(!scan.is_known());
     assert!(!scan.defines_service("nginx"));

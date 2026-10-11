@@ -434,7 +434,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )?;
 
         let dependencies = edges(&names, &depends_lib, &depends_run, &depends_build);
-        let services = service::scan(&self.prefix, self.filesystem);
+        let services = service::scan(&self.prefix, self.filesystem, &activity(&rows));
         let metadata = metadata(&names, &index, &homepage, &description, &services);
         let availability = availability(&names, &index, &active_variants, self.machine.as_ref());
 
@@ -530,6 +530,26 @@ fn cross_check(
 
 /// Turns parsed rows into domain rows, and collects the variant set of each
 /// name's active row (the one an archive filename would be keyed on).
+/// Each installed port name, and whether any of its installed versions is
+/// active: what the service scan needs to attribute an item and to know that
+/// an absent one proves something.
+fn activity(rows: &[parse::InstalledRow]) -> BTreeMap<String, bool> {
+    let mut by_name: BTreeMap<String, bool> = BTreeMap::new();
+    for row in rows {
+        *by_name.entry(row.name.clone()).or_default() |= row.active;
+    }
+    by_name
+}
+
+/// [`activity`], from an inventory already built.
+fn activity_of(inventory: &ProviderInventory) -> BTreeMap<String, bool> {
+    let mut by_name: BTreeMap<String, bool> = BTreeMap::new();
+    for package in &inventory.installed {
+        *by_name.entry(package.identity.name.clone()).or_default() |= package.active;
+    }
+    by_name
+}
+
 fn installed_rows(
     rows: &[parse::InstalledRow],
     requested: &BTreeSet<String>,
@@ -710,7 +730,9 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         capabilities.insert(Capability::DeprecationState, CapabilityState::Available);
         capabilities.insert(
             Capability::ServiceMetadata,
-            if service::scan(&self.prefix, self.filesystem).is_known() {
+            if self.inventory().is_ok_and(|inventory| {
+                service::scan(&self.prefix, self.filesystem, &activity_of(&inventory)).is_known()
+            }) {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unknown
@@ -935,6 +957,38 @@ fn is_system_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    fn row(name: &str, version: &str, active: bool) -> parse::InstalledRow {
+        parse::InstalledRow {
+            name: name.to_string(),
+            version: version.to_string(),
+            revision: None,
+            variants: BTreeSet::new(),
+            active,
+        }
+    }
+
+    #[test]
+    fn a_port_is_active_when_any_installed_version_is_and_inactive_when_none_is() {
+        // The service scan's "every installed port is active" rests on this:
+        // an older inactive version beside the active one does not make the
+        // port inactive, and a port with only inactive versions is.
+        let rows = [
+            row("jq", "1.8", true),
+            row("jq", "1.7", false),
+            row("postgresql17-server", "17.1", false),
+        ];
+        let by_name = activity(&rows);
+        assert_eq!(by_name.get("jq"), Some(&true));
+        assert_eq!(by_name.get("postgresql17-server"), Some(&false));
+        let id = ProviderId::new("macports");
+        let (installed, _) = installed_rows(&rows, &BTreeSet::new(), &id);
+        let inventory = ProviderInventory {
+            installed,
+            ..ProviderInventory::default()
+        };
+        assert_eq!(activity_of(&inventory), by_name);
+    }
+
     use super::*;
     use crate::process::{Recording, RecordingProvenance, ReplayRunner};
 

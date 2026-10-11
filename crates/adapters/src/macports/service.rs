@@ -6,37 +6,58 @@
 //! `info` field vocabulary is the PortIndex's, and `startupitem` is not in
 //! it. The offline, no-subprocess mechanism R-8 names first is the launch
 //! machinery a StartupItem writes inside the prefix:
-//! `${prefix}/etc/LaunchDaemons/org.macports.<name>/org.macports.<name>.plist`
-//! (R-8 E-7, quoting `guide.macports.org/chunked/reference.startupitems.html`,
-//! read 2026-09-02).
+//! `${prefix}/etc/<location>/<uniquename>/<plist>` (R-8 E-7). MacPorts 2.12.6
+//! `port1.0/portstartupitem.tcl` (sha256
+//! `cc4d2c99b1e303d4677f9d562f8c3a9f076bea2d8e28263f099b805f0ee592b3`, read
+//! 2026-10-10): the location defaults to `LaunchDaemons` and launchd loads it
+//! from `LaunchDaemons` or `LaunchAgents` (lines 108, 290, 546-560); the
+//! uniquename defaults to `org.macports.<subport>` and the plist to
+//! `<uniquename>.plist`, every one of them overridable per port, and a port may
+//! declare several items (lines 112-121, 158-166). The directory is created
+//! only when an item is (lines 130-133, 513).
 //!
-//! Caveat, from R-8 Finding 11: the directory is named after
-//! `startupitem.name`, which *defaults* to the subport but can be set
-//! explicitly, so a name match is a strong signal rather than a proof.
-//! `port contents <name>` is the authoritative form and costs one invocation
-//! per port; this adapter does not spend that.
+//! **Fail-closed.** This answers "these ports define a service" only when the
+//! whole answer can be attributed. A port whose item has another uniquename
+//! (`dbus`'s `org.freedesktop.dbus-system`), a stray plist, a directory without
+//! its plist, an item naming a port that is not installed, an entry that cannot
+//! be read or named, or more entries than are ever expected makes the answer
+//! **unknown** — never "not a service" — because a service reported as none is
+//! a package INV-19 would let through (security review, pass 08 slice 3, H1).
+//! An absent location is "no item there" only under a real MacPorts prefix,
+//! and only when every installed port is active: deactivating a port deletes
+//! its item directory (`registry2.0/portimage.tcl` `_deactivate_files`), so the
+//! absence proves nothing about an inactive one (spec-guardian, H1).
+//!
+//! What it answers is the item MacPorts *materialised*. A port built with
+//! `startupitem.type none` materialises none and is reported as defining none;
+//! Homebrew answers what a formula *declares*. Whether the two must agree is
+//! DP-032.
 
 use super::names::MAX_ROWS;
 use crate::filesystem::FilesystemScope;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// The prefix-relative directory a StartupItem writes into.
-pub const SERVICE_DIRECTORY: &str = "etc/LaunchDaemons";
+/// The prefix-relative directories launchd reads a StartupItem from.
+pub const SERVICE_DIRECTORIES: &[&str] = &["etc/LaunchDaemons", "etc/LaunchAgents"];
 
-/// The prefix every StartupItem directory and plist carries.
+/// The prefix-relative directory every MacPorts installation has, whose
+/// presence says the prefix is MacPorts' and not an empty or wrong tree.
+pub const MACPORTS_CONFIGURATION_DIRECTORY: &str = "etc/macports";
+
+/// The prefix every default StartupItem directory and plist carries.
 pub const SERVICE_PREFIX: &str = "org.macports.";
 
 /// The result of looking for service definitions under a prefix.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceScan {
-    /// The directory was read; these names define a service. An empty set
-    /// means "read, and none of them do".
+    /// Every item was read and attributed; these names define a service. An
+    /// empty set means "read, and none of them do".
     Scanned(BTreeSet<String>),
-    /// No answer: the directory could not be read, or it was not looked at
-    /// because this host's filesystem is not the machine being described
-    /// (INV-15, F-25). Never collapsed into an empty set — a scan that did
-    /// not happen is not a scan that found nothing.
+    /// No answer: something could not be read or attributed, a port is
+    /// inactive, or this host's filesystem is not the machine being described
+    /// (INV-15, F-25). Never collapsed into an empty set — a scan that did not
+    /// succeed is not a scan that found nothing.
     Unreadable,
 }
 
@@ -57,40 +78,68 @@ impl ServiceScan {
     }
 }
 
-/// Scans `<prefix>/etc/LaunchDaemons` for MacPorts service definitions.
-///
-/// One directory read, no subprocess and no network. A directory counts only
-/// when it also holds the plist the cited path pair names, so a leftover
-/// empty directory is not read as a service.
-pub fn scan(prefix: &Path, filesystem: FilesystemScope) -> ServiceScan {
+/// Scans the prefix's StartupItem locations, attributing every item to one of
+/// `installed` (each port name, and whether any of its installed versions is
+/// active). One directory read per location, no subprocess and no network.
+pub fn scan(
+    prefix: &Path,
+    filesystem: FilesystemScope,
+    installed: &BTreeMap<String, bool>,
+) -> ServiceScan {
     if !filesystem.is_this_machine() {
         return ServiceScan::Unreadable;
     }
-    let root = prefix.join(SERVICE_DIRECTORY);
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return ServiceScan::Unreadable;
+    // A real MacPorts prefix, decided without following a symbolic reference.
+    let is_real_directory = |relative: &str| {
+        std::fs::symlink_metadata(prefix.join(relative)).is_ok_and(|m| m.file_type().is_dir())
     };
+    if !is_real_directory("etc") || !is_real_directory(MACPORTS_CONFIGURATION_DIRECTORY) {
+        return ServiceScan::Unreadable;
+    }
+    // An inactive port's item directory is deleted with its files.
+    if installed.values().any(|active| !active) {
+        return ServiceScan::Unreadable;
+    }
     let mut found = BTreeSet::new();
-    for entry in entries.flatten().take(MAX_ROWS) {
-        let file_name = entry.file_name();
-        let Some(dir_name) = file_name.to_str() else {
-            continue;
-        };
-        let Some(port) = dir_name.strip_prefix(SERVICE_PREFIX) else {
-            continue;
-        };
-        if port.is_empty() || !super::names::is_safe_name(port) {
-            continue;
-        }
-        if root
-            .join(dir_name)
-            .join(format!("{dir_name}.plist"))
-            .is_file()
-        {
-            found.insert(port.to_string());
+    for location in SERVICE_DIRECTORIES {
+        match scan_location(&prefix.join(location), installed) {
+            Some(names) => found.extend(names),
+            None => return ServiceScan::Unreadable,
         }
     }
     ServiceScan::Scanned(found)
+}
+
+/// The installed ports with an item in `root`, or `None` when anything there
+/// cannot be attributed. An absent location contributes nothing.
+fn scan_location(root: &Path, installed: &BTreeMap<String, bool>) -> Option<BTreeSet<String>> {
+    match std::fs::symlink_metadata(root) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(BTreeSet::new()),
+        Err(_) => return None,
+        Ok(meta) if !meta.file_type().is_dir() => return None,
+        Ok(_) => {}
+    }
+    let mut found = BTreeSet::new();
+    for (seen, entry) in std::fs::read_dir(root).ok()?.enumerate() {
+        if seen >= MAX_ROWS {
+            return None;
+        }
+        let entry = entry.ok()?;
+        let dir_name = entry.file_name().into_string().ok()?;
+        let port = dir_name.strip_prefix(SERVICE_PREFIX)?;
+        if !installed.contains_key(port) || !super::names::is_safe_name(port) {
+            return None;
+        }
+        let item = entry.path();
+        let real_dir = std::fs::symlink_metadata(&item).is_ok_and(|m| m.file_type().is_dir());
+        let plist = item.join(format!("{dir_name}.plist"));
+        let real_plist = std::fs::symlink_metadata(&plist).is_ok_and(|m| m.file_type().is_file());
+        if !real_dir || !real_plist {
+            return None;
+        }
+        found.insert(port.to_string());
+    }
+    Some(found)
 }
 
 #[cfg(test)]
@@ -103,6 +152,7 @@ mod tests {
         let scan = scan(
             &PathBuf::from("/nonexistent-prefix-for-a-test"),
             FilesystemScope::ThisMachine,
+            &BTreeMap::new(),
         );
         assert_eq!(scan, ServiceScan::Unreadable);
         assert!(!scan.is_known());
@@ -115,5 +165,57 @@ mod tests {
         assert!(scan.is_known());
         assert!(scan.defines_service("nginx"));
         assert!(!scan.defines_service("wget"));
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("mpb-service-unit-{tag}-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn a_location_that_cannot_be_inspected_is_unknown_and_not_absent() {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = scratch("uninspectable");
+        let locked = parent.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let answer = scan_location(&locked.join("LaunchDaemons"), &BTreeMap::new());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(answer, None, "a permission error is not an absent location");
+        assert_eq!(
+            scan_location(&parent.join("absent"), &BTreeMap::new()),
+            Some(BTreeSet::new())
+        );
+        std::fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn more_items_than_are_ever_expected_is_unknown_not_truncated() {
+        let root = scratch("too-many");
+        let location = root.join("LaunchDaemons");
+        let mut installed = BTreeMap::new();
+        for n in 0..=MAX_ROWS {
+            let name = format!("p{n}");
+            let dir = location.join(format!("{SERVICE_PREFIX}{name}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("{SERVICE_PREFIX}{name}.plist")), "").unwrap();
+            installed.insert(name, true);
+        }
+        assert_eq!(scan_location(&location, &installed), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_macports_directory_that_is_a_symbolic_reference_is_not_a_prefix() {
+        let root = scratch("symlinked-etc-macports");
+        std::fs::create_dir_all(root.join("etc")).unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::os::unix::fs::symlink(root.join("real"), root.join("etc/macports")).unwrap();
+        let answer = scan(&root, FilesystemScope::ThisMachine, &BTreeMap::new());
+        assert_eq!(answer, ServiceScan::Unreadable);
+        std::fs::remove_dir_all(&root).ok();
     }
 }

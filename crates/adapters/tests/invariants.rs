@@ -204,6 +204,7 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
     std::fs::create_dir_all(&index).unwrap();
     std::fs::write(index.join("packages.tahoe.jws.json"), b"{}").unwrap();
 
+    std::fs::create_dir_all(root.join("etc/macports")).unwrap();
     let services = root.join("etc/LaunchDaemons/org.macports.nginx");
     std::fs::create_dir_all(&services).unwrap();
     std::fs::write(services.join("org.macports.nginx.plist"), b"<plist/>").unwrap();
@@ -229,7 +230,11 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
     );
 
     // --- the service scan -------------------------------------------------
-    let scanned = macportsbrew_adapters::macports::service::scan(&root, FilesystemScope::Elsewhere);
+    let scanned = macportsbrew_adapters::macports::service::scan(
+        &root,
+        FilesystemScope::Elsewhere,
+        &[("nginx".to_string(), true)].into_iter().collect(),
+    );
     assert!(
         !scanned.is_known(),
         "a service directory on this host was read for another machine"
@@ -341,8 +346,12 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         "the same probe on the same tree, declared as the machine"
     );
     assert!(
-        macportsbrew_adapters::macports::service::scan(&root, FilesystemScope::ThisMachine)
-            .defines_service("nginx"),
+        macportsbrew_adapters::macports::service::scan(
+            &root,
+            FilesystemScope::ThisMachine,
+            &[("nginx".to_string(), true)].into_iter().collect(),
+        )
+        .defines_service("nginx"),
         "the same scan on the same tree, declared as the machine"
     );
     let here = HomebrewAdapter::new(
