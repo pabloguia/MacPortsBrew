@@ -107,6 +107,35 @@ does any of those, so **the detector is not built and the refusal is owed**.
 dependency. **What it blocks:** the flag-flip proposal, by test, not by
 convention. **Reversible default taken:** (a).
 
+### DP-032 — What "defines a service" means for MacPorts, given that Homebrew's answer is a declaration
+
+Raised 2026-10-10, pass 08 slice 3, by `spec-guardian` (M1). INV-19 forces
+`MANUAL_REVIEW` for a package that owns service state ("managed launch agents").
+Homebrew answers from the formula's `service` block — what the package
+**declares**. MacPorts has no such field in `port info` (R-8); the adapter answers
+from the launchd items MacPorts **materialised** under the prefix. A port built
+with `startupitem.type none`, or under a system `macports.conf`
+`startupitem_type none`, materialises none, so the two providers can answer
+differently for the same software (`nginx`), which bears on INV-17.
+
+- **(a) Keep the materialised meaning for MacPorts**, documented. Matches
+  INV-19's "managed launch agents" wording. Cost: a port the user runs from their
+  own plist is not reviewed.
+- **(b) Read the declaration**: the installed Portfile MacPorts keeps per version
+  under `<prefix>/var/macports/registry/portfiles/<name>-<version>_<revision>/`,
+  including PortGroups that add startup items. Covers inactive ports too. Cost: a
+  bounded textual read of Tcl, an R-8 addendum, and a new class of parser.
+- **(c) Attribute materialised items with `port -q provides`** (already on the
+  read allowlist) instead of by directory name. Cost: one capture-time invocation;
+  still the materialised meaning.
+
+**Recommendation:** (b), with (c) as the step before it. **What it blocks:**
+nothing in v0.1.0 — the slice-3 scan is fail-closed (any item it cannot attribute
+makes the answer unknown, and the plan is refused). **Reversible default taken:**
+(a), fail-closed.
+
+---
+
 ---
 
 ## Resolved
@@ -590,6 +619,16 @@ what this build does.
   claim in `arm-guard-edit.sh` is rewritten to say which half is closed.
 
 ### DP-016 — Under replay, no package is known to be a service, and `MANUAL_REVIEW` will not fire — **RESOLVED 2026-09-16: option (c), refuse the plan rather than weaken the rule**
+
+- **Note, 2026-10-10 (pass 08 slice 3).** The refusal still applies to every
+  replay. On a **live** capture it now stops when MacPorts' service scan gives a
+  sound known answer — which the ruling anticipated ("stops triggering on its own
+  once real service data exists"). Before, the scan answered unknown on any
+  machine with no `<prefix>/etc/LaunchDaemons`, the ordinary state, so MacPorts
+  could not be a plan's source live either. The scan is now fail-closed in the
+  other direction too: any launchd item it cannot attribute, an inactive port, or
+  an unusual tree makes the answer unknown (`docs/passes/08-slice-3-plan.md`, C′).
+  What "defines a service" means for MacPorts is DP-032.
 
 - **The question:** F-29. `macports::service::scan` answers `Unreadable`
   wherever the running host is not the machine being described — which is every
