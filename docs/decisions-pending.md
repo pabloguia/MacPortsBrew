@@ -107,6 +107,34 @@ does any of those, so **the detector is not built and the refusal is owed**.
 dependency. **What it blocks:** the flag-flip proposal, by test, not by
 convention. **Reversible default taken:** (a).
 
+### DP-031 — Which GitHub account the public repository lives under
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-007 decided "public
+repository on GitHub" but not whose. The workspace `repository` field is
+`https://github.com/macportsbrew/macportsbrew`; the release identifier (D-S3,
+DP-035) is derived from it; the staged owner checklist tells you to create
+`macportsbrew/macportsbrew`. Whether a GitHub organisation named `macportsbrew`
+is available, or already yours, was **not checked** (it needs your account).
+
+- **(a) An organisation `macportsbrew`**, if available. The URL matches the
+  workspace field and the identifier needs no change. Cost: an organisation to
+  administer (rulesets, environment, members).
+- **(b) Your personal account**, `<you>/macportsbrew`. Cost: the workspace
+  `repository`, README links and every `--signer-workflow` snippet change, and
+  DP-035's identifier should not then claim `io.github.macportsbrew`.
+- **(c) Another organisation name.** Same cost as (b).
+
+**Recommendation:** (a) if the name is free; decide it before DP-035, because
+the identifier follows it. **What it blocks:** creating the remote and the first
+tag. **Reversible default taken:** the workspace value, unchanged; nothing is
+published before you create the repository.
+
+**Owed once this is ruled** (2026-10-11, `spec-guardian` second review, B-L5):
+the release workflow's `sign` job gains `github.repository == '<owner>/<repo>'`
+in its `if:`, so a fork's copy of the workflow cannot reach the signing
+environment even by misconfiguration. It is a guarded workflow edit, made in
+the same change as the workspace `repository` field if that changes.
+
 ### DP-032 — What "defines a service" means for MacPorts, given that Homebrew's answer is a declaration
 
 Raised 2026-10-10, pass 08 slice 3, by `spec-guardian` (M1). INV-19 forces
@@ -133,6 +161,127 @@ differently for the same software (`nginx`), which bears on INV-17.
 nothing in v0.1.0 — the slice-3 scan is fail-closed (any item it cannot attribute
 makes the answer unknown, and the plan is refused). **Reversible default taken:**
 (a), fail-closed.
+
+### DP-033 — No release artifact installs `mpb`, and the charter says it is installed alongside `macportsbrew` — a charter amendment
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (H2); raised to a charter
+question 2026-10-11 by `spec-guardian`'s second review (B-H1).
+
+**This is a Tier 2 question and needs your explicit decision.** The charter,
+`docs/spec/00-charter.md` line 8, states the project's identity: "**CLI
+command:** `macportsbrew`, with the short alias **`mpb`** installed alongside
+it". `06-cli-and-ux.md` (Surface, MUST) says the same — "`mpb` is installed
+alongside it as an equal short alias" — as do ADR-0003 and your DP-005 ruling,
+with a conflict guard because MIT Photonic-Bands ships an `mpb`.
+
+Pass 09's release design (D-B2) installs only `macportsbrew`: the bare file is
+one executable; the `.pkg` carries no scripts, so it cannot run 06's "detect an
+existing `mpb` and decline" guard at install time; and ADR-0005 already says
+the `.pkg` does not create the alias. A **cargo build is different**:
+`crates/cli/Cargo.toml` defines two `[[bin]]` targets, `macportsbrew` and
+`mpb`, from one `main.rs`, so `cargo build` and `cargo install` do produce an
+`mpb` today; the release script builds `--bin macportsbrew` only. Any wording
+you approve must distinguish release artifacts from cargo builds.
+
+- **(a) Release artifacts install `macportsbrew` only; cargo builds keep
+  both.** Amend the charter line (for example: "`macportsbrew`; the short alias
+  `mpb` is built by cargo and documented for release installs"), 06's MUST,
+  ADR-0003, README, `wiki/Getting-Started.md` and the `--help` `long_about`.
+  The install documentation tells a release user to add the alias by hand,
+  after `command -v mpb` prints nothing (ADR-0003's guard, done by the user).
+  Cost: for release users, `mpb` is documented rather than installed.
+- **(b) The `.pkg` and `.dmg` also carry `mpb`.** The charter stands. Cost: the
+  `.pkg` cannot run the conflict guard (no scripts, by design), so the guard
+  rests on `PATH` order alone (an earlier `mpb` wins because the documented
+  line appends); ADR-0005 is amended; the payload assertions grow an entry;
+  the bare-file route still installs one name.
+- **(c) `macportsbrew` installs its own alias on first run**, after the guard.
+  The charter stands. Cost: a write the tool makes outside its state directory,
+  which no current specification permits; a new feature, its own pass.
+
+**Recommendation:** (a). **What it blocks:** the first tag, and every text
+change about `mpb` (README, wiki, `long_about`, 06, ADR-0003, the charter).
+**Reversible default taken:** **change no text, and block the first tag until
+you rule.** The staged release artifacts install `macportsbrew` only, which is
+what all three options produce for the bare file; nothing is published before
+the ruling, so no published claim contradicts the charter meanwhile.
+
+### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (M1) and `security-reviewer`
+(L3). ADR-0005 lists "the temporary keychain password" among the credentials
+that must never reach a public log, and says: "Every credential reaches its
+tool by file or stdin, never in `argv`". The staged signing step passes a
+per-job random keychain password to `security create-keychain -p`,
+`unlock-keychain -p` and `set-key-partition-list -k`, and a per-job random
+re-wrap password to `security import -P`. Your `.p12` passwords and notary key
+never reach argv. This is a **deviation from the ADR's text**, not a reading of
+it.
+
+- **(a) Accept argv for the two per-job random values on the ephemeral hosted
+  VM**, masked with `::add-mask::`, generated and unset inside the one step,
+  worthless once the VM is destroyed; amend ADR-0005 to say so. Cost: a value
+  visible to `ps` on that VM for the step's life. `security-reviewer` accepts
+  this provided nothing else runs there — which the pass-09 fix (the signing job
+  never executes the built program) now ensures.
+- **(b) `security -i`, reading its commands from stdin**, so neither password
+  appears in any process's argv. **Unverified:** whether interactive mode
+  accepts these subcommands from a pipe, echoes them, or records history needs a
+  dated observation on a throwaway keychain in a disposable account or VM (not
+  this machine, where a keychain write is out of bounds). Cost: one research
+  addendum; a less common recipe.
+- **(c) Another route** found by that research (for example a tool reading the
+  passphrase from a file descriptor). Cost: unknown until looked for.
+
+**Recommendation:** (b) investigated first, as an R-19 addendum; (a) if it does
+not hold. **What it blocks:** the first tag. **Reversible default taken:** (a)
+as staged, with the deviation stated in the workflow; nothing is signed before
+you rule.
+
+### DP-035 — Two names that cannot change after the first release: the identifier and the install directory
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (M7, L5); plan decisions D-S3
+and D-P1.
+
+1. **The code-signing and package identifier**, staged as
+   `io.github.macportsbrew.macportsbrew` (derived from the workspace
+   `repository` URL). `codesign`'s designated requirement and the macOS
+   Installer's upgrade matching both key on it, so changing it after a release
+   breaks upgrades and identity continuity.
+   - (a) as staged; (b) `io.github.<account>.macportsbrew`, following DP-031;
+     (c) a reverse-DNS name under a domain you control.
+2. **The install directory**, staged as `~/.macportsbrew/bin` (the `.pkg`'s
+   current-user-home target and the documented `cp` line). Once users have added
+   the `PATH` line and Installer receipts exist, moving it strands them. It is a
+   new top-level dot-directory in your users' homes, beside the existing state
+   directory (`~/Library/Application Support/macportsbrew`) and SE-036's shim
+   directory (`~/.local/share/macportsbrew/bin`).
+   - (a) as staged; (b) `~/.local/share/macportsbrew/tool/bin` — keeps one
+     MacPortsBrew tree under XDG, at the cost of a longer path and sitting
+     beside the shim directory it must not be confused with; (c)
+     `~/Library/Application Support/macportsbrew/bin` — rejected by the plan:
+     it is the state directory (08 forbids) and has a space.
+
+**Recommendation:** identifier — follow DP-031 ((a) if the organisation is
+`macportsbrew`); directory — (a). **What it blocks:** the first tag only.
+**Reversible default taken:** both values as staged; neither is permanent until
+a release is published.
+
+### DP-036 — DP-019's ruling names an `.app`; is that the `.dmg`?
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-019's ruling reads "The
+`.app`, the `.pkg` and the Intel build all ship". No `.app` exists in any
+design: DP-008, ADR-0005 and 08 name a bare executable, a `.pkg` and a `.dmg`.
+Pass 09 reads ".app" as the `.dmg`, and says so rather than silently
+reinterpreting it.
+
+- **(a) Yes, the `.dmg`.** Nothing changes.
+- **(b) An application bundle was meant.** A command-line tool in an `.app` is
+  a different artifact (bundle layout, Info.plist, a different Gatekeeper path)
+  and would be its own pass.
+
+**Recommendation:** (a). **What it blocks:** nothing before the first tag's
+artifact list is final. **Reversible default taken:** (a).
 
 ---
 
@@ -413,6 +562,19 @@ what this build does.
   Intel builds run per commit or per release. **Default meanwhile: per
   release**, which is the cheaper of the two and reversible. Nothing is billed
   until a remote exists (DP-007).
+- **Premise corrected 2026-10-11 (pass 09): the Intel runner is not billed.**
+  R-19 finding 3 (GitHub Docs and `actions/runner-images`, read 2026-10-10)
+  shows that `macos-15-intel` and `macos-26-intel` are **standard** runners,
+  free and unlimited on public repositories; the billing tier follows the
+  label, and only `-large` / `-xlarge` are billed (R-19 finding 17). R-11 read
+  `-intel` as an alias of the billed `-large` runner, and this entry inherited
+  that. **The ruling stands** — all three artifacts and the Intel build ship;
+  only one of the two costs it accepted turns out to be zero. The second
+  certificate (Developer ID Installer) is still a real requirement. The pass-09
+  release workflow builds and signs on `macos-26-intel` and `macos-26`, so the
+  per-commit / per-release question no longer has a cost attached. Separately,
+  the ruling's ".app" is read as the `.dmg` (no `.app` exists in any design);
+  that reading is the owner's to confirm in DP-036.
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two
   numbers DP-008 did not have when it chose to publish all three artifacts —
   bare binary, `.pkg` and `.dmg` — unconditionally.

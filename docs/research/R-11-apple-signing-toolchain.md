@@ -11,6 +11,9 @@
 - **Blocking:** the implementation pass that writes the release workflow.
   **Not** ADR-0005, which is decided. Q3's answer changes what ADR-0005 must
   provision; Q2's answer has a cost consequence that touches DP-007.
+- **Corrected 2026-10-11:** Q2's cost consequence was wrong — the Intel
+  runner is free on a public repository (R-19 finding 3; see Q2). Q4 is
+  answered by R-19 finding 1; Q5 is narrowed by R-19 finding 2.
 
 ## Sources
 
@@ -67,6 +70,19 @@ project is written for — an older Intel Mac, possibly offline — and it is a
 property of Apple's tooling, not of any choice this project can make.
 
 ## Q2 — Are the tools on the runner, and is that runner free?
+
+> **Corrected 2026-10-11 (pass 09) — the billing half of this answer is
+> wrong.** [R-19](R-19-release-toolchain.md) finding 3 (GitHub Docs and
+> `actions/runner-images`, read 2026-10-10): `macos-15-intel` and
+> `macos-26-intel` are **standard** runners, "free and unlimited on public
+> repositories". The runner-images README lists `-intel` beside `-large` as
+> labels of the same x64 image, and the billing tier follows the **label**, not
+> the image: `-large` (and `-xlarge`) is the billed larger runner, `-intel` the
+> standard 4-CPU one (R-19 finding 17). So an Intel release job costs nothing on
+> a public repository, `07-quality-and-testing.md` and
+> `repository-validation.yml` were right, and the reading below — kept as it
+> was written, because DP-019 was argued from it — is superseded. The tooling
+> half stands; R-19 finding 17 updates the Xcode versions.
 
 **The premise is wrong. `macos-15-intel` is not a standard runner and is not
 free.** GitHub's `runner-images` README lists it as an alias, not an image:
@@ -159,9 +175,12 @@ pass should run before promising anything about offline use.
    container that delivers a single binary, so it is the offline story.
 2. **ADR-0005 needs a second certificate** (Developer ID Installer) if the
    `.pkg` ships, and DP-008 should be re-read with that cost attached.
-3. **An Intel release job costs money on a public repository.** Nothing in the
+3. ~~**An Intel release job costs money on a public repository.** Nothing in the
    free tier covers `macos-15-intel`. Either the release builds Intel on a paid
    larger runner, cross-compiles from the free arm64 standard runner, or the
-   project ships arm64 first and says so.
+   project ships arm64 first and says so.~~ **Superseded 2026-10-11** by R-19
+   finding 3: `macos-15-intel` and `macos-26-intel` are free standard runners on
+   a public repository (see the correction under Q2). The pass-09 release
+   workflow builds Intel natively on `macos-26-intel`.
 4. **Two questions stay open**, both needing something other than reading: one
    notarisation attempt, and one offline machine.
