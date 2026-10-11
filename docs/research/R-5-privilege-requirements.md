@@ -59,10 +59,10 @@ no `port` command was run (MacPorts is not installed).
 
 ```
 $ id -un
-pirado
+<user>
 
 $ id
-uid=501(pirado) gid=20(staff) groups=20(staff),101(access_bpf),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),98(_lpadmin),33(_appstore),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
+uid=501(<user>) gid=20(staff) groups=20(staff),101(access_bpf),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),98(_lpadmin),33(_appstore),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
 
 $ sw_vers
 ProductName:		macOS
@@ -81,40 +81,40 @@ elevated. No command in this note elevated.
 ```
 $ ls -ld /usr/local /usr/local/Cellar /usr/local/bin /usr/local/Homebrew /usr/local/opt /usr/local/lib /usr/local/share /usr/local/etc /usr/local/var /usr/local/Caskroom
 drwxr-xr-x    16 root    wheel    512 Aug 21 03:05 /usr/local
-drwxrwxr-x@   11 pirado  admin    352 Aug 24 16:42 /usr/local/Caskroom
-drwxrwxr-x@  183 pirado  admin   5856 Sep  2 09:20 /usr/local/Cellar
-drwxr-xr-x@   30 pirado  admin    960 Sep  1 19:18 /usr/local/Homebrew
-drwxrwxr-x@ 1088 pirado  admin  34816 Sep  2 09:20 /usr/local/bin
-drwxrwxr-x@   27 pirado  admin    864 Sep  1 20:19 /usr/local/etc
-drwxrwxr-x@  661 pirado  admin  21152 Sep  2 09:20 /usr/local/lib
-drwxrwxr-x@  226 pirado  admin   7232 Sep  2 09:20 /usr/local/opt
-drwxrwxr-x@   63 pirado  admin   2016 Sep  2 09:20 /usr/local/share
-drwxrwxr-x@    9 pirado  admin    288 Sep  1 20:03 /usr/local/var
+drwxrwxr-x@   11 <user>  admin    352 Aug 24 16:42 /usr/local/Caskroom
+drwxrwxr-x@  183 <user>  admin   5856 Sep  2 09:20 /usr/local/Cellar
+drwxr-xr-x@   30 <user>  admin    960 Sep  1 19:18 /usr/local/Homebrew
+drwxrwxr-x@ 1088 <user>  admin  34816 Sep  2 09:20 /usr/local/bin
+drwxrwxr-x@   27 <user>  admin    864 Sep  1 20:19 /usr/local/etc
+drwxrwxr-x@  661 <user>  admin  21152 Sep  2 09:20 /usr/local/lib
+drwxrwxr-x@  226 <user>  admin   7232 Sep  2 09:20 /usr/local/opt
+drwxrwxr-x@   63 <user>  admin   2016 Sep  2 09:20 /usr/local/share
+drwxrwxr-x@    9 <user>  admin    288 Sep  1 20:03 /usr/local/var
 ```
 
 ```
 $ for p in /usr/local /usr/local/Cellar /usr/local/bin /usr/local/Homebrew /usr/local/opt /usr/local/lib /usr/local/share /usr/local/var /usr/local/Caskroom /usr/local/Homebrew/bin/brew; do stat -f '%Su %Sg %Sp %N' "$p"; done
 root wheel drwxr-xr-x /usr/local
-pirado admin drwxrwxr-x /usr/local/Cellar
-pirado admin drwxrwxr-x /usr/local/bin
-pirado admin drwxr-xr-x /usr/local/Homebrew
-pirado admin drwxrwxr-x /usr/local/opt
-pirado admin drwxrwxr-x /usr/local/lib
-pirado admin drwxrwxr-x /usr/local/share
-pirado admin drwxrwxr-x /usr/local/var
-pirado admin drwxrwxr-x /usr/local/Caskroom
-pirado admin -rwxr-xr-x /usr/local/Homebrew/bin/brew
+<user> admin drwxrwxr-x /usr/local/Cellar
+<user> admin drwxrwxr-x /usr/local/bin
+<user> admin drwxr-xr-x /usr/local/Homebrew
+<user> admin drwxrwxr-x /usr/local/opt
+<user> admin drwxrwxr-x /usr/local/lib
+<user> admin drwxrwxr-x /usr/local/share
+<user> admin drwxrwxr-x /usr/local/var
+<user> admin drwxrwxr-x /usr/local/Caskroom
+<user> admin -rwxr-xr-x /usr/local/Homebrew/bin/brew
 ```
 
 Writability, tested read-only with `test -w`:
 
 ```
 $ for p in /usr/local /usr/local/bin /usr/local/Cellar /usr/local/opt /usr/local/Homebrew; do if [ -w "$p" ]; then echo "writable-by-$(id -un): $p"; else echo "NOT-writable-by-$(id -un): $p"; fi; done
-NOT-writable-by-pirado: /usr/local
-writable-by-pirado: /usr/local/bin
-writable-by-pirado: /usr/local/Cellar
-writable-by-pirado: /usr/local/opt
-writable-by-pirado: /usr/local/Homebrew
+NOT-writable-by-<user>: /usr/local
+writable-by-<user>: /usr/local/bin
+writable-by-<user>: /usr/local/Cellar
+writable-by-<user>: /usr/local/opt
+writable-by-<user>: /usr/local/Homebrew
 ```
 
 The full top level of the prefix, showing that `/usr/local` is a *shared*
@@ -123,26 +123,26 @@ root-owned directory that Homebrew does not own outright:
 ```
 $ ls -l /usr/local
 total 0
-drwxrwxr-x@   11 pirado  admin    352 Aug 24 16:42 Caskroom
-drwxrwxr-x@  183 pirado  admin   5856 Sep  2 09:20 Cellar
-drwxrwxr-x@    4 pirado  admin    128 Oct 13  2024 Frameworks
-drwxr-xr-x@   30 pirado  admin    960 Sep  1 19:18 Homebrew
+drwxrwxr-x@   11 <user>  admin    352 Aug 24 16:42 Caskroom
+drwxrwxr-x@  183 <user>  admin   5856 Sep  2 09:20 Cellar
+drwxrwxr-x@    4 <user>  admin    128 Oct 13  2024 Frameworks
+drwxr-xr-x@   30 <user>  admin    960 Sep  1 19:18 Homebrew
 drwxr-xr-x    18 root    wheel    576 Jun 26 20:30 aws-cli
-drwxrwxr-x@ 1088 pirado  admin  34816 Sep  2 09:20 bin
-drwxrwxr-x@   27 pirado  admin    864 Sep  1 20:19 etc
-drwxrwxr-x@  227 pirado  admin   7264 Sep  2 09:20 include
-drwxrwxr-x@  661 pirado  admin  21152 Sep  2 09:20 lib
+drwxrwxr-x@ 1088 <user>  admin  34816 Sep  2 09:20 bin
+drwxrwxr-x@   27 <user>  admin    864 Sep  1 20:19 etc
+drwxrwxr-x@  227 <user>  admin   7264 Sep  2 09:20 include
+drwxrwxr-x@  661 <user>  admin  21152 Sep  2 09:20 lib
 drwxr-xr-x     3 root    wheel     96 Mar 11 23:08 microsoft
-drwxrwxr-x@  226 pirado  admin   7232 Sep  2 09:20 opt
-drwxrwxr-x@   12 pirado  admin    384 Aug  5 15:35 sbin
-drwxrwxr-x@   63 pirado  admin   2016 Sep  2 09:20 share
-drwxrwxr-x@    9 pirado  admin    288 Sep  1 20:03 var
+drwxrwxr-x@  226 <user>  admin   7232 Sep  2 09:20 opt
+drwxrwxr-x@   12 <user>  admin    384 Aug  5 15:35 sbin
+drwxrwxr-x@   63 <user>  admin   2016 Sep  2 09:20 share
+drwxrwxr-x@    9 <user>  admin    288 Sep  1 20:03 var
 ```
 
 ```
 $ command -v brew; ls -l "$(command -v brew)"
 /usr/local/bin/brew
-lrwxr-xr-x@ 1 pirado  admin  20 Feb 14  2024 /usr/local/bin/brew -> ../Homebrew/bin/brew
+lrwxr-xr-x@ 1 <user>  admin  20 Feb 14  2024 /usr/local/bin/brew -> ../Homebrew/bin/brew
 ```
 
 ### E3 — Homebrew prefix and configuration queries, unprivileged (observed 2026-09-02)
@@ -221,7 +221,7 @@ $ grep -o '"installed_on_request":[^,]*' /usr/local/Cellar/actionlint/*/INSTALL_
 "installed_on_request": true
 
 $ stat -f '%Su %Sg %Sp %N' /usr/local/Cellar/actionlint/*/INSTALL_RECEIPT.json
-pirado admin -rw-r--r-- /usr/local/Cellar/actionlint/1.7.12/INSTALL_RECEIPT.json
+<user> admin -rw-r--r-- /usr/local/Cellar/actionlint/1.7.12/INSTALL_RECEIPT.json
 ```
 
 ### E5 — Homebrew's refusal to run as root, in the shipped source (observed 2026-09-02)
@@ -385,7 +385,7 @@ Corresponding launchd directory ownership on this machine (observed 2026-09-02):
 $ ls -ld ~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons
 drwxr-xr-x  21 root    wheel  672 Aug 21 03:05 /Library/LaunchAgents
 drwxr-xr-x  25 root    wheel  800 Sep  2 07:09 /Library/LaunchDaemons
-drwx------@ 10 pirado  staff  320 Sep  1 14:28 /Users/pirado/Library/LaunchAgents
+drwx------@ 10 <user>  staff  320 Sep  1 14:28 /Users/<user>/Library/LaunchAgents
 ```
 
 ### E9 — Homebrew casks can require elevation (observed 2026-09-02)
@@ -571,7 +571,7 @@ Anything that would have come only from trac is marked UNRESOLVED below.
 ## Evidence — the MacPorts re-check, observed 2026-09-08
 
 Everything from E19 onward was run on this machine on **2026-09-08** as uid 501
-(`pirado`), unelevated. E1's identity and platform output was re-run unchanged
+(`<user>`), unelevated. E1's identity and platform output was re-run unchanged
 and is not repeated.
 
 ### E19 — Quiet environment, MacPorts half (observed 2026-09-08)
@@ -957,7 +957,7 @@ With `HOME` present, the same cleared environment succeeds — and the value nee
 not be a real directory:
 
 ```
-$ env -i PATH=/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin HOME=/Users/pirado /opt/local/bin/port -q echo requested
+$ env -i PATH=/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin HOME=/Users/<user> /opt/local/bin/port -q echo requested
 htop
 jq
 tree
@@ -976,9 +976,9 @@ pipeline, not in `dscl`:
 
 ```
 $ env -i PATH=/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin /bin/sh -c 'id -un; echo ---; dscl -q . -read /Users/$(id -un) NFSHomeDirectory; echo dscl-exit=$?'
-pirado
+<user>
 ---
-NFSHomeDirectory: /Users/pirado
+NFSHomeDirectory: /Users/<user>
 dscl-exit=0
 ```
 
@@ -986,7 +986,7 @@ There is no `~/.macports`:
 
 ```
 $ ls -la ~/.macports
-ls: /Users/pirado/.macports: No such file or directory
+ls: /Users/<user>/.macports: No such file or directory
 exit=1
 ```
 
@@ -1068,7 +1068,7 @@ For reference, the launchd directories themselves:
 $ ls -ld /Library/LaunchDaemons /Library/LaunchAgents ~/Library/LaunchAgents
 drwxr-xr-x  19 root    wheel  608 Sep  7 17:22 /Library/LaunchAgents
 drwxr-xr-x  23 root    wheel  736 Sep  7 17:42 /Library/LaunchDaemons
-drwx------@  8 pirado  staff  256 Sep  7 17:22 /Users/pirado/Library/LaunchAgents
+drwx------@  8 <user>  staff  256 Sep  7 17:22 /Users/<user>/Library/LaunchAgents
 ```
 
 `/Library/LaunchDaemons` holds 21 third-party plists (Adobe, Docker, Kaspersky,
@@ -1320,7 +1320,7 @@ observed.
 
 2. **On this machine the Homebrew prefix root `/usr/local` is `root:wheel` and
    not writable by the invoking user; every Homebrew-managed subdirectory under
-   it is `pirado:admin` and writable** (E2). This is the state that makes
+   it is `<user>:admin` and writable** (E2). This is the state that makes
    Homebrew's normal operations unprivileged, and it is *not* the same claim as
    "the prefix is user-owned". `/usr/local` on Intel is a shared system
    directory — `aws-cli` and `microsoft` under it are `root:wheel` and were not
@@ -1357,7 +1357,7 @@ observed.
    split**: without `sudo` it operates on `~/Library/LaunchAgents` (started at
    login); with `sudo` on `/Library/LaunchDaemons` (started at boot) (E8). The
    observed directory ownership matches exactly — `~/Library/LaunchAgents` is
-   `pirado:staff drwx------`, `/Library/LaunchDaemons` is `root:wheel` (E8).
+   `<user>:staff drwx------`, `/Library/LaunchDaemons` is `root:wheel` (E8).
    Note that this cuts both ways for *reading*: `brew services list` is shown
    with an optional `sudo` prefix too, so a complete inventory of system-level
    daemons is not obtainable unprivileged. Enumerating *user-level* agents is.
@@ -1614,7 +1614,7 @@ detection.
 | Activate / deactivate | n/a (no such state) — nearest analogue `brew link`/`unlink` writes into `/usr/local/bin`, `/usr/local/opt`: **No** | Obs E2 (both user-writable) | **Yes** on a default prefix | **Obs E29** — `portactivate.tcl:55-57` and `portdeactivate.tcl:52-54` call `elevateToRoot` when `![file writable $prefix]`, and `elevateToRoot` errors "MacPorts requires root privileges for this action" for a non-root uid. **UNRESOLVED-2 closed**; the earlier inference was correct |
 | Primary-provider selection — *setting* | **No** — Homebrew has no `select`; the mechanism is symlinking into the user-owned prefix | Obs E2. Mechanism comparison is R-6, not this note | **Yes** | Cit E14 (`sudo port select --set …`); **Obs E30** — `set` is the only `mportselect` branch that writes, into root-owned `${prefix}` (E23) |
 | Primary-provider selection — *inspecting* (`--list`, `--show`, `--summary`) | n/a | — | **No** | **Obs E30** — no `elevateToRoot` anywhere in the select path; `list`/`show`/`summary` are `glob`/read-`open` under `${prefix}/etc/select`. **UNRESOLVED-3 closed at source level**; *not* observed by execution — the repository's `Bash(port select *)` deny rule refused it (E32), and `${prefix}/etc/select` does not exist here (E28) |
-| Service — load/unload, user level | **No** | Cit E8 ("Otherwise, operate on `~/Library/LaunchAgents`"); Obs E8 (`~/Library/LaunchAgents` is `pirado:staff`) | **Not offered by default** — `startupitem.location` defaults to `LaunchDaemons` | Cit E16; **Obs E31** (`portstartupitem.tcl:108`) |
+| Service — load/unload, user level | **No** | Cit E8 ("Otherwise, operate on `~/Library/LaunchAgents`"); Obs E8 (`~/Library/LaunchAgents` is `<user>:staff`) | **Not offered by default** — `startupitem.location` defaults to `LaunchDaemons` | Cit E16; **Obs E31** (`portstartupitem.tcl:108`) |
 | Service — load/unload, system level | **Yes** | Cit E8 ("If `sudo` is passed, operate on `/Library/LaunchDaemons`"); Obs E8 (`root:wheel`) | **Yes** | Cit E16 ("LaunchDaemons must be loaded as root"), E11 (`sudo port load` / `sudo port unload`); **Obs E28** (`/Library/LaunchDaemons` is `root:wheel`) |
 | Service — *reading the definitions* (which ports declare a startup item) | — | — | **No** | **Obs E31** — the plists live at `${prefix}/etc/LaunchDaemons/<label>/<label>.plist`, and `${prefix}` is world-readable (E23). Absent on this machine (E28), which is "no service ports installed", not "unreadable" |
 | Service — *listing loaded* services | User-level: **No**. System-level: **Yes** | Cit E8 (`[sudo] brew services [list]`) | **RT** | **Obs E31** — MacPorts itself uses `launchctl print system/<label>` with no elevation, which points at "no", but `launchctl` is refused by this repository's deny rule (E32) so nothing was run. See UNRESOLVED-4 |

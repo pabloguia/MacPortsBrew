@@ -351,19 +351,19 @@ and the per-install target directories Homebrew actually recorded here:
 $ cat /usr/local/Caskroom/gimp/.metadata/config.json
 {"default":{"languages":["en-US","pt-BR"],"appdir":"/Applications",
 "keyboard_layoutdir":"/Library/Keyboard Layouts",
-"colorpickerdir":"/Users/pirado/Library/ColorPickers",
-"prefpanedir":"/Users/pirado/Library/PreferencePanes",
-"qlplugindir":"/Users/pirado/Library/QuickLook",
-"mdimporterdir":"/Users/pirado/Library/Spotlight",
-"dictionarydir":"/Users/pirado/Library/Dictionaries",
-"fontdir":"/Users/pirado/Library/Fonts",
-"servicedir":"/Users/pirado/Library/Services",
-"input_methoddir":"/Users/pirado/Library/Input Methods",
-"internet_plugindir":"/Users/pirado/Library/Internet Plug-Ins",
-"audio_unit_plugindir":"/Users/pirado/Library/Audio/Plug-Ins/Components",
-"vst_plugindir":"/Users/pirado/Library/Audio/Plug-Ins/VST",
-"vst3_plugindir":"/Users/pirado/Library/Audio/Plug-Ins/VST3",
-"screen_saverdir":"/Users/pirado/Library/Screen Savers"},"env":{},"explicit":{}}
+"colorpickerdir":"/Users/<user>/Library/ColorPickers",
+"prefpanedir":"/Users/<user>/Library/PreferencePanes",
+"qlplugindir":"/Users/<user>/Library/QuickLook",
+"mdimporterdir":"/Users/<user>/Library/Spotlight",
+"dictionarydir":"/Users/<user>/Library/Dictionaries",
+"fontdir":"/Users/<user>/Library/Fonts",
+"servicedir":"/Users/<user>/Library/Services",
+"input_methoddir":"/Users/<user>/Library/Input Methods",
+"internet_plugindir":"/Users/<user>/Library/Internet Plug-Ins",
+"audio_unit_plugindir":"/Users/<user>/Library/Audio/Plug-Ins/Components",
+"vst_plugindir":"/Users/<user>/Library/Audio/Plug-Ins/VST",
+"vst3_plugindir":"/Users/<user>/Library/Audio/Plug-Ins/VST3",
+"screen_saverdir":"/Users/<user>/Library/Screen Savers"},"env":{},"explicit":{}}
 ```
 
 Not one of those defaults is inside `HOMEBREW_PREFIX`.
@@ -407,7 +407,7 @@ $ defaults read /Library/LaunchDaemons/org.wireshark.ChmodBPF.plist
 }
 
 $ dscl . -read /Groups/access_bpf GroupMembership
-GroupMembership: pirado
+GroupMembership: <user>
 ```
 
 The uninstall stanzas that are the only record Homebrew keeps of those writes:
@@ -1100,7 +1100,7 @@ installed state:
 
 ```
 $ ls -la ~/.config/gcloud/virtenv
-ls: /Users/pirado/.config/gcloud/virtenv: No such file or directory
+ls: /Users/<user>/.config/gcloud/virtenv: No such file or directory
 ```
 
 The installed launcher resolves Python by `PATH`.
@@ -1150,7 +1150,7 @@ $ echo "[${CLOUDSDK_PYTHON:-<unset>}]"
 $ which python3.14
 /usr/local/bin/python3.14
 $ ls -la /usr/local/bin/python3.14
-lrwxr-xr-x@ 1 pirado admin 43 Aug 17 07:35 /usr/local/bin/python3.14 -> ../Cellar/python@3.14/3.14.7/bin/python3.14
+lrwxr-xr-x@ 1 <user> admin 43 Aug 17 07:35 /usr/local/bin/python3.14 -> ../Cellar/python@3.14/3.14.7/bin/python3.14
 ```
 
 Nothing in the installed payload names the Homebrew prefix:

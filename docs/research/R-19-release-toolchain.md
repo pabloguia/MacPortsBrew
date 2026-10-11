@@ -211,10 +211,10 @@ $ otool -l …/macportsbrew | grep -A4 LC_VERSION_MIN_MACOSX
   version 10.12
       sdk 26.5
 $ codesign -dv …/macportsbrew          # (no output: x86_64 is not linker-signed)
-$ strings -a …/macportsbrew | grep -c "/Users/pirado"
+$ strings -a …/macportsbrew | grep -c "/Users/<user>"
 49
-$ strings -a …/macportsbrew | grep "/Users/pirado" | sed -E 's#(/Users/pirado/[^/]+/[^/]+/[^/]+).*#\1#' | sort | uniq -c
-  49 /Users/pirado/.cargo/registry/src
+$ strings -a …/macportsbrew | grep "/Users/<user>" | sed -E 's#(/Users/<user>/[^/]+/[^/]+/[^/]+).*#\1#' | sort | uniq -c
+  49 /Users/<user>/.cargo/registry/src
 $ strings -a …/macportsbrew | grep -c "scratchpad\|/tA/"
 0
 $ nm -ap …/macportsbrew | grep -c " OSO "
@@ -254,7 +254,7 @@ TeamIdentifier=not set
 $ codesign --verify --strict -v tC/…/macportsbrew
 …: valid on disk
 …: satisfies its Designated Requirement
-$ strings -a tC/…/macportsbrew | grep -c "/Users/pirado"      → 0
+$ strings -a tC/…/macportsbrew | grep -c "/Users/<user>"      → 0
 $ strings -a tC/…/macportsbrew | grep -c "/cargo-registry/"  → 49
 ```
 

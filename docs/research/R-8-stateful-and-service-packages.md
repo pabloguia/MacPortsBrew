@@ -69,7 +69,7 @@ $ stat -f "%Sm %N" -t "%H:%M" ~/Library/Caches/Homebrew/api/internal/*
 $ time brew info --json=v2 --installed > brew-installed.json
 brew info --json=v2 --installed  1.98s user 0.90s system 70% cpu 4.115 total
 $ ls -l brew-installed.json
--rw-r--r--  1 pirado  wheel  876713 Sep  2 09:40 brew-installed.json
+-rw-r--r--  1 <user>  wheel  876713 Sep  2 09:40 brew-installed.json
 ```
 
 Derived from that file (python, read-only):

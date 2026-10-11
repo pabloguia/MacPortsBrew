@@ -66,7 +66,7 @@ not installed. (MacPorts is quieted by argv — `-q` — not by environment, and
 
 ```
 $ id -un
-pirado
+<user>
 $ id -u
 501
 $ sw_vers
@@ -186,9 +186,9 @@ local metadata, not a network lookup:
 
 ```
 $ stat -f '%Su %Sg %Sp %N' /usr/local/Caskroom /usr/local/Caskroom/gimp /usr/local/Caskroom/gimp/3.2.4
-pirado admin drwxrwxr-x /usr/local/Caskroom
-pirado admin drwxr-xr-x /usr/local/Caskroom/gimp
-pirado admin drwxr-xr-x /usr/local/Caskroom/gimp/3.2.4
+<user> admin drwxrwxr-x /usr/local/Caskroom
+<user> admin drwxr-xr-x /usr/local/Caskroom/gimp
+<user> admin drwxr-xr-x /usr/local/Caskroom/gimp/3.2.4
 ```
 
 ### E3 — `docs.brew.sh/Manpage`, the `list` entry (read 2026-09-04, <https://docs.brew.sh/Manpage>)
@@ -619,7 +619,7 @@ respectively. `crates/domain/src/package.rs:12-21`:
    all. The reason a cask's *install* may elevate — a `sudo: true` stanza on an
    `installer script:` (R-5 E9) — does not reach `list`, because `list` runs no
    cask script; it reports the Caskroom, whose directory names match the
-   reported versions exactly and whose permissions are `pirado:admin` (E2).
+   reported versions exactly and whose permissions are `<user>:admin` (E2).
    This is not the "reads do not write" inference: it rests on the provider's
    own refusal to be root for this command and on running it.
 

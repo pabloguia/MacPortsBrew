@@ -70,7 +70,7 @@ $ brew --caskroom
 $ brew --repository
 /usr/local/Homebrew
 $ brew --cache
-/Users/pirado/Library/Caches/Homebrew
+/Users/<user>/Library/Caches/Homebrew
 ```
 
 ```
@@ -721,9 +721,9 @@ Homebrew 6.0.21 uses a single merged, platform-tagged internal index:
 
 ```
 $ ls -la ~/Library/Caches/Homebrew/api/
-drwxr-xr-x@ 4 pirado  staff     128 Sep  2 09:20 .
--rw-r--r--@ 1 pirado  staff  106523 Sep  2 09:20 cask_names.txt
-drwxr-xr-x@ 5 pirado  staff     160 Sep  2 09:20 internal
+drwxr-xr-x@ 4 <user>  staff     128 Sep  2 09:20 .
+-rw-r--r--@ 1 <user>  staff  106523 Sep  2 09:20 cask_names.txt
+drwxr-xr-x@ 5 <user>  staff     160 Sep  2 09:20 internal
 
 $ for f in …; do TZ=UTC stat -f '%N  size=%z  mtime=%Sm UTC' -t '%Y-%m-%dT%H:%M:%S' "$f"; done
 …/api/cask_names.txt                                     size=106523    mtime=2026-09-02T12:20:29 UTC

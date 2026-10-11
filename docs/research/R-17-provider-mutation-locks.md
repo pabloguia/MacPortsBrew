@@ -4,7 +4,7 @@
 - **Answered on:** 2026-10-05
 - **Machine:** macOS 26.7.1 (`sw_vers`), Darwin 25.6.0 (`uname -sr`), x86_64;
   Homebrew 7.0.4 at `/usr/local` (repository `/usr/local/Homebrew`, `HEAD`
-  `edb70f031e`); MacPorts 2.12.6 at `/opt/local`; user `pirado`, not elevated.
+  `edb70f031e`); MacPorts 2.12.6 at `/opt/local`; user `<user>`, not elevated.
 - **Environment used to keep the providers quiet:** `HOMEBREW_NO_AUTO_UPDATE=1
   HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_INSTALL_FROM_API=1` for the three `brew`
   calls (`--version`, `--prefix`, `--repository`); `port version` is the only
@@ -94,12 +94,12 @@ Who takes which lock (grep of `Library/Homebrew`, excluding `test/`, `sorbet/`,
 
 ```
 $ ls -ld /usr/local/var/homebrew /usr/local/var/homebrew/locks
-drwxrwxr-x@ 5 pirado admin ... /usr/local/var/homebrew        (ls -la of the parent, abbreviated)
-drwxr-xr-x@ 210 pirado admin 6720 Sep  6 21:30 locks
+drwxrwxr-x@ 5 <user> admin ... /usr/local/var/homebrew        (ls -la of the parent, abbreviated)
+drwxr-xr-x@ 210 <user> admin 6720 Sep  6 21:30 locks
 $ ls -la /usr/local/var/homebrew/locks | head -4
--rw-r--r--@ 1 pirado admin 0 Jul 31 13:00 ada-url.formula.lock
--rw-r--r--@ 1 pirado admin 0 May  1 14:55 aklomp-base64.formula.lock
--rw-r--r--@ 1 pirado admin 0 May 25 19:36 aom.formula.lock
+-rw-r--r--@ 1 <user> admin 0 Jul 31 13:00 ada-url.formula.lock
+-rw-r--r--@ 1 <user> admin 0 May  1 14:55 aklomp-base64.formula.lock
+-rw-r--r--@ 1 <user> admin 0 May 25 19:36 aom.formula.lock
 $ ls /usr/local/var/homebrew/locks | grep -v 'formula.lock$'
 update
 vendor-install-ruby
@@ -197,7 +197,7 @@ C  F_GETLK on an O_RDONLY fd (struct flock, l_type probe = F_WRLCK):
    after each F_GETLK the holder's lock was intact (a third EX|NB was refused)
 ```
 
-Real files, the only two probes on a provider lock (2026-10-05, as `pirado`):
+Real files, the only two probes on a provider lock (2026-10-05, as `<user>`):
 
 ```
 $ stat -f '%i %m %z' /opt/local/var/macports/registry/.registry.lock   (before and after)

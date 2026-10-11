@@ -441,7 +441,7 @@ unset or relative, and `redact_home` with `None` is **the identity function**.
 **Observed on this machine:**
 
 ```
-doctor --report r1.json            ->  0 occurrences of /Users/pirado
+doctor --report r1.json            ->  0 occurrences of /Users/<user>
 env -u HOME  doctor --report r2.json -> 39 occurrences
 ```
 
@@ -2681,7 +2681,7 @@ the question I filed was the wrong one. Whether to commit them is downstream of
 whether they are correct, and they are not.
 
 `.codex/hooks.json` registers every hook by absolute path
-(`/Users/pirado/projects/MacPortsBrew/.codex/hooks/...`), so this is a
+(`/Users/<user>/projects/MacPortsBrew/.codex/hooks/...`), so this is a
 configured, running enforcement layer rather than a sketch. Measured today:
 
 | Hook | `.claude/` | `.codex/` |
