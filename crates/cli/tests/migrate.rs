@@ -1313,3 +1313,89 @@ fn invariant_15_a_migrate_from_a_snapshot_file_neither_reads_nor_writes_history(
     assert!(document(&out).get("plan").is_some());
     assert_eq!(tree(&scratch.state_dir()), before, "history was written");
 }
+
+/// The live capture of a machine holding both providers
+/// (`fixtures/snapshots/README.md`).
+fn live_snapshot() -> PathBuf {
+    root().join("fixtures/snapshots/both-providers-intel-macos26-live.json")
+}
+
+#[test]
+fn invariant_17_a_macports_to_homebrew_plan_is_built_from_a_live_capture() {
+    // A replay with MacPorts as the source is refused by design (DP-016(c));
+    // a snapshot the binary took on a live machine is the input that can show
+    // the MacPorts→Homebrew plan is first-class. Its step kinds mirror the
+    // Homebrew→MacPorts plan for the same package, with the providers swapped,
+    // and nothing in either needs a human decision.
+    let scratch = Scratch::new("live-mirror");
+    let file = live_snapshot();
+    let file = file.to_str().expect("UTF-8");
+    let plan = |to: &str| -> Vec<(String, String, Vec<String>)> {
+        let out = run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                file,
+                "migrate",
+                "htop",
+                "--to",
+                to,
+                "--json",
+            ],
+        );
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        let doc = document(&out);
+        assert_eq!(doc["plan"]["destination"], to, "{doc}");
+        doc["plan"]["steps"]
+            .as_array()
+            .expect("steps")
+            .iter()
+            .map(|s| {
+                (
+                    s["kind"].as_str().expect("kind").to_string(),
+                    s["provider"].as_str().unwrap_or("").to_string(),
+                    s["verification"]
+                        .as_array()
+                        .map(|checks| {
+                            checks
+                                .iter()
+                                .map(|c| c["check"].as_str().unwrap_or("").to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
+    };
+    let to_homebrew = plan(HB);
+    let to_macports = plan(MP);
+    let kinds = |p: &[(String, String, Vec<String>)]| {
+        p.iter().map(|(k, _, _)| k.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(&to_homebrew), kinds(&to_macports));
+    assert!(
+        kinds(&to_homebrew).iter().all(|k| k != "MANUAL_REVIEW"),
+        "{to_homebrew:?}"
+    );
+    let remove = kinds(&to_homebrew)
+        .iter()
+        .position(|k| k == "REMOVE_SOURCE")
+        .expect("the source is removed");
+    let verify = kinds(&to_homebrew)
+        .iter()
+        .position(|k| k == "VERIFY_DESTINATION")
+        .expect("the destination is verified");
+    assert!(verify < remove, "{to_homebrew:?}");
+    let swap = |p: &str| match p {
+        HB => MP.to_string(),
+        MP => HB.to_string(),
+        other => other.to_string(),
+    };
+    // Same kinds, providers swapped, and the same checks at every step.
+    let mirrored: Vec<(String, String, Vec<String>)> = to_macports
+        .iter()
+        .map(|(k, p, c)| (k.clone(), swap(p), c.clone()))
+        .collect();
+    assert_eq!(to_homebrew, mirrored);
+    assert_eq!(to_homebrew[remove].1, MP);
+}

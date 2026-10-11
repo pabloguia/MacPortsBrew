@@ -286,3 +286,38 @@ reason.
   configuration to outrank nothing; the re-check yields a linear token the wiring
   must consume per step and provider.
 - **D-F1** a live snapshot taken by the binary is a captured fixture, privacy-checked by a test.
+
+## As built (2026-10-11)
+
+Commits `ffdd3b3`, `4871a19`, `143ce68`, `20f4c40`, `655f2be`, and the two
+end-of-slice commits that follow them (review fixes; the mirror fixture).
+`THIS_BUILD_DISPATCHES_MUTATIONS` is still `false`; no dependency, no new spawn
+site, no guarded path touched; every new rule mutation-tested, survivors killed
+or argued equivalent in the commit messages.
+
+- **C′ — the service scan.** As planned, then strengthened after the
+  end-of-slice reviews: each item is attributed to the port `port -q provides`
+  names for its plist, whatever the item is called (security review M1: a
+  subport may write its parent-named item; `dbus` writes `org.freedesktop.*`),
+  and one scan per capture feeds both the `ServiceMetadata` capability and every
+  package's `defines_service` (security review and spec-guardian, M2). The
+  attribution makes `dbus` attributable instead of unknown, which removes the
+  residual INV-17 asymmetry spec-guardian recorded (L7). R-8 has an addendum.
+- **B′ — positionals.** As planned; `port info` must also carry `--index`
+  (security review L3: without it `action_info` evaluates each Portfile).
+- **A′ — the re-check.** `recheck_provider_configuration(provider, snapshot,
+  fresh)` looks the captured reading up itself (security review L2). The
+  re-read is `adapters::configuration::read` with `FilesystemScope::ThisMachine`,
+  which already has the signature the plan proposed for a new
+  `reread_configuration`, so none was added; slice 4 must pass it the captured
+  `home`, never one read from the environment. The tripwire requires the bound
+  token to be an argument of the dispatch it guards (security review L1). The
+  two elevated-step residuals are in 04 and the SE-016 addendum (spec-guardian
+  M2), and slice 4's work order carries them.
+- **C″ — the mirror fixture.** Planned with `jq`; built with `htop`, because a
+  snapshot records only installed packages and a MacPorts-only package maps to
+  Homebrew at confidence `None` (SE-092 addendum). The test compares kinds,
+  providers and each step's checks. `fixture_privacy.rs` fails on non-UTF-8 files
+  as well. The CLI half of the retained-run recognition test is owed in slice 4.
+- **Policy data** `2026.10.03-2`: `reserved_names` gained `and`/`or`/`not`
+  without moving a read date, so the serial moved (docs-auditor M2).

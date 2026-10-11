@@ -6878,6 +6878,30 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   (the two `invariant_15_*` above); `docs/schemas/history.v1.md`,
   `migrate.v1.md`, `plan.v1.md` obligation 12, `04-migration-and-safety.md`
   (History).
+- **Addendum, the mirror fixture, 2026-10-11 (pass 08 slice 3, D-F1).** A
+  snapshot the binary's own `snapshot` command wrote on a live machine is a
+  captured fixture, the first of 07's "committed snapshots":
+  `fixtures/snapshots/both-providers-intel-macos26-live.json`, provenance in
+  `fixtures/snapshots/README.md`. It exists because DP-016(c) refuses a
+  MacPorts-sourced plan over `--replay` by design, so nothing else can show the
+  MacPorts→Homebrew plan end to end; the fail-closed service scan (`ffdd3b3`,
+  R-8's addendum) is what makes a live capture plannable at all.
+  `invariant_17_a_macports_to_homebrew_plan_is_built_from_a_live_capture` plans
+  one package both ways and asserts the plans mirror each other.
+  `crates/cli/tests/fixture_privacy.rs` holds every file under `fixtures/` to
+  the capture's redaction (no home path with an account name, no current user
+  name, no `reported` value, no configuration key list); `PATH` and the
+  inventory are deliberately public. The test plans a package both providers
+  hold, so both directions are consolidations: a snapshot carries only installed
+  packages, so a MacPorts-only package (`jq`) maps to Homebrew at confidence
+  `None` and stops at `MANUAL_REVIEW` — the install direction from a live capture
+  needs the destination's catalogue, which a snapshot does not record
+  (spec-guardian, end of slice 3, M3). The CLI half of
+  `invariant_17_retained_run_recognition_is_direction_neutral` (whose
+  application half is in `crates/application/tests/history_recognition.rs`) is
+  owed with the executor's history wiring (slice 4, in its work order): without
+  a mutating run there is no retained record for the CLI to recognise.
+
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)
 - Date / Pass: 2026-10-03 / after 06-HARDENING-BEFORE-MUTATION, at the owner's request ("rodar de forma mais autônoma"), under `MPB_ALLOW_GUARD_EDIT=1` armed by the owner's message
