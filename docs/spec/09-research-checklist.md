@@ -403,6 +403,39 @@ locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
 (`man flock` is silent and this machine has none), and whether std opens with
 close-on-exec, which decides whether a spawned child can keep a lock alive.
 
+### R-19 · What the release workflow can rely on: notarisation, reproducible builds, deployment target, packaging, runners
+*Partially answered 2026-10-10 — `docs/research/R-19-release-toolchain.md`.*
+Continues R-11; blocks the implementation pass that writes the release workflow.
+Answers:
+- **R-11 Q4 is closed.** The hardened runtime documents no exception for
+  spawning a child, and an ad-hoc `runtime`-flagged binary spawned one normally.
+- **R-11's "`macos-15-intel` is a paid larger runner" is wrong.** GitHub Docs
+  lists `macos-15-intel` and `macos-26-intel` as free standard runners, and
+  `-large` is the billed label of the same image.
+- **Notarising a CLI** needs the hardened runtime, a secure timestamp
+  (`timestamp.apple.com`, so network) and no `get-task-allow`. A bare Mach-O
+  can be notarised as a ZIP but never stapled; only a UDIF `.dmg` or a signed
+  flat `.pkg` can be.
+- **Reproducibility.** Two release builds of one commit are byte-identical on
+  one machine with the current profile (x86_64 and arm64, same `LC_UUID` and
+  CDHash). Across machines, the Cargo registry paths must be remapped and one
+  Xcode pinned.
+- **The achievable "byte-identical" claim is payload identity within one
+  build**: the `.pkg` and `.dmg` payloads hashed to the bare binary. Signed
+  binaries and containers differ across rebuilds.
+- **Deployment target.** The 1.98.0 defaults record 10.12 (x86_64) and 11.0
+  (arm64), but no hosted Xcode's stated range includes 10.12.
+- **Packaging.** Extract with documented `pkgutil --expand` plus `tar`. Use
+  `-fs HFS+` for the x86_64 `.dmg`. GitHub's keychain recipe puts passwords in
+  argv, against ADR-0005.
+
+Left open:
+- R-11 Q5 (offline, quarantined, unstapled CLI).
+- Whether the nested ticket covers the bare binary.
+- Developer ID CDHash stability.
+- How a home-domain `.pkg` places `--install-location`.
+- Feeding `security` passwords by stdin.
+
 ---
 
 ## Non-blocking research
