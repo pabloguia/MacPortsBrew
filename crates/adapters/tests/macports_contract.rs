@@ -673,7 +673,23 @@ fn active(names: &[&str]) -> BTreeMap<String, bool> {
 type TreeChange = Box<dyn Fn(&Path)>;
 
 fn scan_of(root: &Path, installed: &BTreeMap<String, bool>) -> service::ServiceScan {
-    service::scan(root, FilesystemScope::ThisMachine, installed)
+    service::scan(
+        root,
+        FilesystemScope::ThisMachine,
+        installed,
+        &registry_agrees,
+    )
+}
+
+/// A registry that names each item's port after the item itself, as MacPorts'
+/// does for a port that keeps the default `startupitem.name`.
+fn registry_agrees(plist: &Path) -> Option<String> {
+    let file = plist.file_name()?.to_str()?;
+    Some(
+        file.strip_prefix("org.macports.")?
+            .strip_suffix(".plist")?
+            .to_string(),
+    )
 }
 
 #[test]
@@ -816,6 +832,7 @@ fn an_unreadable_service_directory_is_unknown_not_empty() {
         Path::new("/opt/local-that-does-not-exist"),
         FilesystemScope::ThisMachine,
         &active(&["nginx"]),
+        &registry_agrees,
     );
     assert!(!scan.is_known());
     assert!(!scan.defines_service("nginx"));
@@ -903,4 +920,130 @@ fn the_environment_carries_home_because_port_cannot_start_without_it() {
         !sanitised_environment(&replayed.environment()).contains_key("HOME"),
         "with no home known, HOME is omitted rather than invented"
     );
+}
+
+/// The MacPorts fixture's adapter, reading a scratch prefix on this host's
+/// disk, with `port -q provides <plist>` answering `owner` for each `item`.
+fn adapter_on_disk(root: &Path, items: &[(&str, &str, &str)]) -> MacPortsAdapter<ReplayRunner> {
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&fixture_text(MACPORTS_FIXTURE)).expect("fixture JSON");
+    let invocations = doc["invocations"].as_array_mut().expect("invocations");
+    let template = invocations
+        .iter()
+        .find(|i| i["argv"][1] == "provides")
+        .expect("the fixture records a provides read")
+        .clone();
+    for (location, item_name, owner) in items {
+        let plist = root
+            .join(location)
+            .join(format!("org.macports.{item_name}"))
+            .join(format!("org.macports.{item_name}.plist"));
+        let plist = plist.to_str().expect("UTF-8");
+        let mut invocation = template.clone();
+        invocation["argv"] = serde_json::json!(["-q", "provides", plist]);
+        invocation["stdout"] = serde_json::json!(format!("{plist} is provided by: {owner}\n"));
+        invocations.push(invocation);
+    }
+    let recording = Recording::from_json(&doc.to_string()).expect("recording");
+    MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        root.to_path_buf(),
+        None,
+        FilesystemScope::ThisMachine,
+    )
+}
+
+fn service_capability(adapter: &MacPortsAdapter<ReplayRunner>) -> CapabilityState {
+    adapter
+        .capabilities()
+        .unwrap()
+        .capabilities
+        .get(&Capability::ServiceMetadata)
+        .cloned()
+        .expect("the capability is reported")
+}
+
+fn defines_service(adapter: &MacPortsAdapter<ReplayRunner>, name: &str) -> bool {
+    adapter
+        .inventory()
+        .unwrap()
+        .metadata
+        .get(name)
+        .is_some_and(|m| m.defines_service)
+}
+
+#[test]
+fn invariant_19_an_item_is_attributed_to_the_port_the_registry_names() {
+    // A subport may set `startupitem.name` to its parent's name: `mysql5-server`
+    // writes `org.macports.mysql5`, and `mysql5` is installed beside it. The
+    // item's name alone would make the client the service and the server not
+    // one, so the scan asks the registry who installed the plist (security
+    // review, pass 08 slice 3, M1). Here `org.macports.nginx` is owned by
+    // `wget`: wget is the service, nginx is not.
+    let root = macports_prefix("registry-owner");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    let adapter = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "wget")]);
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "wget"));
+    assert!(!defines_service(&adapter, "nginx"));
+
+    // A port may name its item outside `org.macports.` (`dbus`'s
+    // `org.freedesktop.dbus-system`): the registry still attributes it.
+    let named = macports_prefix("registry-named");
+    let dir = named.join("etc/LaunchAgents/org.freedesktop.agent");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("org.freedesktop.agent.plist"), "<plist/>").unwrap();
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&fixture_text(MACPORTS_FIXTURE)).expect("fixture JSON");
+    let invocations = doc["invocations"].as_array_mut().expect("invocations");
+    let mut answer = invocations
+        .iter()
+        .find(|i| i["argv"][1] == "provides")
+        .expect("a provides read")
+        .clone();
+    let plist = dir.join("org.freedesktop.agent.plist");
+    let plist = plist.to_str().expect("UTF-8");
+    answer["argv"] = serde_json::json!(["-q", "provides", plist]);
+    answer["stdout"] = serde_json::json!(format!("{plist} is provided by: postgresql17-server\n"));
+    invocations.push(answer);
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(Recording::from_json(&doc.to_string()).expect("recording")),
+        named.clone(),
+        None,
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "postgresql17-server"));
+
+    // The registry names a port that is not installed, or cannot say: unknown.
+    let stranger = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "mysql5")]);
+    assert_eq!(service_capability(&stranger), CapabilityState::Unknown);
+    let silent = adapter_on_disk(&root, &[]);
+    assert_eq!(service_capability(&silent), CapabilityState::Unknown);
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::remove_dir_all(&named).ok();
+}
+
+#[test]
+fn the_service_capability_comes_from_the_scan_the_metadata_came_from() {
+    // One scan per capture: the capability is read from the scan that built
+    // the inventory, so a change between two scans cannot leave "known"
+    // beside per-package answers from an unknown scan (security review and
+    // spec-guardian, pass 08 slice 3, M2).
+    let root = macports_prefix("one-scan");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    let adapter = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "nginx")]);
+    assert!(defines_service(&adapter, "nginx"));
+    // The tree changes after the inventory was built: a stray entry that a
+    // second scan would refuse to attribute.
+    std::fs::create_dir_all(root.join("etc/LaunchDaemons/org.example.stray")).unwrap();
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "nginx"));
+
+    // And the other order: an inventory built over the stray entry is unknown
+    // throughout, its capability included.
+    let fresh = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "nginx")]);
+    assert!(!defines_service(&fresh, "nginx"));
+    assert_eq!(service_capability(&fresh), CapabilityState::Unknown);
+    std::fs::remove_dir_all(&root).ok();
 }

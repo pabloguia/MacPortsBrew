@@ -658,17 +658,24 @@ change is made. Silent deviation remains the one unrecoverable error.
 - **Addendum, the configuration re-check, 2026-10-10 (pass 08 slice 3, D-R1′).**
   04's "a mutating executor must re-read immediately before each step" now has
   its function: `application::recheck_provider_configuration(provider,
-  captured, fresh)`. Both readings must outrank nothing (`outranks() ==
-  Some(false)`); an unread side is `Unknown`, never a pass. It compares that
+  snapshot, fresh)`, which looks the captured reading up by `provider` itself so
+  a caller cannot pair one provider's capture with another's id (security
+  review, L2). Both readings must outrank nothing (`outranks() ==
+  Some(false)`); an unread side, or a provider the snapshot does not hold, is
+  `Unknown`, never a pass. It compares that
   predicate, not equality, because the capture's labels are home-redacted and
   the fresh read's are not (security review, M1). The answer is a
   `ConfigurationRechecked` token that is neither `Clone` nor `Copy`, so the
   wiring (slice 4) spends one per step and checks its provider against the
   step's; the textual tripwire in `crates/cli/tests/history_preconditions.rs`
   (`[config]`) is the backstop: a build that turns mutations on must call it,
-  bind its result, and place one strictly between each dispatch and the one
-  before it. The window between this re-read and the provider's own read at exec
-  is inherent and is stated in the module, not hidden.
+  bind its result, place one strictly between each dispatch and the one before
+  it, and hand that name to the dispatch (security review, L1). The window
+  between this re-read and the provider's own read at exec is inherent and is
+  stated in the module, not hidden; for an elevated step it includes the
+  password prompt, and an elevated MacPorts step may read a different home's
+  `macports.conf` — both written into 04 and owed with the consent path
+  (slice 4).
 
 ## SE-035 — The read contract returns installed rows, and ownership names its mechanism
 - Status: accepted
@@ -3625,10 +3632,18 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   spawn site is tied by a test to `provider-commands.toml`'s `reserved_names`,
   which gained the three operators, and the planner's guard now compares a name
   without its `@…` suffix — `installed@1` used to pass it, an existing defect.
-  `port provides` takes absolute paths with no `..` instead of raw strings. The
-  sentence above, "positional arguments are still checked for shape alone", is
-  superseded for count and class; **which package** a plan's read names is still
-  the gate's, because only the plan knows it.
+  `port provides` takes absolute paths with no `..` instead of raw strings, and
+  `port info` must carry `--index` (without it `action_info` evaluates each
+  Portfile; security review, end of slice 3, L3). The sentence above,
+  "positional arguments are still checked for shape alone", is superseded for
+  count and class; **which package** a plan's read names is still the gate's,
+  because only the plan knows it. `PORT_RESERVED_WORDS` and `is_brew_name`'s
+  loader suffixes are provider facts held in code (INV-20): they are refusal
+  lists, so a stale one fails *open* — a pseudo-port or loader suffix added
+  upstream would be admitted. The reserved words are tied by a test to the dated
+  `reserved_names` in `provider-commands.toml`; the three suffixes cite Homebrew
+  7.0.4 where they are defined, and both are re-read when either provider's
+  version moves (spec-guardian, end of slice 3, L3).
 
 ## SE-058 — The user-facing documentation promised more than the design does
 - Status: accepted
@@ -6863,7 +6878,6 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   (the two `invariant_15_*` above); `docs/schemas/history.v1.md`,
   `migrate.v1.md`, `plan.v1.md` obligation 12, `04-migration-and-safety.md`
   (History).
-
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)
 - Date / Pass: 2026-10-03 / after 06-HARDENING-BEFORE-MUTATION, at the owner's request ("rodar de forma mais autônoma"), under `MPB_ALLOW_GUARD_EDIT=1` armed by the owner's message

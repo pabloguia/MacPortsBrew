@@ -19,7 +19,7 @@
   "packages": [],
   "policyReadOn": "2026-09-04",
   "policyStale": false,
-  "policyVersion": "2026.10.03-1",
+  "policyVersion": "2026.10.03-2",
   "providers": {
     "homebrew": {
       "capabilities": {

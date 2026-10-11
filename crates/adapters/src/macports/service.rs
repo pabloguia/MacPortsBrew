@@ -4,8 +4,9 @@
 //!
 //! MacPorts has no `port info --startupitem` (R-8, E-8 and Finding 10): the
 //! `info` field vocabulary is the PortIndex's, and `startupitem` is not in
-//! it. The offline, no-subprocess mechanism R-8 names first is the launch
-//! machinery a StartupItem writes inside the prefix:
+//! it. The offline mechanism R-8 names first is the launch machinery a
+//! StartupItem writes inside the prefix, read here and attributed with one
+//! `port -q provides` per item found (none on an install with no item):
 //! `${prefix}/etc/<location>/<uniquename>/<plist>` (R-8 E-7). MacPorts 2.12.6
 //! `port1.0/portstartupitem.tcl` (sha256
 //! `cc4d2c99b1e303d4677f9d562f8c3a9f076bea2d8e28263f099b805f0ee592b3`, read
@@ -16,13 +17,19 @@
 //! declare several items (lines 112-121, 158-166). The directory is created
 //! only when an item is (lines 130-133, 513).
 //!
+//! **Attributed by the registry.** Each item directory must hold a plist of
+//! the same name, and `port provides` must name the installed port that owns
+//! that plist; the item is that port's, whatever it is called (`dbus`'s
+//! `org.freedesktop.dbus-system`, a subport's parent-named item). The name is
+//! never trusted on its own (security review, pass 08 slice 3, M1).
+//!
 //! **Fail-closed.** This answers "these ports define a service" only when the
-//! whole answer can be attributed. A port whose item has another uniquename
-//! (`dbus`'s `org.freedesktop.dbus-system`), a stray plist, a directory without
-//! its plist, an item naming a port that is not installed, an entry that cannot
-//! be read or named, or more entries than are ever expected makes the answer
-//! **unknown** — never "not a service" — because a service reported as none is
-//! a package INV-19 would let through (security review, pass 08 slice 3, H1).
+//! whole answer can be attributed. A stray entry, a directory without its
+//! plist, a plist the registry does not own or attributes to a port that is not
+//! installed, an entry that cannot be read or named, or more entries than are
+//! ever expected makes the answer **unknown** — never "not a service" —
+//! because a service reported as none is a package INV-19 would let through
+//! (security review, pass 08 slice 3, H1).
 //! An absent location is "no item there" only under a real MacPorts prefix,
 //! and only when every installed port is active: deactivating a port deletes
 //! its item directory (`registry2.0/portimage.tcl` `_deactivate_files`), so the
@@ -78,13 +85,23 @@ impl ServiceScan {
     }
 }
 
+/// Which installed port owns a file, as the provider's own registry answers
+/// it (`port provides`), or `None` when it cannot say.
+pub type Owner<'a> = &'a dyn Fn(&Path) -> Option<String>;
+
 /// Scans the prefix's StartupItem locations, attributing every item to one of
 /// `installed` (each port name, and whether any of its installed versions is
-/// active). One directory read per location, no subprocess and no network.
+/// active). One directory read per location, no network; `owner` is asked
+/// about each item's plist, and the item is attributed to the port the
+/// registry says installed it - never to the port its name resembles, because
+/// a subport may set `startupitem.name` to its parent's name (`mysql5-server`
+/// writes `org.macports.mysql5`; security review, pass 08 slice 3, M1), and a
+/// port may name its item outside `org.macports.` altogether (`dbus`).
 pub fn scan(
     prefix: &Path,
     filesystem: FilesystemScope,
     installed: &BTreeMap<String, bool>,
+    owner: Owner<'_>,
 ) -> ServiceScan {
     if !filesystem.is_this_machine() {
         return ServiceScan::Unreadable;
@@ -102,7 +119,7 @@ pub fn scan(
     }
     let mut found = BTreeSet::new();
     for location in SERVICE_DIRECTORIES {
-        match scan_location(&prefix.join(location), installed) {
+        match scan_location(&prefix.join(location), installed, owner) {
             Some(names) => found.extend(names),
             None => return ServiceScan::Unreadable,
         }
@@ -112,7 +129,11 @@ pub fn scan(
 
 /// The installed ports with an item in `root`, or `None` when anything there
 /// cannot be attributed. An absent location contributes nothing.
-fn scan_location(root: &Path, installed: &BTreeMap<String, bool>) -> Option<BTreeSet<String>> {
+fn scan_location(
+    root: &Path,
+    installed: &BTreeMap<String, bool>,
+    owner: Owner<'_>,
+) -> Option<BTreeSet<String>> {
     match std::fs::symlink_metadata(root) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(BTreeSet::new()),
         Err(_) => return None,
@@ -126,10 +147,6 @@ fn scan_location(root: &Path, installed: &BTreeMap<String, bool>) -> Option<BTre
         }
         let entry = entry.ok()?;
         let dir_name = entry.file_name().into_string().ok()?;
-        let port = dir_name.strip_prefix(SERVICE_PREFIX)?;
-        if !installed.contains_key(port) || !super::names::is_safe_name(port) {
-            return None;
-        }
         let item = entry.path();
         let real_dir = std::fs::symlink_metadata(&item).is_ok_and(|m| m.file_type().is_dir());
         let plist = item.join(format!("{dir_name}.plist"));
@@ -137,7 +154,14 @@ fn scan_location(root: &Path, installed: &BTreeMap<String, bool>) -> Option<BTre
         if !real_dir || !real_plist {
             return None;
         }
-        found.insert(port.to_string());
+        // The port the registry says installed the plist, whatever the item is
+        // named: `org.macports.<port>` by default, `org.freedesktop.*` for
+        // `dbus`, a parent's name for a subport.
+        let port = owner(&plist)?;
+        if !installed.contains_key(&port) || !super::names::is_safe_name(&port) {
+            return None;
+        }
+        found.insert(port);
     }
     Some(found)
 }
@@ -153,6 +177,7 @@ mod tests {
             &PathBuf::from("/nonexistent-prefix-for-a-test"),
             FilesystemScope::ThisMachine,
             &BTreeMap::new(),
+            &by_name,
         );
         assert_eq!(scan, ServiceScan::Unreadable);
         assert!(!scan.is_known());
@@ -165,6 +190,16 @@ mod tests {
         assert!(scan.is_known());
         assert!(scan.defines_service("nginx"));
         assert!(!scan.defines_service("wget"));
+    }
+
+    /// A registry that agrees with every item's name.
+    fn by_name(plist: &Path) -> Option<String> {
+        let file = plist.file_name()?.to_str()?;
+        Some(
+            file.strip_prefix(SERVICE_PREFIX)?
+                .strip_suffix(".plist")?
+                .to_string(),
+        )
     }
 
     fn scratch(tag: &str) -> PathBuf {
@@ -182,11 +217,11 @@ mod tests {
         let locked = parent.join("locked");
         std::fs::create_dir_all(&locked).unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let answer = scan_location(&locked.join("LaunchDaemons"), &BTreeMap::new());
+        let answer = scan_location(&locked.join("LaunchDaemons"), &BTreeMap::new(), &by_name);
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(answer, None, "a permission error is not an absent location");
         assert_eq!(
-            scan_location(&parent.join("absent"), &BTreeMap::new()),
+            scan_location(&parent.join("absent"), &BTreeMap::new(), &by_name),
             Some(BTreeSet::new())
         );
         std::fs::remove_dir_all(&parent).ok();
@@ -204,7 +239,7 @@ mod tests {
             std::fs::write(dir.join(format!("{SERVICE_PREFIX}{name}.plist")), "").unwrap();
             installed.insert(name, true);
         }
-        assert_eq!(scan_location(&location, &installed), None);
+        assert_eq!(scan_location(&location, &installed, &by_name), None);
         std::fs::remove_dir_all(&root).ok();
     }
 }

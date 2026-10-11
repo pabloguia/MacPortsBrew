@@ -196,6 +196,13 @@ pub struct MacPortsAdapter<R: ProcessRunner> {
     home: Option<PathBuf>,
     detection: RefCell<Option<ProviderDetection>>,
     inventory: RefCell<Option<ProviderInventory>>,
+    /// The service scan the cached inventory's metadata was built from. The
+    /// `ServiceMetadata` capability is read from this same value, never from a
+    /// second scan: two scans can disagree, and a capability from a clean one
+    /// beside per-package answers from an unreadable one would say "known, and
+    /// nothing is a service" (security review and spec-guardian, pass 08
+    /// slice 3, M2).
+    services: RefCell<Option<service::ServiceScan>>,
 }
 
 impl<R: ProcessRunner> MacPortsAdapter<R> {
@@ -222,6 +229,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             home,
             detection: RefCell::new(None),
             inventory: RefCell::new(None),
+            services: RefCell::new(None),
         }
     }
 
@@ -404,6 +412,13 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         cross_check(&names, &active, &leaves, &requested, &rows)?;
 
         let (installed, active_variants) = installed_rows(&rows, &requested, &self.id);
+        let services = service::scan(
+            &self.prefix,
+            self.filesystem,
+            &activity(&rows),
+            &|plist: &Path| self.provides(plist),
+        );
+        *self.services.borrow_mut() = Some(services.clone());
         if names.is_empty() {
             return Ok(ProviderInventory {
                 installed,
@@ -434,7 +449,6 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )?;
 
         let dependencies = edges(&names, &depends_lib, &depends_run, &depends_build);
-        let services = service::scan(&self.prefix, self.filesystem, &activity(&rows));
         let metadata = metadata(&names, &index, &homepage, &description, &services);
         let availability = availability(&names, &index, &active_variants, self.machine.as_ref());
 
@@ -528,8 +542,6 @@ fn cross_check(
     Ok(())
 }
 
-/// Turns parsed rows into domain rows, and collects the variant set of each
-/// name's active row (the one an archive filename would be keyed on).
 /// Each installed port name, and whether any of its installed versions is
 /// active: what the service scan needs to attribute an item and to know that
 /// an absent one proves something.
@@ -541,15 +553,8 @@ fn activity(rows: &[parse::InstalledRow]) -> BTreeMap<String, bool> {
     by_name
 }
 
-/// [`activity`], from an inventory already built.
-fn activity_of(inventory: &ProviderInventory) -> BTreeMap<String, bool> {
-    let mut by_name: BTreeMap<String, bool> = BTreeMap::new();
-    for package in &inventory.installed {
-        *by_name.entry(package.identity.name.clone()).or_default() |= package.active;
-    }
-    by_name
-}
-
+/// Turns parsed rows into domain rows, and collects the variant set of each
+/// name's active row (the one an archive filename would be keyed on).
 fn installed_rows(
     rows: &[parse::InstalledRow],
     requested: &BTreeSet<String>,
@@ -730,9 +735,13 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         capabilities.insert(Capability::DeprecationState, CapabilityState::Available);
         capabilities.insert(
             Capability::ServiceMetadata,
-            if self.inventory().is_ok_and(|inventory| {
-                service::scan(&self.prefix, self.filesystem, &activity_of(&inventory)).is_known()
-            }) {
+            if self.inventory().is_ok()
+                && self
+                    .services
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(service::ServiceScan::is_known)
+            {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unknown
@@ -980,13 +989,6 @@ mod tests {
         let by_name = activity(&rows);
         assert_eq!(by_name.get("jq"), Some(&true));
         assert_eq!(by_name.get("postgresql17-server"), Some(&false));
-        let id = ProviderId::new("macports");
-        let (installed, _) = installed_rows(&rows, &BTreeSet::new(), &id);
-        let inventory = ProviderInventory {
-            installed,
-            ..ProviderInventory::default()
-        };
-        assert_eq!(activity_of(&inventory), by_name);
     }
 
     use super::*;

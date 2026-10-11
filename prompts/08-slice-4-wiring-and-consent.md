@@ -80,4 +80,11 @@ three reviewers, coverage, `validate.sh`, "As built".
       reason.
 - [ ] Elevation consent exists, is tested, and the gate still refuses elevated
       steps until it is wired to dispatch.
+- [ ] The mutating dispatch takes the `ConfigurationRechecked` token by value
+      and refuses one whose `provider()` is not the step's; the re-read passes
+      the captured `home`, never one read from the environment; the two
+      elevated-step residuals in 04 (Provider configuration) are closed or
+      carried with a reason.
+- [ ] The CLI half of `invariant_17_retained_run_recognition_is_direction_neutral`
+      exists (SE-092, the mirror-fixture addendum).
 - [ ] §2 holds; no gate test weakened; reviewers run; "As built" written.

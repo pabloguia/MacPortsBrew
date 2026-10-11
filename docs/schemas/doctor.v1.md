@@ -141,7 +141,7 @@ it, and makes no network call that reports anything about the user.**
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.03-1",
+  "policyVersion": "2026.10.03-2",
   "findings": [
     {
       "id": "path_unknown",

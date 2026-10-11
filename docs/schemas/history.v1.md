@@ -101,7 +101,7 @@ re-serialises it byte for byte.
   "startedAt": "2026-10-04T12:00:00Z",
   "toolVersion": "0.1.0",
   "planSchemaVersion": 1,
-  "policyVersion": "2026.10.03-1",
+  "policyVersion": "2026.10.03-2",
   "package": {
     "provider": "macports",
     "name": "wget"

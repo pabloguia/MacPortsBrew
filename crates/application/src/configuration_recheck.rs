@@ -27,7 +27,7 @@
 //! wiring makes the mutating dispatch take it by value and check its provider
 //! against the step's, which a textual tripwire cannot (spec-guardian, M2).
 
-use macportsbrew_domain::{DomainError, ErrorId, ProviderConfiguration, ProviderId};
+use macportsbrew_domain::{DomainError, ErrorId, ProviderConfiguration, ProviderId, Snapshot};
 
 /// Why a step may not run against a provider's configuration as it stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,13 +76,23 @@ impl ConfigurationRechecked {
     }
 }
 
-/// Whether a mutating step may run against `provider`, given its configuration
-/// as captured and as re-read just now.
+/// Whether a mutating step may run against `provider`, given the snapshot the
+/// plan was built from and the provider's configuration as re-read just now.
+///
+/// The captured reading is looked up here, by `provider`, rather than handed
+/// in: a caller cannot pair one provider's capture with another's id (security
+/// review, pass 08 slice 3, L2). A provider the snapshot does not hold is
+/// [`ConfigurationDrift::Unknown`].
 pub fn recheck_provider_configuration(
     provider: &ProviderId,
-    captured: &ProviderConfiguration,
+    snapshot: &Snapshot,
     fresh: &ProviderConfiguration,
 ) -> Result<ConfigurationRechecked, ConfigurationDrift> {
+    let captured = snapshot
+        .providers
+        .get(provider)
+        .map(|p| &p.configuration)
+        .ok_or(ConfigurationDrift::Unknown)?;
     match captured.outranks() {
         Some(false) => {}
         Some(true) => return Err(ConfigurationDrift::CapturedOutranks),
@@ -119,31 +129,78 @@ mod tests {
         ProviderConfiguration::Read { files }
     }
 
+    /// A snapshot holding `alpha` with `captured` as its configuration.
+    fn snapshot(captured: ProviderConfiguration) -> Snapshot {
+        use macportsbrew_domain::{
+            Architecture, CommandLineTools, EnvironmentSnapshot, Machine, MacosVersion, Provenance,
+            ProviderCapabilities, ProviderDetection, ProviderInventory, ProviderPresence,
+            ProviderSnapshot, Translation, SNAPSHOT_SCHEMA_VERSION,
+        };
+        use std::collections::BTreeMap;
+        let provider = ProviderSnapshot {
+            detection: ProviderDetection {
+                provider: id(),
+                presence: ProviderPresence::Present,
+                version: None,
+                prefix: None,
+                executable: None,
+                architecture: None,
+                prefix_redacted: false,
+            },
+            capabilities: ProviderCapabilities::default(),
+            inventory: ProviderInventory::default(),
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+            configuration: captured,
+        };
+        Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            tool_version: "test".into(),
+            policy_version: "test".into(),
+            provenance: Provenance {
+                captured_at: "2026-10-10T00:00:00Z".into(),
+                captured_by: "configuration_recheck.rs".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            machine: Machine {
+                macos: MacosVersion::new(26, 0, 0),
+                architecture: Architecture::Arm64,
+                translation: Translation::Native,
+                command_line_tools: CommandLineTools::Missing,
+            },
+            environment: EnvironmentSnapshot::default(),
+            providers: [(id(), provider)].into_iter().collect(),
+        }
+    }
+
     fn id() -> ProviderId {
         ProviderId::new("alpha")
     }
 
     #[test]
     fn a_configuration_that_outranks_nothing_then_and_now_passes_and_names_its_provider() {
-        let token = recheck_provider_configuration(&id(), &read(vec![]), &read(vec![])).unwrap();
+        let token =
+            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &read(vec![])).unwrap();
         assert_eq!(token.provider(), &id());
         // A file that exists, is readable and sets nothing outranks nothing,
         // and the labels need not agree (redacted against raw).
         let captured = read(vec![file("~/.cfg", true, &[])]);
         let fresh = read(vec![file("/Users/someone/.cfg", true, &[])]);
-        assert!(recheck_provider_configuration(&id(), &captured, &fresh).is_ok());
+        assert!(recheck_provider_configuration(&id(), &snapshot(captured.clone()), &fresh).is_ok());
     }
 
     #[test]
     fn a_file_that_appeared_since_the_capture_refuses_the_step() {
         let fresh = read(vec![file("~/.cfg", true, &["SOME_KEY"])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &read(vec![]), &fresh),
+            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &fresh),
             Err(ConfigurationDrift::Outranks)
         );
         let unreadable = read(vec![file("~/.cfg", false, &[])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &read(vec![]), &unreadable),
+            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &unreadable),
             Err(ConfigurationDrift::Outranks)
         );
     }
@@ -155,21 +212,32 @@ mod tests {
             ProviderConfiguration::NotRecorded,
         ] {
             assert_eq!(
-                recheck_provider_configuration(&id(), &read(vec![]), &unknown),
+                recheck_provider_configuration(&id(), &snapshot(read(vec![])), &unknown),
                 Err(ConfigurationDrift::Unknown)
             );
             assert_eq!(
-                recheck_provider_configuration(&id(), &unknown, &read(vec![])),
+                recheck_provider_configuration(&id(), &snapshot(unknown.clone()), &read(vec![])),
                 Err(ConfigurationDrift::Unknown)
             );
         }
     }
 
     #[test]
+    fn a_provider_the_snapshot_does_not_hold_is_unknown_never_a_pass() {
+        let mut other = snapshot(read(vec![]));
+        let held = other.providers.remove(&id()).expect("alpha");
+        other.providers.insert(ProviderId::new("beta"), held);
+        assert_eq!(
+            recheck_provider_configuration(&id(), &other, &read(vec![])),
+            Err(ConfigurationDrift::Unknown)
+        );
+    }
+
+    #[test]
     fn a_capture_that_already_outranked_is_refused_even_if_it_is_clean_now() {
         let captured = read(vec![file("~/.cfg", true, &["SOME_KEY"])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &captured, &read(vec![])),
+            recheck_provider_configuration(&id(), &snapshot(captured.clone()), &read(vec![])),
             Err(ConfigurationDrift::CapturedOutranks)
         );
     }

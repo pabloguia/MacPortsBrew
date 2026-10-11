@@ -133,6 +133,7 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
             ReadSubcommand {
                 name: "info",
                 long_options: &["--json=v2", "--installed"],
+                required_options: &[],
                 positionals: Positionals::None,
             },
             // `list --pinned`, the verify-absent inventory `list --versions`,
@@ -140,6 +141,7 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
             ReadSubcommand {
                 name: "list",
                 long_options: &["--pinned", "--versions"],
+                required_options: &[],
                 positionals: Positionals::AtMostOneName,
             },
         ],
@@ -182,11 +184,13 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
             ReadSubcommand {
                 name: "installed",
                 long_options: &[],
+                required_options: &[],
                 positionals: Positionals::AtMostOneName,
             },
             ReadSubcommand {
                 name: "echo",
                 long_options: &[],
+                required_options: &[],
                 positionals: Positionals::OneOf(&["requested", "active", "leaves"]),
             },
             ReadSubcommand {
@@ -205,11 +209,13 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
                     "--depends_run",
                     "--depends_build",
                 ],
+                required_options: &["--index"],
                 positionals: Positionals::Names,
             },
             ReadSubcommand {
                 name: "provides",
                 long_options: &[],
+                required_options: &[],
                 positionals: Positionals::AbsolutePaths,
             },
         ],
@@ -373,6 +379,14 @@ pub(crate) struct ReadSubcommand {
     /// A tool permission list, not a provider fact: it says what this tool
     /// asks for, so it carries no `read_on` and does not go stale (INV-20).
     pub(crate) long_options: &'static [&'static str],
+    /// Long options that must be present. `port info` without `--index` opens
+    /// each port's Portfile from the configured ports tree and evaluates it as
+    /// Tcl (`mportopen`); with it, `info` reads only the PortIndex
+    /// (`mportlookup`) - `action_info`, `/opt/local/bin/port` lines 1695-1725,
+    /// MacPorts 2.12.6, read 2026-10-11. The adapter
+    /// always sends it; the spawn site is the line that holds whatever produced
+    /// the argv (security review, pass 08 slice 3, L3).
+    pub(crate) required_options: &'static [&'static str],
     /// How many positional arguments may follow, and of what class. A name
     /// class never admits `/` or `:` - which is how a provider is made to load
     /// a package definition from somewhere this tool did not choose.
@@ -385,6 +399,7 @@ impl ReadSubcommand {
         Self {
             name,
             long_options: &[],
+            required_options: &[],
             positionals: Positionals::None,
         }
     }
@@ -428,6 +443,7 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     // a positional.
     let (options, positionals): (Vec<&str>, Vec<&str>) = rest.partition(|a| a.starts_with('-'));
     options.iter().all(|a| entry.long_options.contains(a))
+        && entry.required_options.iter().all(|r| options.contains(r))
         && positionals_permitted(&entry.positionals, &positionals, reads.name_class)
 }
 
@@ -1126,11 +1142,22 @@ mod tests {
             (port, argv(&["-q", "installed", "jq@1.8"])),
             (port, argv(&["-q", "installed", "+universal"])),
             (port, argv(&["-q", "installed", "@1.0"])),
-            (port, argv(&["-q", "info", "--name", "not", "jq"])),
-            (port, argv(&["-q", "info", "--name", "jq", "and", "htop"])),
-            (port, argv(&["-q", "info", "--name", "jq", "or", "htop"])),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "not", "jq"]),
+            ),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "jq", "and", "htop"]),
+            ),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "jq", "or", "htop"]),
+            ),
             // `info` takes at least one name.
             (port, argv(&["-q", "info", "--index", "--line", "--name"])),
+            // Without `--index`, `info` evaluates each Portfile.
+            (port, argv(&["-q", "info", "--line", "--name", "jq"])),
             // `echo` takes exactly one of its three words.
             (port, argv(&["-q", "echo", "installed"])),
             (port, argv(&["-q", "echo"])),

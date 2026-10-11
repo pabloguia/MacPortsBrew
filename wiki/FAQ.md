@@ -160,7 +160,7 @@ index on a recorded date.
 ## What is the "policy version"?
 
 The identifier of the dated provider facts a recommendation was computed from —
-`2026.10.03-1`. It is stamped on every recommendation and carried in every
+`2026.10.03-2`. It is stamped on every recommendation and carried in every
 `--json` payload, so an answer is always attributable to a specific set of
 facts. It moves independently of the tool version, because the tool changing
 and what it believes about a provider changing are different events.

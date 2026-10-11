@@ -234,6 +234,7 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         &root,
         FilesystemScope::Elsewhere,
         &[("nginx".to_string(), true)].into_iter().collect(),
+        &registry_agrees,
     );
     assert!(
         !scanned.is_known(),
@@ -350,6 +351,7 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
             &root,
             FilesystemScope::ThisMachine,
             &[("nginx".to_string(), true)].into_iter().collect(),
+            &registry_agrees,
         )
         .defines_service("nginx"),
         "the same scan on the same tree, declared as the machine"
@@ -587,4 +589,15 @@ fn synthetic_cellar(cellar: &str, caskroom: &str) -> macportsbrew_adapters::proc
         },
         invocations: vec![one(&["--cellar"], cellar), one(&["--caskroom"], caskroom)],
     }
+}
+
+/// A registry that names each item's port after the item itself, as MacPorts'
+/// does for a port that keeps the default `startupitem.name`.
+fn registry_agrees(plist: &Path) -> Option<String> {
+    let file = plist.file_name()?.to_str()?;
+    Some(
+        file.strip_prefix("org.macports.")?
+            .strip_suffix(".plist")?
+            .to_string(),
+    )
 }

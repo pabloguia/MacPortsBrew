@@ -365,7 +365,13 @@ it (`doctor`, a plan's risks), and the execution gate refuses every mutating
 step against a provider whose configuration sets a key, cannot be read, or was
 not recorded by the input. Detection reads before the
 provider does, so a mutating executor must re-read immediately before each step
-(SE-016).
+(SE-016); `application::recheck_provider_configuration` is that check, and its
+token is handed to the step it guards. Two residuals stay, owed with the consent
+path (pass 08 slice 4): the window between the re-read and the provider's own
+read includes, for an elevated step, the time the user spends at the password
+prompt; and an elevated MacPorts step may run `port` with a different home from
+the invoking user's, so the user `macports.conf` it reads may not be the one
+re-read.
 
 ## History
 
@@ -482,7 +488,8 @@ do not gold-plate beyond them.
   what this tool asks for and carries no date. **Positional arguments are pinned
   by count and by a per-provider class** (pass 08 slice 3): each subcommand
   takes none, at most one name, exactly one of a fixed set (`port echo`), one or
-  more names (`port info`), or one or more absolute paths with no `..`
+  more names (`port info`, which must also carry `--index` - without it `info`
+  evaluates each Portfile), or one or more absolute paths with no `..`
   (`port provides`). A `port` name starts with a letter or digit, carries no
   `@` and is none of the pseudo-ports or the `and`/`or`/`not` operators, whatever
   its case — `installed@1` and `+universal` are refused, because `port` reads

@@ -25,8 +25,9 @@ output may change freely.
 The read-only slice. Nothing here executes anything, elevates anything, or
 writes into either provider's prefix.
 
-**Policy version: `2026.09.19-3`.** The provider facts it carries were read on
-2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08 and 2026-09-19 and are dated in `data/policy/*.toml`; the staleness threshold is
+**Policy version: `2026.10.03-2`.** The provider facts it carries were read on
+2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02 and
+2026-10-03 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
 
@@ -39,16 +40,23 @@ to answer.
   was refused on a live machine; and it skipped any item not named
   `org.macports.<port>` (`dbus`'s), reporting a service port as having none, so
   INV-19 did not force its manual review. It now reads both launchd locations,
-  answers "none" only under a real MacPorts prefix with every port active, and
-  answers "unknown" — refusing the plan — for anything it cannot attribute.
+  attributes each item to the port MacPorts' own registry says installed it
+  (`port provides`), not to the port its name resembles, answers "none" only
+  under a real MacPorts prefix with every port active, and answers "unknown" —
+  refusing the plan — for anything it cannot attribute. One scan per capture
+  feeds both the capability and every package's answer. MacPorts 2.12.6,
+  read 2026-10-10 (`docs/research/R-8-stateful-and-service-packages.md`,
+  addendum).
 - **Provider arguments are pinned by count and class at the spawn site.** A
   MacPorts pseudo-port (`installed`, `all`, even `installed@1`), a bare variant
-  or version, the `and`/`or`/`not` operators and a Homebrew name ending in `.rb`
-  are refused before any provider runs; the planner's own reserved-name guard,
-  which `installed@1` used to pass, is fixed.
+  or version, the `and`/`or`/`not` operators, `port info` without `--index`
+  and a Homebrew name ending in `.rb` are refused before any provider runs; the
+  planner's own reserved-name guard, which `installed@1` used to pass, is fixed
+  (MacPorts 2.12.6 and Homebrew 7.0.4, read 2026-10-10; spec 04, Process
+  execution).
 - **The provider configuration is re-checked before each mutating step**, as a
-  function the executor shell must call (a build that turns mutations on without
-  calling it before every dispatch fails its tests).
+  function the executor shell must call and hand to the step it guards. Not yet
+  wired (slice 4); a build that turns mutations on without it fails its tests.
 - **The single-instance run lock and the interrupted-run marker (pass 08,
   slice 2).** An exclusive advisory lock on `run.lock` in the state directory
   (a second run is `RUN_LOCK_HELD`, exit 7; a killed holder frees it), and an

@@ -160,6 +160,34 @@ fn lock_binding(code: &str, at: Option<usize>) -> Option<String> {
     (bound && !name.is_empty() && name != "_").then_some(name)
 }
 
+/// The identifiers in the argument list of the call starting at `at`, up to
+/// its matching parenthesis.
+fn call_arguments(code: &str, at: usize) -> Vec<String> {
+    let Some(open) = code[at..].find('(') else {
+        return Vec::new();
+    };
+    let mut depth = 0usize;
+    let mut end = code.len();
+    for (i, c) in code[at + open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = at + open + i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    code[at + open + 1..end]
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 const PROBE: &str = "history_store::probe(";
 const ACQUIRE: &str = "run_lock::acquire(";
 const MARKER_READ: &str = "run_marker::read(";
@@ -320,25 +348,18 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
         record.first().copied(),
         "a record cannot be published before the first dispatch",
     );
-    // The provider's configuration is re-checked before *each* dispatch: some
-    // re-check lies between every dispatch call and the one before it (or the
-    // marker write, for the first), and its result is bound to a name - a token
-    // the wiring hands to the dispatch, so `let _ =` or a bare statement throws
-    // the check away (SE-016, DP-027 (b); pass 08 slice 3, D-R1′). The textual
-    // rule is the backstop; the token type is the real one.
+    // The provider's configuration is re-checked before *each* dispatch: the
+    // last re-check between a dispatch call and the one before it (or the
+    // marker write, for the first) is bound to a name, and that name is an
+    // argument of the dispatch - the token the wiring hands over, so `let _ =`,
+    // a bare statement, or a check made and then not passed throws it away
+    // (SE-016, DP-027 (b); pass 08 slice 3, D-R1'; security review, L1). The
+    // textual rule cannot see a loop; the token, neither `Clone` nor `Copy`,
+    // cannot be moved into one, which is why the dispatch must take it.
     if ordered {
         let rechecks = calls_of(code, RECHECK);
         if rechecks.is_empty() {
             violations.push(format!("[config] {name} never calls {RECHECK}"));
-        }
-        let mut boundary = write.unwrap_or(0);
-        for d in calls_of(code, DISPATCH) {
-            if !rechecks.iter().any(|r| *r > boundary && *r < d) {
-                violations.push(format!(
-                    "[config] {name}: a dispatch is not preceded by its own re-check"
-                ));
-            }
-            boundary = d;
         }
         for r in &rechecks {
             if lock_binding(code, Some(*r)).is_none() {
@@ -346,6 +367,26 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
                     "[config] {name}: a re-check's result is not bound to a name that is kept"
                 ));
             }
+        }
+        let mut boundary = write.unwrap_or(0);
+        for d in calls_of(code, DISPATCH) {
+            let guard = rechecks
+                .iter()
+                .filter(|r| **r > boundary && **r < d)
+                .max()
+                .and_then(|r| lock_binding(code, Some(*r)));
+            match guard {
+                None => violations.push(format!(
+                    "[config] {name}: a dispatch is not preceded by its own re-check"
+                )),
+                Some(token) if !call_arguments(code, d).contains(&token) => {
+                    violations.push(format!(
+                        "[config] {name}: a dispatch is not handed its re-check `{token}`"
+                    ));
+                }
+                Some(_) => {}
+            }
+            boundary = d;
         }
     }
     // Some clear must follow a record: the marker outlives the record's write.
@@ -451,8 +492,8 @@ fn run_with() {
     let lock = run_lock::acquire(&state, uid)?;
     let earlier = run_marker::read(&lock, &state, uid)?;
     run_marker::write(&lock, &state, &run, uid)?;
-    let checked = recheck_provider_configuration(&step.provider, &captured, &fresh)?;
-    let results = dispatch(step, &site);
+    let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;
+    let results = dispatch(step, &site, checked);
     history_store::write_record(&state, &record, uid)?;
     run_marker::clear(&lock, &state, &run, uid)?;
 }
@@ -494,7 +535,8 @@ fn removing_any_one_call_is_a_violation_of_its_own_kind() {
             "removing {call} gave {v:?}"
         );
     }
-    let v = violations_of(&GOOD.replace("dispatch(step, &site)", "step.run(&site)"));
+    let v =
+        violations_of(&GOOD.replace("dispatch(step, &site, checked)", "step.run(&site, checked)"));
     assert!(v.iter().any(|x| x.contains("never dispatches")), "{v:?}");
 }
 
@@ -620,11 +662,14 @@ fn every_kind_of_comment_and_string_hides_a_call() {
 
 #[test]
 fn a_function_definition_or_a_longer_name_is_not_a_call() {
-    let defined_only = GOOD.replace("let results = dispatch(step, &site);", "");
+    let defined_only = GOOD.replace("let results = dispatch(step, &site, checked);", "");
     assert!(violations_of(&defined_only)
         .iter()
         .any(|v| v.contains("never dispatches")));
-    let longer = GOOD.replace("dispatch(step, &site)", "redispatch(step, &site)");
+    let longer = GOOD.replace(
+        "dispatch(step, &site, checked)",
+        "redispatch(step, &site, checked)",
+    );
     assert!(violations_of(&longer)
         .iter()
         .any(|v| v.contains("never dispatches")));
@@ -719,24 +764,42 @@ fn the_marker_must_be_cleared_after_a_record_and_not_only_before_one() {
 #[test]
 fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_violation() {
     let line =
-        "    let checked = recheck_provider_configuration(&step.provider, &captured, &fresh)?;";
+        "    let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;";
     let discarded = GOOD.replace(
         line,
-        "    let _ = recheck_provider_configuration(&step.provider, &captured, &fresh)?;",
+        "    let _ = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;",
     );
     let bare = GOOD.replace(
         line,
-        "    recheck_provider_configuration(&step.provider, &captured, &fresh)?;",
+        "    recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;",
     );
     let before_marker = GOOD.replace(&format!("{line}\n"), "").replace(
         "    run_marker::write(&lock, &state, &run, uid)?;",
         &format!("{line}\n    run_marker::write(&lock, &state, &run, uid)?;"),
     );
     let shared = GOOD.replace(
-        "    let results = dispatch(step, &site);",
-        "    let results = dispatch(step, &site);\n    let more = dispatch(next, &site);",
+        "    let results = dispatch(step, &site, checked);",
+        "    let results = dispatch(step, &site, checked);\n    let more = dispatch(next, &site, checked);",
+    );
+    let not_handed = GOOD.replace("dispatch(step, &site, checked)", "dispatch(step, &site)");
+    let handed_another = GOOD.replace(
+        "dispatch(step, &site, checked)",
+        "dispatch(step, &site, stale)",
+    );
+    let shared_token = GOOD.replace(
+        "    let results = dispatch(step, &site, checked);",
+        &format!(
+            "    let results = dispatch(step, &site, checked);\n{}\n    let more = dispatch(next, &site, checked);",
+            line.replace("checked", "checked_again")
+        ),
     );
     for (what, text) in [
+        ("a re-check not handed to the dispatch", not_handed),
+        ("a different name handed to the dispatch", handed_another),
+        (
+            "the first token handed to the second dispatch",
+            shared_token,
+        ),
         ("let _ =", discarded),
         ("a bare statement", bare),
         ("a re-check before the marker", before_marker),
@@ -752,11 +815,18 @@ fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_viola
     }
     // One re-check per dispatch is fine.
     let each = GOOD.replace(
-        "    let results = dispatch(step, &site);",
+        "    let results = dispatch(step, &site, checked);",
         &format!(
-            "    let results = dispatch(step, &site);\n{}\n    let more = dispatch(next, &site);",
+            "    let results = dispatch(step, &site, checked);\n{}\n    let more = dispatch(next, &site, checked_again);",
             line.replace("checked", "checked_again")
         ),
     );
     assert_eq!(violations_of(&each), Vec::<String>::new());
+}
+
+#[test]
+fn a_calls_arguments_end_at_its_matching_parenthesis() {
+    let code = "dispatch(step, f(&site)); then(checked)";
+    assert_eq!(call_arguments(code, 0), ["step", "f", "site"]);
+    assert!(call_arguments("x", 0).is_empty());
 }

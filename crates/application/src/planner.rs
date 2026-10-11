@@ -1080,13 +1080,6 @@ pub(crate) fn names_no_package(operation: &str) -> bool {
     operation == "verify_absent"
 }
 
-/// The success semantic the planner writes for `operation`, from the
-/// provider's table entry; `Unknown` without one.
-///
-/// Shared with `execution_gate` for the reason [`planned_argv`] is: the gate
-/// refuses a verification command whose semantic is not this, because a read
-/// whose semantic was swapped — `EXIT_STATUS` on a verb that exits 0 for an
-/// absent package — certifies nothing while looking like a check.
 /// Whether `package` is one of a provider's reserved words — compared without
 /// case and **without an `@…` suffix**, because MacPorts reads `installed@1` as
 /// the pseudo-port `installed` with a version override (`/opt/local/bin/port`,
@@ -1097,6 +1090,13 @@ fn is_reserved(reserved: &[String], package: &str) -> bool {
     reserved.iter().any(|r| r.eq_ignore_ascii_case(word))
 }
 
+/// The success semantic the planner writes for `operation`, from the
+/// provider's table entry; `Unknown` without one.
+///
+/// Shared with `execution_gate` for the reason [`planned_argv`] is: the gate
+/// refuses a verification command whose semantic is not this, because a read
+/// whose semantic was swapped — `EXIT_STATUS` on a verb that exits 0 for an
+/// absent package — certifies nothing while looking like a check.
 pub(crate) fn planned_success(
     entry: Option<&ProviderCommands>,
     operation: &str,
