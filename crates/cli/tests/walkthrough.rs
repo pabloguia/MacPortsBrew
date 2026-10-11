@@ -285,3 +285,33 @@ fn an_empty_fact_in_explain_reads_none_rather_than_a_blank() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("  package.classes: none\n"), "{text}");
 }
+
+#[test]
+fn stale_policy_data_warns_once_and_never_refuses() {
+    // The staleness threshold is 180 days (`data/policy/policy.toml`): past
+    // it, every command still answers, and says once, on stderr, that the
+    // provider facts may have changed (pass 10, item 5).
+    let fixture = root().join("fixtures/recordings/both-providers-intel-macos26.json");
+    for args in [
+        vec!["status"],
+        vec!["analyze"],
+        vec!["plan", "htop", "--to", "macports"],
+    ] {
+        let out = Command::new(BIN)
+            .arg("--replay")
+            .arg(&fixture)
+            .args(["--today", "2030-01-01"])
+            .args(&args)
+            .env("LC_ALL", "C")
+            .env_remove("MACPORTSBREW_LANG")
+            .output()
+            .expect("run");
+        assert_eq!(out.status.code(), Some(0), "{args:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let notice = "Policy data was last verified on";
+        assert_eq!(stderr.matches(notice).count(), 1, "{args:?}: {stderr}");
+        assert!(!stdout.contains(notice), "{args:?}: said twice");
+        assert!(!stderr.contains("http"), "{args:?}: no address is invented");
+    }
+}
