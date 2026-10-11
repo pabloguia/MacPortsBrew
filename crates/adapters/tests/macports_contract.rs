@@ -793,6 +793,16 @@ fn invariant_19_an_inactive_service_port_is_not_reported_as_serviceless() {
 }
 
 #[test]
+fn a_macports_directory_that_is_a_symbolic_reference_is_not_a_prefix() {
+    let root = macports_prefix("symlinked-etc-macports");
+    std::fs::remove_dir_all(root.join("etc/macports")).unwrap();
+    std::fs::create_dir_all(root.join("real")).unwrap();
+    std::os::unix::fs::symlink(root.join("real"), root.join("etc/macports")).unwrap();
+    assert!(!scan_of(&root, &active(&["jq"])).is_known());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn a_tree_that_is_not_a_macports_prefix_is_unknown_not_empty() {
     let root = macports_prefix("not-macports");
     std::fs::remove_dir_all(root.join("etc/macports")).unwrap();

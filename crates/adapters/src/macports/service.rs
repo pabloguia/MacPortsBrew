@@ -207,15 +207,4 @@ mod tests {
         assert_eq!(scan_location(&location, &installed), None);
         std::fs::remove_dir_all(&root).ok();
     }
-
-    #[test]
-    fn a_macports_directory_that_is_a_symbolic_reference_is_not_a_prefix() {
-        let root = scratch("symlinked-etc-macports");
-        std::fs::create_dir_all(root.join("etc")).unwrap();
-        std::fs::create_dir_all(root.join("real")).unwrap();
-        std::os::unix::fs::symlink(root.join("real"), root.join("etc/macports")).unwrap();
-        let answer = scan(&root, FilesystemScope::ThisMachine, &BTreeMap::new());
-        assert_eq!(answer, ServiceScan::Unreadable);
-        std::fs::remove_dir_all(&root).ok();
-    }
 }
