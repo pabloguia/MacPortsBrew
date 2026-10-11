@@ -360,13 +360,29 @@ fn ownership_of(
     p: &ProviderSnapshot,
     name: &str,
 ) -> (Ownership, macportsbrew_domain::OwnershipEvidence) {
-    let requested = p
+    // The intent recorded on the active installation, when there is one: a
+    // provider can hold several versions, each with its own record, and the
+    // first row in sort order is not the one the user is running.
+    let rows: Vec<_> = p
         .inventory
         .installed
         .iter()
         .filter(|r| r.identity.name == name)
-        .find_map(|r| r.requested);
-    let has_dependents = !p.inventory.reverse_dependencies_of(name).is_empty();
+        .collect();
+    let requested = rows
+        .iter()
+        .find(|r| r.active)
+        .and_then(|r| r.requested)
+        .or_else(|| rows.iter().find_map(|r| r.requested));
+    // "Nothing depends on it" is concluded only from a reverse-dependency
+    // answer the provider could give. Without one, a package nobody asked for
+    // is a dependency of something unknown, never an orphan: `ORPHAN` is the
+    // label that invites removal. A snapshot that does not mention the
+    // capability at all has not answered either.
+    let dependents_known = p
+        .capabilities
+        .has(macportsbrew_domain::Capability::ReverseDependencies);
+    let has_dependents = !dependents_known || !p.inventory.reverse_dependencies_of(name).is_empty();
     classify_ownership_for(requested, has_dependents, &p.inventory.requested.mechanism)
 }
 
@@ -583,6 +599,7 @@ fn summarise(packages: &[PackageReport]) -> Summary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use macportsbrew_domain::{CapabilityState, InstalledPackage, ProviderInventory};
 
     /// Every source there is; the `match` makes a new one a compile error
     /// here rather than a source this test silently skips.
@@ -594,6 +611,84 @@ mod tests {
             }
         }
         every
+    }
+
+    fn row(name: &str, version: &str, active: bool, requested: Option<bool>) -> InstalledPackage {
+        InstalledPackage {
+            identity: PackageIdentity::new(ProviderId::new("alpha"), name),
+            kind: macportsbrew_domain::PackageKind::Package,
+            version: macportsbrew_domain::Version::new(version),
+            revision: None,
+            variants: BTreeSet::new(),
+            active,
+            requested,
+            installed_from_prebuilt: None,
+            install_path: None,
+        }
+    }
+
+    fn provider(rows: Vec<InstalledPackage>, reverse: CapabilityState) -> ProviderSnapshot {
+        ProviderSnapshot {
+            detection: macportsbrew_domain::ProviderDetection {
+                provider: ProviderId::new("alpha"),
+                presence: macportsbrew_domain::ProviderPresence::Present,
+                version: None,
+                prefix: None,
+                executable: None,
+                architecture: None,
+                prefix_redacted: false,
+            },
+            capabilities: macportsbrew_domain::ProviderCapabilities {
+                capabilities: [(
+                    macportsbrew_domain::Capability::ReverseDependencies,
+                    reverse,
+                )]
+                .into_iter()
+                .collect(),
+            },
+            inventory: ProviderInventory {
+                installed: rows,
+                ..ProviderInventory::default()
+            },
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+            configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
+        }
+    }
+
+    #[test]
+    fn nothing_is_an_orphan_unless_its_dependents_could_be_read() {
+        let rows = || vec![row("lib", "1", true, Some(false))];
+        let read = provider(rows(), CapabilityState::Available);
+        assert_eq!(ownership_of(&read, "lib").0, Ownership::Orphan);
+        let unread = provider(rows(), CapabilityState::Unknown);
+        assert_eq!(ownership_of(&unread, "lib").0, Ownership::Dependency);
+        let unavailable = provider(rows(), CapabilityState::Unavailable { reason: "x".into() });
+        assert_eq!(ownership_of(&unavailable, "lib").0, Ownership::Dependency);
+        // A snapshot that never mentions the capability has not answered.
+        let mut silent = provider(rows(), CapabilityState::Available);
+        silent.capabilities.capabilities.clear();
+        assert_eq!(ownership_of(&silent, "lib").0, Ownership::Dependency);
+    }
+
+    #[test]
+    fn intent_is_read_from_the_active_installation() {
+        // The older, inactive version sorts first and was pulled in as a
+        // dependency; the one in use was asked for.
+        let rows = vec![
+            row("tool", "1", false, Some(false)),
+            row("tool", "2", true, Some(true)),
+        ];
+        let p = provider(rows, CapabilityState::Available);
+        assert_eq!(ownership_of(&p, "tool").0, Ownership::TopLevel);
+        // With no record on the active row, another row's record still counts.
+        let rows = vec![
+            row("tool", "1", false, Some(true)),
+            row("tool", "2", true, None),
+        ];
+        let p = provider(rows, CapabilityState::Available);
+        assert_eq!(ownership_of(&p, "tool").0, Ownership::TopLevel);
     }
 
     #[test]

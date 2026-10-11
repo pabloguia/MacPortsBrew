@@ -262,9 +262,22 @@ fn an_unknown_provider_is_an_error_not_an_empty_list() {
         "both-providers-intel-macos26",
         &["list", "--provider", "brew"],
     );
-    assert_eq!(code, 5, "{err}");
+    assert_eq!(code, 2, "{err}");
     assert_eq!(first, "");
-    assert!(err.contains("brew is not a known provider"), "{err}");
+    assert!(
+        err.contains("not a provider this build knows; use one of: homebrew, macports"),
+        "{err}"
+    );
+    let (code, _, err) = run(
+        "both-providers-intel-macos26",
+        &["plan", "htop", "--to", "brew"],
+    );
+    assert_eq!(code, 2, "{err}");
+    let (code, _, err) = run(
+        "both-providers-intel-macos26",
+        &["--today", "2026-13-01", "status"],
+    );
+    assert_eq!(code, 2, "{err}");
     let (code, _, _) = run(
         "both-providers-intel-macos26",
         &["list", "--provider", "macports"],
@@ -314,4 +327,76 @@ fn stale_policy_data_warns_once_and_never_refuses() {
         assert!(!stdout.contains(notice), "{args:?}: said twice");
         assert!(!stderr.contains("http"), "{args:?}: no address is invented");
     }
+}
+
+#[test]
+fn snapshot_and_report_replace_only_their_own_documents() {
+    let dir = std::env::temp_dir().join(format!(
+        "macportsbrew-no-replace-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch");
+    let existing = dir.join("notes.txt");
+    std::fs::write(&existing, "keep me").expect("write");
+    let path = existing.to_str().expect("UTF-8");
+    for args in [
+        vec!["snapshot", "--out", path],
+        vec!["doctor", "--report", path],
+    ] {
+        let (code, _, err) = run("both-providers-intel-macos26", &args);
+        assert_eq!(code, 2, "{args:?}: {err}");
+        assert!(err.contains("already exists"), "{args:?}: {err}");
+        assert_eq!(std::fs::read_to_string(&existing).unwrap(), "keep me");
+    }
+    // A new name is written.
+    let fresh = dir.join("snapshot.json");
+    let (code, _, err) = run(
+        "both-providers-intel-macos26",
+        &["snapshot", "--out", fresh.to_str().expect("UTF-8")],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(fresh.exists());
+    // Running it again refreshes its own document rather than refusing.
+    let (code, _, err) = run(
+        "both-providers-intel-macos26",
+        &["snapshot", "--out", fresh.to_str().expect("UTF-8")],
+    );
+    assert_eq!(code, 0, "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+#[test]
+fn a_hostile_prefix_in_a_snapshot_is_rendered_as_one_quoted_word() {
+    // A snapshot is a file anyone can hand over. Its prefix reaches the
+    // commands a plan invites a person to type, so each word is quoted.
+    let original = std::fs::read_to_string(
+        root().join("fixtures/snapshots/both-providers-intel-macos26-live.json"),
+    )
+    .expect("snapshot");
+    let hostile = original.replace("/opt/local", "/opt/x $(touch y)");
+    let dir = std::env::temp_dir().join(format!(
+        "macportsbrew-hostile-prefix-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch");
+    let file = dir.join("hostile.json");
+    std::fs::write(&file, hostile).expect("write");
+    let out = Command::new(BIN)
+        .arg("--from-snapshot")
+        .arg(&file)
+        .args(["plan", "htop", "--to", "homebrew"])
+        .env("LC_ALL", "C")
+        .env_remove("MACPORTSBREW_LANG")
+        .output()
+        .expect("plan");
+    let text = String::from_utf8_lossy(&out.stdout);
+    let _ = std::fs::remove_dir_all(&dir);
+    // The plan must be built, or nothing here tests the quoting.
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    let quoted = "$ '/opt/x $(touch y)/bin/port' ";
+    assert!(text.contains(quoted), "{text}");
+    assert!(!text.contains("$ /opt/x $(touch y)"), "{text}");
 }

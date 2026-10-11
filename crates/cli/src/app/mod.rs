@@ -31,7 +31,8 @@ use std::path::PathBuf;
     name = "macportsbrew",
     version,
     about = "See what Homebrew and MacPorts have installed, compare them package by package, \
-and plan a migration in either direction. Version 0.1.0 reads and plans; it changes nothing.",
+and plan a migration in either direction; the two are treated as peers. This version reads and \
+plans; it changes nothing.",
     long_about = "MacPortsBrew analyses what is installed under Homebrew and MacPorts, maps \
 equivalent packages, explains which provider is the better choice for each package on this \
 machine, and builds reviewable migration plans. `mpb` is the same program under a shorter name.\n\n\
@@ -72,14 +73,14 @@ pub struct Cli {
     pub yes: bool,
     /// Analyse a captured snapshot instead of this machine, as of the date it
     /// was captured.
-    #[arg(long, global = true, value_name = "FILE")]
+    #[arg(long, global = true, value_name = "FILE", conflicts_with = "replay")]
     pub from_snapshot: Option<PathBuf>,
     /// Replay a recorded fixture as if it were this machine (testing).
     #[arg(long, global = true, value_name = "FILE", hide = true)]
     pub replay: Option<PathBuf>,
     /// The date to analyse for, YYYY-MM-DD (testing; defaults to today, or
     /// to the snapshot's capture date with --from-snapshot).
-    #[arg(long, global = true, value_name = "DATE", hide = true)]
+    #[arg(long, global = true, value_name = "DATE", hide = true, value_parser = calendar_date)]
     pub today: Option<String>,
     /// Include dependency-level packages, which are managed automatically by
     /// their provider.
@@ -103,8 +104,8 @@ pub enum Command {
     },
     /// Packages, one unit per package across providers.
     List {
-        /// Only packages held by this provider.
-        #[arg(long)]
+        /// Only packages held by this provider, by the id `status` lists.
+        #[arg(long, value_parser = known_provider)]
         provider: Option<String>,
     },
     /// The full derivation of one recommendation.
@@ -116,8 +117,8 @@ pub enum Command {
     Plan {
         /// Package name.
         package: String,
-        /// Destination provider id.
-        #[arg(long)]
+        /// Destination provider, by the id `status` lists it under.
+        #[arg(long, value_parser = known_provider)]
         to: String,
         /// Keep the source package after migration.
         #[arg(long)]
@@ -128,8 +129,8 @@ pub enum Command {
     Migrate {
         /// Package name.
         package: String,
-        /// Destination provider id.
-        #[arg(long)]
+        /// Destination provider, by the id `status` lists it under.
+        #[arg(long, value_parser = known_provider)]
         to: String,
         /// Keep the source package after migration.
         #[arg(long)]
@@ -187,11 +188,71 @@ pub fn run(cli: &Cli, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     }
 }
 
+/// A provider id this build knows, for `--to` and `--provider`; anything else
+/// is a usage error naming the valid ids, rather than an empty view or a
+/// "not found on this machine" that reads like a fact about the machine.
+/// The ids come from the registry, so this layer names no provider.
+fn known_provider(value: &str) -> Result<String, String> {
+    let known = macportsbrew_adapters::registry::known_provider_ids();
+    if known.iter().any(|id| id.as_str() == value) {
+        return Ok(value.to_string());
+    }
+    let names: Vec<&str> = known
+        .iter()
+        .map(macportsbrew_domain::ProviderId::as_str)
+        .collect();
+    Err(format!(
+        "not a provider this build knows; use one of: {}",
+        names.join(", ")
+    ))
+}
+
+/// `--today`: a calendar date, `YYYY-MM-DD`. A malformed value used to switch
+/// the staleness notice off silently and reach the JSON as it was typed.
+fn calendar_date(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let shape = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit());
+    let field = |range: std::ops::Range<usize>| value[range].parse::<u32>().unwrap_or(0);
+    if shape && (1..=12).contains(&field(5..7)) && (1..=31).contains(&field(8..10)) {
+        Ok(value.to_string())
+    } else {
+        Err("expected a date written YYYY-MM-DD".to_string())
+    }
+}
+
+/// Refuses to run as root: nothing MacPortsBrew does needs it (INV-06).
+/// `Ok(false)` when the user could not be learned: the check did not run, and
+/// the caller says so rather than proceeding as if it had passed.
+pub(crate) fn refuse_if_root(euid: Option<u32>) -> Result<bool, DomainError> {
+    match euid {
+        Some(0) => Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "macportsbrew never runs as root; run it as your own user, without elevation"
+                .to_string(),
+        )),
+        Some(_) => Ok(true),
+        None => Ok(false),
+    }
+}
+
 fn run_inner(
     cli: &Cli,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
+    // Never wholly root (INV-06): run elevated, the process keeps the
+    // invoking user's home, so it would read providers as root and leave
+    // root-owned state under that home which later runs as the user refuse.
+    // An answer of `None` means the probe could not run: that is said on
+    // stderr once the catalogue is loaded, and the state directory's own
+    // owner check still stands behind it (a read-only run writes no state).
+    let root_checked = refuse_if_root(macportsbrew_adapters::system::machine::effective_uid())?;
     // Before anything is built or printed: nothing executes against a
     // snapshot file (`04-migration-and-safety.md`, "Process execution").
     if matches!(cli.command, Some(Command::Migrate { .. }))
@@ -201,6 +262,13 @@ fn run_inner(
         return Err(migrate::refuse_execution_from_a_snapshot_file());
     }
     let ctx = Context::build(cli, stderr)?;
+    if !root_checked {
+        let _ = writeln!(
+            stderr,
+            "{}",
+            ctx.messages.render_id("privilege.user_unknown")
+        );
+    }
     let advanced = cli.advanced;
     if advanced {
         let _ = writeln!(stderr, "{}", ctx.messages.render_id("advanced.warning"));
@@ -250,14 +318,6 @@ fn run_inner(
             let mut analysis = ctx.analyze(&options(BTreeSet::new()));
             if let Some(p) = provider {
                 let id = macportsbrew_domain::ProviderId::new(p);
-                // An unknown id is an error, as it is for `plan --to`, rather
-                // than an empty view that reads as "nothing installed".
-                if !analysis.providers.contains_key(&id) {
-                    return Err(DomainError::new(
-                        ErrorId::ProviderNotFound,
-                        format!("{id} is not a known provider"),
-                    ));
-                }
                 analysis.packages.retain(|u| u.rows.contains_key(&id));
             }
             if cli.json {
@@ -431,4 +491,31 @@ struct Flagged<'a, T: serde::Serialize> {
 fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {
     serde_json::to_string_pretty(value)
         .map_err(|e| DomainError::new(ErrorId::Internal, format!("serialising output: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invariant_06_the_tool_refuses_to_run_wholly_as_root() {
+        let refused = refuse_if_root(Some(0)).unwrap_err();
+        assert_eq!(refused.id, ErrorId::SafetyBlocked);
+        assert!(
+            refused.detail.contains("never runs as root"),
+            "{}",
+            refused.detail
+        );
+        assert!(refuse_if_root(Some(501)).expect("an ordinary user runs"));
+        // A user that could not be learned is "not checked", never "passed".
+        assert!(!refuse_if_root(None).expect("not a refusal"));
+    }
+
+    #[test]
+    fn invariant_06_a_root_check_that_did_not_run_is_said() {
+        // The notice the caller prints when the user could not be learned.
+        let messages = crate::i18n::Messages::for_locale(&crate::i18n::resolve(Some("en"), None));
+        let text = messages.render_id("privilege.user_unknown");
+        assert!(text.contains("could not tell"), "{text}");
+    }
 }

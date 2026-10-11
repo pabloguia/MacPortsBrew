@@ -762,6 +762,14 @@ fn parse_date(raw: &str) -> Option<(i64, i64, i64)> {
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
         return None;
     }
+    // Digits only: `parse` would otherwise accept a sign (`2026-+1-05`).
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
+        return None;
+    }
     let year: i64 = raw[0..4].parse().ok()?;
     let month: i64 = raw[5..7].parse().ok()?;
     let day: i64 = raw[8..10].parse().ok()?;
@@ -981,6 +989,9 @@ mod tests {
         assert_eq!(days_between("2026-02-30", "2026-03-01"), None);
         assert_eq!(days_between("not a date", "2026-03-01"), None);
         assert_eq!(shift_date("nope", 1), None);
+        // A sign is not a digit, though `parse` would take it.
+        assert_eq!(days_between("2026-+1-05", "2026-03-01"), None);
+        assert_eq!(days_between("+026-01-05", "2026-03-01"), None);
         // A leap day: the arithmetic is calendar-correct, not 365-day.
         assert_eq!(days_between("2024-02-28", "2024-03-01"), Some(2));
         assert_eq!(days_between("2026-02-28", "2026-03-01"), Some(1));

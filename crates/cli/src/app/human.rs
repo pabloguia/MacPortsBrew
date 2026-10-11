@@ -214,6 +214,23 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
     out
 }
 
+/// `word` as one word for a POSIX shell: unchanged when it holds only
+/// characters no shell treats specially, otherwise single-quoted with any
+/// single quote inside closed, escaped and reopened. A leading `=` is quoted
+/// too: zsh, the default shell on macOS, expands `=name` to a command's path.
+pub(crate) fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && !word.starts_with('=')
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./@%+=:,-".contains(c));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
 /// `analyze` and `list`: one unit per package across providers.
 pub fn analysis(ctx: &Context, analysis: &Analysis, with_reasons: bool) -> String {
     let mut out = String::new();
@@ -516,12 +533,16 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
                     format!("  [{}]", label(ctx, "plan.success_unknown"))
                 }
             };
-            let _ = writeln!(
-                out,
-                "       $ {} {}{elevation}{success}{illustrative}",
-                shown(&c.program),
-                shown(&c.argv.join(" "))
-            );
+            // Each word is quoted for a POSIX shell, because the plan invites
+            // a person to type these lines: a program or argument taken from a
+            // snapshot file could otherwise carry `$(...)` or `;` into their
+            // shell (security review before 0.1.0, M1).
+            let words = std::iter::once(&c.program)
+                .chain(&c.argv)
+                .map(|w| shell_word(&shown(w)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = writeln!(out, "       $ {words}{elevation}{success}{illustrative}");
         }
         for v in &step.verification {
             let _ = writeln!(out, "       ? {}", verification_line(ctx, v));
@@ -1124,6 +1145,22 @@ fn site_refusal_line(ctx: &Context, refusal: &RenderedRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_plan_word_is_quoted_unless_no_shell_would_read_it_specially() {
+        use super::shell_word;
+        assert_eq!(shell_word("/opt/local/bin/port"), "/opt/local/bin/port");
+        assert_eq!(shell_word("--versions"), "--versions");
+        assert_eq!(shell_word("python@3.12"), "python@3.12");
+        assert_eq!(
+            shell_word("/opt/x $(touch y)/bin/port"),
+            "'/opt/x $(touch y)/bin/port'"
+        );
+        assert_eq!(shell_word("a;b"), "'a;b'");
+        assert_eq!(shell_word("it's"), "'it'\\''s'");
+        assert_eq!(shell_word(""), "''");
+        assert_eq!(shell_word("=ls"), "'=ls'");
+        assert_eq!(shell_word("a=b"), "a=b");
+    }
     use super::*;
     use crate::executor::{RenderedRefusal, RunReport, SiteRefusalKind};
     use clap::Parser;

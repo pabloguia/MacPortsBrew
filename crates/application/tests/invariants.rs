@@ -1672,3 +1672,34 @@ fn invariant_20_detection_relaxes_a_read_and_never_a_mutation() {
         "and must not be the provider the package is being removed from"
     );
 }
+
+#[test]
+fn invariant_04_removal_with_dependents_is_blocked_and_explained() {
+    // Moving `tool` to Homebrew would remove it from MacPorts, where `other`
+    // depends on it. The plan may be built, but the removal is blocked: a
+    // manual-review step stands before any removal, and the reason names the
+    // dependents. The other direction removes from Homebrew, where nothing
+    // depends on `tool`, and is not blocked for that reason.
+    let snap = both_present();
+    let plan = plan_for(&snap, "tool", HB, false);
+    let kinds: Vec<StepKind> = plan.steps.iter().map(|s| s.kind).collect();
+    let review = kinds.iter().position(|k| *k == StepKind::ManualReview);
+    let removal = kinds.iter().position(|k| *k == StepKind::RemoveSource);
+    assert!(review.is_some(), "the removal is blocked: {kinds:?}");
+    if let (Some(r), Some(x)) = (review, removal) {
+        assert!(r < x, "the review stands before the removal: {kinds:?}");
+    }
+    assert!(
+        plan.risks
+            .iter()
+            .any(|r| r.id == "reverse_dependencies" && r.blocking),
+        "and it is explained: {:?}",
+        plan.risks
+    );
+    let mirror = plan_for(&snap, "tool", MP, false);
+    assert!(
+        !mirror.risks.iter().any(|r| r.id == "reverse_dependencies"),
+        "nothing under homebrew depends on `tool`: {:?}",
+        mirror.risks
+    );
+}

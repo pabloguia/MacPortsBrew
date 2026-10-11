@@ -11,7 +11,7 @@ use macportsbrew_adapters::persistence::{
     load_recording, load_snapshot, save_snapshot as persist_snapshot, snapshot_to_json,
     state_dir::StateDir, time, write_atomic,
 };
-use macportsbrew_adapters::process::{is_safe_path, ProcessRunner, ReplayRunner, SystemRunner};
+use macportsbrew_adapters::process::{ProcessRunner, ReplayRunner, SystemRunner};
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_adapters::system::machine::{
     from_process_environment, language_preference, state_dir_override, SystemMachine,
@@ -158,7 +158,7 @@ impl Context {
         let (runner, prefix_override, replay): (Rc<dyn ProcessRunner>, _, bool) =
             if let Some(file) = &cli.replay {
                 let recording = load_recording(file)?;
-                let overrides = prefix_overrides_from(&recording);
+                let overrides = macportsbrew_adapters::registry::prefix_overrides_from(&recording);
                 (Rc::new(ReplayRunner::new(recording)), Some(overrides), true)
             } else {
                 (Rc::new(SystemRunner::new()), None, false)
@@ -260,47 +260,43 @@ impl Context {
     }
 }
 
-/// Under replay, the prefixes come from the recording's own `--prefix` and
-/// `dir` answers rather than from this machine's filesystem.
-///
-/// A recording is a file the user may have been handed, so its contents are
-/// untrusted input in the sense of `04-migration-and-safety.md` ("Malicious or
-/// malformed provider metadata"). A prefix taken from one becomes the
-/// directory an executable path is built from, so every candidate is put
-/// through [`is_safe_path`] — absolute, bounded, no `..`, no control
-/// characters — and one that fails is dropped rather than repaired. Dropping
-/// it means the default candidate is used, which is what a recording without
-/// the answer already does.
-fn prefix_overrides_from(
-    recording: &macportsbrew_adapters::process::Recording,
-) -> Vec<(ProviderId, PathBuf)> {
-    let mut out = Vec::new();
-    let mut accept = |id: &str, path: PathBuf| {
-        if is_safe_path(&path) {
-            out.push((ProviderId::new(id), path));
-        }
-    };
-    for inv in recording.invocations.iter().map(|r| &r.invocation) {
-        if inv.program == "brew" && inv.argv == ["--prefix"] && inv.status.success() {
-            accept("homebrew", PathBuf::from(inv.stdout.trim()));
-        }
-        if inv.program == "port" && inv.argv == ["dir"] && inv.status.success() {
-            // `port dir` prints the port directory, not the prefix; the
-            // prefix is its ancestor above `var/macports/...`. Fall back to
-            // the default when it does not parse.
-            let text = inv.stdout.trim();
-            if let Some(idx) = text.find("/var/macports") {
-                accept("macports", PathBuf::from(&text[..idx]));
-            }
-        }
+/// Writes `bytes` to a file the user named. A path that already exists is
+/// replaced only when it is itself a document this tool writes (a JSON object
+/// carrying `schemaVersion` and `toolVersion`), so re-running a command
+/// refreshes its own output while a mistyped `--out` cannot replace an
+/// unrelated file in the home folder. The check and the write are not one
+/// operation, which leaves a window only another process of the same user
+/// could use; `write_atomic` still refuses a symbolic reference at the target.
+/// A hard-link publish would close the window but cannot write to exFAT or a
+/// network share.
+fn write_user_named(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
+    if std::fs::symlink_metadata(path).is_ok() && !is_own_document(path) {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            format!(
+                "{} already exists and is not a MacPortsBrew document; choose another name or remove it first",
+                path.display()
+            ),
+        ));
     }
-    out
+    write_atomic(path, bytes)
+}
+
+/// Whether `path` is a regular file holding a document this tool writes.
+/// Bounded like every other read of a file the user can point at, and read
+/// from one open handle that refuses a symlink and never blocks, so what is
+/// checked is what is read.
+fn is_own_document(path: &Path) -> bool {
+    const LIMIT: u64 = 64 * 1024 * 1024;
+    macportsbrew_adapters::persistence::read_regular_file_for_replacement(path, LIMIT)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|doc| doc.get("schemaVersion").is_some() && doc.get("toolVersion").is_some())
 }
 
 /// Saves the context's snapshot, to `out` or to the state directory.
 pub fn save_snapshot(ctx: &Context, out: Option<&Path>) -> Result<PathBuf, DomainError> {
     if let Some(path) = out {
-        write_atomic(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
+        write_user_named(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
         return Ok(path.to_path_buf());
     }
     let dir = StateDir::resolve(ctx.home.as_deref(), state_dir_override().as_deref())?;
@@ -352,7 +348,7 @@ pub fn write_diagnostic_report(
     });
     let text = serde_json::to_string_pretty(&report)
         .map_err(|e| DomainError::new(ErrorId::Internal, e.to_string()))?;
-    write_atomic(path, text.as_bytes())?;
+    write_user_named(path, text.as_bytes())?;
     Ok(path.to_path_buf())
 }
 
@@ -362,6 +358,7 @@ mod tests {
     use macportsbrew_adapters::process::{
         ExitStatus, Invocation, RecordedInvocation, Recording, RecordingProvenance,
     };
+    use macportsbrew_adapters::registry::prefix_overrides_from;
 
     fn recording(answers: &[(&str, &[&str], &str)]) -> Recording {
         Recording {
@@ -441,6 +438,8 @@ mod tests {
         assert!(prefix_overrides_from(&recording(&[
             ("brew", &["--cellar"], "/opt/homebrew/Cellar\n"),
             ("port", &["dir"], "/opt/local/share/nothing\n"),
+            // A path component, not a substring: `macportsfoo` is not it.
+            ("port", &["dir"], "/x/var/macportsfoo/y\n"),
         ]))
         .is_empty());
     }

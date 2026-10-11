@@ -34,7 +34,7 @@
 # a doc comment as a render site (F-32) - the only three references were a
 # `///` example and prose naming the key. Wire it or delete it; it is not dead
 # text, it is unrouted.
-cli.about = "See what Homebrew and MacPorts have installed, compare them package by package, and plan a migration in either direction. The two are peers: neither is treated as the better choice. Version 0.1.0 reads and plans; it changes nothing."
+cli.about = "See what Homebrew and MacPorts have installed, compare them package by package, and plan a migration in either direction; the two are treated as peers. This version reads and plans; it changes nothing."
 # unreferenced: written for `--help`, which clap renders from a Rust literal
 # (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
@@ -250,6 +250,7 @@ policy.stale_notice = "Policy data was last verified on {readOn}; provider facts
 # --- Advanced mode ----------------------------------------------------------
 # 06-cli-and-ux.md, "Advanced mode": entering it must say what the risk is.
 
+privilege.user_unknown = "MacPortsBrew could not tell which user it is running as, so it could not check that it is not running as root. It never needs administrator rights; run it as your own user."
 advanced.warning = "Advanced mode shows dependencies. These packages are managed automatically by their provider; removing or migrating one on its own can break the packages that depend on it. Reverse dependencies are still checked and dependencies are never preselected."
 
 # --- status ---------------------------------------------------------------

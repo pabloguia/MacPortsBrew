@@ -19,7 +19,10 @@ edition = "2021"
 rust-version = "1.98"
 license = "Apache-2.0"
 repository = "https://github.com/macportsbrew/macportsbrew"
-description = "Safely migrate and manage packages between Homebrew and MacPorts on macOS."
+description = "See what Homebrew and MacPorts have installed on macOS, compare them package by package, and plan a migration in either direction."
+# Distributed as signed release artifacts, not through crates.io; the internal
+# path dependencies carry no version, so a publish would fail anyway.
+publish = false
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

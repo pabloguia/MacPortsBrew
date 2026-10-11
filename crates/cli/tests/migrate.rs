@@ -1127,18 +1127,22 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
 
 #[test]
 fn command_line_text_quoted_in_an_error_cannot_drive_the_terminal() {
-    // A `--to` value reaches stderr inside the refusal; a control or format
-    // character in it is escaped there as everywhere else plan text is shown.
+    // A `--to` value reaches stderr inside the usage error; a control or format
+    // character in it never reaches the terminal. clap's own rendering drops
+    // an ANSI sequence outright; anything else is escaped as everywhere else
+    // quoted text is shown.
     let scratch = Scratch::new("escaped-error");
-    for to in ["mac\u{1b}[31mports", "mac\u{202e}ports"] {
+    for (to, escaped) in [("mac\u{1b}[31mports", false), ("mac\u{202e}ports", true)] {
         let out = migrate(&scratch, &fixture(BOTH), &["--verbose"], "htop", to);
         let text = stderr(&out);
-        assert_ne!(out.status.code(), Some(0), "{text}");
+        assert_eq!(out.status.code(), Some(2), "{text}");
         assert!(
             !text.contains('\u{1b}') && !text.contains('\u{202e}'),
             "{text:?}"
         );
-        assert!(text.contains("mac\\u{"), "{text:?}");
+        if escaped {
+            assert!(text.contains("mac\\u{202e}ports"), "{text:?}");
+        }
     }
 }
 

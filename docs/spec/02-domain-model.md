@@ -56,7 +56,7 @@ degrades gracefully with a named reason; it never crashes and never guesses.
 
 **MUST.** Classify every installed package as one of:
 
-`TOP_LEVEL` · `DEPENDENCY` · `ORPHAN_DEPENDENCY` · `UNKNOWN`
+`TOP_LEVEL` · `DEPENDENCY` · `ORPHAN` · `UNKNOWN`
 
 **MUST.** Use the provider's own record of user intent where it exists. Do not
 infer top-level status from a dependency graph when the provider can answer the
@@ -85,7 +85,9 @@ question directly. The authoritative mechanism is named per provider, verified
   at install time, not a graph inference, and it is user-mutable, so it records
   intent *as last asserted* (R-3).
 
-**MUST.** `ORPHAN_DEPENDENCY` means **unrequested with no dependents** — the
+**MUST.** `ORPHAN` (written `ORPHAN_DEPENDENCY` before 0.1.0; the code and the
+`--json` schemas have always said `ORPHAN`) means **unrequested with no
+dependents** — the
 `leaves` definition. Homebrew's `brew leaves` is a *different* set and is not a
 substitute for user intent: it is "has no remaining dependents", so it includes
 packages installed as dependencies and hides packages the user did request. On

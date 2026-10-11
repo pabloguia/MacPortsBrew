@@ -49,12 +49,12 @@ impl Ownership {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnershipEvidence {
-    /// The provider record or inference used, as a stable identifier
-    /// (`installed_on_request`, `requested_pseudo_portname`,
-    /// `dependency_graph_inference`).
+    /// The provider record used, as a stable identifier
+    /// (`installed_on_request`, `requested_pseudo_portname`), or
+    /// `no_provider_record` when there was none.
     pub mechanism: String,
     /// `true` when the provider's own intent record answered; `false` when
-    /// the answer was inferred from a dependency graph.
+    /// there was no record and the answer is `Unknown`.
     pub authoritative: bool,
 }
 
@@ -62,8 +62,9 @@ pub struct OwnershipEvidence {
 ///
 /// `requested` is the provider's own record when it has one; `has_dependents`
 /// is whether anything installed in the same provider depends on the
-/// package. When the record is absent the graph decides, and the evidence
-/// says so.
+/// package (the caller answers `true` when it cannot tell, so that nothing is
+/// called an orphan on missing evidence). When the record is absent the
+/// answer is `Unknown`: the graph never decides intent.
 pub fn classify_ownership(
     requested: Option<bool>,
     has_dependents: bool,

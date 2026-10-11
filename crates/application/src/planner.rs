@@ -479,58 +479,7 @@ pub fn plan_outcome(
     // Only `packages` is read; `Snapshot` decides nothing that is shown (the
     // command's own flag comes from its context's source).
     let analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
-    // An exact unit name wins outright; only if nothing matches by name do we
-    // look at what each provider calls its rows.
-    let matches: Vec<&_> = analysis
-        .packages
-        .iter()
-        .filter(|p| p.name == request.package)
-        .collect();
-    let matches = if matches.is_empty() {
-        analysis
-            .packages
-            .iter()
-            .filter(|p| p.rows.values().any(|r| r.name == request.package))
-            .collect()
-    } else {
-        matches
-    };
-    let unit = match matches.as_slice() {
-        [] => {
-            return Err(DomainError::new(
-                ErrorId::PackageNotFound,
-                format!(
-                    "{} is not installed under any detected provider",
-                    request.package
-                ),
-            ))
-        }
-        [only] => *only,
-        // One provider's name can be the counterpart of several of another's:
-        // `python312` is what MacPorts calls the match for `python@3.12`,
-        // `python@3.13` and `python@3.14`. Taking the first was silent and
-        // wrong - asking to plan `python312` produced a plan for `python@3.12`,
-        // a different package. Ambiguity never acts automatically here; it is
-        // reported with the choices, like every other ambiguous match.
-        many => {
-            let mut names: Vec<&str> = many.iter().map(|u| u.name.as_str()).collect();
-            names.sort_unstable();
-            return Err(DomainError::new(
-                ErrorId::Usage,
-                format!(
-                    "{} is how {} names the counterpart of more than one package: {}. \
-                     Name the one you mean.",
-                    request.package,
-                    many[0]
-                        .rows
-                        .iter()
-                        .find(|(_, r)| r.name == request.package)
-                        .map_or("that provider", |(id, _)| id.as_str()),
-                    names.join(", ")
-                ),
-            ));
-        }
-    };
+    let unit = select_unit(&analysis.packages, &request.package)?;
     // `--to X` names the **destination**; the source is the other side that
     // actually holds the package. It used to name neither: the guard compared
     // the destination against the unit's inferred source, so for a package both
@@ -1380,6 +1329,57 @@ fn command(
         elevation,
         success,
     })
+}
+
+/// The unit `name` designates in an analysis: an exact unit name wins
+/// outright; only if nothing matches by name are the names each provider
+/// gives its rows consulted. Shared by `plan`, `migrate` and `explain`, so the
+/// three never disagree about which package a name means.
+///
+/// One provider's name can be the counterpart of several of another's:
+/// `python312` is what MacPorts calls the match for `python@3.12`,
+/// `python@3.13` and `python@3.14`. Taking the first was silent and wrong, so
+/// ambiguity is reported with the choices, like every other ambiguous match.
+pub(crate) fn select_unit<'a>(
+    packages: &'a [crate::report::PackageReport],
+    name: &str,
+) -> Result<&'a crate::report::PackageReport, DomainError> {
+    let exact: Vec<&_> = packages.iter().filter(|p| p.name == name).collect();
+    let matches = if exact.is_empty() {
+        packages
+            .iter()
+            .filter(|p| p.rows.values().any(|r| r.name == name))
+            .collect()
+    } else {
+        exact
+    };
+    match matches.as_slice() {
+        [] => Err(DomainError::new(
+            ErrorId::PackageNotFound,
+            format!("{name} is not installed under any detected provider"),
+        )),
+        [only] => Ok(*only),
+        many => {
+            let mut names: Vec<String> = many
+                .iter()
+                .map(|u| format!("{} (under {})", u.name, u.source))
+                .collect();
+            names.sort_unstable();
+            names.dedup();
+            let holder = many[0]
+                .rows
+                .iter()
+                .find(|(_, r)| r.name == name)
+                .map_or("that provider", |(id, _)| id.as_str());
+            Err(DomainError::new(
+                ErrorId::Usage,
+                format!(
+                    "{name} is how {holder} names more than one package: {}. Name the one you mean.",
+                    names.join(", ")
+                ),
+            ))
+        }
+    }
 }
 
 /// The one property of this module that is not reachable from

@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description.workspace = true
+publish.workspace = true
+readme = "../../README.md"
+keywords = ["homebrew", "macports", "package-manager", "macos", "migration"]
+categories = ["command-line-utilities"]
 default-run = "macportsbrew"
 
 # `mpb` is an equal alias, not a wrapper (06-cli-and-ux.md): both binaries are
