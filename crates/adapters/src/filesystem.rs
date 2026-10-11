@@ -40,11 +40,12 @@
 /// Two answers are shaped by their callers rather than by this rule, and
 /// saying so here is cheaper than the next reader discovering it.
 /// `detect_prefix` returns `None`, which `registry::build` turns into the
-/// first candidate path — a *default*, reported as the prefix, not an unknown.
-/// And `service::scan` returns `Unreadable`, which `defines_service` renders
-/// as `false`; the capability beside it is `Unknown` and nothing reads that
-/// yet, so a replayed analysis classifies fewer packages as services than a
-/// live one. That gap is F-29, and it is not closed here.
+/// provider's named `fallback` prefix from `data/policy/provider-prefixes.toml`
+/// — a *default*, reported as the prefix, not an unknown. And `service::scan`
+/// returns `Unreadable`, which `defines_service` renders as `false`; the
+/// `ServiceMetadata` capability beside it is `Unknown`, and the planner refuses
+/// a plan whose source cannot answer it (DP-016(c)), so the `false` is never
+/// read as "no service".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilesystemScope {
     /// The filesystem is the machine being described. Read it.

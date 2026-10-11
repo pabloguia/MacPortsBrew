@@ -37,6 +37,9 @@ struct Document {
 struct Entry {
     provider: String,
     prefixes: Vec<PathBuf>,
+    /// The prefix an absent provider's adapter is built over; one of
+    /// `prefixes`, named so that their order cannot choose it.
+    fallback: PathBuf,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
     source: String,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
@@ -54,6 +57,17 @@ pub fn candidates(provider: &str) -> Vec<PathBuf> {
         .find(|e| e.provider == provider)
         .map(|e| e.prefixes.clone())
         .unwrap_or_default()
+}
+
+/// The prefix `provider`'s adapter is built over when no candidate holds its
+/// executable, so an absent provider still answers through the read contract.
+/// `None` for a provider the data does not describe.
+pub fn fallback(provider: &str) -> Option<PathBuf> {
+    document()
+        .entry
+        .iter()
+        .find(|e| e.provider == provider)
+        .map(|e| e.fallback.clone())
 }
 
 /// Parses the embedded document.
@@ -93,6 +107,12 @@ mod tests {
                 "{}: a provider with no candidate can never be detected",
                 e.provider
             );
+            assert!(
+                e.prefixes.contains(&e.fallback),
+                "{}: the fallback {} is not one of its candidates",
+                e.provider,
+                e.fallback.display()
+            );
             for p in &e.prefixes {
                 assert!(
                     p.is_absolute(),
@@ -113,5 +133,6 @@ mod tests {
     #[test]
     fn an_unknown_provider_has_no_candidates() {
         assert!(candidates("pkgsrc").is_empty());
+        assert!(fallback("pkgsrc").is_none());
     }
 }

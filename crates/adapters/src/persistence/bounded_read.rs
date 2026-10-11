@@ -205,6 +205,17 @@ pub(crate) fn read_bounded(
     Ok(text)
 }
 
+/// A file the user named for *output*, read to decide whether it may be
+/// replaced: at most `cap` bytes, never through a symlink at its end, never
+/// blocking on a FIFO, every test made against the open handle. `None` for
+/// anything that is not a readable regular file within the cap, so a caller
+/// that only wants a yes or no cannot be stalled or exhausted by what it
+/// finds there.
+#[must_use]
+pub fn read_regular_file_for_replacement(path: &Path, cap: u64) -> Option<String> {
+    read_bounded(path, cap, OpenPolicy::RefuseSymlink, any_regular_file).ok()
+}
+
 /// The predicate for a caller that accepts any regular file.
 ///
 /// The `Result` cannot be dropped, however constant it looks: this exists to

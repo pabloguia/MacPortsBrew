@@ -35,7 +35,7 @@ use crate::filesystem::FilesystemScope;
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
 };
-use json::{parse_installed_json, Cask, Formula, Observed, Parsed};
+use json::{checked_name, parse_installed_json, Cask, Formula, Observed, Parsed};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -341,14 +341,19 @@ impl<'r> HomebrewAdapter<'r> {
     }
 
     /// The names the user holds at their current version.
+    ///
+    /// Each name is validated like every other name this adapter takes from
+    /// the provider: a set member is compared against formula names and could
+    /// otherwise carry anything the provider printed into the analysis.
     fn pinned(&self) -> Result<BTreeSet<String>, DomainError> {
         let invocation = self.run(ARGV_PINNED)?;
         invocation.require_success()?;
-        Ok(invocation
+        invocation
             .stdout
             .split_whitespace()
-            .map(ToString::to_string)
-            .collect())
+            .enumerate()
+            .map(|(index, name)| checked_name(name, &format!("`list --pinned`[{index}]")))
+            .collect()
     }
 
     /// The path whose presence proves the provider can answer metadata
@@ -445,6 +450,9 @@ impl<'r> HomebrewAdapter<'r> {
         );
         // A machine on which no package defines a background service cannot
         // demonstrate that the field exists, so the honest answer is Unknown.
+        // `service` is a required key per formula (`json.rs`), so a document
+        // in which any row lacked it never parsed and never reaches here: a
+        // missing key cannot be read as "this package defines no service".
         capabilities.insert(
             Capability::ServiceMetadata,
             observed(document.saw(Observed::ServiceMetadata)),

@@ -340,6 +340,45 @@ fn positionals_permitted(
 /// `every_permitted_program_is_a_probe_or_has_a_read_list` holds the partition.
 pub(crate) const SYSTEM_PROBES: &[&str] = &["sw_vers", "uname", "sysctl", "xcode-select"];
 
+/// Where each system probe lives and the exact argument vectors this tool
+/// sends it - every one, whole, and nothing else.
+///
+/// A probe has no subcommand dimension, which is what its membership of
+/// [`SYSTEM_PROBES`] used to settle on its own: any argv, from any absolute
+/// directory. `sysctl -w`, `xcode-select --install`, `sw_vers` from `/tmp/x`
+/// all passed. These are pinned instead, as the providers' reads are, to the
+/// vectors `system::machine` builds (checked in both directions by
+/// `every_probe_the_system_reader_sends_is_permitted_and_no_other`) and to the
+/// one directory each tool ships in on macOS (`/usr/bin`, `/usr/sbin` for
+/// `sysctl`; observed read-only with `ls -l`, 2026-10-11). The paths are the
+/// reader's own constants, so the two cannot name different files.
+///
+/// A tool permission list, not a provider fact: no `read_on` (INV-20).
+pub(crate) const SYSTEM_PROBE_INVOCATIONS: &[(&str, &[&[&str]])] = &[
+    (crate::system::machine::SW_VERS, &[&["-productVersion"]]),
+    (crate::system::machine::UNAME, &[&["-m"]]),
+    (
+        crate::system::machine::SYSCTL,
+        &[
+            &["-n", "hw.optional.arm64"],
+            &["-n", "hw.machine"],
+            &["-n", "sysctl.proc_translated"],
+        ],
+    ),
+    (crate::system::machine::XCODE_SELECT, &[&["-p"]]),
+];
+
+/// Whether `program` is a system probe at its pinned location, asked with one
+/// of the argument vectors [`SYSTEM_PROBE_INVOCATIONS`] lists for it.
+fn is_permitted_probe(program: &std::path::Path, argv: &[String]) -> bool {
+    SYSTEM_PROBE_INVOCATIONS.iter().any(|(path, vectors)| {
+        program == std::path::Path::new(path)
+            && vectors
+                .iter()
+                .any(|v| v.len() == argv.len() && v.iter().zip(argv).all(|(a, b)| *a == b))
+    })
+}
+
 /// One provider's permitted reads, keyed by the program's leaf name.
 #[derive(Debug)]
 pub(crate) struct ProviderReads {
@@ -416,14 +455,15 @@ impl ReadSubcommand {
 /// Which package a plan's read names is pinned by the execution gate, not
 /// here. For anything that is not a
 /// provider, membership of [`SYSTEM_PROBES`], the one set of programs with no
-/// subcommand dimension.
+/// subcommand dimension - and then [`is_permitted_probe`]: the probe at its
+/// pinned path, with one of the exact vectors this tool sends it.
 pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]) -> bool {
     if !is_permitted_program(program) {
         return false;
     }
     let name = program.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let Some(reads) = PERMITTED_SUBCOMMANDS.iter().find(|r| r.program == name) else {
-        return SYSTEM_PROBES.contains(&name);
+        return SYSTEM_PROBES.contains(&name) && is_permitted_probe(program, argv);
     };
     let mut rest = argv
         .iter()
@@ -1357,6 +1397,131 @@ mod tests {
             std::path::Path::new("/tmp/brew"),
             &argv(&["list"])
         ));
+    }
+
+    #[test]
+    fn a_system_probe_is_pinned_to_its_directory_and_its_exact_vectors() {
+        // Every listed vector, at its listed path, passes.
+        for (path, vectors) in SYSTEM_PROBE_INVOCATIONS {
+            for held in *vectors {
+                assert!(
+                    is_permitted_invocation(std::path::Path::new(path), &argv(held)),
+                    "{path} {held:?} was refused"
+                );
+            }
+        }
+        // A probe with no subcommand dimension used to accept any argv from
+        // any absolute directory. A write, an installer, a shadowing copy and
+        // a near miss are each refused now.
+        for (program, bad) in [
+            ("/usr/sbin/sysctl", &["-w", "kern.maxfiles=1"][..]),
+            ("/usr/sbin/sysctl", &["kern.maxfiles=1"][..]),
+            ("/usr/sbin/sysctl", &["-n"][..]),
+            ("/usr/sbin/sysctl", &[][..]),
+            ("/usr/sbin/sysctl", &["-n", "hw.machine", "-w"][..]),
+            ("/usr/sbin/sysctl", &["-n", "hw.memsize"][..]),
+            ("/usr/sbin/sysctl", &["hw.machine", "-n"][..]),
+            ("/usr/bin/xcode-select", &["-s", "/tmp/x"][..]),
+            ("/usr/bin/xcode-select", &["--reset"][..]),
+            ("/usr/bin/xcode-select", &["-p", "-p"][..]),
+            ("/usr/bin/sw_vers", &["-buildVersion"][..]),
+            ("/usr/bin/sw_vers", &[][..]),
+            ("/usr/bin/uname", &["-a"][..]),
+            ("/usr/bin/uname", &["-m", "-n"][..]),
+            ("/tmp/x/uname", &["-m"][..]),
+            ("/usr/local/bin/uname", &["-m"][..]),
+            ("/opt/homebrew/bin/sysctl", &["-n", "hw.machine"][..]),
+            ("/usr/bin/sysctl", &["-n", "hw.machine"][..]),
+            ("/usr/sbin/uname", &["-m"][..]),
+            ("/usr/bin/../bin/uname", &["-m"][..]),
+            ("/tmp/x/xcode-select", &["-p"][..]),
+        ] {
+            assert!(
+                !is_permitted_invocation(std::path::Path::new(program), &argv(bad)),
+                "{program} {bad:?} was permitted"
+            );
+        }
+    }
+
+    /// Every (program, argv) a runner was asked to run, in order.
+    type Asked = std::rc::Rc<std::cell::RefCell<Vec<(PathBuf, Vec<String>)>>>;
+
+    /// A runner that records what it was asked and answers from a recording.
+    struct Observing {
+        inner: ReplayRunner,
+        asked: Asked,
+    }
+
+    impl ProcessRunner for Observing {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.asked
+                .borrow_mut()
+                .push((spec.program.clone(), spec.argv.clone()));
+            self.inner.run(spec)
+        }
+        fn is_replay(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn every_probe_the_system_reader_sends_is_permitted_and_no_other() {
+        // Both directions, as for the providers' reads. The captured Intel
+        // machine, then the same machine with probes made to fail, so the
+        // fallback paths (`proc_translated` for the architecture, `uname -m`)
+        // are walked too.
+        use crate::system::machine::SystemMachine;
+        use macportsbrew_domain::{HomeRedaction, MachineRead};
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/recordings/homebrew-only-intel-macos26.json");
+        let captured = Recording::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let not_started = |mut recording: Recording, held: &[&str]| {
+            for record in &mut recording.invocations {
+                if record.invocation.argv == held {
+                    record.invocation.status = ExitStatus::NotStarted {
+                        error: "synthetic: probe made to fail".into(),
+                    };
+                }
+            }
+            recording
+        };
+        let failing_arm64 = not_started(captured.clone(), &["-n", "hw.optional.arm64"]);
+        let failing_machine = not_started(failing_arm64.clone(), &["-n", "hw.machine"]);
+
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        for recording in [captured, failing_arm64, failing_machine] {
+            let reader = SystemMachine::new(
+                Box::new(Observing {
+                    inner: ReplayRunner::new(recording),
+                    asked: asked.clone(),
+                }),
+                None,
+                BTreeMap::new(),
+                HomeRedaction::Recorded,
+            );
+            assert_eq!(
+                reader.machine().unwrap().architecture,
+                macportsbrew_domain::Architecture::X86_64
+            );
+        }
+        let asked = asked.borrow();
+        for (program, held) in asked.iter() {
+            assert!(
+                is_permitted_invocation(program, held),
+                "{} {held:?} is a probe the reader sends and was refused",
+                program.display()
+            );
+        }
+        for (path, vectors) in SYSTEM_PROBE_INVOCATIONS {
+            for held in *vectors {
+                assert!(
+                    asked
+                        .iter()
+                        .any(|(p, a)| p == std::path::Path::new(path) && a == &argv(held)),
+                    "{path} {held:?} is permitted and the reader never sends it"
+                );
+            }
+        }
     }
 
     #[test]

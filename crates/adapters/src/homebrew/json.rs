@@ -63,7 +63,13 @@ const MAX_TEXT_LEN: usize = macportsbrew_domain::MAX_TEXT_LEN;
 /// that should be refused before the analysis walks it.
 const MAX_ROWS: usize = 8192;
 
-/// Trims a free-text field and bounds it, keeping whole characters.
+/// Trims a free-text field and bounds it to [`MAX_TEXT_LEN`] **bytes**, cut at
+/// the last character boundary at or below the bound so no character is split.
+///
+/// Bytes, not characters: the bound exists for `is_safe_provider_text`, which
+/// measures `str::len`. A character count let a description of multibyte text
+/// through at up to four times the bound, and the snapshot boundary then
+/// refused it.
 ///
 /// Truncation rather than refusal, matching `macports::names::bounded_text`:
 /// an over-long description is a nuisance, not evidence the output format
@@ -72,11 +78,7 @@ const MAX_ROWS: usize = 8192;
 fn bounded_text(raw: Option<String>) -> Option<String> {
     raw.map(|text| {
         let trimmed = text.trim();
-        if trimmed.len() <= MAX_TEXT_LEN {
-            trimmed.to_string()
-        } else {
-            trimmed.chars().take(MAX_TEXT_LEN).collect()
-        }
+        trimmed[..trimmed.floor_char_boundary(MAX_TEXT_LEN)].to_string()
     })
 }
 
@@ -119,6 +121,18 @@ fn checked_component(raw: &str, allowed: &[char], field: &str) -> Result<String,
     Ok(raw.to_string())
 }
 
+/// How an identity that has **not yet been validated** appears in an error
+/// detail: quoted with `{:?}`, so a newline or a control character in it cannot
+/// forge a line of output, and cut to [`MAX_COMPONENT_LEN`] bytes, so a hostile
+/// megabyte-long name cannot become a megabyte-long error. An absent identity
+/// is named by its position instead.
+fn unvalidated_label(raw: Option<&str>, index: usize) -> String {
+    match raw {
+        Some(text) => format!("{:?}", &text[..text.floor_char_boundary(MAX_COMPONENT_LEN)]),
+        None => format!("index {index}"),
+    }
+}
+
 /// Validates a package name or a dependency name.
 pub fn checked_name(raw: &str, field: &str) -> Result<String, DomainError> {
     checked_component(raw, NAME_EXTRA, field)
@@ -140,6 +154,15 @@ fn checked_names(raw: &[String], owner: &str, field: &str) -> Result<Vec<String>
 // ---------------------------------------------------------------------------
 // The document as Homebrew emits it.
 // ---------------------------------------------------------------------------
+
+/// Deserialises a key that is present - `null` included - as `Some`, so that
+/// with `#[serde(default)]` only an absent key is `None`.
+fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
 
 #[derive(Debug, Deserialize)]
 struct RawDocument {
@@ -189,7 +212,11 @@ struct RawFormula {
     build_dependencies: Vec<String>,
     #[serde(default)]
     caveats: Option<String>,
-    #[serde(default)]
+    /// `None` only when the key is **absent**; `"service": null` arrives as
+    /// `Some(Value::Null)`. Plain `Option<Value>` folds the two together, and
+    /// that made a row whose key went missing read as "defines no service"
+    /// (R-8 finding 1: v2 emits the key for every formula).
+    #[serde(default, deserialize_with = "present")]
     service: Option<Value>,
     #[serde(default)]
     deprecated: Option<bool>,
@@ -522,7 +549,7 @@ pub fn parse_installed_json(text: &str) -> Result<Parsed, DomainError> {
 
 impl Parsed {
     fn push_formula(&mut self, index: usize, raw: RawFormula) -> Result<(), DomainError> {
-        let label = raw.name.clone().unwrap_or_else(|| format!("index {index}"));
+        let label = unvalidated_label(raw.name.as_deref(), index);
         let name = checked_name(
             raw.name
                 .as_deref()
@@ -543,7 +570,14 @@ impl Parsed {
         if raw.deprecated.is_some() || raw.disabled.is_some() {
             self.observed.insert(Observed::DeprecationState);
         }
-        let has_service = raw.service.as_ref().is_some_and(|v| !v.is_null());
+        // Required: v2 emits `service` for every formula, `null` when there is
+        // none (R-8). An absent key is a document this parser does not know,
+        // and reading it as "no service" would drop the SERVICE class - and
+        // the review it forces - from a package that has one.
+        let has_service = !raw
+            .service
+            .ok_or_else(|| changed(format!("formulae[{name}] has no `service` key")))?
+            .is_null();
         if has_service {
             self.observed.insert(Observed::ServiceMetadata);
         }
@@ -651,10 +685,7 @@ impl Parsed {
     }
 
     fn push_cask(&mut self, index: usize, raw: RawCask) -> Result<(), DomainError> {
-        let label = raw
-            .token
-            .clone()
-            .unwrap_or_else(|| format!("index {index}"));
+        let label = unvalidated_label(raw.token.as_deref(), index);
         let token = checked_name(
             raw.token
                 .as_deref()
@@ -698,6 +729,7 @@ mod tests {
         "versions": {"stable": "1.25.0"},
         "bottle": {"stable": {"files": {"sonoma": {"url": "x"}}}},
         "linked_keg": "1.25.0",
+        "service": null,
         "installed": [{"version": "1.25.0", "poured_from_bottle": true,
                        "installed_on_request": true,
                        "runtime_dependencies": [{"full_name": "libidn2"}]}]
@@ -750,7 +782,7 @@ mod tests {
         // document claiming a hundred thousand formulae is not a machine this
         // tool is being asked about, and quietly analysing the first 8192 of
         // them would answer a question nobody asked.
-        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"installed":[]}"#;
+        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"service":null,"installed":[]}"#;
         let rows: Vec<String> = (0..=MAX_ROWS)
             .map(|i| one.replace("{i}", &i.to_string()))
             .collect();
@@ -766,7 +798,7 @@ mod tests {
         // The boundary in the direction that matters: a cap that refuses the
         // legitimate case is worse than no cap, and this project has spent this
         // pass refusing correct machines.
-        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"installed":[]}"#;
+        let one = r#"{"name":"p{i}","versions":{"stable":"1"},"bottle":{},"service":null,"installed":[]}"#;
         let rows: Vec<String> = (0..MAX_ROWS)
             .map(|i| one.replace("{i}", &i.to_string()))
             .collect();
@@ -855,5 +887,79 @@ mod tests {
         let parsed = parse_installed_json(&text).unwrap();
         assert_eq!(parsed.formulae[0].installed.len(), 2);
         assert_eq!(parsed.formulae[0].active_keg().unwrap().version, "1.25.0");
+    }
+
+    #[test]
+    fn a_formula_row_without_a_service_key_is_a_shape_change_not_no_service() {
+        // Synthetic, labelled: v2 emits `service` for every formula (R-8; all
+        // 733 formula rows in the committed recordings carry it). A row whose
+        // key went missing is a document this parser does not know. Reading
+        // it as "defines no service" would drop the SERVICE class while a
+        // sibling row's non-null block marked the capability Available - the
+        // capability table vouching for an answer nobody gave.
+        let text = MINIMAL.replace(r#""service": null,"#, "");
+        let err = parse_installed_json(&text).unwrap_err();
+        assert_eq!(err.id, ErrorId::ProviderOutputChanged);
+        assert!(err.detail.contains("`service`"), "{}", err.detail);
+        assert!(err.detail.contains("formulae[wget]"), "{}", err.detail);
+    }
+
+    #[test]
+    fn a_null_service_is_no_service_and_a_block_is_one() {
+        let parsed = parse_installed_json(MINIMAL).unwrap();
+        assert!(!parsed.formulae[0].has_service);
+        assert!(!parsed.saw(Observed::ServiceMetadata));
+
+        let text = MINIMAL.replace(
+            r#""service": null,"#,
+            r#""service": {"run": ["x"], "run_type": "immediate"},"#,
+        );
+        let parsed = parse_installed_json(&text).unwrap();
+        assert!(parsed.formulae[0].has_service);
+        assert!(parsed.saw(Observed::ServiceMetadata));
+    }
+
+    #[test]
+    fn a_free_text_field_is_bounded_in_bytes_at_a_character_boundary() {
+        // `is_safe_provider_text` measures bytes. A character bound let four
+        // bytes per character through, and the snapshot boundary then refused
+        // the description this parser had already accepted.
+        for unit in ["é", "€", "𝄞"] {
+            let long = unit.repeat(MAX_TEXT_LEN);
+            let bounded = bounded_text(Some(long)).unwrap();
+            assert!(bounded.len() <= MAX_TEXT_LEN, "{unit}: {}", bounded.len());
+            assert!(bounded.len() > MAX_TEXT_LEN - unit.len(), "{unit}");
+            assert!(bounded.chars().all(|c| c.to_string() == unit), "{unit}");
+            assert!(
+                macportsbrew_domain::is_safe_provider_text(&bounded),
+                "{unit}"
+            );
+        }
+        // Under the bound, text passes through trimmed and whole.
+        assert_eq!(
+            bounded_text(Some("  héllo ".into())).as_deref(),
+            Some("héllo")
+        );
+    }
+
+    #[test]
+    fn an_unvalidated_name_in_an_error_is_quoted_and_bounded() {
+        // The name has not been validated yet when it labels an error, so it
+        // is debug-quoted (a newline cannot forge an output line) and cut.
+        let hostile = format!("evil\nline{}", "x".repeat(10_000));
+        let text = MINIMAL.replace(r#""name": "wget""#, &format!(r#""name": {hostile:?}"#));
+        let err = parse_installed_json(&text).unwrap_err();
+        assert_eq!(err.id, ErrorId::ProviderOutputChanged);
+        assert!(!err.detail.contains('\n'), "{}", err.detail);
+        assert!(err.detail.contains(r"evil\nline"), "{}", err.detail);
+        assert!(err.detail.len() < 2 * 1024, "{} bytes", err.detail.len());
+
+        let text = MINIMAL.replace(
+            r#""casks": [{"token": "gimp""#,
+            &format!(r#""casks": [{{"token": {hostile:?}"#),
+        );
+        let err = parse_installed_json(&text).unwrap_err();
+        assert!(!err.detail.contains('\n'), "{}", err.detail);
+        assert!(err.detail.len() < 2 * 1024, "{} bytes", err.detail.len());
     }
 }

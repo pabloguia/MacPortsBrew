@@ -154,19 +154,35 @@ pub fn usable_home(value: &str) -> Option<PathBuf> {
 /// file. The technique is the one `persistence::state_dir` already uses. A
 /// directory that will not take the probe yields `None`, and the caller reports
 /// that the check did not run rather than reporting nothing.
+///
+/// The name is never removed before use: a file already there, whoever made
+/// it, is someone else's, and the probe moves to the next name instead.
+/// Another user pre-creating every name to blind the check would have to
+/// guess sixteen of them per process.
 pub fn effective_uid() -> Option<u32> {
-    let probe = std::env::temp_dir().join(format!(".macportsbrew-uid.{}", std::process::id()));
-    std::fs::remove_file(&probe).ok();
-    let uid = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&probe)
-        .and_then(|f| f.metadata())
-        .map(|m| m.uid())
-        .ok();
-    std::fs::remove_file(&probe).ok();
-    uid
+    let dir = std::env::temp_dir();
+    for attempt in 0..16u32 {
+        let probe = dir.join(format!(
+            ".macportsbrew-uid.{}.{attempt}",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&probe)
+        {
+            Ok(file) => {
+                let uid = file.metadata().map(|m| m.uid()).ok();
+                drop(file);
+                std::fs::remove_file(&probe).ok();
+                return uid;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 /// Reads the locale preference variables in the order `06-cli-and-ux.md`
@@ -304,13 +320,61 @@ impl SystemMachine {
         })
     }
 
+    /// What one `sysctl -n` probe established, and nothing more.
+    fn sysctl_answer(&self, name: &str) -> SysctlAnswer {
+        let Ok(inv) = self.sysctl(name) else {
+            return SysctlAnswer::NoAnswer;
+        };
+        if inv.status.success() {
+            return SysctlAnswer::Value(inv.stdout.trim().to_string());
+        }
+        // `sysctl(8)` surfaces `ENOENT` as an exit with `unknown oid` on
+        // stderr (module documentation). Anything else that did not exit 0 -
+        // not started, timed out, signalled, another error - answered nothing.
+        let unknown_oid = matches!(inv.status, ExitStatus::Exited { .. })
+            && inv.stderr.to_ascii_lowercase().contains("unknown oid");
+        if unknown_oid {
+            SysctlAnswer::UnknownOid
+        } else {
+            SysctlAnswer::NoAnswer
+        }
+    }
+
     /// The hardware architecture. `hw.optional.arm64` is asked first because
     /// it is the only one of the three that is true of the machine rather than
     /// of the process.
+    ///
+    /// `hw.machine` and `uname -m` describe the **process**: a translated
+    /// process on Apple Silicon sees `x86_64` from both. So they are consulted
+    /// only once the hardware question has a clean answer that is not "arm64"
+    /// (`hw.optional.arm64` reported `0` or does not exist) or, when that
+    /// probe failed, once `sysctl.proc_translated` has ruled translation out.
+    /// A probe that failed is never read as "not Apple Silicon".
     fn detect_architecture(&self) -> Result<Architecture, DomainError> {
-        if let Ok(inv) = self.sysctl("hw.optional.arm64") {
-            if inv.status.success() && inv.stdout.trim() == "1" {
-                return Ok(Architecture::Arm64);
+        match self.sysctl_answer("hw.optional.arm64") {
+            SysctlAnswer::Value(value) if value == "1" => return Ok(Architecture::Arm64),
+            SysctlAnswer::Value(value) if value == "0" => {}
+            SysctlAnswer::UnknownOid => {}
+            SysctlAnswer::Value(_) | SysctlAnswer::NoAnswer => {
+                match self.sysctl_answer("sysctl.proc_translated") {
+                    // Only Apple Silicon translates.
+                    SysctlAnswer::Value(value) if value == "1" => {
+                        return Ok(Architecture::Arm64);
+                    }
+                    // A native process: what it sees is the hardware. An
+                    // absent OID is an Intel Mac - it always exists on Apple
+                    // Silicon (see `detect_translation`).
+                    SysctlAnswer::Value(value) if value == "0" => {}
+                    SysctlAnswer::UnknownOid => {}
+                    SysctlAnswer::Value(_) | SysctlAnswer::NoAnswer => {
+                        return Err(DomainError::new(
+                            ErrorId::Io,
+                            "hw.optional.arm64 did not answer and sysctl.proc_translated could \
+                             not rule out a translated process, so hw.machine and uname -m \
+                             cannot be trusted to name the hardware",
+                        ));
+                    }
+                }
             }
         }
         for (program, argv) in [(SYSCTL, &["-n", "hw.machine"][..]), (UNAME, &["-m"][..])] {
@@ -384,6 +448,17 @@ impl SystemMachine {
             }
         }
     }
+}
+
+/// The three things a `sysctl -n <name>` probe can establish. A failure to
+/// answer is its own case, never folded into "the OID does not exist".
+enum SysctlAnswer {
+    /// Exited 0; the value, trimmed.
+    Value(String),
+    /// Exited reporting `unknown oid`: the documented `ENOENT`.
+    UnknownOid,
+    /// Not started, timed out, signalled, or failed some other way.
+    NoAnswer,
 }
 
 impl MachineRead for SystemMachine {
@@ -776,7 +851,81 @@ mod tests {
     }
 
     #[test]
-    fn architecture_falls_back_to_uname_when_no_sysctl_answers() {
+    fn architecture_falls_back_to_uname_once_the_hardware_question_is_answered() {
+        // `hw.optional.arm64` absent (an Intel Mac) and `hw.machine` gone:
+        // `uname -m` is a native process's answer, so it names the hardware.
+        let mut invocations = without(intel_native(), &["-n", "hw.machine"]);
+        invocations.push(absent("sysctl", &["-n", "hw.machine"]));
+        let m = reader(invocations).machine().unwrap();
+        assert_eq!(m.architecture, Architecture::X86_64);
+        assert_eq!(m.translation, Translation::Native);
+    }
+
+    #[test]
+    fn a_failed_arm64_probe_on_a_translated_process_never_reads_x86_64() {
+        // Synthetic, labelled: Apple Silicon seen from a Rosetta process, the
+        // `hw.optional.arm64` probe failing in every way it can fail. `uname -m`
+        // and `hw.machine` say `x86_64` there; before the fix any of these
+        // failures fell straight through to them.
+        let failures = [
+            absent("sysctl", &["-n", "hw.optional.arm64"]),
+            record(
+                "sysctl",
+                &["-n", "hw.optional.arm64"],
+                ExitStatus::TimedOut,
+                "",
+                "",
+            ),
+            failed(
+                "sysctl",
+                &["-n", "hw.optional.arm64"],
+                1,
+                "sysctl: some error",
+            ),
+            ok("sysctl", &["-n", "hw.optional.arm64"], "garbled"),
+        ];
+        for failure in failures {
+            let mut translated = without(apple_silicon_translated(), &["-n", "hw.optional.arm64"]);
+            translated.push(failure.clone());
+            let m = reader(translated).machine().unwrap();
+            assert_eq!(m.architecture, Architecture::Arm64, "{failure:?}");
+            assert_eq!(m.translation, Translation::Translated, "{failure:?}");
+
+            // And when translation cannot be ruled out either, the answer is
+            // an error, not the process's x86_64.
+            let mut blind = without(apple_silicon_translated(), &["-n", "hw.optional.arm64"]);
+            blind = without(blind, &["-n", "sysctl.proc_translated"]);
+            blind.push(failure.clone());
+            blind.push(absent("sysctl", &["-n", "sysctl.proc_translated"]));
+            assert_eq!(
+                reader(blind).machine().unwrap_err().id,
+                ErrorId::Io,
+                "{failure:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_arm64_probe_falls_back_once_translation_is_ruled_out() {
+        // A native process (`proc_translated` 0) sees the hardware itself.
+        let mut native = without(apple_silicon_native(), &["-n", "hw.optional.arm64"]);
+        native.push(absent("sysctl", &["-n", "hw.optional.arm64"]));
+        assert_eq!(
+            reader(native).machine().unwrap().architecture,
+            Architecture::Arm64
+        );
+        // An absent `proc_translated` is an Intel Mac.
+        let mut intel = without(intel_native(), &["-n", "hw.optional.arm64"]);
+        intel.push(absent("sysctl", &["-n", "hw.optional.arm64"]));
+        assert_eq!(
+            reader(intel).machine().unwrap().architecture,
+            Architecture::X86_64
+        );
+    }
+
+    #[test]
+    fn a_machine_whose_sysctl_will_not_start_names_no_architecture() {
+        // `uname -m` alone cannot tell Intel from a translated process.
         let invocations = vec![
             ok("sw_vers", &["-productVersion"], "10.12.6"),
             ok("uname", &["-m"], "x86_64"),
@@ -789,10 +938,7 @@ mod tests {
                 "/Library/Developer/CommandLineTools",
             ),
         ];
-        let m = reader(invocations).machine().unwrap();
-        assert_eq!(m.architecture, Architecture::X86_64);
-        assert_eq!(m.macos, MacosVersion::new(10, 12, 6));
-        assert_eq!(m.translation, Translation::Unknown);
+        assert_eq!(reader(invocations).machine().unwrap_err().id, ErrorId::Io);
     }
 
     #[test]

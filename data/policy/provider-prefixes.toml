@@ -25,6 +25,10 @@
 [[entry]]
 provider = "homebrew"
 prefixes = ["/opt/homebrew", "/usr/local"]
+# The prefix the adapter is built over when neither candidate holds the
+# executable, so an absent Homebrew is reported through the same contract.
+# Named rather than chosen by position, so reordering `prefixes` cannot move it.
+fallback = "/usr/local"
 source = "https://docs.brew.sh/Installation"
 read_on = "2026-09-02"
 note = """
@@ -39,6 +43,7 @@ from an Intel one can carry a working /usr/local installation under Rosetta.\
 [[entry]]
 provider = "macports"
 prefixes = ["/opt/local"]
+fallback = "/opt/local"
 source = "https://guide.macports.org/chunked/installing.macports.html"
 read_on = "2026-09-02"
 note = """

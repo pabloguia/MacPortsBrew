@@ -538,6 +538,63 @@ fn a_document_missing_a_required_key_fails_loudly() {
     );
 }
 
+/// The captured recording with one invocation's stdout rewritten in memory -
+/// a labelled mutation of a captured document, not an invented fixture.
+fn with_stdout(argv: &[&str], rewrite: impl FnOnce(&str) -> String) -> Recording {
+    let mut mutated = recording();
+    let record = mutated
+        .invocations
+        .iter_mut()
+        .find(|r| r.invocation.argv == argv)
+        .expect("the fixture records the command");
+    let before = record.invocation.stdout.clone();
+    record.invocation.stdout = rewrite(&before);
+    assert_ne!(
+        record.invocation.stdout, before,
+        "the fixture shape changed"
+    );
+    mutated
+}
+
+#[test]
+fn a_formula_row_missing_its_service_key_fails_rather_than_reading_as_no_service() {
+    // Every formula row in the capture carries `service` (R-8). Drop the key
+    // from one row while the five non-null blocks elsewhere still mark
+    // ServiceMetadata Available: before this, that row read as "defines no
+    // service" under a capability that vouched for the answer.
+    let mutated = with_stdout(&["info", "--json=v2", "--installed"], |s| {
+        s.replacen("\"service\": null", "\"renamed_service\": null", 1)
+    });
+    let runner = ReplayRunner::new(mutated);
+    let adapter = adapter(&runner);
+    let error = adapter.inventory().unwrap_err();
+    assert_eq!(error.id, ErrorId::ProviderOutputChanged);
+    assert!(error.detail.contains("`service`"), "{}", error.detail);
+    assert_eq!(
+        adapter.capabilities().unwrap().capabilities[&Capability::ServiceMetadata],
+        CapabilityState::Unavailable {
+            reason: "error.provider_output_changed".to_string()
+        }
+    );
+}
+
+#[test]
+fn a_pinned_name_is_validated_like_every_other_provider_name() {
+    // A valid pinned name reaches the metadata.
+    let pinned = with_stdout(&["list", "--pinned"], |_| "wget\n".to_string());
+    let runner = ReplayRunner::new(pinned);
+    assert!(adapter(&runner).inventory().unwrap().metadata["wget"].pinned);
+
+    // One that could not be a package name is a shape change, not a set member.
+    for hostile in ["../../etc/passwd", "-rf", "wgét"] {
+        let mutated = with_stdout(&["list", "--pinned"], |_| format!("wget\n{hostile}\n"));
+        let runner = ReplayRunner::new(mutated);
+        let error = adapter(&runner).inventory().unwrap_err();
+        assert_eq!(error.id, ErrorId::ProviderOutputChanged, "{hostile}");
+        assert!(error.detail.contains("list --pinned"), "{}", error.detail);
+    }
+}
+
 #[test]
 fn only_the_documented_read_commands_are_consulted() {
     let runner = ReplayRunner::new(recording());

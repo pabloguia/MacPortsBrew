@@ -119,12 +119,22 @@ pub fn parse_version(stdout: &str) -> Result<String, DomainError> {
 
 /// Splits `@version_revision+variants` into its parts.
 ///
-/// UNVERIFIED (R-3, "exact bytes of `port -q installed`"): the revision is
-/// located as the *last* `_<digits>` run that ends at the string's end or at
-/// a variant sign, so a version that itself contains `-` or `_` does not
-/// swallow the variants. A tuple with no revision is split at the first `+`
-/// only, because a leading `-` cannot be told from a hyphenated version
-/// without one.
+/// The variant tail is a run of `+name` or `-name` items whose names cannot
+/// contain `+` or `-`: `port lint` refuses any variant name outside
+/// `[A-Za-z0-9_.]+` (`macports-base`, `src/port1.0/portlint_run.tcl`, read
+/// 2026-10-11). A name can still end in `_<digits>` (`+perl5_34`), so the
+/// revision is the *first* `_<digits>` run that ends at the end of the token
+/// or at a `+`/`-` sign and leaves a well-formed variant tail behind it. A
+/// later run of the same shape lies inside a variant name, never in front of
+/// the tail.
+///
+/// UNVERIFIED (R-3, "exact bytes of `port -q installed`"): the same lint file
+/// does not restrict the characters of a version, so a version containing
+/// `_<digits>-` (say `1_2-rc` at revision 0, printed `@1_2-rc_0`) reads as
+/// version `1`, revision `2` and a negated variant `-rc_0`. No port in the
+/// captured recordings has such a version. A tuple with no revision is split
+/// at the first `+` only, because a leading `-` cannot be told from a
+/// hyphenated version without one.
 fn split_tuple(
     tuple: &str,
     line: &str,
@@ -145,8 +155,10 @@ fn split_tuple(
         while j < bytes.len() && bytes[j].is_ascii_digit() {
             j += 1;
         }
-        if j > i + 1 && (j == bytes.len() || bytes[j] == b'+' || bytes[j] == b'-') {
+        let ends_at_sign = j == bytes.len() || bytes[j] == b'+' || bytes[j] == b'-';
+        if j > i + 1 && ends_at_sign && parse_variants(&body[j..], line).is_ok() {
             cut = Some((i, j));
+            break;
         }
     }
     let (version, revision, rest) = if let Some((i, j)) = cut {
@@ -438,6 +450,65 @@ mod tests {
         assert_eq!(out[0].revision.as_deref(), Some("0"));
         assert!(out[0].variants.contains("+universal"));
         assert!(!out[0].active);
+    }
+
+    // Synthetic rows below: shaped after the documented `name @version_revision
+    // +variants` line (R-3 E-1) with variant names taken from real ports, but
+    // not captured from a machine.
+
+    #[test]
+    fn a_variant_name_ending_in_underscore_digits_is_not_the_revision() {
+        let out =
+            parse_installed("  git @2.42.0_0+credential_osxkeychain+doc+pcre+perl5_34 (active)\n")
+                .unwrap();
+        assert_eq!(out[0].version, "2.42.0");
+        assert_eq!(out[0].revision.as_deref(), Some("0"));
+        let expected: BTreeSet<String> = ["+credential_osxkeychain", "+doc", "+pcre", "+perl5_34"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(out[0].variants, expected);
+    }
+
+    #[test]
+    fn a_lone_variant_ending_in_underscore_digits_is_not_the_revision() {
+        let out = parse_installed("  p5-x @1.0_2+perl5_34 (active)\n").unwrap();
+        assert_eq!(out[0].version, "1.0");
+        assert_eq!(out[0].revision.as_deref(), Some("2"));
+        assert!(out[0].variants.contains("+perl5_34"));
+        assert_eq!(out[0].variants.len(), 1);
+    }
+
+    #[test]
+    fn a_negated_variant_ending_in_underscore_digits_is_not_the_revision() {
+        let out = parse_installed("  x @1.2.15_3-perl5_34+doc (active)\n").unwrap();
+        assert_eq!(out[0].version, "1.2.15");
+        assert_eq!(out[0].revision.as_deref(), Some("3"));
+        assert!(out[0].variants.contains("-perl5_34"));
+        assert!(out[0].variants.contains("+doc"));
+    }
+
+    #[test]
+    fn a_variant_name_ending_in_digits_without_underscore_parses() {
+        let out = parse_installed("  vim @9.1.0_0+python312-x11 (active)\n").unwrap();
+        assert_eq!(out[0].version, "9.1.0");
+        assert_eq!(out[0].revision.as_deref(), Some("0"));
+        assert!(out[0].variants.contains("+python312"));
+        assert!(out[0].variants.contains("-x11"));
+    }
+
+    #[test]
+    fn a_version_containing_underscores_keeps_them() {
+        // `port lint` does not restrict a version's characters, so `1_2_3`
+        // is a possible version; the revision is the run before the tail.
+        let out = parse_installed("  x @1_2_3_0+doc (active)\n").unwrap();
+        assert_eq!(out[0].version, "1_2_3");
+        assert_eq!(out[0].revision.as_deref(), Some("0"));
+        assert!(out[0].variants.contains("+doc"));
+        let out = parse_installed("  x @1_2_3_0 (active)\n").unwrap();
+        assert_eq!(out[0].version, "1_2_3");
+        assert_eq!(out[0].revision.as_deref(), Some("0"));
+        assert!(out[0].variants.is_empty());
     }
 
     #[test]

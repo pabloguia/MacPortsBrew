@@ -24,7 +24,9 @@
 //! never trusted on its own (security review, pass 08 slice 3, M1).
 //!
 //! **Fail-closed.** This answers "these ports define a service" only when the
-//! whole answer can be attributed. A stray entry, a directory without its
+//! whole answer can be attributed. A dot-named regular file such as Finder's
+//! `.DS_Store` is passed over, because an item is always a directory; any
+//! other stray entry, a directory without its
 //! plist, a plist the registry does not own or attributes to a port that is not
 //! installed, an entry that cannot be read or named, or more entries than are
 //! ever expected makes the answer **unknown** — never "not a service" —
@@ -148,7 +150,17 @@ fn scan_location(
         let entry = entry.ok()?;
         let dir_name = entry.file_name().into_string().ok()?;
         let item = entry.path();
-        let real_dir = std::fs::symlink_metadata(&item).is_ok_and(|m| m.file_type().is_dir());
+        let kind = std::fs::symlink_metadata(&item).map(|m| m.file_type());
+        let real_dir = kind.as_ref().is_ok_and(std::fs::FileType::is_dir);
+        // Finder writes `.DS_Store` (and AppleDouble `._*` files) into any
+        // directory it shows. A StartupItem is always a directory, so a
+        // dot-named regular file cannot be one and is passed over. Only a
+        // regular file: the item's name is overridable per port, so a
+        // dot-named directory or link is still held to the item shape below
+        // and still makes the answer unknown when it does not fit.
+        if dir_name.starts_with('.') && kind.as_ref().is_ok_and(std::fs::FileType::is_file) {
+            continue;
+        }
         let plist = item.join(format!("{dir_name}.plist"));
         let real_plist = std::fs::symlink_metadata(&plist).is_ok_and(|m| m.file_type().is_file());
         if !real_dir || !real_plist {
@@ -239,6 +251,33 @@ mod tests {
             std::fs::write(dir.join(format!("{SERVICE_PREFIX}{name}.plist")), "").unwrap();
             installed.insert(name, true);
         }
+        assert_eq!(scan_location(&location, &installed, &by_name), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_dot_named_file_is_not_an_item_and_does_not_spoil_the_scan() {
+        let root = scratch("dot-entries");
+        let location = root.join("LaunchDaemons");
+        let dir = location.join(format!("{SERVICE_PREFIX}nginx"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{SERVICE_PREFIX}nginx.plist")), "").unwrap();
+        std::fs::write(location.join(".DS_Store"), "").unwrap();
+        std::fs::write(location.join("._org.macports.nginx"), "").unwrap();
+        let installed: BTreeMap<String, bool> = [("nginx".to_string(), true)].into();
+        assert_eq!(
+            scan_location(&location, &installed, &by_name),
+            Some(["nginx".to_string()].into_iter().collect())
+        );
+
+        // A dot-named directory is held to the item shape like any other
+        // entry: it is not a plist-bearing item here, so the answer is unknown.
+        std::fs::create_dir_all(location.join(".hidden")).unwrap();
+        assert_eq!(scan_location(&location, &installed, &by_name), None);
+        std::fs::remove_dir_all(location.join(".hidden")).unwrap();
+
+        // An ordinary stray file is still fail-closed.
+        std::fs::write(location.join("stray"), "").unwrap();
         assert_eq!(scan_location(&location, &installed, &by_name), None);
         std::fs::remove_dir_all(&root).ok();
     }

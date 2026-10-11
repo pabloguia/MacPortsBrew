@@ -326,14 +326,19 @@ impl ProcessRunner for SystemRunner {
             match child.try_wait() {
                 Ok(Some(s)) => break s,
                 Ok(None) => {}
-                Err(e) => {
+                Err(_) => {
+                    // The child *was* started, so this is not `NotStarted`,
+                    // which every adapter reads as "the program is not there"
+                    // and turns into an absent provider. The executor killed
+                    // it, and why it ended can no longer be learned: that is
+                    // a signal of unknown number. The OS error text has no
+                    // field to go in on this status, and stderr is the
+                    // child's, not ours to append to.
                     let _ = child.kill();
                     let (o, ot) = collect(&out_rx);
                     let (r, rt) = collect(&err_rx);
                     return Ok(record(
-                        ExitStatus::NotStarted {
-                            error: e.to_string(),
-                        },
+                        ExitStatus::Signalled { signal: None },
                         o,
                         r,
                         ot || rt,

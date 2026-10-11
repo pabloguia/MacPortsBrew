@@ -427,8 +427,13 @@ fn capabilities_are_detected_not_assumed() {
     assert!(capabilities.has(Capability::ReverseDependencies));
     assert!(capabilities.has(Capability::OfflineMetadata));
     assert!(capabilities.has(Capability::FileOwnership));
-    assert!(capabilities.has(Capability::DeprecationState));
     assert!(capabilities.has(Capability::MachineReadableInventory));
+    // Only `replaced_by` is read; `obsolete` never is, so the deprecation
+    // state is unprobed and is reported as unknown, never as available.
+    assert_eq!(
+        capabilities.capabilities[&Capability::DeprecationState],
+        CapabilityState::Unknown
+    );
     // R-4 Finding 9 again, as a capability rather than as a state.
     assert_eq!(
         capabilities.capabilities[&Capability::ArtifactAvailability],
@@ -542,6 +547,41 @@ fn paths_outside_the_prefix_are_system_or_unknown_never_another_provider() {
             .owner,
         macportsbrew_domain::ExecutableOwner::Unknown
     );
+}
+
+#[test]
+fn a_link_that_cannot_be_followed_on_this_machine_is_unknown_not_macports() {
+    // A scratch prefix on this host's disk. `<prefix>/bin/broken` is a
+    // dangling symlink: it may point anywhere, so the path as written is no
+    // evidence that MacPorts owns what runs.
+    let root = std::fs::canonicalize(macports_prefix("dangling-bin")).unwrap();
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::os::unix::fs::symlink(root.join("nowhere"), root.join("bin/broken")).unwrap();
+    std::fs::write(root.join("bin/present"), "#!/bin/sh\n").unwrap();
+    let adapter = adapter_on_disk(&root, &[]);
+
+    let broken = adapter.resolution(&root.join("bin/broken")).unwrap();
+    assert_eq!(broken.owner, macportsbrew_domain::ExecutableOwner::Unknown);
+    assert!(!broken.authoritative);
+    assert_eq!(broken.canonical_path, None);
+    assert_eq!(broken.path, Some(root.join("bin/broken")));
+    assert!(
+        adapter
+            .runner()
+            .consulted()
+            .iter()
+            .all(|c| !c.contains("provides")),
+        "a path that was not resolved is never asked about"
+    );
+
+    // The control: a file that does resolve under the prefix is still the
+    // provider's, so the refusal above is about the broken link alone.
+    let present = adapter.resolution(&root.join("bin/present")).unwrap();
+    assert!(matches!(
+        present.owner,
+        macportsbrew_domain::ExecutableOwner::Provider { .. }
+    ));
+    std::fs::remove_dir_all(&root).ok();
 }
 
 // -- the command set -------------------------------------------------------

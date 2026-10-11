@@ -10,6 +10,7 @@
 use crate::filesystem::FilesystemScope;
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
+use crate::prefixes;
 use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{DomainError, PlanCommand, ProviderId, ProviderRead};
@@ -289,6 +290,54 @@ pub struct RegistryContext<'r> {
     pub prefix_override: Option<Vec<(ProviderId, PathBuf)>>,
 }
 
+/// Under replay, each provider's prefix as the recording's own answer states
+/// it (`brew --prefix`; the prefix above `var/macports` in `port dir`), rather
+/// than this machine's filesystem. Here, beside the adapters, because it is
+/// knowledge of what each provider's commands print.
+///
+/// A recording is a file the user may have been handed, so its contents are
+/// untrusted input (`04-migration-and-safety.md`, "Malicious or malformed
+/// provider metadata"). A prefix taken from one becomes the directory an
+/// executable path is built from, so every candidate must pass
+/// [`crate::process::is_safe_path`] - absolute, bounded, no `..`, no control
+/// characters - and one that fails is dropped rather than repaired; the
+/// default candidate is then used, as for a recording without the answer.
+pub fn prefix_overrides_from(recording: &crate::process::Recording) -> Vec<(ProviderId, PathBuf)> {
+    let mut out = Vec::new();
+    let mut accept = |id: &str, path: PathBuf| {
+        if crate::process::is_safe_path(&path) {
+            out.push((ProviderId::new(id), path));
+        }
+    };
+    for inv in recording.invocations.iter().map(|r| &r.invocation) {
+        if !inv.status.success() {
+            continue;
+        }
+        if inv.program == "brew" && inv.argv == ["--prefix"] {
+            accept(
+                crate::homebrew::PROVIDER_ID,
+                PathBuf::from(inv.stdout.trim()),
+            );
+        }
+        if inv.program == "port" && inv.argv == ["dir"] {
+            // `port dir` prints a directory under the prefix's
+            // `var/macports`; the prefix is what precedes that component.
+            let text = inv.stdout.trim();
+            let at = text
+                .match_indices("/var/macports")
+                .map(|(i, _)| i)
+                .find(|i| {
+                    let rest = &text[i + "/var/macports".len()..];
+                    rest.is_empty() || rest.starts_with('/')
+                });
+            if let Some(i) = at {
+                accept(crate::macports::PROVIDER_ID, PathBuf::from(&text[..i]));
+            }
+        }
+    }
+    out
+}
+
 /// Builds one adapter per known provider. A provider whose prefix is not
 /// found is still constructed (over its first candidate prefix) so that it
 /// reports `Absent` through the same contract.
@@ -305,11 +354,16 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
     let filesystem = effective_scope(replay, ctx.filesystem);
     let mut out: Vec<Box<dyn ProviderRead + 'r>> = Vec::new();
     for id in known_provider_ids() {
-        let candidates = candidate_prefixes(&id);
+        // Every known provider has data (`known_provider_ids` reads the same
+        // file), and its fallback is required there, so this skips nothing;
+        // `every_known_provider_gets_an_adapter` holds both.
+        let Some(prefix) = resolve_prefix(ctx, &id, filesystem, replay)
+            .or_else(|| prefixes::fallback(id.as_str()))
+        else {
+            continue;
+        };
         match id.as_str() {
             "homebrew" => {
-                let prefix = resolve_prefix(ctx, &id, filesystem, replay)
-                    .unwrap_or_else(|| candidates[1].clone());
                 let tags = (ctx.platform_tags)(id.as_str());
                 out.push(Box::new(HomebrewAdapter::new(
                     ctx.runner,
@@ -320,8 +374,6 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
                 )));
             }
             "macports" => {
-                let prefix = resolve_prefix(ctx, &id, filesystem, replay)
-                    .unwrap_or_else(|| candidates[0].clone());
                 out.push(Box::new(MacPortsAdapter::new(
                     ctx.runner,
                     prefix,
@@ -482,6 +534,20 @@ mod tests {
                 ProviderId::new("homebrew"),
                 PathBuf::from("/tmp/anything"),
             )]),
+        }
+    }
+
+    #[test]
+    fn every_known_provider_gets_an_adapter() {
+        // A provider the data names but no arm builds, or one with no
+        // fallback, would be dropped silently from every analysis.
+        let runner = replay();
+        assert_eq!(build(&context(&runner)).len(), known_provider_ids().len());
+        for id in known_provider_ids() {
+            assert!(
+                prefixes::fallback(id.as_str()).is_some(),
+                "{id} has no fallback prefix"
+            );
         }
     }
 

@@ -730,9 +730,17 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
                 reason: "network_required_ports_macports_builds_api".to_string(),
             },
         );
+        // The inventory is answered from the local ports index, and
+        // `port provides` answers from the registry's file map (R-3): both are
+        // read by this adapter, so both are reported as what they are.
         capabilities.insert(Capability::OfflineMetadata, CapabilityState::Available);
         capabilities.insert(Capability::FileOwnership, CapabilityState::Available);
-        capabilities.insert(Capability::DeprecationState, CapabilityState::Available);
+        // Only `replaced_by` is read. `obsolete` is a separate state (R-3
+        // Finding 8) that this adapter never asks for, and `deprecated` stays
+        // unset in `metadata()`, so the deprecation state is not exposed by
+        // what this adapter reads. An unprobed capability is `Unknown`, never
+        // `Available`.
+        capabilities.insert(Capability::DeprecationState, CapabilityState::Unknown);
         capabilities.insert(
             Capability::ServiceMetadata,
             if self.inventory().is_ok()
@@ -825,20 +833,33 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        // Resolving a symlink reads this host's disk, so where that disk is
-        // not the machine being described there is no link to follow (INV-15).
-        // Classifying anyway from the *uncanonicalised* path is what the first
-        // version of this fix did, and it is wrong twice: canonicalising is
-        // precisely what stops `<prefix>/bin/x -> /usr/bin/x` from being called
-        // MacPorts-owned, and it made this adapter answer `Provider` where the
-        // Homebrew adapter, given the same input and the same scope, answers
-        // `Unknown` - two peers degrading differently in one situation, which
-        // is the INV-17 shape (F-25 review).
-        let canonical = self
-            .filesystem
-            .is_this_machine()
-            .then(|| std::fs::canonicalize(executable).ok())
-            .flatten();
+        let unresolved = || Resolution {
+            executable: name.clone(),
+            path: Some(executable.to_path_buf()),
+            canonical_path: None,
+            owner: ExecutableOwner::Unknown,
+            authoritative: false,
+        };
+        // Following the symlink reads this host's disk, which is only done
+        // when that disk is the machine being described (INV-15). Elsewhere
+        // the path is classified as written, from the recording, exactly as
+        // the Homebrew adapter does in the same scope.
+        //
+        // On this machine a path that cannot be canonicalised (a dangling
+        // link, an unreadable directory) answers `Unknown`. Classifying it
+        // from the path as written would call `<prefix>/bin/x` MacPorts-owned
+        // when the link is broken or points out of the prefix, and following
+        // the link is precisely what stops `<prefix>/bin/x -> /usr/bin/x`
+        // being claimed. The Homebrew adapter answers `Unknown` here too, so
+        // the two peers degrade the same way (INV-17).
+        let canonical = if self.filesystem.is_this_machine() {
+            let Ok(resolved) = std::fs::canonicalize(executable) else {
+                return Ok(unresolved());
+            };
+            Some(resolved)
+        } else {
+            None
+        };
         let target = canonical.as_deref().unwrap_or(executable);
         let (owner, authoritative) = if target.starts_with(&self.prefix) {
             // R-3: `port provides <file>` answers from the registry's file

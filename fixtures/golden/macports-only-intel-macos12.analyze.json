@@ -722,7 +722,7 @@
             "state": "AVAILABLE"
           },
           "DEPRECATION_STATE": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "FILE_OWNERSHIP": {
             "state": "AVAILABLE"

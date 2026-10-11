@@ -29,6 +29,7 @@ pub mod state_dir;
 pub mod time;
 
 pub use atomic::{write_atomic, write_new_atomic, PublishError, FILE_MODE};
+pub use bounded_read::read_regular_file_for_replacement;
 pub use snapshot_store::{
     load_recording, load_snapshot, save_snapshot, snapshot_file_name, snapshot_to_json,
     MAX_DOCUMENT_BYTES,
