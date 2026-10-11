@@ -1631,7 +1631,7 @@ fn a_snapshot_cannot_turn_provider_metadata_into_a_flag_or_a_path() {
     // Words `port` reads as a set of ports. A provider-neutral predicate can say
     // "not a flag"; it cannot say "not a keyword", so the list is data with a
     // source, and the guard sits where the argv is built.
-    for word in ["installed", "all", "INACTIVE"] {
+    for word in ["installed", "all", "INACTIVE", "installed@1", "not"] {
         let mut doc = base.clone();
         for id in ["homebrew", "macports"] {
             let inventory = &mut doc["providers"][id]["inventory"];

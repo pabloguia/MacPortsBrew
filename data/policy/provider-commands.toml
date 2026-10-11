@@ -184,10 +184,16 @@ elevation_reason = "The default MacPorts prefix /opt/local is created by the ins
 # while under-inclusion costs an installation. The comparison folds case for the
 # same reason - `port`'s own case behaviour is not documented in either source,
 # and every extra match here is a refusal rather than an action.
+#
+# `and`, `or` and `not` are the operators of `port`'s port-list expressions
+# (`orExpr`, `andExpr`, `unaryExpr`, `/opt/local/bin/port` lines 997-1100,
+# MacPorts 2.12.6, read 2026-10-10): `not jq` names every port but `jq`. Added
+# with pass 08 slice 3 (security review, H2). The planner compares a package
+# without any `@…` suffix, because `installed@1` is still the set `installed`.
 reserved_names = [
   "all", "current", "active", "inactive", "actinact", "installed",
   "uninstalled", "outdated", "obsolete", "requested", "unrequested",
-  "leaves", "rleaves",
+  "leaves", "rleaves", "and", "or", "not",
 ]
 
 [entry.verbs]

@@ -133,15 +133,18 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
             ReadSubcommand {
                 name: "info",
                 long_options: &["--json=v2", "--installed"],
-                raw_strings: false,
+                positionals: Positionals::None,
             },
+            // `list --pinned`, the verify-absent inventory `list --versions`,
+            // and the verify read `list --versions <name>`.
             ReadSubcommand {
                 name: "list",
                 long_options: &["--pinned", "--versions"],
-                raw_strings: false,
+                positionals: Positionals::AtMostOneName,
             },
         ],
         separators: &[],
+        name_class: is_brew_name,
     },
     ProviderReads {
         program: "port",
@@ -175,8 +178,17 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
         // `macports::INFO_BASE` and every `macports::INFO_FIELDS` tail name.
         subcommands: &[
             ReadSubcommand::bare("version"),
-            ReadSubcommand::bare("installed"),
-            ReadSubcommand::bare("echo"),
+            // The inventory `-q installed`, and the verify read `-q installed <name>`.
+            ReadSubcommand {
+                name: "installed",
+                long_options: &[],
+                positionals: Positionals::AtMostOneName,
+            },
+            ReadSubcommand {
+                name: "echo",
+                long_options: &[],
+                positionals: Positionals::OneOf(&["requested", "active", "leaves"]),
+            },
             ReadSubcommand {
                 name: "info",
                 long_options: &[
@@ -193,12 +205,12 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
                     "--depends_run",
                     "--depends_build",
                 ],
-                raw_strings: false,
+                positionals: Positionals::Names,
             },
             ReadSubcommand {
                 name: "provides",
                 long_options: &[],
-                raw_strings: true,
+                positionals: Positionals::AbsolutePaths,
             },
         ],
         // `port` runs one argv as a *sequence* of actions: an element that is
@@ -210,8 +222,110 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
         // (spec-guardian, 2026-09-25). No package name can be `;`
         // (`is_safe_provider_name`), so refusing the element costs no read.
         separators: &[";"],
+        name_class: is_port_name,
     },
 ];
+
+/// What may follow a read subcommand besides its long options: how many
+/// positional arguments, and of what class (SE-050's positional half, pass 08
+/// slice 3). *Which* package a plan's read names is not decidable here - only
+/// the plan knows it, and the execution gate pins it
+/// (`COMMAND_IS_NOT_THE_PLANNERS_READ`); this pins the shape no read of this
+/// build can exceed.
+#[derive(Debug)]
+pub(crate) enum Positionals {
+    /// None at all.
+    None,
+    /// Zero or one, of the provider's name class.
+    AtMostOneName,
+    /// Exactly one, from this fixed set.
+    OneOf(&'static [&'static str]),
+    /// One or more, of the provider's name class.
+    Names,
+    /// One or more absolute paths with no `..` component: a raw string the
+    /// provider reads as a path and never as a package specification.
+    AbsolutePaths,
+}
+
+/// Words `port` reads as a *set of ports* or as an operator wherever a port
+/// name goes: the pseudo-ports (`element`, `/opt/local/bin/port` around lines
+/// 1105-1150) and the expression operators (`orExpr`, `andExpr`,
+/// `unaryExpr`, lines 997-1100), MacPorts 2.12.6, read 2026-10-10. A refusal
+/// list, so a superset is safe; a test ties it to the `reserved_names` of
+/// `data/policy/provider-commands.toml`, which the planner refuses too.
+pub(crate) const PORT_RESERVED_WORDS: &[&str] = &[
+    "all",
+    "current",
+    "active",
+    "inactive",
+    "actinact",
+    "installed",
+    "uninstalled",
+    "outdated",
+    "obsolete",
+    "requested",
+    "unrequested",
+    "leaves",
+    "rleaves",
+    "and",
+    "or",
+    "not",
+];
+
+/// A port name `port` reads as exactly one port. Starts with a letter or a
+/// digit - a leading `+` is a variant and a leading `@` a version, after which
+/// `port` falls back to the Portfile in the working directory
+/// (`parseFullPortSpec`, `add_to_portlist_with_defaults`, `/opt/local/bin/port`
+/// lines 234-241 and 1367, MacPorts 2.12.6, read 2026-10-10) - carries no `@`
+/// (a version selector), and is not a reserved word.
+pub(crate) fn is_port_name(arg: &str) -> bool {
+    arg.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        && crate::macports::names::is_safe_name(arg)
+        && !PORT_RESERVED_WORDS
+            .iter()
+            .any(|word| word.eq_ignore_ascii_case(arg))
+}
+
+/// A formula or cask name `brew` reads as a name. Starts with a letter or a
+/// digit, passes the domain's name rule, and does not end like a file Homebrew's
+/// loaders would read from the working directory (`.rb`, `.json`, `.tar.gz`;
+/// `Formulary` and the cask loader behind `cmd/list.rb`, Homebrew 7.0.4, read
+/// 2026-10-10) - today only the child's working directory `/` stands between
+/// such a name and a file (security review, pass 08 slice 3, L1).
+pub(crate) fn is_brew_name(arg: &str) -> bool {
+    let lower = arg.to_ascii_lowercase();
+    arg.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        && macportsbrew_domain::is_safe_provider_name(arg)
+        && ![".rb", ".json", ".tar.gz"]
+            .iter()
+            .any(|s| lower.ends_with(s))
+}
+
+/// An absolute path with no `..` component and no NUL.
+fn is_absolute_plain_path(arg: &str) -> bool {
+    arg.starts_with('/') && !arg.contains('\0') && !arg.split('/').any(|c| c == "..")
+}
+
+/// Whether `positionals` admits exactly these arguments.
+fn positionals_permitted(
+    positionals: &Positionals,
+    args: &[&str],
+    name_class: fn(&str) -> bool,
+) -> bool {
+    match positionals {
+        Positionals::None => args.is_empty(),
+        Positionals::AtMostOneName => args.len() <= 1 && args.iter().all(|a| name_class(a)),
+        Positionals::OneOf(words) => args.len() == 1 && words.contains(&args[0]),
+        Positionals::Names => !args.is_empty() && args.iter().all(|a| name_class(a)),
+        Positionals::AbsolutePaths => {
+            !args.is_empty() && args.iter().all(|a| is_absolute_plain_path(a))
+        }
+    }
+}
 
 /// The four macOS probes: permitted programs with no subcommand dimension,
 /// named here rather than implied by their absence from
@@ -232,6 +346,8 @@ pub(crate) struct ProviderReads {
     /// Elements the provider reads as the start of another action, refused
     /// wherever they appear in the argv.
     pub(crate) separators: &'static [&'static str],
+    /// The class a positional naming one of this provider's packages must be in.
+    pub(crate) name_class: fn(&str) -> bool,
 }
 
 /// One permitted read subcommand, and everything that may follow it.
@@ -257,20 +373,19 @@ pub(crate) struct ReadSubcommand {
     /// A tool permission list, not a provider fact: it says what this tool
     /// asks for, so it carries no `read_on` and does not go stale (INV-20).
     pub(crate) long_options: &'static [&'static str],
-    /// Its arguments are raw strings. After any other subcommand no argument
-    /// may contain `/` or `:` - which a validated package name never does, and
-    /// which is how a provider is made to load a package definition from
-    /// somewhere this tool did not choose.
-    pub(crate) raw_strings: bool,
+    /// How many positional arguments may follow, and of what class. A name
+    /// class never admits `/` or `:` - which is how a provider is made to load
+    /// a package definition from somewhere this tool did not choose.
+    pub(crate) positionals: Positionals,
 }
 
 impl ReadSubcommand {
-    /// A subcommand that takes no option and no raw string.
+    /// A subcommand that takes no option and no positional.
     const fn bare(name: &'static str) -> Self {
         Self {
             name,
             long_options: &[],
-            raw_strings: false,
+            positionals: Positionals::None,
         }
     }
 }
@@ -281,9 +396,10 @@ impl ReadSubcommand {
 /// followed by nothing a provider reads as more than an argument: no action
 /// separator, no single-dash option - `port -F` after the action is as live as
 /// before it - and no `--long` element but those that subcommand's entry lists,
-/// matched exactly (SE-050). Positional arguments are checked for shape only
-/// (no `/` or `:` outside a raw-string subcommand); which ones a plan may carry
-/// is pinned by the execution gate, not here. For anything that is not a
+/// matched exactly (SE-050); and exactly the positional arguments that entry's
+/// [`Positionals`] admits, each of the provider's name class (pass 08 slice 3).
+/// Which package a plan's read names is pinned by the execution gate, not
+/// here. For anything that is not a
 /// provider, membership of [`SYSTEM_PROBES`], the one set of programs with no
 /// subcommand dimension.
 pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]) -> bool {
@@ -304,11 +420,15 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     let Some(entry) = reads.subcommands.iter().find(|s| s.name == subcommand) else {
         return false;
     };
+    if argv.iter().any(|a| reads.separators.contains(&a.as_str())) {
+        return false;
+    }
     // Every element starting `-` is an option. A `--long` one must be on this
-    // subcommand's list, whole; a single-dash one never is.
-    let option_permitted = |a: &str| !a.starts_with('-') || entry.long_options.contains(&a);
-    !argv.iter().any(|a| reads.separators.contains(&a.as_str()))
-        && rest.all(|a| option_permitted(a) && (entry.raw_strings || !a.contains(['/', ':'])))
+    // subcommand's list, whole; a single-dash one never is. Everything else is
+    // a positional.
+    let (options, positionals): (Vec<&str>, Vec<&str>) = rest.partition(|a| a.starts_with('-'));
+    options.iter().all(|a| entry.long_options.contains(a))
+        && positionals_permitted(&entry.positionals, &positionals, reads.name_class)
 }
 
 /// The programs the executor's own tests spawn, and only in a test build.
@@ -818,14 +938,18 @@ mod tests {
             assert!(is_permitted_invocation(brew, &held), "brew {held:?}");
             used.push(("brew", held[0].clone()));
         }
-        for held in crate::macports::ALLOWED_ARGV
-            .iter()
-            .chain(crate::macports::ALLOWED_ARGV_PREFIXES)
-        {
+        for held in crate::macports::ALLOWED_ARGV {
             let held = argv(held);
             assert!(is_permitted_invocation(port, &held), "port {held:?}");
             let sub = held.iter().find(|a| *a != "-q").unwrap();
             used.push(("port", sub.clone()));
+        }
+        // A prefix is not an invocation on its own - `info` and `provides` take
+        // at least one argument - so it is checked whole, with every tail the
+        // adapter gives it, by `every_long_option_a_read_passes_is_permitted_and_no_other`.
+        for head in crate::macports::ALLOWED_ARGV_PREFIXES {
+            let sub = head.iter().find(|a| **a != "-q").unwrap();
+            used.push(("port", (*sub).to_string()));
         }
         for reads in PERMITTED_SUBCOMMANDS {
             for sub in reads.subcommands {
@@ -944,6 +1068,112 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_positional_is_held_to_its_count_and_its_providers_name_class() {
+        // The positional half of the pin (pass 08 slice 3): each refused shape
+        // beside the accepted one it neighbours.
+        let brew = std::path::Path::new("/opt/example/bin/brew");
+        let port = std::path::Path::new("/opt/example/bin/port");
+        for (program, good) in [
+            (brew, argv(&["list", "--versions", "wget"])),
+            (brew, argv(&["list", "--versions", "python@3.12"])),
+            (brew, argv(&["list", "--versions"])),
+            (port, argv(&["-q", "installed", "jq"])),
+            (port, argv(&["-q", "installed", "py313-numpy"])),
+            (port, argv(&["-q", "installed"])),
+            (port, argv(&["-q", "echo", "leaves"])),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--line", "--name", "jq", "htop"]),
+            ),
+            (
+                port,
+                argv(&[
+                    "-q",
+                    "provides",
+                    "/opt/local/bin/jq",
+                    "/opt/local/share/a:b",
+                ]),
+            ),
+        ] {
+            assert!(
+                is_permitted_invocation(program, &good),
+                "{good:?} was refused"
+            );
+        }
+        for (program, bad) in [
+            // A positional where the subcommand takes none.
+            (brew, argv(&["config", "wget"])),
+            (brew, argv(&["info", "--json=v2", "--installed", "wget"])),
+            (port, argv(&["-q", "version", "jq"])),
+            // More than one where at most one is taken.
+            (brew, argv(&["list", "--versions", "wget", "curl"])),
+            (port, argv(&["-q", "installed", "jq", "htop"])),
+            // A Homebrew name a loader would read as a file.
+            (brew, argv(&["list", "--versions", "foo.rb"])),
+            (brew, argv(&["list", "--versions", "cask.JSON"])),
+            (brew, argv(&["list", "--versions", "bottle.tar.gz"])),
+            (brew, argv(&["list", "--versions", "+wget"])),
+            (brew, argv(&["list", "--versions", "@wget"])),
+            // MacPorts pseudo-ports and operators, whatever their case, and
+            // version-qualified, variant and version-only specifications.
+            (port, argv(&["-q", "installed", "all"])),
+            (port, argv(&["-q", "installed", "current"])),
+            (port, argv(&["-q", "installed", "Installed"])),
+            (port, argv(&["-q", "installed", "installed@1"])),
+            (port, argv(&["-q", "installed", "jq@1.8"])),
+            (port, argv(&["-q", "installed", "+universal"])),
+            (port, argv(&["-q", "installed", "@1.0"])),
+            (port, argv(&["-q", "info", "--name", "not", "jq"])),
+            (port, argv(&["-q", "info", "--name", "jq", "and", "htop"])),
+            (port, argv(&["-q", "info", "--name", "jq", "or", "htop"])),
+            // `info` takes at least one name.
+            (port, argv(&["-q", "info", "--index", "--line", "--name"])),
+            // `echo` takes exactly one of its three words.
+            (port, argv(&["-q", "echo", "installed"])),
+            (port, argv(&["-q", "echo"])),
+            (port, argv(&["-q", "echo", "leaves", "active"])),
+            // `provides` takes absolute, plain paths only.
+            (port, argv(&["-q", "provides"])),
+            (port, argv(&["-q", "provides", "relative/path"])),
+            (
+                port,
+                argv(&["-q", "provides", "/opt/local/../../etc/passwd"]),
+            ),
+            (port, argv(&["-q", "provides", "jq"])),
+            (port, argv(&["-q", "provides", "/opt/local/bin/a\0b"])),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{bad:?} was permitted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_spawn_sites_reserved_words_cover_the_planners() {
+        // The planner refuses a package named a reserved word; the spawn site
+        // refuses it as an argument. The second list may be wider, never narrower.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/policy/provider-commands.toml");
+        let table: toml::Value =
+            toml::from_str(&std::fs::read_to_string(path).expect("the table")).expect("parses");
+        let mut compared = 0;
+        for entry in table["entry"].as_array().expect("entries") {
+            if let Some(words) = entry.get("reserved_names").and_then(|w| w.as_array()) {
+                for word in words {
+                    let word = word.as_str().expect("a word");
+                    assert!(
+                        PORT_RESERVED_WORDS.contains(&word),
+                        "{word} is reserved by the planner and permitted at the spawn site"
+                    );
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared >= 16, "the comparison saw {compared} words");
     }
 
     #[test]

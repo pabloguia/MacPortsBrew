@@ -517,7 +517,7 @@ fn explaining_a_package_by_the_other_providers_name_finds_it() {
 /// `check_curated_names` in `PolicyData::load_from` applies
 /// `is_safe_provider_name`, which is the *last* of the three gates
 /// `planner::command` runs on a package name. The first is the provider's
-/// reserved-word list from `provider-commands.toml` — thirteen words for
+/// reserved-word list from `provider-commands.toml` — sixteen words for
 /// MacPorts, `all`, `installed`, `active`, `leaves` among them. A curated row
 /// whose destination is one of those loads, plans, and fails at the planner with
 /// `ErrorId::Usage`: *"That command line is not valid … Run macportsbrew
@@ -539,7 +539,7 @@ fn explaining_a_package_by_the_other_providers_name_finds_it() {
 /// the planner rejects is the defect, and either list moving makes it fail.
 ///
 /// **The reserved half has teeth on one side only, today.** Exactly one provider
-/// declares `reserved_names` — MacPorts, thirteen words — and every shipped
+/// declares `reserved_names` — MacPorts, sixteen words — and every shipped
 /// curated row runs homebrew to macports, so the destination names are compared
 /// against a real list and the source names against an empty one. That is the
 /// half that matters (a destination name is what reaches `command()` as

@@ -1087,6 +1087,16 @@ pub(crate) fn names_no_package(operation: &str) -> bool {
 /// refuses a verification command whose semantic is not this, because a read
 /// whose semantic was swapped — `EXIT_STATUS` on a verb that exits 0 for an
 /// absent package — certifies nothing while looking like a check.
+/// Whether `package` is one of a provider's reserved words — compared without
+/// case and **without an `@…` suffix**, because MacPorts reads `installed@1` as
+/// the pseudo-port `installed` with a version override (`/opt/local/bin/port`,
+/// `element`, the `^(installed)(@.*)?$` patterns, MacPorts 2.12.6, read
+/// 2026-10-10; security review, pass 08 slice 3, H2).
+fn is_reserved(reserved: &[String], package: &str) -> bool {
+    let word = package.split('@').next().unwrap_or(package);
+    reserved.iter().any(|r| r.eq_ignore_ascii_case(word))
+}
+
 pub(crate) fn planned_success(
     entry: Option<&ProviderCommands>,
     operation: &str,
@@ -1157,11 +1167,7 @@ fn command(
     // name that reached the planner by some other route, and it fails closed
     // where an empty `dest_name` would otherwise have become an empty argument
     // (F-09).
-    if entry.is_some_and(|e| {
-        e.reserved_names
-            .iter()
-            .any(|reserved| reserved.eq_ignore_ascii_case(package))
-    }) {
+    if entry.is_some_and(|e| is_reserved(&e.reserved_names, package)) {
         return Err(DomainError::new(
             ErrorId::Usage,
             format!(
@@ -1396,6 +1402,27 @@ fn command(
 /// visibility, and the cost is real.
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reserved_word_is_reserved_whatever_its_case_or_version_suffix() {
+        let reserved: Vec<String> = ["installed", "all", "not"]
+            .iter()
+            .map(|w| (*w).to_string())
+            .collect();
+        for word in [
+            "installed",
+            "INSTALLED",
+            "installed@1",
+            "all@",
+            "Not",
+            "not@x",
+        ] {
+            assert!(is_reserved(&reserved, word), "{word}");
+        }
+        for name in ["jq", "installedx", "x@installed", "python@3.12", ""] {
+            assert!(!is_reserved(&reserved, name), "{name}");
+        }
+    }
+
     // Named `tests` and not for tidiness. The INV-20 textual scan in
     // `crates/policy/tests/invariants.rs` skips a test module by matching
     // `mod tests` literally — deliberately, because an earlier version latched

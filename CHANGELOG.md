@@ -32,6 +32,20 @@ to answer.
 
 ### Added
 
+- **MacPorts can be a plan's source on an ordinary machine, and a service it
+  cannot attribute is never read as "no service" (pass 08, slice 3).** The
+  MacPorts service scan used to answer "unknown" whenever no port had ever
+  installed a launchd item — the usual state — so every MacPorts→Homebrew plan
+  was refused on a live machine; and it skipped any item not named
+  `org.macports.<port>` (`dbus`'s), reporting a service port as having none, so
+  INV-19 did not force its manual review. It now reads both launchd locations,
+  answers "none" only under a real MacPorts prefix with every port active, and
+  answers "unknown" — refusing the plan — for anything it cannot attribute.
+- **Provider arguments are pinned by count and class at the spawn site.** A
+  MacPorts pseudo-port (`installed`, `all`, even `installed@1`), a bare variant
+  or version, the `and`/`or`/`not` operators and a Homebrew name ending in `.rb`
+  are refused before any provider runs; the planner's own reserved-name guard,
+  which `installed@1` used to pass, is fixed.
 - **The single-instance run lock and the interrupted-run marker (pass 08,
   slice 2).** An exclusive advisory lock on `run.lock` in the state directory
   (a second run is `RUN_LOCK_HELD`, exit 7; a killed holder frees it), and an

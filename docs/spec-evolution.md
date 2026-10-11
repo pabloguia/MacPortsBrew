@@ -3599,6 +3599,22 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `every_provider_with_a_read_list_must_come_from_a_bin_directory`. There is no way for the new adapter to name its executable from
   configuration, which is the point.
 - Compatibility impact: none.
+- **Addendum, the positional half, 2026-10-10 (pass 08 slice 3).** The spawn
+  site now pins positional arguments by **count and a per-provider name class**
+  (`Positionals` on each `ReadSubcommand`, `is_port_name`, `is_brew_name`,
+  `crates/adapters/src/process/mod.rs`). The provider-neutral
+  `is_safe_provider_name` was not enough: it admits MacPorts' pseudo-ports
+  (`all`, `installed`), version-qualified ones (`installed@1`), a bare variant or
+  version (`+universal`, `@1.0`, after which `port` evaluates the working
+  directory's Portfile) and the operators `and`/`or`/`not` (security review,
+  H2; `/opt/local/bin/port` 2.12.6, read 2026-10-10). The reserved list at the
+  spawn site is tied by a test to `provider-commands.toml`'s `reserved_names`,
+  which gained the three operators, and the planner's guard now compares a name
+  without its `@…` suffix — `installed@1` used to pass it, an existing defect.
+  `port provides` takes absolute paths with no `..` instead of raw strings. The
+  sentence above, "positional arguments are still checked for shape alone", is
+  superseded for count and class; **which package** a plan's read names is still
+  the gate's, because only the plan knows it.
 
 ## SE-058 — The user-facing documentation promised more than the design does
 - Status: accepted

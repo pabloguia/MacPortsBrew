@@ -479,13 +479,22 @@ do not gold-plate beyond them.
   action in `find_action`: `/opt/local/bin/port`, MacPorts 2.12.6, read
   2026-09-25, the option path 2026-10-03; for `brew`, Ruby's option parser may
   resolve an unambiguous prefix too), and a bare `--` are all refused. The list is a tool permission list, not a provider fact: it says
-  what this tool asks for and carries no date. Positional arguments are checked
-  for shape only, below; which ones a plan may carry is the execution gate's
-  `COMMAND_IS_NOT_THE_PLANNERS_READ`. Nothing after a subcommand that takes packages may contain
-  `/` or `:` — for `port` either one makes a list element a Portfile it opens
-  and evaluates, and Homebrew's own refusal of a path or URL can be turned off
-  by a `brew.env` — so only `port provides`, which takes raw strings, accepts a
-  path; and an empty argument vector — `port`'s interactive mode — is refused. The
+  what this tool asks for and carries no date. **Positional arguments are pinned
+  by count and by a per-provider class** (pass 08 slice 3): each subcommand
+  takes none, at most one name, exactly one of a fixed set (`port echo`), one or
+  more names (`port info`), or one or more absolute paths with no `..`
+  (`port provides`). A `port` name starts with a letter or digit, carries no
+  `@` and is none of the pseudo-ports or the `and`/`or`/`not` operators, whatever
+  its case — `installed@1` and `+universal` are refused, because `port` reads
+  the first as a set and falls back to the working directory's Portfile on the
+  second; a `brew` name starts with a letter or digit and does not end in `.rb`,
+  `.json` or `.tar.gz`, which Homebrew's loaders would read as a file. Which
+  package a plan's read names is still the execution gate's
+  `COMMAND_IS_NOT_THE_PLANNERS_READ`, because only the plan knows it. No name
+  class admits `/` or `:` — for `port` either one makes a list element a
+  Portfile it opens and evaluates, and Homebrew's own refusal of a path or URL
+  can be turned off by a `brew.env` — and an empty argument vector — `port`'s
+  interactive mode — is refused. The
   `port` behaviours were read in its source on this machine, MacPorts 2.12.6,
   2026-09-25 and 2026-09-26, and are cited where the list states them. The
   adapters' own argument-vector allowlists stay, tied to these lists in both
