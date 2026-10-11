@@ -7,7 +7,12 @@ Everything below works under either.
 Every command on this page changes nothing in either package manager,
 `migrate --yes` included: it is the one command that asks for execution, and
 its gate refuses every plan this build produces. Two commands write a file you
-name — `snapshot --out` and `doctor --report` — and nothing else.
+asked for — `snapshot` and `doctor --report`. Given a path that already
+exists, they replace it only when it is itself a MacPortsBrew document, and
+refuse anything else. (Every command also creates and removes one empty file
+in your temporary folder, to learn which user it runs as.)
+`snapshot` without `--out` writes into MacPortsBrew's state directory,
+`~/Library/Application Support/macportsbrew`.
 
 ## Commands
 
@@ -28,7 +33,8 @@ provider.
 
 ### `macportsbrew list`
 
-The inventory without the recommendation machinery.
+The same table as `analyze` — recommendation column included — without the
+reasons behind each recommendation that `analyze` prints after it.
 
 | Flag | Effect |
 |---|---|
@@ -49,12 +55,18 @@ Builds a migration plan. **Nothing is executed in this build.**
 
 | Flag | Effect |
 |---|---|
-| `--to <PROVIDER>` | Destination provider id. Required |
+| `--to <PROVIDER>` | Destination provider: `homebrew` or `macports`. Required; any other value is a usage error (exit 2) |
 | `--retain-source` | Keep the source package after migration |
 
 Prints the ordered steps, the risks, and where a human would decide. Exits **4**
 when the plan contains a step needing human review — which is a normal outcome,
 not an error, and the plan is printed anyway.
+
+In 0.1.0 a package is matched to the destination only if the destination
+already has an equivalent installed, or the small curated table names one.
+Otherwise the plan stops at *Needs a human decision* with "no equivalent
+found" — nothing was found, which does not mean no equivalent exists. See
+[Package Mapping](Package-Mapping.md).
 
 ### `macportsbrew migrate <PACKAGE> --to <PROVIDER>`
 
@@ -64,7 +76,7 @@ provider command is run.
 
 | Flag | Effect |
 |---|---|
-| `--to <PROVIDER>` | Destination provider id. Required |
+| `--to <PROVIDER>` | Destination provider: `homebrew` or `macports`. Required; any other value is a usage error (exit 2) |
 | `--retain-source` | Keep the source package after migration |
 | `--yes` | Put the plan to the execution gate instead of only showing it. Nothing in this build prompts |
 | `--dry-run` | Show the plan and run nothing. Wins over `--yes` |
@@ -91,7 +103,7 @@ state with its source and read date.
 
 | Flag | Effect |
 |---|---|
-| `--report <FILE>` | Write a diagnostic file for a bug report, without home paths, user names or environment values (tested section by section). Read it before you share it |
+| `--report <FILE>` | Write a diagnostic file for a bug report, without your user name or home folder path. `PATH` entries a finding mentions appear with your home folder shown as `~`; other environment variables are named but their values are left out. It also lists every installed package. Replaces an existing file only if it is a MacPortsBrew document. Read it before you share it |
 | `--deep` | Inspect binaries for cross-prefix links. **Not in this build** |
 
 ### `macportsbrew snapshot`
@@ -100,7 +112,11 @@ Captures both providers' state to a file.
 
 | Flag | Effect |
 |---|---|
-| `--out <FILE>` | Where to write; defaults to the state directory |
+| `--out <FILE>` | Where to write; defaults to the state directory, `~/Library/Application Support/macportsbrew`. Replaces an existing file only if it is a MacPortsBrew document |
+
+The file leaves out your user name and home folder path, but it carries your
+`PATH` (with your home folder shown as `~`) and the full list of installed
+packages. Read it before you share it.
 
 Read it back with `--from-snapshot`. The format is documented at
 [`../docs/schemas/snapshot.v1.md`](../docs/schemas/snapshot.v1.md).
@@ -195,7 +211,8 @@ macportsbrew analyze
 # Just one package, with the full derivation
 macportsbrew explain git
 
-# What moving it would involve, in either direction
+# What moving it would involve, in either direction (stops for a human
+# decision unless the destination already has git installed)
 macportsbrew plan git --to macports
 macportsbrew plan git --to homebrew
 
@@ -205,7 +222,7 @@ macportsbrew migrate git --to macports --yes
 # Machine-readable, for a script
 macportsbrew analyze --json | jq '.summary'
 
-# Capture now, analyse later or elsewhere
+# Capture now, analyse later or elsewhere (state.json must not exist yet)
 macportsbrew snapshot --out state.json
 macportsbrew analyze --from-snapshot state.json
 

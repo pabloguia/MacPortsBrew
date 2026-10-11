@@ -8,23 +8,32 @@ design property here, not a policy document.
 
 **Do not open a public issue for a security problem.**
 
-There is no security contact address yet, because the remote does not exist
-yet. The repository *will* be published publicly on GitHub
-([DP-007](docs/decisions-pending.md), decided 2026-09-02), and the route is
-decided with it: a **private GitHub security advisory** — the *Security* tab,
-*Report a vulnerability* — private to the maintainers until published.
+Report it privately through GitHub's **private vulnerability reporting**: on
+the repository page open the **Security** tab and choose **Report a
+vulnerability**, or go straight to
+`https://github.com/<owner>/<repo>/security/advisories/new`. The report is
+visible only to the maintainers until an advisory is published. (`<owner>/<repo>`
+stands for this repository's GitHub location; the maintainer enables private
+vulnerability reporting there before the repository is made public.)
 
-**Private vulnerability reporting must be enabled before the repository is made
-public, not after.** A public repository that ships Developer ID-signed binaries
-([ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)) with no private
-channel forces the first report of a signing-pipeline flaw onto a public
-tracker. This file names that channel as the only one the moment it exists.
+MacPortsBrew is maintained by one person. A report is acknowledged as soon as
+it is read, and you will be told what is happening rather than left waiting;
+a fix may take longer.
 
-Until then, if you have found something and are reading this, raise it with the
-person who gave you the repository, privately, and describe: what you did, what
-happened, what you expected, and the machine you saw it on. `macportsbrew
-doctor --report` collects the machine facts without home paths, user names or
-environment values (tested section by section) — read it before you send it.
+A useful report says:
+
+- what you did — the exact command, and the version (`macportsbrew --version`
+  prints four lines; include all of them);
+- what happened, and what you expected instead;
+- the machine: macOS version, Intel or Apple Silicon, and which package
+  managers are installed;
+- whether you can make it happen again, and how.
+
+`macportsbrew doctor --report <new-file>` collects the machine facts without
+your user name or home folder path. `PATH` entries a finding mentions appear
+with your home folder shown as `~`; other environment variables are named but
+their values are left out. It also lists every installed package. Read it before
+you share it, and leave out anything you would rather not send.
 
 Please do not include credentials, tokens or anything from outside the two
 providers' scope in a report. MacPortsBrew never needs them and cannot use
@@ -59,9 +68,9 @@ The full model, with the mitigations and the reasoning, is in
 | **Executable shadowing and `PATH` spoofing** | Provider executables are resolved from their detected prefix, not from `PATH`, wherever correctness matters. `doctor` reports writable directories that precede system paths, and duplicate `PATH` entries. |
 | **Symlink attacks and unsafe temporary files** | Temporary files are created with restrictive permissions in a private directory; writes never follow a symlink; writes are atomic. |
 | **Malicious or malformed provider metadata** | All provider output is untrusted input: sizes are bounded, shapes are validated, nothing is evaluated, and metadata never becomes a path or a flag. A parser that meets output it does not recognise fails with `ErrorId::ProviderOutputChanged` rather than mis-parsing. |
-| **Privilege boundaries** | Elevation is per-operation, enumerated, visible, never cached and never inherited by an unrelated step. Discovery, inventory, mapping, analysis, planning and dry-run are unprivileged by design (INV-06), and this build has no code path that elevates at all. |
+| **Privilege boundaries** | When execution lands, elevation will be per-operation, enumerated, visible, never cached and never inherited by an unrelated step. Discovery, inventory, mapping, analysis, planning and dry-run are unprivileged by design (INV-06), and this build has no code path that elevates at all. |
 | **State and configuration integrity** | MacPortsBrew's own state directory is user-owned with restrictive permissions. Corrupt state fails closed — no plan is produced — rather than producing a plan from a damaged record. |
-| **Supply chain** | Dependencies are pinned and their licences checked mechanically. Release artifacts carry checksums, and build provenance is a stated goal. |
+| **Supply chain** | Dependencies are pinned and their licences checked mechanically. Release artifacts will carry checksums and a build provenance attestation. |
 
 ## If a release must be withdrawn
 
@@ -80,8 +89,8 @@ is **not verified**. Neither Apple page this project cites mentions revocation a
 all: <https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>
 was re-read on 2026-09-04 and contains no occurrence of the word, and
 <https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution>
-renders through JavaScript and returned no text to a fetch. R-13 owns closing
-it. The plan below is written to be cheap if the premise turns out to be false
+renders through JavaScript and returned no text to a fetch. Closing it is an
+open research item. The plan below is written to be cheap if the premise turns out to be false
 and sufficient if it turns out to be true, which is the only shape worth writing
 before the answer is in.
 
@@ -110,8 +119,7 @@ revoked.
 
 ### Who
 
-The Account Holder of the Apple Developer team — one person, the project owner
-(DP-006). Apple requires it: *"You must be the Account Holder of your
+The Account Holder of the Apple Developer team — one person, the project owner. Apple requires it: *"You must be the Account Holder of your
 development team in the Apple Developer Program in order to generate a Developer
 ID certificate"* (<https://developer.apple.com/developer-id/>, read 2026-09-02;
 `docs/research/R-9-gatekeeper-and-distribution.md` C-9). There is no second
@@ -134,9 +142,9 @@ written down before. Both are release-pipeline requirements, not habits:
 2. **Where the key lives and who can reach it.** In the protected deployment
    environment named by ADR-0005, not in anyone's memory.
 
-Private vulnerability reporting must already be enabled, because it is a
-publication prerequisite for the inbound channel (DP-007) and step 3 below uses
-the same mechanism.
+Private vulnerability reporting must already be enabled, because it is the
+inbound channel described at the top of this file and step 3 below uses the
+same mechanism.
 
 ### The runbook
 
@@ -162,7 +170,7 @@ come back to step 1.
 3. **Publish a GitHub Security Advisory**, from the same Security tab that
    receives reports, carrying the digests from step 1. Whether a repository
    advisory for a project that publishes no packaged ecosystem artifact reaches
-   the GitHub Advisory Database is **not established here** (R-14); write it as
+   the GitHub Advisory Database is **not established here**; write it as
    though its readers are the people already watching this repository, because
    those are the ones it demonstrably reaches.
 4. **Put the symptom in the advisory's title and first line, in the words the
@@ -222,8 +230,9 @@ work than it looks:
   command in the README, the wiki and anything a reader copied.
 - **Forensic retention.** Actions logs expire and deleted release assets do not
   come back; nothing says what to keep or for how long.
-- **Disclosure timing.** The inbound half of this file has no embargo policy, no
-  response window, and no guidance on requesting a CVE or GHSA identifier.
+- **Disclosure timing.** The inbound half of this file promises an
+  acknowledgement but no response time, and has no embargo policy, no fix-time commitment, and
+  no guidance on requesting a CVE or GHSA identifier.
 
 ### The next release, on a revoked identity
 
@@ -233,7 +242,7 @@ Nothing self-heals: every user re-downloads, and the advisory says so plainly.
 If the identity is gone rather than reissued — the account lapsed, or Apple
 withdrew it — the next release reverts to **option A** of ADR-0005: a bare
 binary, ad-hoc signed, carrying the quarantine documentation this project
-already has because that was the reversible default before DP-004. It does not
+already has because that was the default before signing was decided. It does not
 ship unsigned and unexplained. That path costs the Gatekeeper story and keeps
 the tool installable, which is the right way round for a tool whose users'
 package manager is already broken.
@@ -254,7 +263,8 @@ Version 0.1.0 is read-only. It inventories, analyses, maps, explains and plans;
 it executes nothing, elevates nothing, writes nothing into either provider's
 prefix, and makes no network call of its own — Homebrew, asked to read, may
 fetch its catalogue on an empty cache, and a `brew.env` can switch its analytics
-and network back on (DP-027, R-15). A gate script greps the source on every
+and network back on ([the research note](docs/research/R-15-homebrew-brew-env.md)
+has the details). A gate script greps the source on every
 change for a mutating provider subcommand literal or an elevation token and
 fails the build if it finds one. That materially reduces the current attack
 surface, and it will grow when the executor lands.

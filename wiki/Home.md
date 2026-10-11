@@ -66,12 +66,21 @@ produces, and exits 4. Running a plan is for a later release. Until then, a
 plan is something you can follow by hand, at your own risk; every page here
 that describes a migration says plainly where the plan ends.
 
+**Mapping looks only at what is already installed.** In 0.1.0 a package is
+matched to the other provider only if that provider already has an equivalent
+installed, or the small curated table names one. For anything else the plan
+stops at *Needs a human decision* with "no equivalent found" — nothing was
+found, which does not mean no equivalent exists. Searching the other provider's
+full catalogue is planned for a later release.
+
 ## Privacy
 
 No telemetry, and no network call that reports anything about you.
-`macportsbrew doctor --report` writes a diagnostic file locally, without home
-paths, user names or environment values (tested section by section). Read it
-before you share it; MacPortsBrew never uploads it.
+`macportsbrew doctor --report` writes a diagnostic file locally, without your
+user name or home folder path. `PATH` entries a finding mentions appear with
+your home folder shown as `~`; other environment variables are named but their
+values are left out. It also lists every installed package. Read it before you
+share it; MacPortsBrew never uploads it.
 
 ## Not affiliated
 

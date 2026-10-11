@@ -87,4 +87,8 @@ three reviewers, coverage, `validate.sh`, "As built".
       carried with a reason.
 - [ ] The CLI half of `invariant_17_retained_run_recognition_is_direction_neutral`
       exists (SE-092, the mirror-fixture addendum).
+- [ ] `PROVIDER_REPORTS_ACTIVE` asserts what its name says: the destination is
+      the provider's *active* installation, not merely installed (SE-094; today
+      it is evaluated from an "installed" read, which is harmless only while
+      the gate refuses every plan).
 - [ ] §2 holds; no gate test weakened; reviewers run; "As built" written.

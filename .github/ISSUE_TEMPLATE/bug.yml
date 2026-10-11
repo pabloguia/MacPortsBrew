@@ -12,8 +12,9 @@ body:
           needs them and cannot use them.
         - **If this is a security problem, do not file it here.** See
           `SECURITY.md`.
-        - `macportsbrew doctor --report` writes a redacted diagnostic file with
-          most of what is asked below. Read it before attaching it.
+        - `macportsbrew doctor --report <new-file>` writes a diagnostic file with
+          most of what is asked below, without your user name or home folder
+          path. It does list every installed package. Read it before attaching it.
 
   - type: textarea
     id: what-happened
@@ -53,12 +54,17 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: textarea
     id: mpb-version
     attributes:
       label: MacPortsBrew version
-      description: "`macportsbrew --version`"
-      placeholder: "0.1.0"
+      description: "The full output of `macportsbrew --version` — all four lines."
+      placeholder: |
+        macportsbrew 0.1.0
+        policy 2026.10.03-2
+        target x86_64-apple-darwin
+        commit 0123abc
+      render: text
     validations:
       required: true
 
@@ -67,7 +73,7 @@ body:
     attributes:
       label: Policy version
       description: "Printed at the end of `macportsbrew status`, and in every `--json` payload."
-      placeholder: "2026.09.02-1"
+      placeholder: "2026.10.03-2"
     validations:
       required: true
 
@@ -76,7 +82,7 @@ body:
     attributes:
       label: Provider versions
       description: "Whichever you have. `brew --version`, `port version`."
-      placeholder: "homebrew 6.0.21, macports not installed"
+      placeholder: "homebrew 7.0.4, macports 2.12.6"
     validations:
       required: true
 
@@ -84,7 +90,7 @@ body:
     id: doctor
     attributes:
       label: doctor --report output
-      description: "Run `macportsbrew doctor --report <file>`, read the file, and paste it here. It is redacted: no usernames, home paths, environment variable values or tokens."
+      description: "Run `macportsbrew doctor --report <new-file>`, read the file, and paste it here. It leaves out your user name and home folder path; `PATH` entries a finding mentions show your home folder as `~`, and other environment variables are named without their values. It also lists every installed package. Read it before you share it."
       render: text
 
   - type: checkboxes

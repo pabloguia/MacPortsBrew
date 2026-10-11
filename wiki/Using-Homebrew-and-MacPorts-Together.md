@@ -84,9 +84,6 @@ consent, removable with a `macportsbrew env --revert` command that does not
 exist yet. It will never edit a shell
 file outside that block, and it will never touch your `PATH` silently.
 
-The repository's own agent tooling denies writes to shell configuration files
-outright, which is the same rule applied inward.
-
 ## Deciding what lives where
 
 There is no general answer, and MacPortsBrew will not invent one. What it will

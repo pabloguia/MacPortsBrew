@@ -136,8 +136,10 @@ Both providers need Apple's **Command Line Tools** to build from source.
 [OK] Command Line Tools are installed.
 ```
 
-If they are missing, that becomes a warning, because both providers need them
-and neither will say so clearly until a build fails.
+If they are missing, that becomes a warning. Homebrew lists the Command Line Tools (or Xcode) among its requirements
+(<https://docs.brew.sh/Installation>, read 2026-09-02), and a MacPorts source
+build compiles with the same Apple tools. A missing installation may not be
+obvious until a build fails.
 
 ## How this affects recommendations
 

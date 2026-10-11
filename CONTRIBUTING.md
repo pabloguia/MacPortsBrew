@@ -6,6 +6,9 @@ recipe below also exists as a skill under
 [`.claude/skills/`](.claude/README.md), written from this file so that a person
 and an agent follow identical steps.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
 Two things to know before anything else.
 
 **Homebrew and MacPorts are peers.** Neither is globally better, and no
@@ -43,8 +46,7 @@ go in [`docs/research/`](docs/research/README.md); dated facts go in
 
   An agent session cannot run that — it writes into `~/.cargo/bin`, which is
   the developer's environment rather than this repository, and the guard says
-  so. That is why the tool is listed here rather than installed on demand
-  (DP-015).
+  so. That is why the tool is listed here rather than installed on demand.
 - **macOS**, for anything that reads a real provider. The domain and policy
   crates are pure and build anywhere.
 
@@ -65,9 +67,8 @@ cargo clippy --all-targets --all-features --workspace -- -D warnings
 [`scripts/validate.sh`](scripts/validate.sh) is the one implementation of
 "valid". CI is configured to run it and will be the authority; you run it before
 opening a pull request; the agent `Stop` gate runs it at the end of every turn.
-(No CI job has run yet — the repository has no remote — so today the local run
-and the `Stop` gate are the whole of it.) Do not add a
-check anywhere else.
+(Until CI has produced a green run, the local run and the `Stop` gate are the
+whole of it.) Do not add a check anywhere else.
 
 | Invocation | What it runs |
 |---|---|
@@ -77,7 +78,7 @@ check anywhere else.
 
 **A second harness is generated from the first.** `.codex/` and
 `.agents/skills/` are produced from `.claude/` by
-`scripts/generate-codex-layer.sh` (DP-018). Edit `.claude/`; a `validate.sh`
+`scripts/generate-codex-layer.sh`. Edit `.claude/`; a `validate.sh`
 stage fails when the copies drift, and the path guard refuses a hand-edit of a
 generated file. That is why an edit under `.agents/skills/` is blocked and the
 message names the source.
@@ -177,7 +178,7 @@ and follow the reasoning.
      every command, not a surprise inside one plan. It is refused there rather
      than in the planner because the planner's identical guard answered
      `InputUnusable`, which sends the user to re-capture a snapshot over a
-     defect compiled into the binary (F-48).
+     defect compiled into the binary.
    - **The name must not be a word the provider reads as a set of ports** rather
      than as one package — the `reserved_names` in
      `crates/application/src/provider_commands.rs`. Unlike the rule above this
@@ -302,8 +303,9 @@ and follow the reasoning.
    from a fixture.
 4. **Respect the redaction rules.** `doctor --report` may name versions,
    architecture, macOS version, provider prefixes, package names and findings.
-   It must never emit usernames, home paths, environment variable values or
-   tokens. A parameter that can carry a path is redacted the same way the rest
+   It must never emit the user name, the home directory path, tokens, or the
+   value of an environment variable other than the `PATH` entries a finding
+   names (shown with the home directory as `~`). A parameter that can carry a path is redacted the same way the rest
    of the report is — the home directory becomes `~`.
 5. **Add a test in `crates/application/tests/doctor_findings.rs`** covering the
    finding present and the finding absent. Not "in the same file", which this

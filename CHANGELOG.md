@@ -37,7 +37,11 @@ the same planner and the same safety rules.
 (shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
 provider health and dated support facts) and `snapshot`. Every command has a
 versioned `--json` form. `doctor --report` writes a diagnostic file for issue
-reports, without home paths, user names or environment values.
+reports, without your user name or home folder path. `PATH` entries a finding
+mentions appear with your home folder shown as `~`; other environment variables
+are named but their values are left out. It also lists every installed package.
+Read it before you share it. `doctor --report` and `snapshot --out` replace an
+existing file only when it is itself a MacPortsBrew document.
 
 **What it does not do:** it changes nothing in either package manager. It does
 not install, remove, switch which copy of a tool runs, keep history or restore.
@@ -46,7 +50,21 @@ version produces (exit 4). A plan lists the commands a migration would run, in
 order, with how to check each one, so you can carry it out yourself at your own
 risk — take `macportsbrew snapshot --out before.json` first. It never asks for
 an administrator password and makes no network calls of its own (a Homebrew
-read on an empty cache downloads Homebrew's catalogue).
+read on an empty cache downloads Homebrew's catalogue). It refuses to run as
+root. Every command a plan shows is quoted so it can be pasted into a shell as
+written. A misspelt `--to`, `--provider` or `--today` is an error naming the
+valid values, not an empty answer.
+
+**When it cannot tell, it says so.** A package is called an orphan only when
+the provider could say what depends on it; MacPorts deprecation status, which
+0.1.0 does not read, is shown as unknown rather than as "not deprecated".
+
+**Mapping looks only at what is already installed.** In 0.1.0 a package is
+matched to the other provider only if that provider already has an equivalent
+installed, or the small curated table names one. For anything else the plan
+stops at *Needs a human decision* with "no equivalent found" — nothing was
+found, which does not mean no equivalent exists. Searching the other provider's
+full catalogue is planned for a later release.
 
 **Machines:** macOS 10.12 or later on Intel and 11.0 or later on Apple
 Silicon. macOS 15 and 26 are covered by the CI configuration; 10.12–14 are
@@ -68,6 +86,19 @@ identifiers); the summary above is the user-facing account.
 2026-10-03 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
+
+#### Pre-release review (SE-094)
+
+- **Fixed:** `ORPHAN` without readable reverse dependencies (now `DEPENDENCY`);
+  intent read from the active installation; MacPorts
+  `DEPRECATION_STATE` is `UNKNOWN`; an unfollowable MacPorts link is unresolved;
+  MacPorts tuples whose variant ends in `_<digits>` parse; `.DS_Store` in a
+  launchd location is not a startup item; root refusal at startup; shell-quoted
+  plan commands; usage errors for unknown `--to`/`--provider` and malformed
+  `--today`; `snapshot --out`/`doctor --report` replace only their own
+  documents; standard output flushed before exit; crates `publish = false`.
+- **Recorded as owed:** the dual-Homebrew `doctor` check, `PROVIDER_REPORTS_ACTIVE`
+  asserting "active", a plan's rollback field (see SE-094).
 
 #### Added
 
@@ -572,13 +603,19 @@ TUI, `doctor --deep`, the cache and its TTL, and translations for `pt-BR`,
 catalogue are in place, the translations are not.
 
 #### Known limitations
-- **No CI job has ever run.** The repository has no remote yet, so the workflow
-  in `.github/workflows/` has never been executed by a hosted runner. The
-  support matrix is generated from that workflow's `runner:` labels and from
-  nothing else, so every row in it — including the **tested** ones — states what
-  CI is configured to do, not what any run reported. The matrix says so at the
-  top, and will stop saying it when there is a remote and a green run. SE-052,
-  finding F-12.
+
+- **Mapping looks only at what is already installed.** In 0.1.0 a package is
+  matched to the other provider only if that provider already has an
+  equivalent installed, or the small curated table names one. For anything
+  else the plan stops at *Needs a human decision* with "no equivalent found" —
+  nothing was found, which does not mean no equivalent exists. Searching the
+  other provider's full catalogue is planned for a later release.
+- **No CI job had run when this version was prepared.** The workflow in
+  `.github/workflows/` had not been executed by a hosted runner. The support
+  matrix is generated from that workflow's `runner:` labels and from nothing
+  else, so every row in it — including the **tested** ones — states what CI is
+  configured to do, not what any run reported. The matrix says so at the top
+  until there is a green run. SE-052, finding F-12.
 
 - `--no-network` and `--refresh` are accepted and do nothing in this build.
   `--yes` makes `migrate` put its plan to the execution gate, which refuses it
@@ -611,6 +648,5 @@ catalogue are in place, the translations are not.
 - There is no published release yet. Release signing is decided — Developer ID
   plus notarisation, with a bare binary, a `.pkg` and a `.dmg`
   ([DP-004](docs/decisions-pending.md),
-  [ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)) — and the
-  repository will be public on GitHub
-  ([DP-007](docs/decisions-pending.md)), but the remote does not exist yet.
+  [ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)), and the
+  repository is to be hosted on GitHub ([DP-007](docs/decisions-pending.md)).

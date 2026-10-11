@@ -285,6 +285,80 @@ artifact list is final. **Reversible default taken:** (a).
 
 ---
 
+### DP-037 — Is naming a package the "explicitly entered advanced mode" INV-13 requires?
+
+Raised 2026-10-11 by `spec-guardian` (pre-release review, H1). INV-13 (Tier 1)
+says transitive dependencies are "reachable only through an explicitly entered
+advanced mode", and `06-cli-and-ux.md` says entering it displays a warning and
+that destructive actions there need a stronger confirmation. `plan` and
+`migrate` analyse with `advanced: true` for any package named on the command
+line (SE-048: "naming a package is the explicit entry INV-13 requires"). That
+is an agent's reading of a Tier 1 sentence, never ruled by the owner. So
+`plan openssl@3 --to macports` on a dependency row builds a plan with no
+warning; nothing executes in this build, but the mutating pass would inherit
+the reading.
+
+- **(a) Refuse, or force `MANUAL_REVIEW`, for a source row the normal view hides
+  unless `--advanced` was given**, with `invariant_13_a_dependency_is_not_planned_without_advanced`.
+- **(b) Rule that naming a package is the explicit entry**, and meet 06's
+  warning on that path (print `advanced.warning` when the named package is
+  outside the default view) and its stronger confirmation when execution lands,
+  or amend 06 with an SE entry.
+
+**Recommendation:** (b) with the warning: naming a package is a deliberate act,
+and a refusal would make the planner useless for the dependency a user is
+actually asking about; the warning keeps the act informed. **What it blocks:**
+the mutating pass (slice 4), not the read-only 0.1.0. **Reversible default
+taken:** no change in behaviour; this entry is the record.
+
+---
+
+### DP-038 — Personal data in the history and in the fixtures, before the first push
+
+Raised 2026-10-11 by `security-reviewer` (pre-release review, M2) and
+`docs-auditor` (M2). HEAD is clean of the maintainer's account name, but:
+
+- **Git history**: about 500 lines across eleven commits carry home-directory
+  paths and the machine's layout (tool directories, a LaunchAgents listing, a
+  download path). No secrets were found in history or at HEAD.
+- **Author identity**: every commit is authored with a personal e-mail address.
+- **Fixtures**: the committed recordings and the live snapshot carry this
+  machine's `PATH` entries (with the home shown as `~`) and its full package
+  list. The fixture README says this is deliberate; it is the owner's call to
+  make knowingly.
+
+Options: **(a)** publish as is; **(b)** before the first push, squash or
+`git filter-repo` the history and rewrite the author e-mail to a GitHub
+`noreply` address; **(c)** (b) plus re-deriving the fixtures with a generic
+`PATH` (a *derived* fixture, its edits listed in the note).
+
+**Recommendation:** (b) at least, because it cannot be undone after
+publication; (c) if the tool list is felt to be personal. **What it blocks:**
+the first push. **Reversible default taken:** nothing rewritten (rewriting
+history is the owner's act).
+
+---
+
+### DP-039 — `claude.yml` can run a pull request's own hooks with secrets
+
+Raised 2026-10-11 by `security-reviewer` (pre-release review, H1).
+`.github/workflows/claude.yml` runs on `issue_comment` with the API key and a
+`contents: write` token, and Claude Code loads `.claude/settings.json` and its
+hooks from the checked-out tree. A fork pull request that changes them, plus an
+`@claude` comment by any collaborator, would run that code with the secrets.
+The workflow is dormant until the repository is public and the secret is set.
+
+Options: **(a)** before publishing, disable the workflow (remove the secret or
+the file) until it is hardened; **(b)** harden it: refuse when the pull
+request's head repository is not the base, read settings from a trusted
+base-branch checkout, narrow the trigger to `OWNER`, and drop `Write`/`Edit`;
+**(c)** keep it as is.
+
+**Recommendation:** (a) now, (b) when it is wanted. `.github/workflows/` is
+guarded, so either needs the owner's armed write. **What it blocks:** setting
+the repository's `ANTHROPIC_API_KEY` secret. **Reversible default taken:** the
+file is unchanged; this entry is the warning.
+
 ---
 
 ## Resolved

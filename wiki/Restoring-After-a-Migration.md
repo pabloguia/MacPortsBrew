@@ -32,8 +32,10 @@ produces the same answer.
 Taking a snapshot before you change anything by hand is the single most useful
 thing you can do with this build.
 
-A snapshot is written without home paths or user names (tested). Read it
-before you share it.
+A snapshot is written without your user name or home folder path, but it
+carries your `PATH` (with your home folder shown as `~`) and the full list of
+installed packages. Read it before you share it. `snapshot --out` refuses to
+replace a file that is not a MacPortsBrew document; giving each snapshot a new name keeps the earlier ones.
 
 ## What the restore path will be
 

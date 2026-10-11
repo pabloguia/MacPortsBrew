@@ -2,8 +2,9 @@
 
 Most of what a package manager has installed is not what you asked for. It is
 what your requests dragged in. On the machine these examples come from,
-Homebrew had 189 packages of which **56 were top-level** — the rest are
-dependencies.
+Homebrew had 189 packages, **47 of them top-level**; most of the rest are
+dependencies. The default view shows 56 rows, because packages whose ownership
+is unknown are shown too.
 
 Understanding that split is most of understanding why MacPortsBrew refuses to
 do things.
@@ -32,14 +33,16 @@ Two subtleties MacPortsBrew is careful about:
 
 - **`brew leaves` is not the same set as "what you asked for".** It means "has
   no remaining dependents", so it includes things installed as dependencies and
-  hides things you did request. On one machine: 47 requested, 49 leaves, 44
-  both. MacPortsBrew never substitutes one for the other.
+  hides things you did request. On one Intel Mac running Homebrew 6.0.21, read
+  on 2026-09-02: 47 requested, 49 leaves, 44 both
+  ([`R-1`](../docs/research/R-1-homebrew-read-interfaces.md)). MacPortsBrew never substitutes one for the other.
 - **Ownership is a fact about a provider, not about your machine.** The same
   name can be top-level under one provider and a dependency under the other.
 
 ## Normal mode hides dependencies, deliberately
 
-`macportsbrew analyze` shows top-level packages only. Dependencies are managed
+`macportsbrew analyze` shows top-level packages, and any whose ownership is
+unknown. Dependencies are managed
 automatically by their provider, and presenting them as things you might move
 individually invites exactly the mistake this tool exists to prevent.
 
@@ -49,8 +52,9 @@ macportsbrew analyze --advanced   # include them
 
 Entering advanced mode displays a warning saying what those packages are. In
 advanced mode the safety checks do not relax: reverse dependencies are still
-checked, dependencies are still never preselected, and destructive actions
-require a stronger confirmation than in normal mode.
+checked and dependencies are still never preselected. When execution lands,
+destructive actions in advanced mode will require a stronger confirmation than
+in normal mode.
 
 ## Reverse dependencies block removals
 
@@ -150,8 +154,8 @@ prints and the executor a later release will add:
   — and the qualifier is part of the rule, not a hedge on it.
   Partial success is reported as partial success, never as success.
 - **Reverse dependencies are checked before removal.**
-- **Installing a package manager needs explicit consent.** MacPortsBrew
-  never installs one implicitly.
+- **A package manager is never installed implicitly.** This build never
+  installs a package manager; install it yourself first.
 - **Nothing needs elevation to analyse, inventory, map, plan or dry-run.**
 - **Packages that own data or run as services are never migrated blind.**
 

@@ -26,7 +26,8 @@ such date.)
   (<https://docs.brew.sh/Installation>, read 2026-09-02).
 
 Those are stated requirements, not enforced floors. The machine these examples
-came from runs Homebrew 6.0.21 on Intel macOS 26.6.2 without complaint.
+came from ran Homebrew 6.0.21 on Intel macOS 26.6.2 without complaint when the
+recording was captured (2026-09-02).
 
 ## What is actually true of the artifacts
 

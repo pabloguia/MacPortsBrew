@@ -79,7 +79,12 @@ machine — and the plan says so rather than quietly accepting it.
 
 **MacPorts being absent is a step, not an assumption.** MacPortsBrew does not
 install package managers. If you want the package under MacPorts, install
-MacPorts yourself first, then build the plan again.
+MacPorts yourself first, then build the plan again. Even then, the "no equivalent"
+step stays unless MacPorts already has curl installed or the small curated
+table names its port: in 0.1.0 mapping looks only at what the destination
+already has installed. "No equivalent found" means nothing was found, not that
+no equivalent exists — searching the other provider's full catalogue is planned
+for a later release.
 
 **Each blocking risk becomes a step.** A plan is not a summary of a decision;
 it is the decision, in order, with the reasons attached. A plan with a step
@@ -148,7 +153,7 @@ release runs plans.
 
 ## The Intel case
 
-If Homebrew reports `degraded` for your machine and you are on Intel, the
+If Homebrew reports `Degraded` for your machine and you are on Intel, the
 support timeline is probably why some packages are recommended for a move. That
 is one dated fact among several, not a blanket instruction to migrate
 everything — read [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md)

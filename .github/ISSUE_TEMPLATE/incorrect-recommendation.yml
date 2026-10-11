@@ -86,7 +86,7 @@ body:
     attributes:
       label: Policy version
       description: "Printed by `explain` and at the end of `macportsbrew status`."
-      placeholder: "2026.09.02-1"
+      placeholder: "2026.10.03-2"
     validations:
       required: true
 
@@ -94,7 +94,7 @@ body:
     id: provider-versions
     attributes:
       label: Provider versions
-      placeholder: "homebrew 6.0.21, macports 2.10.7"
+      placeholder: "homebrew 7.0.4, macports 2.12.6"
     validations:
       required: true
 

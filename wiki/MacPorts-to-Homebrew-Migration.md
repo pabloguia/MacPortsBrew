@@ -71,8 +71,12 @@ refusal is about the recording, not about this direction.
 
 A snapshot taken on a live machine does record that fact, and from one this
 direction plans in full. Here is the plan from the committed live capture of an
-Intel Mac running both providers, where `htop` is installed under both. The
-command and its complete output, which exits 0:
+Intel Mac running both providers, where `htop` is installed under both — which
+matters: in 0.1.0 a package is matched only against what the destination already
+has installed, or the small curated table, so a port Homebrew has not installed
+stops at *Needs a human decision* with "no equivalent found" (see
+[Package Mapping](Package-Mapping.md)). The command and its complete output,
+which exits 0:
 
 ```sh
 macportsbrew --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew
@@ -210,12 +214,15 @@ release runs plans.
 
 ## Variants have no Homebrew equivalent
 
-MacPorts ports can be built with variants; Homebrew formulae have options but
-not the same concept. A port installed with non-default variants may not have a
-Homebrew equivalent that does what your build does, and MacPortsBrew will
-report the availability as needing a source build or as unknown rather than
-assuming the plain formula is a substitute. Check what your port was built with
-before accepting a plan.
+MacPorts ports can be built with variants — optional build configurations
+chosen at install time, which also change which prebuilt archive applies
+([research note R-4](../docs/research/R-4-macports-binary-archives.md), read
+2026-09-02). A port installed with non-default variants may not have a Homebrew
+equivalent that does what your build does. MacPortsBrew reads the variant set
+of the active installed port, and reports a port built with `+universal` or
+with a variant explicitly turned off as a source build caused by non-default
+options; other variants are not flagged, and it does not compare your variants
+with anything on the Homebrew side. Check what your port was built with before accepting a plan.
 
 ## See also
 

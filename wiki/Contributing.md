@@ -4,6 +4,9 @@ The full guide is [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — prerequisites,
 build, test, validation, the architecture overview, licensing, and six
 step-by-step recipes. This page is the short version and the orientation.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](../CODE_OF_CONDUCT.md).
+
 ## Two things to know first
 
 **Homebrew and MacPorts are peers.** Neither is globally better, and no
@@ -27,12 +30,11 @@ cargo test --workspace
 scripts/validate.sh
 ```
 
-`scripts/validate.sh` is the one implementation of "valid" — format, clippy,
-layering, SPDX headers, dependency licences, i18n parity, and the test suite.
-CI is configured to run it and will be the authority; the same script is what
-you run locally. No CI job has run yet — the repository has no remote — so for
-now your local run is the authority, which is a reason to run the full one
-rather than `--quick`.
+`scripts/validate.sh` is the one implementation of "valid"; the list of what it
+checks lives in that script's header and nowhere else. CI is configured to run
+it and will be the authority; the same script is what you run locally. Until CI
+has produced a green run, your local run is the authority, which is a reason to
+run the full one rather than `--quick`.
 
 **You do not need Homebrew or MacPorts installed to contribute.** Tests run
 against captured fixtures and never touch a live installation. That is a rule,
@@ -105,8 +107,11 @@ Perfectly good contributions. The templates in
 [`../.github/ISSUE_TEMPLATE`](../.github/ISSUE_TEMPLATE) cover bugs, incorrect
 recommendations, mapping problems, provider compatibility, features and
 documentation. Each asks for the machine facts that make a report actionable —
-`macportsbrew doctor --report` collects them, without home paths, user names
-or environment values; read it before you attach it.
+`macportsbrew doctor --report <new-file>` collects them, without your user name
+or home folder path. `PATH` entries a finding mentions appear with your home
+folder shown as `~`; other environment variables are named but their values
+are left out. It also lists every installed package. Read it before you attach
+it.
 
 For a security problem, do not open an issue: see
 [`../SECURITY.md`](../SECURITY.md).

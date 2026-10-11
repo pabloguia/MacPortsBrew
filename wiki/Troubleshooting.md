@@ -31,10 +31,12 @@ The first two warnings are there because a recording carries no `PATH` and no
 provider configuration files. Run on your own machine, `doctor` reads both and
 reports, for example, a provider prefix that is not on `PATH`.
 
-For an issue report, `macportsbrew doctor --report <file>` writes the same
-information to a file, without home paths, user names or environment values
-(tested section by section). Read it before you share it; MacPortsBrew never
-uploads it.
+For an issue report, `macportsbrew doctor --report <new-file>` writes the same
+information to a file, without your user name or home folder path. `PATH`
+entries a finding mentions appear with your home folder shown as `~`; other
+environment variables are named but their values are left out. It also lists
+every installed package. It replaces an existing file only if that file is a MacPortsBrew document. Read
+it before you share it; MacPortsBrew never uploads it.
 
 ## The wrong version of a tool runs
 
@@ -72,8 +74,10 @@ This is normal and increasingly common on Intel. See
 [Understanding Bottles and Source Builds](Understanding-Bottles-and-Source-Builds.md),
 and [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md) for why.
 
-Check the Command Line Tools are installed — `doctor` says — because both
-providers need them to compile and neither says so clearly until a build fails.
+Check the Command Line Tools are installed — `doctor` says. Homebrew lists the Command Line Tools (or Xcode) among its requirements
+(<https://docs.brew.sh/Installation>, read 2026-09-02), and a MacPorts source
+build compiles with the same Apple tools. A missing installation may not be
+obvious until a build fails.
 
 ## "Needs a human decision" on everything
 
@@ -92,8 +96,12 @@ The most common causes, in rough order of frequency:
 - **The mapping confidence is below Strong.** Acting needs Strong or better.
 - **Availability is unknown.** Something could not be determined offline, and
   an unknown is not a yes.
-- **The destination provider is not installed.** Installing one is a separate
-  step needing explicit consent.
+- **The destination provider is not installed.** This build never installs a
+  package manager; install it yourself first.
+- **The destination has no equivalent installed.** In 0.1.0 a package is
+  matched only against what the other provider already has installed, or the
+  small curated table. "No equivalent found" means nothing was found, not that
+  no equivalent exists; see [Package Mapping](Package-Mapping.md).
 
 ## A package I have is not listed
 
@@ -102,7 +110,10 @@ Three likely reasons:
 1. **It is a dependency**, and normal mode hides those. Try
    `macportsbrew analyze --advanced`.
 2. **It is a GUI app or cask.** Casks are reported and labelled, and excluded
-   from migration planning — MacPorts has no equivalent concept.
+   from migration planning: MacPorts has no cask format, and a port with the
+   same name is often a different version, vendor or install location
+   ([research note R-12](../docs/research/R-12-cask-migratability.md), cited
+   2026-09-04).
 3. **It was not installed by either provider.** MacPortsBrew inventories
    Homebrew and MacPorts and nothing else.
 
@@ -155,13 +166,14 @@ something like it, that is a bug worth reporting.
 Snapshot it and attach the snapshot:
 
 ```sh
-macportsbrew snapshot --out state.json
+macportsbrew snapshot --out state.json   # a new file; an existing one is refused
 macportsbrew analyze --from-snapshot state.json
 ```
 
 Because analysis is a pure function of the snapshot, that file lets anyone
-reproduce your exact result. It is written without home paths or user names
-(tested); read it before you share it.
+reproduce your exact result. It is written without your user name or home
+folder path, but it carries your `PATH` (with your home folder shown as `~`)
+and the full list of installed packages; read it before you share it.
 
 ## Both providers seem to be interfering with each other
 

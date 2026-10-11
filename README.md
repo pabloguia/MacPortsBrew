@@ -32,6 +32,11 @@ that (`invariant_17_swapping_the_providers_swaps_the_analysis`).
 
 Running both side by side is also a supported end state, not a failure to
 choose. See [Using Homebrew and MacPorts Together](wiki/Using-Homebrew-and-MacPorts-Together.md).
+The two directions each have a guide — [Homebrew to MacPorts](wiki/Homebrew-to-MacPorts-Migration.md)
+and [MacPorts to Homebrew](wiki/MacPorts-to-Homebrew-Migration.md) — and two
+background pages explain what drives many recommendations:
+[prebuilt packages and source builds](wiki/Understanding-Bottles-and-Source-Builds.md)
+and [Homebrew's Intel timeline](wiki/Intel-Mac-Homebrew-Support.md).
 
 ## Why it exists
 
@@ -67,6 +72,12 @@ and they must be re-verified — Homebrew may extend, accelerate or reverse the
 timeline. If you are reading this long after 2026, check the source before
 acting on it.
 
+The same page puts Apple Silicon with macOS 14 or later in **Tier 1**, Homebrew's
+fully supported tier (<https://docs.brew.sh/Support-Tiers>, read 2026-09-04),
+and on 2026-09-02, 7277 of 8586 `homebrew/core` formulae carried an Apple
+Silicon bottle — so on those Macs Homebrew is often the better provider, and
+MacPortsBrew says so package by package.
+
 MacPortsBrew is not an Intel escape hatch. It is a safe orchestration,
 migration and coexistence layer that stays useful afterwards, on any Mac.
 
@@ -86,7 +97,14 @@ says so in its own `--help`:
   own refusals keep their exit codes. No code path in the binary runs a
   mutating provider subcommand, and a check on every change looks for one.
   You can follow a plan by hand, at your own risk; take
-  `macportsbrew snapshot --out before.json` first.
+  `macportsbrew snapshot --out before.json` first (it replaces an existing file only
+  when that file is itself a MacPortsBrew document, and refuses anything else).
+- **Mapping looks only at what is already installed.** In 0.1.0 a package is
+  matched to the other provider only if that provider already has an
+  equivalent installed, or the small curated table names one. For anything
+  else the plan stops at *Needs a human decision* with "no equivalent found" —
+  nothing was found, which does not mean no equivalent exists. Searching the
+  other provider's full catalogue is planned for a later release.
 - **It never asks for elevation.** Analysis, inventory, mapping, planning and
   `doctor` are all unprivileged by design.
 - **Not yet implemented:** executing a migration, `restore`, `primary`,
@@ -123,6 +141,8 @@ macportsbrew analyze             # inventory, mapping, assessment, recommendatio
 macportsbrew list                # one row per package across providers
 macportsbrew explain git         # the full derivation of one recommendation
 macportsbrew plan git --to macports    # a migration plan; nothing is executed
+                                       # (stops for a human decision unless
+                                       # MacPorts already has git installed)
 macportsbrew doctor              # prefixes, PATH order, leaked build variables
 macportsbrew snapshot            # capture both providers' state to a file
 ```
@@ -160,9 +180,8 @@ Homebrew installation is already broken or who has no package manager at all.
 `brew install` and `port install` may follow later as conveniences; neither
 will ever be the only route.
 
-**This build has no published release.** The repository will be published
-on GitHub, but it is not there yet, so the only way to get MacPortsBrew today
-is to build it from source as above.
+**Until the first release is published**, the only way to get MacPortsBrew is
+to build it from source as above.
 
 What follows, between the two markers, is also the text of every release's
 notes: the release workflow copies it, filling in the version for `X.Y.Z` and
@@ -286,9 +305,8 @@ should not open by asking you to pipe an unreviewed remote script into a shell.
 The published [support matrix](docs/support-matrix.md) distinguishes what CI is
 configured to exercise from what is merely believed to work, and it is generated
 from the CI configuration rather than written by hand — which also means it
-states configuration and not results. **No CI job has ever run**: this
-repository has no remote yet, so nothing has executed the workflow, and the
-matrix says so at the top. macOS 15 and 26 are **configured to be tested**
+states configuration and not results. **When 0.1.0 was prepared, no CI job had
+run**, and the matrix says at the top whether any results exist. macOS 15 and 26 are **configured to be tested**
 natively on both architectures; macOS 11 through 14 on both architectures, and
 10.12 through 10.15 on Intel, are **best-effort** — the
 deployment floor is met and asserted on every artifact, and nothing executes
@@ -312,6 +330,7 @@ supported path.
 | [`docs/research/`](docs/research/README.md) | Dated, sourced answers about provider behaviour |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, architecture, and the contributor recipes |
 | [`SECURITY.md`](SECURITY.md) | Threat model summary and how to report a vulnerability |
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | How we expect people to treat each other here |
 | [`AGENTS.md`](AGENTS.md) | Orientation for coding agents |
 
 ## Privacy
@@ -333,9 +352,10 @@ refusal that remains once migration lands (observed on Homebrew 7.0.4,
 2.12.6, 2026-10-03, [R-16](docs/research/R-16-macports-user-configuration.md)).
 Whether that is enough to meet the no-network and no-telemetry promises is
 still an open question for the project. `doctor --report` writes a diagnostic
-file locally, without home paths, user names or environment values (tested
-section by section); read it before you share it. MacPortsBrew never uploads
-it.
+file locally, without your user name or home folder path. `PATH` entries a
+finding mentions appear with your home folder shown as `~`; other environment
+variables are named but their values are left out. It also lists every
+installed package. Read it before you share it. MacPortsBrew never uploads it.
 
 ## Licence
 

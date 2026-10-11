@@ -21,6 +21,9 @@ cargo build --release
 You need `rustup`. The toolchain is pinned in `rust-toolchain.toml` and
 installs itself on the first build; do not switch toolchains, because the pin
 is what holds the macOS floor of 10.12 on Intel and 11.0 on Apple Silicon.
+macOS 10.12–10.15 (and 11–14) are **best-effort**: the build is checked to
+declare that minimum, but only macOS 15 and 26 are covered by the CI
+configuration.
 
 The binary lands at `target/release/macportsbrew`. Put it somewhere on your
 `PATH`, or run it in place.
@@ -56,7 +59,7 @@ Ownership is unknown for 10 rows: the provider kept no record, or this analysis 
 
 Three things to read here:
 
-- **`degraded` is a support state, not a verdict on the software.** It means
+- **`Degraded` is a support state, not a verdict on the software.** It means
   the provider itself has said this machine is not a first-class target. Run
   `macportsbrew doctor` and it will tell you which provider said what, with the
   source and the date it was read.
@@ -131,12 +134,12 @@ disagree with an answer, this output names the rule to argue with.
 ## The rest of the surface
 
 ```sh
-macportsbrew list                     # inventory only, no recommendations
+macportsbrew list                     # the analyze table, without the reasons
 macportsbrew list --provider macports # one provider
 macportsbrew analyze --advanced       # include dependency-level packages
 macportsbrew doctor                   # PATH order, prefixes, provider health
-macportsbrew plan <pkg> --to macports # a plan; nothing is executed
-macportsbrew snapshot --out state.json
+macportsbrew plan <pkg> --to macports # or --to homebrew; nothing is executed
+macportsbrew snapshot --out state.json # replaces only its own earlier output
 macportsbrew analyze --from-snapshot state.json
 ```
 
@@ -150,7 +153,8 @@ Add `--json` to any of them for a versioned payload on stdout. See the
 `migrate --yes` reaches a refusal gate that refuses every plan this build
 produces, and no code path in this binary runs a mutating provider subcommand
 or asks for a password. Nothing in either package manager changes when you run
-any command on this page; `snapshot --out` writes only the file you name.
+any command on this page; `snapshot --out` writes only the new file you name,
+and replaces an existing file only when it is a MacPortsBrew document.
 
 `--no-network` and `--refresh` are accepted and do nothing in this build.
 `--yes` makes `migrate` put its plan to the execution gate, which refuses it
@@ -160,7 +164,7 @@ an empty cache.
 
 ## Where to go next
 
-- Your Homebrew shows `degraded` and you are on Intel:
+- Your Homebrew shows `Degraded` and you are on Intel:
   [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md).
 - You want to move something: pick your direction from
   [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) or

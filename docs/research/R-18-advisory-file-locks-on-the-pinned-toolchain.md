@@ -155,8 +155,8 @@ $ mount | awk '{print $1, $3, $4}' | grep -v "^/dev/disk.*/System" | head -20
 /dev/disk1s4s1 / (apfs,
 devfs /dev (devfs,
 map on /System/Volumes/Data/home
-/dev/disk3s1 /Volumes/PABLO (apfs,
-...  /dev/disk3s2 /Volumes/XCodeVault (apfs,
+/dev/disk3s1 /Volumes/<volume> (apfs,
+...  /dev/disk3s2 /Volumes/<volume> (apfs,
 ```
 `mount | grep -iE "nfs|smb|exfat|afp|webdav|fuse"` printed nothing. No network
 or non-APFS volume was available, so no lock was attempted on one.

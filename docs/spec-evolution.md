@@ -7059,3 +7059,130 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   than left breaking every code commit. Owed under the next escape: that fix,
   and pointing the session-start case at a scratch root.
 
+
+## SE-094 — The pre-release review before 0.1.0: what it changed and what it recorded
+- Status: accepted
+- Date / Pass: 2026-10-11 / pre-release review after pass 10
+- Original assumption: passes 08-10 had each been reviewed; a whole-repository
+  review would find little.
+- Change: five independent reviewers (security, spec conformance, documentation,
+  Rust code quality with three per-crate sub-reviews, silent failures) read the
+  whole repository at `df95f96`. What they found and what was done:
+  - **Unknowns reported as favourable answers (fixed).** A package nobody asked
+    for was called `ORPHAN` even when the provider could not answer reverse
+    dependencies; it is now `DEPENDENCY` unless that answer exists
+    (`analysis::ownership_of`), and a snapshot that does not mention the
+    capability has not answered. The evidence still names the provider's
+    intent record as the mechanism and does not mark that the
+    `DEPENDENCY`/`ORPHAN` split defaulted; both are hidden in the default
+    view, and marking it is owed with the evidence model. `02-domain-model.md`
+    now says `ORPHAN`, the value the code and schemas always used, where two
+    MUST paragraphs still said `ORPHAN_DEPENDENCY` (older entries and research
+    notes keep the old word as history). Intent is read from the active installation,
+    not whichever version sorts first. MacPorts `DeprecationState` was
+    `Available` without being read; it is `Unknown`. A MacPorts executable whose
+    link cannot be followed on this machine was claimed by MacPorts; it is
+    unresolved, as for Homebrew (INV-17).
+  - **Parsing (fixed).** MacPorts' installed-tuple revision is the first
+    `_<digits>` run that ends at the end or at a variant sign, not the last:
+    variant names may end in `_<digits>` (`+perl5_34`) but never contain a sign
+    (`portlint_run.tcl`, read 2026-10-11); a version containing `_<digits>-`
+    stays ambiguous; that limit is documented on `split_tuple`, and nothing
+    at run time flags it. Free text is bounded in bytes at a
+    character boundary, matching the snapshot boundary. A dot-named regular
+    file (`.DS_Store`) in a launchd location is not a startup item.
+  - **Homebrew and the machine read (fixed).** `service` is a required key of
+    every `info --json=v2` formula row (R-8: v2 always emits it, `null` when
+    absent; 733 of 733 captured rows carry it): a row without it is
+    `ProviderOutputChanged`, never "defines no service", so `ServiceMetadata`
+    cannot vouch for an answer nobody gave. Names from `brew list --pinned` are
+    validated like every other provider name, and an unvalidated name quoted in
+    an error is debug-quoted and bounded. `hw.machine`/`uname -m` describe the
+    process, so they are consulted only after `hw.optional.arm64` answers
+    cleanly or, when that probe fails, after `sysctl.proc_translated` rules
+    translation out; otherwise the machine read is `ErrorId::Io` — a translated
+    process is never reported as Intel because a probe failed. System probes
+    are pinned like provider reads, each to one absolute path and the exact
+    argv vectors the reader sends (`SYSTEM_PROBE_INVOCATIONS`), checked in both
+    directions by test. A `try_wait` failure on a started child is
+    `Signalled { signal: None }`, not `NotStarted`, so it is no longer read as
+    "provider absent". Owed: `NotStarted` still conflates a refused spawn, a
+    missing program and a fork failure (all read as absent); telling them apart
+    is a public-type change for the mutating pass.
+  - **The user's machine (fixed).** The tool refuses to run as root, at startup
+    (`invariant_06_the_tool_refuses_to_run_wholly_as_root`). It learns the
+    user from the owner of a file it creates in the temporary folder, never
+    reusing a name already there; when that cannot be done it says on stderr
+    that the check did not run and continues — failing closed would stop the
+    tool on a machine with an unwritable temporary folder, and nothing in this
+    build elevates or writes state outside the commands that ask to. The call
+    site itself has no test (the uid source is not injectable); the function
+    and the notice do. `snapshot --out`
+    and `doctor --report` replace an existing file only when it is itself a
+    MacPortsBrew document, decided from one bounded, non-blocking open that
+    refuses a symlink (`persistence::read_regular_file_for_replacement`). Every word of a command a plan invites a person to
+    type is quoted for a POSIX shell (and a leading `=`, which zsh expands), so a snapshot's prefix cannot carry
+    `$(...)` into their shell. An unknown `--to`/`--provider` and a malformed
+    `--today` are usage errors (exit 2) naming the valid values; `--from-snapshot`
+    and `--replay` conflict; a usage error's quoted value is escaped before it
+    reaches the terminal. Standard output is flushed and checked before exit.
+  - **Structure (fixed).** The replay prefix override moved from the
+    command-line crate into `adapters::registry::prefix_overrides_from`, and a
+    test holds `crates/cli/src` to naming no provider. The registry's fallback
+    prefix is a named `fallback` in `provider-prefixes.toml`, not a position in
+    a list. `plan`, `migrate` and `explain` share one package selection. Dates
+    in policy data must be digits. Crates are `publish = false`.
+  - **Tests added for invariants that lacked one:** INV-04 (a removal with
+    dependents stops at manual review, explained), INV-14 (no network crate or
+    socket type anywhere in the build).
+  - **Recorded, not changed:**
+    - `04-migration-and-safety.md` asks `doctor` for "a dual-Homebrew-prefix
+      check on Apple Silicon". It does not exist: detection takes the first
+      candidate that holds `brew`, and a second Homebrew under `/usr/local` on
+      an Apple Silicon Mac is not reported. Owed; the README's known
+      limitations say so.
+    - `PROVIDER_REPORTS_ACTIVE` is evaluated from an "installed" read; "active"
+      is not asserted. Harmless while the gate refuses every plan (the other
+      four destination checks are not evaluable), and owed before the mutating
+      pass: slice 4's definition of done carries it.
+    - 04 asks the plan for environment changes, cleanup policy and a rollback
+      story; `MigrationPlan` carries cleanup review as a step, records
+      environment changes in history (SE-092), and has no rollback field.
+      Owed with restore.
+    - Provider layout knowledge held in code without `source`/`read_on` (the
+      launchd locations, `var/macports`) is parser-format knowledge, cited in
+      the code beside the source read (INV-20 covers dated support facts);
+      `PORT_RESERVED_WORDS` and the brew loader suffixes are refusal lists that
+      fail open when stale and are re-read when a provider's version moves.
+    - Architecture detection reads `sysctl`'s "unknown oid" answer (exit 1,
+      stderr) as observed on macOS 12 to 26; the 10.12-11 floor is not
+      observed. A different answer there fails closed (`ErrorId::Io`), which
+      would stop the tool on such a Mac rather than mislead it; a recording
+      from that floor is owed.
+    - INV-13 and `plan <dependency>` without `--advanced` is the owner's
+      reading to give (DP-037); 0.1.0 ships the reading recorded in SE-048,
+      under which the tool only plans, never acts.
+    - The staleness notice measures from the newest `read_on`, as
+      `policy.toml` documents; a reviewer preferred the oldest. Kept.
+    - `Recommendation`'s fields are public and the type deserialises, so its
+      at-least-one-reason rule is checked at construction only; nothing loads a
+      recommendation from a file today. Owed with history read-back.
+    - Owner decisions filed: DP-037 (INV-13 and naming a package), DP-038
+      (personal data in history and fixtures), DP-039 (`claude.yml` and pull
+      request hooks).
+- Evidence: the tests named above, and `nothing_is_an_orphan_unless_its_dependents_could_be_read`,
+  `intent_is_read_from_the_active_installation`,
+  `a_formula_row_missing_its_service_key_fails_rather_than_reading_as_no_service`,
+  `a_failed_arm64_probe_on_a_translated_process_never_reads_x86_64`,
+  `a_system_probe_is_pinned_to_its_directory_and_its_exact_vectors`,
+  `a_hostile_prefix_in_a_snapshot_is_rendered_as_one_quoted_word`,
+  `snapshot_and_report_replace_only_their_own_documents`,
+  `crates/adapters/tests/replacement_read.rs`,
+  `the_command_line_crate_names_no_provider_in_its_own_code`; each new rule's
+  mutant was killed. A second security and spec review of the fix set found
+  nothing High or Medium; its Lows were fixed or are recorded here. The
+  reviewers' summary is in `docs/passes/10-read-only-release-candidate-report.md`.
+- Compatibility impact: `--json` shapes unchanged. Values change where an
+  answer was wrong: some `ORPHAN` rows become `DEPENDENCY`, MacPorts
+  `DEPRECATION_STATE` is `UNKNOWN`, and a MacPorts row with a `_<digits>`
+  variant parses its version and variants correctly.

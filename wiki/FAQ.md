@@ -70,15 +70,17 @@ that remains once migration lands). Observed on Homebrew 7.0.4, 2026-10-02,
 and MacPorts 2.12.6, 2026-10-03. Whether that is enough to meet the
 no-network and no-telemetry promises is still an open question for the project.
 
-`doctor --report` writes a **local** file, without home paths, user names or
-environment values (tested section by section). Read it before you share it;
+`doctor --report` writes a **local** file, without your user name or home
+folder path. `PATH` entries a finding mentions appear with your home folder
+shown as `~`; other environment variables are named but their values are left
+out. It also lists every installed package. Read it before you share it;
 MacPortsBrew never uploads it.
 
 ## Do I need Homebrew or MacPorts installed?
 
-No. MacPortsBrew reports what it finds, including neither. It will never
-install a package manager implicitly — that needs your explicit consent and is
-a separate step.
+No. MacPortsBrew reports what it finds, including neither. This build never
+installs a package manager; install it yourself first if you want to move
+packages to it.
 
 ## Is this only for Intel Macs?
 
@@ -105,8 +107,8 @@ considered refusal, not a shrug.
 
 ## Can I override a recommendation?
 
-Yes. It is your machine. `macportsbrew plan <pkg> --to <provider>` builds the
-plan whether or not the engine agrees, and says so. From
+Yes. It is your machine. `macportsbrew plan <pkg> --to <provider>` (`homebrew` or
+`macports`) builds the plan whether or not the engine agrees, and says so. From
 `plan curl --to macports` replayed from the committed Intel recording, the
 plan's third line:
 
@@ -146,10 +148,14 @@ consolidating is precisely the operation that breaks one of the two trees.
 
 ## Can it manage casks and Mac App Store apps?
 
-Casks are inventoried, labelled, and **excluded from migration planning** —
-MacPorts has no equivalent concept, and a cask can install launch machinery
-under a vendor label its metadata does not name, so removing one cleanly is not
-something MacPortsBrew can promise. Mac App Store apps and arbitrary `.app`
+Casks are inventoried, labelled, and **excluded from migration planning**.
+MacPorts has no cask format. It does ship GUI applications as ordinary ports
+(1332 in its `aqua` category), but the port is often a different version, a
+different vendor's build, or installs to a different place than the cask, and a
+cask can install system launch machinery its own metadata does not track, so
+removing one cleanly is not something MacPortsBrew can promise. (Observed on
+Homebrew 6.0.21 and cited from both projects' documentation, 2026-09-04:
+[research note R-12](../docs/research/R-12-cask-migratability.md).) Mac App Store apps and arbitrary `.app`
 bundles are out of scope entirely.
 
 ## What if the mapping is wrong?
@@ -186,9 +192,8 @@ try, is in [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## Where is the release?
 
-There is not one yet. The repository will be public on GitHub, but it is not
-there yet. Releases will be signed with a Developer ID and notarised by Apple.
-Until then, build from source — see
+Until the first release is published, build from source. Releases will be
+signed with a Developer ID and notarised by Apple. To build, see
 [Getting Started](Getting-Started.md).
 
 ## Is it affiliated with Homebrew or MacPorts?

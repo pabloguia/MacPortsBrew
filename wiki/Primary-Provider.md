@@ -64,30 +64,36 @@ and not yet built.
 ### 2. Recommend the versioned executable name
 
 Where one exists — `python3.12`, `gcc-14` — using it is free and cannot drift.
-Both providers already converge on this convention: Homebrew requires suffixed
-binaries before a versioned formula may be linked alongside its unversioned
-counterpart, and automating the same choice is what MacPorts' own selection
-mechanism exists for.
+Both providers already lean on this convention. Homebrew's documentation says a
+versioned formula should be linkable alongside its unversioned counterpart only
+if upstream supports it, "e.g. by using suffixed binaries"
+(<https://docs.brew.sh/Versions>, read 2026-09-02); MacPorts' own selection
+command exists to choose which version the unsuffixed name points to
+(`port(1)`, read 2026-09-02; both in
+[research note R-6](../docs/research/R-6-primary-provider-mechanisms.md)).
 
-MacPortsBrew offers this before it offers to move any symlink.
+When primary selection is built, MacPortsBrew is designed to offer this before
+it offers to move any symlink.
 
 ### 3. Delegate an intra-MacPorts version choice to MacPorts' own selection mechanism
 
 For choosing between versions *within* MacPorts, the provider's own selection
 command is the right tool, doing the job it was built for.
 
-**MacPortsBrew proposes the exact command and shows its impact. It does not run
-it.** The write goes into the MacPorts prefix and needs elevation, and keeping
-primary selection off the elevating path is what keeps analysis, `doctor` and
-dry-run unprivileged. Afterwards it re-reads the selection to
-verify what happened.
+**When this layer is built, MacPortsBrew will propose the exact command and
+show its impact. It will not run it.** The write goes into the MacPorts prefix
+and needs elevation, and keeping primary selection off the elevating path is
+what keeps analysis, `doctor` and dry-run unprivileged. Afterwards it will
+re-read the selection to verify what happened.
 
 ### 4. A MacPortsBrew-owned shim directory
 
-For a genuine cross-provider choice, a directory MacPortsBrew owns —
-`~/.local/share/macportsbrew/bin` or the platform equivalent — containing
-symlinks to the chosen implementation, with **exactly one** `PATH` prepend
-inside a managed block in your shell configuration.
+For a genuine cross-provider choice, a directory MacPortsBrew would own — the
+specification sketches `~/.local/share/macportsbrew/bin`, but the location is
+not decided; it is neither `~/.macportsbrew/bin`, where the installer puts the
+program, nor the state directory — containing symlinks to the chosen
+implementation, with **exactly one** `PATH` prepend inside a managed block in
+your shell configuration. Not built in 0.1.0.
 
 This is the only layer that can express a cross-provider primary at all, and the
 only one symmetric between the two migration directions. It is also the most

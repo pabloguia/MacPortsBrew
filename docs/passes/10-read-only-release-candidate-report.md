@@ -146,6 +146,27 @@ not admin; once per artifact and architecture available to you):
 
 ## Reviews
 
-The truth sweep was the first `docs-auditor` run. The end-of-pass reviews are
-part of the exhaustive pre-release review that follows this pass; its findings
-and their resolution are recorded in that review's report.
+The truth sweep was the first `docs-auditor` run. The end-of-pass reviews were
+folded into the exhaustive pre-release review that followed this pass
+(SE-094), at `df95f96`, by independent reviewers that had not written the
+code: `security-reviewer`, `spec-guardian`, `docs-auditor`, a Rust
+code-quality review split by crate group (domain/policy/application,
+adapters, cli), and a silent-failure review. Each finding was either fixed
+in the commits after `df95f96`, with a test and, for a new rule, a killed
+mutant, or recorded with its reason in SE-094 ("Recorded, not changed") or
+as an owner decision (DP-037, DP-038, DP-039).
+
+The highest-severity findings, all fixed:
+
+- unknowns reported as favourable answers: `ORPHAN` without reverse
+  dependencies, MacPorts deprecation `Available` unread, an unfollowable
+  MacPorts link claimed;
+- a snapshot's prefix reaching a person's shell unquoted through a plan's
+  command lines;
+- `snapshot --out` / `doctor --report` overwriting any existing file;
+- no refusal to run as root;
+- MacPorts tuple parsing on `_<digits>` variants;
+- a provider-naming helper in the command-line crate.
+
+Before publishing, the owner should rule on DP-038: personal data in the
+git history and in the fixtures.
