@@ -8,7 +8,7 @@ two disagree, the specification wins and this file is the bug.
 
 **Tooling facts here were verified against Anthropic's Claude Code
 documentation on 2026-09-02, re-verified at the start of the Foundation Pass
-the same day, and most recently on 2026-10-03, every group** — the pages `/tooling-recheck` names; the notes
+the same day, and most recently on 2026-10-10, every group** — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 
@@ -48,7 +48,8 @@ are and are not, and why the honest statement matters here.
 ## Prerequisites
 
 - **Claude Code** — 2.1.278 is what this configuration was last verified with,
-  on 2026-10-03 (`claude --version`; 2.1.258 on 2026-09-02).
+  on 2026-10-10 (`claude --version`; 2.1.258 on 2026-09-02). The documentation
+  read that day describes features up to v2.1.296.
 - **`jq` or `python3`.** The guard hooks parse their JSON input with one of
   them and *fail closed* when neither is present, so without one every Bash
   tool call is denied. `python3` from the Command Line Tools is enough.
@@ -65,8 +66,12 @@ are and are not, and why the honest statement matters here.
 
 You do not configure permissions by hand — they are checked in. Verify a
 session with `/context` (the agents appear under Custom Agents and the
-`@AGENTS.md` import under Memory files), `/permissions`, and by asking Claude
-to run `brew install cowsay` — it must be refused.
+`@AGENTS.md` import under Memory files), `/status` (its "Setting sources" line
+shows the project settings file loaded — start the session from the repository
+root, because the shared settings file is read from the primary working
+directory), `/permissions`, and by asking Claude
+to run `brew install cowsay` — it must be refused. Most of `settings.json`'s `env` and `allow` entries wait
+until you trust the workspace; its `deny` and `ask` rules apply at once.
 
 ## Official plugins worth installing
 
@@ -75,9 +80,9 @@ yourself. Turning any of these into a project commitment means adding
 `enabledPlugins` and `extraKnownMarketplaces` to `settings.json`, which is what
 every collaborator's Claude Code would then try to load — that belongs in an
 ADR, not a quiet edit. Names checked 2026-09-02 against the official
-marketplace `claude-plugins-official`, which Claude Code registers on first
-interactive start (`/plugin marketplace add anthropics/claude-plugins-official`
-if it is missing).
+marketplace `claude-plugins-official`. Check it is registered with `/plugin`;
+if it reports `Marketplace ... not found`, run
+`/plugin marketplace add anthropics/claude-plugins-official`.
 
 ```
 /plugin install security-guidance@claude-plugins-official

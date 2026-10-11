@@ -31,7 +31,8 @@ during the security review that produced SE-072), every group re-read
 settings group and the subagents and skills group re-read **2026-10-02**
 (`docs/research/tooling/2026-10-02-*.md`), and all three groups re-read
 **2026-10-03** at the start of pass 07 (`docs/research/tooling/2026-10-03-*.md`;
-what they found and what was left is in that pass's report). The
+what they found and what was left is in that pass's report), and all three
+groups re-read **2026-10-10** (`docs/research/tooling/2026-10-10-*.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -60,7 +61,9 @@ enforced boundaries, the delegation policy, and the mistakes that are easy to
 make here. Claude Code's memory documentation now describes exactly this
 pattern for projects that keep `AGENTS.md`.
 
-Rationale: Claude Code reads `CLAUDE.md`, not `AGENTS.md`. Making `CLAUDE.md`
+Rationale: Claude Code reads `CLAUDE.md` when one exists, and `AGENTS.md` only
+when none does (and not at all on v2.1.276 or earlier, or in the first session
+after upgrading from one — memory docs, read 2026-10-10). Making `CLAUDE.md`
 canonical would tie a project meant to outlive any one tool to that tool;
 making `AGENTS.md` canonical and importing it costs one line (SE-024).
 
@@ -72,7 +75,9 @@ moves to the specification. A rule that exists in both places will drift, and
 the copy in the memory file wins by proximity, which is the wrong copy to win.
 
 **MUST.** Claude Code's automatic per-repository memory is disabled in
-`.claude/settings.json` (`autoMemoryEnabled: false`). Everything a future
+`.claude/settings.json` (`autoMemoryEnabled: false`; the environment variable
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY` is the other switch, and also disables a
+subagent's `memory:` field). Everything a future
 session needs to know about this project is a versioned file — the
 specification, `../decisions-pending.md`, `../research/`, this chapter — with
 a source and a date. An undated recollection carried between sessions in a
