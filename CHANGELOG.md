@@ -46,6 +46,9 @@ to answer.
   or version, the `and`/`or`/`not` operators and a Homebrew name ending in `.rb`
   are refused before any provider runs; the planner's own reserved-name guard,
   which `installed@1` used to pass, is fixed.
+- **The provider configuration is re-checked before each mutating step**, as a
+  function the executor shell must call (a build that turns mutations on without
+  calling it before every dispatch fails its tests).
 - **The single-instance run lock and the interrupted-run marker (pass 08,
   slice 2).** An exclusive advisory lock on `run.lock` in the state directory
   (a second run is `RUN_LOCK_HELD`, exit 7; a killed holder frees it), and an

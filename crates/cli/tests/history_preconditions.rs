@@ -167,6 +167,7 @@ const MARKER_WRITE: &str = "run_marker::write(";
 const DISPATCH: &str = "dispatch(";
 const WRITE_RECORD: &str = "history_store::write_record(";
 const MARKER_CLEAR: &str = "run_marker::clear(";
+const RECHECK: &str = "recheck_provider_configuration(";
 
 /// Every way the executor shell, with mutations on, fails to take the lock,
 /// write the marker and publish the record in the order a mutating run needs,
@@ -319,6 +320,34 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
         record.first().copied(),
         "a record cannot be published before the first dispatch",
     );
+    // The provider's configuration is re-checked before *each* dispatch: some
+    // re-check lies between every dispatch call and the one before it (or the
+    // marker write, for the first), and its result is bound to a name - a token
+    // the wiring hands to the dispatch, so `let _ =` or a bare statement throws
+    // the check away (SE-016, DP-027 (b); pass 08 slice 3, D-R1′). The textual
+    // rule is the backstop; the token type is the real one.
+    if ordered {
+        let rechecks = calls_of(code, RECHECK);
+        if rechecks.is_empty() {
+            violations.push(format!("[config] {name} never calls {RECHECK}"));
+        }
+        let mut boundary = write.unwrap_or(0);
+        for d in calls_of(code, DISPATCH) {
+            if !rechecks.iter().any(|r| *r > boundary && *r < d) {
+                violations.push(format!(
+                    "[config] {name}: a dispatch is not preceded by its own re-check"
+                ));
+            }
+            boundary = d;
+        }
+        for r in &rechecks {
+            if lock_binding(code, Some(*r)).is_none() {
+                violations.push(format!(
+                    "[config] {name}: a re-check's result is not bound to a name that is kept"
+                ));
+            }
+        }
+    }
     // Some clear must follow a record: the marker outlives the record's write.
     if let (true, Some(first_record), false) = (ordered, record.first(), clear.is_empty()) {
         if !clear.iter().any(|c| c > first_record) {
@@ -377,6 +406,17 @@ fn mutations_cannot_dispatch_without_the_interrupted_run_marker_read_written_and
 }
 
 #[test]
+fn mutations_cannot_dispatch_without_rechecking_the_providers_configuration() {
+    // SE-016's check-then-use window: a `brew.env` or `macports.conf` that
+    // appeared after the capture refuses the step (DP-027 (b)).
+    let v = violations_with("config");
+    assert!(
+        v.is_empty(),
+        "mutations dispatch without re-checking the configuration: {v:?}"
+    );
+}
+
+#[test]
 fn the_shells_order_is_probe_lock_marker_dispatch_record_then_clear() {
     let v = violations_with("order");
     assert!(v.is_empty(), "mutations dispatch out of order: {v:?}");
@@ -411,6 +451,7 @@ fn run_with() {
     let lock = run_lock::acquire(&state, uid)?;
     let earlier = run_marker::read(&lock, &state, uid)?;
     run_marker::write(&lock, &state, &run, uid)?;
+    let checked = recheck_provider_configuration(&step.provider, &captured, &fresh)?;
     let results = dispatch(step, &site);
     history_store::write_record(&state, &record, uid)?;
     run_marker::clear(&lock, &state, &run, uid)?;
@@ -445,6 +486,7 @@ fn removing_any_one_call_is_a_violation_of_its_own_kind() {
         ("run_marker::write", "[marker]"),
         ("history_store::write_record", "[record]"),
         ("run_marker::clear", "[marker]"),
+        ("recheck_provider_configuration", "[config]"),
     ] {
         let v = violations_of(&without(call));
         assert!(
@@ -672,4 +714,49 @@ fn the_marker_must_be_cleared_after_a_record_and_not_only_before_one() {
     assert!(violations_of(&early)
         .iter()
         .any(|v| v.contains("never cleared after")));
+}
+
+#[test]
+fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_violation() {
+    let line =
+        "    let checked = recheck_provider_configuration(&step.provider, &captured, &fresh)?;";
+    let discarded = GOOD.replace(
+        line,
+        "    let _ = recheck_provider_configuration(&step.provider, &captured, &fresh)?;",
+    );
+    let bare = GOOD.replace(
+        line,
+        "    recheck_provider_configuration(&step.provider, &captured, &fresh)?;",
+    );
+    let before_marker = GOOD.replace(&format!("{line}\n"), "").replace(
+        "    run_marker::write(&lock, &state, &run, uid)?;",
+        &format!("{line}\n    run_marker::write(&lock, &state, &run, uid)?;"),
+    );
+    let shared = GOOD.replace(
+        "    let results = dispatch(step, &site);",
+        "    let results = dispatch(step, &site);\n    let more = dispatch(next, &site);",
+    );
+    for (what, text) in [
+        ("let _ =", discarded),
+        ("a bare statement", bare),
+        ("a re-check before the marker", before_marker),
+        ("one re-check for two dispatches", shared),
+    ] {
+        assert!(
+            violations_of(&text)
+                .iter()
+                .any(|v| v.starts_with("[config]")),
+            "{what}: {:?}",
+            violations_of(&text)
+        );
+    }
+    // One re-check per dispatch is fine.
+    let each = GOOD.replace(
+        "    let results = dispatch(step, &site);",
+        &format!(
+            "    let results = dispatch(step, &site);\n{}\n    let more = dispatch(next, &site);",
+            line.replace("checked", "checked_again")
+        ),
+    );
+    assert_eq!(violations_of(&each), Vec::<String>::new());
 }

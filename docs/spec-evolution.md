@@ -655,6 +655,20 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: elevation is a property the adapter answers per
   operation, so the plan's elevation list is derived, never inferred from the
   provider id.
+- **Addendum, the configuration re-check, 2026-10-10 (pass 08 slice 3, D-R1′).**
+  04's "a mutating executor must re-read immediately before each step" now has
+  its function: `application::recheck_provider_configuration(provider,
+  captured, fresh)`. Both readings must outrank nothing (`outranks() ==
+  Some(false)`); an unread side is `Unknown`, never a pass. It compares that
+  predicate, not equality, because the capture's labels are home-redacted and
+  the fresh read's are not (security review, M1). The answer is a
+  `ConfigurationRechecked` token that is neither `Clone` nor `Copy`, so the
+  wiring (slice 4) spends one per step and checks its provider against the
+  step's; the textual tripwire in `crates/cli/tests/history_preconditions.rs`
+  (`[config]`) is the backstop: a build that turns mutations on must call it,
+  bind its result, and place one strictly between each dispatch and the one
+  before it. The window between this re-read and the provider's own read at exec
+  is inherent and is stated in the module, not hidden.
 
 ## SE-035 — The read contract returns installed rows, and ownership names its mechanism
 - Status: accepted

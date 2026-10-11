@@ -14,6 +14,7 @@
 pub mod analysis;
 pub mod capture;
 pub mod classify;
+pub mod configuration_recheck;
 pub mod doctor;
 pub mod execution_gate;
 pub mod executor;
@@ -27,6 +28,9 @@ pub mod report;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 pub use capture::{capture, CaptureContext};
+pub use configuration_recheck::{
+    recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
+};
 pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
 pub use execution_gate::{
     evaluable_in_this_build, execution_refusals, ExecutionRefusal, GateReport,
