@@ -33,6 +33,9 @@ to answer.
 
 ### Added
 
+- **`macportsbrew --version` names what ran.** Four lines: the version, the
+  policy data version, the target triple and the commit (`unknown (not a release
+  build)` for a developer build). `-V` still prints `macportsbrew <version>`.
 - **MacPorts can be a plan's source on an ordinary machine, and a service it
   cannot attribute is never read as "no service" (pass 08, slice 3).** The
   MacPorts service scan used to answer "unknown" whenever no port had ever

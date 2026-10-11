@@ -9,6 +9,7 @@
 mod context;
 mod human;
 mod migrate;
+pub mod version;
 
 use crate::i18n::Messages;
 use clap::{Parser, Subcommand};

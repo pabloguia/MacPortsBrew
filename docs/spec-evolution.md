@@ -1654,6 +1654,16 @@ change is made. Silent deviation remains the one unrecoverable error.
   goes through the i18n layer" is read with this one stated exception until
   the locale pass revisits it (evidence: `crates/cli/src/app/mod.rs`
   doc-comments; `docs-auditor` finding, 2026-09-02).
+- **Addendum, the version block, 2026-10-11 (pass 09, D-V1).** `--version`
+  prints four fixed English lines — `macportsbrew <version>`, `policy <id>`,
+  `target <triple>`, `commit <sha>` or `commit unknown (not a release build)`
+  (`crates/cli/src/app/version.rs`). It joins `--help` as a stated exception,
+  for a different reason: it is a machine-read contract (the release job and a
+  bug report parse it), so a translation would break its readers. `-V` is
+  unchanged (`macportsbrew <version>`). The target and commit come from
+  `MPB_BUILD_TARGET` and `MPB_BUILD_COMMIT` at compile time through
+  `option_env!` — no build script — and the policy line from the embedded data
+  at run time, the same value `doctor --report` prints.
 
 ## SE-020 — Foundation pass forbidden from shipping any mutating code path
 - Status: accepted
