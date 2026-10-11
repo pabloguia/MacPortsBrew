@@ -211,6 +211,16 @@ fn migrate_dry_run_renders_every_command_including_elevated_ones() {
     let mut elevated = 0;
     for step in doc["plan"]["steps"].as_array().expect("steps") {
         for command in step["commands"].as_array().into_iter().flatten() {
+            // This tool's own command is not one this version has; the view
+            // says what to do instead of showing a `$` line that would fail.
+            if command["target"]["target"] == "TOOL" {
+                assert!(
+                    text.contains("Not a command in this version."),
+                    "the tool's own step is explained:\n{text}"
+                );
+                assert!(!text.contains("$ macportsbrew "), "{text}");
+                continue;
+            }
             let argv: Vec<&str> = command["argv"]
                 .as_array()
                 .expect("argv")
@@ -254,8 +264,12 @@ fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
         "{text}"
     );
     assert!(
-        text.contains("The execution gate refused this plan"),
+        text.contains("This version never changes your machine, so the plan was not run."),
         "{text}"
+    );
+    assert!(
+        text.contains("To do this yourself, run the commands shown under each step"),
+        "what to do by hand follows the reasons: {text}"
     );
     assert!(
         text.contains("Step 2 changes the machine, and this build changes nothing."),

@@ -4896,8 +4896,7 @@
       "class": {
         "classes": [
           "STATEFUL",
-          "SERVICE",
-          "RUNTIME"
+          "SERVICE"
         ],
         "evidence": [
           {
@@ -4909,11 +4908,6 @@
             "class": "SERVICE",
             "detail": "postgresql@17",
             "rule": "provider_service_definition"
-          },
-          {
-            "class": "RUNTIME",
-            "detail": "postgresql@18",
-            "rule": "versioned_family"
           }
         ]
       },
@@ -5010,14 +5004,6 @@
               "provider": "homebrew"
             },
             "rule": "MANUAL_REVIEW_PERSISTENT_DATA"
-          },
-          {
-            "id": "reason.runtime_family_managed_elsewhere",
-            "params": {
-              "family": "postgresql",
-              "managers": ""
-            },
-            "rule": "RUNTIME_USE_MANAGER"
           }
         ],
         "rulesNotFired": [
@@ -5027,6 +5013,7 @@
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
           "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]

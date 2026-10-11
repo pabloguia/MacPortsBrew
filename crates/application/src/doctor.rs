@@ -458,9 +458,7 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
         add(
             "policy_stale",
             Severity::Warning,
-            Reason::new("policy.stale_notice")
-                .with("readOn", &policy.newest_read_on())
-                .with("url", &"https://github.com/macportsbrew/macportsbrew"),
+            Reason::new("policy.stale_notice").with("readOn", &policy.newest_read_on()),
             None,
         );
     }

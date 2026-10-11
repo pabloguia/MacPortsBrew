@@ -26,6 +26,14 @@ pub fn classify(
             family.family.clone(),
         );
     }
+    // `RUNTIME` is "a language runtime or toolchain with its own ecosystem"
+    // (`02-domain-model.md`). Versioned siblings are evidence of one only for a
+    // family the policy data knows as a language family: `ffmpeg`, `openssl`
+    // and `llvm` have versioned formulae too, and calling them runtimes made
+    // the engine suggest a language runtime manager for a video tool (truth
+    // sweep, pass 10, M10).
+    let family = family_of(name);
+    let language_family = !policy.runtime_managers_for(&family).is_empty();
     if let Some(meta) = metadata {
         if let Some(origin) = &meta.origin {
             set.add(PackageClass::ThirdPartySourced, "non_core_origin", origin);
@@ -33,7 +41,7 @@ pub fn classify(
         if meta.defines_service {
             set.add(PackageClass::Service, "provider_service_definition", name);
         }
-        if !meta.versioned_siblings.is_empty() {
+        if language_family && !meta.versioned_siblings.is_empty() {
             set.add(
                 PackageClass::Runtime,
                 "versioned_family",
@@ -43,16 +51,16 @@ pub fn classify(
                     .collect::<Vec<_>>()
                     .join(","),
             );
-        } else if meta
-            .not_on_default_path_reason
-            .as_deref()
-            .is_some_and(|r| r.contains("versioned_formula"))
+        } else if language_family
+            && meta
+                .not_on_default_path_reason
+                .as_deref()
+                .is_some_and(|r| r.contains("versioned_formula"))
         {
             set.add(PackageClass::Runtime, "versioned_formula_reason", name);
         }
     }
-    let family = family_of(name);
-    if !set.has(PackageClass::Runtime) && !policy.runtime_managers_for(&family).is_empty() {
+    if !set.has(PackageClass::Runtime) && language_family {
         set.add(PackageClass::Runtime, "runtime_manager_family", family);
     }
     set
@@ -89,7 +97,7 @@ mod tests {
         };
         let set = classify(
             &ProviderId::new("homebrew"),
-            "someformula",
+            "python@3.12",
             PackageKind::Package,
             Some(&meta),
             &policy(),
@@ -97,6 +105,47 @@ mod tests {
         assert!(
             set.has(PackageClass::Runtime),
             "a versioned-formula reason must reach RUNTIME"
+        );
+        assert!(
+            set.evidence
+                .iter()
+                .any(|e| e.class == PackageClass::Runtime && e.rule == "versioned_formula_reason"),
+            "and it is recorded by that route: {set:?}"
+        );
+    }
+
+    #[test]
+    fn versioned_siblings_make_a_runtime_only_of_a_language_family() {
+        let meta = PackageMetadata {
+            versioned_siblings: ["ffmpeg@7".to_string()].into_iter().collect(),
+            not_on_default_path_reason: Some("this is a versioned_formula".to_string()),
+            ..PackageMetadata::default()
+        };
+        let homebrew = ProviderId::new("homebrew");
+        let video = classify(
+            &homebrew,
+            "ffmpeg",
+            PackageKind::Package,
+            Some(&meta),
+            &policy(),
+        );
+        assert!(!video.has(PackageClass::Runtime), "{video:?}");
+        let language = PackageMetadata {
+            versioned_siblings: ["node@22".to_string()].into_iter().collect(),
+            ..PackageMetadata::default()
+        };
+        let node = classify(
+            &homebrew,
+            "node",
+            PackageKind::Package,
+            Some(&language),
+            &policy(),
+        );
+        assert!(
+            node.evidence
+                .iter()
+                .any(|e| e.class == PackageClass::Runtime && e.rule == "versioned_family"),
+            "{node:?}"
         );
     }
 

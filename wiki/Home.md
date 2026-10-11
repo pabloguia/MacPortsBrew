@@ -1,6 +1,8 @@
 # MacPortsBrew
 
-> Safely migrate and manage packages between Homebrew and MacPorts on macOS.
+> See what Homebrew and MacPorts have installed, compare them package by
+> package, and plan a migration in either direction. Version 0.1.0 reads and
+> plans; it changes nothing.
 
 MacPortsBrew looks at what you have installed under Homebrew and under
 MacPorts, works out which packages are equivalent, explains which provider is
@@ -47,8 +49,9 @@ the order.
   — prebuilt artifacts, source builds, and how to tell which you will get.
 - [Primary Provider](Primary-Provider.md) — when both providers have the same
   tool, which one actually runs.
-- [Restoring After a Migration](Restoring-After-a-Migration.md) — snapshots, history and the
-  restore path.
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — how to take
+  your own snapshot before you change anything by hand. History and a restore
+  command are designed but are not in 0.1.0.
 
 ## What this build does
 
@@ -59,16 +62,16 @@ asks to read, may fetch its package catalogue; see the FAQ).
 
 `plan` prints exactly what would happen and stops, and so does `migrate`;
 `migrate --yes` reaches a refusal gate that refuses every plan this build
-produces. Execution is a later pass. Every page here that describes a
-migration says plainly where the plan ends and the not-yet-written executor
-would begin.
+produces, and exits 4. Running a plan is for a later release. Until then, a
+plan is something you can follow by hand, at your own risk; every page here
+that describes a migration says plainly where the plan ends.
 
 ## Privacy
 
 No telemetry, and no network call that reports anything about you.
-`macportsbrew doctor --report` writes a **redacted** diagnostic file locally —
-no usernames, home paths, environment variable values or tokens — which you
-read and choose to share. MacPortsBrew never uploads it.
+`macportsbrew doctor --report` writes a diagnostic file locally, without home
+paths, user names or environment values (tested section by section). Read it
+before you share it; MacPortsBrew never uploads it.
 
 ## Not affiliated
 

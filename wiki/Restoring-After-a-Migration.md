@@ -32,10 +32,14 @@ produces the same answer.
 Taking a snapshot before you change anything by hand is the single most useful
 thing you can do with this build.
 
-Snapshots are redacted the same way everything else is: no usernames, no home
-paths, no environment variable values.
+A snapshot is written without home paths or user names (tested). Read it
+before you share it.
 
 ## What the restore path will be
+
+**None of the commands in this section exists in 0.1.0** — `history` and
+`restore` are designed and not yet written, and typing them today prints an
+"unrecognized subcommand" error. What follows is the design.
 
 Every mutating run will begin by taking a snapshot, and record it against the
 run. Then:
@@ -70,6 +74,8 @@ forward. There is no `resume` command, because there is nothing separate to
 resume.
 
 ## What a restore can and cannot promise
+
+This, too, describes the design; 0.1.0 has no restore.
 
 **Can:** reinstall packages that were removed, remove packages that were added,
 and put back the primary-provider selection *for the packages that run changed*

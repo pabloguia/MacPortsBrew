@@ -8,25 +8,47 @@ macportsbrew doctor
 
 It checks the things that are wrong most often, and each finding carries its
 reason — and, for anything derived from provider policy, the source and the
-date that policy was read.
+date that policy was read. Replayed from the committed recording of an Intel
+Mac with Homebrew and no MacPorts
+(`macportsbrew --replay fixtures/recordings/homebrew-only-intel-macos26.json doctor`),
+it prints:
 
 ```
-[Warning] macports's prefix /opt/local is not on PATH.
-[Warning] homebrew support for this machine is Degraded
-          (source: https://docs.brew.sh/Support-Tiers, read 2026-09-02).
+[Warning] This analysis carries no PATH, so nothing can be said about which provider's executables win. A recording does not capture the environment; run `doctor` live for the real answer.
+[Warning] homebrew: this input does not record the configuration files of homebrew - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs homebrew is unknown.
+[Warning] homebrew support for this machine is Degraded (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04).
+[Warning] homebrew has announced the end of support for this machine in or after 2027-09-01 (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04). This is dated data; re-check it before relying on it.
 [OK] Command Line Tools are installed.
+[OK] macports is not installed here (it was not found where it is documented to live).
 [OK] homebrew 6.0.21 is present.
+
+Deep inspection of binaries for cross-prefix links (--deep) is not part of this build.
+
+Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read.
 ```
+
+The first two warnings are there because a recording carries no `PATH` and no
+provider configuration files. Run on your own machine, `doctor` reads both and
+reports, for example, a provider prefix that is not on `PATH`.
 
 For an issue report, `macportsbrew doctor --report <file>` writes the same
-information in a redacted file — no usernames, home paths, environment variable
-values or tokens. Read it before you share it; MacPortsBrew never uploads it.
+information to a file, without home paths, user names or environment values
+(tested section by section). Read it before you share it; MacPortsBrew never
+uploads it.
 
 ## The wrong version of a tool runs
 
-Both providers have it, and `PATH` order decides. `macportsbrew analyze` shows
-the effective resolution per package: what runs, and which provider owns it.
-`macportsbrew doctor` shows the `PATH` order and flags duplicate entries.
+Both providers have it, and `PATH` order decides. `macportsbrew doctor`, run
+live, shows the order in which your `PATH` reaches each provider's prefix and
+flags duplicate entries. For one tool, ask the shell:
+
+```sh
+command -v <tool>   # the copy that runs
+which -a <tool>     # every copy on PATH, in order
+```
+
+A per-package report of what runs and which provider owns it is specified for
+`analyze` but is not in 0.1.0.
 
 See [Primary Provider](Primary-Provider.md) for the four ways to change it,
 least invasive first. This build reports; it does not change what runs.
@@ -37,8 +59,14 @@ There is no prebuilt artifact for your machine, or non-default options were
 requested, or a licence restriction applies. `macportsbrew analyze` names which:
 
 ```
-gh  homebrew  2.98.0  Builds from source (no prebuilt artifact for this machine)
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+gh                  homebrew    2.98.0       Requested  Builds from source (no prebuilt artifact for this machine)  Simple              Nothing to do
+…
 ```
+
+(One row of `analyze` replayed from the same recording; `…` marks rows left
+out.)
 
 This is normal and increasingly common on Intel. See
 [Understanding Bottles and Source Builds](Understanding-Bottles-and-Source-Builds.md),
@@ -132,7 +160,8 @@ macportsbrew analyze --from-snapshot state.json
 ```
 
 Because analysis is a pure function of the snapshot, that file lets anyone
-reproduce your exact result. It is redacted the same way `doctor --report` is.
+reproduce your exact result. It is written without home paths or user names
+(tested); read it before you share it.
 
 ## Both providers seem to be interfering with each other
 

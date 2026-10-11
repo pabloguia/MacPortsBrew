@@ -1018,16 +1018,8 @@
     {
       "advancedOnly": false,
       "class": {
-        "classes": [
-          "RUNTIME"
-        ],
-        "evidence": [
-          {
-            "class": "RUNTIME",
-            "detail": "ffmpeg@2.8,ffmpeg@4,ffmpeg@5,ffmpeg@6,ffmpeg@7,ffmpeg@8",
-            "rule": "versioned_family"
-          }
-        ]
+        "classes": [],
+        "evidence": []
       },
       "mappings": [
         {
@@ -1043,7 +1035,8 @@
       "name": "ffmpeg",
       "recommendation": {
         "outcome": {
-          "kind": "USE_RUNTIME_MANAGER"
+          "kind": "KEEP",
+          "provider": "homebrew"
         },
         "policyVersion": "2026.10.03-2",
         "reasons": [
@@ -1054,14 +1047,6 @@
               "provider": "homebrew"
             },
             "rule": "KEEP_SOURCE_DEFAULT"
-          },
-          {
-            "id": "reason.runtime_family_managed_elsewhere",
-            "params": {
-              "family": "ffmpeg",
-              "managers": ""
-            },
-            "rule": "RUNTIME_USE_MANAGER"
           }
         ],
         "rulesNotFired": [
@@ -1075,6 +1060,7 @@
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
           "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -6330,10 +6316,9 @@
   "source": "SNAPSHOT",
   "summary": {
     "byOutcome": {
-      "KEEP": 40,
+      "KEEP": 41,
       "KEEP_BOTH": 2,
-      "MANUAL_REVIEW": 16,
-      "USE_RUNTIME_MANAGER": 1
+      "MANUAL_REVIEW": 16
     },
     "dependencyUnits": 0,
     "manualReview": 16,

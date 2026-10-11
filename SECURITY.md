@@ -23,8 +23,8 @@ tracker. This file names that channel as the only one the moment it exists.
 Until then, if you have found something and are reading this, raise it with the
 person who gave you the repository, privately, and describe: what you did, what
 happened, what you expected, and the machine you saw it on. `macportsbrew
-doctor --report` collects the machine facts in a redacted form — read it before
-you send it.
+doctor --report` collects the machine facts without home paths, user names or
+environment values (tested section by section) — read it before you send it.
 
 Please do not include credentials, tokens or anything from outside the two
 providers' scope in a report. MacPortsBrew never needs them and cannot use

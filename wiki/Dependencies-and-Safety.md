@@ -56,11 +56,11 @@ require a stronger confirmation than in normal mode.
 
 Before anything is removed, MacPortsBrew resolves what **inside that same
 provider** depends on it. If removal would break them, it is blocked by default
-and explained:
+and explained — here as it appears in `plan curl --to macports`, replayed from
+the committed Intel recording:
 
 ```
-! 2 packages under homebrew depend on this one, and removing or moving it on
-  its own can break them.
+  ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
 ```
 
 Two things about that check:
@@ -101,11 +101,12 @@ you have spent a week warming — these live outside anything the provider will
 move or copy, and the two providers lay them out differently. Reinstalling the
 package under the other provider gives you the software and not the state.
 
-MacPortsBrew will not do that unattended, in either direction, ever:
+MacPortsBrew will not do that unattended, in either direction, ever. From
+`plan postgresql17-server --to macports`, replayed from the committed Apple
+Silicon recording:
 
 ```
-! postgresql17-server is classed as Stateful, and packages in that class are
-  never migrated automatically. A person decides this one.
+  ! postgresql17-server is classed as Holds data, and packages in that class are never migrated automatically. A person decides this one.
 ```
 
 Background services are the same argument in a different shape: they are
@@ -119,9 +120,14 @@ MacPortsBrew will generally tell you to use a version manager rather than
 either provider:
 
 ```
-python@3.12  homebrew  3.12.14  Prebuilt  Language runtime
-             Use a language runtime manager instead
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+python@3.12         homebrew    3.12.14      Requested  Prebuilt                                                    Language runtime    Use a language runtime manager instead
+…
 ```
+
+(One row of `analyze`, replayed from the committed Intel recording; `…` marks
+rows left out.)
 
 That is a recommendation, not an action. MacPortsBrew does not manage runtimes,
 does not install version managers, and will not migrate your Python for you.
@@ -131,23 +137,23 @@ useful than picking a provider.
 
 ## What is guaranteed, and what is not
 
-Behind all of the above are invariants with tests named after them, in
-[`../docs/spec/01-invariants.md`](../docs/spec/01-invariants.md):
+Behind all of the above are rules the project holds itself to, each with a
+test (the list, for the curious, is
+[`../docs/spec/01-invariants.md`](../docs/spec/01-invariants.md)). In 0.1.0
+nothing executes, so the ones about running a plan describe the plans it
+prints and the executor a later release will add:
 
-- **Nothing is removed before its replacement is installed and verified**
-  (INV-01).
-- **Every destructive action comes from a plan a human has seen** (INV-02).
+- **Nothing is removed before its replacement is installed and verified.**
+- **Every destructive action comes from a plan a human has seen.**
   Nothing is derived at execution time.
 - **Failure preserves the prior working state *whenever technically possible***
-  (INV-03) — and the qualifier is part of the invariant, not a hedge on it.
+  — and the qualifier is part of the rule, not a hedge on it.
   Partial success is reported as partial success, never as success.
-- **Reverse dependencies are checked before removal** (INV-04).
-- **Installing a package manager needs explicit consent** (INV-05). MacPortsBrew
+- **Reverse dependencies are checked before removal.**
+- **Installing a package manager needs explicit consent.** MacPortsBrew
   never installs one implicitly.
-- **Nothing needs elevation to analyse, inventory, map, plan or dry-run**
-  (INV-06).
-- **Packages that own data or run as services are never migrated blind**
-  (INV-19).
+- **Nothing needs elevation to analyse, inventory, map, plan or dry-run.**
+- **Packages that own data or run as services are never migrated blind.**
 
 **What is not guaranteed: undoing a provider's own half-finished write.**
 MacPortsBrew will not promise what it cannot deliver, and neither provider
@@ -161,7 +167,7 @@ interrupted partway as recoverable only by hand until something says otherwise.
 
 So *"left at least as usable as before"* is what the plan is **ordered** to
 achieve — nothing is removed before its replacement is installed and verified,
-which is the ordering INV-01 enforces — and not a claim that any failure can be
+which is the ordering the planner enforces — and not a claim that any failure can be
 rewound. Where a step cannot be recovered from, you are told which step and what
 state it left, which is the difference between a tool you can act on and one
 that says it succeeded.
@@ -170,5 +176,5 @@ that says it succeeded.
 
 - [Package Mapping](Package-Mapping.md) — the other half of whether a move is
   safe.
-- [Restoring After a Migration](Restoring-After-a-Migration.md) — what happens when it goes
-  wrong anyway.
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — taking your
+  own snapshot first, and the restore design.

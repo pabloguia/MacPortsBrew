@@ -39,13 +39,12 @@ Every mapping carries a confidence:
 produce an automatic action; a plan that depends on one stops at "needs a human
 decision". `macportsbrew explain <package>` lists the candidates that were
 considered, each with its confidence and the evidence for it, so you can look
-at what was weighed. In a plan the stop appears as the excerpt below. **This
-block is illustrative**: it is an excerpt, no test holds it to what the program
-prints, and the wording is written the way the program prints it.
+at what was weighed. In a plan the stop appears as the line below, copied from
+`plan curl --to macports` replayed from the committed Intel recording (the
+whole plan is on [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md#build-the-plan)):
 
 ```
-! No equivalent under macports reaches confidence level Strong: the best is at
-  level None. Check whether macports has an equivalent before deciding.
+  ! No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
 ```
 
 ## Evidence

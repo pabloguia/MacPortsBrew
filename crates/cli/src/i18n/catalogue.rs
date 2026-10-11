@@ -313,11 +313,11 @@ mod tests {
     #[test]
     fn the_pseudolocale_accents_text_and_preserves_placeholders() {
         let pseudo = Catalogue::pseudolocale();
-        let notice = pseudo.get("policy.stale_notice").unwrap();
+        let notice = pseudo.get("plan.heading").unwrap();
         assert!(notice.starts_with('['), "{notice}");
         assert!(notice.ends_with(']'), "{notice}");
-        assert!(notice.contains("{readOn}"), "{notice}");
-        assert!(notice.contains("{url}"), "{notice}");
+        assert!(notice.contains("{package}"), "{notice}");
+        assert!(notice.contains("{destination}"), "{notice}");
         // Accented, so an untranslated string is obvious on screen.
         assert!(notice.contains('ø') || notice.contains('á'), "{notice}");
     }

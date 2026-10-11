@@ -3,7 +3,9 @@
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![SPDX](https://img.shields.io/badge/SPDX-Apache--2.0-informational.svg)](LICENSE)
 
-> Safely migrate and manage packages between Homebrew and MacPorts on macOS.
+> See what Homebrew and MacPorts have installed, compare them package by
+> package, and plan a migration in either direction. Version 0.1.0 reads and
+> plans; it changes nothing.
 
 MacPortsBrew is an open-source package-manager orchestrator for macOS. It
 analyses what you have installed under Homebrew and MacPorts, maps equivalent
@@ -36,10 +38,10 @@ choose. See [Using Homebrew and MacPorts Together](wiki/Using-Homebrew-and-MacPo
 Homebrew lists "Intel x86_64 systems running macOS" under **Tier 3**, and states
 it will **remove the ability to run Homebrew on Intel systems in or after
 September 2027** (source: <https://docs.brew.sh/Support-Tiers>, read
-2026-09-02). Tier 3 is *not supported* in Homebrew's words, and it is **not**
+2026-09-04). Tier 3 is *not supported* in Homebrew's words, and it is **not**
 Homebrew's *Unsupported* category — that one means Homebrew "will not run
 without third-party patches or modifications", and the macOS versions in it are
-Mojave 10.14 and earlier. So on 2026-09-02 an Intel Mac above Mojave ran
+Mojave 10.14 and earlier. So on 2026-09-04 an Intel Mac above Mojave ran
 Homebrew: what it had was a deadline and eroding coverage, which is what
 `macportsbrew status` reports as `Degraded`. Which versions sit in which
 category is a timeline on that page and it moves — the row after the current one
@@ -70,8 +72,9 @@ migration and coexistence layer that stays useful afterwards, on any Mac.
 
 ## What this build does *not* do
 
-This is version 0.1.0, the read-only slice. It is honest about its scope, and
-the binary says so in its own `--help`:
+This is version 0.1.0. It reads, explains and plans; it does not install,
+remove, switch which copy of a tool runs, keep history or restore. The binary
+says so in its own `--help`:
 
 - **It executes nothing.** `plan` builds and prints a migration plan, and so
   does `migrate`; `migrate --yes` puts the plan to an execution gate that
@@ -79,20 +82,20 @@ the binary says so in its own `--help`:
   builds and runs nothing. A package already where you asked exits 0 as
   *nothing to move*; on a machine where the other provider was not detected
   it says so, because a provider installed where detection does not look
-  would read the same, and `--json` names it in `notDetected` (DP-026). The
-  planner's own refusals keep
-  their codes. No
-  code path in the binary runs a mutating provider subcommand. A gate script
-  greps for one on every change.
+  would read the same, and `--json` names it in `notDetected`. The planner's
+  own refusals keep their exit codes. No code path in the binary runs a
+  mutating provider subcommand, and a check on every change looks for one.
+  You can follow a plan by hand, at your own risk; take
+  `macportsbrew snapshot --out before.json` first.
 - **It never asks for elevation.** Analysis, inventory, mapping, planning and
   `doctor` are all unprivileged by design.
-- **Not yet implemented:** executing a migration, `restore --run`, `primary`,
+- **Not yet implemented:** executing a migration, `restore`, `primary`,
   `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
   interactive TUI, `doctor --deep`, caching, and translations (English ships,
   plus the `qps` pseudolocale for layout testing).
-  `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted so that
-  scripts written today keep working, and are no-ops in a build that makes no
-  network call of its own, never caches, is always a dry run and never prompts.
+  `--no-network` and `--refresh` are accepted and do nothing in this build.
+  `--yes` makes `migrate` put its plan to the execution gate, which refuses it
+  (exit 4); adding `--dry-run` shows the plan without putting it to the gate.
   `--no-network` does not stop a Homebrew read fetching its catalogue on an
   empty cache (see [Privacy](#privacy)).
 
@@ -110,8 +113,9 @@ cd macportsbrew
 cargo build --release
 ```
 
-The binary is at `target/release/macportsbrew`. Every command below is
-read-only:
+The binary is at `target/release/macportsbrew`. No command below changes
+anything in either package manager (`snapshot --out` writes only the file you
+name):
 
 ```sh
 macportsbrew status              # machine and provider dashboard
@@ -145,7 +149,7 @@ Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
 56 packages in the default view; 15 need manual review. Policy 2026.10.03-2.
-Ownership is unknown for 10 row(s): the provider kept no record, or this analysis could not read one.
+Ownership is unknown for 10 rows: the provider kept no record, or this analysis could not read one.
 ```
 
 ## Install
@@ -157,31 +161,85 @@ Homebrew installation is already broken or who has no package manager at all.
 will ever be the only route.
 
 **This build has no published release.** The repository will be published
-publicly on GitHub ([DP-007](docs/decisions-pending.md), decided 2026-09-02) but
-the remote does not exist yet, so the only way to get it today is to build from
-source as above.
+on GitHub, but it is not there yet, so the only way to get MacPortsBrew today
+is to build it from source as above.
 
-### Three downloads, and how to choose
+What follows, between the two markers, is also the text of every release's
+notes: the release workflow copies it, filling in the version for `X.Y.Z` and
+the repository's real owner and name for `<owner>/<repo>`, so the two cannot
+drift apart. Until the first release exists, read both as placeholders; the
+real values appear in the release notes.
 
-Every release will publish all three per architecture, and they contain the
-**same executable** — one build, one signed binary, and CI asserts that the
-payload extracted from each container hashes to the published bare-binary
-checksum. Choose on how you like to install things, not on what you get.
+<!-- release-notes:begin -->
+<!-- In README.md the version and repository in this section are placeholders; the release workflow fills them in when it copies the section into a release's notes. -->
+For macOS 10.12 or later on Intel (`x86_64`) and macOS 11.0 or later on Apple
+Silicon (`arm64`). **macOS 10.12–10.15 are best-effort**, and so are 11–14:
+each release is built for them and checked to declare that minimum, but only
+macOS 15 and 26 are covered by the CI configuration (see `docs/support-matrix.md` in the
+repository), and Apple's current tools no longer state support for 10.12.
 
-| | |
-|---|---|
-| **The bare binary** — one executable file | Download it, make it executable, and put it wherever you keep programs. Nothing else on your Mac changes. |
-| **`.pkg`** — a macOS installer package | Double-click it and macOS puts the tool in place for you, without asking for a password. It deliberately does not edit your `PATH` or your shell configuration, so that last step is yours, and the release will state the directory it used and the one line that puts it on your `PATH`. |
-| **`.dmg`** — a macOS disk image | Double-click it, a window opens, and you drag the file out to wherever you want it. You choose where it goes. |
+### Which file to download
 
-**If you are not sure, take the `.pkg`.** It is the one that asks you the fewest
-questions.
+Every file contains the **same program**, byte for byte: one build, one signed
+executable per architecture, and the release job checks that the copy inside
+the `.pkg` and the `.dmg` is identical to the bare file. Take `arm64` on Apple
+Silicon and `x86_64` on Intel — `uname -m` in Terminal tells you which.
 
-**If you live in a terminal, take the bare binary.** Fetching it with `curl`
-sets no quarantine attribute, so nothing gets in your way.
+| File | What it is | What happens when you use it |
+|---|---|---|
+| `macportsbrew-X.Y.Z-<arch>` | The bare executable: one signed program file | Nothing happens until you place it. Rename it to `macportsbrew`, make it executable, and put it in a folder on your `PATH` — the Terminal line below does all three. Nothing else on your Mac changes. |
+| `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
+| `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable | Double-click it and a window opens with one file in it. Drag it to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the file into the window that opens. |
 
-The one difference that is not about convenience is what happens the very first
-time you run it, and the next section is about that.
+**Not sure? Take the `.pkg`.** **Live in a terminal? This one line downloads,
+names, places and marks the program executable:**
+
+```
+mkdir -p ~/.macportsbrew/bin && curl -fL -o ~/.macportsbrew/bin/macportsbrew "https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/macportsbrew-X.Y.Z-$(uname -m)" && chmod +x ~/.macportsbrew/bin/macportsbrew
+```
+
+### Putting it on your `PATH`
+
+Add this line to `~/.zprofile` if you use zsh (the default since macOS 10.15),
+or to `~/.bash_profile` if you use bash (the default on 10.12–10.14), then open
+a new Terminal window:
+
+```
+export PATH="$PATH:$HOME/.macportsbrew/bin"
+```
+
+It adds the folder at the end, so it never hides a program you already have.
+
+### The first time you run it
+
+macOS marks files a browser downloads, so it can check them before they first
+run. These files are signed with a Developer ID and notarised by Apple. The
+`.pkg` and the `.dmg` carry Apple's approval inside them. The bare file cannot,
+so the first time a browser-downloaded bare file runs, your Mac asks Apple over
+the network; what happens if there is no network at that moment has not been
+established. If you may be offline, use the Terminal line above (`curl` does not
+mark the file) or the `.pkg`. Whether the approval inside the `.dmg` also covers
+a copy dragged out of it is not yet established either.
+
+### Checking what you downloaded
+
+```
+gh attestation verify macportsbrew-X.Y.Z-<arch> --repo <owner>/<repo> --signer-workflow <owner>/<repo>/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+`gh` (GitHub's command-line tool) probably needs macOS 12 or later; on an older
+Mac, run the first line on any other computer against the same file. If your
+`shasum` refuses `--ignore-missing`, compare `shasum -a 256 <file>` with that
+file's line in `SHA256SUMS`. The attestation and Apple's notarisation establish
+where a file came from; `SHA256SUMS` only shows the download was not damaged.
+`SIGNING-RECORD.txt` records the team identifier, the certificate fingerprint,
+the notarisation submission of every file, and the toolchain that built it.
+<!-- release-notes:end -->
+
+The release machinery that produces these files is written and reviewed but
+has not yet produced a release
+([how a release is built](docs/passes/09-release-engineering-report.md)).
 
 ### Gatekeeper, honestly
 
@@ -207,14 +265,14 @@ a stapled ticket. All of this is sourced and dated in
 (2026-09-02, citing Apple's
 <https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>).
 
-Releases are **Developer ID signed and notarised**
-([DP-004](docs/decisions-pending.md), decided 2026-09-02;
-[ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)). The bare binary is
+Releases will be **Developer ID signed and notarised**
+([why](docs/adr/0005-release-signing-and-artifacts.md)). The bare binary is
 signed and notarised but not stapled, so verifying it on first run contacts
 Apple. The `.pkg` and `.dmg` carry a stapled ticket, which is *intended* to
-make them verifiable offline — whether a stapled ticket reaches a binary copied
-out of a container is R-11, still open, and the `.dmg` is provisional on that
-answer. When releases exist, each artifact will carry a build provenance
+make them verifiable offline. Whether a stapled ticket reaches a binary copied
+out of a container is still being established; it decides what may be
+*claimed* for the containers, not whether they ship — all three are published.
+When releases exist, each artifact will carry a build provenance
 attestation alongside its checksum; the attestation and the notarisation are the
 intended trust anchors, and the checksum file guards against transport
 corruption and nothing more. Nothing about your machine is sent to this project.
@@ -230,9 +288,9 @@ configured to exercise from what is merely believed to work, and it is generated
 from the CI configuration rather than written by hand — which also means it
 states configuration and not results. **No CI job has ever run**: this
 repository has no remote yet, so nothing has executed the workflow, and the
-matrix says so at the top. macOS 15 and 26 are **tested** natively on both
-architectures; macOS 11 through 14 on both architectures, and 10.12 through
-10.15 on Intel, are **best-effort** — the
+matrix says so at the top. macOS 15 and 26 are **configured to be tested**
+natively on both architectures; macOS 11 through 14 on both architectures, and
+10.12 through 10.15 on Intel, are **best-effort** — the
 deployment floor is met and asserted on every artifact, and nothing executes
 there, because GitHub keeps hosted images only for the latest two stable
 macOS versions (`docs/research/R-10-ci-runners.md`, read 2026-09-02).
@@ -249,7 +307,7 @@ supported path.
 | [`wiki/`](wiki/Home.md) | User documentation: guides, migration walkthroughs, troubleshooting, FAQ, CLI reference |
 | [`docs/spec/`](docs/spec/README.md) | The specification, in reading order |
 | [`docs/schemas/`](docs/schemas/README.md) | The versioned `--json` schemas |
-| [`docs/support-matrix.md`](docs/support-matrix.md) | Tested versus best-effort, generated from CI |
+| [`docs/support-matrix.md`](docs/support-matrix.md) | Tested versus best-effort, generated from the CI configuration |
 | [`docs/adr/`](docs/adr/0001-licence-apache-2-0.md) | Architecture decision records |
 | [`docs/research/`](docs/research/README.md) | Dated, sourced answers about provider behaviour |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Build, test, architecture, and the contributor recipes |
@@ -258,9 +316,10 @@ supported path.
 
 ## Privacy
 
-No telemetry. No network calls that report anything about you. `analyze` works
-with no network at all, marking network-dependent facts `UNKNOWN` rather than
-guessing. MacPortsBrew itself sends nothing. The reads it asks Homebrew for are run
+No telemetry. No network calls that report anything about you. MacPortsBrew
+makes no network calls of its own. A Homebrew read on an empty cache downloads
+Homebrew's catalogue; without a network that read fails with a timeout error
+rather than a guess. The reads it asks Homebrew for are run
 with Homebrew's update, analytics and hint switches off, but Homebrew still
 downloads its package catalogue when its own cache is empty, and a `brew.env`
 file in Homebrew's configuration can switch its analytics and network fetches
@@ -269,13 +328,14 @@ it names the file and the settings, never their values — and the same goes for
 a MacPorts `~/.macports/macports.conf`, which can redirect where MacPorts reads
 its registry and ports from. A migration step against a provider configured
 that way is refused — this build refuses every step regardless, and this is the
-refusal that remains once migration lands ([DP-027](docs/decisions-pending.md);
-observed on Homebrew 7.0.4, 2026-10-02, [R-15](docs/research/R-15-homebrew-brew-env.md),
-and MacPorts 2.12.6, 2026-10-03, [R-16](docs/research/R-16-macports-user-configuration.md)).
-Whether that is enough to meet the no-network and no-telemetry promises is an
-open decision ([DP-028](docs/decisions-pending.md)). `doctor --report` writes a redacted diagnostic file locally — never
-usernames, home paths, environment variable values or tokens — which you read
-and choose to share; MacPortsBrew never uploads it.
+refusal that remains once migration lands (observed on Homebrew 7.0.4,
+2026-10-02, [R-15](docs/research/R-15-homebrew-brew-env.md), and MacPorts
+2.12.6, 2026-10-03, [R-16](docs/research/R-16-macports-user-configuration.md)).
+Whether that is enough to meet the no-network and no-telemetry promises is
+still an open question for the project. `doctor --report` writes a diagnostic
+file locally, without home paths, user names or environment values (tested
+section by section); read it before you share it. MacPortsBrew never uploads
+it.
 
 ## Licence
 

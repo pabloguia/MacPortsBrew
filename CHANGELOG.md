@@ -22,8 +22,46 @@ output may change freely.
 
 ## [Unreleased]
 
-The read-only slice. Nothing here executes anything, elevates anything, or
-writes into either provider's prefix.
+_This heading becomes `[0.1.0]` when the release is tagged; the owner adds the
+date then._
+
+### MacPortsBrew 0.1.0 at a glance
+
+The first public release. MacPortsBrew looks at what Homebrew and MacPorts
+have installed on your Mac, compares them package by package, explains which
+provider suits each package on this machine and why, and builds a migration
+plan in either direction — Homebrew to MacPorts or MacPorts to Homebrew, with
+the same planner and the same safety rules.
+
+**What it does:** `status`, `analyze`, `list`, `explain`, `plan`, `migrate`
+(shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
+provider health and dated support facts) and `snapshot`. Every command has a
+versioned `--json` form. `doctor --report` writes a diagnostic file for issue
+reports, without home paths, user names or environment values.
+
+**What it does not do:** it changes nothing in either package manager. It does
+not install, remove, switch which copy of a tool runs, keep history or restore.
+`migrate --yes` puts a plan to an execution gate that refuses every plan this
+version produces (exit 4). A plan lists the commands a migration would run, in
+order, with how to check each one, so you can carry it out yourself at your own
+risk — take `macportsbrew snapshot --out before.json` first. It never asks for
+an administrator password and makes no network calls of its own (a Homebrew
+read on an empty cache downloads Homebrew's catalogue).
+
+**Machines:** macOS 10.12 or later on Intel and 11.0 or later on Apple
+Silicon. macOS 15 and 26 are covered by the CI configuration; 10.12–14 are
+best-effort — built for and checked to declare that minimum, not exercised.
+See [`docs/support-matrix.md`](docs/support-matrix.md).
+
+**Policy data:** version `2026.10.03-2`. Dated provider facts — Homebrew's
+support tiers and Intel timeline among them — carry their source and the date
+they were read, and the tool says when they are more than 180 days old.
+
+### Development history (pre-release)
+
+The detailed record of how 0.1.0 was built, kept for contributors. It uses the
+project's internal vocabulary (passes, slices, decision and specification
+identifiers); the summary above is the user-facing account.
 
 **Policy version: `2026.10.03-2`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02 and
@@ -31,7 +69,7 @@ writes into either provider's prefix.
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
 
-### Added
+#### Added
 
 - **`macportsbrew --version` names what ran.** Four lines: the version, the
   policy data version, the target triple and the commit (`unknown (not a release
@@ -180,7 +218,7 @@ to answer.
   request templates, and six contributor skills under `.claude/skills/`
   written from the same source as the recipes.
 
-### Fixed
+#### Fixed
 
 - A plan on a cask said "classed as GuiApp", and a withdrawal sentence printed
   `DISABLED`: the `{class}` and `{state}` parameters now carry one identifier
@@ -240,7 +278,21 @@ to answer.
   `confidence` and `threshold` parameters change from `None`/`Strong` to
   `NONE`/`STRONG`; `schemaVersion` stays 1 (SE-064).
 
-### Documentation
+#### Documentation
+- **The release machinery is written, reviewed and staged — not shipped**
+  (pass 09). A release script that builds, signs, notarises, staples and
+  packages one architecture and asserts every artifact (deployment floor,
+  system libraries only, Developer ID authority on the final artifacts,
+  payload identity across the bare file, `.pkg` and `.dmg`), a release workflow
+  that drafts but never publishes, and a check that enforces the workflow's
+  security rules are staged in `docs/passes/09-staged/` for the owner to apply;
+  no workflow runs them yet and no release exists. The README's Install section
+  now carries the text every release's notes will be generated from, says
+  macOS 10.12–10.15 are best-effort in those words, and no longer calls the
+  `.dmg` provisional. R-11's claim that the Intel runner is billed is corrected:
+  it is free on a public repository (R-19). Five decisions are open for the
+  owner (DP-031, DP-033–DP-036); the first tag waits on them. See
+  [`docs/passes/09-release-engineering-report.md`](docs/passes/09-release-engineering-report.md).
 - **Four claims about Homebrew and MacPorts carried no source and no read date**,
   on a page where everything else carried both — including the strong negative
   "`HOMEBREW_BUILD_FROM_SOURCE` does not exist". Two were checked here on
@@ -267,7 +319,7 @@ to answer.
   moves on, so a restore usually gives you a **newer** version than the snapshot
   recorded, not the version you had. SE-058, findings F-13, F-14, F-15.
 
-### Changed
+#### Changed
 - **A cask's ownership comes from the provider's own record, and an unknown one
   is shown rather than hidden.** Homebrew's cask JSON carries no
   `installed_on_request`; it writes one into the cask's on-disk receipt, and the
@@ -358,7 +410,7 @@ to answer.
   which also records the rule that makes that tolerance safe: an unrecognised
   check can never count as satisfied. SE-049, finding F-06.
 
-### Security
+#### Security
 - **A read can no longer carry an option this tool never asks for.** The
   spawn-site read allowlist accepted any `--long` option after a permitted
   subcommand, so `brew info --github` — which opens a browser — passed it, and
@@ -508,17 +560,18 @@ to answer.
   and the workflow had never invoked, so a RUSTSEC advisory or a yanked crate
   could ship green. See SE-055.
 
-### Not yet implemented
+#### Not yet implemented
 
 Named here because a changelog that lists only what exists invites the reader
-to assume the rest does: executing a migration (`migrate --yes` stops at the
-gate), `restore --run`, `primary`,
+to assume the rest does: a published release (the release machinery is staged,
+not applied), executing a migration (`migrate --yes` stops at the
+gate), `restore`, `primary`,
 `provider-priority`, `providers`, `env`, `history`, `cleanup`, the interactive
 TUI, `doctor --deep`, the cache and its TTL, and translations for `pt-BR`,
 `es`, `ja` and `zh-CN` — the i18n architecture and the complete English
 catalogue are in place, the translations are not.
 
-### Known limitations
+#### Known limitations
 - **No CI job has ever run.** The repository has no remote yet, so the workflow
   in `.github/workflows/` has never been executed by a hosted runner. The
   support matrix is generated from that workflow's `runner:` labels and from
@@ -527,10 +580,10 @@ catalogue are in place, the translations are not.
   top, and will stop saying it when there is a remote and a green run. SE-052,
   finding F-12.
 
-- `--no-network`, `--refresh`, `--dry-run` and `--yes` are accepted and are
-  no-ops in a build that makes no network call of its own, never caches, is
-  always a dry run and never prompts. They exist so scripts written now keep
-  working. `--no-network` does not stop a Homebrew read fetching its catalogue
+- `--no-network` and `--refresh` are accepted and do nothing in this build.
+  `--yes` makes `migrate` put its plan to the execution gate, which refuses it
+  (exit 4); `--dry-run` with it shows the plan without putting it to the gate.
+  `--no-network` does not stop a Homebrew read fetching its catalogue
   on an empty cache (next item).
 - **A Homebrew read is not as quiet as the environment this tool gives it.**
   On an empty Homebrew API cache, every Ruby read this tool runs (`config`,

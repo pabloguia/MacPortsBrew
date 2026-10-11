@@ -211,6 +211,44 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
     );
     let text = serde_json::to_string_pretty(&report).expect("a report serialises");
     assert_no_home(&text, "the doctor report");
+
+    // Section by section, and not vacuously: every part `doctor --report`
+    // writes carries a home-rooted value in this fixture, so each assertion
+    // below would fail on a leak there rather than pass over an empty section
+    // (pass 10, item 4). `write_diagnostic_report` takes these and nothing
+    // else: the machine, `PATH`'s length, each provider's presence, version,
+    // prefix and package names, and the findings.
+    let sections: Vec<(&str, String)> = vec![
+        (
+            "machine",
+            serde_json::to_string(&snapshot.machine).expect("serialises"),
+        ),
+        (
+            "provider prefix",
+            serde_json::to_string(&homebrew.detection.prefix).expect("serialises"),
+        ),
+        (
+            "provider packages",
+            serde_json::to_string(&homebrew.inventory.installed_names()).expect("serialises"),
+        ),
+        (
+            "findings",
+            serde_json::to_string(&report.findings).expect("serialises"),
+        ),
+    ];
+    for (section, text) in &sections {
+        assert_no_home(text, section);
+    }
+    assert!(
+        sections[1].1.contains("~/homebrew"),
+        "the prefix section carries the redacted home, so it was tested: {}",
+        sections[1].1
+    );
+    assert!(
+        !report.findings.is_empty() && sections[3].1.contains("~/"),
+        "the findings name a home-rooted PATH entry, redacted: {}",
+        sections[3].1
+    );
 }
 
 #[test]

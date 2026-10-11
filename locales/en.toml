@@ -34,7 +34,7 @@
 # a doc comment as a render site (F-32) - the only three references were a
 # `///` example and prose naming the key. Wire it or delete it; it is not dead
 # text, it is unrouted.
-cli.about = "Safely migrate and manage packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and plans are built in both directions. This build is read-only: it inventories, analyses and plans, and executes nothing."
+cli.about = "See what Homebrew and MacPorts have installed, compare them package by package, and plan a migration in either direction. The two are peers: neither is treated as the better choice. Version 0.1.0 reads and plans; it changes nothing."
 # unreferenced: written for `--help`, which clap renders from a Rust literal
 # (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
@@ -107,7 +107,7 @@ reason.class_requires_review = "{package} is classed as {class}, and packages in
 reason.package_owns_persistent_data = "{package} belongs to the {family} family, which keeps data outside the package's own directory under {provider}. Moving it would leave that data behind, so it needs a data-and-service plan first."
 reason.mapping_confidence_below_threshold = "No equivalent under {destination} reaches confidence level {threshold}: the best is at level {confidence}. Check whether {destination} has an equivalent before deciding."
 reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
-reason.reverse_dependencies_present = "{count, plural, one {# package} other {# packages}} under {provider} depend on this one, and removing or moving it on its own can break them."
+reason.reverse_dependencies_present = "{count, plural, one {# package under {provider} depends} other {# packages under {provider} depend}} on this one, and removing or moving it on its own can break them."
 reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."
 reason.provider_configuration_outranks = "The configuration of {provider} ({file}) sets {keys}, which {provider} applies over the settings this tool would run it with. A step that changes {provider} is refused while it does."
 reason.provider_configuration_unreadable = "The configuration file {file} of {provider} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A step that changes {provider} is refused while it is."
@@ -245,7 +245,7 @@ count.findings = "{count, plural, =0 {no findings} one {# finding} other {# find
 
 # --- Policy data ------------------------------------------------------------
 
-policy.stale_notice = "Policy data was last verified on {readOn}; it may be out of date. See {url}."
+policy.stale_notice = "Policy data was last verified on {readOn}; provider facts may have changed since. A newer MacPortsBrew release may carry fresher data."
 
 # --- Advanced mode ----------------------------------------------------------
 # 06-cli-and-ux.md, "Advanced mode": entering it must say what the risk is.
@@ -260,7 +260,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # packages whose ownership is `UNKNOWN` — not only those a provider records as
 # requested. `count.packages_with_top_level` below counts the narrower set and
 # still says "top-level", because that one is fed by `topLevelCount`.
-"status.summary_line" = "{topLevel} packages in the default view; {manualReview} need manual review. Policy {policyVersion}."
+"status.summary_line" = "{topLevel, plural, one {# package} other {# packages}} in the default view; {manualReview, plural, one {# needs} other {# need}} manual review. Policy {policyVersion}."
 # Printed only when the count is non-zero. A replayed analysis cannot read a
 # cask's on-disk receipt, so it reports fewer top-level packages than the same
 # machine does live; without this line the count is the only clue (F-39).
@@ -270,13 +270,15 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # false on a live run - there, an unknown row means the provider genuinely kept
 # no record. A summary line that explains the wrong cause is worse than one that
 # explains none; `doctor` is where a diagnosis belongs.
-"status.ownership_unknown" = "Ownership is unknown for {count} row(s): the provider kept no record, or this analysis could not read one."
+"status.ownership_unknown" = "Ownership is unknown for {count, plural, one {# row} other {# rows}}: the provider kept no record, or this analysis could not read one."
 "table.presence" = "Presence"
 "table.prefix" = "Prefix"
 "table.packages" = "Packages"
 "row.not_installed" = "not present"
 
 # --- analyze / list -------------------------------------------------------
+"analysis.no_provider" = "Neither Homebrew nor MacPorts answered here, so there is nothing to analyse. `macportsbrew doctor` shows where it looked."
+"analysis.provider_broken" = "{provider} is installed but did not answer correctly, so its packages could not be read. Run `macportsbrew doctor`."
 "analysis.nothing_to_show" = "Nothing in the default view. Use --advanced to include dependencies, or check `macportsbrew doctor`."
 "analysis.mapped_row_note" = "Rows marked * are mapping candidates that are not installed under that provider."
 "analysis.advanced_hint" = "Dependency-level packages are hidden; --advanced shows them."
@@ -286,14 +288,15 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "explain.recommendation" = "Recommendation"
 "explain.policy_version" = "Policy version"
 "explain.facts_heading" = "Facts the policy engine read"
+"explain.fact_empty" = "none"
 "explain.fired_heading" = "Rules that fired"
 "explain.not_fired_heading" = "Rules considered that did not fire"
 "explain.mappings_heading" = "Mappings and their evidence"
 
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plan: move {package} from {source} to {destination}"
-"plan.dry_run_only" = "This build changes nothing: `migrate --yes` reaches a refusal gate that refuses every plan this build produces, so nothing here is executed and nothing asks for elevation."
-"plan.overrides" = "This plan overrides the recommendation ({recommendation}); the override would be recorded with the run."
+"plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk."
+"plan.overrides" = "This plan goes against the recommendation ({recommendation})."
 "plan.risks_heading" = "Risks detected"
 "plan.steps_heading" = "Steps, in order"
 "plan.elevation_required" = "elevation required"
@@ -301,20 +304,21 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "plan.placeholder" = "illustration only; this provider was not detected, so no executable path is known"
 "plan.success_omits" = "passes when this list does NOT name the package; refused unless it exited cleanly, was not truncated and came back non-empty"
 "plan.success_unknown" = "how success is established is not stated, so an executor must refuse this plan"
+"plan.tool_command_absent" = "Not a command in this version. To make the copy under {provider} the one that runs, put its bin directory ahead of the other package manager's on PATH, or call it by its full path."
 "plan.stops_here" = "Execution would stop here for a human decision (exit code 4)."
 "plan.elevated_summary" = "Steps that need administrator rights: {steps}."
 "plan.unknown_elevation_summary" = "Steps where it is not known whether administrator rights are needed: {steps}."
-"reason.snapshot_before_mutation" = "A snapshot is taken automatically before the first change, so the run can be restored."
+"reason.snapshot_before_mutation" = "Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first."
 "reason.add_under_destination" = "Add {package} under {provider}."
 "reason.already_under_destination" = "{package} is already installed under {provider}; nothing to add."
-"reason.verify_destination" = "Verify the destination per the verification contract: reported active, provider integrity check, executables owned by the destination, a liveness probe, and no cross-provider linkage."
-"reason.set_primary_shim" = "Make {provider} the primary implementation through the MacPortsBrew-managed directory; provider-native mechanisms cannot express a cross-provider choice."
-"reason.verify_resolution" = "Verify that `{executable}` now resolves to the destination."
+"reason.verify_destination" = "Check that the destination reports it installed and active, that its own integrity check passes, that the expected executables belong to it, that each one starts, and that nothing links across the two package managers."
+"reason.set_primary_shim" = "Make {provider}'s copy the one that runs."
+"reason.verify_resolution" = "Check which copy now runs: `command -v {executable}` should print a path under the destination's prefix."
 "reason.remove_from_source" = "Remove {package} from {provider}. This happens only after the destination is verified."
 "reason.verify_removal" = "Verify the removal."
 "reason.cleanup_review" = "Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically."
-"reason.record_history" = "Record the run so it can be listed and restored."
-"reason.destination_provider_absent" = "{provider} is not installed on this machine; installing a provider needs explicit consent and is a separate step."
+"reason.record_history" = "Record what was done. This version keeps no history and has no restore command; keep your before-snapshot."
+"reason.destination_provider_absent" = "{provider} is not installed on this machine. MacPortsBrew does not install package managers; install {provider} yourself first if you want to move packages there."
 
 # --- concurrency ------------------------------------------------------------
 # Whether a package manager was changing the machine while it was read
@@ -346,7 +350,8 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces."
 "migrate.execution_heading" = "Execution"
 "migrate.outcome.completed" = "Every step was carried out and every check passed."
-"migrate.outcome.refused" = "The execution gate refused this plan, so nothing ran ({count, plural, one {# reason} other {# reasons}}):"
+"migrate.outcome.refused" = "This version never changes your machine, so the plan was not run. The safety gate lists why it would refuse it ({count, plural, one {# reason} other {# reasons}}):"
+"migrate.by_hand" = "To do this yourself, run the commands shown under each step of the plan above, in order, and check each verification before going on. Use --retain-source so the original stays until you are sure. You run them at your own risk."
 "migrate.outcome.halted" = "The run stopped at step {step} having carried out nothing: {reason}."
 "migrate.outcome.partial_success" = "Some steps were carried out and some were not, which is not a success (exit code 3). Step {step}: {reason}."
 "migrate.steps_heading" = "What became of each step"
@@ -436,7 +441,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.provider_configuration_outranks" = "{provider}: {file} sets {keys}. {provider} applies that file over the settings this tool runs it with, so its reads may not behave as this tool asks - they may report from somewhere else, or fetch differently - and a migration step that changes {provider} will be refused while the file sets them."
 "doctor.provider_configuration_unreadable" = "{provider}: {file} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A migration step that changes {provider} will be refused while it is."
 "doctor.provider_configuration_unknown" = "{provider}: this input does not record the configuration files of {provider} - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs {provider} is unknown."
-"doctor.provider_absent" = "{provider} was not detected where it is documented to live."
+"doctor.provider_absent" = "{provider} is not installed here (it was not found where it is documented to live)."
 # `{reason}` is deliberately absent. Every construction of
 # `ProviderPresence::Broken` sets it to an `ErrorId::*.message_id()` - an
 # identifier, never prose - so interpolating it printed
@@ -445,12 +450,12 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # `--json` contract, where a stable identifier is exactly what a machine wants.
 # Resolving it through the catalogue instead was measured and rejected: it puts
 # a two-sentence remediation paragraph inside a table cell.
-"doctor.provider_broken" = "{provider} is present but not working. See the troubleshooting page."
+"doctor.provider_broken" = "{provider} is present but not working. See Troubleshooting in the MacPortsBrew wiki."
 "doctor.provider_prefix_is_not_absolute" = "The recorded location of {provider} is {prefix}, which is not an absolute path: the home directory was removed when this snapshot was captured, so a report can be shared safely. Analysis reports on {provider} normally. No step that would run it can be built, so it cannot be a migration destination, and it can only be a source with --retain-source, which leaves the installed package alone."
 "doctor.provider_architecture_mismatch" = "{provider} is built for {provider_arch} on a {machine_arch} machine."
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."
-"doctor.prefix_not_on_path" = "{provider}'s prefix {prefix} is not on PATH."
+"doctor.prefix_not_on_path" = "The prefix of {provider}, {prefix}, is not on PATH."
 # A snapshot with no recorded PATH is a capture that could not read one, not
 # a machine with an empty PATH. Emitted instead of one false
 # `prefix_not_on_path` per provider (F-34).
@@ -471,10 +476,9 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.command_line_tools_missing" = "Command Line Tools are not installed; both providers need them to build from source."
 "doctor.command_line_tools_unknown" = "Command Line Tools state could not be determined."
 "doctor.deep_not_in_this_build" = "Deep inspection of binaries for cross-prefix links (--deep) is not part of this build."
-"doctor.report_written" = "Diagnostic report written to {path}. It contains no user names, home paths or environment values."
 "snapshot.written" = "Snapshot written to {path}."
 "doctor.provider_support_ending" = "{provider} has announced the end of support for this machine in or after {endDate} (source: {source}, read {readOn}). This is dated data; re-check it before relying on it."
-reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but its provider will not replace it. Decide whether to move it or keep it deliberately."
+reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but {provider} no longer updates it. Decide whether to move it or keep it deliberately."
 
 # --- Enumerations rendered to a person -------------------------------------
 # Each of these was `format!("{:?}", value)` until F-20: a Rust identifier

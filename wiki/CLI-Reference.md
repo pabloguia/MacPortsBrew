@@ -4,9 +4,10 @@
 shorter name** — installed alongside, not a wrapper, and behaving identically.
 Everything below works under either.
 
-Every command on this page is read-only, `migrate --yes` included: it is the
-one command that asks for execution, and its gate refuses every plan this
-build produces. Nothing here changes your machine.
+Every command on this page changes nothing in either package manager,
+`migrate --yes` included: it is the one command that asks for execution, and
+its gate refuses every plan this build produces. Two commands write a file you
+name — `snapshot --out` and `doctor --report` — and nothing else.
 
 ## Commands
 
@@ -79,9 +80,7 @@ it, `migrate` says there is nothing to move and exits **0**. On a machine where
 the other provider was not detected, it says so in the same answer: a provider
 installed somewhere detection does not look would read the same, so the answer
 is as far as detection can see, and `--json` lists the provider in
-`notDetected` (DP-026, in
-[`../docs/decisions-pending.md`](../docs/decisions-pending.md)).
-The `--json` contract is
+`notDetected`. The `--json` contract is
 [`../docs/schemas/migrate.v1.md`](../docs/schemas/migrate.v1.md).
 
 ### `macportsbrew doctor`
@@ -92,7 +91,7 @@ state with its source and read date.
 
 | Flag | Effect |
 |---|---|
-| `--report <FILE>` | Write a redacted diagnostic file for a bug report |
+| `--report <FILE>` | Write a diagnostic file for a bug report, without home paths, user names or environment values (tested section by section). Read it before you share it |
 | `--deep` | Inspect binaries for cross-prefix links. **Not in this build** |
 
 ### `macportsbrew snapshot`
@@ -114,9 +113,9 @@ Read it back with `--from-snapshot`. The format is documented at
 | `--language <TAG>` | Locale for human output. `en`, or `qps` for the pseudolocale; an unknown tag falls back to English silently |
 | `--no-color` | Plain output without colour |
 | `--verbose` | More detail on stderr |
-| `--advanced` | Include dependency-level packages, which are managed automatically by their provider (INV-13) |
+| `--advanced` | Include dependency-level packages, which are managed automatically by their provider |
 | `--from-snapshot <FILE>` | Analyse a captured snapshot instead of this machine |
-| `--no-network` | Accepted; this build makes no network call of its own, and the flag does not stop a Homebrew read fetching its catalogue on an empty cache (DP-028, open, [`../docs/decisions-pending.md`](../docs/decisions-pending.md)) |
+| `--no-network` | Accepted; this build makes no network call of its own, and the flag does not stop a Homebrew read fetching its catalogue on an empty cache |
 | `--refresh` | Accepted; there is no cache in this build |
 | `--dry-run` | Show what would be done and run nothing; wins over `--yes`. Every command but `migrate --yes` is a dry run in this build anyway |
 | `--yes` | Confirm: `migrate` puts its plan to the execution gate instead of only showing it. The gate refuses every plan this build produces, so nothing runs; nothing in this build prompts |
@@ -167,7 +166,8 @@ execution gate refuses each one.
 
 ## Not in this build
 
-Specified and not yet written:
+Specified and not yet written — these commands do not exist in 0.1.0, and
+running one prints an "unrecognized subcommand" error:
 
 ```
 macportsbrew                          the interactive overview (bare `macportsbrew` runs `status` in this build)

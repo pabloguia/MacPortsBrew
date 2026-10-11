@@ -20,8 +20,8 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// MacPortsBrew: safely migrate and manage packages between Homebrew and
-/// MacPorts on macOS.
+/// MacPortsBrew: see what Homebrew and MacPorts have installed, compare them
+/// package by package, and plan a migration in either direction.
 ///
 /// The global flags are the ones `06-cli-and-ux.md` lists; several are
 /// accepted for forward compatibility and change nothing in this build.
@@ -30,13 +30,14 @@ use std::path::PathBuf;
 #[command(
     name = "macportsbrew",
     version,
-    about = "Safely migrate and manage packages between Homebrew and MacPorts on macOS.",
+    about = "See what Homebrew and MacPorts have installed, compare them package by package, \
+and plan a migration in either direction. Version 0.1.0 reads and plans; it changes nothing.",
     long_about = "MacPortsBrew analyses what is installed under Homebrew and MacPorts, maps \
 equivalent packages, explains which provider is the better choice for each package on this \
 machine, and builds reviewable migration plans. `mpb` is the same program under a shorter name.\n\n\
-This build changes nothing on the machine. `migrate --yes` reaches a refusal gate that refuses \
-every plan this build produces; the read-step loop behind it exists, is tested against \
-recordings, and is unreachable from this binary."
+This version changes nothing on your machine: `migrate --yes` shows why each plan is refused, \
+and nothing runs. A plan lists the commands a migration would run, in order, with how to check \
+each one, so you can carry it out yourself."
 )]
 pub struct Cli {
     /// Machine-readable output with a versioned schema, on stdout only.
@@ -69,8 +70,8 @@ pub struct Cli {
     /// nothing runs; nothing in this build prompts.
     #[arg(long, global = true)]
     pub yes: bool,
-    /// Analyse a captured snapshot instead of this machine. The analysis is
-    /// computed as of the snapshot's capture date unless --today is given.
+    /// Analyse a captured snapshot instead of this machine, as of the date it
+    /// was captured.
     #[arg(long, global = true, value_name = "FILE")]
     pub from_snapshot: Option<PathBuf>,
     /// Replay a recorded fixture as if it were this machine (testing).
@@ -81,7 +82,7 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DATE", hide = true)]
     pub today: Option<String>,
     /// Include dependency-level packages, which are managed automatically by
-    /// their provider (INV-13).
+    /// their provider.
     #[arg(long, global = true)]
     pub advanced: bool,
     /// The command. Without one, `status` runs.
@@ -215,10 +216,6 @@ fn run_inner(
             "readOn".to_string(),
             ctx.policy.newest_read_on().to_string(),
         );
-        params.insert(
-            "url".to_string(),
-            "https://github.com/macportsbrew/macportsbrew".to_string(),
-        );
         let _ = writeln!(
             stderr,
             "{}",
@@ -253,6 +250,14 @@ fn run_inner(
             let mut analysis = ctx.analyze(&options(BTreeSet::new()));
             if let Some(p) = provider {
                 let id = macportsbrew_domain::ProviderId::new(p);
+                // An unknown id is an error, as it is for `plan --to`, rather
+                // than an empty view that reads as "nothing installed".
+                if !analysis.providers.contains_key(&id) {
+                    return Err(DomainError::new(
+                        ErrorId::ProviderNotFound,
+                        format!("{id} is not a known provider"),
+                    ));
+                }
                 analysis.packages.retain(|u| u.rows.contains_key(&id));
             }
             if cli.json {

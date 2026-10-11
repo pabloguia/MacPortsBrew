@@ -105,7 +105,8 @@ Perfectly good contributions. The templates in
 [`../.github/ISSUE_TEMPLATE`](../.github/ISSUE_TEMPLATE) cover bugs, incorrect
 recommendations, mapping problems, provider compatibility, features and
 documentation. Each asks for the machine facts that make a report actionable —
-`macportsbrew doctor --report` collects them, redacted.
+`macportsbrew doctor --report` collects them, without home paths, user names
+or environment values; read it before you attach it.
 
 For a security problem, do not open an issue: see
 [`../SECURITY.md`](../SECURITY.md).

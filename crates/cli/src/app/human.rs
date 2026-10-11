@@ -209,27 +209,40 @@ pub fn status(ctx: &Context, analysis: &Analysis) -> String {
             )
         );
     }
-    if analysis.policy_stale {
-        let _ = writeln!(
-            out,
-            "{}",
-            ctx.messages.render(
-                "policy.stale_notice",
-                &params(&[
-                    ("readOn", analysis.policy_read_on.clone()),
-                    ("url", "https://github.com/macportsbrew/macportsbrew".into())
-                ])
-            )
-        );
-    }
+    // A stale policy is said once, on stderr, for every command
+    // (`app::run`); repeating it here printed it twice on `status`.
     out
 }
 
 /// `analyze` and `list`: one unit per package across providers.
 pub fn analysis(ctx: &Context, analysis: &Analysis, with_reasons: bool) -> String {
     let mut out = String::new();
+    // A broken provider is named whatever else is shown: its packages are
+    // missing from the view, and the view alone would not say why.
+    for (id, p) in &analysis.providers {
+        if matches!(p.detection.presence, ProviderPresence::Broken { .. }) {
+            let _ = writeln!(
+                out,
+                "{}",
+                ctx.messages.render(
+                    "analysis.provider_broken",
+                    &params(&[("provider", id.to_string())])
+                )
+            );
+        }
+    }
     if analysis.packages.is_empty() {
-        let _ = writeln!(out, "{}", label(ctx, "analysis.nothing_to_show"));
+        // `--advanced` cannot help when neither provider answered.
+        let none_present = analysis
+            .providers
+            .values()
+            .all(|p| !matches!(p.detection.presence, ProviderPresence::Present));
+        let key = if none_present {
+            "analysis.no_provider"
+        } else {
+            "analysis.nothing_to_show"
+        };
+        let _ = writeln!(out, "{}", label(ctx, key));
         return out;
     }
     let mut table = Table::new([
@@ -341,7 +354,13 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.facts_heading"));
     for (k, v) in &e.derivation.facts_used {
-        let _ = writeln!(out, "  {}: {}", shown(k), shown(v));
+        // An empty fact (no class at all, say) reads as a value, not a blank.
+        let value = if v.is_empty() {
+            label(ctx, "explain.fact_empty")
+        } else {
+            shown(v)
+        };
+        let _ = writeln!(out, "  {}: {value}", shown(k));
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.fired_heading"));
@@ -430,6 +449,25 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             ctx.messages.render_reason(&step.reason)
         );
         for c in &step.commands {
+            // This tool's own command is not one this version has: a person
+            // following the plan by hand is told what to do instead of being
+            // shown a `$` line that fails (pass 10, truth sweep H1). The plan
+            // and its `--json` form are unchanged.
+            if c.target == macportsbrew_domain::CommandTarget::Tool {
+                let provider = step
+                    .provider
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string);
+                let _ = writeln!(
+                    out,
+                    "       {}",
+                    ctx.messages.render(
+                        "plan.tool_command_absent",
+                        &params(&[("provider", provider)])
+                    )
+                );
+                continue;
+            }
             // An illustration is marked where it is read. A plan built against
             // a provider that was not detected carries commands no executor
             // could run, and they read exactly like the real ones (F-20).
@@ -769,6 +807,10 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
         for refusal in execution_refusals(plan).refusals() {
             let _ = writeln!(out, "    - {}", gate_refusal_line(ctx, refusal));
         }
+        // What a person can do now, after the reasons: the plan above is the
+        // product of this version (pass 10, truth sweep H5).
+        let _ = writeln!(out);
+        let _ = writeln!(out, "  {}", label(ctx, "migrate.by_hand"));
     }
     if !report.records.is_empty() {
         let _ = writeln!(out);

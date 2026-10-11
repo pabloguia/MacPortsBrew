@@ -2,17 +2,15 @@
 
 ## Install
 
-MacPortsBrew builds from source. There is no published release yet — the
-repository will be public on GitHub
-([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007,
-decided 2026-09-02) but the remote does not exist yet — so this is currently
-the only route.
+MacPortsBrew builds from source. There is no published release yet, so this
+is currently the only route.
 
 When there is one, each release will publish three downloads per architecture —
 a bare binary, a `.pkg` and a `.dmg` — carrying the same executable and
-differing only in how you install it. Which one to take, and why, is in the
-[README's install section](../README.md#three-downloads-and-how-to-choose)
-(DP-008, decided 2026-09-04).
+differing only in how you install it. Which one to take, how to put it on your
+`PATH`, what happens the first time it runs and how to check what you
+downloaded are all in the [README's install section](../README.md#install) —
+the same text the release notes carry, kept in one place so it cannot drift.
 
 ```sh
 git clone <repository-url> macportsbrew
@@ -53,7 +51,7 @@ Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
 56 packages in the default view; 15 need manual review. Policy 2026.10.03-2.
-Ownership is unknown for 10 row(s): the provider kept no record, or this analysis could not read one.
+Ownership is unknown for 10 rows: the provider kept no record, or this analysis could not read one.
 ```
 
 Three things to read here:
@@ -62,10 +60,12 @@ Three things to read here:
   the provider itself has said this machine is not a first-class target. Run
   `macportsbrew doctor` and it will tell you which provider said what, with the
   source and the date it was read.
-- **"56 top-level"** is the number of packages *you asked for*. The rest are
-  dependencies that a provider installed on their behalf, and MacPortsBrew
-  hides them unless you pass `--advanced` — see
-  [Dependencies and Safety](Dependencies-and-Safety.md).
+- **"47 top-level"** is the number of packages *you asked for*. Most of the
+  rest are dependencies that a provider installed on their behalf, and
+  MacPortsBrew hides them unless you pass `--advanced` — see
+  [Dependencies and Safety](Dependencies-and-Safety.md). The default view, 56
+  rows here, also keeps every package whose ownership is unknown: an unknown
+  is shown, never hidden.
 - **The policy version** is the identifier of the dated provider facts this
   answer was computed from. Every recommendation carries it.
 
@@ -73,14 +73,17 @@ Three things to read here:
 
 One row per package, with what each provider has, how it got there, whether an
 install would be prebuilt or compiled, what kind of package it is, and the
-recommendation.
+recommendation. Below, four rows from the same recording (`…` marks rows left
+out); after the table, `analyze` lists the reasons behind each recommendation.
 
 ```
-Package     Provider  Version  Ownership  Availability  Class             Recommendation
-coreutils   homebrew  9.11     Requested  Prebuilt      Simple            Needs a human decision
-gemini-cli  homebrew  0.46.0   Requested  Deprecated    Simple            Nothing to do
-jupyterlab  homebrew  4.6.3    Requested  Prebuilt      Background service Needs a human decision
-python@3.12 homebrew  3.12.14  Requested  Prebuilt      Language runtime  Use a language runtime manager instead
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+coreutils           homebrew    9.11         Requested  Prebuilt                                                    Simple              Needs a human decision
+gemini-cli          homebrew    0.46.0       Requested  Deprecated                                                  Simple              Needs a human decision
+jupyterlab          homebrew    4.6.3        Requested  Prebuilt                                                    Background service  Needs a human decision
+python@3.12         homebrew    3.12.14      Requested  Prebuilt                                                    Language runtime    Use a language runtime manager instead
+…
 ```
 
 "Needs a human decision" is a normal, common outcome. It is not an error, and
@@ -99,26 +102,28 @@ curl (held by homebrew)
   Policy version: 2026.10.03-2
 
 Facts the policy engine read
-  ...
-  package.reverseDependencyCount: 2
+  …
+  package.homebrew.reverseDependencyCount: 2
+  …
   provider.homebrew.support: DEGRADED
   provider.homebrew.supportEndDate: 2027-09-01
-  ...
+  …
 
 Rules that fired
   KEEP_SOURCE_DEFAULT -> Keep under homebrew
       Nothing argues for moving curl, so it stays under homebrew.
   MANUAL_REVIEW_REVERSE_DEPENDENCIES -> Needs a human decision
-      2 packages under homebrew depend on this one, and removing or moving it
-      on its own can break them.
+      2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
   NO_ALTERNATIVE_PROVIDER_PRESENT -> Nothing to do
-      homebrew is the only package manager on this machine carrying curl, so
-      there is nowhere to move it to.
+      homebrew is the only package manager on this machine carrying curl, so there is nowhere to move it to.
 
 Rules considered that did not fire
   DESTINATION_UNSUPPORTED_HERE
-  ...
+  …
 ```
+
+That is an excerpt (`…` marks lines left out) of
+`macportsbrew explain curl` replayed from the same recording.
 
 Everything MacPortsBrew concludes is reproducible from that page. If you
 disagree with an answer, this output names the rule to argue with.
@@ -141,17 +146,17 @@ Add `--json` to any of them for a versioned payload on stdout. See the
 
 ## What it will not do yet
 
-`plan` builds and prints a plan. **Executing one is a later pass** — `migrate
---yes` reaches a refusal gate that refuses every plan this build produces, and
-no code path in this binary runs a mutating provider
-subcommand or asks for a password. Nothing on your machine changes when you run
-any command on this page.
+`plan` builds and prints a plan. **Running one is for a later release** —
+`migrate --yes` reaches a refusal gate that refuses every plan this build
+produces, and no code path in this binary runs a mutating provider subcommand
+or asks for a password. Nothing in either package manager changes when you run
+any command on this page; `snapshot --out` writes only the file you name.
 
-`--dry-run`, `--yes`, `--no-network` and `--refresh` are accepted and do
-nothing, because this build is always a dry run, never prompts, makes no
-network call of its own and has no cache. They exist so a script written today
-keeps working. `--no-network` does not stop Homebrew, asked to read, fetching
-its catalogue on an empty cache (DP-028, open).
+`--no-network` and `--refresh` are accepted and do nothing in this build.
+`--yes` makes `migrate` put its plan to the execution gate, which refuses it
+(exit 4); adding `--dry-run` shows the plan without putting it to the gate.
+`--no-network` does not stop Homebrew, asked to read, fetching its catalogue on
+an empty cache.
 
 ## Where to go next
 

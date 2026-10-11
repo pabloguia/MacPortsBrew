@@ -132,14 +132,11 @@ fn the_keys_the_ui_depends_on_are_present() {
 fn placeholders_are_substituted_and_literal_braces_survive() {
     let messages = Messages::english();
     let notice = messages.render(
-        msg!("policy.stale_notice"),
-        &params! { readOn: "2026-09-02", url: "https://docs.brew.sh/Support-Tiers" },
+        msg!("plan.heading"),
+        &params! { package: "wget", source: "homebrew", destination: "macports" },
     );
-    assert!(notice.contains("2026-09-02"), "{notice}");
-    assert!(
-        notice.contains("https://docs.brew.sh/Support-Tiers"),
-        "{notice}"
-    );
+    assert!(notice.contains("wget"), "{notice}");
+    assert!(notice.contains("macports"), "{notice}");
     assert!(!notice.contains('{'), "{notice}");
 
     // Escaping is `{{` and `}}`, in the catalogue and anywhere else.
@@ -239,11 +236,11 @@ fn every_pseudolocale_string_is_wider_than_its_english_source() {
 fn the_pseudolocale_still_substitutes_and_still_pluralises() {
     let messages = Messages::for_locale(&Locale::pseudo());
     let notice = messages.render(
-        msg!("policy.stale_notice"),
-        &params! { readOn: "2026-09-02", url: "https://example.test" },
+        msg!("plan.heading"),
+        &params! { package: "wget", source: "homebrew", destination: "example-test" },
     );
-    assert!(notice.contains("2026-09-02"), "{notice}");
-    assert!(notice.contains("https://example.test"), "{notice}");
+    assert!(notice.contains("wget"), "{notice}");
+    assert!(notice.contains("example-test"), "{notice}");
     assert!(notice.starts_with('['), "{notice}");
     assert!(notice.ends_with(']'), "{notice}");
 

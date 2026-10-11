@@ -293,6 +293,18 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: classification is part of inventory, not of planning,
   and the class field is a set with a total order over its members rather than
   an enum.
+- **Addendum, `RUNTIME` narrowed to language families, 2026-10-11 (pass 10).**
+  Versioned siblings, and Homebrew's `versioned_formula` keg-only reason, made
+  *any* formula a `RUNTIME`, so `ffmpeg` (which has `ffmpeg@7` and friends) was
+  told to use a language runtime manager, and `postgresql@18` carried a runtime
+  class beside its stateful one. 02 defines `RUNTIME` as "a language runtime or
+  toolchain with its own ecosystem"; the classifier now adds it, by any route,
+  only for a family `data/policy/runtime-managers.toml` names. A language with
+  no manager listed there is not classed a runtime; that costs only a
+  suggestion, never a safety class (`STATEFUL`, `SERVICE` and the manual-review
+  rules are untouched). Goldens regenerated: `ffmpeg` is `KEEP` under
+  Homebrew; evidence for `postgresql@18`'s runtime class is gone (truth sweep,
+  docs-auditor, pass 10, M10). Tests in `crates/application/src/classify.rs`.
 
 ## SE-007 — "Verify" given an operational definition
 - Status: accepted
@@ -1922,6 +1934,20 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: the Intel half of the project's reason to exist can be
   *tested* until at least Fall 2027; after that it can only be claimed, and the
   documentation will have to say so.
+- **Addendum, 2026-10-11 (pass 09): the Intel release runner is free, and the
+  install text says "best-effort" in those words.** R-11 Q2 had read
+  `macos-15-intel` as an alias of the billed `-large` runner, and DP-019 was
+  argued from that. R-19 finding 3 (GitHub Docs and `actions/runner-images`,
+  read 2026-10-10) confirms this entry instead: the billing tier follows the
+  label, `-intel` is a standard runner free on a public repository, and only
+  `-large` / `-xlarge` are billed. R-11 and DP-019 carry the correction; the
+  pass-09 release workflow builds and signs on `macos-26-intel` and `macos-26`.
+  And 08's requirement that best-effort versions be called that "in those
+  words" now reaches the place a user reads it at download time: README's
+  Install section, which is also the release notes, says macOS 10.12–10.15
+  (and 11–14) are **best-effort**, with the reason — built for and checked to
+  declare that minimum, not tested — and R-19 finding 13's fact that the 10.12
+  floor is held by `ld`'s behaviour rather than by any Apple support statement.
 
 ---
 
@@ -4544,6 +4570,69 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   instead of being shown three filenames.
 - Architectural impact: none. Nothing is built yet; this binds the release pass.
 - Compatibility impact: none. No release has been published.
+- **Addendum, the distribution as pass 09 builds it, 2026-10-11 (pass 09; plan
+  `docs/passes/09-release-engineering-plan.md`, sources R-19 and R-11).** The
+  release script and workflow are written, reviewed twice and **staged** for the
+  owner's armed write (`docs/passes/09-staged/`); nothing is released. The
+  decisions, each argued in the plan:
+  - **Build (D-B1, D-B3).** One `cargo build --release --locked --target T` per
+    architecture, with `MACOSX_DEPLOYMENT_TARGET` set on that invocation only
+    (10.12 x86_64, 11.0 arm64); the recorded minimum is asserted on the
+    artifact, exactly equal to the floor, by `otool` and by `vtool`, because
+    no hosted Xcode states support for 10.12 and `ld` links it without a
+    warning (R-19 f13). Path remaps for the registry and the repository root;
+    one Xcode named by `DEVELOPER_DIR`.
+  - **Byte identity, stated precisely (D-R1).** (a) The three artifacts of one
+    build embed the same executable — 08's MUST, asserted by extracting the
+    payload from the `.pkg` (`pkgutil --expand`, `tar`) and the `.dmg`
+    (read-only attach) and comparing hashes **and** the exact file list and
+    modes, before and after stapling. (b) An unsigned rebuild of one commit is
+    byte-identical on one machine (observed, R-19 E5/E6); across machines it is
+    conditional and unobserved, and `SIGNING-RECORD.txt` publishes the unsigned
+    build's SHA-256, the floor and the build job's toolchain so it can be
+    attempted. (c) A signed rebuild is never byte-identical (secure timestamps)
+    and (d) containers never are; neither is claimed.
+  - **`.pkg` (D-P1, D-P2).** An unsigned component inside a product archive
+    signed with Developer ID Installer; a distribution enabling only the
+    current-user-home domain, per-architecture `hostArchitectures`, `os-version
+    min` = floor, no scripts; installs `macportsbrew` into
+    `~/.macportsbrew/bin`; nothing edits `PATH`. Whether Installer behaves as
+    designed (no administrator password, user-owned `0755`) is **unverified**
+    until the owner's Standard-account check, so the install text says
+    "designed to". The directory and the identifier are the owner's to confirm
+    (DP-035).
+  - **`.dmg` (D-D1).** One file, HFS+ (the 10.12 floor), UDZO, signed with the
+    Application identity.
+  - **Signing and notarisation (D-S2, D-S3, D-N1).** Hardened runtime, secure
+    timestamp, explicit identifier, no entitlements (R-19 f1); the bare
+    executable notarised as a ZIP, both containers notarised and stapled, each
+    wait bounded; on the **final** artifacts the script asserts Developer ID
+    authority, team and timestamp (executable and stapled `.dmg`), pkgutil's
+    notarisation line and Gatekeeper acceptance of both containers; checksums
+    after stapling.
+  - **The workflow (D-W1, D-W2, D-W3, D-A1).** Tag pushes sign; a dispatch is
+    always an unsigned dry run; the release is drafted, never published. Build
+    and sign are separate jobs, and **the built program is executed only on the
+    build VM, which holds no secret** — the signing job never runs it, and binds
+    its input to the build job's record by `unsigned_build_sha256` before the
+    keychain exists, a binding the script repeats itself
+    (`--expect-unsigned-sha256`). Three new actions, SHA-pinned. Every artifact,
+    `SHA256SUMS` and `SIGNING-RECORD.txt` are attested, and the documented
+    verification is pinned to the release workflow and tag
+    (`--signer-workflow`, `--source-ref`).
+  - **Checks (D-T1, D-T2).** `check-no-secrets.sh`, and
+    `check-release-workflow.sh`, which turns 08's and ADR-0005's textual
+    workflow MUSTs into a failing `validate.sh --quick` stage.
+  - **One source for the descriptions.** README's Install section carries them
+    between `<!-- release-notes:begin -->` and `<!-- release-notes:end -->`;
+    the release workflow generates the notes from that section and refuses to
+    run without it; `wiki/Getting-Started.md` links to it.
+
+  Not decided here, and held for the owner: whether `mpb` is installed by a
+  release (DP-033, a charter question), the temporary keychain password in
+  `security`'s argv against ADR-0005's text (DP-034), the repository's
+  account (DP-031), the identifier and install directory (DP-035), and the
+  reading of DP-019's ".app" (DP-036).
 
 ## SE-068 — The release design had an inbound security channel and no outbound one
 - Status: accepted (the project owner asked for the plan, 2026-09-04, DP-009)

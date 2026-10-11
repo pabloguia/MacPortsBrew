@@ -6,8 +6,10 @@ read three years late is worse than no page at all.
 
 ## What Homebrew says
 
-As of **2026-09-02**, reading <https://docs.brew.sh/Support-Tiers> (the page's
-own `last_review_date` was 2026-08-27):
+As of **2026-09-04**, reading <https://docs.brew.sh/Support-Tiers> — the date
+`data/policy/provider-support.toml` records. (The page's own `last_review_date`
+read 2026-08-27 on an earlier read, 2026-09-02; the 2026-09-04 read showed no
+such date.)
 
 - **Intel x86_64 systems running macOS are listed under Tier 3**, which
   Homebrew defines as *not supported* — "far outside Homebrew's testing
@@ -71,7 +73,7 @@ change it.
 
 **It treats the deadline as data, and it never hardcodes it.** The date lives in
 `data/policy/provider-support.toml` with its source and read date, alongside
-every other provider fact (INV-20). No `if` statement in the program contains
+every other provider fact. No `if` statement in the program contains
 September 2027.
 
 The policy rule that uses it — `SOURCE_SUPPORT_ENDING` — names no provider. It
@@ -88,14 +90,16 @@ better to go. You can see whether it fired for any package:
 macportsbrew explain <package>
 ```
 
-`doctor` reports the state directly, with the citation attached:
+`doctor` reports the state directly, with the citation attached. Two lines of
+its output, replayed from the committed Intel recording
+(`macportsbrew --replay fixtures/recordings/homebrew-only-intel-macos26.json doctor`;
+`…` marks lines left out):
 
 ```
-[Warning] homebrew support for this machine is Degraded
-          (source: https://docs.brew.sh/Support-Tiers, read 2026-09-02).
-[Warning] homebrew has announced the end of support for this machine in or
-          after 2027-09-01 (source: https://docs.brew.sh/Support-Tiers,
-          read 2026-09-02). This is dated data; re-check it before relying on it.
+…
+[Warning] homebrew support for this machine is Degraded (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04).
+[Warning] homebrew has announced the end of support for this machine in or after 2027-09-01 (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04). This is dated data; re-check it before relying on it.
+…
 ```
 
 ## What MacPorts offers instead
@@ -117,13 +121,16 @@ MacPortsBrew is not a one-way Intel evacuation tool. It is an orchestration and
 coexistence layer, and
 [MacPorts to Homebrew](MacPorts-to-Homebrew-Migration.md) is a first-class
 direction with the same planner. If you are on Apple Silicon, none of this page
-applies to you and Homebrew is very likely the better provider for most of what
-you have.
+applies to you: Homebrew places Apple Silicon on macOS 14 or later in Tier 1,
+its fully supported tier (<https://docs.brew.sh/Support-Tiers>, read
+2026-09-04), and on 2026-09-02, 7277 of 8586 core formulae carried an Apple
+Silicon bottle. For many packages that makes Homebrew the better provider
+there; `analyze` says which, package by package.
 
 ## Re-check this page when
 
-- Homebrew changes the Support Tiers page — its `last_review_date` is the thing
-  to watch.
+- Homebrew changes the Support Tiers page — its `last_review_date`, when it
+  shows one, is the thing to watch.
 - September 2027 approaches, or moves.
 - Intel bottle coverage changes materially in either direction.
 

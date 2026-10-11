@@ -14,15 +14,29 @@ reports.
 
 ## What MacPortsBrew tells you
 
-`macportsbrew analyze` has an **Availability** column:
+`macportsbrew analyze` has an **Availability** column. Four rows replayed from
+the committed Intel recording with Homebrew only
+(`--replay fixtures/recordings/homebrew-only-intel-macos26.json analyze`; `…`
+marks rows left out):
 
 ```
-Package     Availability
-git         Prebuilt
-gh          Builds from source (no prebuilt artifact for this machine)
-gnutls      Builds from source (non-default options were requested)
-gemini-cli  Deprecated
-gimp        Unknown
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+gemini-cli          homebrew    0.46.0       Requested  Deprecated                                                  Simple              Needs a human decision
+gh                  homebrew    2.98.0       Requested  Builds from source (no prebuilt artifact for this machine)  Simple              Nothing to do
+gimp                homebrew    3.2.4        Unknown    Unknown                                                     Application         Needs a human decision
+git                 homebrew    2.55.0       Requested  Prebuilt                                                    Simple              Nothing to do
+…
+```
+
+and one from the committed recording with MacPorts only
+(`--replay fixtures/recordings/macports-only-intel-macos12.json analyze`):
+
+```
+Package              Provider    Version      Ownership  Availability                                             Class       Recommendation
+…
+gnutls               macports    3.8.4        Requested  Builds from source (non-default options were requested)  Simple      Nothing to do
+…
 ```
 
 The states, and what each actually means:
@@ -56,9 +70,11 @@ reporting a confident "no". A policy rule then treats the unknown as a reason
 for a human to look — never as a reason to act. You will see this in a plan as:
 
 ```
-- Whether homebrew would supply postgresql17-server ready-built or compile it
-  here could not be determined. An unknown is not a yes.
+  - Whether macports would supply postgresql17-server ready-built or compile it here could not be determined. An unknown is not a yes.
 ```
+
+(From `plan postgresql17-server --to macports`, replayed from the committed
+Apple Silicon recording.)
 
 ## Homebrew bottle tags, if you want the detail
 
