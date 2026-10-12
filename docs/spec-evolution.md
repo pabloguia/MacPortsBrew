@@ -7339,3 +7339,68 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   Moving the marker into `OwnershipEvidence` is owed for when `planner.rs` is next
   open to change.
 - Compatibility impact: additive.
+
+## SE-097 — Twenty more curated mappings, read from the local indexes of both providers
+- Status: accepted
+- Date / Pass: 2026-10-12 / pass 12 (item D)
+- Original assumption: 0.1.0 matches a package only when an equivalent is already
+  installed or the curated table names one, and the table held seven rows.
+- Change: nineteen rows in `data/policy/curated-mappings.toml` (twenty were written; `qt` was dropped in review), each with `source`,
+  `read_on = 2026-10-12` and a `rationale`; policy version `2026.10.12-1`. Ten
+  read Homebrew to MacPorts (`python@3.13`/`3.11`, `node@24`/`20`, `ruby@3.3`,
+  `php@8.3`, `postgresql@16` server and client, `mysql@8.4` server and client),
+  nine MacPorts to Homebrew (`gmake`, `gindent`, `gtime`, `gwhich`, `gunits`,
+  `glib2`, `libjpeg-turbo`, `sqlite3`, `gnupg2`). Both names of every pair were
+  observed with read-only commands (`brew info --json=v2` on Homebrew 7.0.4, `port
+  info` on MacPorts 2.12.6) and the same software confirmed by version and
+  description; anything not confirmed in both was dropped (`sdl2`: the formula is a
+  compatibility layer over SDL3; `gnu-tar` has no `gtar` port; `mysql84` and `lua55`
+  do not exist; pairs whose names already normalise alike were skipped).
+- Rationale and limits, stated because the admission rule says "the destination
+  provider's own index": both indexes are **local copies, not upstream today** - the
+  homebrew-core checkout was last committed 2026-09-02 and MacPorts' ports tree was
+  last synced 2026-09-06, which `port` itself warns about - and each row's `source`
+  says so. The rows assert that both names exist in each provider's index as read,
+  not that a fresh sync would agree. Several rows (the versioned runtimes) exist
+  because the family-and-version heuristic only sees installed destination packages
+  and scores at most `STRONG`; improving it would let them be retired, which is why
+  each row has a `rationale`. At twenty it is at the edge of "do not curate a large
+  database" (`.claude/rules/policy-data.md`); the work order asked for it.
+- User impact: `python@3.13` and similar now name their counterpart before the
+  other provider has one installed; in the fixtures that is `python@3.13` (a mapped
+  row) and one MacPorts-side `nodejs24` unit. Every recommendation carries the new
+  policy version. `status` counts such a mapped, not-installed row among the rows
+  whose ownership is unknown (README sample: 10 to 11) - existing behaviour, noted
+  here because the new rows make it visible; it is not changed.
+- Evidence: `cargo test -p macportsbrew-policy` (the loader validates every row);
+  the goldens were regenerated on a fresh binary and compared semantically with the
+  old ones: apart from the version and the summary counts, the only changed units
+  are the ones whose mappings the new rows add.
+- Also changed, and not obvious: **`policyReadOn` moves to 2026-10-12 in every
+  payload** (it is the newest `read_on` across the files the engine loads, and the
+  curated rows are among them), so the staleness notice, measured from that date
+  (SE-094 kept it), is pushed back by about five weeks for **every older fact the
+  engine also loads** - the Homebrew Intel support facts, last read 2026-09-02,
+  were not re-read. A separate as-of date for index-derived rows is a follow-up for
+  the owner; until then the support facts' own `read_on` stay visible in
+  `provider-support.toml`.
+- Every row answers both directions (the loader builds the reverse index); eleven
+  were written Homebrew to MacPorts and nine the other way only because a citation
+  has a direction. The reverse of `node@24` replaced an old cross-major link: in
+  the arm64 golden `nodejs24` had been linked at `PROBABLE` to the installed
+  Homebrew `node` (another major), and is now linked `EXACT` to a not-installed
+  `node@24`, which is the more correct answer. `node@20` is deprecated in Homebrew
+  and has a disable date of 2026-10-28; a future availability check must treat a
+  disabled destination as unavailable.
+- Dropped after review: the `qt` to `qt6` row (an unversioned name mapped to a
+  numbered port is the pattern the `node@22` row warns is wrong the day the major
+  moves). Several rationales said the heuristics cannot see a homepage match; they
+  can (it reaches `PROBABLE` for an installed destination), and the rows now say
+  that is not enough to be `EXACT` or to act before the other side is installed.
+- Owed: `status` counts a mapped, not-installed row among those whose ownership is
+  unknown, and its sentence says "the provider kept no record"; every new row makes
+  the count larger (10 to 12 in one golden). Excluding mapped rows from the count,
+  or rewording the line, is not done here; `summary.ownershipUnknown` is also
+  undocumented in `analysis.v1.md`.
+- Compatibility impact: the policy version and `policyReadOn` change, so in every
+  `--json` payload and the documented samples; no shape changes.

@@ -13,8 +13,8 @@ it references. The compatibility rule is in [`README.md`](README.md).
 |---|---|---|
 | `schemaVersion` | integer | `1` |
 | `toolVersion` | string | The MacPortsBrew version, e.g. `"0.1.0"` |
-| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.10.03-2"` |
-| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across **the files the policy engine loads** — not the whole of `data/policy/`. `provider-commands.toml` is read by the application layer and `provider-prefixes.toml` by the adapters (DP-014), so a read date moving in either does not move this. `policyVersion` *does* span the directory, so the two legitimately differ: a payload may carry `policyVersion: 2026.10.03-2` beside `policyReadOn: 2026-09-04`. The narrower set is deliberate — it drives the staleness notice below, and the older date warns earlier |
+| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.10.12-1"` |
+| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across **the files the policy engine loads** — not the whole of `data/policy/`. `provider-commands.toml` is read by the application layer and `provider-prefixes.toml` by the adapters (DP-014), so a read date moving in either does not move this. `policyVersion` *does* span the directory, so the two can differ: a newer read date in one of those other files moves `policyVersion` and not this. The narrower set is deliberate — it drives the staleness notice below. **It is the newest date, so adding rows read today (curated mappings, say) moves it and pushes the notice back for every older fact the engine also loads**; the support facts' own `read_on` are in `provider-support.toml` |
 | `policyStale` | boolean | True when `today` minus `policyReadOn` exceeds the threshold in `data/policy/policy.toml`. Advisory: recommendations are still produced |
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
 | `source` | `AnalysisSource` | `LIVE` or `SNAPSHOT` |
@@ -251,10 +251,10 @@ to end.
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.03-2",
-  "policyReadOn": "2026-09-02",
+  "policyVersion": "2026.10.12-1",
+  "policyReadOn": "2026-10-12",
   "policyStale": false,
-  "today": "2026-09-02",
+  "today": "2026-10-12",
   "source": "LIVE",
   "concurrentProviderActivity": { "activity": "NOT_CHECKED", "possiblyInconsistent": true },
   "machine": {

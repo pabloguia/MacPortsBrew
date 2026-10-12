@@ -26,6 +26,12 @@
 # Admission rule for this file: a row exists only when the destination name
 # was read from the destination provider's own index on read_on. Candidates
 # that could not be confirmed were dropped rather than guessed.
+#
+# Rows read on 2026-10-12 were observed on this machine with read-only
+# commands, both names in their own provider's local index: `brew info
+# --json=v2` on Homebrew 7.0.4 over a homebrew-core checkout last committed
+# 2026-09-02, and `port info` on MacPorts 2.12.6 over a ports tree last synced
+# 2026-09-06. Each row's `source` says exactly what was read.
 
 [[entry]]
 source_provider = "homebrew"
@@ -136,4 +142,277 @@ name on the first side is an alias for the current major (R-8 E-10 observed \
 node aliased node@26), so mapping the bare name to a fixed numbered port \
 would be wrong on the day the current major moves. Only the pinned pair is \
 safe to curate, which is itself the reason a heuristic must not guess here.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "python@3.13"
+destination_provider = "macports"
+destination_name = "python313"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description python313` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name python313, version 3.13.15, homepage https://www.python.org/, description \"An interpreted, object-oriented programming language\", replaced_by empty; and `brew info --json=v2 python@3.13` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name python@3.13, versions.stable 3.13.16, homepage https://www.python.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+Same versioned family as the python@3.12 row. The normalised names differ \
+(python3.13 against python313), and the family-and-version heuristic only \
+sees installed destination packages and scores at most STRONG, so the \
+family needs an anchor for each pinned minor rather than a lucky match. A \
+RUNTIME family: the recommendation is a version manager regardless.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "python@3.11"
+destination_provider = "macports"
+destination_name = "python311"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description python311` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name python311, version 3.11.16, homepage https://www.python.org/, description \"An interpreted, object-oriented programming language\", replaced_by empty; and `brew info --json=v2 python@3.11` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name python@3.11, versions.stable 3.11.17, homepage https://www.python.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+As python@3.13: @3.11 against 311, so the normalised names differ and only \
+the family-and-version path can reach it, and only for an installed port. \
+The digits 311 would equally read as 3.1.1 to a looser normaliser.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "node@24"
+destination_provider = "macports"
+destination_name = "nodejs24"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description nodejs24` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name nodejs24, version 24.19.0, homepage https://nodejs.org/, description \"Evented I/O for V8 JavaScript\", replaced_by empty; and `brew info --json=v2 node@24` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name node@24, versions.stable 24.21.0, homepage https://nodejs.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+node against nodejs: the family names differ, so neither the normalised \
+name nor the family-and-version heuristic matches; the shared homepage \
+reaches only PROBABLE, and only for an installed destination (before this \
+row the Homebrew `node` of another major was linked to nodejs24 that way). \
+Only the pinned major is curated, for the reason the node@22 row gives about \
+the bare alias.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "node@20"
+destination_provider = "macports"
+destination_name = "nodejs20"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description nodejs20` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name nodejs20, version 20.19.5, homepage https://nodejs.org/, description \"Evented I/O for V8 JavaScript\", replaced_by empty; and `brew info --json=v2 node@20` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name node@20, versions.stable 20.20.2, homepage https://nodejs.org/, disabled false, deprecated true"
+read_on = "2026-10-12"
+rationale = """
+node against nodejs, as node@24. The source formula was deprecated in its \
+provider's index on read_on (not disabled), which is exactly when a user \
+looks for the other provider's equivalent. Its Homebrew entry carries a \
+disable date of 2026-10-28 on read_on, so through the reverse index a \
+MacPorts nodejs20 maps to a formula that is about to be disabled; an \
+availability check must treat a disabled destination as unavailable.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "ruby@3.3"
+destination_provider = "macports"
+destination_name = "ruby33"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description ruby33` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name ruby33, version 3.3.12, homepage https://www.ruby-lang.org/, description \"Powerful and clean object-oriented scripting language\", replaced_by empty; and `brew info --json=v2 ruby@3.3` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name ruby@3.3, versions.stable 3.3.12, homepage https://www.ruby-lang.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+@3.3 against 33: the normalised names differ (ruby3.3 against ruby33) and \
+the family-and-version path reaches it only for an installed port. A \
+RUNTIME family, like python.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "php@8.3"
+destination_provider = "macports"
+destination_name = "php83"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description php83` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name php83, version 8.3.33, homepage https://www.php.net, description \"PHP: Hypertext Preprocessor\", replaced_by empty; and `brew info --json=v2 php@8.3` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name php@8.3, versions.stable 8.3.35, homepage https://www.php.net/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+@8.3 against 83: the normalised names differ (php8.3 against php83), and \
+homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "postgresql@16"
+destination_provider = "macports"
+destination_name = "postgresql16-server"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description postgresql16-server` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name postgresql16-server, version 16.15, homepage https://www.postgresql.org/, description \"run postgresql16 as server\", replaced_by empty; and `brew info --json=v2 postgresql@16` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name postgresql@16, versions.stable 16.15, homepage https://www.postgresql.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+The postgresql@17 split, one major earlier. The normalised name reaches \
+postgresql16 and stops there, dropping the half that carries the service \
+and the cluster. This row and the next are the two halves of one mapping.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "postgresql@16"
+destination_provider = "macports"
+destination_name = "postgresql16"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description postgresql16` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name postgresql16, version 16.15, homepage https://www.postgresql.org/, description \"The most advanced open-source database available anywhere.\", replaced_by empty; and `brew info --json=v2 postgresql@16` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name postgresql@16, versions.stable 16.15, homepage https://www.postgresql.org/, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+The client half of the postgresql@16 pair. A heuristic does reach this one \
+by normalised name; it is curated only so the pair is presented together, \
+as for postgresql@17.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "mysql@8.4"
+destination_provider = "macports"
+destination_name = "mysql8-server"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description mysql8-server` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name mysql8-server, version 8.4.11, homepage https://dev.mysql.com, description \"Run mysql8 as server\", replaced_by empty; and `brew info --json=v2 mysql@8.4` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name mysql@8.4, versions.stable 8.4.11, homepage https://github.com/mysql/mysql-server, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+The destination names the 8.x LTS series by its major alone (mysql8 at \
+8.4.11) where the source pins 8.4, so the family-and-version heuristic sees \
+a version mismatch; the homepages differ too. The destination also splits \
+server from client, like postgresql: this row and the next are one mapping.\
+"""
+
+[[entry]]
+source_provider = "homebrew"
+source_name = "mysql@8.4"
+destination_provider = "macports"
+destination_name = "mysql8"
+confidence = "EXACT"
+source = "`port info --name --version --homepage --replaced_by --description mysql8` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name mysql8, version 8.4.11, homepage https://dev.mysql.com, description \"Multithreaded SQL database server\", replaced_by empty; and `brew info --json=v2 mysql@8.4` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name mysql@8.4, versions.stable 8.4.11, homepage https://github.com/mysql/mysql-server, disabled false, deprecated false"
+read_on = "2026-10-12"
+rationale = """
+The binaries half of the mysql@8.4 pair (the MacPorts mysql8 port carries the \
+client and server programs; the -server subport adds the startup item); same version 8.4.11 on both sides on \
+read_on. Presented together with the -server row, never alone.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gmake"
+destination_provider = "homebrew"
+destination_name = "make"
+confidence = "EXACT"
+source = "`brew info --json=v2 make` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name make, versions.stable 4.4.1, homepage https://www.gnu.org/software/make/, disabled false, deprecated false, desc \"Utility for directing compilation\"; and `port info --name --version --homepage --replaced_by gmake` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gmake, version 4.4.1, homepage https://www.gnu.org/software/make/make.html, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+g prefix against the bare name: GNU make. The shared string is a suffix, \
+and the homepages differ by a path, so no heuristic matches it.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gindent"
+destination_provider = "homebrew"
+destination_name = "gnu-indent"
+confidence = "EXACT"
+source = "`brew info --json=v2 gnu-indent` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name gnu-indent, versions.stable 2.2.13, homepage https://www.gnu.org/software/indent/, disabled false, deprecated false, desc \"C code prettifier\"; and `port info --name --version --homepage --replaced_by gindent` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gindent, version 2.2.12, homepage https://www.gnu.org/software/indent, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+g prefix against gnu- prefix, as gsed and gnu-sed. The homepages agree once \
+the trailing slash is dropped, so homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gtime"
+destination_provider = "homebrew"
+destination_name = "gnu-time"
+confidence = "EXACT"
+source = "`brew info --json=v2 gnu-time` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name gnu-time, versions.stable 1.10, homepage https://www.gnu.org/software/time/, disabled false, deprecated false, desc \"GNU implementation of time utility\"; and `port info --name --version --homepage --replaced_by gtime` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gtime, version 1.10, homepage https://www.gnu.org/software/time/, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+g prefix against gnu- prefix. The homepage matches, so homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gwhich"
+destination_provider = "homebrew"
+destination_name = "gnu-which"
+confidence = "EXACT"
+source = "`brew info --json=v2 gnu-which` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name gnu-which, versions.stable 2.25, homepage https://savannah.gnu.org/projects/which/, disabled false, deprecated false, desc \"GNU implementation of which utility\"; and `port info --name --version --homepage --replaced_by gwhich` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gwhich, version 2.23, homepage https://carlowood.github.io/which/, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+g prefix against gnu- prefix, and the homepages differ entirely: one names \
+the maintainer's site, the other the GNU Savannah project page, for the \
+same GNU which. Both descriptions say GNU which.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gunits"
+destination_provider = "homebrew"
+destination_name = "gnu-units"
+confidence = "EXACT"
+source = "`brew info --json=v2 gnu-units` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name gnu-units, versions.stable 2.27, homepage https://www.gnu.org/software/units/, disabled false, deprecated false, desc \"GNU unit conversion tool\"; and `port info --name --version --homepage --replaced_by gunits` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gunits, version 2.25, homepage https://www.gnu.org/software/units/, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+g prefix against gnu- prefix. Same homepage, so homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "glib2"
+destination_provider = "homebrew"
+destination_name = "glib"
+confidence = "EXACT"
+source = "`brew info --json=v2 glib` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name glib, versions.stable 2.90.1, homepage https://docs.gtk.org/glib/, disabled false, deprecated false, desc \"Core application library for C\"; and `port info --name --version --homepage --replaced_by glib2` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name glib2, version 2.88.3, homepage https://wiki.gnome.org/Projects/GLib, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+The trailing 2 is part of the name, not a version: the family heuristic \
+reads it as a version mismatch against an unversioned name, and the two \
+homepages are different GNOME pages for the same GLib.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "libjpeg-turbo"
+destination_provider = "homebrew"
+destination_name = "jpeg-turbo"
+confidence = "EXACT"
+source = "`brew info --json=v2 jpeg-turbo` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name jpeg-turbo, versions.stable 3.2.0, homepage https://www.libjpeg-turbo.org/, disabled false, deprecated false, desc \"JPEG image codec that aids compression and decompression\"; and `port info --name --version --homepage --replaced_by libjpeg-turbo` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name libjpeg-turbo, version 3.2.0, homepage https://www.libjpeg-turbo.org, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+lib prefix on one side only, so the normalised names differ; the homepages \
+agree once the trailing slash is dropped, so homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "sqlite3"
+destination_provider = "homebrew"
+destination_name = "sqlite"
+confidence = "EXACT"
+source = "`brew info --json=v2 sqlite` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name sqlite, versions.stable 3.54.0, homepage https://sqlite.org/index.html, disabled false, deprecated false, desc \"Command-line interface for SQLite\"; and `port info --name --version --homepage --replaced_by sqlite3` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name sqlite3, version 3.53.4, homepage https://www.sqlite.org, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+The 3 is the major in the name on one side only; the family heuristic \
+reads it as a version mismatch, and the homepages differ by host and path.\
+"""
+
+[[entry]]
+source_provider = "macports"
+source_name = "gnupg2"
+destination_provider = "homebrew"
+destination_name = "gnupg"
+confidence = "EXACT"
+source = "`brew info --json=v2 gnupg` on Homebrew 7.0.4 (local homebrew-core at e045d7385fd, last commit 2026-09-02, HOMEBREW_NO_AUTO_UPDATE=1): name gnupg, versions.stable 2.5.24, homepage https://gnupg.org/, disabled false, deprecated false, desc \"GNU Privacy Guard (OpenPGP)\"; and `port info --name --version --homepage --replaced_by gnupg2` on MacPorts 2.12.6 (local ports tree, last synced 2026-09-06 per the mtime of /opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports; port warned its definitions are more than two weeks old): name gnupg2, version 2.5.21, homepage https://www.gnupg.org, replaced_by empty"
+read_on = "2026-10-12"
+rationale = """
+The 2 is the major in the name on one side only, read by the family \
+heuristic as a version mismatch; the homepages agree once the host's leading \
+www is dropped, so homepage evidence reaches only PROBABLE, and only when the other provider's \
+copy is installed; a curated row is EXACT and works before it is. Both are \
+the GnuPG 2.5 series on read_on.\
 """

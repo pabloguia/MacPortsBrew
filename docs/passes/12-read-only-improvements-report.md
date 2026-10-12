@@ -12,9 +12,9 @@ Log kept for resuming after a compaction: read this and `git log --oneline -15`.
 - 0 work order commit: done 917a678
 - A pt-BR catalogue: done 3789749; stale docs in CONTRIBUTING.md, `.claude/rules/locales.md` and the add-locale skill are left to F
 - B dual-installation doctor check: done f233e72
-- C ownership default marker: todo
-- E layering test fixes: reviewed, committing (see git log)
-- D curated mappings: todo
+- C ownership default marker: reviewed, committing; no checked golden carries it and the marker is not inside `OwnershipEvidence`, both owed (SE-096)
+- E layering test fixes: done 56e1dbe
+- D curated mappings: implemented, reviewing (19 rows, policy 2026.10.12-1)
 - F record and report: todo
 
 ## Notes for the owner (written as they happen)

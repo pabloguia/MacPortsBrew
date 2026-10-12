@@ -86,7 +86,7 @@ body:
     attributes:
       label: Policy version
       description: "Printed by `explain` and at the end of `macportsbrew status`."
-      placeholder: "2026.10.03-2"
+      placeholder: "2026.10.12-1"
     validations:
       required: true
 

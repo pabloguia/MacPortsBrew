@@ -454,8 +454,12 @@ fn a_name_that_is_the_counterpart_of_several_packages_is_refused_with_the_choice
     // MacPorts counterpart row carries the same name.
     let snap = both(
         &[
-            ("python@3.13", Some("https://www.python.org")),
+            // Two minors the curated table does not name. (`python@3.13` was
+            // one until pass 12 gave it its own row, which made it exact and
+            // took the ambiguity away - which is the point of this test's
+            // guard below, and why it names its pair here.)
             ("python@3.14", Some("https://www.python.org")),
+            ("python@3.15", Some("https://www.python.org")),
         ],
         &[("python312", Some("https://www.python.org"))],
     );

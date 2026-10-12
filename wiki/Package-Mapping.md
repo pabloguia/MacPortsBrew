@@ -122,7 +122,7 @@ thing MacPortsBrew can promise
 
 ## Versioned families
 
-`python@3.12`, `postgresql@16`, `llvm@18` are matched on the family **and** the
+`llvm@18`, `openjdk@21`, `gcc@14` are matched on the family **and** the
 version. A version mismatch lowers the confidence rather than being ignored —
 mapping `python@3.12` to a `python313` port is not a mapping, it is a different
 package.

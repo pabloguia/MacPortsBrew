@@ -763,7 +763,7 @@ non-mutating and the command exits 4:
       "blocking": false
     }
   ],
-  "policyVersion": "2026.10.03-2",
+  "policyVersion": "2026.10.12-1",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

@@ -39,7 +39,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -148,7 +148,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -254,7 +254,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -368,7 +368,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -469,7 +469,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -578,7 +578,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -700,7 +700,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -806,7 +806,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -914,7 +914,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1022,7 +1022,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1123,7 +1123,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1238,7 +1238,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1344,7 +1344,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1459,7 +1459,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1566,7 +1566,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1675,7 +1675,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1781,7 +1781,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1882,7 +1882,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1989,7 +1989,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2090,7 +2090,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2191,7 +2191,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2292,7 +2292,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2401,7 +2401,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2509,7 +2509,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2610,7 +2610,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2720,7 +2720,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2826,7 +2826,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2945,7 +2945,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3046,7 +3046,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3155,7 +3155,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3276,7 +3276,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3377,7 +3377,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3478,7 +3478,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3587,7 +3587,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3693,7 +3693,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3794,7 +3794,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3895,7 +3895,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3997,7 +3997,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4147,7 +4147,7 @@
         "outcome": {
           "kind": "USE_RUNTIME_MANAGER"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4276,9 +4276,38 @@
       },
       "mappings": [
         {
-          "candidates": [],
-          "confidence": "NONE",
+          "candidates": [
+            {
+              "confidence": "EXACT",
+              "evidence": [
+                {
+                  "detail": "python@3.13 -> python313",
+                  "kind": "curated",
+                  "weight": 100
+                }
+              ],
+              "package": {
+                "name": "python313",
+                "provider": "macports"
+              }
+            }
+          ],
+          "confidence": "EXACT",
           "destination": "macports",
+          "selected": {
+            "confidence": "EXACT",
+            "evidence": [
+              {
+                "detail": "python@3.13 -> python313",
+                "kind": "curated",
+                "weight": 100
+              }
+            ],
+            "package": {
+              "name": "python313",
+              "provider": "macports"
+            }
+          },
           "source": {
             "name": "python@3.13",
             "provider": "homebrew"
@@ -4290,7 +4319,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4379,6 +4408,33 @@
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 5
+        },
+        "macports": {
+          "availability": {
+            "availability": {
+              "state": "UNKNOWN"
+            },
+            "cached": false,
+            "evidence": [
+              {
+                "detail": "the destination's catalogue is not consulted offline in this pass",
+                "offline": true,
+                "source": "destination_catalogue"
+              }
+            ]
+          },
+          "dependencyCount": 0,
+          "deprecated": false,
+          "disabled": false,
+          "installed": [],
+          "name": "python313",
+          "ownership": "UNKNOWN",
+          "ownershipEvidence": {
+            "authoritative": true,
+            "mechanism": "not_installed"
+          },
+          "presence": "MAPPED",
+          "reverseDependencyCount": 0
         }
       },
       "source": "homebrew"
@@ -4405,7 +4461,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4512,7 +4568,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4620,7 +4676,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4721,7 +4777,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4828,7 +4884,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4929,7 +4985,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5030,7 +5086,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5131,7 +5187,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5233,7 +5289,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5348,7 +5404,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5462,7 +5518,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5568,7 +5624,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5669,7 +5725,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5770,7 +5826,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5879,7 +5935,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5985,7 +6041,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.03-2",
+        "policyVersion": "2026.10.12-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6065,9 +6121,9 @@
       "source": "homebrew"
     }
   ],
-  "policyReadOn": "2026-09-04",
+  "policyReadOn": "2026-10-12",
   "policyStale": false,
-  "policyVersion": "2026.10.03-2",
+  "policyVersion": "2026.10.12-1",
   "providers": {
     "homebrew": {
       "capabilities": {
@@ -6206,7 +6262,7 @@
     },
     "dependencyUnits": 0,
     "manualReview": 17,
-    "ownershipUnknown": 10,
+    "ownershipUnknown": 11,
     "topLevelUnits": 56
   },
   "today": "2026-09-02",
