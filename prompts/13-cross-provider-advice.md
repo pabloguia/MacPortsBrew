@@ -156,7 +156,7 @@ prefix (the **affected** provider). Fields: `provider`, `build_defence`,
 
 `build_defence` is a **closed vocabulary of stable identifiers**, one Rust enum
 in `crates/policy`, never prose: `opt_in_trace` (the provider can sandbox a
-build against other prefixes, but only when asked) and `always_on_filter` (the
+build against other prefixes, but only when asked) and `default_clean_path` (the
 provider's own build tooling drops other prefixes' search paths on every source
 build). Adding a third mechanism later is a new variant, a catalogue entry and
 a data row, and the compiler points at all three.
@@ -173,7 +173,7 @@ emit one finding `cross_provider_exposure` with `provider = A`:
 Params: `affected`, `intruder`, `intruder_prefix` (B's detected prefix, as the
 other findings already carry), `defence` (the **identifier**, rendered through
 the catalogue by the existing identifier-family mechanism, so the sentence for
-`opt_in_trace` differs from the one for `always_on_filter`). An affected
+`opt_in_trace` differs from the one for `default_clean_path`). An affected
 provider with no entry in the data gets `cross_provider_exposure_unadvised`
 (`OK`): the pair is reported, no direction-specific claim is made - an unknown
 is never a "safe".
@@ -249,7 +249,7 @@ Commit: `feat(policy): dated cross-provider advice data (pass 13, B)`.
    enforced): `doctor.cross_provider_exposure` (names affected, intruder, the
    intruder's prefix and carries `{defence}`), `doctor.cross_provider_exposure_unadvised`,
    and one sentence per `BuildDefence` under a `defence.*` family
-   (`defence.opt_in_trace`, `defence.always_on_filter`). Each sentence claims
+   (`defence.opt_in_trace`, `defence.default_clean_path`). Each sentence claims
    only what A's table allows, says "report only - nothing was changed", names
    the provider-native remedy as a suggestion (the trace-mode flag, reinstalling
    from the owning provider) and never offers to run or rewrite anything (04's
