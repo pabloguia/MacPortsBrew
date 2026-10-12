@@ -7206,3 +7206,79 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   answer was wrong: some `ORPHAN` rows become `DEPENDENCY`, MacPorts
   `DEPRECATION_STATE` is `UNKNOWN`, and a MacPorts row with a `_<digits>`
   variant parses its version and variants correctly.
+
+## SE-095 — A provider installed in two places is reported, and an unknown count is never "one"
+- Status: accepted
+- Date / Pass: 2026-10-12 / pass 12 (item B), the check SE-094 recorded as missing
+- Original assumption: `04-migration-and-safety.md` ("Cross-provider
+  contamination") makes a dual-Homebrew-prefix check a MUST for `doctor`, and
+  the implementation reported a second installation "through
+  `provider_architecture_mismatch` when it is the one found" - which it never
+  is for the copy detection did not choose. Detection takes the first candidate
+  prefix that holds the executable and stops, so a second working installation
+  was invisible. SE-094 found the check missing.
+- Change: the adapters search every candidate prefix of
+  `data/policy/provider-prefixes.toml` (never a path in code) for the provider's
+  executable and the snapshot records the answer as
+  `environment.installations[<provider>]`, `Installations` in the domain:
+  `READ{prefixes}` (the candidates that hold it, in detection order),
+  `UNKNOWABLE` (a replay: the recording carries no filesystem facts, INV-15) or,
+  by absence, not recorded. `doctor` reports it per present provider with ids
+  that name no provider and no path: `provider_installed_more_than_once`
+  (`WARNING`, with the places), `provider_installed_once` (`OK`) and
+  `provider_installations_unknown` (`OK`). **An unknown is never "one"**: a
+  recording, a snapshot from before the field and a provider found at no
+  candidate all say unknown. `--json` is additive (`schemaVersion` unchanged);
+  `docs/schemas/snapshot.v1.md` and `doctor.v1.md` document it and the checked
+  `doctor` sample shows it.
+- Rationale: the field lives in `EnvironmentSnapshot`, beside `path_findings`
+  (the other filesystem fact recorded at capture), and not in `ProviderSnapshot`
+  or `Snapshot`: a new field there breaks struct literals in the executor's own
+  tests and in `planner.rs`, which this pass may not touch, whereas
+  `EnvironmentSnapshot::default()` there does not. The cost is that the map is
+  keyed by provider inside a structure about the shell; accepted, and movable
+  when the mutating track next opens those files. The trait method
+  `ProviderRead::installations` has a default (`NotRecorded`) so no
+  implementor and no test double had to change.
+- User impact: on a Mac carrying two copies of a package manager, `doctor`
+  names both and says what is at stake; on every replay and snapshot file it
+  adds one `OK` line saying the count is not known. Reported, never changed
+  (SE-036, and the chapter's MUST NOT); the remedy offered is the provider's own,
+  and the text allows that a second copy may be deliberate.
+- Evidence: `crates/application/tests/doctor_findings.rs` (two places for each
+  provider, one, three kinds of unknown, an absent provider, the running copy
+  named; the fourth kind, an unrecognised state, in `snapshot.rs`), `installations.rs`
+  unit tests, the contract tests of both adapters, the registry test that every
+  adapter is told its candidates, `capture_redaction.rs` (a replayed capture is
+  `UNKNOWABLE` only for a present provider) and `snapshot.rs` tests (old
+  document reads as not recorded, forged list refused). Mutants killed:
+  `count > 1` as `> 2`; `Some(1)` widened to `Some(0 | 1)`; the prefix path check
+  removed; the length cap widened; the registry not passing candidates; capture
+  recording for an absent provider.
+- **The other MUSTs of that section, confirmed.** PATH order: `path_order`
+  (`the_path_order_between_two_providers_is_reported_when_both_are_on_it`, and
+  its one-provider boundary). Prefixes: `prefix_not_on_path`,
+  `provider_prefix_is_not_absolute`. Architecture mismatch:
+  `a_provider_built_for_another_architecture_is_a_warning_naming_both` and its
+  converse. Build variables naming a prefix (INV-10): `build_variable_names_prefix`
+  had **no test** until this pass; it has one now. The MacPorts-on-`PATH` check
+  is **owed, not confirmed**: `path_order` and `prefix_not_on_path` are
+  provider-neutral and cover both directions, but the MUST also asks for the
+  direction-specific wording (the two directions are not equally risky), which
+  no finding carries. INV-17 forbids a per-direction branch in code, so it would
+  have to come from data; filed as DP-041.
+  `doctor --deep` (a SHOULD) is not implemented - the flag says so - and stays
+  owed. MUST NOT rewrite a binary: nothing here can.
+- Not refused, on purpose: an installation record for a provider the snapshot lacks
+  is inert (`doctor` reads it inside a present provider only), and refusing it
+  turned a document with a provider deleted from the plan's own refusal (exit 4,
+  `a_package_is_not_reported_as_already_moved_on_an_inventory_nobody_read`)
+  into "snapshot unusable" - the commit gate caught it.
+- Not done: the field is in no checked golden - the `analyze` goldens do not
+  embed the environment and `documented_samples` checks only the `doctor` and
+  `plan` blocks - so the checked evidence of the field is the `doctor` sample
+  and the tests; a checked `snapshot` sample is owed. A live-capture test of
+  home redaction needs a candidate under the home, which the data does not have;
+  the redaction is tested on its function.
+- Compatibility impact: additive. Old snapshots and recordings load; the new
+  `OK` line appears in `doctor` output and `--json`.

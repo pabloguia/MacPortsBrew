@@ -498,6 +498,7 @@ impl MachineRead for SystemMachine {
         // recording rather than the filesystem (INV-15). A replayed reader has
         // no `PATH`, so it produces no findings at all.
         let raw = EnvironmentSnapshot {
+            installations: std::collections::BTreeMap::default(),
             path: self.path_entries().clone(),
             reported,
             path_findings: Vec::new(),

@@ -39,6 +39,9 @@ recommendation about any package; that is the policy engine's job, and it is in
 |---|---|---|---|
 | `provider_present` | `OK` | `doctor.provider_present` | `provider`, `version` |
 | `provider_absent` | `OK` | `doctor.provider_absent` | `provider` |
+| `provider_installed_once` | `OK` | `doctor.provider_installed_once` | `provider` |
+| `provider_installed_more_than_once` | `WARNING` | `doctor.provider_installed_more_than_once` | `provider`, `count`, `prefixes`, `running` |
+| `provider_installations_unknown` | `OK` | `doctor.provider_installations_unknown` | `provider` |
 | `provider_broken` | `ERROR` | `doctor.provider_broken` | `provider`, `reason` |
 | `provider_architecture_mismatch` | `WARNING` | `doctor.provider_architecture_mismatch` | `provider`, `provider_arch`, `machine_arch` |
 | `provider_support_degraded` | `WARNING` | `doctor.provider_support` | `provider`, `tier`, `source`, `readOn` |
@@ -65,6 +68,18 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `provider_configuration_outranks` | `WARNING` | `doctor.provider_configuration_outranks` | `provider`, `file`, `keys` |
 | `provider_configuration_unreadable` | `WARNING` | `doctor.provider_configuration_unreadable` | `provider`, `file` |
 | `provider_configuration_unknown` | `WARNING` | `doctor.provider_configuration_unknown` | `provider` |
+
+**Where a provider is installed is reported, per present provider** (since
+2026-10-12, pass 12). A Mac migrated from another can keep a working copy of a
+package manager under the old prefix, and detection that stops at the first
+prefix never mentions it (`04-migration-and-safety.md`, "Cross-provider
+contamination"). `provider_installed_more_than_once` is a `WARNING` naming every
+place (`prefixes` is the places joined by `, `, in detection order, and `running` the detected prefix this tool runs - `?` when the snapshot has none - so the copy to keep is not a guess);
+`provider_installed_once` is `OK`. **An unknown is never "one"**: a recording, a
+snapshot taken before the field and a provider found at no candidate prefix all
+say `provider_installations_unknown` at `OK`, because nothing is known to be
+wrong. The finding is the same for every provider and names no path of its own;
+the candidates are dated data, `data/policy/provider-prefixes.toml`.
 
 **A provider's own configuration is reported, per present provider** (since
 2026-10-04; DP-027, ruled 2026-10-03). Homebrew applies its `brew.env` files over the environment this tool runs it
@@ -206,6 +221,17 @@ it, and makes no network call that reports anything about the user.**
         }
       },
       "provider": "macports"
+    },
+    {
+      "id": "provider_installations_unknown",
+      "severity": "OK",
+      "reason": {
+        "id": "doctor.provider_installations_unknown",
+        "params": {
+          "provider": "homebrew"
+        }
+      },
+      "provider": "homebrew"
     },
     {
       "id": "provider_present",

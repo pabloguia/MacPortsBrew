@@ -118,6 +118,7 @@ impl MachineRead for HomeMachine {
     fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
         // Already redacted, as the system adapter delivers it.
         Ok(EnvironmentSnapshot {
+            installations: std::collections::BTreeMap::default(),
             path: vec!["~/homebrew/bin".into(), "/usr/bin".into()],
             reported: BTreeMap::from([(
                 "CPPFLAGS".to_string(),
@@ -384,5 +385,53 @@ fn assert_no_home(text: &str, what: &str) {
     assert!(
         !text.contains("testuser"),
         "{what} carries the user name:\n{text}"
+    );
+}
+
+#[test]
+fn a_replayed_capture_says_installations_are_unknowable_only_for_a_present_provider() {
+    // INV-15: the recording is the machine, so where the provider is installed
+    // is not something this host's disk can answer - the snapshot says so
+    // (`Unknowable`) rather than "one". A provider that is not present has no
+    // installation to find twice, and records nothing.
+    let runner = ReplayRunner::new(recording());
+    let providers = registry::build(&RegistryContext {
+        runner: &runner,
+        home: Some(PathBuf::from(HOME)),
+        filesystem: FilesystemScope::Elsewhere,
+        platform_tags: Box::new(|_| vec!["tahoe".to_string()]),
+        prefix_override: Some(vec![(
+            ProviderId::new("homebrew"),
+            PathBuf::from(format!("{HOME}/homebrew")),
+        )]),
+    });
+    let refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
+        providers.iter().map(AsRef::as_ref).collect();
+    let machine = HomeMachine;
+    let snapshot = capture(&CaptureContext {
+        machine: &machine,
+        providers: refs,
+        policy_version: "test".into(),
+        captured_at: "2026-09-02T00:00:00Z".into(),
+        captured_by: "capture_redaction.rs".into(),
+        home: HomeRedaction::Known(PathBuf::from(HOME)),
+        environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+    })
+    .expect("the capture succeeds");
+
+    let mut present = 0;
+    for (id, provider) in &snapshot.providers {
+        let expected =
+            if provider.detection.presence == macportsbrew_domain::ProviderPresence::Present {
+                present += 1;
+                macportsbrew_domain::Installations::Unknowable
+            } else {
+                macportsbrew_domain::Installations::NotRecorded
+            };
+        assert_eq!(snapshot.installations_of(id), &expected, "{id}");
+    }
+    assert!(
+        present > 0,
+        "no provider was present, so this proved nothing"
     );
 }

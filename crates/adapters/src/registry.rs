@@ -365,21 +365,16 @@ pub fn build<'r>(ctx: &RegistryContext<'r>) -> Vec<Box<dyn ProviderRead + 'r>> {
         match id.as_str() {
             "homebrew" => {
                 let tags = (ctx.platform_tags)(id.as_str());
-                out.push(Box::new(HomebrewAdapter::new(
-                    ctx.runner,
-                    prefix,
-                    ctx.home.clone(),
-                    tags,
-                    filesystem,
-                )));
+                out.push(Box::new(
+                    HomebrewAdapter::new(ctx.runner, prefix, ctx.home.clone(), tags, filesystem)
+                        .with_installation_candidates(candidate_prefixes(&id)),
+                ));
             }
             "macports" => {
-                out.push(Box::new(MacPortsAdapter::new(
-                    ctx.runner,
-                    prefix,
-                    ctx.home.clone(),
-                    filesystem,
-                )));
+                out.push(Box::new(
+                    MacPortsAdapter::new(ctx.runner, prefix, ctx.home.clone(), filesystem)
+                        .with_installation_candidates(candidate_prefixes(&id)),
+                ));
             }
             _ => {}
         }
@@ -547,6 +542,44 @@ mod tests {
             assert!(
                 prefixes::fallback(id.as_str()).is_some(),
                 "{id} has no fallback prefix"
+            );
+        }
+    }
+
+    #[test]
+    fn every_adapter_is_told_its_candidate_prefixes() {
+        // Under replay the disk is not the machine, so a searched provider is
+        // `Unknowable`; an adapter handed no candidates would say `NotRecorded`
+        // instead, so this fails if the registry stops passing them (INV-15).
+        let runner = replay();
+        for adapter in build(&context(&runner)) {
+            assert_eq!(
+                adapter.installations(),
+                macportsbrew_domain::Installations::Unknowable,
+                "{}",
+                adapter.id()
+            );
+        }
+        // Against the live machine it is a real search whatever this host holds
+        // (a `stat` of the documented prefixes on this host, which spawns nothing
+        // and asserts nothing about what they hold, like the probes above)
+        // (`Read`, possibly empty), never `Unknowable` or `NotRecorded`.
+        let live = LiveRunner;
+        let live_context = RegistryContext {
+            filesystem: FilesystemScope::ThisMachine,
+            runner: &live,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            prefix_override: None,
+        };
+        for adapter in build(&live_context) {
+            assert!(
+                matches!(
+                    adapter.installations(),
+                    macportsbrew_domain::Installations::Read { .. }
+                ),
+                "{}",
+                adapter.id()
             );
         }
     }

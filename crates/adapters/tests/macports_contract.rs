@@ -1087,3 +1087,38 @@ fn the_service_capability_comes_from_the_scan_the_metadata_came_from() {
     assert_eq!(service_capability(&fresh), CapabilityState::Unknown);
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn an_adapter_reports_every_candidate_prefix_that_holds_its_executable() {
+    use macportsbrew_domain::Installations;
+    let root = macports_prefix("installations");
+    let (a, b, empty) = (root.join("a"), root.join("b"), root.join("empty"));
+    for prefix in [&a, &b] {
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::write(prefix.join("bin/port"), "").unwrap();
+    }
+    std::fs::create_dir_all(&empty).unwrap();
+    let candidates = vec![a.clone(), empty, b];
+    let recording = || Recording::from_json(&fixture_text(MACPORTS_FIXTURE)).expect("fixture");
+    let build = |scope| {
+        MacPortsAdapter::new(ReplayRunner::new(recording()), a.clone(), None, scope)
+            .with_installation_candidates(candidates.clone())
+    };
+
+    assert_eq!(
+        build(FilesystemScope::ThisMachine).installations().count(),
+        Some(2)
+    );
+    assert_eq!(
+        build(FilesystemScope::Elsewhere).installations(),
+        Installations::Unknowable
+    );
+    let unsearched = MacPortsAdapter::new(
+        ReplayRunner::new(recording()),
+        a,
+        None,
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(unsearched.installations(), Installations::NotRecorded);
+    std::fs::remove_dir_all(&root).ok();
+}

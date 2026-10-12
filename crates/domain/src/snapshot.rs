@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+/// The most installations of one provider a snapshot may state. The candidate
+/// prefixes are a short policy list; more than this is not a capture.
+const MAX_INSTALLATIONS: usize = 16;
+
 /// The snapshot schema version. Loading a different major fails loudly.
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
@@ -102,6 +106,59 @@ impl ProviderConfiguration {
     }
 }
 
+/// Where a provider is installed on the captured machine: every place it was
+/// found, not only the one this tool runs.
+///
+/// A machine can carry one package manager in two places - an Apple Silicon Mac
+/// migrated from an Intel one keeps a working copy under the old prefix - and
+/// the second one is invisible to a detection that stops at the first hit
+/// (`04-migration-and-safety.md`, "Cross-provider contamination"). This is the
+/// record of that search, a capability of any provider (INV-17); the prefixes it
+/// lists come from dated policy data, never from code.
+///
+/// An unknown is never a "one": a capture made from a recording (a replay)
+/// says [`Self::Unknowable`] (nothing was looked at, INV-15), and a document from
+/// before this field says [`Self::NotRecorded`]. A snapshot file of a live
+/// capture carries what that capture read. Only a capture that read this
+/// host says [`Self::Read`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Installations {
+    /// Nothing could have been looked at: the capture was a replay of a
+    /// recording, which carries no filesystem facts (INV-15).
+    Unknowable,
+    /// The candidate prefixes were looked at on the captured machine.
+    Read {
+        /// Each candidate prefix that holds the provider's executable, in
+        /// detection order. One entry means one installation.
+        prefixes: Vec<String>,
+    },
+    /// The capture did not record it - a provider that is not installed, a
+    /// document older than the field, or a state this build does not know,
+    /// from a newer one.
+    #[default]
+    #[serde(other)]
+    NotRecorded,
+}
+
+impl Installations {
+    /// Whether the document carries nothing about it.
+    #[must_use]
+    pub fn is_not_recorded(&self) -> bool {
+        matches!(self, Self::NotRecorded)
+    }
+
+    /// How many installations were found, or `None` when nobody looked, so a
+    /// caller has to decide what an unknown means rather than receive a "one".
+    #[must_use]
+    pub fn count(&self) -> Option<usize> {
+        match self {
+            Self::Read { prefixes } => Some(prefixes.len()),
+            Self::NotRecorded | Self::Unknowable => None,
+        }
+    }
+}
+
 /// One configuration file that exists.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,6 +222,15 @@ pub struct EnvironmentSnapshot {
     /// downstream reads it.
     #[serde(default)]
     pub path_findings: Vec<PathFinding>,
+    /// Where each installed provider was found, keyed by provider id: every
+    /// candidate prefix that holds its executable, not only the one this tool
+    /// runs. A filesystem fact, so recorded at capture for the same reason as
+    /// `path_findings`: the disk that has the answer is the captured machine's
+    /// (INV-15). A provider with no entry is [`Installations::NotRecorded`];
+    /// read it through [`Snapshot::installations_of`]. Absent from a document
+    /// written before it existed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub installations: BTreeMap<ProviderId, Installations>,
 }
 
 /// What is wrong with one `PATH` entry.
@@ -763,6 +829,16 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// What the snapshot says about where a provider is installed.
+    #[must_use]
+    pub fn installations_of(&self, provider: &ProviderId) -> &Installations {
+        static NOT_RECORDED: Installations = Installations::NotRecorded;
+        self.environment
+            .installations
+            .get(provider)
+            .unwrap_or(&NOT_RECORDED)
+    }
+
     /// Refuses a snapshot stating an invocation environment no adapter could
     /// have built.
     ///
@@ -1052,6 +1128,36 @@ impl Snapshot {
                 refuse(what, value)
             }
         };
+        // Where each provider was found: `doctor` prints these back, and a
+        // snapshot file states whatever it likes. A provider has a handful of
+        // candidate prefixes, so a long list is a forged one.
+        for (id, installations) in &self.environment.installations {
+            name("an installations key", id.as_str())?;
+            // A record for a provider the snapshot does not carry is inert - `doctor`
+            // reads it only inside a present provider - and is not refused: a
+            // document with a provider deleted must reach the plan's own refusal.
+            if let Installations::Read { prefixes } = installations {
+                // A place named twice would read as "installed in 2 places".
+                let distinct: std::collections::BTreeSet<&String> = prefixes.iter().collect();
+                if distinct.len() != prefixes.len() {
+                    return refuse(
+                        &format!("the installation list of {id}"),
+                        &prefixes.join(", "),
+                    );
+                }
+                if prefixes.len() > MAX_INSTALLATIONS {
+                    return refuse(
+                        &format!("the installation list of {id}"),
+                        &prefixes.len().to_string(),
+                    );
+                }
+                for prefix in prefixes {
+                    if !is_safe_captured_path(prefix) {
+                        return refuse(&format!("an installation of {id}"), prefix);
+                    }
+                }
+            }
+        }
         // The machine's own `PATH`, which `doctor` prints back a line at a time.
         for entry in &self.environment.path {
             text("a PATH entry", entry)?;
@@ -1477,6 +1583,104 @@ mod tests {
         assert!(with("--force", "--force").is_err());
         let error = with("alpha", "beta").expect_err("a mismatched key is refused");
         assert_eq!(error.id, crate::error::ErrorId::SnapshotUnusable);
+    }
+
+    #[test]
+    fn a_document_from_before_installations_reads_as_not_recorded_never_as_one() {
+        let environment: EnvironmentSnapshot =
+            serde_json::from_str(r#"{"path":["/usr/bin"]}"#).expect("an old environment");
+        assert!(environment.installations.is_empty());
+        let snapshot = snapshot_with(environment);
+        let id = ProviderId::new("any-provider");
+        assert_eq!(snapshot.installations_of(&id), &Installations::NotRecorded);
+        assert_eq!(snapshot.installations_of(&id).count(), None);
+        // And an unrecognised state from a newer build reads the same way.
+        let read: Installations =
+            serde_json::from_str(r#"{"state":"SOMETHING_NEWER"}"#).expect("a newer state");
+        assert_eq!(read, Installations::NotRecorded);
+    }
+
+    #[test]
+    fn an_empty_installations_map_is_not_serialised() {
+        let text = serde_json::to_string(&snapshot_with(EnvironmentSnapshot::default())).unwrap();
+        assert!(!text.contains("installations"), "{text}");
+    }
+
+    #[test]
+    fn installations_round_trip_and_count() {
+        let mut environment = EnvironmentSnapshot::default();
+        let id = ProviderId::new("any-provider");
+        environment.installations.insert(
+            id.clone(),
+            Installations::Read {
+                prefixes: vec!["/a".into(), "/b".into()],
+            },
+        );
+        let snapshot = snapshot_with(environment);
+        let again: Snapshot =
+            serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+        assert_eq!(again.installations_of(&id).count(), Some(2));
+        assert_eq!(Installations::Unknowable.count(), None);
+    }
+
+    #[test]
+    fn a_forged_installation_list_is_refused() {
+        let id = ProviderId::new("any-provider");
+        for prefixes in [
+            vec!["relative/prefix".to_string()],
+            vec!["/ok".to_string(), "/bad\u{1b}[2J".to_string()],
+            (0..=MAX_INSTALLATIONS).map(|n| format!("/p{n}")).collect(),
+            vec!["/same".to_string(), "/same".to_string()],
+        ] {
+            let mut environment = EnvironmentSnapshot::default();
+            environment
+                .installations
+                .insert(id.clone(), Installations::Read { prefixes });
+            assert!(
+                with_provider(snapshot_with(environment))
+                    .check_names()
+                    .is_err(),
+                "a forged list was accepted"
+            );
+        }
+        let mut fine = EnvironmentSnapshot::default();
+        fine.installations.insert(
+            id,
+            Installations::Read {
+                prefixes: vec!["/ok".into()],
+            },
+        );
+        assert!(with_provider(snapshot_with(fine)).check_names().is_ok());
+    }
+
+    /// The snapshot with one absent provider, `any-provider`, so an
+    /// installation record has a provider to be about.
+    fn with_provider(mut snapshot: Snapshot) -> Snapshot {
+        use crate::provider::{
+            ProviderCapabilities, ProviderDetection, ProviderInventory, ProviderPresence,
+        };
+        let id = ProviderId::new("any-provider");
+        snapshot.providers.insert(
+            id.clone(),
+            ProviderSnapshot {
+                detection: ProviderDetection {
+                    provider: id,
+                    presence: ProviderPresence::Absent,
+                    version: None,
+                    prefix: None,
+                    executable: None,
+                    architecture: None,
+                    prefix_redacted: false,
+                },
+                capabilities: ProviderCapabilities::default(),
+                inventory: ProviderInventory::default(),
+                environment: BTreeMap::new(),
+                invocation_environment: BTreeMap::new(),
+                resolutions: BTreeMap::new(),
+                configuration: crate::ProviderConfiguration::NotRecorded,
+            },
+        );
+        snapshot
     }
 
     fn snapshot_with(environment: EnvironmentSnapshot) -> Snapshot {

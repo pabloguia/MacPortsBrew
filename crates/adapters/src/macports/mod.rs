@@ -194,6 +194,9 @@ pub struct MacPortsAdapter<R: ProcessRunner> {
     /// The user's home, or `None` under replay. `port` cannot start without
     /// `HOME`; see [`Self::environment`].
     home: Option<PathBuf>,
+    /// Every prefix this provider could be installed under, for the search
+    /// [`ProviderRead::installations`] makes. Empty unless the registry sets it.
+    installation_candidates: Vec<PathBuf>,
     detection: RefCell<Option<ProviderDetection>>,
     inventory: RefCell<Option<ProviderInventory>>,
     /// The service scan the cached inventory's metadata was built from. The
@@ -227,10 +230,20 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             filesystem,
             machine: None,
             home,
+            installation_candidates: Vec::new(),
             detection: RefCell::new(None),
             inventory: RefCell::new(None),
             services: RefCell::new(None),
         }
+    }
+
+    /// Names every prefix this provider could be installed under, so a second
+    /// installation is reported rather than hidden behind the first. They come
+    /// from dated policy data through the registry, never from this adapter.
+    #[must_use]
+    pub fn with_installation_candidates(mut self, candidates: Vec<PathBuf>) -> Self {
+        self.installation_candidates = candidates;
+        self
     }
 
     /// Attaches the machine, so availability evidence can name the platform
@@ -924,6 +937,14 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             REVERSE_DEPENDENCY_MECHANISM.to_string(),
         );
         Ok(out)
+    }
+
+    fn installations(&self) -> macportsbrew_domain::Installations {
+        crate::installations::read(
+            &self.installation_candidates,
+            EXECUTABLE_RELATIVE,
+            self.filesystem,
+        )
     }
 
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {

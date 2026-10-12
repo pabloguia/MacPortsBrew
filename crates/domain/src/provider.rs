@@ -12,7 +12,7 @@ use crate::error::DomainError;
 use crate::machine::Machine;
 use crate::package::{DependencyEdge, InstalledPackage, PackageIdentity, PackageMetadata};
 use crate::resolution::Resolution;
-use crate::snapshot::ProviderSnapshot;
+use crate::snapshot::{Installations, ProviderSnapshot};
 use crate::version::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -397,6 +397,14 @@ pub trait ProviderRead {
 
     /// The serialisable state of this provider for `analyze --from-snapshot`.
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError>;
+
+    /// Every place this provider is installed on the machine being read, not
+    /// only the one this tool runs. An adapter that cannot look says
+    /// [`Installations::Unknowable`]; the default says nothing was recorded,
+    /// which a reader must not take for "one".
+    fn installations(&self) -> Installations {
+        Installations::NotRecorded
+    }
 }
 
 #[cfg(test)]

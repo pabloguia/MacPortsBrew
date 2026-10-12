@@ -6,6 +6,7 @@
 
 use crate::TOOL_VERSION;
 use macportsbrew_domain::ProviderEnvironmentContract;
+use macportsbrew_domain::ProviderPresence;
 use macportsbrew_domain::{
     redact_home, DomainError, ErrorId, HomeRedaction, MachineRead, Provenance, ProviderId,
     ProviderRead, ProviderSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -49,15 +50,26 @@ pub struct CaptureContext<'a> {
 /// machine cannot be read at all.
 pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     let machine = ctx.machine.machine()?;
-    let environment = ctx.machine.environment()?;
+    let mut environment = ctx.machine.environment()?;
     let mut providers = BTreeMap::new();
+    let mut installations = BTreeMap::new();
     for provider in &ctx.providers {
         let snap = match provider.snapshot() {
             Ok(s) => s,
             Err(e) => broken(provider.id(), &e),
         };
+        // Only for a provider that is here: an absent or broken one has no
+        // installation to be found twice, and says nothing rather than "none".
+        if matches!(snap.detection.presence, ProviderPresence::Present) {
+            let found = provider.installations();
+            if !found.is_not_recorded() {
+                installations.insert(provider.id().clone(), found);
+            }
+        }
         providers.insert(provider.id().clone(), snap);
     }
+    redact_installations(&mut installations, &ctx.home);
+    environment.installations = installations;
     // Resolutions: for every installed name, ask PATH which file would run
     // and every provider who owns it. Keyed by executable name.
     let mut names: Vec<String> = providers
@@ -201,6 +213,23 @@ fn redact_provider(snap: &mut ProviderSnapshot, home: &HomeRedaction) {
     }
 }
 
+/// Replaces the home directory with `~` in every prefix a provider was found
+/// at. Today the candidates are system paths from policy data, so nothing is
+/// changed; the rule is here because a candidate under the home is a policy
+/// edit away, and a snapshot is the file that must carry no user name.
+fn redact_installations(
+    installations: &mut BTreeMap<ProviderId, macportsbrew_domain::Installations>,
+    home: &HomeRedaction,
+) {
+    for found in installations.values_mut() {
+        if let macportsbrew_domain::Installations::Read { prefixes } = found {
+            for prefix in prefixes.iter_mut() {
+                *prefix = redact_home(prefix, home);
+            }
+        }
+    }
+}
+
 /// Redacts in place, and answers whether that changed anything.
 ///
 /// `false` for an absent path as well as for one redaction left alone: the
@@ -264,6 +293,35 @@ mod tests {
         Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
         ProviderPresence,
     };
+
+    #[test]
+    fn a_prefix_under_the_home_is_redacted_in_the_installation_record() {
+        let id = ProviderId::new("any-provider");
+        let mut found = BTreeMap::from([(
+            id.clone(),
+            macportsbrew_domain::Installations::Read {
+                prefixes: vec!["/Users/testuser/tool".into(), "/usr/local".into()],
+            },
+        )]);
+        redact_installations(
+            &mut found,
+            &HomeRedaction::Known(std::path::PathBuf::from("/Users/testuser")),
+        );
+        assert_eq!(
+            found[&id],
+            macportsbrew_domain::Installations::Read {
+                prefixes: vec!["~/tool".into(), "/usr/local".into()]
+            }
+        );
+        // An unknown stays unknown: there is nothing to redact in it.
+        let mut unknown =
+            BTreeMap::from([(id.clone(), macportsbrew_domain::Installations::Unknowable)]);
+        redact_installations(
+            &mut unknown,
+            &HomeRedaction::Known(std::path::PathBuf::from("/Users/testuser")),
+        );
+        assert_eq!(unknown[&id], macportsbrew_domain::Installations::Unknowable);
+    }
 
     #[test]
     fn a_provider_whose_read_failed_records_every_capability_as_unknown() {

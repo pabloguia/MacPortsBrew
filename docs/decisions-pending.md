@@ -377,6 +377,25 @@ catalogue out of the release.
 Portuguese-speaking users. **Reversible default taken:** the catalogue is in the
 tree and wired; reverting is one `for_locale` branch.
 
+### DP-041 — The MacPorts-on-PATH wording `04` asks for, given INV-17
+
+Raised 2026-10-12 by `spec-guardian` (pass 12, item B). `04-migration-and-safety.md`
+makes the MacPorts-on-`PATH` check a MUST and says the two directions are not
+equally risky and "the wording says which": MacPorts' remedy for `/usr/local`
+interference is opt-in trace mode, while Homebrew's compiler shim already drops
+`/opt/local` flags, so the residual risk toward Homebrew is in `PATH`-resolved
+tools. `doctor` has the provider-neutral findings (`path_order`,
+`prefix_not_on_path`) and no direction-specific sentence, and INV-17 forbids a
+branch on a provider name in code.
+
+Options: **(a)** accept the neutral findings and amend the chapter to say so;
+**(b)** carry the direction-specific advice as dated data (`source`, `read_on`)
+that a neutral rule selects by what the provider says about itself, not by its
+name; **(c)** leave it owed.
+
+**Recommendation:** (b) when wanted, (a) until then. **What it blocks:**
+nothing. **Reversible default taken:** (c), recorded as owed in SE-095.
+
 ---
 
 ## Resolved

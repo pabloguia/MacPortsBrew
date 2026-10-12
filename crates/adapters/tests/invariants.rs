@@ -241,6 +241,38 @@ fn invariant_15_a_reader_of_another_machine_answers_nothing_from_this_disk() {
         "a service directory on this host was read for another machine"
     );
 
+    // --- where a provider is installed (pass 12, item B) -------------------
+    // The tree answers both executables, so under `ThisMachine` each adapter
+    // finds one installation; under `Elsewhere` the same tree must answer
+    // nothing, and the answer is the unknown one, never "one".
+    let candidates = vec![root.clone()];
+    let hb = |scope| {
+        HomebrewAdapter::new(&runner, root.clone(), None, vec![], scope)
+            .with_installation_candidates(candidates.clone())
+    };
+    assert_eq!(
+        hb(FilesystemScope::Elsewhere).installations(),
+        macportsbrew_domain::Installations::Unknowable,
+        "an installation was searched for on a disk that is not the machine"
+    );
+    assert_eq!(
+        hb(FilesystemScope::ThisMachine).installations().count(),
+        Some(1)
+    );
+    let mp = |scope| {
+        MacPortsAdapter::new(&runner, root.clone(), None, scope)
+            .with_installation_candidates(candidates.clone())
+    };
+    assert_eq!(
+        mp(FilesystemScope::Elsewhere).installations(),
+        macportsbrew_domain::Installations::Unknowable,
+        "an installation was searched for on a disk that is not the machine"
+    );
+    assert_eq!(
+        mp(FilesystemScope::ThisMachine).installations().count(),
+        Some(1)
+    );
+
     // --- the capability probe and the resolution --------------------------
     let elsewhere = HomebrewAdapter::new(
         &runner,

@@ -228,6 +228,9 @@ pub struct HomebrewAdapter<'r> {
     prefix: PathBuf,
     home: Option<PathBuf>,
     platform_tags: Vec<String>,
+    /// Every prefix this provider could be installed under, for the search
+    /// [`ProviderRead::installations`] makes. Empty unless the registry sets it.
+    installation_candidates: Vec<PathBuf>,
     environment: BTreeMap<String, String>,
     runs: RefCell<BTreeMap<Vec<String>, Invocation>>,
     analysis: RefCell<Option<Analysis>>,
@@ -261,11 +264,21 @@ impl<'r> HomebrewAdapter<'r> {
             prefix,
             home,
             platform_tags,
+            installation_candidates: Vec::new(),
             environment,
             runs: RefCell::new(BTreeMap::new()),
             analysis: RefCell::new(None),
             detection: RefCell::new(None),
         }
+    }
+
+    /// Names every prefix this provider could be installed under, so a second
+    /// installation is reported rather than hidden behind the first. They come
+    /// from dated policy data through the registry, never from this adapter.
+    #[must_use]
+    pub fn with_installation_candidates(mut self, candidates: Vec<PathBuf>) -> Self {
+        self.installation_candidates = candidates;
+        self
     }
 
     /// The executable this adapter runs, resolved from the prefix.
@@ -984,6 +997,14 @@ impl ProviderRead for HomebrewAdapter<'_> {
             self.prefix.join("bin").display().to_string(),
         );
         Ok(info)
+    }
+
+    fn installations(&self) -> macportsbrew_domain::Installations {
+        crate::installations::read(
+            &self.installation_candidates,
+            EXECUTABLE_RELATIVE,
+            self.filesystem,
+        )
     }
 
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {

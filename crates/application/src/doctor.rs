@@ -97,6 +97,13 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                 for (finding, severity, reason) in configuration_findings(id, &p.configuration) {
                     add(finding, severity, reason, Some(id.clone()));
                 }
+                let running = p.detection.prefix.as_ref().map_or_else(
+                    || "?".to_string(),
+                    |prefix| prefix.to_string_lossy().into_owned(),
+                );
+                let (finding, severity, reason) =
+                    installation_finding(id, snapshot.installations_of(id), &running);
+                add(finding, severity, reason, Some(id.clone()));
                 if let Some(prefix) = &p.detection.prefix {
                     let text = prefix.to_string_lossy().into_owned();
                     // F-48. `planner::command` refuses to build a step whose
@@ -420,10 +427,11 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
         }
     }
 
-    // Two prefixes for one provider id cannot appear in a snapshot keyed by
-    // id; a second installation under the other default prefix on Apple
-    // Silicon is detected by the adapter's detect_prefix order and reported
-    // through `provider_architecture_mismatch` when it is the one found.
+    // A provider installed in two places - on Apple Silicon, a second copy
+    // under the old Intel prefix - is reported per provider above, from what
+    // capture recorded (`installation_finding`); a snapshot keyed by provider
+    // id carries one detected prefix, so the second one is the record's, not
+    // the detection's.
     if snapshot.machine.architecture == Architecture::Arm64
         && snapshot.machine.translation == Translation::Translated
     {
@@ -469,6 +477,51 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
         tool_version: crate::TOOL_VERSION.to_string(),
         policy_version: policy.version().to_string(),
         findings,
+    }
+}
+
+/// What capture established about how many places a provider is installed in.
+///
+/// Generic on purpose: the provider is a name carried through, the places are
+/// whatever the snapshot recorded, and no path or provider is known here
+/// (INV-17, INV-20). Two or more is the finding `04-migration-and-safety.md`
+/// asks for ("Cross-provider contamination"): a second working installation
+/// is the one a detection that stops at the first hit never mentions. An
+/// unknown is never "one" (`Installations`): a capture made from a recording, a
+/// document from before the field, and a provider found at a prefix none of
+/// the candidates names all say so, and say it at `Ok` because nothing is
+/// known to be wrong.
+fn installation_finding(
+    id: &ProviderId,
+    installations: &macportsbrew_domain::Installations,
+    running: &str,
+) -> (&'static str, Severity, Reason) {
+    match installations.count() {
+        Some(count) if count > 1 => {
+            let places = match installations {
+                macportsbrew_domain::Installations::Read { prefixes } => prefixes.join(", "),
+                _ => String::new(),
+            };
+            (
+                "provider_installed_more_than_once",
+                Severity::Warning,
+                Reason::new("doctor.provider_installed_more_than_once")
+                    .with("provider", id)
+                    .with("count", &count.to_string())
+                    .with("prefixes", &places)
+                    .with("running", &running),
+            )
+        }
+        Some(1) => (
+            "provider_installed_once",
+            Severity::Ok,
+            Reason::new("doctor.provider_installed_once").with("provider", id),
+        ),
+        _ => (
+            "provider_installations_unknown",
+            Severity::Ok,
+            Reason::new("doctor.provider_installations_unknown").with("provider", id),
+        ),
     }
 }
 

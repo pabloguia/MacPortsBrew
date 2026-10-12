@@ -931,3 +931,40 @@ fn a_receipt_reached_through_a_link_is_refused() {
     std::fs::remove_dir_all(&root).ok();
     std::fs::remove_dir_all(&real).ok();
 }
+
+#[test]
+fn an_adapter_reports_every_candidate_prefix_that_holds_its_executable() {
+    use macportsbrew_domain::Installations;
+    let root = scratch("installations");
+    let (a, b, empty) = (root.join("a"), root.join("b"), root.join("empty"));
+    for prefix in [&a, &b] {
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::write(prefix.join("bin/brew"), "").unwrap();
+    }
+    std::fs::create_dir_all(&empty).unwrap();
+    let candidates = vec![a.clone(), empty, b.clone()];
+    let runner = ReplayRunner::new(recording());
+    let build = |scope| {
+        HomebrewAdapter::new(&runner, a.clone(), None, platform_tags(), scope)
+            .with_installation_candidates(candidates.clone())
+    };
+
+    let on_this_machine = build(FilesystemScope::ThisMachine).installations();
+    assert_eq!(on_this_machine.count(), Some(2));
+    // A recording is the machine: this host's disk is never consulted, so the
+    // answer is unknown and not "one" (INV-15).
+    assert_eq!(
+        build(FilesystemScope::Elsewhere).installations(),
+        Installations::Unknowable
+    );
+    // Told no candidates, nothing was searched.
+    let unsearched = HomebrewAdapter::new(
+        &runner,
+        a.clone(),
+        None,
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(unsearched.installations(), Installations::NotRecorded);
+    std::fs::remove_dir_all(&root).ok();
+}

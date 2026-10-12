@@ -128,6 +128,7 @@ fn a_format_character_a_snapshot_keeps_is_escaped_when_doctor_prints_it() {
     let dir = scratch("doctor");
     let mut snapshot = captured(EnvironmentSnapshot::default()).expect("a clean machine captures");
     snapshot.environment = EnvironmentSnapshot {
+        installations: std::collections::BTreeMap::default(),
         path: vec!["/opt/a\u{202E}b".into(), "/usr/bin".into()],
         reported: BTreeMap::new(),
         path_findings: vec![PathFinding {

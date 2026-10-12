@@ -15,9 +15,9 @@
 
 use macportsbrew_application::{doctor, Severity};
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, EnvironmentSnapshot, Machine, MacosVersion, Provenance,
-    ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
-    ProviderSnapshot, Snapshot, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    Architecture, CommandLineTools, EnvironmentSnapshot, Installations, Machine, MacosVersion,
+    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
+    ProviderPresence, ProviderSnapshot, Snapshot, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -77,6 +77,7 @@ fn snapshot(
             command_line_tools: tools,
         },
         environment: EnvironmentSnapshot {
+            installations: std::collections::BTreeMap::default(),
             path: path.iter().map(|e| (*e).to_string()).collect(),
             reported: BTreeMap::new(),
             path_findings: Vec::new(),
@@ -530,4 +531,163 @@ fn an_input_that_cannot_say_is_a_warning_that_it_is_unknown() {
         let ids: Vec<(&str, Severity)> = found.iter().map(|f| (f.0.as_str(), f.1)).collect();
         assert_eq!(ids, [("provider_configuration_unknown", Severity::Warning)]);
     }
+}
+
+// --- A provider installed in more than one place (pass 12, item B) ----------
+
+/// The snapshot, saying where `id` was found.
+fn found_at(mut snap: Snapshot, id: &str, installations: Installations) -> Snapshot {
+    snap.environment
+        .installations
+        .insert(ProviderId::new(id), installations);
+    snap
+}
+
+fn read(prefixes: &[&str]) -> Installations {
+    Installations::Read {
+        prefixes: prefixes.iter().map(|p| (*p).to_string()).collect(),
+    }
+}
+
+/// Every installation finding of a provider, as `(id, severity, reason id)`.
+fn installation_findings(snap: &Snapshot) -> Vec<(String, Severity, String)> {
+    let report = doctor(
+        snap,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        TODAY,
+    );
+    report
+        .findings
+        .iter()
+        .filter(|f| f.id.starts_with("provider_install"))
+        .map(|f| (f.id.clone(), f.severity, f.reason.id.as_str().to_string()))
+        .collect()
+}
+
+fn one_provider(id: &str, installations: Installations) -> Snapshot {
+    found_at(
+        snapshot(
+            Architecture::Arm64,
+            installed(),
+            &[],
+            vec![(id, provider(id, "/some/prefix", Architecture::Arm64))],
+        ),
+        id,
+        installations,
+    )
+}
+
+#[test]
+fn a_provider_installed_in_two_places_is_a_warning_naming_both_for_either_provider() {
+    // Provider-neutral on purpose (INV-17): the same finding for either id,
+    // and neither is a special case.
+    for id in [HB, MP] {
+        let snap = one_provider(id, read(&["/first/prefix", "/second/prefix"]));
+        let found = installation_findings(&snap);
+        assert_eq!(
+            found,
+            vec![(
+                "provider_installed_more_than_once".to_string(),
+                Severity::Warning,
+                "doctor.provider_installed_more_than_once".to_string()
+            )],
+            "{id}"
+        );
+        let report = doctor(&snap, &PolicyData::load_embedded().expect("policy"), TODAY);
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.id == "provider_installed_more_than_once")
+            .expect("the finding");
+        assert_eq!(finding.provider, Some(ProviderId::new(id)));
+        let rendered = format!("{:?}", finding.reason);
+        assert!(rendered.contains("/first/prefix"), "{rendered}");
+        assert!(rendered.contains("/second/prefix"), "{rendered}");
+        assert!(rendered.contains('2'), "{rendered}");
+        // And which copy this tool runs, so the advice cannot be to remove it.
+        assert!(rendered.contains("/some/prefix"), "{rendered}");
+    }
+}
+
+#[test]
+fn a_provider_installed_in_one_place_says_one_and_does_not_warn() {
+    let found = installation_findings(&one_provider(HB, read(&["/only/prefix"])));
+    assert_eq!(
+        found,
+        vec![(
+            "provider_installed_once".to_string(),
+            Severity::Ok,
+            "doctor.provider_installed_once".to_string()
+        )]
+    );
+}
+
+#[test]
+fn an_unknown_answer_is_never_reported_as_one_place() {
+    // A recording (`Unknowable`), a document from before the field (nothing
+    // recorded) and a present provider found at a prefix no candidate names
+    // (`Read` with nothing in it) all answer "not known".
+    let snap_without = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &[],
+        vec![(HB, provider(HB, "/some/prefix", Architecture::Arm64))],
+    );
+    for snap in [
+        one_provider(HB, Installations::Unknowable),
+        snap_without,
+        one_provider(HB, read(&[])),
+    ] {
+        let found = installation_findings(&snap);
+        assert_eq!(
+            found,
+            vec![(
+                "provider_installations_unknown".to_string(),
+                Severity::Ok,
+                "doctor.provider_installations_unknown".to_string()
+            )]
+        );
+    }
+}
+
+#[test]
+fn an_absent_provider_has_no_installation_finding() {
+    let mut absent = provider(HB, "/some/prefix", Architecture::Arm64);
+    absent.detection.presence = ProviderPresence::Absent;
+    let snap = found_at(
+        snapshot(Architecture::Arm64, installed(), &[], vec![(HB, absent)]),
+        HB,
+        read(&["/a", "/b"]),
+    );
+    assert!(installation_findings(&snap).is_empty());
+}
+
+// --- INV-10: a build variable that names a provider's prefix ---------------
+
+#[test]
+fn a_build_variable_naming_a_providers_prefix_is_a_warning_and_one_that_does_not_is_silent() {
+    // 04-migration-and-safety.md, "Cross-provider contamination": environment
+    // variables leaking one prefix into builds are a MUST for `doctor`. No test
+    // constructed a snapshot with a reported variable until pass 12.
+    let mut snap = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &[],
+        vec![(HB, provider(HB, "/opt/some-prefix", Architecture::Arm64))],
+    );
+    snap.environment
+        .reported
+        .insert("CPPFLAGS".into(), "-I/opt/some-prefix/include".into());
+    snap.environment
+        .reported
+        .insert("LDFLAGS".into(), "-L/usr/lib".into());
+    let found = findings(&snap, TODAY, "build_variable_names_prefix");
+    assert_eq!(
+        found,
+        vec![(
+            Severity::Warning,
+            "doctor.build_variable_names_prefix".to_string()
+        )],
+        "exactly the variable that names the prefix, and not the other"
+    );
 }
