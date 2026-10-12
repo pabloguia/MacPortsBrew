@@ -50,10 +50,8 @@ stays `false`. Nothing was pushed, tagged or published.
 - **DP-043** — um "as-of" separado para linhas lidas de índice local: as linhas novas
   empurraram `policyReadOn` para 2026-10-12 e adiaram ~5 semanas o aviso de dados antigos
   dos fatos de suporte do Homebrew Intel (lidos em 2026-09-02, não relidos). Recomendo (b).
-- **DP-044** — estas mudanças entram no 0.1.0 ou ele sai do commit revisado e isto vira
-  0.1.1? Recomendo (b). O CHANGELOG tem `[Unreleased]` acima de `[0.1.0] - not yet tagged`
-  e diz o que fazer em cada caso; o passo de versão do relatório do passo 10 ganhou uma
-  nota (ele ainda cita a política `2026.10.03-2`).
+- **DP-044** — resolvido por você em 2026-10-12: as mudanças entram no 0.1.0; o CHANGELOG já
+  foi fundido em `[0.1.0]`. Também preparei o número de build de CI (ver abaixo).
 - **DP-040**: o padrão que apliquei é o menos conservador (a skill diz para não traduzir
   por máquina as frases de remediação e seguir); a opção (b) custa um arquivo e está
   descrita ali.
@@ -87,7 +85,11 @@ stays `false`. Nothing was pushed, tagged or published.
 **Um deslize de fronteira, desfeito:** um script meu, escrito para corrigir literais de
 struct, editou `crates/application/src/executor/tests.rs` (caminho protegido do §3); eu
 reverti com `git checkout` e coloquei uma trava no script — foi o que me fez colocar o campo
-onde está. Também toquei `.github/ISSUE_TEMPLATE/*.yml` (só o exemplo de versão da política),
+onde está. **Número de build (DP-044):** o binário aceita `MPB_BUILD_NUMBER` e `--version` imprime
+`build <n>` (valor inválido quebra a compilação). **Falta, e é seu:** o script e o workflow de
+release (caminhos guardados) precisam passá-lo, p. ex. `${{ github.run_number }}`.
+
+Também toquei `.github/ISSUE_TEMPLATE/*.yml` (só o exemplo de versão da política),
 que não está na lista guardada. O diff líquido de `0b9b04e` é vazio em todos os caminhos do §3.
 
 **O gate de commit (importante para a próxima sessão):** `commit-gate.sh` roda o modo padrão

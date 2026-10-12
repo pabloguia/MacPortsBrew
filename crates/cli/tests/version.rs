@@ -38,7 +38,9 @@ fn long_version_names_policy_target_and_commit() {
     assert_eq!(out.status.code(), Some(0));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 4, "{text}");
+    // Four lines, and a fifth `build <n>` only for a build CI numbered.
+    let numbered = option_env!("MPB_BUILD_NUMBER");
+    assert_eq!(lines.len(), 4 + usize::from(numbered.is_some()), "{text}");
     assert_eq!(
         lines[0],
         format!("macportsbrew {}", env!("CARGO_PKG_VERSION"))
@@ -55,6 +57,10 @@ fn long_version_names_policy_target_and_commit() {
     match option_env!("MPB_BUILD_COMMIT") {
         Some(expected) => assert_eq!(commit, expected),
         None => assert_eq!(commit, "unknown (not a release build)"),
+    }
+    match numbered {
+        Some(n) => assert_eq!(lines[4], format!("build {n}")),
+        None => assert!(!text.contains("\nbuild ")),
     }
 }
 

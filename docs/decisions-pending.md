@@ -441,27 +441,26 @@ rows read from an index, and measure staleness from the oldest of the two dates;
 
 **Recommendation:** (b). **What it blocks:** nothing. **Reversible default taken:** (a).
 
-### DP-044 — Do the pass-12 changes ship in 0.1.0?
-
-Raised 2026-10-12 by pass 12. The release candidate was reviewed at `df95f96` (SE-094) and
-`Cargo.toml` already says 0.1.0. This branch adds a translation, a `doctor` finding, an
-`explain` line and 19 curated rows, and moves the policy version to `2026.10.12-1`.
-`CHANGELOG.md` now has `[Unreleased]` (pass 12) above `[0.1.0] - not yet tagged`.
-
-Options: **(a)** tag 0.1.0 from this branch: fold `[Unreleased]` into `[0.1.0]`, fix the
-`[0.1.0]` lines that name the old policy version and say translations are absent, rename
-the heading with the date, leave an empty `[Unreleased]` above, and take the pass-10
-checklist (its version step says `2026.10.03-2` and tells you to rename `[Unreleased]`,
-which no longer matches); **(b)** tag 0.1.0 from the reviewed commit and release this
-branch as 0.1.1.
-
-**Recommendation:** (b) - what was reviewed is what ships, and the sign/notarise rehearsal
-in pass 10's checklist has not run on this branch's binaries. **What it blocks:** the tag.
-**Reversible default taken:** the CHANGELOG is written so either works.
-
 ---
 
 ## Resolved
+
+### DP-044 — Do the pass-12 changes ship in 0.1.0? — **RESOLVED 2026-10-12: yes, in 0.1.0**
+
+- **Ruled 2026-10-12 by the owner:** the pass-12 changes are part of the current
+  version, 0.1.0, which has not been given to anyone. Nothing was published, so
+  there is no reviewed-commit release to keep apart. `CHANGELOG.md` folds them into
+  `[0.1.0]` (an empty `[Unreleased]` stays above it), and the pass-10 checklist's
+  version step carries a note that the policy version is now `2026.10.12-1`.
+- **Also ruled:** once the repository is on GitHub, CI will number each build with a
+  sequential integer that never repeats. The binary side is done: `--version` prints
+  `build <n>` when compiled with `MPB_BUILD_NUMBER` set (a positive decimal integer;
+  anything else stops the build). **Owed, and the owner's to arm** because the files
+  are guarded: the release script and workflow must pass it, e.g.
+  `MPB_BUILD_NUMBER="${{ github.run_number }}"` next to `MPB_BUILD_COMMIT`, and the
+  signing record should carry it. `run_number` is sequential per workflow file and
+  does not change across re-runs of one run; renaming the workflow file restarts it,
+  so a counter that must survive a rename wants its own source.
 
 ### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's — **RESOLVED 2026-10-03: (b) for mutating steps, (c) for reads**
 

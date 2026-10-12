@@ -101,10 +101,10 @@ Before tagging `v0.1.0`:
 3. **Version**: `Cargo.toml` already says `0.1.0` and `macportsbrew --version`
    prints it with policy `2026.10.03-2`. Rename `## [Unreleased]` in
    `CHANGELOG.md` to `## [0.1.0] - <date>`.
-   *(Note, 2026-10-12: on the pass-12 branch the policy version is `2026.10.12-1` and
-   `CHANGELOG.md` has an `[Unreleased]` section above `[0.1.0] - not yet tagged`;
-   follow DP-044 and `docs/passes/12-read-only-improvements-report.md` instead of this
-   step if you tag from that branch.)*
+   *(Note, 2026-10-12, DP-044: the pass-12 changes are part of 0.1.0. The policy
+   version is now `2026.10.12-1`, and `CHANGELOG.md` already folds them into
+   `## [0.1.0] - not yet tagged` under an empty `## [Unreleased]`: at tag time
+   only replace `not yet tagged` with the date and delete the line under it.)*
 4. **The three artifacts** (per architecture, x86_64 and arm64): the bare
    executable `macportsbrew-0.1.0-<arch>`; `macportsbrew-0.1.0-<arch>.pkg`,
    installing only `macportsbrew` into `~/.macportsbrew/bin` for the current

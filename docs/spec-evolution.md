@@ -1696,6 +1696,18 @@ change is made. Silent deviation remains the one unrecoverable error.
   `MPB_BUILD_TARGET` and `MPB_BUILD_COMMIT` at compile time through
   `option_env!` — no build script — and the policy line from the embedded data
   at run time, the same value `doctor --report` prints.
+- **Addendum, the build number, 2026-10-12 (pass 12, DP-044).** When CI numbers a
+  build, `--version` gains a fifth line `build <n>`; it is absent from a build that
+  was not numbered, so the block keeps four lines and the release job's per-line
+  `grep -qxF` checks are unaffected. The number arrives as `MPB_BUILD_NUMBER`
+  through `option_env!` and is parsed by a `const fn`, so a value that is not a
+  positive decimal integer without a leading zero fails the compile instead of
+  stamping a release with something false. It is not part of the semantic version.
+  Evidence: `version::tests` (a numbered build adds exactly one line; a good value
+  parses, `u64::MAX` fits; twelve malformed values are refused) and
+  `tests/version.rs`; a build with `MPB_BUILD_NUMBER=007` was seen to stop, and
+  removing the leading-zero rule fails the test. The release script and workflow
+  do not pass it yet (guarded paths; owed).
 
 ## SE-020 — Foundation pass forbidden from shipping any mutating code path
 - Status: accepted

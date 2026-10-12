@@ -138,7 +138,7 @@ Read it back with `--from-snapshot`. The format is documented at
 | `--dry-run` | Show what would be done and run nothing; wins over `--yes`. Every command but `migrate --yes` is a dry run in this build anyway |
 | `--yes` | Confirm: `migrate` puts its plan to the execution gate instead of only showing it. The gate refuses every plan this build produces, so nothing runs; nothing in this build prompts |
 | `--help`, `-h` | Help. `--help` is the long form, `-h` the summary |
-| `--version`, `-V` | Version |
+| `--version`, `-V` | Version. `--version` also prints the policy data version, the target, the commit and, for a build CI numbered, `build <n>`; `-V` prints only the version |
 
 `--no-network` and `--refresh` exist so that a script written today keeps
 working when the network and the cache arrive; they are inert, and the help

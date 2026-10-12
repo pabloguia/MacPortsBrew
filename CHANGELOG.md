@@ -22,17 +22,98 @@ output may change freely.
 
 ## [Unreleased]
 
-Changes made in pass 12, after the 0.1.0 release candidate was reviewed
-(`0b9b04e`). They are all read-only improvements: nothing here makes the tool change a machine, and
-nothing widens what it may run. Whether they ship in 0.1.0 is DP-044. If 0.1.0 is tagged from this branch: move
-these entries into `[0.1.0]`, rename `## [0.1.0] - not yet tagged` to
-`## [0.1.0] - <date>` and delete the line under it, leave an empty `## [Unreleased]`
-above, and correct the lines in `[0.1.0]` that name policy version `2026.10.03-2`
-and its read dates, say `pt-BR` translations are not in place, say
-`Catalogue::for_locale` returns English except for the pseudolocale, or call the
-curated table small. Otherwise they ship in the next release.
+## [0.1.0] - not yet tagged
 
-### Added since the release candidate
+_The owner adds the date when the release is tagged._
+
+### MacPortsBrew 0.1.0 at a glance
+
+The first public release. MacPortsBrew looks at what Homebrew and MacPorts
+have installed on your Mac, compares them package by package, explains which
+provider suits each package on this machine and why, and builds a migration
+plan in either direction — Homebrew to MacPorts or MacPorts to Homebrew, with
+the same planner and the same safety rules.
+
+**What it does:** `status`, `analyze`, `list`, `explain`, `plan`, `migrate`
+(shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
+provider health, a package manager installed in more than one place, and dated
+support facts) and `snapshot`. Every command has a
+versioned `--json` form. `doctor --report` writes a diagnostic file for issue
+reports, without your user name or home folder path. `PATH` entries a finding
+mentions appear with your home folder shown as `~`; other environment variables
+are named but their values are left out. It also lists every installed package.
+Read it before you share it. `doctor --report` and `snapshot --out` replace an
+existing file only when it is itself a MacPortsBrew document.
+
+**What it does not do:** it changes nothing in either package manager. It does
+not install, remove, switch which copy of a tool runs, keep history or restore.
+`migrate --yes` puts a plan to an execution gate that refuses every plan this
+version produces (exit 4). A plan lists the commands a migration would run, in
+order, with how to check each one, so you can carry it out yourself at your own
+risk — take `macportsbrew snapshot --out before.json` first. It never asks for
+an administrator password and makes no network calls of its own (a Homebrew
+read on an empty cache downloads Homebrew's catalogue). It refuses to run as
+root. Every command a plan shows is quoted so it can be pasted into a shell as
+written. A misspelt `--to`, `--provider` or `--today` is an error naming the
+valid values, not an empty answer.
+
+**When it cannot tell, it says so.** A package is called an orphan only when
+the provider could say what depends on it; MacPorts deprecation status, which
+0.1.0 does not read, is shown as unknown rather than as "not deprecated".
+
+**Mapping looks only at what is already installed.** In 0.1.0 a package is
+matched to the other provider only if that provider already has an equivalent
+installed, or the curated table (26 rows; 19 of them for versioned runtimes, GNU
+tools and libraries whose names differ) names one. For anything else the plan
+stops at *Needs a human decision* with "no equivalent found" — nothing was
+found, which does not mean no equivalent exists. Searching the other provider's
+full catalogue is planned for a later release.
+
+**Machines:** macOS 10.12 or later on Intel and 11.0 or later on Apple
+Silicon. macOS 15 and 26 are covered by the CI configuration; 10.12–14 are
+best-effort — built for and checked to declare that minimum, not exercised.
+See [`docs/support-matrix.md`](docs/support-matrix.md).
+
+**Languages:** English, and Brazilian Portuguese (`--language pt-BR`, or
+`MACPORTSBREW_LANG`, `LC_ALL`, `LANG` in that order). The Portuguese was drafted
+by a model and reviewed by others, not by a native speaker; `--json`, error
+identifiers, flags and command names stay English.
+
+**Policy data:** version `2026.10.12-1`. Dated provider facts — Homebrew's
+support tiers and Intel timeline among them — carry their source and the date
+they were read, and the tool says when the newest of them is more than 180 days
+old.
+
+### Development history (pre-release)
+
+The detailed record of how 0.1.0 was built, kept for contributors. It uses the
+project's internal vocabulary (passes, slices, decision and specification
+identifiers); the summary above is the user-facing account.
+
+**Policy version: `2026.10.12-1`.** The provider facts it carries were read on
+2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
+2026-10-03 and 2026-10-12 and are dated in `data/policy/*.toml`; the staleness threshold is
+180 days, after which the CLI says the data may be out of date without refusing
+to answer.
+
+#### Pre-release review (SE-094)
+
+- **Fixed:** `ORPHAN` without readable reverse dependencies (now `DEPENDENCY`);
+  intent read from the active installation; MacPorts
+  `DEPRECATION_STATE` is `UNKNOWN`; an unfollowable MacPorts link is unresolved;
+  MacPorts tuples whose variant ends in `_<digits>` parse; `.DS_Store` in a
+  launchd location is not a startup item; root refusal at startup; shell-quoted
+  plan commands; usage errors for unknown `--to`/`--provider` and malformed
+  `--today`; `snapshot --out`/`doctor --report` replace only their own
+  documents; standard output flushed before exit; crates `publish = false`.
+- **Recorded as owed:** `PROVIDER_REPORTS_ACTIVE` asserting "active", a plan's
+  rollback field (see SE-094). The dual-Homebrew `doctor` check it listed is done
+  in pass 12, below.
+
+#### Pass 12: read-only improvements after the release-candidate review
+
+All read-only: nothing here makes the tool change a machine, and nothing widens
+what it may run.
 
 - **A Brazilian Portuguese translation.** `--language pt-BR` (or
   `MACPORTSBREW_LANG`, `LC_ALL`, `LANG`, in that order) shows the tool in
@@ -60,8 +141,14 @@ curated table small. Otherwise they ship in the next release.
   were themselves as old as 2026-09-02 (Homebrew's formula checkout) and
   2026-09-06 (MacPorts' ports tree); each row says so, and none is proof against a
   fresh sync.
+- **`--version` carries the CI build number when it has one.** A fifth line
+  `build <n>` appears only for a build compiled with `MPB_BUILD_NUMBER` set to a
+  positive decimal integer (the CI run's sequential number, never repeated; it is
+  not part of the semantic version). A malformed value stops the build at compile
+  time. A developer build prints the four lines as before. The release workflow
+  and script, which are guarded, do not set it yet.
 
-### Changed since the release candidate
+**Changed**
 
 - **Policy data is version `2026.10.12-1`**, and its newest read date is now
   2026-10-12 (the curated rows count), which moves the "may be out of date" notice
@@ -71,92 +158,13 @@ curated table small. Otherwise they ship in the next release.
   also refuses a path into a provider's adapter module, and the network-isolation
   test is named for what it checks.
 
-### Known, not changed
+**Known, not changed**
 
 - `status` counts a mapped counterpart that is not installed among the rows whose
   ownership is unknown, and its sentence says the provider kept no record.
 - The two owed items of the pre-release review that this does not close: a plan's
   rollback field, and `PROVIDER_REPORTS_ACTIVE` asserting "active" (SE-094).
 - `doctor --deep` and a MacPorts-specific `PATH` wording (DP-041) remain owed.
-
-## [0.1.0] - not yet tagged
-
-_The owner adds the date when the release is tagged._
-
-### MacPortsBrew 0.1.0 at a glance
-
-The first public release. MacPortsBrew looks at what Homebrew and MacPorts
-have installed on your Mac, compares them package by package, explains which
-provider suits each package on this machine and why, and builds a migration
-plan in either direction — Homebrew to MacPorts or MacPorts to Homebrew, with
-the same planner and the same safety rules.
-
-**What it does:** `status`, `analyze`, `list`, `explain`, `plan`, `migrate`
-(shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
-provider health and dated support facts) and `snapshot`. Every command has a
-versioned `--json` form. `doctor --report` writes a diagnostic file for issue
-reports, without your user name or home folder path. `PATH` entries a finding
-mentions appear with your home folder shown as `~`; other environment variables
-are named but their values are left out. It also lists every installed package.
-Read it before you share it. `doctor --report` and `snapshot --out` replace an
-existing file only when it is itself a MacPortsBrew document.
-
-**What it does not do:** it changes nothing in either package manager. It does
-not install, remove, switch which copy of a tool runs, keep history or restore.
-`migrate --yes` puts a plan to an execution gate that refuses every plan this
-version produces (exit 4). A plan lists the commands a migration would run, in
-order, with how to check each one, so you can carry it out yourself at your own
-risk — take `macportsbrew snapshot --out before.json` first. It never asks for
-an administrator password and makes no network calls of its own (a Homebrew
-read on an empty cache downloads Homebrew's catalogue). It refuses to run as
-root. Every command a plan shows is quoted so it can be pasted into a shell as
-written. A misspelt `--to`, `--provider` or `--today` is an error naming the
-valid values, not an empty answer.
-
-**When it cannot tell, it says so.** A package is called an orphan only when
-the provider could say what depends on it; MacPorts deprecation status, which
-0.1.0 does not read, is shown as unknown rather than as "not deprecated".
-
-**Mapping looks only at what is already installed.** In 0.1.0 a package is
-matched to the other provider only if that provider already has an equivalent
-installed, or the small curated table names one. For anything else the plan
-stops at *Needs a human decision* with "no equivalent found" — nothing was
-found, which does not mean no equivalent exists. Searching the other provider's
-full catalogue is planned for a later release.
-
-**Machines:** macOS 10.12 or later on Intel and 11.0 or later on Apple
-Silicon. macOS 15 and 26 are covered by the CI configuration; 10.12–14 are
-best-effort — built for and checked to declare that minimum, not exercised.
-See [`docs/support-matrix.md`](docs/support-matrix.md).
-
-**Policy data:** version `2026.10.03-2`. Dated provider facts — Homebrew's
-support tiers and Intel timeline among them — carry their source and the date
-they were read, and the tool says when they are more than 180 days old.
-
-### Development history (pre-release)
-
-The detailed record of how 0.1.0 was built, kept for contributors. It uses the
-project's internal vocabulary (passes, slices, decision and specification
-identifiers); the summary above is the user-facing account.
-
-**Policy version: `2026.10.03-2`.** The provider facts it carries were read on
-2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02 and
-2026-10-03 and are dated in `data/policy/*.toml`; the staleness threshold is
-180 days, after which the CLI says the data may be out of date without refusing
-to answer.
-
-#### Pre-release review (SE-094)
-
-- **Fixed:** `ORPHAN` without readable reverse dependencies (now `DEPENDENCY`);
-  intent read from the active installation; MacPorts
-  `DEPRECATION_STATE` is `UNKNOWN`; an unfollowable MacPorts link is unresolved;
-  MacPorts tuples whose variant ends in `_<digits>` parse; `.DS_Store` in a
-  launchd location is not a startup item; root refusal at startup; shell-quoted
-  plan commands; usage errors for unknown `--to`/`--provider` and malformed
-  `--today`; `snapshot --out`/`doctor --report` replace only their own
-  documents; standard output flushed before exit; crates `publish = false`.
-- **Recorded as owed:** the dual-Homebrew `doctor` check, `PROVIDER_REPORTS_ACTIVE`
-  asserting "active", a plan's rollback field (see SE-094).
 
 #### Added
 
@@ -656,9 +664,9 @@ to assume the rest does: a published release (the release machinery is staged,
 not applied), executing a migration (`migrate --yes` stops at the
 gate), `restore`, `primary`,
 `provider-priority`, `providers`, `env`, `history`, `cleanup`, the interactive
-TUI, `doctor --deep`, the cache and its TTL, and translations for `pt-BR`,
-`es`, `ja` and `zh-CN` — the i18n architecture and the complete English
-catalogue are in place, the translations are not.
+TUI, `doctor --deep`, the cache and its TTL, and translations for `es`, `ja`
+and `zh-CN` — the i18n architecture, the English catalogue and the `pt-BR`
+translation are in place; the others are not.
 
 #### Known limitations
 
@@ -692,9 +700,9 @@ catalogue are in place, the translations are not.
   reports such a file and a mutation against it is refused (DP-027); whether
   that meets the "no network" and "no telemetry" non-goals is open
   ([DP-028](docs/decisions-pending.md)).
-- `Catalogue::for_locale` returns the English catalogue for every tag except
-  the pseudolocale, so `--language pt-BR` selects the locale's plural rules and
-  layout while the text stays English.
+- `Messages::for_locale` wires `pt-BR` (the translation laid over English) and the
+  pseudolocale; `es`, `ja` and `zh-CN` still select their plural rules and layout
+  while the text stays English.
 - Branch-coverage floors are not enforced: `cargo-llvm-cov --branch` needs a
   nightly toolchain and the pinned toolchain is stable
   ([ADR-0002](docs/adr/0002-implementation-language.md)).
