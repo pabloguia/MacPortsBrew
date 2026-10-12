@@ -76,6 +76,16 @@ pub struct PackageReport {
     pub recommendation: Recommendation,
     /// True when this unit is hidden in normal mode (not top-level, INV-13).
     pub advanced_only: bool,
+    /// The providers whose `DEPENDENCY` answer for this package was a default:
+    /// the provider's own record says nobody asked for it, but it could not say
+    /// whether anything installed still depends on it, so the dependency/orphan
+    /// split was **not answered** and `DEPENDENCY` is the cautious label, not a
+    /// finding. Empty (and omitted) when every answer was read.
+    ///
+    /// Kept beside `rows`, not inside each row's `ownershipEvidence`, so that
+    /// adding it changes no existing type's shape.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ownership_split_defaulted: Vec<ProviderId>,
 }
 
 /// What one provider reports about itself.

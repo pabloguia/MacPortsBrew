@@ -7296,3 +7296,46 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the redaction is tested on its function.
 - Compatibility impact: additive. Old snapshots and recordings load; the new
   `OK` line appears in `doctor` output and `--json`.
+
+## SE-096 — An ownership answer reached by default says so
+- Status: accepted
+- Date / Pass: 2026-10-12 / pass 12 (item C), owed by SE-094
+- Original assumption: `02-domain-model.md` asks to "record which mechanism produced
+  each classification, and its confidence". When reverse dependencies could not be
+  read, a package nobody asked for is `DEPENDENCY` (SE-094; never `ORPHAN`, the
+  label that invites removal), but its evidence still read as the provider's intent
+  record alone - `installed_on_request`, authoritative - so a reader could not tell
+  a finding from a default.
+- Change: `PackageReport.ownershipSplitDefaulted`, an optional list of provider ids
+  (omitted when empty), names the providers whose `DEPENDENCY` for this package was a
+  default - the provider's record says nobody asked, and the reverse-dependency
+  capability was not answered (unknown, unavailable, or absent from a document).
+  `explain` says it in words (`explain.ownership_split_defaulted`); `--json` carries
+  the field; `docs/schemas/analysis.v1.md` documents it. The label itself is
+  unchanged. An answered split (`ORPHAN`, or a `DEPENDENCY` with a dependent) and a
+  `TOP_LEVEL` are never marked.
+- Rationale: the work order asks for the marker "in the ownership evidence". It is
+  on `PackageReport`, beside `rows`, because a new field on `OwnershipEvidence` or
+  `ProviderRow` breaks struct literals in `planner.rs`'s own test module, which this
+  pass may not touch (§3), and `PackageReport` has one literal. The cost is that the
+  marker is per unit, not per row; it names the provider, so nothing is lost today,
+  and it can move into the evidence when the planner is next open to change.
+- User impact: `explain` shows one more line, only for a defaulted dependency; no
+  existing JSON value changes.
+- Evidence: `analysis::tests::a_dependency_reached_by_default_is_marked_and_a_read_one_is_not`
+  and `crates/cli/tests/ownership_default.rs` (marked in `explain` and `--json`,
+  unmarked in the control, never on a requested package). Mutants killed: the
+  capability condition removed, the ownership condition widened, the `explain` line
+  removed.
+- Not done: **no checked golden carries the field.** Every captured recording
+  answers reverse dependencies, so `scripts/run-fixture-matrix.sh --update` on a
+  fresh binary changed nothing, and a recording that lacks the capability would be an
+  invented one. The end-to-end test makes the degraded input from a captured
+  snapshot instead (as `end_to_end.rs` does for other degraded inputs); a captured
+  recording of a provider that cannot answer reverse dependencies is owed.
+- Still true after this change: `ownershipEvidence.authoritative` is `true` for a
+  defaulted `DEPENDENCY` (the intent record did answer), so a consumer reading only
+  the row still sees "authoritative"; the marker is what says the split was not.
+  Moving the marker into `OwnershipEvidence` is owed for when `planner.rs` is next
+  open to change.
+- Compatibility impact: additive.

@@ -180,6 +180,7 @@ advanced.warning = "O modo avançado mostra dependências. Esses pacotes são ge
 "explain.heading" = "{package} (em {provider})"
 "explain.recommendation" = "Recomendação"
 "explain.policy_version" = "Versão da política"
+"explain.ownership_split_defaulted" = "{provider}: tratado como dependência por padrão - {provider} diz que ninguém pediu este pacote, mas não foi possível ler se algo instalado ainda depende dele, então ele não foi chamado de órfão."
 "explain.facts_heading" = "Fatos que o mecanismo de política leu"
 "explain.fact_empty" = "nenhum"
 "explain.fired_heading" = "Regras acionadas"

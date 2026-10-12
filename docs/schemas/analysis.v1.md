@@ -113,6 +113,7 @@ The unit is the *package across providers*, not the provider row.
 | `mappings` | array of `PackageMapping` | |
 | `recommendation` | `Recommendation` | |
 | `advancedOnly` | boolean | True for dependency-level packages, hidden unless `--advanced` (INV-13) |
+| `ownershipSplitDefaulted` | array of provider ids, optional | The providers whose `DEPENDENCY` answer for this package was a **default**: the provider's own record says nobody asked for it, but whether anything installed still depends on it could not be read, so the dependency/orphan split was not answered and `DEPENDENCY` is the cautious label, not a finding. Omitted when every answer was read. Kept beside `rows` rather than inside `ownershipEvidence` so no existing shape changes (added 2026-10-12, pass 12; `schemaVersion` unchanged). `explain` says it in words |
 
 ### `ProviderRow`
 

@@ -288,6 +288,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "explain.heading" = "{package} (held by {provider})"
 "explain.recommendation" = "Recommendation"
 "explain.policy_version" = "Policy version"
+"explain.ownership_split_defaulted" = "{provider}: treated as a dependency by default - {provider} says nobody asked for this package, but whether anything installed still depends on it could not be read, so it was not called an orphan."
 "explain.facts_heading" = "Facts the policy engine read"
 "explain.fact_empty" = "none"
 "explain.fired_heading" = "Rules that fired"

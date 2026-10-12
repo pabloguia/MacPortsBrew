@@ -368,6 +368,20 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
         label(ctx, "explain.policy_version"),
         shown(&e.derivation.policy_version)
     );
+    // An ownership answer that was a default says so, in the place the
+    // recommendation is explained: otherwise the evidence reads as the
+    // provider's intent record alone (`02-domain-model.md`, "record which
+    // mechanism produced each classification").
+    for provider in &unit.ownership_split_defaulted {
+        let _ = writeln!(
+            out,
+            "  {}",
+            ctx.messages.render(
+                "explain.ownership_split_defaulted",
+                &params(&[("provider", provider.to_string())])
+            )
+        );
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "explain.facts_heading"));
     for (k, v) in &e.derivation.facts_used {

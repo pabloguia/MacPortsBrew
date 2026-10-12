@@ -280,6 +280,7 @@ pub fn analyze(
                             .find(|m| &m.destination == provider)
                             .is_some_and(|m| m.confidence.is_strong()))
             });
+            let ownership_split_defaulted = split_defaulted(snapshot, &rows);
             packages.push(PackageReport {
                 name: name.clone(),
                 source: id.clone(),
@@ -289,6 +290,7 @@ pub fn analyze(
                 mappings,
                 recommendation,
                 advanced_only,
+                ownership_split_defaulted,
             });
         }
     }
@@ -379,11 +381,37 @@ fn ownership_of(
     // is a dependency of something unknown, never an orphan: `ORPHAN` is the
     // label that invites removal. A snapshot that does not mention the
     // capability at all has not answered either.
-    let dependents_known = p
-        .capabilities
-        .has(macportsbrew_domain::Capability::ReverseDependencies);
+    let dependents_known = dependents_known(p);
     let has_dependents = !dependents_known || !p.inventory.reverse_dependencies_of(name).is_empty();
     classify_ownership_for(requested, has_dependents, &p.inventory.requested.mechanism)
+}
+
+/// Whether the provider answered reverse dependencies, the one input that
+/// splits `DEPENDENCY` from `ORPHAN`. A snapshot that does not mention the
+/// capability has not answered.
+fn dependents_known(p: &ProviderSnapshot) -> bool {
+    p.capabilities
+        .has(macportsbrew_domain::Capability::ReverseDependencies)
+}
+
+/// The providers, among a unit's installed rows, whose `DEPENDENCY` was reached
+/// by default because reverse dependencies could not be read
+/// ([`PackageReport::ownership_split_defaulted`]).
+fn split_defaulted(
+    snapshot: &Snapshot,
+    rows: &BTreeMap<ProviderId, ProviderRow>,
+) -> Vec<ProviderId> {
+    rows.iter()
+        .filter(|(provider, row)| {
+            row.presence == crate::report::RowPresence::Installed
+                && row.ownership == Ownership::Dependency
+                && snapshot
+                    .providers
+                    .get(*provider)
+                    .is_some_and(|p| !dependents_known(p))
+        })
+        .map(|(provider, _)| provider.clone())
+        .collect()
 }
 
 fn installed_row(
@@ -627,6 +655,33 @@ mod tests {
         }
     }
 
+    /// A snapshot with no providers, for tests that supply their own.
+    fn snapshot_shell() -> Snapshot {
+        use macportsbrew_domain::{
+            Architecture, CommandLineTools, EnvironmentSnapshot, Machine, MacosVersion, Provenance,
+            Translation, SNAPSHOT_SCHEMA_VERSION,
+        };
+        Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            tool_version: "test".into(),
+            policy_version: "test".into(),
+            provenance: Provenance {
+                captured_at: "2026-10-12T00:00:00Z".into(),
+                captured_by: "analysis.rs".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            machine: Machine {
+                macos: MacosVersion::new(26, 0, 0),
+                architecture: Architecture::Arm64,
+                translation: Translation::Native,
+                command_line_tools: CommandLineTools::Missing,
+            },
+            environment: EnvironmentSnapshot::default(),
+            providers: BTreeMap::new(),
+        }
+    }
+
     fn provider(rows: Vec<InstalledPackage>, reverse: CapabilityState) -> ProviderSnapshot {
         ProviderSnapshot {
             detection: macportsbrew_domain::ProviderDetection {
@@ -670,6 +725,53 @@ mod tests {
         let mut silent = provider(rows(), CapabilityState::Available);
         silent.capabilities.capabilities.clear();
         assert_eq!(ownership_of(&silent, "lib").0, Ownership::Dependency);
+    }
+
+    #[test]
+    fn a_dependency_reached_by_default_is_marked_and_a_read_one_is_not() {
+        let id = ProviderId::new("alpha");
+        let rows_of = |p: &ProviderSnapshot, name: &str| {
+            let (ownership, evidence) = ownership_of(p, name);
+            BTreeMap::from([(id.clone(), installed_row(p, name, ownership, evidence))])
+        };
+        let snapshot_of = |p: ProviderSnapshot| Snapshot {
+            providers: BTreeMap::from([(id.clone(), p)]),
+            ..snapshot_shell()
+        };
+        let asked = |name| row(name, "1", true, Some(true));
+        let not_asked = |name| row(name, "1", true, Some(false));
+
+        // Reverse dependencies unread: nobody asked for it, and the split was
+        // defaulted - marked.
+        let unread = provider(vec![not_asked("lib")], CapabilityState::Unknown);
+        assert_eq!(
+            split_defaulted(&snapshot_of(unread.clone()), &rows_of(&unread, "lib")),
+            vec![id.clone()]
+        );
+        // The same capability silent in the document has not answered either.
+        let mut silent = provider(vec![not_asked("lib")], CapabilityState::Available);
+        silent.capabilities.capabilities.clear();
+        assert_eq!(
+            split_defaulted(&snapshot_of(silent.clone()), &rows_of(&silent, "lib")),
+            vec![id.clone()]
+        );
+        // Read, with a dependent: a real dependency, not marked.
+        let mut read = provider(vec![not_asked("lib")], CapabilityState::Available);
+        read.inventory
+            .dependencies
+            .push(macportsbrew_domain::DependencyEdge {
+                from: "app".into(),
+                to: "lib".into(),
+                build_only: false,
+            });
+        assert_eq!(ownership_of(&read, "lib").0, Ownership::Dependency);
+        assert!(split_defaulted(&snapshot_of(read.clone()), &rows_of(&read, "lib")).is_empty());
+        // Read, with none: an orphan, which is an answer, not marked.
+        let orphan = provider(vec![not_asked("lib")], CapabilityState::Available);
+        assert!(split_defaulted(&snapshot_of(orphan.clone()), &rows_of(&orphan, "lib")).is_empty());
+        // Asked for, whatever else is unread: top level, not marked.
+        let top = provider(vec![asked("tool")], CapabilityState::Unknown);
+        assert!(split_defaulted(&snapshot_of(top.clone()), &rows_of(&top, "tool")).is_empty());
     }
 
     #[test]
