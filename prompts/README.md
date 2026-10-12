@@ -24,6 +24,7 @@ authority you have, what this pass must not do, and how it is accepted.
 | [09-release-engineering.md](09-release-engineering.md) | Build, sign, notarise, package and checksum per architecture; the release workflow, proven unsigned. |
 | [10-read-only-release-candidate.md](10-read-only-release-candidate.md) | v0.1.0: the read-only build made honest and worth installing. |
 | [11-first-mutating-release.md](11-first-mutating-release.md) | v0.2.0: acceptance on disposable machines and the owner's go/no-go. |
+| [12-read-only-improvements.md](12-read-only-improvements.md) | After v0.1.0: pt-BR, the dual-Homebrew `doctor` finding, defaulted-ownership evidence, curated mappings, two test fixes. |
 | [ROADMAP-to-first-release.md](ROADMAP-to-first-release.md) | Not a work order: the owner's run sheet — order, owner prerequisites, and which model to start each session with (SE-017 keeps model names out of work orders). |
 
 `.claude/current-pass` names the active one in a single line. The session-start

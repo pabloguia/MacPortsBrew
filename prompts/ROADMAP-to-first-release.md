@@ -16,7 +16,15 @@ session with.
 > artifact is high on both, so it gets the stronger model. Re-read this table
 > when a newer model family ships.
 
-## Where the project is (2026-10-10)
+## Status on 2026-10-11
+
+Rows 1–3 are **done**, and an exhaustive pre-release review followed them
+(SE-094; `docs/passes/10-read-only-release-candidate-report.md` has the owner's
+checklist for tagging v0.1.0). Row 3a is new: read-only improvements sized for
+Sonnet, which can run while the owner works through the publication checklist.
+The mutating track (rows 4–7) still needs the stronger model.
+
+## Where the project was (2026-10-10)
 
 - **Shippable today, if packaged:** a read-only tool — `status`, `analyze`,
   `list`, `explain`, `plan`, `doctor`, `snapshot`, and `migrate` that shows a
@@ -47,9 +55,10 @@ below unless an owner prerequisite blocks one.
 
 | # | Work order | Track | Model | Why that model |
 |---|---|---|---|---|
-| 1 | [`09-release-engineering.md`](09-release-engineering.md) | R | **Opus** | Supply chain, signing, guarded scripts and workflows, byte-identical artifacts: a mistake ships to every user and is hard to recall. |
-| 2 | [`08-slice-3-config-pin-mirror.md`](08-slice-3-config-pin-mirror.md) | M | **Opus** | The spawn-site pin and the configuration re-read sit on the executor's safety boundary (INV-10, SE-050, DP-027). |
-| 3 | [`10-read-only-release-candidate.md`](10-read-only-release-candidate.md) | R | **Sonnet** | Mostly docs truth, UX copy, smoke tests on fixtures and a release checklist; the reviewers (run on Opus) catch what it misses. |
+| 1 ✓ | [`09-release-engineering.md`](09-release-engineering.md) | R | **Opus** | Supply chain, signing, guarded scripts and workflows, byte-identical artifacts: a mistake ships to every user and is hard to recall. |
+| 2 ✓ | [`08-slice-3-config-pin-mirror.md`](08-slice-3-config-pin-mirror.md) | M | **Opus** | The spawn-site pin and the configuration re-read sit on the executor's safety boundary (INV-10, SE-050, DP-027). |
+| 3 ✓ | [`10-read-only-release-candidate.md`](10-read-only-release-candidate.md) | R | **Sonnet** | Mostly docs truth, UX copy, smoke tests on fixtures and a release checklist; the reviewers (run on Opus) catch what it misses. |
+| 3a | [`12-read-only-improvements.md`](12-read-only-improvements.md) | R | **Sonnet**, reviewers on **Opus** | A pt-BR catalogue, the owed dual-Homebrew `doctor` finding, a marker for defaulted ownership, cited curated mappings and two test fixes: presentation, data and additive reads, with the executor, planner and process allowlist out of bounds. |
 | — | **Owner: tag and publish v0.1.0** | R | — | Only the owner pushes, tags and holds the certificates. |
 | 4 | [`08-slice-4-wiring-and-consent.md`](08-slice-4-wiring-and-consent.md) | M | **Opus** | Wires lock, marker, history and re-check into the run loop and adds elevation consent (INV-01, 02, 03, 06). The most dangerous code in the repository. |
 | 5 | [`08-slice-5-history-and-restore.md`](08-slice-5-history-and-restore.md) | M | **Opus** | `restore` is a migration in reverse and is held to INV-01/03; `history` and the `doctor` additions are lighter but ride in the same slice. |
@@ -89,5 +98,6 @@ Definition of Done e, no fim, me dê um resumo: commits, decisões, o que ficou
 devido e o que precisa de mim.
 ```
 
-Set `.claude/current-pass` to the pass id (`08`, `09`, `10`, `11`) before the
-session; the session-start hook announces it.
+Set `.claude/current-pass` to the work order's file name without `.md`
+(for example `12-read-only-improvements`) before the session; the
+session-start hook announces `prompts/<that>.md` as the work order.
