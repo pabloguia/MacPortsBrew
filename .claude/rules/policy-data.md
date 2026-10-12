@@ -68,6 +68,11 @@ legitimately appear more than once: a package one provider ships whole and the
 other splits is a one-to-many mapping, and collapsing it loses the half that
 carries the service or the data.
 
+A row read from a **local index** that was itself synced earlier also carries
+`index_as_of` (`YYYY-MM-DD`, the index's own last-update date; for a row spanning two
+indexes, the older; never later than `read_on`). Staleness is measured from it, so
+reading rows today from an old index does not make older facts look newer (DP-043).
+
 Every curated row also carries a `rationale` saying why a heuristic does not get
 there. That is what lets the row be retired when the heuristics improve, instead
 of the table growing forever.

@@ -38,23 +38,19 @@ stays `false`. Nothing was pushed, tagged or published.
   snapshot) foi **removida** porque o gate pegou que ela transformava a recusa do plano
   ("provedor removido") em "snapshot inutilizável".
 
-**Decisões que são suas** (em `docs/decisions-pending.md`, com a opção reversível aplicada):
+**Decisões suas (todas respondidas em 2026-10-12; ver `docs/decisions-pending.md`, seção Resolved):**
 
-- **DP-040** — quem revisa o `pt-BR` e se ele sai assim (recomendo (a): sai, com revisão nativa
-  das chaves `error.*` e `doctor.*`).
-- **DP-041** — o texto "MacPorts no PATH" que a seção 04 pede, dado o INV-17 (recomendo
-  (b) quando quiser: dado datado, nunca ramo por nome).
-- **DP-042** — buscar no catálogo inteiro do outro provedor (§7): precisa de leituras que a
-  allowlist de processos não permite; recomendo (b), uma consulta por pacote, sob demanda,
-  depois da trilha que muda a máquina; nada foi adicionado.
+- **DP-040** — (a): o `pt-BR` sai como está; revisão nativa continua devida.
+- **DP-041** — (b): conselho por direção como dado datado, escolhido por regra neutra;
+  **não implementado**, precisa de passo próprio (descrito no DP).
+- **DP-042** — (c): varredura do catálogo do outro provedor; **não implementado**, precisa de
+  mudança na allowlist de processos (fora do §3), com os requisitos de limite, interrupção,
+  cache e comportamento offline anotados no DP. Era diferente da minha recomendação (b).
 - **DP-043** — um "as-of" separado para linhas lidas de índice local: as linhas novas
-  empurraram `policyReadOn` para 2026-10-12 e adiaram ~5 semanas o aviso de dados antigos
-  dos fatos de suporte do Homebrew Intel (lidos em 2026-09-02, não relidos). Recomendo (b).
+  empurraram `policyReadOn` para 2026-10-12 — **resolvido por você: (b), já implementado**
+  (`index_as_of`; `policyReadOn` voltou a 2026-09-04; política `2026.10.12-2`).
 - **DP-044** — resolvido por você em 2026-10-12: as mudanças entram no 0.1.0; o CHANGELOG já
   foi fundido em `[0.1.0]`. Também preparei o número de build de CI (ver abaixo).
-- **DP-040**: o padrão que apliquei é o menos conservador (a skill diz para não traduzir
-  por máquina as frases de remediação e seguir); a opção (b) custa um arquivo e está
-  descrita ali.
 
 **O que ficou bloqueado, devido ou incompleto:**
 
@@ -74,12 +70,12 @@ stays `false`. Nothing was pushed, tagged or published.
 - O campo `authoritative` de uma dependência padrão continua `true` (a gravação de intenção
   respondeu); só o marcador diz que a divisão não foi respondida.
 - As linhas novas da tabela citam **índices locais** (homebrew-core de 2026-09-02, árvore de
-  portas do MacPorts de 2026-09-06), dizem isso em cada `source`, e **empurraram `policyReadOn`
-  para 2026-10-12**: o aviso de "dados antigos" foi adiado ~5 semanas também para fatos de
-  suporte mais velhos. Está na SE-097; um "as-of" separado para linhas de índice é decisão sua.
+  portas do MacPorts de 2026-09-06) e dizem isso em cada `source`; o efeito no aviso de dados
+  antigos foi resolvido pelo DP-043 (`index_as_of`).
 
-**O que preciso de você:** (1) DP-040, DP-041; (2) 0.1.0 com ou sem estas mudanças;
-(3) escrita armada para o skill `add-locale` + `generate-codex-layer.sh`; (4) olhar o DP-038
+**O que preciso de você (depois das respostas de 2026-10-12):** (1) planejar os passos de
+DP-041 (dado por direção) e DP-042 (varredura; precisa mexer na allowlist de processos);
+(2) a revisão nativa do `pt-BR`; (3) escrita armada para o skill `add-locale` + `generate-codex-layer.sh`; (4) olhar o DP-038
 (dados pessoais no histórico) antes de publicar — não mexi; (5) o gate de commit.
 
 **Um deslize de fronteira, desfeito:** um script meu, escrito para corrigir literais de

@@ -79,10 +79,10 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.12-1`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.10.12-2`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
-they were read, and the tool says when the newest of them is more than 180 days
-old.
+they were read, and the tool says when the newest of them (a row read from a local index counts
+at that index's date) is more than 180 days old.
 
 ### Development history (pre-release)
 
@@ -90,7 +90,7 @@ The detailed record of how 0.1.0 was built, kept for contributors. It uses the
 project's internal vocabulary (passes, slices, decision and specification
 identifiers); the summary above is the user-facing account.
 
-**Policy version: `2026.10.12-1`.** The provider facts it carries were read on
+**Policy version: `2026.10.12-2`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
 2026-10-03 and 2026-10-12 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
@@ -146,14 +146,14 @@ what it may run.
   positive decimal integer (the CI run's sequential number, never repeated; it is
   not part of the semantic version). A malformed value stops the build at compile
   time. A developer build prints the four lines as before. The release workflow
-  and script, which are guarded, do not set it yet.
+  and script are not in the repository yet (staged for the owner), so nothing sets it yet.
 
 **Changed**
 
-- **Policy data is version `2026.10.12-1`**, and its newest read date is now
-  2026-10-12 (the curated rows count), which moves the "may be out of date" notice
-  back by about five weeks for the older provider facts the tool also loads (the
-  Homebrew Intel support facts, read 2026-09-02, were not re-read; DP-043).
+- **Policy data is version `2026.10.12-2`.** A curated row may carry `index_as_of`,
+  the date of the index it was read from, and the "may be out of date" notice
+  measures from that date, so rows read from an older local index do not make
+  older facts look newer (DP-043).
 - The layering test that keeps the command-line crate free of provider names now
   also refuses a path into a provider's adapter module, and the network-isolation
   test is named for what it checks.

@@ -359,91 +359,61 @@ guarded, so either needs the owner's armed write. **What it blocks:** setting
 the repository's `ANTHROPIC_API_KEY` secret. **Reversible default taken:** the
 file is unchanged; this entry is the warning.
 
-### DP-040 — Who reviews the Brazilian Portuguese catalogue, and whether it ships as is
-
-Raised 2026-10-12 by pass 12 (item A). `locales/pt-BR.toml` was drafted by a model
-and reviewed by another on the strongest tier (`docs-auditor`, `spec-guardian`),
-never by a native speaker. `.claude/rules/locales.md` and the `add-locale` skill
-say not to machine-translate error remediation sentences and move on: a wrong
-one is worse than English.
-
-Options: **(a)** ship `pt-BR` as is, and have a native speaker review it before
-or soon after 0.1.x; **(b)** ship it, but keep the error and remediation keys in
-English until reviewed (the loader already falls back per key); **(c)** hold the
-catalogue out of the release.
-
-**Recommendation:** (a), with you or a contributor reading the `error.*` and
-`doctor.*` keys first. **Note on the default taken:** it is the *less* conservative one - the
-work order asked for every key translated, while the `add-locale` skill says not to
-machine-translate error remediation and move on. Option (b) costs one file: delete the
-`error.*` and `doctor.*` entries from `locales/pt-BR.toml` and the overlay falls back to
-English for exactly those keys, with no code change. **What it blocks:** nothing technical; it is a promise to
-Portuguese-speaking users. **Reversible default taken:** the catalogue is in the
-tree and wired; reverting is one `for_locale` branch.
-
-### DP-041 — The MacPorts-on-PATH wording `04` asks for, given INV-17
-
-Raised 2026-10-12 by `spec-guardian` (pass 12, item B). `04-migration-and-safety.md`
-makes the MacPorts-on-`PATH` check a MUST and says the two directions are not
-equally risky and "the wording says which": MacPorts' remedy for `/usr/local`
-interference is opt-in trace mode, while Homebrew's compiler shim already drops
-`/opt/local` flags, so the residual risk toward Homebrew is in `PATH`-resolved
-tools. `doctor` has the provider-neutral findings (`path_order`,
-`prefix_not_on_path`) and no direction-specific sentence, and INV-17 forbids a
-branch on a provider name in code.
-
-Options: **(a)** accept the neutral findings and amend the chapter to say so;
-**(b)** carry the direction-specific advice as dated data (`source`, `read_on`)
-that a neutral rule selects by what the provider says about itself, not by its
-name; **(c)** leave it owed.
-
-**Recommendation:** (b) when wanted, (a) until then. **What it blocks:**
-nothing. **Reversible default taken:** (c), recorded as owed in SE-095.
-
-### DP-042 — Searching the other provider's whole catalogue for a match
-
-Raised 2026-10-12 by pass 12 (§7 of its work order). In 0.1.0 a package is matched to the
-other provider only when an equivalent is already installed or the curated table names
-one; otherwise the plan stops at "no equivalent found", which does not mean none exists.
-Searching the other provider's catalogue needs provider reads the process allowlist does
-not permit today (`provider-commands.toml`; for Homebrew something like `brew search` or
-`brew info --json=v2 --eval-all`, for MacPorts `port search` or `port info`), so growing
-the allowlist is yours.
-
-What each costs: every read is a new subprocess shape to review under the threat model;
-Homebrew's `info --json=v2 --eval-all` and an empty cache can download the formula API
-(not offline), MacPorts' `port search` reads the local ports tree (offline, as old as its
-last sync, R-4); neither is cheap on a machine with thousands of packages, so it would be
-per-package and on demand, not a sweep.
-
-Options: **(a)** keep matching to installed packages and the curated table (0.1.x);
-**(b)** add one per-package, on-demand, read-only lookup per provider, each with its own
-allowlist entry, timeout and fixture, behind a flag; **(c)** a sweep.
-
-**Recommendation:** (b) after the mutating track, never (c). **What it blocks:** nothing in
-0.1.0. **Reversible default taken:** (a); nothing was added.
-
-### DP-043 — A separate "as of" date for rows read from a local index
-
-Raised 2026-10-12 by `spec-guardian` and `docs-auditor` (pass 12, item D). The curated
-rows were read from the machine's local indexes (homebrew-core last committed 2026-09-02,
-MacPorts' ports tree synced 2026-09-06), and each row says so, but each carries
-`read_on = 2026-10-12`. Because `policyReadOn` is the newest `read_on` across the files the
-engine loads (kept by SE-094), adding them moved it to 2026-10-12 in every payload and
-pushed the "data may be out of date" notice back about five weeks for the older provider
-facts the engine also loads (the Homebrew Intel support facts, read 2026-09-02, were not
-re-read).
-
-Options: **(a)** leave it, as recorded in SE-097; **(b)** add an `index_as_of` field to
-rows read from an index, and measure staleness from the oldest of the two dates;
-**(c)** measure staleness from the oldest `read_on` in the loaded files (reopens SE-094's
-"kept").
-
-**Recommendation:** (b). **What it blocks:** nothing. **Reversible default taken:** (a).
-
 ---
 
 ## Resolved
+
+### DP-040 — Who reviews the Brazilian Portuguese catalogue, and whether it ships as is — **RESOLVED 2026-10-12: (a) ships as is, native review to follow**
+
+- **Ruled 2026-10-12 by the owner:** option (a). `locales/pt-BR.toml` ships in 0.1.0 with
+  every key translated, `error.*` and `doctor.*` included. A native speaker's review of the
+  error and `doctor` sentences is still owed; it is tracked in the CHANGELOG ("reports are
+  welcome") and `wiki/Contributing.md`. If a review finds a wrong remediation sentence, the
+  per-key fallback means deleting that entry in `locales/pt-BR.toml` restores the English one
+  with no code change. The deviation from the `add-locale` skill's refusal is accepted.
+
+### DP-041 — The MacPorts-on-PATH wording `04` asks for, given INV-17 — **RESOLVED 2026-10-12: (b) direction-specific advice as dated data**
+
+- **Ruled 2026-10-12 by the owner:** option (b). The advice that the two directions are not
+  equally risky (`04-migration-and-safety.md`, "Cross-provider contamination", F-2) is carried
+  as **dated data** - each sentence with `source` and `read_on` - which a provider-neutral
+  `doctor` rule selects by a fact the provider reports about itself, never by its name
+  (INV-17, INV-20). **Not implemented yet**: it needs its own pass (a data file and loader in
+  `crates/policy`, the selecting fact in the snapshot, a `doctor` finding, catalogue text in
+  both languages, tests with a mutant per branch, and a `docs/research/` note re-reading the
+  two cited facts: MacPorts' `port -t` trace mode and Homebrew's compiler shim dropping
+  `/opt/local` flags, dated). Until then `path_order` and `prefix_not_on_path` are the
+  provider-neutral findings and SE-095 lists the MUST as owed.
+
+### DP-042 — Searching the other provider's whole catalogue for a match — **RULED 2026-10-12: (c) a sweep; not implemented, needs the owner's allowlist change**
+
+- **Ruled 2026-10-12 by the owner:** option (c), searching the other provider's catalogue
+  broadly rather than one package on demand. **This differs from the recommendation** ((b), a
+  per-package lookup), and the reasons it was recommended against are carried here so the
+  design meets them: a sweep reads thousands of packages, so it must be bounded, interruptible
+  and cached; Homebrew's `info --json=v2 --eval-all` on an empty cache can download the formula
+  API (so it is not offline, and offline behaviour must be defined: say so, never "no match");
+  MacPorts' `port search` reads the local ports tree, which is only as new as its last sync
+  (R-4), so results carry that date. **Not implemented**: it needs new provider subcommands in
+  the process allowlist (`crates/adapters/src/process/`, `provider-commands.toml`) and new
+  plan-read sites, which §3 of the pass-12 work order freezes (the process allowlist) and which belong to
+  the track that reviews the process boundary with `security-reviewer`. **Binding, not a
+  preference:** the charter's non-goal (`docs/spec/00-charter.md`) is that the tool must not
+  require network access to run, so the sweep must work offline or say it cannot. Mapping stays "installed packages and
+  the curated table" in 0.1.0; the plan still says "no equivalent found" - nothing was found,
+  which does not mean none exists.
+
+### DP-043 — A separate "as of" date for rows read from a local index — **RESOLVED 2026-10-12: (b), implemented**
+
+- **Ruled 2026-10-12 by the owner:** option (b), done the same day. A curated row may carry
+  `index_as_of` (`YYYY-MM-DD`, never later than `read_on`); the loader refuses a bad one, and
+  staleness is measured from it. The 19 rows of 2026-10-12 carry `2026-09-02`, the older of the
+  two index dates (homebrew-core 2026-09-02, MacPorts ports tree 2026-09-06), so `policyReadOn`
+  is back to 2026-09-04 in every payload and the older facts no longer look newer. Policy
+  version `2026.10.12-2` (the serial moves because no read date did). Evidence:
+  `a_curated_row_ages_from_its_index_not_from_the_day_it_was_read` (two mutants killed: the
+  field ignored, the not-after-`read_on` check removed); the goldens differ from the previous
+  ones only in the version and `policyReadOn`.
 
 ### DP-044 — Do the pass-12 changes ship in 0.1.0? — **RESOLVED 2026-10-12: yes, in 0.1.0**
 
@@ -456,11 +426,21 @@ rows read from an index, and measure staleness from the oldest of the two dates;
   sequential integer that never repeats. The binary side is done: `--version` prints
   `build <n>` when compiled with `MPB_BUILD_NUMBER` set (a positive decimal integer;
   anything else stops the build). **Owed, and the owner's to arm** because the files
-  are guarded: the release script and workflow must pass it, e.g.
+  are not in place yet (staged in `docs/passes/09-staged/`, guarded paths): the release script and workflow must pass it, e.g.
   `MPB_BUILD_NUMBER="${{ github.run_number }}"` next to `MPB_BUILD_COMMIT`, and the
   signing record should carry it. `run_number` is sequential per workflow file and
   does not change across re-runs of one run; renaming the workflow file restarts it,
   so a counter that must survive a rename wants its own source.
+- **To evolve when the repository goes to GitHub** (noted at the owner's request, 2026-10-12):
+  1. pass `MPB_BUILD_NUMBER` in the release workflow (neither it nor `build-release.sh` is in the repository yet: both are
+     staged in `docs/passes/09-staged/`, and putting them in `.github/workflows/` and
+     `scripts/` is an armed write) and put it in the signing record;
+  2. decide where the counter comes from (`github.run_number`, or its own source if the
+     workflow file may be renamed) and say so in the release notes;
+  3. at tag time: put the date on `## [0.1.0] - not yet tagged` in `CHANGELOG.md` and delete
+     the line under it (an empty `[Unreleased]` is already above);
+  4. before the first push: DP-031 (the account), DP-038 (personal data in the history and the
+     fixtures) and DP-039 (`claude.yml`), then the settings listed under DP-007.
 
 ### DP-027 — A `brew.env` outranks the environment `brew` is given, and both ways to answer it spend something of the user's — **RESOLVED 2026-10-03: (b) for mutating steps, (c) for reads**
 

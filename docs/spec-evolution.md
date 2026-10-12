@@ -1707,7 +1707,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   parses, `u64::MAX` fits; twelve malformed values are refused) and
   `tests/version.rs`; a build with `MPB_BUILD_NUMBER=007` was seen to stop, and
   removing the leading-zero rule fails the test. The release script and workflow
-  do not pass it yet (guarded paths; owed).
+  are staged, not yet in the repository, so nothing passes it yet (owed).
 
 ## SE-020 — Foundation pass forbidden from shipping any mutating code path
 - Status: accepted
@@ -7195,7 +7195,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       reading to give (DP-037); 0.1.0 ships the reading recorded in SE-048,
       under which the tool only plans, never acts.
     - The staleness notice measures from the newest `read_on`, as
-      `policy.toml` documents; a reviewer preferred the oldest. Kept.
+      `policy.toml` documents; a reviewer preferred the oldest. Kept. *(2026-10-12,
+      DP-043: the per-row date is `index_as_of` where a row has one; the
+      03 MUST that names the date was amended to match.)*
     - `Recommendation`'s fields are public and the type deserialises, so its
       at-least-one-reason rule is checked at construction only; nothing loads a
       recommendation from a file today. Owed with history read-back.
@@ -7294,7 +7296,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   provider-neutral and cover both directions, but the MUST also asks for the
   direction-specific wording (the two directions are not equally risky), which
   no finding carries. INV-17 forbids a per-direction branch in code, so it would
-  have to come from data; filed as DP-041.
+  have to come from data; filed as DP-041, **ruled (b) on 2026-10-12** (dated data
+  selected by a neutral rule) and still owed.
   `doctor --deep` (a SHOULD) is not implemented - the flag says so - and stays
   owed. MUST NOT rewrite a binary: nothing here can.
 - Not refused, on purpose: an installation record for a provider the snapshot lacks
@@ -7360,7 +7363,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Original assumption: 0.1.0 matches a package only when an equivalent is already
   installed or the curated table names one, and the table held seven rows.
 - Change: nineteen rows in `data/policy/curated-mappings.toml` (twenty were written; `qt` was dropped in review), each with `source`,
-  `read_on = 2026-10-12` and a `rationale`; policy version `2026.10.12-1`. Ten
+  `read_on = 2026-10-12`, `index_as_of = 2026-09-02` and a `rationale`; policy version `2026.10.12-2`. Ten
   read Homebrew to MacPorts (`python@3.13`/`3.11`, `node@24`/`20`, `ruby@3.3`,
   `php@8.3`, `postgresql@16` server and client, `mysql@8.4` server and client),
   nine MacPorts to Homebrew (`gmake`, `gindent`, `gtime`, `gwhich`, `gunits`,
@@ -7390,14 +7393,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the goldens were regenerated on a fresh binary and compared semantically with the
   old ones: apart from the version and the summary counts, the only changed units
   are the ones whose mappings the new rows add.
-- Also changed, and not obvious: **`policyReadOn` moves to 2026-10-12 in every
-  payload** (it is the newest `read_on` across the files the engine loads, and the
-  curated rows are among them), so the staleness notice, measured from that date
-  (SE-094 kept it), is pushed back by about five weeks for **every older fact the
-  engine also loads** - the Homebrew Intel support facts, last read 2026-09-02,
-  were not re-read. A separate as-of date for index-derived rows is a follow-up for
-  the owner; until then the support facts' own `read_on` stay visible in
-  `provider-support.toml`.
+- Also changed, and not obvious: the curated rows are among the files whose newest
+  `read_on` becomes `policyReadOn`, so reading rows today from indexes synced weeks ago
+  made older facts look newer. DP-043 (ruled the same day) added `index_as_of`: the 19
+  rows carry `2026-09-02`, the older of the two index dates, staleness measures from it,
+  and `policyReadOn` stays 2026-09-04. The policy version is `2026.10.12-2`.
 - Every row answers both directions (the loader builds the reverse index); ten
   were written Homebrew to MacPorts and nine the other way only because a citation
   has a direction. The reverse of `node@24` replaced an old cross-major link: in
@@ -7416,5 +7416,6 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the count larger (10 to 12 in one golden). Excluding mapped rows from the count,
   or rewording the line, is not done here; `summary.ownershipUnknown` is also
   undocumented in `analysis.v1.md`.
-- Compatibility impact: the policy version and `policyReadOn` change, so in every
-  `--json` payload and the documented samples; no shape changes.
+- Compatibility impact: the policy version changes, so in every `--json` payload and
+  the documented samples; `policyReadOn` is back at 2026-09-04, its value
+  before item D; no shape changes (the new field is optional data, not output).

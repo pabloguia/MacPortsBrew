@@ -14,10 +14,11 @@
 # it; anything that changes the data and not the version defeats that.
 #
 # `stale_after_days` is the threshold behind the non-blocking staleness
-# notice: when today minus the newest read_on in this directory exceeds it,
+# notice: when today minus the newest effective date among the files the engine
+# loads (a row's read_on, or its index_as_of where it has one) exceeds it,
 # the CLI says the data may be out of date. Recommendations are still
 # produced. 180 days is one half-year, chosen so that a data set survives a
 # macOS release cycle but not two.
 
-version = "2026.10.12-1"
+version = "2026.10.12-2"
 stale_after_days = 180

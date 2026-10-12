@@ -286,6 +286,14 @@ pub struct CuratedMapping {
     pub source: String,
     /// When, `YYYY-MM-DD`.
     pub read_on: String,
+    /// When the index the names were read from was itself last updated, if that
+    /// is older than `read_on` (a local checkout of a catalogue that was synced
+    /// earlier). Staleness is measured from this date, not from `read_on`: the
+    /// facts are as old as the index, whatever day somebody looked at it. For a
+    /// row that spans two indexes, the older of the two. Never later than
+    /// `read_on` (DP-043).
+    #[serde(default)]
+    pub index_as_of: Option<String>,
     /// Why a heuristic does not reach this pair.
     #[serde(default)]
     pub rationale: String,
@@ -375,11 +383,18 @@ impl PolicyData {
             provenance.push((&m.id, &m.source, &m.read_on));
         }
         for m in &mappings.entry {
-            provenance.push((&m.destination_name, &m.source, &m.read_on));
+            // The date the row's facts are as old as: the index's own, when it
+            // gave one, else the day it was read (DP-043).
+            provenance.push((
+                &m.destination_name,
+                &m.source,
+                m.index_as_of.as_deref().unwrap_or(&m.read_on),
+            ));
         }
         let newest = newest_provenance(&provenance)?;
         check_support_bounds(&support.entry)?;
         check_curated_names(&mappings.entry)?;
+        check_index_dates(&mappings.entry)?;
         check_artifact_tags(&tags.tagset)?;
         let equivalences = index_equivalences(&mappings.entry);
 
@@ -430,7 +445,9 @@ impl PolicyData {
         self.stale_after_days
     }
 
-    /// The newest read date across **the files this crate loads**, `YYYY-MM-DD`.
+    /// The newest effective date across **the files this crate loads**,
+    /// `YYYY-MM-DD`: each row's `read_on`, or its `index_as_of` where it has one
+    /// (DP-043).
     ///
     /// Not the whole of `data/policy/`, and the distinction became visible on
     /// 2026-09-19: `provider-commands.toml` is read by the application layer
@@ -589,6 +606,33 @@ fn newest_provenance(entries: &[(&str, &str, &str)]) -> Result<String, DomainErr
         return Err(invalid("the data set carries no dated entry at all"));
     }
     Ok(newest)
+}
+
+/// Checks that a curated row's `read_on` is a date, and that its `index_as_of`,
+/// when given, is a date no later than `read_on` - an index cannot have been
+/// updated after it was read. Without this a typo would push the staleness
+/// measure into the future, which is the mistake this field exists to prevent.
+fn check_index_dates(entries: &[CuratedMapping]) -> Result<(), DomainError> {
+    for m in entries {
+        if parse_date(&m.read_on).is_none() {
+            return Err(invalid(format!(
+                "curated row {} -> {} carries no usable read date: {:?} (INV-20)",
+                m.source_name, m.destination_name, m.read_on
+            )));
+        }
+        if let Some(as_of) = &m.index_as_of {
+            // Compared trimmed, as `parse_date` reads them: a leading space
+            // sorts below every digit and would pass a raw comparison.
+            if parse_date(as_of).is_none() || as_of.trim() > m.read_on.trim() {
+                return Err(invalid(format!(
+                    "curated row {} -> {} has index_as_of {as_of:?}, which is not a date \
+                     on or before its read_on {:?} (DP-043)",
+                    m.source_name, m.destination_name, m.read_on
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Checks that every support row's architecture scope, macOS bounds and end
@@ -1056,6 +1100,40 @@ mod tests {
 
         // And the tags this build ships pass, or the check is too strict to keep.
         PolicyData::load_embedded().expect("the shipped tag sets");
+    }
+
+    /// DP-043: a row read today from an index synced weeks ago is as old as the
+    /// index. The staleness date follows `index_as_of`, so adding such a row does
+    /// not make older facts look newer.
+    #[test]
+    fn a_curated_row_ages_from_its_index_not_from_the_day_it_was_read() {
+        let row = |extra: &str| {
+            format!(
+                "[[entry]]\nsource_provider=\"homebrew\"\nsource_name=\"wget\"\n\
+                 destination_provider=\"macports\"\ndestination_name=\"wget\"\n\
+                 confidence=\"EXACT\"\nsource=\"s\"\nread_on=\"2099-01-01\"\n{extra}"
+            )
+        };
+        let newest_with = |extra: &str| {
+            let mut sources = embedded_sources();
+            let text = row(extra);
+            sources.curated_mappings = &text;
+            PolicyData::load_from(sources).map(|d| d.newest_read_on().to_string())
+        };
+        // Without the field the row counts at the day it was read.
+        assert_eq!(newest_with("").unwrap(), "2099-01-01");
+        // With it, the row counts at the index's date, so it cannot be the newest.
+        let aged = newest_with("index_as_of=\"2026-09-02\"\n").unwrap();
+        assert_ne!(aged, "2099-01-01");
+        assert!(aged.as_str() < "2099-01-01");
+        // A date after the read, or not a date, is refused.
+        // After the read: only this check can refuse it (the date is valid).
+        match newest_with("index_as_of=\"2099-01-02\"\n") {
+            Ok(_) => panic!("an index updated after it was read loaded"),
+            Err(e) => assert!(e.detail.contains("index_as_of"), "{}", e.detail),
+        }
+        // Not a date: refused at load, by whichever check meets it first.
+        assert!(newest_with("index_as_of=\"soon\"\n").is_err());
     }
 
     /// F-48: a curated destination reaches `planner::command` without ever

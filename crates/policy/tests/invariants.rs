@@ -467,6 +467,16 @@ fn invariant_20_provider_facts_are_dated_data() {
             mapping.destination_name
         );
         assert!(shift_date(&mapping.read_on, 0).is_some());
+        // A row read from an index synced earlier says when, and never later
+        // than the day it was read (DP-043).
+        if let Some(as_of) = &mapping.index_as_of {
+            assert!(
+                shift_date(as_of, 0).is_some(),
+                "{}",
+                mapping.destination_name
+            );
+            assert!(as_of.as_str() <= mapping.read_on.as_str());
+        }
         assert_eq!(mapping.confidence, Confidence::Exact);
     }
 
