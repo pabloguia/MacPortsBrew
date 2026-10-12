@@ -7206,6 +7206,20 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   answer was wrong: some `ORPHAN` rows become `DEPENDENCY`, MacPorts
   `DEPRECATION_STATE` is `UNKNOWN`, and a MacPorts row with a `_<digits>`
   variant parses its version and variants correctly.
+- **Addendum, 2026-10-12 (pass 12, item E): the two tests SE-094's re-review said
+  claimed more than they checked.** The provider-name scan in
+  `crates/cli/tests/layering.rs` now removes only `#[cfg(test)] mod` blocks
+  (read as Rust: strings, raw strings, characters and comments do not move a
+  brace) instead of everything after the first `#[cfg(test)]`, and it also
+  refuses a path into a provider's adapter module (`adapters::<provider>`,
+  nested groups included, a glob refused; provider names read from
+  `data/policy/provider-prefixes.toml`). Aliases, a marker inside a comment and a
+  literal after `//` on the same line are stated as not seen. The network test is
+  renamed `invariant_14_no_network_crate_is_locked_and_no_socket_type_is_named_in_the_source`
+  and says it is a proxy for the remote case of INV-14, not a proof of it.
+  Mutants killed: cutting at the first marker, disabling the `adapters::` check,
+  ignoring brace depth, a glob left alone, a `mod x;` losing its line count, a
+  planted socket type.
 
 ## SE-095 — A provider installed in two places is reported, and an unknown count is never "one"
 - Status: accepted

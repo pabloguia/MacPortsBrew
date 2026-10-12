@@ -11,9 +11,9 @@ Log kept for resuming after a compaction: read this and `git log --oneline -15`.
 
 - 0 work order commit: done 917a678
 - A pt-BR catalogue: done 3789749; stale docs in CONTRIBUTING.md, `.claude/rules/locales.md` and the add-locale skill are left to F
-- B dual-installation doctor check: done (commit follows this line in git log: `feat(adapters,application,domain): doctor reports ... (item B)`)
+- B dual-installation doctor check: done f233e72
 - C ownership default marker: todo
-- E layering test fixes: written and mutation-proved, uncommitted (waits for reviewers)
+- E layering test fixes: reviewed, committing (see git log)
 - D curated mappings: todo
 - F record and report: todo
 
