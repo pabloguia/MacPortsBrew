@@ -98,8 +98,10 @@ is as far as detection can see, and `--json` lists the provider in
 ### `macportsbrew doctor`
 
 Structural checks: provider presence and health, prefixes, `PATH` order,
-duplicate `PATH` entries, leaked build variables, Command Line Tools, support
-state with its source and read date.
+duplicate `PATH` entries, leaked build variables, a package manager installed
+in more than one place (every standard prefix is searched; an unknown is
+reported as unknown, never as one), Command Line Tools, support state with its
+source and read date.
 
 | Flag | Effect |
 |---|---|
@@ -126,7 +128,7 @@ Read it back with `--from-snapshot`. The format is documented at
 | Flag | Effect |
 |---|---|
 | `--json` | Machine-readable output with a versioned schema, **on stdout only** |
-| `--language <TAG>` | Locale for human output. `en`, or `qps` for the pseudolocale; an unknown tag falls back to English silently |
+| `--language <TAG>` | Locale for human output. `en`, `pt-BR` (Brazilian Portuguese), or `qps` for the pseudolocale; a bare `pt` (or `pt-PT`, `pt_PT.UTF-8`) also gets `pt-BR`, the only Portuguese catalogue; an unknown tag is ignored and the environment is tried next, then English. Without the flag the language comes from `MACPORTSBREW_LANG`, then `LC_ALL`, then `LANG` (`LC_ALL=C` means English); `--json` is always English |
 | `--no-color` | Plain output without colour |
 | `--verbose` | More detail on stderr |
 | `--advanced` | Include dependency-level packages, which are managed automatically by their provider |
@@ -196,8 +198,8 @@ macportsbrew history [show <id>]      runs, outcomes, restorability
 macportsbrew cleanup
 ```
 
-Also absent: translations beyond English (the architecture and the full English
-catalogue are in place), the cache, and `doctor --deep`.
+Also absent: translations other than `pt-BR` (`es`, `ja` and `zh-CN` are not
+written), the cache, and `doctor --deep`.
 
 ## Examples
 

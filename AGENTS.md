@@ -76,7 +76,7 @@ layering rule; `scripts/check-layering.sh` asserts them from `cargo metadata`.
 | `docs/spec/` | The specification. Its `README.md` is the reading order |
 | `docs/spec-evolution.md` · `docs/adr/` · `docs/decisions-pending.md` | Current rationale per topic; the owner's open decisions |
 | `docs/research/` · `docs/schemas/` · `docs/passes/` · `prompts/` | Dated provider facts; `--json` contracts; pass reports; work orders |
-| `data/policy/` · `locales/` · `fixtures/recordings/` | Provider facts as data, every entry with `source` and `read_on`; the English catalogue; captured provider recordings |
+| `data/policy/` · `locales/` · `fixtures/recordings/` | Provider facts as data, every entry with `source` and `read_on`; the English catalogue and the `pt-BR` translation; captured provider recordings |
 | `scripts/` · `.claude/` | `validate.sh` is the one "valid"; permissions, hooks, subagents, skills, and `rules/*.md`, which load the relevant specification chapter when you touch a subtree. **`.claude/` is the source**: `.codex/` and `.agents/skills/` are generated from it by `scripts/generate-codex-layer.sh` (DP-018, SE-078), a `validate.sh` stage fails when they drift, and the path guard refuses a hand-edit of either |
 
 ## Provider neutrality and the isolation boundary

@@ -7217,9 +7217,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   literal after `//` on the same line are stated as not seen. The network test is
   renamed `invariant_14_no_network_crate_is_locked_and_no_socket_type_is_named_in_the_source`
   and says it is a proxy for the remote case of INV-14, not a proof of it.
-  Mutants killed: cutting at the first marker, disabling the `adapters::` check,
-  ignoring brace depth, a glob left alone, a `mod x;` losing its line count, a
-  planted socket type.
+  Mutants killed (six): cutting at the first marker, disabling the `adapters::`
+  check, ignoring brace depth, a glob left alone, a `mod x;` losing its line count,
+  a planted socket type.
 
 ## SE-095 — A provider installed in two places is reported, and an unknown count is never "one"
 - Status: accepted
@@ -7265,10 +7265,12 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   unit tests, the contract tests of both adapters, the registry test that every
   adapter is told its candidates, `capture_redaction.rs` (a replayed capture is
   `UNKNOWABLE` only for a present provider) and `snapshot.rs` tests (old
-  document reads as not recorded, forged list refused). Mutants killed:
+  document reads as not recorded, forged list refused). Mutants killed (nine):
   `count > 1` as `> 2`; `Some(1)` widened to `Some(0 | 1)`; the prefix path check
-  removed; the length cap widened; the registry not passing candidates; capture
-  recording for an absent provider.
+  removed; the length cap widened; the duplicate-prefix check removed; the
+  registry not passing candidates; capture recording for an absent provider;
+  home redaction of the prefixes removed; the `is_this_machine` guard removed
+  (the INV-15 test fails).
 - **The other MUSTs of that section, confirmed.** PATH order: `path_order`
   (`the_path_order_between_two_providers_is_reported_when_both_are_on_it`, and
   its one-provider boundary). Prefixes: `prefix_not_on_path`,
@@ -7340,7 +7342,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   open to change.
 - Compatibility impact: additive.
 
-## SE-097 — Twenty more curated mappings, read from the local indexes of both providers
+## SE-097 — Nineteen more curated mappings, read from the local indexes of both providers
 - Status: accepted
 - Date / Pass: 2026-10-12 / pass 12 (item D)
 - Original assumption: 0.1.0 matches a package only when an equivalent is already
@@ -7364,7 +7366,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   not that a fresh sync would agree. Several rows (the versioned runtimes) exist
   because the family-and-version heuristic only sees installed destination packages
   and scores at most `STRONG`; improving it would let them be retired, which is why
-  each row has a `rationale`. At twenty it is at the edge of "do not curate a large
+  each row has a `rationale`. At nineteen it is at the edge of "do not curate a large
   database" (`.claude/rules/policy-data.md`); the work order asked for it.
 - User impact: `python@3.13` and similar now name their counterpart before the
   other provider has one installed; in the fixtures that is `python@3.13` (a mapped
@@ -7384,7 +7386,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   were not re-read. A separate as-of date for index-derived rows is a follow-up for
   the owner; until then the support facts' own `read_on` stay visible in
   `provider-support.toml`.
-- Every row answers both directions (the loader builds the reverse index); eleven
+- Every row answers both directions (the loader builds the reverse index); ten
   were written Homebrew to MacPorts and nine the other way only because a citation
   has a direction. The reverse of `node@24` replaced an old cross-major link: in
   the arm64 golden `nodejs24` had been linked at `PROBABLE` to the installed

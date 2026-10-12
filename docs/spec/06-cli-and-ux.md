@@ -123,7 +123,8 @@ presentation only.
 
 **Scope for the foundation pass:** the i18n *architecture* plus a complete
 English catalogue. Target locales are `en`, `pt-BR`, `es`, `ja`, `zh-CN`;
-translations land in later passes. Rationale in `docs/spec-evolution.md`.
+translations land in later passes (`pt-BR` has, 2026-10-12; `es`, `ja` and
+`zh-CN` have not). Rationale in `docs/spec-evolution.md`, SE-011.
 
 **MUST.** CI enforces key parity across catalogues and fails on a missing or
 orphaned key. A pseudolocale (`--language qps`) that lengthens and accents every

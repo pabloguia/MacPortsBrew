@@ -109,8 +109,9 @@ says so in its own `--help`:
   `doctor` are all unprivileged by design.
 - **Not yet implemented:** executing a migration, `restore`, `primary`,
   `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
-  interactive TUI, `doctor --deep`, caching, and translations (English ships,
-  plus the `qps` pseudolocale for layout testing).
+  interactive TUI, `doctor --deep`, caching, and translations beyond Brazilian
+  Portuguese (`--language pt-BR`; English is the source, plus the `qps`
+  pseudolocale for layout testing; `es`, `ja` and `zh-CN` are not yet written).
   `--no-network` and `--refresh` are accepted and do nothing in this build.
   `--yes` makes `migrate` put its plan to the execution gate, which refuses it
   (exit 4); adding `--dry-run` shows the plan without putting it to the gate.
@@ -143,7 +144,8 @@ macportsbrew explain git         # the full derivation of one recommendation
 macportsbrew plan git --to macports    # a migration plan; nothing is executed
                                        # (stops for a human decision unless
                                        # MacPorts already has git installed)
-macportsbrew doctor              # prefixes, PATH order, leaked build variables
+macportsbrew doctor              # prefixes, PATH order, leaked build variables,
+                                 # a package manager installed in two places
 macportsbrew snapshot            # capture both providers' state to a file
 ```
 

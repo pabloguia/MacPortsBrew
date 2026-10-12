@@ -123,7 +123,9 @@ Detection looks in the standard prefixes: `/opt/homebrew` and `/usr/local` for
 Homebrew, `/opt/local` for MacPorts (<https://docs.brew.sh/Installation>,
 <https://guide.macports.org>, both read 2026-09-02). Both Homebrew candidates
 are probed on every machine, so an Intel Homebrew under Rosetta on an Apple
-Silicon Mac is found rather than missed.
+Silicon Mac is found rather than missed. If a provider is installed in more
+than one of those places, `doctor` says so and names where, and which copy
+this tool runs: reported only, never changed.
 
 If you have relocated a prefix, detection may miss it. That is worth a
 [provider compatibility report](../.github/ISSUE_TEMPLATE/provider-compatibility.yml)

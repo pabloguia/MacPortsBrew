@@ -52,7 +52,7 @@ agent do the same thing.
 |---|---|
 | **Adding a package mapping** | The heuristics miss an equivalence, and you can cite the destination name from the destination provider's own index |
 | **Adding a policy rule** | A recommendation should change for a reason the existing rules do not express |
-| **Adding a locale** | Bringing user-facing text to `pt-BR`, `es`, `ja` or `zh-CN` |
+| **Adding a locale** | Bringing user-facing text to `es`, `ja` or `zh-CN` (`pt-BR` ships; a native review of it is welcome) |
 | **Adding a doctor check** | A machine condition should be reported before it causes a failure |
 | **Capturing a fixture** | Before writing any adapter test, or when a provider's output may have changed |
 | **Adding a provider** | Integrating a third package manager. Out of scope for the initial releases, but the abstraction must hold |
@@ -69,8 +69,9 @@ agent do the same thing.
 - **A documentation correction with a source.** Provider facts go out of date by
   construction. A correction that names what the source says now, and when you
   read it, can be applied immediately.
-- **A translation.** The i18n architecture and the complete English catalogue
-  are in place; the translations are not.
+- **A translation.** `pt-BR` ships; `es`, `ja` and `zh-CN` are not written. A
+  native speaker's review of the `pt-BR` error and `doctor` sentences is
+  especially welcome.
 
 ## What makes a change complete
 

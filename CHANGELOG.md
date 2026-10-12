@@ -22,8 +22,66 @@ output may change freely.
 
 ## [Unreleased]
 
-_This heading becomes `[0.1.0]` when the release is tagged; the owner adds the
-date then._
+Changes made in pass 12, after the 0.1.0 release candidate was reviewed
+(`0b9b04e`). They are all read-only improvements: nothing here makes the tool change a machine, and
+nothing widens what it may run. Whether they ship in 0.1.0 is DP-044. If 0.1.0 is tagged from this branch: move
+these entries into `[0.1.0]`, rename `## [0.1.0] - not yet tagged` to
+`## [0.1.0] - <date>` and delete the line under it, leave an empty `## [Unreleased]`
+above, and correct the lines in `[0.1.0]` that name policy version `2026.10.03-2`
+and its read dates, say `pt-BR` translations are not in place, say
+`Catalogue::for_locale` returns English except for the pseudolocale, or call the
+curated table small. Otherwise they ship in the next release.
+
+### Added since the release candidate
+
+- **A Brazilian Portuguese translation.** `--language pt-BR` (or
+  `MACPORTSBREW_LANG`, `LC_ALL`, `LANG`, in that order) shows the tool in
+  Portuguese, falling back to English for anything missing. `--json`, error
+  identifiers, flags and command names stay English. It was drafted by a model
+  and reviewed by others, not by a native speaker, so the wording of the error and
+  `doctor` sentences may need correcting; reports are welcome (DP-040). `es`, `ja`
+  and `zh-CN` are not written yet.
+- **`doctor` reports a package manager installed in more than one place.** On an
+  Apple Silicon Mac migrated from an Intel one, a working Homebrew can survive
+  under the old prefix; every standard prefix is now searched, and `doctor` names
+  the places and which copy this tool runs (a warning, never a change). When the
+  answer is not known - a recording, or a snapshot taken before this existed - it
+  says so instead of saying "one" - and so it does for a provider found at a prefix
+  none of the standard ones names. The snapshot carries the answer as
+  `environment.installations` (additive; `schemaVersion` is unchanged).
+- **`explain` says when an ownership answer was a default.** When a provider could
+  not say what depends on a package nobody asked for, it is shown as a dependency,
+  never an orphan; `explain` and `--json` (`ownershipSplitDefaulted`) now say that
+  was a default and not a finding.
+- **Nineteen more curated package mappings**, in both directions, for versioned
+  runtimes (`python@3.13`, `node@24`, `php@8.3`, `ruby@3.3`, PostgreSQL and MySQL
+  server/client pairs, ...), `g`-prefixed GNU tools and `lib`-prefixed libraries.
+  Each row was observed on 2026-10-12 in both providers' own local indexes, which
+  were themselves as old as 2026-09-02 (Homebrew's formula checkout) and
+  2026-09-06 (MacPorts' ports tree); each row says so, and none is proof against a
+  fresh sync.
+
+### Changed since the release candidate
+
+- **Policy data is version `2026.10.12-1`**, and its newest read date is now
+  2026-10-12 (the curated rows count), which moves the "may be out of date" notice
+  back by about five weeks for the older provider facts the tool also loads (the
+  Homebrew Intel support facts, read 2026-09-02, were not re-read; DP-043).
+- The layering test that keeps the command-line crate free of provider names now
+  also refuses a path into a provider's adapter module, and the network-isolation
+  test is named for what it checks.
+
+### Known, not changed
+
+- `status` counts a mapped counterpart that is not installed among the rows whose
+  ownership is unknown, and its sentence says the provider kept no record.
+- The two owed items of the pre-release review that this does not close: a plan's
+  rollback field, and `PROVIDER_REPORTS_ACTIVE` asserting "active" (SE-094).
+- `doctor --deep` and a MacPorts-specific `PATH` wording (DP-041) remain owed.
+
+## [0.1.0] - not yet tagged
+
+_The owner adds the date when the release is tagged._
 
 ### MacPortsBrew 0.1.0 at a glance
 

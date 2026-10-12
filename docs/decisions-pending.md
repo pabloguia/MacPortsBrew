@@ -373,7 +373,11 @@ English until reviewed (the loader already falls back per key); **(c)** hold the
 catalogue out of the release.
 
 **Recommendation:** (a), with you or a contributor reading the `error.*` and
-`doctor.*` keys first. **What it blocks:** nothing technical; it is a promise to
+`doctor.*` keys first. **Note on the default taken:** it is the *less* conservative one - the
+work order asked for every key translated, while the `add-locale` skill says not to
+machine-translate error remediation and move on. Option (b) costs one file: delete the
+`error.*` and `doctor.*` entries from `locales/pt-BR.toml` and the overlay falls back to
+English for exactly those keys, with no code change. **What it blocks:** nothing technical; it is a promise to
 Portuguese-speaking users. **Reversible default taken:** the catalogue is in the
 tree and wired; reverting is one `for_locale` branch.
 
@@ -395,6 +399,65 @@ name; **(c)** leave it owed.
 
 **Recommendation:** (b) when wanted, (a) until then. **What it blocks:**
 nothing. **Reversible default taken:** (c), recorded as owed in SE-095.
+
+### DP-042 — Searching the other provider's whole catalogue for a match
+
+Raised 2026-10-12 by pass 12 (§7 of its work order). In 0.1.0 a package is matched to the
+other provider only when an equivalent is already installed or the curated table names
+one; otherwise the plan stops at "no equivalent found", which does not mean none exists.
+Searching the other provider's catalogue needs provider reads the process allowlist does
+not permit today (`provider-commands.toml`; for Homebrew something like `brew search` or
+`brew info --json=v2 --eval-all`, for MacPorts `port search` or `port info`), so growing
+the allowlist is yours.
+
+What each costs: every read is a new subprocess shape to review under the threat model;
+Homebrew's `info --json=v2 --eval-all` and an empty cache can download the formula API
+(not offline), MacPorts' `port search` reads the local ports tree (offline, as old as its
+last sync, R-4); neither is cheap on a machine with thousands of packages, so it would be
+per-package and on demand, not a sweep.
+
+Options: **(a)** keep matching to installed packages and the curated table (0.1.x);
+**(b)** add one per-package, on-demand, read-only lookup per provider, each with its own
+allowlist entry, timeout and fixture, behind a flag; **(c)** a sweep.
+
+**Recommendation:** (b) after the mutating track, never (c). **What it blocks:** nothing in
+0.1.0. **Reversible default taken:** (a); nothing was added.
+
+### DP-043 — A separate "as of" date for rows read from a local index
+
+Raised 2026-10-12 by `spec-guardian` and `docs-auditor` (pass 12, item D). The curated
+rows were read from the machine's local indexes (homebrew-core last committed 2026-09-02,
+MacPorts' ports tree synced 2026-09-06), and each row says so, but each carries
+`read_on = 2026-10-12`. Because `policyReadOn` is the newest `read_on` across the files the
+engine loads (kept by SE-094), adding them moved it to 2026-10-12 in every payload and
+pushed the "data may be out of date" notice back about five weeks for the older provider
+facts the engine also loads (the Homebrew Intel support facts, read 2026-09-02, were not
+re-read).
+
+Options: **(a)** leave it, as recorded in SE-097; **(b)** add an `index_as_of` field to
+rows read from an index, and measure staleness from the oldest of the two dates;
+**(c)** measure staleness from the oldest `read_on` in the loaded files (reopens SE-094's
+"kept").
+
+**Recommendation:** (b). **What it blocks:** nothing. **Reversible default taken:** (a).
+
+### DP-044 — Do the pass-12 changes ship in 0.1.0?
+
+Raised 2026-10-12 by pass 12. The release candidate was reviewed at `df95f96` (SE-094) and
+`Cargo.toml` already says 0.1.0. This branch adds a translation, a `doctor` finding, an
+`explain` line and 19 curated rows, and moves the policy version to `2026.10.12-1`.
+`CHANGELOG.md` now has `[Unreleased]` (pass 12) above `[0.1.0] - not yet tagged`.
+
+Options: **(a)** tag 0.1.0 from this branch: fold `[Unreleased]` into `[0.1.0]`, fix the
+`[0.1.0]` lines that name the old policy version and say translations are absent, rename
+the heading with the date, leave an empty `[Unreleased]` above, and take the pass-10
+checklist (its version step says `2026.10.03-2` and tells you to rename `[Unreleased]`,
+which no longer matches); **(b)** tag 0.1.0 from the reviewed commit and release this
+branch as 0.1.1.
+
+**Recommendation:** (b) - what was reviewed is what ships, and the sign/notarise rehearsal
+in pass 10's checklist has not run on this branch's binaries. **What it blocks:** the tag.
+**Reversible default taken:** the CHANGELOG is written so either works.
 
 ---
 

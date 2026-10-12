@@ -17,9 +17,9 @@ the provider's own record of your intent rather than inferring it from a graph:
 | Ownership | Meaning |
 |---|---|
 | **Top-level** | You asked for it. |
-| **Dependency** | A provider installed it on behalf of something you asked for. |
+| **Dependency** | A provider installed it on behalf of something you asked for. When the provider could not say what depends on it, a package nobody asked for is still shown as a dependency, never as an orphan, and `explain` says that was a default. |
 | **Orphan** | Unrequested, and nothing depends on it any more. |
-| **Unknown** | The provider has no record of intent for this one. |
+| **Unknown** | The provider has no record of intent for this one, or the row is only a counterpart on the other provider that is not installed. |
 
 The mechanisms are named and recorded, not guessed. Homebrew's is
 `installed_on_request`; MacPorts' is the registry `requested` flag, read

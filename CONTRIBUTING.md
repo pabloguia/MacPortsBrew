@@ -258,7 +258,7 @@ and follow the reasoning.
 ## Adding a locale
 
 1. **Copy `locales/en.toml` to `locales/<tag>.toml`**, where `<tag>` is the
-   BCP-47 tag — the targets are `pt-BR`, `es`, `ja` and `zh-CN`, listed in
+   BCP-47 tag — the targets are `pt-BR` (shipped), `es`, `ja` and `zh-CN`, listed in
    `crates/cli/src/i18n/locale.rs` as `KNOWN`. English is the canonical source
    locale; every other catalogue is a translation of exactly its keys.
 2. **Translate the values only.** Keys, placeholder names (`{provider}`,
@@ -276,10 +276,13 @@ and follow the reasoning.
 4. **Do not translate machine-readable output**, log lines, history records,
    error identifiers or reason identifiers. Locale affects presentation only;
    `--json` is always English and stable.
-5. **Wire the catalogue up** in `Catalogue::for_locale`
-   (`crates/cli/src/i18n/mod.rs`). In this build that function returns English
-   for every tag except the pseudolocale, so a translation file on its own is
-   not yet rendered — the loader is part of your change.
+5. **Wire the catalogue up** in `Messages::for_locale`
+   (`crates/cli/src/i18n/mod.rs`), with a constructor beside
+   `Catalogue::portuguese_brazil` (`crates/cli/src/i18n/catalogue.rs`): the
+   translation laid over English, so a key it lacks renders in English. In this
+   build `pt-BR` is wired and the pseudolocale is generated; every other tag
+   still gets English, so a translation file on its own is not yet rendered —
+   the loader is part of your change.
 6. **Check parity and layout.** `scripts/check-i18n-parity.sh` fails on a
    missing or an orphaned key. Then run
    `macportsbrew --language qps analyze`: the pseudolocale lengthens and
