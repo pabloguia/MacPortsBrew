@@ -359,6 +359,24 @@ guarded, so either needs the owner's armed write. **What it blocks:** setting
 the repository's `ANTHROPIC_API_KEY` secret. **Reversible default taken:** the
 file is unchanged; this entry is the warning.
 
+### DP-040 — Who reviews the Brazilian Portuguese catalogue, and whether it ships as is
+
+Raised 2026-10-12 by pass 12 (item A). `locales/pt-BR.toml` was drafted by a model
+and reviewed by another on the strongest tier (`docs-auditor`, `spec-guardian`),
+never by a native speaker. `.claude/rules/locales.md` and the `add-locale` skill
+say not to machine-translate error remediation sentences and move on: a wrong
+one is worse than English.
+
+Options: **(a)** ship `pt-BR` as is, and have a native speaker review it before
+or soon after 0.1.x; **(b)** ship it, but keep the error and remediation keys in
+English until reviewed (the loader already falls back per key); **(c)** hold the
+catalogue out of the release.
+
+**Recommendation:** (a), with you or a contributor reading the `error.*` and
+`doctor.*` keys first. **What it blocks:** nothing technical; it is a promise to
+Portuguese-speaking users. **Reversible default taken:** the catalogue is in the
+tree and wired; reverting is one `for_locale` branch.
+
 ---
 
 ## Resolved

@@ -1659,6 +1659,26 @@ change is made. Silent deviation remains the one unrecoverable error.
 - User impact: non-English users wait one or two passes.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
+- **Addendum, the first translation, 2026-10-12 (pass 12, item A).** `pt-BR`
+  ships: `locales/pt-BR.toml` carries every English key, is embedded in the
+  binary like English, and is laid over English by `Catalogue::portuguese_brazil`
+  so a key the translation ever lacks renders in English rather than as
+  `[the.identifier]`. `--language pt-BR`, `MACPORTSBREW_LANG`, `LC_ALL` and `LANG`
+  select it in the documented order; `--json`, error ids, flags and command names
+  stay English. `es`, `ja` and `zh-CN` still get English text with their own
+  plural rules. Any `pt*` tag, `pt_PT` included, resolves to it, because it is
+  the only Portuguese catalogue. The translation was drafted by a model and
+  reviewed by `docs-auditor` on the strongest tier (its nine findings fixed or
+  recorded in the pass-12 report), not by a native speaker; a native review is
+  owed (DP-040), and `{detail}` fragments built in code, clap's own messages and
+  `--help` (the exemption above still holds) stay English inside Portuguese
+  sentences, a known limitation.
+  Evidence: `crates/cli/tests/locale_pt_br.rs` (the four selectors reach it, in
+  the order the code comments in `i18n/mod.rs` state; `--json` unchanged; the
+  overlay has English's keys and is almost wholly translated), together with
+  `scripts/check-i18n-parity.sh` for key parity and
+  `catalogue::tests::an_overlay_*`; the selection mutant (`pt-BR` compared as
+  another tag) was killed.
 - Foundation Pass addition: the command-line `--help` text is compile-time
   English produced by the argument parser and does not go through the
   catalogue. Localising help is deferred with the translations; the

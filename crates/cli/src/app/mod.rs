@@ -44,7 +44,7 @@ pub struct Cli {
     /// Machine-readable output with a versioned schema, on stdout only.
     #[arg(long, global = true)]
     pub json: bool,
-    /// Locale for human output (`en`, `qps` pseudolocale).
+    /// Locale for human output (`en`, `pt-BR`, `qps` pseudolocale).
     #[arg(long, global = true, value_name = "TAG")]
     pub language: Option<String>,
     /// Plain output without colour.

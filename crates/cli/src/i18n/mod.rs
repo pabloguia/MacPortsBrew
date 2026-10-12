@@ -171,13 +171,15 @@ impl Messages {
 
     /// The catalogue this build has for a locale.
     ///
-    /// The pseudolocale is generated; every other tag currently gets English,
-    /// because the translations land in a later pass. The locale is kept as
-    /// asked for even so, so plural rules and layout are already the target
-    /// locale's while the text is still English.
+    /// The pseudolocale is generated and `pt-BR` is translated; every other tag
+    /// currently gets English, because those translations land in a later pass.
+    /// The locale is kept as asked for even so, so plural rules and layout are
+    /// already the target locale's while the text is still English.
     pub fn for_locale(locale: &Locale) -> Self {
         let catalogue = if locale.is_pseudo() {
             Catalogue::pseudolocale()
+        } else if locale.as_str() == "pt-BR" {
+            Catalogue::portuguese_brazil()
         } else {
             Catalogue::english()
         };

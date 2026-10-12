@@ -15,6 +15,10 @@ use super::format::matching_brace;
 /// conditional on the filesystem.
 const EN_TOML: &str = include_str!("../../../../locales/en.toml");
 
+/// The Brazilian Portuguese translation, compiled in for the same reason as
+/// English: the remediation sentences must not depend on the filesystem.
+const PT_BR_TOML: &str = include_str!("../../../../locales/pt-BR.toml");
+
 /// A set of message templates, keyed by stable identifier.
 ///
 /// The map is a `BTreeMap`, so iteration order is the identifiers' order on
@@ -35,6 +39,29 @@ impl Catalogue {
     /// the binary — and `english_parses` in this module fails first.
     pub fn english() -> Self {
         Self::from_toml(EN_TOML).expect("the embedded English catalogue must parse")
+    }
+
+    /// The Brazilian Portuguese catalogue: the translation laid over English,
+    /// so a key the translation lacks renders in English rather than as a
+    /// bracketed identifier. `scripts/check-i18n-parity.sh` keeps that fallback
+    /// from being needed for any key that ships.
+    ///
+    /// # Panics
+    ///
+    /// If the embedded `locales/pt-BR.toml` is not a flat table of strings,
+    /// for the reason [`Catalogue::english`] gives.
+    pub fn portuguese_brazil() -> Self {
+        Self::english()
+            .overlaid_with(PT_BR_TOML)
+            .expect("the embedded Brazilian Portuguese catalogue must parse")
+    }
+
+    /// This catalogue with `translation`'s entries laid over it: a key the
+    /// translation carries is replaced, a key it lacks keeps this catalogue's
+    /// text. That is the whole of the "missing falls back to English" rule.
+    pub(crate) fn overlaid_with(mut self, translation: &str) -> Result<Self, DomainError> {
+        self.entries.extend(Self::from_toml(translation)?.entries);
+        Ok(self)
     }
 
     /// The pseudolocale, derived from English.
@@ -279,6 +306,25 @@ mod tests {
         let catalogue = Catalogue::english();
         assert!(!catalogue.is_empty());
         assert!(catalogue.get("cli.about").is_some());
+    }
+
+    #[test]
+    fn an_overlay_replaces_what_it_carries_and_keeps_the_rest() {
+        let base = Catalogue::from_toml("a = \"one\"\nb = \"two\"\n").unwrap();
+        let merged = base.overlaid_with("a = \"um\"\n").unwrap();
+        assert_eq!(merged.get("a"), Some("um"));
+        assert_eq!(
+            merged.get("b"),
+            Some("two"),
+            "a missing key must stay English"
+        );
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn an_overlay_that_is_not_a_flat_table_of_strings_is_refused() {
+        let base = Catalogue::from_toml("a = \"one\"\n").unwrap();
+        assert!(base.overlaid_with("a = 3\n").is_err());
     }
 
     #[test]
