@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description.workspace = true
+publish.workspace = true
+readme = "../../README.md"
+keywords = ["homebrew", "macports", "package-manager", "macos", "migration"]
+categories = ["command-line-utilities"]
 default-run = "macportsbrew"
 
 # `mpb` is an equal alias, not a wrapper (06-cli-and-ux.md): both binaries are
@@ -37,6 +41,9 @@ clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The executor's tests narrow planner plans (`PlannedRun::map_plan`); a
+# dev-dependency feature is not enabled in a non-test build (resolver 2).
+macportsbrew-application = { path = "../application", features = ["test-support"] }
 # Dev-only, and only to verify ADR-0002's open question: that the candidate TUI
 # crate measures East Asian text in display width the way this crate's renderer
 # does. No TUI ships in this pass, so this dependency stays out of the binary.

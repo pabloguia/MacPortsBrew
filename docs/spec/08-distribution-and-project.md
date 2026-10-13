@@ -15,10 +15,29 @@ notarisation ticket and a bare Mach-O cannot; they are alternatives to the
 leading path, never a replacement for it. All three MUST embed byte-identical
 executables — one build produces one signed Mach-O per architecture, and CI
 asserts that the payload extracted from each container hashes to the published
-bare-binary checksum. The `.dmg` is **provisional pending R-11**: if a stapled
-`.dmg` turns out not to cover a binary copied out of it, it buys nothing the
-bare binary does not and is dropped rather than maintained. `brew install` / `port install` may exist
-later as conveniences; neither may ever be the only route.
+bare-binary checksum.
+
+**Decided (DP-008, 2026-09-04): all three are published unconditionally, and
+which one to take is the user's choice.** The `.dmg` was previously provisional
+pending R-11, on the reasoning that a stapled container which does not cover an
+extracted binary buys nothing the bare binary does not. That reasoning weighed
+only the notarisation ticket. The three also differ in how they install — one
+file to place by hand, an installer that places it, a window to drag it out of —
+and that difference is real whatever R-11 answers. So R-11 now decides what the
+documentation may *claim* for the containers, not whether they are published.
+`brew install` / `port install` may exist later as conveniences; neither may
+ever be the only route.
+
+**MUST.** Each artifact carries a description wherever a user chooses between
+them — the installation documentation and the release notes. Each description
+names the artifact in a technical reader's vocabulary, so the title alone is
+enough for them, and says what happens when it is used in terms that assume no
+knowledge of signing, quarantine or `PATH`. The three differ in installation
+experience and in notarisation-ticket handling and **not** in payload; a
+description that lists three filenames without saying which to take has not met
+this. Because the `.pkg` is forbidden below from editing `PATH`, that
+documentation also states the directory it installs into and the single line
+that puts it on `PATH`.
 
 **MUST.** Confront macOS Gatekeeper explicitly, and state the mechanism
 accurately. The blocker is the **quarantine attribute**, not the absence of a
@@ -69,6 +88,30 @@ only what binds:
   installation to decline to shadow an existing `mpb` and a non-interactive
   installer cannot make that call. The same exclusion binds the `.dmg`'s copy
   target and the documented `cp` line.
+
+**MUST.** Record, per release, what CI observed of the identity that signed it:
+the team identifier, the certificate fingerprint, and the notarisation
+submission identifier per artifact. Both halves are needed because both halves
+can be revoked — a certificate by its holder or by Apple, a notarisation ticket
+by Apple alone — and a record of only the first leaves one of the two revocation
+paths with no answer to "which artifacts are affected". CI already asserts
+Developer ID authority; what this adds is keeping what it saw. It goes in the
+release notes and in a sidecar published beside `SHA256SUMS`, **not** in the
+build provenance attestation: `actions/attest-build-provenance` emits a fixed
+SLSA predicate with no field for it, and saying otherwise would describe a
+mechanism that does not exist. `SECURITY.md`, "If a release must be withdrawn",
+is the plan that depends on this (DP-009).
+
+**MUST.** Releases are **immutable**. GitHub's immutable releases lock the tag to
+its commit, refuse modification or deletion of the attached assets, and generate
+a release attestation automatically (R-14). The cost is accepted deliberately:
+once published, a release cannot be replaced and its tag name can never be
+reused, so a withdrawal permanently burns that version number and the successor
+is a new version rather than a corrected one. For a tool that rewrites somebody's
+package manager, being able to prove that `v1.2.3` is always the same bytes is
+worth more than being able to substitute them; a burnt version number is cheap.
+`SECURITY.md`'s withdrawal runbook is written against this constraint rather than
+around it.
 
 **MUST.** Publish a build provenance attestation for every release artifact, and
 one `SHA256SUMS` covering all of them, itself attested, **and a verification
@@ -188,7 +231,7 @@ automation simple enough that a contributor can edit a page without learning it.
 **SHOULD.** Wiki pages, at minimum: Home; Getting Started; Homebrew to MacPorts
 Migration; MacPorts to Homebrew Migration; Using Homebrew and MacPorts Together;
 Intel Mac Homebrew Support; Understanding Bottles and Source Builds; Package
-Mapping; Dependencies and Safety; Undoing a Migration; Primary Provider;
+Mapping; Dependencies and Safety; Restoring After a Migration; Primary Provider;
 Troubleshooting; CLI Reference; FAQ; Architecture; Contributing.
 
 Page titles use the words people search for and describe what the page contains.
@@ -226,9 +269,15 @@ macOS that ran on that hardware. Recorded in
 dependency, not an aspiration. A dependency that raises the deployment floor is
 rejected the same way a GPLv2-only dependency is.
 
-**MUST.** The published support matrix distinguishes what CI actually exercises
-from what is merely believed to work. R-10 (answered 2026-09-02) settles which
-is which: hosted Intel runners exist for macOS 15 and 26, so those pairs are
+**MUST.** The published support matrix distinguishes what CI is configured to
+exercise from what is merely believed to work, **and says which of the two it is
+reporting**. It is generated from the workflow's `runner:` labels and from
+nothing else, so a row is configuration until a run says otherwise; while no
+hosted runner has executed the workflow at all — which is the case for as long
+as this repository has no remote — the matrix states that at the top, in those
+words. The earlier wording here said "what CI actually exercises", which is the
+claim the generator cannot make and the one this MUST exists to prevent
+(SE-052, finding F-12). R-10 (answered 2026-09-02) settles which row is which: hosted Intel runners exist for macOS 15 and 26, so those pairs are
 **tested** natively on both architectures, while macOS 10.12–10.15 has no
 hosted path and none is coming — GitHub keeps images only for the latest two
 stable macOS versions. Those versions are **best-effort** until someone

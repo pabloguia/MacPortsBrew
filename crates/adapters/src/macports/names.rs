@@ -20,7 +20,12 @@ pub const MAX_NAME_LEN: usize = 128;
 
 /// Cap on a free-text field (description, licence) kept from provider
 /// output.
-pub const MAX_TEXT_LEN: usize = 4096;
+///
+/// The domain's number, not a second copy of it: `is_safe_provider_text`
+/// enforces the same bound where a snapshot enters, so a value this parser
+/// keeps is one that boundary accepts. Two constants holding the same number is
+/// how they come to hold different ones.
+pub const MAX_TEXT_LEN: usize = macportsbrew_domain::MAX_TEXT_LEN;
 
 /// Cap on a path this adapter is willing to hand to `port` as an argument.
 ///
@@ -46,13 +51,17 @@ pub fn is_safe_name(name: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'+' | b'-'))
 }
 
-/// Trims a free-text field and bounds it, keeping whole characters.
+/// Trims a free-text field and bounds it to at most [`MAX_TEXT_LEN`] bytes,
+/// cutting at the last character boundary at or below the bound so that no
+/// character is split.
+///
+/// The bound is in bytes because the snapshot boundary
+/// (`is_safe_provider_text`) measures bytes: a cut counted in characters
+/// keeps up to four times as many bytes for non-ASCII text, and the snapshot
+/// would then refuse a value this parser had already accepted.
 pub fn bounded_text(raw: &str) -> String {
     let trimmed = raw.trim();
-    if trimmed.len() <= MAX_TEXT_LEN {
-        return trimmed.to_string();
-    }
-    trimmed.chars().take(MAX_TEXT_LEN).collect()
+    trimmed[..trimmed.floor_char_boundary(MAX_TEXT_LEN)].to_string()
 }
 
 /// Rejects a stream that is too large to be `port` output before parsing it.
@@ -98,5 +107,22 @@ mod tests {
             MAX_TEXT_LEN
         );
         assert!(within_output_bound("short"));
+    }
+
+    #[test]
+    fn free_text_is_bounded_in_bytes_and_never_splits_a_character() {
+        // Synthetic text: a three-byte character repeated past the bound.
+        // Counted in characters, the old cut kept three times the byte bound.
+        let long = "\u{20ac}".repeat(MAX_TEXT_LEN);
+        let cut = bounded_text(&long);
+        assert!(cut.len() <= MAX_TEXT_LEN);
+        assert_eq!(cut.len(), MAX_TEXT_LEN - MAX_TEXT_LEN % 3);
+        assert!(cut.chars().all(|c| c == '\u{20ac}'));
+        // A bound falling inside a character drops that character whole.
+        let offset = format!("a{}", "\u{20ac}".repeat(MAX_TEXT_LEN));
+        let cut = bounded_text(&offset);
+        assert!(cut.len() <= MAX_TEXT_LEN);
+        assert!(cut.len() > MAX_TEXT_LEN - 3);
+        assert!(cut.starts_with('a'));
     }
 }

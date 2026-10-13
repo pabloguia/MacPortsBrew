@@ -73,8 +73,9 @@ code (INV-20). Each entry carries `source`, `readOn`, and where relevant an
 > Intel bottles; stated removal of Intel support in or after 2027-09.
 > Source: https://docs.brew.sh/Support-Tiers — read 2026-09-02.
 
-**MUST.** The build embeds a `policyVersion` and the data's newest `readOn`
-date. When that date is older than a configured threshold, the CLI prints a
+**MUST.** The build embeds a `policyVersion` and the data's newest effective
+date: a row's `readOn`, or its `indexAsOf` where it has one (the date of the local
+index it was read from, DP-043; never later than `readOn`). When that date is older than a configured threshold, the CLI prints a
 non-blocking staleness notice telling the user the policy data may be out of
 date and how to update. Recommendations are still produced.
 

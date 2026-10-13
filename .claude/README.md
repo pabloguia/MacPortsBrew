@@ -7,8 +7,8 @@ says what each piece is and how an operator sets up and runs a session. If the
 two disagree, the specification wins and this file is the bug.
 
 **Tooling facts here were verified against Anthropic's Claude Code
-documentation on 2026-09-02, and re-verified at the start of the Foundation
-Pass the same day** — the pages `/tooling-recheck` names; the notes
+documentation on 2026-09-02, re-verified at the start of the Foundation Pass
+the same day, and most recently on 2026-10-10, every group** — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 
@@ -21,7 +21,7 @@ that skill re-verifies them at the start of every pass.
 | `current-pass` | The pass id the session-start hook announces. One line. |
 | `hooks/` | Mechanical enforcement. See below. |
 | `agents/` | Subagents: `provider-researcher` plus the three read-only reviewers `spec-guardian`, `security-reviewer`, `docs-auditor`. |
-| `skills/` | Repeatable procedures, invoked as `/name`: `tooling-recheck`, `spec-evolution`, `adr`, `research-note`, `decision-pending`, `preflight`, `pass-report`. |
+| `skills/` | Repeatable procedures, invoked as `/name`: `tooling-recheck`, `spec-evolution`, `adr`, `research-note`, `decision-pending`, `preflight`, `pass-report`, and the contributor recipes `add-mapping`, `add-policy-rule`, `add-locale`, `add-doctor-check`, `capture-fixture`, `add-provider`. |
 
 At the repository root, `CLAUDE.md` is the thin Claude Code layer that imports
 `@AGENTS.md`; `CLAUDE.local.md`, if you create one for personal notes, is
@@ -34,10 +34,11 @@ git-ignored.
 | `lib.sh` | — | JSON field extraction. Fails closed when neither `jq` nor `python3` is present. |
 | `session-start.sh` | `SessionStart` | Injects the active pass, the hard boundary and the open decisions. |
 | `guard-provider-mutation.sh` | `PreToolUse(Bash)` | Denies elevation and every mutating `brew`/`port` subcommand, plus toolchain switching, shell-file writes and launch machinery — including absolute-path and wrapped forms. |
-| `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths. |
+| `guard-protected-paths.sh` | `PreToolUse(Edit\|Write\|NotebookEdit)` | Denies writes into either provider's prefix, shell configuration and system paths, and into the controls (`hooks/`, `settings.json`, `scripts/*.sh`, workflows, the generated layers). Since SE-093, `agents/`, `skills/` and `rules/` are editable: guidance, not controls. |
+| `commit-gate.sh` | `PreToolUse(Bash)` | Runs `scripts/validate.sh` before every `git commit` (the default mode when code changed, `--quick` otherwise) and refuses the commit while it fails. Escape: `MPB_SKIP_COMMIT_GATE=1`, disclosed in the report (SE-093). |
 | `post-edit-checks.sh` | `PostToolUse(Edit\|Write)` | Per-file: shell format and lint, JSON validity, Markdown link resolution, SPDX header. Never blocks. |
-| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh` (`--quick` on every turn; the test suite too when code, tests, fixtures, data or catalogues changed; `MPB_GATE_FULL=1` forces it). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
-| `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI runs it. |
+| `stop-gate.sh` | `Stop` | The definition-of-done gate. Blocks the turn ending on objective failures: links, configuration validity, the no-mutation grep over `crates/*/src`, and `scripts/validate.sh --quick` (`MPB_GATE_FULL=1` adds the test suite; since SE-093 the suite runs before every commit instead, in `commit-gate.sh`). The gate decides how much to run; the checks themselves live in `scripts/validate.sh`, which CI and contributors run the same way. |
+| `test-hooks.sh` | — | Feeds every hook fixture inputs and asserts its decision. Run after any change here; CI is configured to run it, and has never run. |
 
 Two layers, on purpose: the deny rules in `settings.json` are what Claude Code
 enforces; the hooks catch the forms rule syntax does not. Neither is a sandbox
@@ -46,8 +47,9 @@ are and are not, and why the honest statement matters here.
 
 ## Prerequisites
 
-- **Claude Code** — 2.1.258 is what this configuration was verified with on
-  2026-09-02 (`claude --version`).
+- **Claude Code** — 2.1.278 is what this configuration was last verified with,
+  on 2026-10-10 (`claude --version`; 2.1.258 on 2026-09-02). The documentation
+  read that day describes features up to v2.1.296.
 - **`jq` or `python3`.** The guard hooks parse their JSON input with one of
   them and *fail closed* when neither is present, so without one every Bash
   tool call is denied. `python3` from the Command Line Tools is enough.
@@ -64,8 +66,12 @@ are and are not, and why the honest statement matters here.
 
 You do not configure permissions by hand — they are checked in. Verify a
 session with `/context` (the agents appear under Custom Agents and the
-`@AGENTS.md` import under Memory files), `/permissions`, and by asking Claude
-to run `brew install cowsay` — it must be refused.
+`@AGENTS.md` import under Memory files), `/status` (its "Setting sources" line
+shows the project settings file loaded — start the session from the repository
+root, because the shared settings file is read from the primary working
+directory), `/permissions`, and by asking Claude
+to run `brew install cowsay` — it must be refused. Most of `settings.json`'s `env` and `allow` entries wait
+until you trust the workspace; its `deny` and `ask` rules apply at once.
 
 ## Official plugins worth installing
 
@@ -74,9 +80,9 @@ yourself. Turning any of these into a project commitment means adding
 `enabledPlugins` and `extraKnownMarketplaces` to `settings.json`, which is what
 every collaborator's Claude Code would then try to load — that belongs in an
 ADR, not a quiet edit. Names checked 2026-09-02 against the official
-marketplace `claude-plugins-official`, which Claude Code registers on first
-interactive start (`/plugin marketplace add anthropics/claude-plugins-official`
-if it is missing).
+marketplace `claude-plugins-official`. Check it is registered with `/plugin`;
+if it reports `Marketplace ... not found`, run
+`/plugin marketplace add anthropics/claude-plugins-official`.
 
 ```
 /plugin install security-guidance@claude-plugins-official

@@ -47,6 +47,28 @@ pub fn class(value: PackageClass) -> &'static str {
     }
 }
 
+/// Stable text for how a provider has withdrawn a package: `DISABLED` wins
+/// over `DEPRECATED`, and a package only replaced is `REPLACED`.
+///
+/// Three emitters raise a reason with a `state` parameter - the two
+/// withdrawal rules and the planner's destination guard - and the planner
+/// used to spell it in lower case while the rules wrote the identifier. All
+/// take it from here, so the renderer's `state.*` labels see one vocabulary.
+pub fn withdrawal_state(disabled: bool, deprecated: bool) -> &'static str {
+    if disabled {
+        "DISABLED"
+    } else if deprecated {
+        "DEPRECATED"
+    } else {
+        "REPLACED"
+    }
+}
+
+/// Every value [`withdrawal_state`] can produce.
+pub fn withdrawal_state_vocabulary() -> [&'static str; 3] {
+    ["DISABLED", "DEPRECATED", "REPLACED"]
+}
+
 /// Stable text for a mapping confidence.
 pub fn confidence(value: Confidence) -> &'static str {
     match value {
@@ -56,6 +78,43 @@ pub fn confidence(value: Confidence) -> &'static str {
         Confidence::Strong => "STRONG",
         Confidence::Exact => "EXACT",
     }
+}
+
+/// The confidence a mapping needs before anything acts on it.
+///
+/// The same threshold as [`Confidence::is_strong`]; it is named here so the
+/// `threshold` parameter below is that value's identifier, not a second
+/// spelling of it.
+pub const MAPPING_CONFIDENCE_THRESHOLD: Confidence = Confidence::Strong;
+
+/// The `confidence` and `threshold` parameters of
+/// `reason.mapping_confidence_below_threshold`, in identifier form.
+///
+/// Two emitters raise that reason - the `MANUAL_REVIEW_MAPPING_CONFIDENCE`
+/// rule and the planner's own mapping guard - and they used to spell the
+/// values differently (`NONE` here, `format!("{:?}")`'s `None` there). Both
+/// take their parameters from this one function, so a renderer keyed on the
+/// `confidence.*` labels sees one vocabulary whichever emitter spoke.
+pub fn mapping_confidence_params(value: Confidence) -> [(&'static str, &'static str); 2] {
+    [
+        ("confidence", confidence(value)),
+        ("threshold", confidence(MAPPING_CONFIDENCE_THRESHOLD)),
+    ]
+}
+
+/// Every value [`confidence`] can produce, in ascending order.
+///
+/// For tests that check a `confidence` or `threshold` parameter is drawn from
+/// this vocabulary and nothing else.
+pub fn confidence_vocabulary() -> [&'static str; 5] {
+    [
+        Confidence::None,
+        Confidence::Ambiguous,
+        Confidence::Probable,
+        Confidence::Strong,
+        Confidence::Exact,
+    ]
+    .map(confidence)
 }
 
 /// Stable text for a support tier.

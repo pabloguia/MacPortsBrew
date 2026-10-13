@@ -71,6 +71,7 @@ pub mod names;
 pub mod parse;
 pub mod service;
 
+use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
     ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState, DependencyEdge,
@@ -87,12 +88,8 @@ pub use availability::{archive_query_url, ARCHIVE_QUERY_URL_FORMAT};
 /// The provider id this adapter answers for.
 pub const PROVIDER_ID: &str = "macports";
 
-/// The documented default prefix (R-3 E-11, `guide.macports.org`
-/// "MacPorts Configuration Files": `prefix` "Default: /opt/local").
-pub const DEFAULT_PREFIX: &str = "/opt/local";
-
 /// The prefix-relative path of the `port` executable.
-pub const EXECUTABLE_RELATIVE: &str = "bin/port";
+pub(crate) const EXECUTABLE_RELATIVE: &str = "bin/port";
 
 /// How ownership is decided: the registry's `requested` flag, read through
 /// the `requested` pseudo-portname (R-3 Finding 3). Not an inference from the
@@ -108,14 +105,29 @@ const ARGV_INSTALLED: &[&str] = &["-q", "installed"];
 const ARGV_ECHO_REQUESTED: &[&str] = &["-q", "echo", "requested"];
 const ARGV_ECHO_LEAVES: &[&str] = &["-q", "echo", "leaves"];
 const ARGV_ECHO_ACTIVE: &[&str] = &["-q", "echo", "active"];
-const INFO_BASE: &[&str] = &["-q", "info", "--index", "--line", "--name"];
+pub(crate) const INFO_BASE: &[&str] = &["-q", "info", "--index", "--line", "--name"];
 const INFO_FIELDS_VERSION: &[&str] = &["--version", "--revision", "--replaced_by"];
 const INFO_FIELDS_HOMEPAGE: &[&str] = &["--homepage", "--license"];
 const INFO_FIELDS_DESCRIPTION: &[&str] = &["--description"];
 const INFO_FIELDS_DEPENDS_LIB: &[&str] = &["--depends_lib"];
 const INFO_FIELDS_DEPENDS_RUN: &[&str] = &["--depends_run"];
 const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
-const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+pub(crate) const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+
+/// Every field tail [`INFO_BASE`] may be extended with, one entry per `info`
+/// read the snapshot makes. [`is_allowed_argv`] refuses an `info` argument
+/// vector whose fields are not exactly one of these, so the list holds on every
+/// run, live or replayed, rather than by a test reading this file; and the
+/// spawn-site read allowlist is tested against each of them rather than a
+/// sample (`every_long_option_a_read_passes_is_permitted_and_no_other`).
+pub(crate) const INFO_FIELDS: &[&[&str]] = &[
+    INFO_FIELDS_VERSION,
+    INFO_FIELDS_HOMEPAGE,
+    INFO_FIELDS_DESCRIPTION,
+    INFO_FIELDS_DEPENDS_LIB,
+    INFO_FIELDS_DEPENDS_RUN,
+    INFO_FIELDS_DEPENDS_BUILD,
+];
 
 /// Every complete argument vector this adapter may run.
 ///
@@ -143,19 +155,30 @@ pub const ALLOWED_ARGV: &[&[&str]] = &[
 pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES];
 
 /// True when `argv` is an exact allow-list entry, or extends an allow-listed
-/// prefix.
+/// prefix - and, for `info`, extends [`INFO_BASE`] with exactly one
+/// [`INFO_FIELDS`] tail followed by nothing option-shaped, so the fields an
+/// `info` read asks for are a list here and not whatever a caller appended.
 fn is_allowed_argv(argv: &[String]) -> bool {
-    let matches_head = |allowed: &&[&str]| {
-        argv.len() >= allowed.len()
-            && allowed
-                .iter()
-                .zip(argv.iter())
-                .all(|(a, b)| *a == b.as_str())
+    let after = |head: &[&str]| strip_head(argv, head);
+    let info_tail = |rest: &[String]| {
+        INFO_FIELDS.iter().any(|tail| {
+            strip_head(rest, tail).is_some_and(|names| names.iter().all(|n| !n.starts_with('-')))
+        })
     };
     ALLOWED_ARGV
         .iter()
-        .any(|allowed| allowed.len() == argv.len() && matches_head(allowed))
-        || ALLOWED_ARGV_PREFIXES.iter().any(matches_head)
+        .any(|allowed| allowed.len() == argv.len() && after(allowed).is_some())
+        || ALLOWED_ARGV_PREFIXES.iter().any(|head| match after(head) {
+            Some(rest) if *head == INFO_BASE => info_tail(rest),
+            Some(_) => true,
+            None => false,
+        })
+}
+
+/// What follows `head` in `argv`, when `argv` starts with exactly `head`.
+fn strip_head<'a>(argv: &'a [String], head: &[&str]) -> Option<&'a [String]> {
+    (argv.len() >= head.len() && head.iter().zip(argv).all(|(a, b)| *a == b.as_str()))
+        .then(|| &argv[head.len()..])
 }
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
@@ -164,9 +187,25 @@ pub struct MacPortsAdapter<R: ProcessRunner> {
     runner: R,
     prefix: PathBuf,
     id: ProviderId,
+    /// Whether this host's disk describes the machine being read. Separate
+    /// from `runner.is_replay()`; see [`crate::filesystem`] (F-25).
+    filesystem: FilesystemScope,
     machine: Option<Machine>,
+    /// The user's home, or `None` under replay. `port` cannot start without
+    /// `HOME`; see [`Self::environment`].
+    home: Option<PathBuf>,
+    /// Every prefix this provider could be installed under, for the search
+    /// [`ProviderRead::installations`] makes. Empty unless the registry sets it.
+    installation_candidates: Vec<PathBuf>,
     detection: RefCell<Option<ProviderDetection>>,
     inventory: RefCell<Option<ProviderInventory>>,
+    /// The service scan the cached inventory's metadata was built from. The
+    /// `ServiceMetadata` capability is read from this same value, never from a
+    /// second scan: two scans can disagree, and a capability from a clean one
+    /// beside per-package answers from an unreadable one would say "known, and
+    /// nothing is a service" (security review and spec-guardian, pass 08
+    /// slice 3, M2).
+    services: RefCell<Option<service::ServiceScan>>,
 }
 
 impl<R: ProcessRunner> MacPortsAdapter<R> {
@@ -175,15 +214,36 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// The executable is always `<prefix>/bin/port`, resolved from the
     /// prefix and never looked up on `PATH` (threat model: executable
     /// shadowing).
-    pub fn new(runner: R, prefix: PathBuf) -> Self {
+    /// `filesystem` says whether this host's disk describes the machine being
+    /// read; where it does not, every filesystem answer is the unknown one
+    /// (INV-15, F-25).
+    pub fn new(
+        runner: R,
+        prefix: PathBuf,
+        home: Option<PathBuf>,
+        filesystem: FilesystemScope,
+    ) -> Self {
         Self {
             runner,
             prefix,
             id: ProviderId::new(PROVIDER_ID),
+            filesystem,
             machine: None,
+            home,
+            installation_candidates: Vec::new(),
             detection: RefCell::new(None),
             inventory: RefCell::new(None),
+            services: RefCell::new(None),
         }
+    }
+
+    /// Names every prefix this provider could be installed under, so a second
+    /// installation is reported rather than hidden behind the first. They come
+    /// from dated policy data through the registry, never from this adapter.
+    #[must_use]
+    pub fn with_installation_candidates(mut self, candidates: Vec<PathBuf>) -> Self {
+        self.installation_candidates = candidates;
+        self
     }
 
     /// Attaches the machine, so availability evidence can name the platform
@@ -198,16 +258,16 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     ///
     /// Filesystem only: no subprocess runs, so this is safe to call before
     /// anything is known about the installation.
-    pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
+    pub fn detect_prefix(candidates: &[PathBuf], filesystem: FilesystemScope) -> Option<PathBuf> {
+        if !filesystem.is_this_machine() {
+            // The recording is the machine; this host's disk says nothing
+            // about which prefix it has. The caller supplies one (INV-15).
+            return None;
+        }
         candidates
             .iter()
             .find(|p| p.join(EXECUTABLE_RELATIVE).is_file())
             .cloned()
-    }
-
-    /// The prefixes to try when the caller has no preference.
-    pub fn default_candidates() -> Vec<PathBuf> {
-        vec![PathBuf::from(DEFAULT_PREFIX)]
     }
 
     /// The prefix this adapter reads.
@@ -230,22 +290,29 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     ///
     /// `extra` is empty on purpose: R-3 Finding 12 found no `MACPORTS_*`
     /// variable in the documentation read, and quieting is argv (`-q`, which
-    /// implies `-N`). `home` is `None` because no read here is documented to
-    /// need it, and `~/.macports/macports.conf` is a file this adapter reads
-    /// directly rather than through `port`.
+    /// implies `-N`).
+    ///
+    /// **`home` was `None` and that broke every MacPorts read.** The reason
+    /// given was that "no read here is documented to need it" — a
+    /// documentation-derived inference, and false. `port` runs `mportinit`
+    /// before any subcommand, and `mportinit` resolves the user's home through
+    /// `dscl . -read /Users/$(id -un) NFSHomeDirectory`. Without `HOME` that
+    /// pipeline fails and **`port` exits 1 whatever you asked it for**, so
+    /// detection reported a healthy MacPorts as `Broken` (F-37, observed
+    /// 2026-09-07 — the first time this repository had MacPorts installed).
+    ///
+    /// It is `Option` rather than required because it is `None` under replay,
+    /// where no process runs; `registry.rs` says so at `ctx.home`.
     pub fn environment(&self) -> EnvironmentSpec {
-        EnvironmentSpec {
-            leading_path: vec![self.prefix.join("bin"), self.prefix.join("sbin")],
-            home: None,
-            extra: BTreeMap::new(),
-        }
+        environment_spec(&self.prefix, self.home.clone())
     }
 
     fn spec(&self, argv: Vec<String>) -> CommandSpec {
-        CommandSpec::new(
-            self.executable(),
+        CommandSpec::provider(
+            &self.prefix,
+            EXECUTABLE_RELATIVE,
             argv,
-            crate::process::sanitised_environment(&self.environment()),
+            invocation_environment(&self.prefix, self.home.clone()),
         )
     }
 
@@ -314,6 +381,9 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 prefix: None,
                 executable: None,
                 architecture: None,
+                // Detection never redacts - `capture` does, and is the only
+                // thing that may say so (F-49, SE-080).
+                prefix_redacted: false,
             },
             status if status.success() => ProviderDetection {
                 provider: self.id.clone(),
@@ -326,6 +396,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 // base installation, and `-v` is not in this adapter's read
                 // set. Left undetermined rather than guessed.
                 architecture: None,
+                prefix_redacted: false,
             },
             _ => ProviderDetection {
                 provider: self.id.clone(),
@@ -336,6 +407,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 prefix: Some(self.prefix.clone()),
                 executable: Some(self.executable()),
                 architecture: None,
+                prefix_redacted: false,
             },
         };
         *self.detection.borrow_mut() = Some(detection.clone());
@@ -353,6 +425,13 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         cross_check(&names, &active, &leaves, &requested, &rows)?;
 
         let (installed, active_variants) = installed_rows(&rows, &requested, &self.id);
+        let services = service::scan(
+            &self.prefix,
+            self.filesystem,
+            &activity(&rows),
+            &|plist: &Path| self.provides(plist),
+        );
+        *self.services.borrow_mut() = Some(services.clone());
         if names.is_empty() {
             return Ok(ProviderInventory {
                 installed,
@@ -383,7 +462,6 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )?;
 
         let dependencies = edges(&names, &depends_lib, &depends_run, &depends_build);
-        let services = service::scan(&self.prefix);
         let metadata = metadata(&names, &index, &homepage, &description, &services);
         let availability = availability(&names, &index, &active_variants, self.machine.as_ref());
 
@@ -475,6 +553,17 @@ fn cross_check(
         }
     }
     Ok(())
+}
+
+/// Each installed port name, and whether any of its installed versions is
+/// active: what the service scan needs to attribute an item and to know that
+/// an absent one proves something.
+fn activity(rows: &[parse::InstalledRow]) -> BTreeMap<String, bool> {
+    let mut by_name: BTreeMap<String, bool> = BTreeMap::new();
+    for row in rows {
+        *by_name.entry(row.name.clone()).or_default() |= row.active;
+    }
+    by_name
 }
 
 /// Turns parsed rows into domain rows, and collects the variant set of each
@@ -622,17 +711,11 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         let present = matches!(self.detection()?.presence, ProviderPresence::Present);
         let mut capabilities = BTreeMap::new();
         if !present {
-            for capability in [
-                Capability::MachineReadableInventory,
-                Capability::RequestedRecord,
-                Capability::Dependencies,
-                Capability::ReverseDependencies,
-                Capability::ArtifactAvailability,
-                Capability::OfflineMetadata,
-                Capability::FileOwnership,
-                Capability::DeprecationState,
-                Capability::ServiceMetadata,
-            ] {
+            // `Capability::all()` rather than the nine names written out, which
+            // is what stood here: the list carries a drift guard now, and a
+            // capability added later cannot quietly go unwritten and be read
+            // back from a document as "never asked about" (F-29, F-43).
+            for &capability in Capability::all() {
                 capabilities.insert(capability, CapabilityState::Unknown);
             }
             return Ok(ProviderCapabilities { capabilities });
@@ -660,12 +743,48 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
                 reason: "network_required_ports_macports_builds_api".to_string(),
             },
         );
+        // The inventory is answered from the local ports index, and
+        // `port provides` answers from the registry's file map (R-3): both are
+        // read by this adapter, so both are reported as what they are.
         capabilities.insert(Capability::OfflineMetadata, CapabilityState::Available);
         capabilities.insert(Capability::FileOwnership, CapabilityState::Available);
-        capabilities.insert(Capability::DeprecationState, CapabilityState::Available);
+        // Only `replaced_by` is read. `obsolete` is a separate state (R-3
+        // Finding 8) that this adapter never asks for, and `deprecated` stays
+        // unset in `metadata()`, so the deprecation state is not exposed by
+        // what this adapter reads. An unprobed capability is `Unknown`, never
+        // `Available`.
+        capabilities.insert(Capability::DeprecationState, CapabilityState::Unknown);
         capabilities.insert(
             Capability::ServiceMetadata,
-            if service::scan(&self.prefix).is_known() {
+            if self.inventory().is_ok()
+                && self
+                    .services
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(service::ServiceScan::is_known)
+            {
+                CapabilityState::Available
+            } else {
+                CapabilityState::Unknown
+            },
+        );
+        // Whether reading this provider needs administrator rights, answered by
+        // reading it. `inventory()` runs `port -q installed` — the verify verb
+        // itself — and adds no probe of its own. It caches on *success* only,
+        // so a provider whose inventory fails re-runs it here; that is one call
+        // site, and saying "memoises" without the qualifier was wrong
+        // (`spec-guardian`). A registry is created with the installing
+        // user's umask, so the stored `none` in `provider-commands.toml` is true
+        // of the machine it was observed on and of no other; this is the same
+        // question asked of *this* machine (INV-20, F-24, F-35).
+        //
+        // `Available` or `Unknown`, never `Unavailable`: a failed read does not
+        // say why it failed, and inferring "needs elevation" from it would put
+        // an administrator prompt on a read, which is the INV-06 defect SE-059
+        // recorded.
+        capabilities.insert(
+            Capability::UnprivilegedRead,
+            if self.inventory().is_ok() {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unknown
@@ -727,7 +846,33 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let canonical = std::fs::canonicalize(executable).ok();
+        let unresolved = || Resolution {
+            executable: name.clone(),
+            path: Some(executable.to_path_buf()),
+            canonical_path: None,
+            owner: ExecutableOwner::Unknown,
+            authoritative: false,
+        };
+        // Following the symlink reads this host's disk, which is only done
+        // when that disk is the machine being described (INV-15). Elsewhere
+        // the path is classified as written, from the recording, exactly as
+        // the Homebrew adapter does in the same scope.
+        //
+        // On this machine a path that cannot be canonicalised (a dangling
+        // link, an unreadable directory) answers `Unknown`. Classifying it
+        // from the path as written would call `<prefix>/bin/x` MacPorts-owned
+        // when the link is broken or points out of the prefix, and following
+        // the link is precisely what stops `<prefix>/bin/x -> /usr/bin/x`
+        // being claimed. The Homebrew adapter answers `Unknown` here too, so
+        // the two peers degrade the same way (INV-17).
+        let canonical = if self.filesystem.is_this_machine() {
+            let Ok(resolved) = std::fs::canonicalize(executable) else {
+                return Ok(unresolved());
+            };
+            Some(resolved)
+        } else {
+            None
+        };
         let target = canonical.as_deref().unwrap_or(executable);
         let (owner, authoritative) = if target.starts_with(&self.prefix) {
             // R-3: `port provides <file>` answers from the registry's file
@@ -794,16 +939,58 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         Ok(out)
     }
 
+    fn installations(&self) -> macportsbrew_domain::Installations {
+        crate::installations::read(
+            &self.installation_candidates,
+            EXECUTABLE_RELATIVE,
+            self.filesystem,
+        )
+    }
+
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
+        let detection = self.detect()?;
+        // Only for a provider that is here, as the Homebrew adapter does: an
+        // absent one is never invoked.
+        let configuration = if matches!(detection.presence, ProviderPresence::Present) {
+            crate::configuration::read(
+                PROVIDER_ID,
+                &self.prefix,
+                self.home.as_deref(),
+                self.filesystem,
+            )
+        } else {
+            macportsbrew_domain::ProviderConfiguration::NotRecorded
+        };
         Ok(ProviderSnapshot {
-            detection: self.detect()?,
+            detection,
             capabilities: self.capabilities()?,
             inventory: self.inventory()?,
             environment: self.environment_info()?,
-            invocation_environment: crate::process::sanitised_environment(&self.environment()),
+            invocation_environment: invocation_environment(&self.prefix, self.home.clone()),
             resolutions: BTreeMap::new(),
+            configuration,
         })
     }
+}
+
+/// What this provider contributes to a sanitised environment, for a prefix and
+/// a home. The adapter's own invocations and a plan read the registry derives
+/// (DP-023) both go through this one function, so the two cannot drift; see
+/// [`MacPortsAdapter::environment`] for why `home` matters to `port`.
+pub(crate) fn environment_spec(prefix: &Path, home: Option<PathBuf>) -> EnvironmentSpec {
+    EnvironmentSpec {
+        leading_path: vec![prefix.join("bin"), prefix.join("sbin")],
+        home,
+        extra: BTreeMap::new(),
+    }
+}
+
+/// The complete environment every invocation of this provider runs in: the
+/// counterpart of the Homebrew adapter's `quiet_environment`, with the same
+/// signature, so the registry derives both providers through one code path
+/// (INV-17).
+pub fn invocation_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
+    crate::process::sanitised_environment(&environment_spec(prefix, home))
 }
 
 fn is_system_path(path: &Path) -> bool {
@@ -821,6 +1008,31 @@ fn is_system_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    fn row(name: &str, version: &str, active: bool) -> parse::InstalledRow {
+        parse::InstalledRow {
+            name: name.to_string(),
+            version: version.to_string(),
+            revision: None,
+            variants: BTreeSet::new(),
+            active,
+        }
+    }
+
+    #[test]
+    fn a_port_is_active_when_any_installed_version_is_and_inactive_when_none_is() {
+        // The service scan's "every installed port is active" rests on this:
+        // an older inactive version beside the active one does not make the
+        // port inactive, and a port with only inactive versions is.
+        let rows = [
+            row("jq", "1.8", true),
+            row("jq", "1.7", false),
+            row("postgresql17-server", "17.1", false),
+        ];
+        let by_name = activity(&rows);
+        assert_eq!(by_name.get("jq"), Some(&true));
+        assert_eq!(by_name.get("postgresql17-server"), Some(&false));
+    }
+
     use super::*;
     use crate::process::{Recording, RecordingProvenance, ReplayRunner};
 
@@ -843,6 +1055,41 @@ mod tests {
     }
 
     #[test]
+    fn an_info_read_asks_only_for_a_listed_field_tail() {
+        // The adapter's own check, which runs on every invocation, replayed or
+        // live: an `info` read is the head, exactly one `INFO_FIELDS` tail and
+        // validated names - not the head and whatever follows it.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        let with = |fields: &[&str], names: &[&str]| {
+            let mut v = argv(INFO_BASE);
+            v.extend(argv(fields));
+            v.extend(argv(names));
+            v
+        };
+        for tail in INFO_FIELDS {
+            assert!(is_allowed_argv(&with(tail, &["libpng"])), "{tail:?}");
+            assert!(is_allowed_argv(&with(tail, &[])), "{tail:?}");
+        }
+        for (fields, names) in [
+            // A field no read asks for.
+            (&["--maintainers"][..], &["libpng"][..]),
+            // A listed field, but not a listed tail.
+            (&["--version"][..], &["libpng"][..]),
+            // A listed tail, and a field more.
+            (&["--description", "--maintainers"][..], &["libpng"][..]),
+            (&["--description"][..], &["libpng", "--maintainers"][..]),
+            // No tail at all.
+            (&[][..], &["libpng"][..]),
+        ] {
+            assert!(
+                !is_allowed_argv(&with(fields, names)),
+                "{fields:?} {names:?} was allowed"
+            );
+        }
+    }
+
+    #[test]
     fn the_allow_list_admits_the_fixed_vectors_and_the_two_that_carry_data() {
         let argv =
             |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
@@ -856,7 +1103,7 @@ mod tests {
             "--index",
             "--line",
             "--name",
-            "--version",
+            "--description",
             "libpng"
         ])));
         assert!(is_allowed_argv(&argv(&[
@@ -876,7 +1123,12 @@ mod tests {
     fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {
         // A runtime check and not a `debug_assert!`: the release binary is
         // where the guarantee has to hold.
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::ThisMachine,
+        );
         let error = adapter
             .run_argv(vec!["-q".into(), "not-a-read".into()])
             .expect_err("nothing outside the allow-list reaches the executor");
@@ -887,7 +1139,12 @@ mod tests {
     fn a_path_that_is_not_safe_is_never_asked_about() {
         // `provides` validates its own argument rather than trusting the
         // caller to have done it.
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::ThisMachine,
+        );
         for bad in ["relative/bin/curl", "/opt/local/../etc/passwd"] {
             assert_eq!(
                 adapter.provides(Path::new(bad)),
@@ -899,7 +1156,12 @@ mod tests {
 
     #[test]
     fn the_executable_comes_from_the_prefix_and_never_from_path() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::ThisMachine,
+        );
         assert_eq!(adapter.executable(), PathBuf::from("/opt/local/bin/port"));
         assert_eq!(adapter.prefix(), Path::new("/opt/local"));
         assert_eq!(adapter.id().as_str(), PROVIDER_ID);
@@ -907,7 +1169,12 @@ mod tests {
 
     #[test]
     fn the_environment_is_prefix_scoped_and_carries_no_variables() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::ThisMachine,
+        );
         let spec = adapter.environment();
         assert_eq!(
             spec.leading_path,
@@ -927,20 +1194,31 @@ mod tests {
     #[test]
     fn prefix_detection_looks_for_the_executable() {
         assert_eq!(
-            MacPortsAdapter::<ReplayRunner>::detect_prefix(&[PathBuf::from(
-                "/nonexistent-prefix-for-a-test"
-            )]),
+            MacPortsAdapter::<ReplayRunner>::detect_prefix(
+                &[PathBuf::from("/nonexistent-prefix-for-a-test")],
+                FilesystemScope::ThisMachine
+            ),
             None
         );
+        // The registry is the only place that knows where a provider installs
+        // itself, and this adapter held a second, unused copy of that path -
+        // found by the widened INV-20 check rather than by anyone noticing
+        // (F-19). The assertion it replaced compared that copy to itself.
         assert_eq!(
-            MacPortsAdapter::<ReplayRunner>::default_candidates(),
-            vec![PathBuf::from(DEFAULT_PREFIX)]
+            crate::registry::candidate_prefixes(&ProviderId::new(PROVIDER_ID)),
+            vec![PathBuf::from("/opt/local")],
+            "the documented default prefix (R-3 E-11, guide.macports.org, read 2026-09-02)"
         );
     }
 
     #[test]
     fn environment_info_reports_the_documented_paths() {
-        let adapter = MacPortsAdapter::new(empty_runner(), PathBuf::from("/opt/local"));
+        let adapter = MacPortsAdapter::new(
+            empty_runner(),
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::ThisMachine,
+        );
         let info = adapter.environment_info().unwrap();
         assert_eq!(info["prefix"], "/opt/local");
         assert_eq!(info["bin"], "/opt/local/bin");

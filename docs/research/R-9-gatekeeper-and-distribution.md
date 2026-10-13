@@ -65,16 +65,16 @@ observed** (see *Cannot determine*).
 ### O-3 — An unsigned x86_64 Mach-O runs on macOS 26.6.2
 
 ```
-$ file /Users/pirado/.cargo/bin/rustup
-/Users/pirado/.cargo/bin/rustup: Mach-O 64-bit executable x86_64
+$ file /Users/<user>/.cargo/bin/rustup
+/Users/<user>/.cargo/bin/rustup: Mach-O 64-bit executable x86_64
 
-$ codesign -dvv /Users/pirado/.cargo/bin/rustup
-/Users/pirado/.cargo/bin/rustup: code object is not signed at all
+$ codesign -dvv /Users/<user>/.cargo/bin/rustup
+/Users/<user>/.cargo/bin/rustup: code object is not signed at all
 
-$ xattr -l /Users/pirado/.cargo/bin/rustup
+$ xattr -l /Users/<user>/.cargo/bin/rustup
 com.apple.provenance:
 
-$ /Users/pirado/.cargo/bin/rustup --version
+$ /Users/<user>/.cargo/bin/rustup --version
 rustup 1.29.1 (d95a37b6a 2026-08-13)
 info: This is the version for the rustup toolchain manager, not the rustc compiler.
 rc=0
@@ -175,7 +175,7 @@ all`. All 321 of these executables are present and usable on this Intel machine.
 ### O-7 — A real `com.apple.quarantine` value, set by a browser
 
 ```
-$ xattr -l "/Users/pirado/Downloads/ix2-200-3.2.16.30221.tgz"
+$ xattr -l "/Users/<user>/Downloads/ix2-200-3.2.16.30221.tgz"
 com.apple.lastuseddate#PS: <binary>
 com.apple.metadata:kMDItemDownloadedDate: bplist00 …
 com.apple.metadata:kMDItemWhereFroms: bplist00 _Dhttp://download.lenovo.com/nasupdate/iomnas/ix2-200-3.2.16.30221.tgz

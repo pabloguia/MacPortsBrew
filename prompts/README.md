@@ -10,6 +10,23 @@ authority you have, what this pass must not do, and how it is accepted.
 | [01-FOUNDATION-PASS.md](01-FOUNDATION-PASS.md) | Research, the domain, the read-only vertical slice. |
 | [02-ARCHITECTURE-REVIEW-PASS.md](02-ARCHITECTURE-REVIEW-PASS.md) | An independent reviewer challenges the foundation. Reviewing, not coding. |
 | [03-FOCUSED-IMPLEMENTATION-PASS.md](03-FOCUSED-IMPLEMENTATION-PASS.md) | One independently verifiable capability. Instantiated per task. |
+| [03-unknown-is-never-a-yes.md](03-unknown-is-never-a-yes.md) | First instance of the template. An answer that carries no information never reaches a plan as a yes: a per-provider success semantic on every plan command (F-33), and a loaded snapshot that does not record the service question refuses to plan (F-29). Completed 2026-09-18. |
+| [04-closing-the-register.md](04-closing-the-register.md) | Closes the architecture review's findings register. Report in `../docs/passes/`. |
+| [05-the-executor.md](05-the-executor.md) | The executor's dry-run half: `migrate`, the execution gate, the read-step loop; nothing changes the machine. Completed 2026-10-01. |
+| [06-hardening-before-mutation.md](06-hardening-before-mutation.md) | Closes what pass 05 found before any mutation may land: per-subcommand long-option allowlist, `brew.env` research, one hostile-text definition, the concurrency flag on `plan` and `analyze`, the "None match" wording. Completed 2026-10-03. |
+| [07-owner-rulings-and-housekeeping.md](07-owner-rulings-and-housekeeping.md) | Implements the owner's rulings on DP-025, DP-026 and DP-027, answers R-16, and clears pass 06's maintenance list. Mutation stays off. Completed 2026-10-04. |
+| [08-the-mutating-executor.md](08-the-mutating-executor.md) | What a mutating step needs before one may be dispatched: history store, lock and detector, configuration re-read, the positional pin, a mirror recording, elevation consent, and a proposal to the owner. Dispatch stays off. |
+| [08-slice-2-lock-marker-detector.md](08-slice-2-lock-marker-detector.md) | Pass 08, slice 2: the run lock and the interrupted-run marker; the detector recorded as owed (DP-030). Completed 2026-10-05. |
+| [08-slice-3-config-pin-mirror.md](08-slice-3-config-pin-mirror.md) | Pass 08, slice 3: configuration re-read, the positional spawn-site pin, a MacPorts-to-Homebrew recording that yields a plan. |
+| [08-slice-4-wiring-and-consent.md](08-slice-4-wiring-and-consent.md) | Pass 08, slice 4: the run loop wired behind the switch, proved behaviourally; elevation consent. |
+| [08-slice-5-history-and-restore.md](08-slice-5-history-and-restore.md) | Pass 08, slice 5: `history`, `restore` (plan only), the stranded marker in `doctor`. |
+| [08-slice-6-detector-and-flip-proposal.md](08-slice-6-detector-and-flip-proposal.md) | Pass 08, slice 6: DP-030 as ruled, and the written proposal to turn mutations on. |
+| [09-release-engineering.md](09-release-engineering.md) | Build, sign, notarise, package and checksum per architecture; the release workflow, proven unsigned. |
+| [10-read-only-release-candidate.md](10-read-only-release-candidate.md) | v0.1.0: the read-only build made honest and worth installing. |
+| [11-first-mutating-release.md](11-first-mutating-release.md) | v0.2.0: acceptance on disposable machines and the owner's go/no-go. |
+| [12-read-only-improvements.md](12-read-only-improvements.md) | After v0.1.0: pt-BR, the dual-Homebrew `doctor` finding, defaulted-ownership evidence, curated mappings, two test fixes. |
+| [13-cross-provider-advice.md](13-cross-provider-advice.md) | After v0.1.0 (DP-041 ruled): `doctor` says which direction of cross-provider contamination is riskier, from dated data selected by a provider-neutral rule. |
+| [ROADMAP-to-first-release.md](ROADMAP-to-first-release.md) | Not a work order: the owner's run sheet — order, owner prerequisites, and which model to start each session with (SE-017 keeps model names out of work orders). |
 
 `.claude/current-pass` names the active one in a single line. The session-start
 hook reads it and announces it; keep it accurate.

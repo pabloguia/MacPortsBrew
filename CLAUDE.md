@@ -50,9 +50,12 @@ a human and an agent follow identical steps: `/add-mapping`,
 consistently, and you invoke them yourself — a pass runs autonomously.
 
 **Path-scoped rules.** `.claude/rules/*.md` carry `paths:` frontmatter and load
-the relevant specification chapter when you touch `crates/adapters/**`,
-`crates/policy/**`, `crates/domain/**`, `data/policy/**` or `locales/**`. Do not
-restate their content in this file; extend the rule.
+the relevant specification chapter when the Read, Edit or Write tool opens a file
+under `crates/adapters/**`, `crates/policy/**`, `crates/domain/**`,
+`data/policy/**`, `locales/**` or the executor (`crates/cli/src/executor/**`,
+`crates/application/src/executor*`, `execution_gate.rs`, `verification.rs`) —
+a shell or MCP reader loads nothing, so open a file with Read before changing
+it. Do not restate their content in this file; extend the rule.
 
 **Verify before you claim.** `/preflight` runs the definition-of-done checks.
 The `Stop` hook runs the mechanical part of it whether you ask or not, and will
@@ -98,13 +101,18 @@ or `CLAUDE.local.md`; both are git-ignored for a reason.
 the pinned toolchain holds the macOS floor (ADR-0002 has the reasoning). `cargo
 fmt`, `clippy`, `test`, `build` and `tree` are allowed.
 
-The `Stop` gate does not implement its own checks: it runs
-`scripts/validate.sh`, which is the one implementation of "valid" and the same
-one CI runs. `--quick` (format, clippy, layering, SPDX, dependency licences,
-i18n parity) on every turn end; the full default mode, which adds the test
-suite, when `crates/`, `tests/`, `fixtures/`, `locales/`, `data/` or
-`Cargo.lock` changed. `MPB_GATE_FULL=1` forces the tests regardless. Do not add
-a check anywhere else.
+The gates do not implement their own checks: they run `scripts/validate.sh`,
+which is the one implementation of "valid" and the same one CI runs. The `Stop`
+gate runs `--quick` on every turn end; `commit-gate.sh` runs the default mode
+(the test suite and the fixture matrix) before every `git commit` that touches
+code, and refuses the commit while it fails (SE-093). `MPB_GATE_FULL=1` makes
+the `Stop` gate run the tests too. **Do not add a check anywhere else.**
+
+**The stage list is in `validate.sh`'s own header and nowhere else.** It used to
+be written here and in `CONTRIBUTING.md` as well, and both copies drifted by five
+stages — including four of the five added in one day. Three spellings of one
+thing is two spellings that will be wrong, which is the argument
+`check-action-pins.sh` already makes about the toolchain pin.
 
 ## The two invariants a Claude session trips over most
 

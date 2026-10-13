@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# How each provider's own tooling guards its builds against ANOTHER provider's
+# prefix, held as dated data (INV-20). `doctor` reads it to say which direction
+# of cross-provider contamination is the riskier one
+# (docs/spec/04-migration-and-safety.md, "Cross-provider contamination"; DP-041,
+# ruled 2026-10-12). The rule that reads it is provider-neutral: it is handed
+# the id of the provider that would be affected and looks it up here, so no line
+# of code says which provider is which (INV-17).
+#
+# Fields
+#   provider        the AFFECTED provider: the one whose builds and tools can be
+#                   exposed to another provider's prefix. A provider id, one row
+#                   each.
+#   build_defence   a stable identifier from a closed vocabulary
+#                   (crates/policy BuildDefence), never prose:
+#                     opt_in_trace        the provider offers a trace mode
+#                                         that can prevent conflicts with other
+#                                         prefixes, but only when asked to
+#                     default_clean_path  the provider's own build tooling builds
+#                                         in an environment whose PATH it
+#                                         constructs, so the user's PATH is not
+#                                         an input by default
+#   source          precise enough that someone else can re-read what was read
+#   read_on         YYYY-MM-DD, the day it was read
+#   index_as_of     optional; when the source (a local checkout or file) was
+#                   itself last updated, if older than read_on. Staleness is
+#                   measured from this (DP-043)
+#   note            what the source actually said, in English
+#
+# Admission rule: a row exists only for a fact read from the provider's own
+# documentation or source on read_on. What each row may be taken to mean, and
+# what it may not, is in docs/research/F-2-usr-local-interference.md (the
+# addendum of 2026-10-12): the sentences doctor shows claim no more than that.
+
+[[entry]]
+provider = "homebrew"
+build_defence = "default_clean_path"
+source = "Homebrew 7.0.4 at /usr/local/Homebrew, repository commit edb70f031e4170c780799633a1226ff73e1077f4 (2026-09-17T16:04:39Z), read-only: Library/Homebrew/extend/ENV/super.rb determine_path lines 189-207, and, for what it does not do, Library/Homebrew/shims/super/cc (keep? lines 284-309, the -I and -L arms of refurbish_arg lines 264-272, the refurbish_args? gate lines 129-133 and 435-437), Library/Homebrew/extend/os/mac/extend/ENV/super.rb determine_cccfg lines 78-88 (no refurbishing flag on macOS), Library/Homebrew/extend/ENV/std.rb line 29 and Library/Homebrew/formula.rb lines 1729-1738 (the user's PATH under env :std and in post_install); docs/research/F-2-usr-local-interference.md E-8, E-9 and its Corrections"
+read_on = "2026-10-12"
+index_as_of = "2026-09-17"
+note = """
+In a formula build the superenv rebuilds the build's PATH from the shims, the \
+dependencies and the system directories, so the user's PATH is not an input. \
+The compiler shim's removal of -I and -L flags under /opt/local only runs when \
+argument refurbishing is switched on, which macOS builds do not do by default; \
+it is on for python setup.py, virtualenv creation and bundle exec. A formula \
+that declares env :std, and post_install, run with the user's PATH. Nothing \
+was read about brew's own non-build subprocesses.\
+"""
+
+[[entry]]
+provider = "macports"
+build_defence = "opt_in_trace"
+source = "MacPorts Guide, 3.1.12 port install, https://guide.macports.org/chunked/using.html (read 2026-10-12), port(1) -t, https://man.macports.org/port.1.html (read 2026-10-12), and /opt/local/libexec/macports/lib/macports1.0/macports.tcl of MacPorts 2.12.6 (porttrace listed among the config file options, default no; the installed macports.conf does not set it), read-only; docs/research/F-2-usr-local-interference.md E-3 and E-10. index_as_of is the modification date of that install's ports tree index (PortIndex, 2026-09-06), the date its definitions were last synced; the Guide and the manual page were read live"
+read_on = "2026-10-12"
+index_as_of = "2026-09-06"
+note = """
+The Guide says trace mode can prevent conflicts caused by files installed by \
+other ports or in common system locations such as /usr/local, and suggests \
+trying it with the -t flag when an installation fails. The porttrace option \
+defaults to no in macports.tcl and the installed macports.conf does not set \
+it, so it is opt-in. The mechanism by which a build picks up /usr/local is \
+not described by the Guide and is not claimed.\
+"""

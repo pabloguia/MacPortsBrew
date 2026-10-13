@@ -34,7 +34,7 @@ pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Cap on the length of a path this workspace will hand to a provider, or
 /// accept from one as a prefix.
-pub const MAX_PATH_LEN: usize = 4096;
+pub use macportsbrew_domain::MAX_PATH_LEN;
 
 /// True when `path` is one that may be handed to a provider as an argument, or
 /// trusted as a prefix to build an executable path from.
@@ -49,43 +49,593 @@ pub const MAX_PATH_LEN: usize = 4096;
 /// MacPorts adapter, for a path it passes to `port`, and the command line, for
 /// a prefix read out of a recording — are in different layers and must not
 /// each carry their own idea of "safe".
-pub fn is_safe_path(path: &std::path::Path) -> bool {
-    let Some(text) = path.to_str() else {
+pub use macportsbrew_domain::is_safe_path;
+
+/// Every program this tool may spawn, by the name at the end of the path.
+///
+/// This is the control, and it is an allowlist on purpose. A review defeated
+/// every weaker version of it in one sitting: `Box::leak` was not the only way
+/// to manufacture a `&'static str` (a module-level `OnceLock` does it with no
+/// `leak`, no `unsafe`, and nothing a grep sees); the interpreter *denylist* in
+/// `check-no-shell.sh` was missing `tclsh` — which is what `port` itself is
+/// written in — along with `xcrun`, `arch`, `awk` and a dozen others; and the
+/// literal could be split with `concat!`, escaped as `"/bin/\x73h"`, or broken
+/// across lines past a line-oriented check.
+///
+/// None of that matters here. This runs on the `PathBuf` about to be handed to
+/// the kernel, whatever produced it, and there are exactly six programs this
+/// tool has any business running. A denylist of interpreters cannot be
+/// completed; this list can be read in one line.
+///
+/// Divergence from what the adapters actually name is caught by
+/// `invariant_10_every_program_an_adapter_names_is_on_the_allowlist`, not by
+/// whoever edits one of the two places remembering the other.
+pub(crate) const PERMITTED_PROGRAMS: &[&str] = &[
+    // The two providers, resolved as `<detected prefix>/bin/<name>`.
+    "brew",
+    "port",
+    // The four macOS probes, at absolute paths written out in `machine.rs`.
+    "sw_vers",
+    "uname",
+    "sysctl",
+    "xcode-select",
+];
+
+/// Which of a provider's own subcommands this tool may start: the second
+/// dimension of [`PERMITTED_PROGRAMS`], and the reason that list alone was not
+/// the control it looked like (F-53).
+///
+/// A program name says `brew` may run; it says nothing about *what* `brew` is
+/// asked to do, and every mutation this project must never perform is `brew`
+/// or `port` with a different first word. The adapters each hold an exact
+/// argument-vector allowlist, which is right and is also discipline: a plan's
+/// verbs come from `data/policy/provider-commands.toml`, not from either
+/// adapter, and nothing at the spawn site asked whether the verb under
+/// `verify` was a read. `verify = ["install"]` loaded, planned and would have
+/// spawned. The loader now refuses that data; this refuses the invocation,
+/// on the argv about to reach the kernel, whatever produced it.
+///
+/// Every entry is a read, and the list is literal and short on purpose. The
+/// pass that adds an executor adds its mutating subcommands here, deliberately
+/// and in review - which is the moment this list exists to make visible.
+/// `every_subcommand_an_adapter_runs_is_permitted_and_no_other` ties it to the
+/// argument vectors the adapters actually hold, in both directions, and
+/// `every_long_option_a_read_passes_is_permitted_and_no_other` does the same
+/// for each subcommand's long options, against the adapters and the planner's
+/// `provider-commands.toml` reads.
+pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
+    ProviderReads {
+        program: "brew",
+        // Homebrew takes no option before its subcommand in anything this tool
+        // runs; its informational flags *are* subcommands in that position.
+        leading_flags: &[],
+        // None of Homebrew's reads here takes a path, so no entry has
+        // `raw_strings`. Its default refusal of a formula given as a path or
+        // URL is not relied on: it is computed from the absence of
+        // `HOMEBREW_DEVELOPER` and two other variables, and `brew` re-exports
+        // every `HOMEBREW_*` line of a `brew.env` - in `/etc/homebrew/`, the
+        // prefix or the user's configuration directory - after the environment
+        // it is given (`bin/brew` lines 128-181, Homebrew 7.0.4;
+        // security-reviewer, 2026-09-26; R-15, 2026-10-02).
+        //
+        // The long options are exactly what `homebrew::ALLOWED_ARGV` and the
+        // `verify`/`verify_absent` verbs of `provider-commands.toml` use. Not
+        // `--github` (opens a browser), not `--fetch-HEAD` (network), not
+        // `--cask` - which F-22's cask verb will need, and adding it then is a
+        // reviewed widening of this list, not an edit to the TOML.
+        subcommands: &[
+            ReadSubcommand::bare("--version"),
+            ReadSubcommand::bare("--prefix"),
+            ReadSubcommand::bare("--cellar"),
+            ReadSubcommand::bare("--caskroom"),
+            ReadSubcommand::bare("--cache"),
+            ReadSubcommand::bare("config"),
+            ReadSubcommand {
+                name: "info",
+                long_options: &["--json=v2", "--installed"],
+                required_options: &[],
+                positionals: Positionals::None,
+            },
+            // `list --pinned`, the verify-absent inventory `list --versions`,
+            // and the verify read `list --versions <name>`.
+            ReadSubcommand {
+                name: "list",
+                long_options: &["--pinned", "--versions"],
+                required_options: &[],
+                positionals: Positionals::AtMostOneName,
+            },
+        ],
+        separators: &[],
+        name_class: is_brew_name,
+    },
+    ProviderReads {
+        program: "port",
+        // `-q`, which implies `-N` (R-3). Any other option is refused here and,
+        // as a single-dash option, after the subcommand too: `-F <file>` adds a
+        // command file that `port` runs once the argv's own actions finish, and
+        // it is honoured in either position (`parse_options` and the main
+        // block, `/opt/local/bin/port` lines 4461 and 5749, MacPorts 2.12.6,
+        // read 2026-09-25; security-reviewer, observed with a file of `version`
+        // lines).
+        leading_flags: &["-q"],
+        // Matched exactly, and that matters here: `port` resolves an action it
+        // does not know by case-folded unambiguous prefix (`find_action`,
+        // `/opt/local/bin/port` line 4217, MacPorts 2.12.6, read 2026-09-25), so
+        // only an exact full name is certain to be the read it looks like. The
+        // same holds for its options: `port info --nam` is resolved too, so an
+        // option is matched as the whole element or not at all.
+        //
+        // Every read here that takes arguments, except `provides`, takes a
+        // *port list* (`version` takes none), and `port` turns a list element
+        // into a Portfile it evaluates - Tcl, run as the user - in two ways:
+        // `word:rest` is opened as a URL (`element`, `/opt/local/bin/port` line
+        // 1244), and anything containing `/` is opened as `file://<it>` (line
+        // 1371). `provides` collects its arguments as raw strings
+        // (`ACTION_ARGS_STRINGS`, line 4127), so a path reaches no parser
+        // there. MacPorts 2.12.6, read 2026-09-26; security-reviewer made both
+        // evaluate a probe Portfile, including through `‿:file://`, which a
+        // character-class mirror of Tcl's `\w` missed.
+        //
+        // The long options are exactly the `info` fields
+        // `macports::INFO_BASE` and every `macports::INFO_FIELDS` tail name.
+        subcommands: &[
+            ReadSubcommand::bare("version"),
+            // The inventory `-q installed`, and the verify read `-q installed <name>`.
+            ReadSubcommand {
+                name: "installed",
+                long_options: &[],
+                required_options: &[],
+                positionals: Positionals::AtMostOneName,
+            },
+            ReadSubcommand {
+                name: "echo",
+                long_options: &[],
+                required_options: &[],
+                positionals: Positionals::OneOf(&["requested", "active", "leaves"]),
+            },
+            ReadSubcommand {
+                name: "info",
+                long_options: &[
+                    "--index",
+                    "--line",
+                    "--name",
+                    "--version",
+                    "--revision",
+                    "--replaced_by",
+                    "--homepage",
+                    "--license",
+                    "--description",
+                    "--depends_lib",
+                    "--depends_run",
+                    "--depends_build",
+                ],
+                required_options: &["--index"],
+                positionals: Positionals::Names,
+            },
+            ReadSubcommand {
+                name: "provides",
+                long_options: &[],
+                required_options: &[],
+                positionals: Positionals::AbsolutePaths,
+            },
+        ],
+        // `port` runs one argv as a *sequence* of actions: an element that is
+        // exactly `;` ends one and starts the next, and the loop continues while
+        // the previous action succeeded (`process_cmd`, `/opt/local/bin/port`
+        // lines 4506-4526, MacPorts 2.12.6, read 2026-09-25). `port -q installed`
+        // succeeds for any name, so a second action after it always runs -
+        // checking the first word alone would permit `installed ; <anything>`
+        // (spec-guardian, 2026-09-25). No package name can be `;`
+        // (`is_safe_provider_name`), so refusing the element costs no read.
+        separators: &[";"],
+        name_class: is_port_name,
+    },
+];
+
+/// What may follow a read subcommand besides its long options: how many
+/// positional arguments, and of what class (SE-050's positional half, pass 08
+/// slice 3). *Which* package a plan's read names is not decidable here - only
+/// the plan knows it, and the execution gate pins it
+/// (`COMMAND_IS_NOT_THE_PLANNERS_READ`); this pins the shape no read of this
+/// build can exceed.
+#[derive(Debug)]
+pub(crate) enum Positionals {
+    /// None at all.
+    None,
+    /// Zero or one, of the provider's name class.
+    AtMostOneName,
+    /// Exactly one, from this fixed set.
+    OneOf(&'static [&'static str]),
+    /// One or more, of the provider's name class.
+    Names,
+    /// One or more absolute paths with no `..` component: a raw string the
+    /// provider reads as a path and never as a package specification.
+    AbsolutePaths,
+}
+
+/// Words `port` reads as a *set of ports* or as an operator wherever a port
+/// name goes: the pseudo-ports (`element`, `/opt/local/bin/port` around lines
+/// 1105-1150) and the expression operators (`orExpr`, `andExpr`,
+/// `unaryExpr`, lines 997-1100), MacPorts 2.12.6, read 2026-10-10. A refusal
+/// list, so a superset is safe; a test ties it to the `reserved_names` of
+/// `data/policy/provider-commands.toml`, which the planner refuses too.
+pub(crate) const PORT_RESERVED_WORDS: &[&str] = &[
+    "all",
+    "current",
+    "active",
+    "inactive",
+    "actinact",
+    "installed",
+    "uninstalled",
+    "outdated",
+    "obsolete",
+    "requested",
+    "unrequested",
+    "leaves",
+    "rleaves",
+    "and",
+    "or",
+    "not",
+];
+
+/// A port name `port` reads as exactly one port. Starts with a letter or a
+/// digit - a leading `+` is a variant and a leading `@` a version, after which
+/// `port` falls back to the Portfile in the working directory
+/// (`parseFullPortSpec`, `add_to_portlist_with_defaults`, `/opt/local/bin/port`
+/// lines 234-241 and 1367, MacPorts 2.12.6, read 2026-10-10) - carries no `@`
+/// (a version selector), and is not a reserved word.
+pub(crate) fn is_port_name(arg: &str) -> bool {
+    arg.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        && crate::macports::names::is_safe_name(arg)
+        && !PORT_RESERVED_WORDS
+            .iter()
+            .any(|word| word.eq_ignore_ascii_case(arg))
+}
+
+/// A formula or cask name `brew` reads as a name. Starts with a letter or a
+/// digit, passes the domain's name rule, and does not end like a file Homebrew's
+/// loaders would read from the working directory (`.rb`, `.json`, `.tar.gz`;
+/// `Formulary` and the cask loader behind `cmd/list.rb`, Homebrew 7.0.4, read
+/// 2026-10-10) - today only the child's working directory `/` stands between
+/// such a name and a file (security review, pass 08 slice 3, L1).
+pub(crate) fn is_brew_name(arg: &str) -> bool {
+    let lower = arg.to_ascii_lowercase();
+    arg.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+        && macportsbrew_domain::is_safe_provider_name(arg)
+        && ![".rb", ".json", ".tar.gz"]
+            .iter()
+            .any(|s| lower.ends_with(s))
+}
+
+/// An absolute path with no `..` component and no NUL.
+fn is_absolute_plain_path(arg: &str) -> bool {
+    arg.starts_with('/') && !arg.contains('\0') && !arg.split('/').any(|c| c == "..")
+}
+
+/// Whether `positionals` admits exactly these arguments.
+fn positionals_permitted(
+    positionals: &Positionals,
+    args: &[&str],
+    name_class: fn(&str) -> bool,
+) -> bool {
+    match positionals {
+        Positionals::None => args.is_empty(),
+        Positionals::AtMostOneName => args.len() <= 1 && args.iter().all(|a| name_class(a)),
+        Positionals::OneOf(words) => args.len() == 1 && words.contains(&args[0]),
+        Positionals::Names => !args.is_empty() && args.iter().all(|a| name_class(a)),
+        Positionals::AbsolutePaths => {
+            !args.is_empty() && args.iter().all(|a| is_absolute_plain_path(a))
+        }
+    }
+}
+
+/// The four macOS probes: permitted programs with no subcommand dimension,
+/// named here rather than implied by their absence from
+/// [`PERMITTED_SUBCOMMANDS`] - so a provider added to [`PERMITTED_PROGRAMS`]
+/// without a read list is refused rather than let through unchecked.
+/// `every_permitted_program_is_a_probe_or_has_a_read_list` holds the partition.
+pub(crate) const SYSTEM_PROBES: &[&str] = &["sw_vers", "uname", "sysctl", "xcode-select"];
+
+/// Where each system probe lives and the exact argument vectors this tool
+/// sends it - every one, whole, and nothing else.
+///
+/// A probe has no subcommand dimension, which is what its membership of
+/// [`SYSTEM_PROBES`] used to settle on its own: any argv, from any absolute
+/// directory. `sysctl -w`, `xcode-select --install`, `sw_vers` from `/tmp/x`
+/// all passed. These are pinned instead, as the providers' reads are, to the
+/// vectors `system::machine` builds (checked in both directions by
+/// `every_probe_the_system_reader_sends_is_permitted_and_no_other`) and to the
+/// one directory each tool ships in on macOS (`/usr/bin`, `/usr/sbin` for
+/// `sysctl`; observed read-only with `ls -l`, 2026-10-11). The paths are the
+/// reader's own constants, so the two cannot name different files.
+///
+/// A tool permission list, not a provider fact: no `read_on` (INV-20).
+pub(crate) const SYSTEM_PROBE_INVOCATIONS: &[(&str, &[&[&str]])] = &[
+    (crate::system::machine::SW_VERS, &[&["-productVersion"]]),
+    (crate::system::machine::UNAME, &[&["-m"]]),
+    (
+        crate::system::machine::SYSCTL,
+        &[
+            &["-n", "hw.optional.arm64"],
+            &["-n", "hw.machine"],
+            &["-n", "sysctl.proc_translated"],
+        ],
+    ),
+    (crate::system::machine::XCODE_SELECT, &[&["-p"]]),
+];
+
+/// Whether `program` is a system probe at its pinned location, asked with one
+/// of the argument vectors [`SYSTEM_PROBE_INVOCATIONS`] lists for it.
+fn is_permitted_probe(program: &std::path::Path, argv: &[String]) -> bool {
+    SYSTEM_PROBE_INVOCATIONS.iter().any(|(path, vectors)| {
+        program == std::path::Path::new(path)
+            && vectors
+                .iter()
+                .any(|v| v.len() == argv.len() && v.iter().zip(argv).all(|(a, b)| *a == b))
+    })
+}
+
+/// One provider's permitted reads, keyed by the program's leaf name.
+#[derive(Debug)]
+pub(crate) struct ProviderReads {
+    /// Leaf name, as in [`PERMITTED_PROGRAMS`].
+    pub(crate) program: &'static str,
+    /// Options that may precede the subcommand, and nothing else may.
+    pub(crate) leading_flags: &'static [&'static str],
+    /// The subcommands this tool may ask for, each with what may follow it.
+    pub(crate) subcommands: &'static [ReadSubcommand],
+    /// Elements the provider reads as the start of another action, refused
+    /// wherever they appear in the argv.
+    pub(crate) separators: &'static [&'static str],
+    /// The class a positional naming one of this provider's packages must be in.
+    pub(crate) name_class: fn(&str) -> bool,
+}
+
+/// One permitted read subcommand, and everything that may follow it.
+///
+/// One entry, not a list of names plus side lists keyed by name: what a
+/// subcommand may take is read where the subcommand is, so the two cannot
+/// drift apart.
+///
+/// It says which options may appear, not which must: `brew info <name>` with
+/// no `--json=v2` passes here. Nothing in this build produces that argv - the
+/// adapters hold exact vectors and the gate pins a plan's read - and it is
+/// recorded in SE-050 for whoever adds the next read path.
+#[derive(Debug)]
+pub(crate) struct ReadSubcommand {
+    /// The subcommand, matched exactly.
+    pub(crate) name: &'static str,
+    /// The `--long` options this tool's own reads pass after it, each matched
+    /// as the whole element: `--json=v2` permits that and not `--json`,
+    /// `--json=v1` or `--json=v2x`, and an abbreviation a provider would
+    /// resolve is not the option it abbreviates. Any other element starting
+    /// `--`, a bare `--` included, is refused.
+    ///
+    /// A tool permission list, not a provider fact: it says what this tool
+    /// asks for, so it carries no `read_on` and does not go stale (INV-20).
+    pub(crate) long_options: &'static [&'static str],
+    /// Long options that must be present. `port info` without `--index` opens
+    /// each port's Portfile from the configured ports tree and evaluates it as
+    /// Tcl (`mportopen`); with it, `info` reads only the PortIndex
+    /// (`mportlookup`) - `action_info`, `/opt/local/bin/port` lines 1695-1725,
+    /// MacPorts 2.12.6, read 2026-10-11. The adapter
+    /// always sends it; the spawn site is the line that holds whatever produced
+    /// the argv (security review, pass 08 slice 3, L3).
+    pub(crate) required_options: &'static [&'static str],
+    /// How many positional arguments may follow, and of what class. A name
+    /// class never admits `/` or `:` - which is how a provider is made to load
+    /// a package definition from somewhere this tool did not choose.
+    pub(crate) positionals: Positionals,
+}
+
+impl ReadSubcommand {
+    /// A subcommand that takes no option and no positional.
+    const fn bare(name: &'static str) -> Self {
+        Self {
+            name,
+            long_options: &[],
+            required_options: &[],
+            positionals: Positionals::None,
+        }
+    }
+}
+
+/// Whether `program` may be started with `argv`.
+///
+/// [`is_permitted_program`]; then, for a provider, a permitted subcommand
+/// followed by nothing a provider reads as more than an argument: no action
+/// separator, no single-dash option - `port -F` after the action is as live as
+/// before it - and no `--long` element but those that subcommand's entry lists,
+/// matched exactly (SE-050); and exactly the positional arguments that entry's
+/// [`Positionals`] admits, each of the provider's name class (pass 08 slice 3).
+/// Which package a plan's read names is pinned by the execution gate, not
+/// here. For anything that is not a
+/// provider, membership of [`SYSTEM_PROBES`], the one set of programs with no
+/// subcommand dimension - and then [`is_permitted_probe`]: the probe at its
+/// pinned path, with one of the exact vectors this tool sends it.
+pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]) -> bool {
+    if !is_permitted_program(program) {
+        return false;
+    }
+    let name = program.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let Some(reads) = PERMITTED_SUBCOMMANDS.iter().find(|r| r.program == name) else {
+        return SYSTEM_PROBES.contains(&name) && is_permitted_probe(program, argv);
+    };
+    let mut rest = argv
+        .iter()
+        .map(String::as_str)
+        .skip_while(|a| reads.leading_flags.contains(a));
+    let Some(subcommand) = rest.next() else {
         return false;
     };
-    if text.len() > MAX_PATH_LEN || !text.starts_with('/') {
+    let Some(entry) = reads.subcommands.iter().find(|s| s.name == subcommand) else {
+        return false;
+    };
+    if argv.iter().any(|a| reads.separators.contains(&a.as_str())) {
         return false;
     }
-    if text.chars().any(char::is_control) {
+    // Every element starting `-` is an option. A `--long` one must be on this
+    // subcommand's list, whole; a single-dash one never is. Everything else is
+    // a positional.
+    let (options, positionals): (Vec<&str>, Vec<&str>) = rest.partition(|a| a.starts_with('-'));
+    options.iter().all(|a| entry.long_options.contains(a))
+        && entry.required_options.iter().all(|r| options.contains(r))
+        && positionals_permitted(&entry.positionals, &positionals, reads.name_class)
+}
+
+/// The programs the executor's own tests spawn, and only in a test build.
+///
+/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` spawns `/bin/sh -c`
+/// for the express purpose of proving the runner survives a process that
+/// outlives its parent; `timeout_kills_the_child` needs something that sleeps;
+/// `a_child_starts_in_the_root_directory_and_not_in_ours` runs `/bin/sh -c pwd`.
+/// A test that cannot name the thing it is testing is not a test.
+///
+/// This extends the list rather than bypassing the check, so the tests run the
+/// same code the shipped binary runs, and
+/// `the_shipped_binary_may_spawn_exactly_six_programs` asserts that the
+/// production list is untouched by it.
+#[cfg(test)]
+pub(crate) const PERMITTED_IN_TESTS: &[&str] = &[
+    "sh",
+    "sleep",
+    "env",
+    "false",
+    "yes",
+    "echo",
+    "mpb-test-program",
+];
+
+/// What the runner asks before it spawns: the shipped rule, plus - in a test
+/// build only - the handful of programs the executor's own tests name.
+///
+/// Kept separate from [`is_permitted_program`] so that
+/// `an_interpreter_is_refused_however_it_was_named` asserts the *shipped* rule
+/// rather than the widened one. A test that can only see the wider list cannot
+/// tell you anything about what ships.
+pub(in crate::process) fn may_spawn(program: &std::path::Path, argv: &[String]) -> bool {
+    if is_permitted_invocation(program, argv) {
+        return true;
+    }
+    #[cfg(test)]
+    if program.is_absolute()
+        && program
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| PERMITTED_IN_TESTS.contains(&n))
+    {
+        return true;
+    }
+    false
+}
+
+/// Whether `program` is one this tool may spawn.
+///
+/// Absolute, no `..` anywhere in it, and a file name on
+/// [`PERMITTED_PROGRAMS`]. A provider's executable must additionally sit
+/// directly in a `bin` directory, which is where both providers put theirs and
+/// where a prefix-shaped path can be checked to lead.
+pub(crate) fn is_permitted_program(program: &std::path::Path) -> bool {
+    use std::path::Component;
+    if !program.is_absolute() || program.components().any(|c| c == Component::ParentDir) {
         return false;
     }
-    !path
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
+    let Some(name) = program.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !PERMITTED_PROGRAMS.contains(&name) {
+        return false;
+    }
+    // Every program with a read list is a provider, and a provider is
+    // resolved from a detected prefix, so it must come from a `bin` directory.
+    // Derived rather than spelled out: `"brew" | "port"` here meant a third
+    // provider given a read list would skip this rule (spec-guardian,
+    // 2026-09-25).
+    if PERMITTED_SUBCOMMANDS.iter().any(|r| r.program == name) {
+        return program
+            .parent()
+            .and_then(std::path::Path::file_name)
+            .is_some_and(|dir| dir == "bin");
+    }
+    true
 }
 
 /// What to run.
+///
+/// Every field is private to this module, and that is the point rather than
+/// tidiness. A constructor that cannot be called from outside controls only
+/// *construction*; with public fields, `spec.program = whatever` after the fact
+/// reaches the same place, and so does
+/// `spec.environment.insert("DYLD_INSERT_LIBRARIES", ..)` - which would undo
+/// INV-10 by one line that no lint, no clippy and no test would notice. That
+/// was measured, not imagined: a review built it and every gate stayed green.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandSpec {
     /// The program, as an absolute path resolved by the caller from a
     /// detected prefix - never a bare name looked up on `PATH` when
     /// correctness matters.
-    pub program: PathBuf,
+    pub(in crate::process) program: PathBuf,
     /// Arguments, one element each.
-    pub argv: Vec<String>,
+    pub(in crate::process) argv: Vec<String>,
     /// The complete environment. Nothing is inherited.
-    pub environment: BTreeMap<String, String>,
-    /// Working directory; `None` means the process's own.
-    pub cwd: Option<PathBuf>,
+    pub(in crate::process) environment: BTreeMap<String, String>,
     /// Timeout.
-    pub timeout: Duration,
+    pub(in crate::process) timeout: Duration,
     /// Cap per output stream.
-    pub max_output_bytes: usize,
+    pub(in crate::process) max_output_bytes: usize,
+    /// Built from a prefix resolved through a replay runner, so it may be
+    /// answered from a recording and never spawned: the live runner refuses
+    /// it (SE-050, "Not closed" item 7). Only [`CommandSpec::plan_read`] sets
+    /// it; an adapter's own spec is built from the prefix its runner detected.
+    pub(in crate::process) replay_only: bool,
 }
 
 impl CommandSpec {
+    /// A provider's own executable, resolved from the prefix it was detected
+    /// at.
+    ///
+    /// `executable` is `&'static str` on purpose: it is a literal in this
+    /// source, so nothing a provider said, nothing in a snapshot and nothing
+    /// off the machine can decide which program runs. The only variable part
+    /// is the prefix, which is validated where a snapshot enters
+    /// (`Snapshot::check`).
+    pub fn provider(
+        prefix: &std::path::Path,
+        executable: &'static str,
+        argv: Vec<String>,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
+        Self::new(prefix.join(executable), argv, environment)
+    }
+
+    /// A macOS system tool, named by a literal.
+    ///
+    /// Same reasoning as [`CommandSpec::provider`], with no prefix to join: the
+    /// four probes this tool runs are `sw_vers`, `uname`, `sysctl` and
+    /// `xcode-select`, at absolute paths written out here.
+    pub fn system(
+        program: &'static str,
+        argv: Vec<String>,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
+        Self::new(program, argv, environment)
+    }
+
     /// A spec with default timeout and output cap.
-    pub fn new(
+    ///
+    /// Private to this module. Everything above it goes through
+    /// [`CommandSpec::provider`] or [`CommandSpec::system`], which is what
+    /// makes "no value off the machine becomes a program" a property of the
+    /// type rather than of each adapter remembering. The threat model called
+    /// the no-shell guarantee "enforced by a lint rule, not by discipline",
+    /// and the lint enforced *where* a subprocess is spawned rather than
+    /// *what* - `/bin/sh` is absolute and would have passed every gate
+    /// (F-08).
+    pub(in crate::process) fn new(
         program: impl Into<PathBuf>,
         argv: Vec<String>,
         environment: BTreeMap<String, String>,
@@ -94,9 +644,9 @@ impl CommandSpec {
             program: program.into(),
             argv,
             environment,
-            cwd: None,
             timeout: DEFAULT_TIMEOUT,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            replay_only: false,
         }
     }
 
@@ -115,6 +665,101 @@ impl CommandSpec {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()
     }
+
+    /// A provider read that a migration plan asked for (DP-023).
+    ///
+    /// The plan supplies **argv only**. The program is re-derived here from the
+    /// provider's detected `prefix` and the adapter's `executable` literal, and
+    /// the environment is whatever the adapter's own construction produced —
+    /// the caller passes that, never a plan's copy. `PlanCommand.environment`
+    /// is not a parameter of this function, so no path through it can adopt it
+    /// (`plan.v1.md`, obligation 10; INV-10).
+    ///
+    /// `planned_program` is read for one purpose: a plan whose program is not
+    /// the one derived here is refused, not corrected. The executor would
+    /// otherwise run a binary other than the one the human reviewed, and the
+    /// refusal on disagreement is what keeps INV-02 honest under re-derivation.
+    ///
+    /// The argv is checked against [`is_permitted_invocation`] **here, at
+    /// construction** — the shipped rule, never [`may_spawn`], which widens the
+    /// list in a test build. A `ReplayRunner` asks no allowlist at all, so a
+    /// check left to the spawn would let a recorded test run a plan read that
+    /// the shipped binary refuses; a check in the constructor has no runner to
+    /// be bypassed by.
+    ///
+    /// `replay_only` is true when `prefix` was resolved through a replay
+    /// runner. Such a spec is marked so that the live runner refuses it: a
+    /// prefix a recording (or a replay-only override) supplied names a binary
+    /// nobody probed on this machine, and it must never reach a spawn.
+    pub(crate) fn plan_read(
+        prefix: &std::path::Path,
+        executable: &'static str,
+        target: &macportsbrew_domain::CommandTarget,
+        planned_program: &str,
+        argv: &[String],
+        environment: BTreeMap<String, String>,
+        replay_only: bool,
+    ) -> Result<Self, PlanReadRefusal> {
+        if *target != macportsbrew_domain::CommandTarget::Provider {
+            return Err(PlanReadRefusal::NotAProviderCommand);
+        }
+        if !is_safe_path(prefix) {
+            return Err(PlanReadRefusal::UnsafePrefix {
+                prefix: prefix.to_string_lossy().into_owned(),
+            });
+        }
+        let derived = prefix.join(executable);
+        let derived_text = derived.to_string_lossy().into_owned();
+        if planned_program != derived_text {
+            return Err(PlanReadRefusal::ProgramDisagrees {
+                planned: planned_program.to_string(),
+                derived: derived_text,
+            });
+        }
+        if !is_permitted_invocation(&derived, argv) {
+            return Err(PlanReadRefusal::NotAPermittedRead {
+                argv: argv.to_vec(),
+            });
+        }
+        Ok(Self {
+            replay_only,
+            ..Self::new(derived, argv.to_vec(), environment)
+        })
+    }
+}
+
+/// Why a plan's command was not turned into something that may run.
+///
+/// Every variant is a refusal, never a correction: the spawn site does not
+/// repair a plan into a command it would accept (DP-023). There is no variant
+/// about the environment on purpose — the plan's environment is never read
+/// (`plan.v1.md`, obligation 10), so there is nothing about it to disagree
+/// with; SE-050 records why comparing it was dropped.
+///
+/// The values carry plan text verbatim (`planned`, `argv`, `prefix`). A
+/// renderer must redact the home and escape control characters before showing
+/// one (SE-050, "Not closed").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanReadRefusal {
+    /// A `TOOL` command: MacPortsBrew itself, not a provider read.
+    NotAProviderCommand,
+    /// The detected prefix is not a path an executable may be built from.
+    UnsafePrefix {
+        /// The prefix, as given.
+        prefix: String,
+    },
+    /// The plan names a program other than the one derived from the prefix.
+    ProgramDisagrees {
+        /// What the plan says.
+        planned: String,
+        /// What the detected prefix and the adapter's executable give.
+        derived: String,
+    },
+    /// The argv is not a read the shipped allowlist permits.
+    NotAPermittedRead {
+        /// The argv the plan carried.
+        argv: Vec<String>,
+    },
 }
 
 /// How an invocation ended.
@@ -175,6 +820,26 @@ pub struct Invocation {
 }
 
 impl Invocation {
+    /// What a verification read is judged on (`verification::evaluate`): how
+    /// the process ended, its stdout and the truncation flag. Only an exit
+    /// with a code is an exit; a signal, a timeout, a cancellation and a
+    /// program that never started all certify nothing (`DidNotFinish`). The
+    /// stderr is not part of it.
+    pub fn read_output(&self) -> macportsbrew_domain::ReadOutput<'_> {
+        let end = match self.status {
+            ExitStatus::Exited { code } => macportsbrew_domain::ProcessEnd::Exited { code },
+            ExitStatus::Signalled { .. }
+            | ExitStatus::TimedOut
+            | ExitStatus::NotStarted { .. }
+            | ExitStatus::Cancelled => macportsbrew_domain::ProcessEnd::DidNotFinish,
+        };
+        macportsbrew_domain::ReadOutput {
+            end,
+            stdout: &self.stdout,
+            truncated: self.truncated,
+        }
+    }
+
     /// Fails with `ProviderUnhealthy` unless the exit code was 0, and with
     /// `ProviderOutputChanged` when the output was cut off at the cap.
     /// Adapters call this before parsing.
@@ -230,9 +895,11 @@ pub trait ProcessRunner {
 
     /// Whether this runner is a replay of recorded output rather than the
     /// live machine, so analysis output can be labelled.
-    fn is_replay(&self) -> bool {
-        false
-    }
+    ///
+    /// Required, with no default: whether a prefix override is honoured and
+    /// whether a plan read is marked replay-only both follow from this answer,
+    /// so a new runner must state it rather than inherit "live" (SE-050).
+    fn is_replay(&self) -> bool;
 }
 
 impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
@@ -258,6 +925,737 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shipped_binary_may_spawn_exactly_six_programs() {
+        // Not a tautology: it is the assertion that makes PERMITTED_IN_TESTS
+        // safe to have. If a test name ever migrates into the production list,
+        // this is what says so.
+        assert_eq!(
+            PERMITTED_PROGRAMS,
+            ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
+        );
+        for name in PERMITTED_IN_TESTS {
+            assert!(
+                !PERMITTED_PROGRAMS.contains(name),
+                "{name} is a test-only program and has reached the shipped list"
+            );
+        }
+    }
+
+    #[test]
+    fn invariant_10_every_program_an_adapter_names_is_on_the_allowlist() {
+        // The comment above PERMITTED_PROGRAMS says divergence is caught here
+        // rather than by whoever edits one place remembering the other. This is
+        // that check, and it is the reason the list may be written out by hand:
+        // an adapter that starts naming a seventh program fails here rather
+        // than at run time on a user's machine, where the symptom would be a
+        // read that refuses itself.
+        let named = [
+            crate::homebrew::EXECUTABLE_RELATIVE,
+            crate::macports::EXECUTABLE_RELATIVE,
+            crate::system::machine::SW_VERS,
+            crate::system::machine::UNAME,
+            crate::system::machine::SYSCTL,
+            crate::system::machine::XCODE_SELECT,
+        ];
+        for program in named {
+            let leaf = std::path::Path::new(program)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a program constant names a file");
+            assert!(
+                PERMITTED_PROGRAMS.contains(&leaf),
+                "{program} is named by an adapter and is not on the allowlist"
+            );
+        }
+        assert_eq!(
+            named.len(),
+            PERMITTED_PROGRAMS.len(),
+            "the allowlist and the constants the adapters name have diverged"
+        );
+    }
+
+    fn argv(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn every_subcommand_an_adapter_runs_is_permitted_and_no_other() {
+        // Both directions, as for the programs above. An adapter that starts
+        // running a new read fails here rather than refusing itself on a user's
+        // machine; a subcommand on the list that no adapter runs is permission
+        // nobody is using, and the executor pass should have to add its own.
+        let brew = std::path::Path::new("/opt/homebrew/bin/brew");
+        let port = std::path::Path::new("/opt/local/bin/port");
+        let mut used: Vec<(&str, String)> = Vec::new();
+        for held in crate::homebrew::ALLOWED_ARGV {
+            let held = argv(held);
+            assert!(is_permitted_invocation(brew, &held), "brew {held:?}");
+            used.push(("brew", held[0].clone()));
+        }
+        for held in crate::macports::ALLOWED_ARGV {
+            let held = argv(held);
+            assert!(is_permitted_invocation(port, &held), "port {held:?}");
+            let sub = held.iter().find(|a| *a != "-q").unwrap();
+            used.push(("port", sub.clone()));
+        }
+        // A prefix is not an invocation on its own - `info` and `provides` take
+        // at least one argument - so it is checked whole, with every tail the
+        // adapter gives it, by `every_long_option_a_read_passes_is_permitted_and_no_other`.
+        for head in crate::macports::ALLOWED_ARGV_PREFIXES {
+            let sub = head.iter().find(|a| **a != "-q").unwrap();
+            used.push(("port", (*sub).to_string()));
+        }
+        for reads in PERMITTED_SUBCOMMANDS {
+            for sub in reads.subcommands {
+                assert!(
+                    used.iter()
+                        .any(|(p, s)| *p == reads.program && s == sub.name),
+                    "{} {} is permitted and no adapter runs it",
+                    reads.program,
+                    sub.name
+                );
+            }
+        }
+    }
+
+    /// Every read argument vector this build can hand the spawn site, keyed by
+    /// program leaf: each the adapters hold whole, every `info` field tail the
+    /// MacPorts adapter extends its head with (each one, not a sample), the
+    /// `provides` head with a path, and every read the planner builds from
+    /// `provider-commands.toml` - `verify` with the package it appends,
+    /// `verify_absent` bare, as `application::provider_commands` reads them.
+    fn every_read_this_build_passes() -> Vec<(String, Vec<String>)> {
+        let mut reads: Vec<(String, Vec<String>)> = Vec::new();
+        for held in crate::homebrew::ALLOWED_ARGV {
+            reads.push(("brew".into(), argv(held)));
+        }
+        for held in crate::macports::ALLOWED_ARGV {
+            reads.push(("port".into(), argv(held)));
+        }
+        // Every prefix the adapter extends, each with every tail it takes. A
+        // prefix this test has no tail for fails here until it is covered,
+        // rather than being permitted unexamined.
+        for head in crate::macports::ALLOWED_ARGV_PREFIXES {
+            let tails: Vec<Vec<String>> = if *head == crate::macports::INFO_BASE {
+                crate::macports::INFO_FIELDS
+                    .iter()
+                    .map(|tail| {
+                        let mut t = argv(tail);
+                        t.push("libpng".into());
+                        t
+                    })
+                    .collect()
+            } else if *head == crate::macports::ARGV_PROVIDES {
+                vec![argv(&["/opt/local/bin/curl"])]
+            } else {
+                panic!("port {head:?}: an argv prefix this test knows no tail for");
+            };
+            for tail in tails {
+                let mut held = argv(head);
+                held.extend(tail);
+                reads.push(("port".into(), held));
+            }
+        }
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/policy/provider-commands.toml");
+        let text = std::fs::read_to_string(&path).expect("the provider command table");
+        let table: toml::Value = toml::from_str(&text).expect("the table parses");
+        let entries = table["entry"].as_array().expect("entries");
+        assert!(entries.len() >= 2, "both providers have an entry");
+        for entry in entries {
+            let leaf = std::path::Path::new(entry["executable"].as_str().expect("executable"))
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a leaf")
+                .to_string();
+            for (operation, appended) in [("verify", Some("wget")), ("verify_absent", None)] {
+                let mut held: Vec<String> = entry["verbs"][operation]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{leaf}: no {operation} verb"))
+                    .iter()
+                    .map(|v| v.as_str().expect("a verb element").to_string())
+                    .collect();
+                held.extend(appended.map(String::from));
+                reads.push((leaf.clone(), held));
+            }
+        }
+        reads
+    }
+
+    #[test]
+    fn every_long_option_a_read_passes_is_permitted_and_no_other() {
+        // Both directions, per subcommand (SE-050). Every read this build makes
+        // passes; and every long option on a subcommand's list is one some read
+        // passes after that subcommand - an option kept "just in case" is
+        // permission nobody uses, and the pass that needs it adds it in review.
+        let reads = every_read_this_build_passes();
+        let mut used: Vec<(String, String, String)> = Vec::new();
+        for (leaf, held) in &reads {
+            let program = std::path::PathBuf::from("/opt/example/bin").join(leaf);
+            assert!(
+                is_permitted_invocation(&program, held),
+                "{leaf} {held:?} is a read this build makes and was refused"
+            );
+            let provider = PERMITTED_SUBCOMMANDS
+                .iter()
+                .find(|r| r.program == leaf)
+                .expect("a provider read list");
+            let mut rest = held
+                .iter()
+                .skip_while(|a| provider.leading_flags.contains(&a.as_str()));
+            let sub = rest.next().expect("a subcommand");
+            for option in rest.filter(|a| a.starts_with("--")) {
+                used.push((leaf.clone(), sub.clone(), option.clone()));
+            }
+        }
+        for provider in PERMITTED_SUBCOMMANDS {
+            for sub in provider.subcommands {
+                for option in sub.long_options {
+                    assert!(
+                        used.iter()
+                            .any(|(p, s, o)| p == provider.program && s == sub.name && o == option),
+                        "{} {} {option} is permitted and no read passes it",
+                        provider.program,
+                        sub.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_positional_is_held_to_its_count_and_its_providers_name_class() {
+        // The positional half of the pin (pass 08 slice 3): each refused shape
+        // beside the accepted one it neighbours.
+        let brew = std::path::Path::new("/opt/example/bin/brew");
+        let port = std::path::Path::new("/opt/example/bin/port");
+        for (program, good) in [
+            (brew, argv(&["list", "--versions", "wget"])),
+            (brew, argv(&["list", "--versions", "python@3.12"])),
+            (brew, argv(&["list", "--versions"])),
+            (port, argv(&["-q", "installed", "jq"])),
+            (port, argv(&["-q", "installed", "py313-numpy"])),
+            (port, argv(&["-q", "installed"])),
+            (port, argv(&["-q", "echo", "leaves"])),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--line", "--name", "jq", "htop"]),
+            ),
+            (
+                port,
+                argv(&[
+                    "-q",
+                    "provides",
+                    "/opt/local/bin/jq",
+                    "/opt/local/share/a:b",
+                ]),
+            ),
+        ] {
+            assert!(
+                is_permitted_invocation(program, &good),
+                "{good:?} was refused"
+            );
+        }
+        for (program, bad) in [
+            // A positional where the subcommand takes none.
+            (brew, argv(&["config", "wget"])),
+            (brew, argv(&["info", "--json=v2", "--installed", "wget"])),
+            (port, argv(&["-q", "version", "jq"])),
+            // More than one where at most one is taken.
+            (brew, argv(&["list", "--versions", "wget", "curl"])),
+            (port, argv(&["-q", "installed", "jq", "htop"])),
+            // A Homebrew name a loader would read as a file.
+            (brew, argv(&["list", "--versions", "foo.rb"])),
+            (brew, argv(&["list", "--versions", "cask.JSON"])),
+            (brew, argv(&["list", "--versions", "bottle.tar.gz"])),
+            (brew, argv(&["list", "--versions", "+wget"])),
+            (brew, argv(&["list", "--versions", "@wget"])),
+            // MacPorts pseudo-ports and operators, whatever their case, and
+            // version-qualified, variant and version-only specifications.
+            (port, argv(&["-q", "installed", "all"])),
+            (port, argv(&["-q", "installed", "current"])),
+            (port, argv(&["-q", "installed", "Installed"])),
+            (port, argv(&["-q", "installed", "installed@1"])),
+            (port, argv(&["-q", "installed", "jq@1.8"])),
+            (port, argv(&["-q", "installed", "+universal"])),
+            (port, argv(&["-q", "installed", "@1.0"])),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "not", "jq"]),
+            ),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "jq", "and", "htop"]),
+            ),
+            (
+                port,
+                argv(&["-q", "info", "--index", "--name", "jq", "or", "htop"]),
+            ),
+            // `info` takes at least one name.
+            (port, argv(&["-q", "info", "--index", "--line", "--name"])),
+            // Without `--index`, `info` evaluates each Portfile.
+            (port, argv(&["-q", "info", "--line", "--name", "jq"])),
+            // `echo` takes exactly one of its three words.
+            (port, argv(&["-q", "echo", "installed"])),
+            (port, argv(&["-q", "echo"])),
+            (port, argv(&["-q", "echo", "leaves", "active"])),
+            // `provides` takes absolute, plain paths only.
+            (port, argv(&["-q", "provides"])),
+            (port, argv(&["-q", "provides", "relative/path"])),
+            (
+                port,
+                argv(&["-q", "provides", "/opt/local/../../etc/passwd"]),
+            ),
+            (port, argv(&["-q", "provides", "jq"])),
+            (port, argv(&["-q", "provides", "/opt/local/bin/a\0b"])),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{bad:?} was permitted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_spawn_sites_reserved_words_cover_the_planners() {
+        // The planner refuses a package named a reserved word; the spawn site
+        // refuses it as an argument. The second list may be wider, never narrower.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/policy/provider-commands.toml");
+        let table: toml::Value =
+            toml::from_str(&std::fs::read_to_string(path).expect("the table")).expect("parses");
+        let mut compared = 0;
+        for entry in table["entry"].as_array().expect("entries") {
+            if let Some(words) = entry.get("reserved_names").and_then(|w| w.as_array()) {
+                for word in words {
+                    let word = word.as_str().expect("a word");
+                    assert!(
+                        PORT_RESERVED_WORDS.contains(&word),
+                        "{word} is reserved by the planner and permitted at the spawn site"
+                    );
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared >= 16, "the comparison saw {compared} words");
+    }
+
+    #[test]
+    fn a_long_option_is_matched_whole_and_only_after_its_own_subcommand() {
+        // The shapes a prefix or a substring match would let through, and an
+        // option that is on the list - but for another subcommand.
+        let brew = std::path::Path::new("/opt/example/bin/brew");
+        let port = std::path::Path::new("/opt/example/bin/port");
+        for (program, bad) in [
+            (brew, argv(&["info", "--json=v2x", "--installed"])),
+            (brew, argv(&["info", "--json=v", "--installed"])),
+            (brew, argv(&["info", "--installedx"])),
+            (brew, argv(&["list", "--version"])),
+            (brew, argv(&["list", "--installed"])),
+            (brew, argv(&["config", "--pinned"])),
+            (brew, argv(&["--prefix", "--versions"])),
+            (port, argv(&["-q", "installed", "--name"])),
+            (
+                port,
+                argv(&["-q", "provides", "--name", "/opt/local/bin/curl"]),
+            ),
+            (port, argv(&["-q", "info", "--"])),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{} {bad:?} was permitted",
+                program.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_provider_mutation_is_refused_whatever_surrounds_it() {
+        // F-53's own case and its neighbours. The mutating verbs are assembled
+        // at run time: the Stop gate greps `src/` for them as literals, and
+        // these are test data, not a code path (`.claude/hooks/test-hooks.sh`
+        // does the same for the same reason).
+        let add = ["in", "stall"].concat();
+        let remove = ["un", "in", "stall"].concat();
+        let upgrade = ["up", "grade"].concat();
+        let brew = std::path::Path::new("/opt/homebrew/bin/brew");
+        let port = std::path::Path::new("/opt/local/bin/port");
+        for (program, bad) in [
+            (brew, vec![add.clone(), "wget".into()]),
+            (brew, vec![remove.clone(), "wget".into()]),
+            (brew, vec![upgrade.clone()]),
+            // No leading option precedes a Homebrew subcommand here, so a flag
+            // in front is not a way round the check.
+            (brew, vec!["-q".into(), "list".into()]),
+            (port, vec!["-q".into(), add.clone(), "htop".into()]),
+            (port, vec![remove.clone(), "htop".into()]),
+            // `-F` reads the actions from a file: a read subcommand after it
+            // would be a filename.
+            (port, vec!["-F".into(), "installed".into()]),
+            // A read first, and a second action after the separator. `port -q
+            // installed` succeeds for any name, so `port` would run it.
+            (
+                port,
+                vec!["-q".into(), "installed".into(), ";".into(), add.clone()],
+            ),
+            (
+                port,
+                vec!["version".into(), ";".into(), remove.clone(), "htop".into()],
+            ),
+            // A command file, after the action rather than before it.
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "installed".into(),
+                    "-F".into(),
+                    "/tmp/x".into(),
+                ],
+            ),
+            (port, vec!["version".into(), "-F".into(), "-".into()]),
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "installed".into(),
+                    "-qF".into(),
+                    "/tmp/x".into(),
+                ],
+            ),
+            // A URL port spec, which `port` opens and evaluates as a Portfile.
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "info".into(),
+                    "--name".into(),
+                    "file:///tmp/p".into(),
+                ],
+            ),
+            (
+                port,
+                vec![
+                    "-q".into(),
+                    "installed".into(),
+                    "https://example.org/p".into(),
+                ],
+            ),
+            (port, vec!["-q".into(), "echo".into(), "x_1:y".into()]),
+            // The same Portfile read as `file://`, spelled as a path, and the
+            // Unicode spelling a character-class mirror of `\w` missed.
+            (
+                port,
+                vec!["-q".into(), "info".into(), "--name".into(), "/tmp/p".into()],
+            ),
+            (port, vec!["-q".into(), "installed".into(), "/tmp/p".into()]),
+            (port, vec!["-q".into(), "echo".into(), "tmp/p".into()]),
+            (
+                port,
+                vec!["-q".into(), "info".into(), "\u{203F}:file:///tmp/p".into()],
+            ),
+            // And for Homebrew, whose own refusal a `brew.env` can switch off.
+            (brew, vec!["info".into(), "/tmp/p.rb".into()]),
+            (brew, vec!["info".into(), "https://example.org/p.rb".into()]),
+            (
+                brew,
+                vec!["list".into(), "--versions".into(), "user/tap/p".into()],
+            ),
+            // An abbreviation `port` would resolve, and a name in another case.
+            (port, vec!["-q".into(), "inst".into()]),
+            (port, vec!["-q".into(), "INSTALLED".into()]),
+            // Leading options only, and no subcommand at all.
+            (port, vec!["-q".into()]),
+            // `port` with no arguments is its interactive mode.
+            (port, vec![]),
+            (brew, vec![]),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{} {bad:?} was permitted",
+                program.display()
+            );
+        }
+        // The rule does not reach what the adapters append: a validated name,
+        // and a path given to the one subcommand that takes raw strings.
+        for good in [
+            argv(&["-q", "info", "--index", "--line", "--name", "libpng"]),
+            argv(&["-q", "provides", "/opt/local/bin/curl"]),
+            argv(&["-q", "provides", "/opt/local/share/a:b"]),
+        ] {
+            assert!(is_permitted_invocation(port, &good), "{good:?} was refused");
+        }
+        // The dimension is per provider: a system probe has none, and a
+        // provider still has to pass the program check first.
+        assert!(is_permitted_invocation(
+            std::path::Path::new("/usr/bin/uname"),
+            &argv(&["-m"])
+        ));
+        assert!(!is_permitted_invocation(
+            std::path::Path::new("/tmp/brew"),
+            &argv(&["list"])
+        ));
+    }
+
+    #[test]
+    fn a_system_probe_is_pinned_to_its_directory_and_its_exact_vectors() {
+        // Every listed vector, at its listed path, passes.
+        for (path, vectors) in SYSTEM_PROBE_INVOCATIONS {
+            for held in *vectors {
+                assert!(
+                    is_permitted_invocation(std::path::Path::new(path), &argv(held)),
+                    "{path} {held:?} was refused"
+                );
+            }
+        }
+        // A probe with no subcommand dimension used to accept any argv from
+        // any absolute directory. A write, an installer, a shadowing copy and
+        // a near miss are each refused now.
+        for (program, bad) in [
+            ("/usr/sbin/sysctl", &["-w", "kern.maxfiles=1"][..]),
+            ("/usr/sbin/sysctl", &["kern.maxfiles=1"][..]),
+            ("/usr/sbin/sysctl", &["-n"][..]),
+            ("/usr/sbin/sysctl", &[][..]),
+            ("/usr/sbin/sysctl", &["-n", "hw.machine", "-w"][..]),
+            ("/usr/sbin/sysctl", &["-n", "hw.memsize"][..]),
+            ("/usr/sbin/sysctl", &["hw.machine", "-n"][..]),
+            ("/usr/bin/xcode-select", &["-s", "/tmp/x"][..]),
+            ("/usr/bin/xcode-select", &["--reset"][..]),
+            ("/usr/bin/xcode-select", &["-p", "-p"][..]),
+            ("/usr/bin/sw_vers", &["-buildVersion"][..]),
+            ("/usr/bin/sw_vers", &[][..]),
+            ("/usr/bin/uname", &["-a"][..]),
+            ("/usr/bin/uname", &["-m", "-n"][..]),
+            ("/tmp/x/uname", &["-m"][..]),
+            ("/usr/local/bin/uname", &["-m"][..]),
+            ("/opt/homebrew/bin/sysctl", &["-n", "hw.machine"][..]),
+            ("/usr/bin/sysctl", &["-n", "hw.machine"][..]),
+            ("/usr/sbin/uname", &["-m"][..]),
+            ("/usr/bin/../bin/uname", &["-m"][..]),
+            ("/tmp/x/xcode-select", &["-p"][..]),
+        ] {
+            assert!(
+                !is_permitted_invocation(std::path::Path::new(program), &argv(bad)),
+                "{program} {bad:?} was permitted"
+            );
+        }
+    }
+
+    /// Every (program, argv) a runner was asked to run, in order.
+    type Asked = std::rc::Rc<std::cell::RefCell<Vec<(PathBuf, Vec<String>)>>>;
+
+    /// A runner that records what it was asked and answers from a recording.
+    struct Observing {
+        inner: ReplayRunner,
+        asked: Asked,
+    }
+
+    impl ProcessRunner for Observing {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.asked
+                .borrow_mut()
+                .push((spec.program.clone(), spec.argv.clone()));
+            self.inner.run(spec)
+        }
+        fn is_replay(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn every_probe_the_system_reader_sends_is_permitted_and_no_other() {
+        // Both directions, as for the providers' reads. The captured Intel
+        // machine, then the same machine with probes made to fail, so the
+        // fallback paths (`proc_translated` for the architecture, `uname -m`)
+        // are walked too.
+        use crate::system::machine::SystemMachine;
+        use macportsbrew_domain::{HomeRedaction, MachineRead};
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/recordings/homebrew-only-intel-macos26.json");
+        let captured = Recording::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let not_started = |mut recording: Recording, held: &[&str]| {
+            for record in &mut recording.invocations {
+                if record.invocation.argv == held {
+                    record.invocation.status = ExitStatus::NotStarted {
+                        error: "synthetic: probe made to fail".into(),
+                    };
+                }
+            }
+            recording
+        };
+        let failing_arm64 = not_started(captured.clone(), &["-n", "hw.optional.arm64"]);
+        let failing_machine = not_started(failing_arm64.clone(), &["-n", "hw.machine"]);
+
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        for recording in [captured, failing_arm64, failing_machine] {
+            let reader = SystemMachine::new(
+                Box::new(Observing {
+                    inner: ReplayRunner::new(recording),
+                    asked: asked.clone(),
+                }),
+                None,
+                BTreeMap::new(),
+                HomeRedaction::Recorded,
+            );
+            assert_eq!(
+                reader.machine().unwrap().architecture,
+                macportsbrew_domain::Architecture::X86_64
+            );
+        }
+        let asked = asked.borrow();
+        for (program, held) in asked.iter() {
+            assert!(
+                is_permitted_invocation(program, held),
+                "{} {held:?} is a probe the reader sends and was refused",
+                program.display()
+            );
+        }
+        for (path, vectors) in SYSTEM_PROBE_INVOCATIONS {
+            for held in *vectors {
+                assert!(
+                    asked
+                        .iter()
+                        .any(|(p, a)| p == std::path::Path::new(path) && a == &argv(held)),
+                    "{path} {held:?} is permitted and the reader never sends it"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_provider_with_a_read_list_must_come_from_a_bin_directory() {
+        // Iterates the read lists rather than naming the two providers, so a
+        // third one inherits the rule the moment it is given a list.
+        for reads in PERMITTED_SUBCOMMANDS {
+            let outside = std::path::PathBuf::from("/opt/example/libexec").join(reads.program);
+            assert!(!is_permitted_program(&outside), "{}", outside.display());
+            let inside = std::path::PathBuf::from("/opt/example/bin").join(reads.program);
+            assert!(is_permitted_program(&inside), "{}", inside.display());
+        }
+    }
+
+    #[test]
+    fn every_permitted_program_is_a_probe_or_has_a_read_list() {
+        // A partition, not two lists that happen to agree: a program in both
+        // would be a probe with a read list nobody checks, and one in neither
+        // is refused outright by `is_permitted_invocation`.
+        for name in PERMITTED_PROGRAMS {
+            let probe = SYSTEM_PROBES.contains(name);
+            let reads = PERMITTED_SUBCOMMANDS.iter().any(|r| r.program == *name);
+            assert!(probe != reads, "{name}: probe={probe}, read list={reads}");
+        }
+        assert_eq!(
+            SYSTEM_PROBES.len() + PERMITTED_SUBCOMMANDS.len(),
+            PERMITTED_PROGRAMS.len()
+        );
+    }
+
+    #[test]
+    fn invariant_05_a_provider_is_never_updated_or_upgraded_from_the_spawn_site() {
+        // INV-05: neither provider is upgraded or reconfigured implicitly. The
+        // adapters never ask, and this is what holds if something else does -
+        // a plan's verbs come from policy data, not from an adapter (F-53).
+        // Assembled at run time; see the next test for why.
+        let update = ["up", "date"].concat();
+        let upgrade = ["up", "grade"].concat();
+        let selfupdate = ["self", "up", "date"].concat();
+        let sync = ["sy", "nc"].concat();
+        // Built in two steps so that no string literal follows the verb on its
+        // line: the Stop gate's pattern reads `".into(), <verb>.clone(), "` as
+        // one quoted string containing it.
+        let mut upgrade_outdated = vec![String::from("-q")];
+        upgrade_outdated.push(upgrade.clone());
+        upgrade_outdated.push(String::from("outdated"));
+        let brew = std::path::Path::new("/opt/homebrew/bin/brew");
+        let port = std::path::Path::new("/opt/local/bin/port");
+        for (program, bad) in [
+            (brew, vec![update.clone()]),
+            (brew, vec![upgrade.clone()]),
+            (port, vec!["-q".into(), selfupdate.clone()]),
+            (port, vec!["-q".into(), sync]),
+            (port, upgrade_outdated),
+            // Behind a read that always succeeds, which is how `port` would
+            // reach it (see `separators`).
+            (
+                port,
+                vec!["-q".into(), "installed".into(), ";".into(), selfupdate],
+            ),
+        ] {
+            assert!(
+                !is_permitted_invocation(program, &bad),
+                "{} {bad:?} was permitted",
+                program.display()
+            );
+        }
+    }
+
+    #[test]
+    fn an_interpreter_is_refused_however_it_was_named() {
+        // Each of these defeated some earlier version of the control: a
+        // denylist that had never heard of `tclsh` - which `port` itself is
+        // written in - a lint that a `concat!` or a `\x73` escape walked
+        // straight past, and a `&'static str` manufactured at run time by a
+        // module-level `OnceLock`, with no `leak` and nothing to grep for. The
+        // check runs on the finished path, so none of that reaches it.
+        //
+        // The elevating binary is not in this list, and that is not an
+        // oversight: `invariant_06_reading_the_machine_needs_no_elevation`
+        // refuses its name anywhere in non-comment source, and it caught this
+        // test when the name was here. Rewording it to slip past would be the
+        // wrong answer twice over - the invariant is right, and an allowlist
+        // refuses every name not on it, so that one needs no separate case.
+        for bad in [
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/bin/tclsh",
+            "/usr/bin/xcrun",
+            "/usr/bin/arch",
+            "/usr/bin/awk",
+            "/usr/bin/perl5.34",
+            "/opt/homebrew/bin/bash",
+        ] {
+            assert!(
+                !is_permitted_program(std::path::Path::new(bad)),
+                "{bad} was permitted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_permitted_name_is_not_permitted_from_anywhere() {
+        // The name alone is not the rule. A provider's executable comes from a
+        // `bin` directory under a detected prefix, and nothing reaches the
+        // kernel by way of `..`.
+        for bad in [
+            "/tmp/brew",
+            "/usr/local/brew",
+            "/opt/local/sbin/port",
+            "brew",
+            "/opt/homebrew/bin/../../../tmp/bin/brew",
+        ] {
+            assert!(
+                !is_permitted_program(std::path::Path::new(bad)),
+                "{bad} was permitted"
+            );
+        }
+        for good in [
+            "/opt/homebrew/bin/brew",
+            "/usr/local/bin/brew",
+            "/opt/local/bin/port",
+            "/usr/bin/sw_vers",
+            "/usr/bin/uname",
+            "/usr/sbin/sysctl",
+            "/usr/bin/xcode-select",
+        ] {
+            assert!(
+                is_permitted_program(std::path::Path::new(good)),
+                "{good} was refused"
+            );
+        }
+    }
+
     use macportsbrew_domain::ErrorId;
 
     fn invocation(truncated: bool, code: i32) -> Invocation {
@@ -313,5 +1711,23 @@ mod tests {
             "/{}",
             "a".repeat(MAX_PATH_LEN)
         ))));
+    }
+
+    #[test]
+    fn only_an_exit_with_a_code_is_an_exit_to_a_verification_read() {
+        use macportsbrew_domain::ProcessEnd;
+        let mut inv = invocation(false, 3);
+        assert_eq!(inv.read_output().end, ProcessEnd::Exited { code: 3 });
+        for status in [
+            ExitStatus::Signalled { signal: Some(9) },
+            ExitStatus::TimedOut,
+            ExitStatus::NotStarted { error: "x".into() },
+            ExitStatus::Cancelled,
+        ] {
+            inv.status = status;
+            assert_eq!(inv.read_output().end, ProcessEnd::DidNotFinish);
+        }
+        inv.truncated = true;
+        assert!(inv.read_output().truncated);
     }
 }

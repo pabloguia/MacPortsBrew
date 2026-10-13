@@ -14,15 +14,29 @@ reports.
 
 ## What MacPortsBrew tells you
 
-`macportsbrew analyze` has an **Availability** column:
+`macportsbrew analyze` has an **Availability** column. Four rows replayed from
+the committed Intel recording with Homebrew only
+(`--replay fixtures/recordings/homebrew-only-intel-macos26.json analyze`; `…`
+marks rows left out):
 
 ```
-Package     Availability
-git         Prebuilt
-gh          Builds from source (no prebuilt artifact for this machine)
-gnutls      Builds from source (non-default options were requested)
-gemini-cli  Deprecated
-gimp        Unknown
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+gemini-cli          homebrew    0.46.0       Requested  Deprecated                                                  Simple              Needs a human decision
+gh                  homebrew    2.98.0       Requested  Builds from source (no prebuilt artifact for this machine)  Simple              Nothing to do
+gimp                homebrew    3.2.4        Unknown    Unknown                                                     Application         Needs a human decision
+git                 homebrew    2.55.0       Requested  Prebuilt                                                    Simple              Nothing to do
+…
+```
+
+and one from the committed recording with MacPorts only
+(`--replay fixtures/recordings/macports-only-intel-macos12.json analyze`):
+
+```
+Package              Provider    Version      Ownership  Availability                                             Class       Recommendation
+…
+gnutls               macports    3.8.4        Requested  Builds from source (non-default options were requested)  Simple      Nothing to do
+…
 ```
 
 The states, and what each actually means:
@@ -56,9 +70,11 @@ reporting a confident "no". A policy rule then treats the unknown as a reason
 for a human to look — never as a reason to act. You will see this in a plan as:
 
 ```
-- Whether homebrew would supply postgresql17-server ready-built or compile it
-  here could not be determined. An unknown is not a yes.
+  - Whether macports would supply postgresql17-server ready-built or compile it here could not be determined. An unknown is not a yes.
 ```
+
+(From `plan postgresql17-server --to macports`, replayed from the committed
+Apple Silicon recording.)
 
 ## Homebrew bottle tags, if you want the detail
 
@@ -69,19 +85,27 @@ platform-independent
 ([`../docs/research/R-2-homebrew-artifact-availability.md`](../docs/research/R-2-homebrew-artifact-availability.md),
 2026-09-02, from Homebrew's own source).
 
-There is **no `brew` subcommand that prints the tag.** MacPortsBrew detects it
-from Homebrew's own API cache filename, which is capability detection rather
-than a version table it would have to maintain.
+There is **no `brew` subcommand that prints the tag.** Every mention of one in
+`brew`'s manual page is a flag that *takes* a tag — `--bottle-tag <tag>`,
+`--tag <tag>` — and none prints the current one (Homebrew 6.0.21, `man brew`,
+read 2026-09-04). MacPortsBrew detects it from Homebrew's own API cache
+filename, which is capability detection rather than a version table it would
+have to maintain.
 
 Homebrew also has a documented **older-macOS fallback**: a bottle for an older
-macOS with the same architecture is accepted on a newer one. This is why Intel
+macOS with the same architecture is accepted on a newer one
+([`R-2`](../docs/research/R-2-homebrew-artifact-availability.md) §E4, read
+2026-09-02). This is why Intel
 machines on macOS 26 still install `sonoma` bottles and why Intel coverage has
 not visibly collapsed despite the tier — see
 [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md).
 
 One thing worth knowing if you have read it elsewhere:
-**`HOMEBREW_BUILD_FROM_SOURCE` does not exist.** It is absent from Homebrew's
-tree and from the 6.0.21 manual page, and setting it changes nothing. The real
+**`HOMEBREW_BUILD_FROM_SOURCE` does not exist.** Zero occurrences in the shipped
+`Library/Homebrew` tree and zero in the manual page (Homebrew 6.0.21, read
+2026-09-04), so setting it changes nothing. This is a negative claim and it is
+the one on this page most worth re-checking: an environment variable can be
+added in a release. The real
 switches are per-invocation flags — `--build-from-source`, `--build-bottle`,
 `--interactive`, `--cc`, `--HEAD`, and any `--with-*`/`--without-*` option.
 
@@ -99,7 +123,9 @@ as "Builds from source (non-default options were requested)", which is a
 different situation from "no artifact exists" and is reported as such.
 
 Licence restrictions are the other common cause: some ports cannot be
-distributed prebuilt and must be compiled locally.
+distributed prebuilt and must be compiled locally
+([`R-4`](../docs/research/R-4-macports-binary-archives.md) §E-6, read
+2026-09-02).
 
 ## If you need to compile
 
@@ -110,8 +136,10 @@ Both providers need Apple's **Command Line Tools** to build from source.
 [OK] Command Line Tools are installed.
 ```
 
-If they are missing, that becomes a warning, because both providers need them
-and neither will say so clearly until a build fails.
+If they are missing, that becomes a warning. Homebrew lists the Command Line Tools (or Xcode) among its requirements
+(<https://docs.brew.sh/Installation>, read 2026-09-02), and a MacPorts source
+build compiles with the same Apple tools. A missing installation may not be
+obvious until a build fails.
 
 ## How this affects recommendations
 

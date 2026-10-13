@@ -6,7 +6,7 @@
 use crate::analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 use crate::facts::{package_facts, PackageInputs};
 use crate::report::PackageReport;
-use macportsbrew_domain::{DomainError, ErrorId, Snapshot};
+use macportsbrew_domain::{DomainError, Snapshot};
 use macportsbrew_policy::{explain, Derivation, Facts, PolicyData};
 use serde::{Deserialize, Serialize};
 
@@ -36,17 +36,12 @@ pub fn explain_package(
         only: [name.to_string()].into_iter().collect(),
         ..options.clone()
     };
+    // `Snapshot` here is not a claim about where the input came from: only
+    // the package report is read, and the analysis's own provenance and
+    // concurrency flag are never shown. A caller that needs either takes it
+    // from its own `AnalysisSource` (spec-guardian, 2026-10-03).
     let analysis: Analysis = analyze(snapshot, policy, &opts, AnalysisSource::Snapshot);
-    let unit = analysis
-        .packages
-        .into_iter()
-        .find(|p| p.name == name || p.rows.values().any(|r| r.name == name))
-        .ok_or_else(|| {
-            DomainError::new(
-                ErrorId::PackageNotFound,
-                format!("{name} is not installed under any detected provider"),
-            )
-        })?;
+    let unit = crate::planner::select_unit(&analysis.packages, name)?.clone();
     let source_row = &unit.rows[&unit.source];
     let installed_version = source_row
         .installed
@@ -64,7 +59,6 @@ pub fn explain_package(
             ownership: source_row.ownership,
             classes: &unit.class,
             installed_version,
-            reverse_dependency_count: source_row.reverse_dependency_count,
             mappings: &unit.mappings,
         },
     );

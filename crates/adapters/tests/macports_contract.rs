@@ -9,11 +9,12 @@
 //! observed bytes. Each fixture says so in its provenance, and this file
 //! asserts that it does.
 
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::macports::{
     archive_query_url, availability, service, MacPortsAdapter, ARCHIVE_QUERY_URL_FORMAT,
     PROVIDER_ID, REQUESTED_MECHANISM, REVERSE_DEPENDENCY_MECHANISM,
 };
-use macportsbrew_adapters::process::{Recording, ReplayRunner};
+use macportsbrew_adapters::process::{sanitised_environment, Recording, ReplayRunner};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::ownership::classify_ownership;
 use macportsbrew_domain::{
@@ -21,7 +22,7 @@ use macportsbrew_domain::{
     Machine, MacosVersion, Ownership, PackageIdentity, ProviderId, ProviderInventory,
     ProviderPresence, ProviderRead, Translation,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const MACPORTS_FIXTURE: &str = "macports-only-intel-macos12";
@@ -44,8 +45,13 @@ fn fixture_text(name: &str) -> String {
 
 fn adapter(name: &str) -> MacPortsAdapter<ReplayRunner> {
     let recording = Recording::from_json(&fixture_text(name)).expect("fixture parses");
-    MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX))
-        .with_machine(machine())
+    MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        None,
+        FilesystemScope::Elsewhere,
+    )
+    .with_machine(machine())
 }
 
 fn machine() -> Machine {
@@ -421,8 +427,13 @@ fn capabilities_are_detected_not_assumed() {
     assert!(capabilities.has(Capability::ReverseDependencies));
     assert!(capabilities.has(Capability::OfflineMetadata));
     assert!(capabilities.has(Capability::FileOwnership));
-    assert!(capabilities.has(Capability::DeprecationState));
     assert!(capabilities.has(Capability::MachineReadableInventory));
+    // Only `replaced_by` is read; `obsolete` never is, so the deprecation
+    // state is unprobed and is reported as unknown, never as available.
+    assert_eq!(
+        capabilities.capabilities[&Capability::DeprecationState],
+        CapabilityState::Unknown
+    );
     // R-4 Finding 9 again, as a capability rather than as a state.
     assert_eq!(
         capabilities.capabilities[&Capability::ArtifactAvailability],
@@ -538,6 +549,41 @@ fn paths_outside_the_prefix_are_system_or_unknown_never_another_provider() {
     );
 }
 
+#[test]
+fn a_link_that_cannot_be_followed_on_this_machine_is_unknown_not_macports() {
+    // A scratch prefix on this host's disk. `<prefix>/bin/broken` is a
+    // dangling symlink: it may point anywhere, so the path as written is no
+    // evidence that MacPorts owns what runs.
+    let root = std::fs::canonicalize(macports_prefix("dangling-bin")).unwrap();
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::os::unix::fs::symlink(root.join("nowhere"), root.join("bin/broken")).unwrap();
+    std::fs::write(root.join("bin/present"), "#!/bin/sh\n").unwrap();
+    let adapter = adapter_on_disk(&root, &[]);
+
+    let broken = adapter.resolution(&root.join("bin/broken")).unwrap();
+    assert_eq!(broken.owner, macportsbrew_domain::ExecutableOwner::Unknown);
+    assert!(!broken.authoritative);
+    assert_eq!(broken.canonical_path, None);
+    assert_eq!(broken.path, Some(root.join("bin/broken")));
+    assert!(
+        adapter
+            .runner()
+            .consulted()
+            .iter()
+            .all(|c| !c.contains("provides")),
+        "a path that was not resolved is never asked about"
+    );
+
+    // The control: a file that does resolve under the prefix is still the
+    // provider's, so the refusal above is about the broken link alone.
+    let present = adapter.resolution(&root.join("bin/present")).unwrap();
+    assert!(matches!(
+        present.owner,
+        macportsbrew_domain::ExecutableOwner::Provider { .. }
+    ));
+    std::fs::remove_dir_all(&root).ok();
+}
+
 // -- the command set -------------------------------------------------------
 
 #[test]
@@ -586,7 +632,12 @@ fn an_installed_line_without_a_version_tuple_fails_loudly() {
     let broken = fixture_text(MACPORTS_FIXTURE)
         .replace("wget @1.25.0_1+gnutls (active)", "wget 1.25.0_1 (active)");
     let recording = Recording::from_json(&broken).unwrap();
-    let adapter = MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX));
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        None,
+        FilesystemScope::Elsewhere,
+    );
     let error = adapter.inventory().unwrap_err();
     assert_eq!(error.id, ErrorId::ProviderOutputChanged);
     assert!(error.detail.contains("wget"));
@@ -602,7 +653,12 @@ fn an_installed_listing_that_disagrees_with_the_active_set_fails_loudly() {
         "  wget @1.25.0_1+gnutls",
     );
     let recording = Recording::from_json(&broken).unwrap();
-    let adapter = MacPortsAdapter::new(ReplayRunner::new(recording), PathBuf::from(PREFIX));
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        PathBuf::from(PREFIX),
+        None,
+        FilesystemScope::Elsewhere,
+    );
     let error = adapter.inventory().unwrap_err();
     assert_eq!(error.id, ErrorId::ProviderOutputChanged);
     assert!(error.detail.contains("wget"));
@@ -630,34 +686,194 @@ fn the_inventory_serialises_identically_twice_and_across_adapters() {
 
 // -- service detection -----------------------------------------------------
 
-#[test]
-fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
-    // R-8 E-7: a StartupItem writes
-    // ${prefix}/etc/LaunchDaemons/org.macports.<name>/org.macports.<name>.plist.
+/// A scratch MacPorts prefix: `etc/macports` and nothing else.
+fn macports_prefix(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "macportsbrew-service-{}-{:?}",
+        "macportsbrew-service-{tag}-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ));
-    let daemons = root.join("etc/LaunchDaemons");
-    let entry = daemons.join("org.macports.nginx");
-    std::fs::create_dir_all(&entry).unwrap();
-    std::fs::write(entry.join("org.macports.nginx.plist"), "<plist/>").unwrap();
-    // A directory with no plist is not a service.
-    std::fs::create_dir_all(daemons.join("org.macports.leftover")).unwrap();
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::create_dir_all(root.join("etc/macports")).unwrap();
+    root
+}
 
-    let scan = service::scan(&root);
+/// A default-named StartupItem for `port` under `location`.
+fn item(root: &Path, location: &str, port: &str) {
+    let dir = root.join(location).join(format!("org.macports.{port}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("org.macports.{port}.plist")), "<plist/>").unwrap();
+}
+
+fn active(names: &[&str]) -> BTreeMap<String, bool> {
+    names.iter().map(|n| ((*n).to_string(), true)).collect()
+}
+
+/// A change made to a scratch prefix before scanning it.
+type TreeChange = Box<dyn Fn(&Path)>;
+
+fn scan_of(root: &Path, installed: &BTreeMap<String, bool>) -> service::ServiceScan {
+    service::scan(
+        root,
+        FilesystemScope::ThisMachine,
+        installed,
+        &registry_agrees,
+    )
+}
+
+/// A registry that names each item's port after the item itself, as MacPorts'
+/// does for a port that keeps the default `startupitem.name`.
+fn registry_agrees(plist: &Path) -> Option<String> {
+    let file = plist.file_name()?.to_str()?;
+    Some(
+        file.strip_prefix("org.macports.")?
+            .strip_suffix(".plist")?
+            .to_string(),
+    )
+}
+
+#[test]
+fn a_service_is_detected_from_the_launch_machinery_inside_the_prefix() {
+    // R-8 E-7; portstartupitem.tcl 2.12.6: an item is
+    // ${prefix}/etc/<location>/org.macports.<name>/org.macports.<name>.plist,
+    // under LaunchDaemons or LaunchAgents.
+    let root = macports_prefix("detected");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    item(&root, "etc/LaunchAgents", "syncthing");
+    let scan = scan_of(&root, &active(&["nginx", "syncthing", "wget"]));
     assert!(scan.is_known());
     assert!(scan.defines_service("nginx"));
-    assert!(!scan.defines_service("leftover"));
+    assert!(
+        scan.defines_service("syncthing"),
+        "a LaunchAgents item is a service"
+    );
     assert!(!scan.defines_service("wget"));
+    std::fs::remove_dir_all(&root).ok();
+}
 
+#[test]
+fn a_prefix_with_no_startup_item_is_known_to_define_none() {
+    // The ordinary install: no port has an item, so neither location exists.
+    // Before pass 08 slice 3 this was "unknown", which made MacPorts unplannable
+    // as a source on every such machine.
+    let root = macports_prefix("none");
+    let scan = scan_of(&root, &active(&["jq", "htop"]));
+    assert_eq!(scan, service::ServiceScan::Scanned(BTreeSet::new()));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn invariant_19_a_service_under_a_custom_uniquename_is_never_reported_serviceless() {
+    // dbus's Portfile names its items org.freedesktop.dbus-system and
+    // org.freedesktop.dbus-session; nothing ties them to a port by name, so the
+    // whole answer is unknown rather than "dbus defines none".
+    let root = macports_prefix("custom-uniquename");
+    let dir = root.join("etc/LaunchDaemons/org.freedesktop.dbus-system");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("org.freedesktop.dbus-system.plist"), "<plist/>").unwrap();
+    let scan = scan_of(&root, &active(&["dbus"]));
+    assert!(!scan.is_known());
+    assert!(!scan.defines_service("dbus"));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn anything_the_scan_cannot_attribute_makes_the_answer_unknown() {
+    let cases: Vec<(&str, TreeChange)> = vec![
+        (
+            "a directory without its plist",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("etc/LaunchDaemons/org.macports.nginx")).unwrap();
+            }),
+        ),
+        (
+            "a plist renamed inside its directory",
+            Box::new(|r: &Path| {
+                let d = r.join("etc/LaunchDaemons/org.macports.nginx");
+                std::fs::create_dir_all(&d).unwrap();
+                std::fs::write(d.join("nginx.plist"), "<plist/>").unwrap();
+            }),
+        ),
+        (
+            "a stray plist in the location",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("etc/LaunchAgents")).unwrap();
+                std::fs::write(r.join("etc/LaunchAgents/stray.plist"), "<plist/>").unwrap();
+            }),
+        ),
+        (
+            "an item for a port that is not installed",
+            Box::new(|r: &Path| {
+                item(r, "etc/LaunchDaemons", "postgresql17-server");
+            }),
+        ),
+        (
+            "a location that is a symbolic reference",
+            Box::new(|r: &Path| {
+                std::fs::create_dir_all(r.join("elsewhere")).unwrap();
+                std::os::unix::fs::symlink(r.join("elsewhere"), r.join("etc/LaunchDaemons"))
+                    .unwrap();
+            }),
+        ),
+        (
+            "a location that is a dangling symbolic reference",
+            Box::new(|r: &Path| {
+                std::os::unix::fs::symlink(r.join("nowhere"), r.join("etc/LaunchAgents")).unwrap();
+            }),
+        ),
+        (
+            "a location that is a file",
+            Box::new(|r: &Path| {
+                std::fs::write(r.join("etc/LaunchDaemons"), "x").unwrap();
+            }),
+        ),
+    ];
+    for (what, make) in cases {
+        let root = macports_prefix("unattributable");
+        make(&root);
+        let scan = scan_of(&root, &active(&["nginx", "jq"]));
+        assert!(!scan.is_known(), "{what} was read as a known answer");
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[test]
+fn invariant_19_an_inactive_service_port_is_not_reported_as_serviceless() {
+    // Deactivation deletes the item directory, so with an inactive port the
+    // absent location proves nothing about it.
+    let root = macports_prefix("inactive");
+    let mut installed = active(&["jq"]);
+    installed.insert("postgresql17-server".to_string(), false);
+    assert!(!scan_of(&root, &installed).is_known());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_macports_directory_that_is_a_symbolic_reference_is_not_a_prefix() {
+    let root = macports_prefix("symlinked-etc-macports");
+    std::fs::remove_dir_all(root.join("etc/macports")).unwrap();
+    std::fs::create_dir_all(root.join("real")).unwrap();
+    std::os::unix::fs::symlink(root.join("real"), root.join("etc/macports")).unwrap();
+    assert!(!scan_of(&root, &active(&["jq"])).is_known());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_tree_that_is_not_a_macports_prefix_is_unknown_not_empty() {
+    let root = macports_prefix("not-macports");
+    std::fs::remove_dir_all(root.join("etc/macports")).unwrap();
+    assert!(!scan_of(&root, &active(&["jq"])).is_known());
     std::fs::remove_dir_all(&root).ok();
 }
 
 #[test]
 fn an_unreadable_service_directory_is_unknown_not_empty() {
-    let scan = service::scan(Path::new("/opt/local-that-does-not-exist"));
+    let scan = service::scan(
+        Path::new("/opt/local-that-does-not-exist"),
+        FilesystemScope::ThisMachine,
+        &active(&["nginx"]),
+        &registry_agrees,
+    );
     assert!(!scan.is_known());
     assert!(!scan.defines_service("nginx"));
 }
@@ -667,14 +883,17 @@ fn an_unreadable_service_directory_is_unknown_not_empty() {
 #[test]
 fn prefix_discovery_looks_for_the_executable_under_each_candidate() {
     assert_eq!(
-        MacPortsAdapter::<ReplayRunner>::detect_prefix(&[
-            PathBuf::from("/opt/local-that-does-not-exist"),
-            PathBuf::from("/another-that-does-not-exist"),
-        ]),
+        MacPortsAdapter::<ReplayRunner>::detect_prefix(
+            &[
+                PathBuf::from("/opt/local-that-does-not-exist"),
+                PathBuf::from("/another-that-does-not-exist"),
+            ],
+            FilesystemScope::ThisMachine,
+        ),
         None
     );
     assert_eq!(
-        MacPortsAdapter::<ReplayRunner>::default_candidates(),
+        macportsbrew_adapters::registry::candidate_prefixes(&ProviderId::new("macports")),
         vec![PathBuf::from(PREFIX)]
     );
 }
@@ -689,4 +908,217 @@ fn a_variant_set_alone_does_not_prove_a_source_build() {
     assert!(availability::forced_source_build(&universal).is_some());
     let negated: BTreeSet<String> = ["-x11".to_string()].into_iter().collect();
     assert!(availability::forced_source_build(&negated).is_some());
+}
+
+#[test]
+fn the_environment_carries_home_because_port_cannot_start_without_it() {
+    // F-37, and the most expensive assumption in this adapter's history.
+    //
+    // `environment()` used to hardcode `home: None`, reasoning that "no read
+    // here is documented to need it". `port` runs `mportinit` before any
+    // subcommand, and `mportinit` resolves the user's home through
+    // `dscl . -read /Users/$(id -un) NFSHomeDirectory`. With no `HOME` that
+    // pipeline fails and **every** `port` invocation exits 1 — so live
+    // detection reported a healthy MacPorts 2.12.6 as `Broken`, and had done
+    // since the adapter was written. Nothing caught it because no test and no
+    // fixture ever ran the real binary under the real executor environment:
+    // `scripts/capture-fixture.sh` sets `HOME`, so recordings show a MacPorts
+    // that works and the live path could not reproduce them.
+    //
+    // Asserted on the *sanitised environment*, not on the spec field, because
+    // the defect is what reaches the process. `EnvironmentSpec::home` being
+    // `Some` is worth nothing if `sanitised_environment` drops it.
+    let with_home = MacPortsAdapter::new(
+        ReplayRunner::new(
+            Recording::from_json(&fixture_text("macports-only-intel-macos12"))
+                .expect("fixture parses"),
+        ),
+        PathBuf::from(PREFIX),
+        Some(PathBuf::from("/Users/example")),
+        FilesystemScope::Elsewhere,
+    );
+    let env = sanitised_environment(&with_home.environment());
+    assert_eq!(
+        env.get("HOME").map(String::as_str),
+        Some("/Users/example"),
+        "port cannot initialise without HOME, so the environment must carry it: {env:?}"
+    );
+
+    // And the replay case, which is the reason the field is an `Option` at all:
+    // under replay nothing is executed and there is no user whose home it would
+    // be, so omitting it is correct rather than a smaller version of the bug.
+    let replayed = MacPortsAdapter::new(
+        ReplayRunner::new(
+            Recording::from_json(&fixture_text("macports-only-intel-macos12"))
+                .expect("fixture parses"),
+        ),
+        PathBuf::from(PREFIX),
+        None,
+        FilesystemScope::Elsewhere,
+    );
+    assert!(
+        !sanitised_environment(&replayed.environment()).contains_key("HOME"),
+        "with no home known, HOME is omitted rather than invented"
+    );
+}
+
+/// The MacPorts fixture's adapter, reading a scratch prefix on this host's
+/// disk, with `port -q provides <plist>` answering `owner` for each `item`.
+fn adapter_on_disk(root: &Path, items: &[(&str, &str, &str)]) -> MacPortsAdapter<ReplayRunner> {
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&fixture_text(MACPORTS_FIXTURE)).expect("fixture JSON");
+    let invocations = doc["invocations"].as_array_mut().expect("invocations");
+    let template = invocations
+        .iter()
+        .find(|i| i["argv"][1] == "provides")
+        .expect("the fixture records a provides read")
+        .clone();
+    for (location, item_name, owner) in items {
+        let plist = root
+            .join(location)
+            .join(format!("org.macports.{item_name}"))
+            .join(format!("org.macports.{item_name}.plist"));
+        let plist = plist.to_str().expect("UTF-8");
+        let mut invocation = template.clone();
+        invocation["argv"] = serde_json::json!(["-q", "provides", plist]);
+        invocation["stdout"] = serde_json::json!(format!("{plist} is provided by: {owner}\n"));
+        invocations.push(invocation);
+    }
+    let recording = Recording::from_json(&doc.to_string()).expect("recording");
+    MacPortsAdapter::new(
+        ReplayRunner::new(recording),
+        root.to_path_buf(),
+        None,
+        FilesystemScope::ThisMachine,
+    )
+}
+
+fn service_capability(adapter: &MacPortsAdapter<ReplayRunner>) -> CapabilityState {
+    adapter
+        .capabilities()
+        .unwrap()
+        .capabilities
+        .get(&Capability::ServiceMetadata)
+        .cloned()
+        .expect("the capability is reported")
+}
+
+fn defines_service(adapter: &MacPortsAdapter<ReplayRunner>, name: &str) -> bool {
+    adapter
+        .inventory()
+        .unwrap()
+        .metadata
+        .get(name)
+        .is_some_and(|m| m.defines_service)
+}
+
+#[test]
+fn invariant_19_an_item_is_attributed_to_the_port_the_registry_names() {
+    // A subport may set `startupitem.name` to its parent's name: `mysql5-server`
+    // writes `org.macports.mysql5`, and `mysql5` is installed beside it. The
+    // item's name alone would make the client the service and the server not
+    // one, so the scan asks the registry who installed the plist (security
+    // review, pass 08 slice 3, M1). Here `org.macports.nginx` is owned by
+    // `wget`: wget is the service, nginx is not.
+    let root = macports_prefix("registry-owner");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    let adapter = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "wget")]);
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "wget"));
+    assert!(!defines_service(&adapter, "nginx"));
+
+    // A port may name its item outside `org.macports.` (`dbus`'s
+    // `org.freedesktop.dbus-system`): the registry still attributes it.
+    let named = macports_prefix("registry-named");
+    let dir = named.join("etc/LaunchAgents/org.freedesktop.agent");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("org.freedesktop.agent.plist"), "<plist/>").unwrap();
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&fixture_text(MACPORTS_FIXTURE)).expect("fixture JSON");
+    let invocations = doc["invocations"].as_array_mut().expect("invocations");
+    let mut answer = invocations
+        .iter()
+        .find(|i| i["argv"][1] == "provides")
+        .expect("a provides read")
+        .clone();
+    let plist = dir.join("org.freedesktop.agent.plist");
+    let plist = plist.to_str().expect("UTF-8");
+    answer["argv"] = serde_json::json!(["-q", "provides", plist]);
+    answer["stdout"] = serde_json::json!(format!("{plist} is provided by: postgresql17-server\n"));
+    invocations.push(answer);
+    let adapter = MacPortsAdapter::new(
+        ReplayRunner::new(Recording::from_json(&doc.to_string()).expect("recording")),
+        named.clone(),
+        None,
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "postgresql17-server"));
+
+    // The registry names a port that is not installed, or cannot say: unknown.
+    let stranger = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "mysql5")]);
+    assert_eq!(service_capability(&stranger), CapabilityState::Unknown);
+    let silent = adapter_on_disk(&root, &[]);
+    assert_eq!(service_capability(&silent), CapabilityState::Unknown);
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::remove_dir_all(&named).ok();
+}
+
+#[test]
+fn the_service_capability_comes_from_the_scan_the_metadata_came_from() {
+    // One scan per capture: the capability is read from the scan that built
+    // the inventory, so a change between two scans cannot leave "known"
+    // beside per-package answers from an unknown scan (security review and
+    // spec-guardian, pass 08 slice 3, M2).
+    let root = macports_prefix("one-scan");
+    item(&root, "etc/LaunchDaemons", "nginx");
+    let adapter = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "nginx")]);
+    assert!(defines_service(&adapter, "nginx"));
+    // The tree changes after the inventory was built: a stray entry that a
+    // second scan would refuse to attribute.
+    std::fs::create_dir_all(root.join("etc/LaunchDaemons/org.example.stray")).unwrap();
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+    assert!(defines_service(&adapter, "nginx"));
+
+    // And the other order: an inventory built over the stray entry is unknown
+    // throughout, its capability included.
+    let fresh = adapter_on_disk(&root, &[("etc/LaunchDaemons", "nginx", "nginx")]);
+    assert!(!defines_service(&fresh, "nginx"));
+    assert_eq!(service_capability(&fresh), CapabilityState::Unknown);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn an_adapter_reports_every_candidate_prefix_that_holds_its_executable() {
+    use macportsbrew_domain::Installations;
+    let root = macports_prefix("installations");
+    let (a, b, empty) = (root.join("a"), root.join("b"), root.join("empty"));
+    for prefix in [&a, &b] {
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::write(prefix.join("bin/port"), "").unwrap();
+    }
+    std::fs::create_dir_all(&empty).unwrap();
+    let candidates = vec![a.clone(), empty, b];
+    let recording = || Recording::from_json(&fixture_text(MACPORTS_FIXTURE)).expect("fixture");
+    let build = |scope| {
+        MacPortsAdapter::new(ReplayRunner::new(recording()), a.clone(), None, scope)
+            .with_installation_candidates(candidates.clone())
+    };
+
+    assert_eq!(
+        build(FilesystemScope::ThisMachine).installations().count(),
+        Some(2)
+    );
+    assert_eq!(
+        build(FilesystemScope::Elsewhere).installations(),
+        Installations::Unknowable
+    );
+    let unsearched = MacPortsAdapter::new(
+        ReplayRunner::new(recording()),
+        a,
+        None,
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(unsearched.installations(), Installations::NotRecorded);
+    std::fs::remove_dir_all(&root).ok();
 }

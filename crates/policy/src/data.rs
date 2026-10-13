@@ -20,7 +20,7 @@ use macportsbrew_domain::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The six data files, as text. Separating the sources from the parser keeps
+/// The seven data files, as text. Separating the sources from the parser keeps
 /// the crate free of run-time I/O while still letting a test build a data set
 /// of its own — which is how the symmetry test (INV-17) gets two providers
 /// whose data is identical.
@@ -38,6 +38,8 @@ pub struct PolicySources<'a> {
     pub runtime_managers: &'a str,
     /// `curated-mappings.toml`.
     pub curated_mappings: &'a str,
+    /// `cross-provider-advice.toml`.
+    pub cross_provider_advice: &'a str,
 }
 
 /// The data files shipped with this build.
@@ -49,6 +51,7 @@ pub fn embedded_sources() -> PolicySources<'static> {
         stateful: include_str!("../../../data/policy/stateful-packages.toml"),
         runtime_managers: include_str!("../../../data/policy/runtime-managers.toml"),
         curated_mappings: include_str!("../../../data/policy/curated-mappings.toml"),
+        cross_provider_advice: include_str!("../../../data/policy/cross-provider-advice.toml"),
     }
 }
 
@@ -286,9 +289,77 @@ pub struct CuratedMapping {
     pub source: String,
     /// When, `YYYY-MM-DD`.
     pub read_on: String,
+    /// When the index the names were read from was itself last updated, if that
+    /// is older than `read_on` (a local checkout of a catalogue that was synced
+    /// earlier). Staleness is measured from this date, not from `read_on`: the
+    /// facts are as old as the index, whatever day somebody looked at it. For a
+    /// row that spans two indexes, the older of the two. Never later than
+    /// `read_on` (DP-043).
+    #[serde(default)]
+    pub index_as_of: Option<String>,
     /// Why a heuristic does not reach this pair.
     #[serde(default)]
     pub rationale: String,
+}
+
+/// How a provider's own tooling guards its builds against **another**
+/// provider's prefix. A closed vocabulary of stable identifiers, never prose:
+/// `doctor` renders each through the catalogue, so the sentence for one differs
+/// from the other's, and a third mechanism is a new variant, a catalogue entry
+/// and a data row - which the compiler and a test point at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildDefence {
+    /// The provider offers a trace mode that can prevent conflicts with other prefixes, but only when
+    /// asked to.
+    OptInTrace,
+    /// The provider's own build tooling builds in an environment whose `PATH`
+    /// it constructs itself, so the user's `PATH` is not an input by default.
+    DefaultCleanPath,
+}
+
+impl BuildDefence {
+    /// The stable identifier, as the data and the catalogue spell it.
+    #[must_use]
+    pub fn identifier(self) -> &'static str {
+        match self {
+            BuildDefence::OptInTrace => "opt_in_trace",
+            BuildDefence::DefaultCleanPath => "default_clean_path",
+        }
+    }
+
+    /// Every variant. The `match` has no wildcard, so a new variant is a
+    /// compile error here, and the length check in the tests then fails until
+    /// the array is extended too (the same chain `Capability::all` uses).
+    #[must_use]
+    pub fn all() -> &'static [BuildDefence] {
+        const ALL: &[BuildDefence] = &[BuildDefence::OptInTrace, BuildDefence::DefaultCleanPath];
+        match BuildDefence::OptInTrace {
+            BuildDefence::OptInTrace | BuildDefence::DefaultCleanPath => {}
+        }
+        ALL
+    }
+}
+
+/// What the data says about one provider as the **affected** side of a
+/// cross-provider contamination (`04-migration-and-safety.md`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrossProviderAdvice {
+    /// The provider whose builds and tools can be exposed to another's prefix.
+    pub provider: String,
+    /// How that provider guards its own builds.
+    pub build_defence: BuildDefence,
+    /// Where this was read.
+    pub source: String,
+    /// When, `YYYY-MM-DD`.
+    pub read_on: String,
+    /// When the source (a local checkout, say) was itself last updated, if
+    /// older than `read_on`; staleness measures from it (DP-043).
+    #[serde(default)]
+    pub index_as_of: Option<String>,
+    /// What the source said, in English.
+    #[serde(default)]
+    pub note: String,
 }
 
 // ---------------------------------------------------------------- file shapes
@@ -329,6 +400,12 @@ struct MappingFile {
     entry: Vec<CuratedMapping>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AdviceFile {
+    #[serde(default)]
+    entry: Vec<CrossProviderAdvice>,
+}
+
 // ---------------------------------------------------------------- the data set
 
 /// The whole policy data set, parsed and indexed.
@@ -342,6 +419,7 @@ pub struct PolicyData {
     stateful: Vec<StatefulFamily>,
     managers: Vec<RuntimeManager>,
     mappings: Vec<CuratedMapping>,
+    advice: Vec<CrossProviderAdvice>,
     equivalences: BTreeMap<(String, String, String), BTreeSet<String>>,
 }
 
@@ -360,6 +438,8 @@ impl PolicyData {
         let stateful: StatefulFile = parse(sources.stateful, "stateful-packages.toml")?;
         let managers: ManagerFile = parse(sources.runtime_managers, "runtime-managers.toml")?;
         let mappings: MappingFile = parse(sources.curated_mappings, "curated-mappings.toml")?;
+        let advice: AdviceFile =
+            parse(sources.cross_provider_advice, "cross-provider-advice.toml")?;
 
         let mut provenance: Vec<(&str, &str, &str)> = Vec::new();
         for e in &support.entry {
@@ -375,10 +455,29 @@ impl PolicyData {
             provenance.push((&m.id, &m.source, &m.read_on));
         }
         for m in &mappings.entry {
-            provenance.push((&m.destination_name, &m.source, &m.read_on));
+            // The date the row's facts are as old as: the index's own, when it
+            // gave one, else the day it was read (DP-043).
+            provenance.push((
+                &m.destination_name,
+                &m.source,
+                m.index_as_of.as_deref().unwrap_or(&m.read_on),
+            ));
+        }
+        for a in &advice.entry {
+            // The date the advice is as old as: the source's own, when it gave
+            // one, else the day it was read (DP-043).
+            provenance.push((
+                &a.provider,
+                &a.source,
+                a.index_as_of.as_deref().unwrap_or(&a.read_on),
+            ));
         }
         let newest = newest_provenance(&provenance)?;
+        check_advice(&advice.entry)?;
         check_support_bounds(&support.entry)?;
+        check_curated_names(&mappings.entry)?;
+        check_index_dates(&mappings.entry)?;
+        check_artifact_tags(&tags.tagset)?;
         let equivalences = index_equivalences(&mappings.entry);
 
         let mut support_entries = support.entry;
@@ -389,6 +488,8 @@ impl PolicyData {
         stateful_families.sort_by(|a, b| a.family.cmp(&b.family));
         let mut manager_entries = managers.entry;
         manager_entries.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut advice_entries = advice.entry;
+        advice_entries.sort_by(|a, b| a.provider.cmp(&b.provider));
         let mut mapping_entries = mappings.entry;
         mapping_entries.sort_by(|a, b| {
             (
@@ -414,6 +515,7 @@ impl PolicyData {
             stateful: stateful_families,
             managers: manager_entries,
             mappings: mapping_entries,
+            advice: advice_entries,
             equivalences,
         })
     }
@@ -428,7 +530,23 @@ impl PolicyData {
         self.stale_after_days
     }
 
-    /// The newest read date anywhere in the data set, `YYYY-MM-DD`.
+    /// The newest effective date across **the files this crate loads**,
+    /// `YYYY-MM-DD`: each row's `read_on`, or its `index_as_of` where it has one
+    /// (DP-043).
+    ///
+    /// Not the whole of `data/policy/`, and the distinction became visible on
+    /// 2026-09-19: `provider-commands.toml` is read by the application layer
+    /// and `provider-prefixes.toml` by the adapters (DP-014), so a read date
+    /// moving in either is invisible here. `policy.toml`'s `version` *does*
+    /// span the directory, so the two legitimately differ and a payload can
+    /// carry a `policyVersion` dated 2026-09-19 beside a `policyReadOn` of
+    /// 2026-09-04 (as it did when this was written).
+    ///
+    /// The narrower set is kept deliberately rather than widened. This value
+    /// drives the staleness notice, and the older date warns **earlier** — a
+    /// data set is as fresh as its stalest half, not its freshest. Widening it
+    /// would also mean this crate reading files it does not own, which is the
+    /// layering those files were placed by.
     pub fn newest_read_on(&self) -> &str {
         &self.newest_read_on
     }
@@ -441,6 +559,24 @@ impl PolicyData {
     pub fn is_stale(&self, today: &str) -> bool {
         days_between(&self.newest_read_on, today)
             .is_some_and(|days| days > i64::from(self.stale_after_days))
+    }
+
+    /// How `provider`'s own tooling guards its builds against another
+    /// provider's prefix, or `None` when the data says nothing about it.
+    ///
+    /// `None` is an answer and not a default: a caller must not turn it into
+    /// "protected" or "unprotected". The provider is a value handed in; nothing
+    /// here compares it to a literal (INV-17).
+    pub fn build_defence_of(&self, provider: &ProviderId) -> Option<BuildDefence> {
+        self.advice
+            .iter()
+            .find(|a| a.provider == provider.as_str())
+            .map(|a| a.build_defence)
+    }
+
+    /// Every cross-provider advice row, sorted by provider.
+    pub fn cross_provider_advice(&self) -> &[CrossProviderAdvice] {
+        &self.advice
     }
 
     /// Every support row, sorted by id.
@@ -575,6 +711,73 @@ fn newest_provenance(entries: &[(&str, &str, &str)]) -> Result<String, DomainErr
     Ok(newest)
 }
 
+/// Checks that a curated row's `read_on` is a date, and that its `index_as_of`,
+/// when given, is a date no later than `read_on` - an index cannot have been
+/// updated after it was read. Without this a typo would push the staleness
+/// measure into the future, which is the mistake this field exists to prevent.
+fn check_index_dates(entries: &[CuratedMapping]) -> Result<(), DomainError> {
+    for m in entries {
+        check_index_as_of(
+            &format!("curated row {} -> {}", m.source_name, m.destination_name),
+            &m.read_on,
+            m.index_as_of.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// The one rule for `index_as_of`, shared by every file that carries it: the
+/// row's `read_on` is a date, and `index_as_of`, when given, is a date no later
+/// than it. Compared trimmed, as `parse_date` reads them: a leading space sorts
+/// below every digit and would pass a raw comparison.
+fn check_index_as_of(
+    what: &str,
+    read_on: &str,
+    index_as_of: Option<&str>,
+) -> Result<(), DomainError> {
+    if parse_date(read_on).is_none() {
+        return Err(invalid(format!(
+            "{what} carries no usable read date: {read_on:?} (INV-20)"
+        )));
+    }
+    if let Some(as_of) = index_as_of {
+        if parse_date(as_of).is_none() || as_of.trim() > read_on.trim() {
+            return Err(invalid(format!(
+                "{what} has index_as_of {as_of:?}, which is not a date on or before its \
+                 read_on {read_on:?} (DP-043)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Checks the cross-provider advice rows: a safe provider id, one row per
+/// provider (two would make the answer depend on file order), and the dates by
+/// the same rule as every other file.
+fn check_advice(entries: &[CrossProviderAdvice]) -> Result<(), DomainError> {
+    let mut seen = BTreeSet::new();
+    for a in entries {
+        if !macportsbrew_domain::is_safe_provider_name(&a.provider) {
+            return Err(invalid(format!(
+                "cross-provider advice names provider {:?}, which is not a provider id",
+                a.provider
+            )));
+        }
+        if !seen.insert(a.provider.as_str()) {
+            return Err(invalid(format!(
+                "cross-provider advice has two rows for provider {}",
+                a.provider
+            )));
+        }
+        check_index_as_of(
+            &format!("cross-provider advice for {}", a.provider),
+            &a.read_on,
+            a.index_as_of.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
 /// Checks that every support row's architecture scope, macOS bounds and end
 /// date can be read, so that a typo is an error rather than a row that
 /// silently never matches.
@@ -639,6 +842,84 @@ fn index_equivalences(
     index
 }
 
+/// Every artifact tag is one component of a file name, not a path.
+///
+/// `artifact_tags_for` builds a tag by substituting a release name into a
+/// template, and the first tag reaches
+/// `homebrew::offline_index_path` as `packages.{tag}.jws.json`, joined onto the
+/// Homebrew cache directory. A `/` or a `..` in a template, a release name or the
+/// universal tag therefore walks out of that directory, and the result is
+/// `is_file()`-probed with its path quoted into a capability reason. Bounded -
+/// it needs a commit to this repository's own data, and replay answers `Unknown`
+/// without touching the filesystem - but that is the same threat model
+/// `check_curated_names` below is defending, so it is defended the same way.
+///
+/// The condition is stated directly rather than borrowed from a package-name
+/// predicate: what this value must be is one path component, and the check says
+/// so. Found by `security-reviewer` while reviewing that one (F-48).
+fn check_artifact_tags(sets: &[ArtifactTagSet]) -> Result<(), DomainError> {
+    let component = |what: &str, provider: &str, value: &str| {
+        if value.is_empty()
+            || value.len() > 64
+            || value.contains('/')
+            || value.contains('\\')
+            || value.contains("..")
+            // Every hostile class, not the control half a snapshot refuses: this
+            // is the repository's own data, never a name a machine reported, and
+            // it becomes a file name quoted into a capability reason, so there is
+            // no legitimate name to keep and nothing is lost by refusing a
+            // format character too (`macportsbrew_domain::text`).
+            || value.chars().any(macportsbrew_domain::is_hostile)
+        {
+            return Err(invalid(format!(
+                "artifact tag {what} {value:?} for {provider:?} is not a single file-name \
+                 component; it would build a path outside the provider's cache directory"
+            )));
+        }
+        Ok(())
+    };
+    for set in sets {
+        if let Some(universal) = &set.universal_tag {
+            component("universal_tag", &set.provider, universal)?;
+        }
+        for pattern in &set.pattern {
+            component("template", &set.provider, &pattern.template)?;
+        }
+        for release in &set.release {
+            component("release name", &set.provider, &release.name)?;
+        }
+    }
+    Ok(())
+}
+
+/// Every curated package name is one a provider could have reported.
+///
+/// A curated destination reaches `planner::command` without ever passing
+/// `Snapshot::check`, which only ever sees what a provider said. Until this
+/// existed, the sole gate on those names was the planner's own guard - and that
+/// guard answers `InputUnusable`, which tells the user to check their capture,
+/// snapshot or recording for a defect that would be in the build's own data
+/// (F-48). Refusing here puts the failure where the data is owned, says it is a
+/// build defect, and makes the planner's guard the second line it was already
+/// being described as.
+fn check_curated_names(entries: &[CuratedMapping]) -> Result<(), DomainError> {
+    for e in entries {
+        for (what, name) in [
+            ("source", &e.source_name),
+            ("destination", &e.destination_name),
+        ] {
+            if !macportsbrew_domain::is_safe_provider_name(name) {
+                return Err(invalid(format!(
+                    "curated mapping {:?}/{:?} names a {what} {name:?} that no provider \
+                     could have reported; it would be read as a flag or a path",
+                    e.source_provider, e.source_name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn invalid(detail: impl Into<String>) -> DomainError {
     DomainError::new(ErrorId::PolicyDataInvalid, detail)
 }
@@ -666,6 +947,14 @@ fn parse_date(raw: &str) -> Option<(i64, i64, i64)> {
     let raw = raw.trim();
     let bytes = raw.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    // Digits only: `parse` would otherwise accept a sign (`2026-+1-05`).
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
         return None;
     }
     let year: i64 = raw[0..4].parse().ok()?;
@@ -887,9 +1176,273 @@ mod tests {
         assert_eq!(days_between("2026-02-30", "2026-03-01"), None);
         assert_eq!(days_between("not a date", "2026-03-01"), None);
         assert_eq!(shift_date("nope", 1), None);
+        // A sign is not a digit, though `parse` would take it.
+        assert_eq!(days_between("2026-+1-05", "2026-03-01"), None);
+        assert_eq!(days_between("+026-01-05", "2026-03-01"), None);
         // A leap day: the arithmetic is calendar-correct, not 365-day.
         assert_eq!(days_between("2024-02-28", "2024-03-01"), Some(2));
         assert_eq!(days_between("2026-02-28", "2026-03-01"), Some(1));
+    }
+
+    /// F-48: an artifact tag becomes part of a file name, so it must be one
+    /// path component.
+    ///
+    /// `homebrew::offline_index_path` joins `packages.{tag}.jws.json` onto the
+    /// cache directory, so a `/` or a `..` anywhere in the template, a release
+    /// name or the universal tag walks out of it. Reachable only by committing
+    /// to this repository's own data — the same threat model as the curated
+    /// names below, defended the same way.
+    #[test]
+    fn an_artifact_tag_that_is_a_path_is_refused_where_the_data_lives() {
+        let tagset = |universal: &str, template: &str, release_name: &str| {
+            format!(
+                "[[tagset]]\nprovider=\"homebrew\"\nuniversal_tag=\"{universal}\"\n\
+                 older_compatible_same_architecture=true\nsource=\"s\"\n\
+                 read_on=\"2026-09-02\"\n\
+                 [[tagset.pattern]]\narchitecture=\"arm64\"\ntemplate=\"{template}\"\n\
+                 [[tagset.release]]\nmacos=\"26\"\nname=\"{release_name}\"\n"
+            )
+        };
+
+        let mut sources = embedded_sources();
+        let good = tagset("all", "arm64_{release}", "tahoe");
+        sources.artifact_tags = &good;
+        PolicyData::load_from(sources).expect("an ordinary tagset loads");
+
+        for (universal, template, release_name) in [
+            ("all", "../../../etc/{release}", "tahoe"),
+            ("all", "arm64_{release}", "../../../etc/passwd"),
+            ("../../../etc/passwd", "arm64_{release}", "tahoe"),
+            ("all", "a/b_{release}", "tahoe"),
+            ("", "arm64_{release}", "tahoe"),
+            // Any hostile class, not only the control half a snapshot refuses
+            // (`macportsbrew_domain::text`): TOML's own escapes, so the bytes
+            // reach the check as the characters.
+            ("a\\u001Bb", "arm64_{release}", "tahoe"),
+            ("a\\u200Bb", "arm64_{release}", "tahoe"),
+            ("all", "arm64_{release}", "ta\\u202Ehoe"),
+        ] {
+            let mut sources = embedded_sources();
+            let bad = tagset(universal, template, release_name);
+            sources.artifact_tags = &bad;
+            match PolicyData::load_from(sources) {
+                Ok(_) => panic!(
+                    "{universal:?} / {template:?} / {release_name:?} loaded; a tag that is a \
+                     path must be refused"
+                ),
+                Err(e) => {
+                    assert_eq!(e.id, ErrorId::PolicyDataInvalid);
+                    assert!(
+                        e.detail.contains("artifact tag"),
+                        "this must be the tag check: {}",
+                        e.detail
+                    );
+                }
+            }
+        }
+
+        // And the tags this build ships pass, or the check is too strict to keep.
+        PolicyData::load_embedded().expect("the shipped tag sets");
+    }
+
+    /// DP-043: a row read today from an index synced weeks ago is as old as the
+    /// index. The staleness date follows `index_as_of`, so adding such a row does
+    /// not make older facts look newer.
+    #[test]
+    fn a_curated_row_ages_from_its_index_not_from_the_day_it_was_read() {
+        let row = |extra: &str| {
+            format!(
+                "[[entry]]\nsource_provider=\"homebrew\"\nsource_name=\"wget\"\n\
+                 destination_provider=\"macports\"\ndestination_name=\"wget\"\n\
+                 confidence=\"EXACT\"\nsource=\"s\"\nread_on=\"2099-01-01\"\n{extra}"
+            )
+        };
+        let newest_with = |extra: &str| {
+            let mut sources = embedded_sources();
+            let text = row(extra);
+            sources.curated_mappings = &text;
+            PolicyData::load_from(sources).map(|d| d.newest_read_on().to_string())
+        };
+        // Without the field the row counts at the day it was read.
+        assert_eq!(newest_with("").unwrap(), "2099-01-01");
+        // With it, the row counts at the index's date, so it cannot be the newest.
+        let aged = newest_with("index_as_of=\"2026-09-02\"\n").unwrap();
+        assert_ne!(aged, "2099-01-01");
+        assert!(aged.as_str() < "2099-01-01");
+        // A date after the read, or not a date, is refused.
+        // After the read: only this check can refuse it (the date is valid).
+        match newest_with("index_as_of=\"2099-01-02\"\n") {
+            Ok(_) => panic!("an index updated after it was read loaded"),
+            Err(e) => assert!(e.detail.contains("index_as_of"), "{}", e.detail),
+        }
+        // Not a date: refused at load, by whichever check meets it first.
+        assert!(newest_with("index_as_of=\"soon\"\n").is_err());
+    }
+
+    // --- cross-provider advice (pass 13, DP-041) ----------------------------
+
+    fn advice_row(provider: &str, defence: &str, extra: &str) -> String {
+        format!(
+            "[[entry]]\nprovider=\"{provider}\"\nbuild_defence=\"{defence}\"\nsource=\"s\"\n\
+             read_on=\"2026-09-02\"\n{extra}"
+        )
+    }
+
+    fn load_with_advice(text: &str) -> Result<PolicyData, DomainError> {
+        let mut sources = embedded_sources();
+        sources.cross_provider_advice = text;
+        PolicyData::load_from(sources)
+    }
+
+    #[test]
+    fn the_shipped_advice_names_every_provider_and_every_defence_has_a_name() {
+        let data = PolicyData::load_embedded().expect("embedded data loads");
+        let rows = data.cross_provider_advice();
+        assert!(rows.len() >= 2, "one row per provider the data names");
+        for row in rows {
+            assert!(!row.source.trim().is_empty(), "{}", row.provider);
+            assert!(shift_date(&row.read_on, 0).is_some(), "{}", row.provider);
+            if let Some(as_of) = &row.index_as_of {
+                assert!(as_of.as_str() <= row.read_on.as_str(), "{}", row.provider);
+            }
+        }
+        // The chain `Capability::all` uses: the `match` in `all()` has no
+        // wildcard, so a new variant is a compile error there, and this count
+        // fails until the array is extended.
+        assert_eq!(BuildDefence::all().len(), 2);
+        let identifiers: BTreeSet<&str> =
+            BuildDefence::all().iter().map(|d| d.identifier()).collect();
+        assert_eq!(identifiers.len(), BuildDefence::all().len(), "distinct");
+    }
+
+    #[test]
+    fn an_identifier_in_the_data_is_the_identifier_the_enum_reports() {
+        for defence in BuildDefence::all() {
+            let text = advice_row("alpha", defence.identifier(), "");
+            let data = load_with_advice(&text).expect("the identifier loads");
+            assert_eq!(
+                data.build_defence_of(&ProviderId::new("alpha")),
+                Some(*defence)
+            );
+        }
+        assert!(load_with_advice(&advice_row("alpha", "made_up", "")).is_err());
+    }
+
+    #[test]
+    fn a_provider_the_advice_does_not_name_has_no_defence_not_a_default() {
+        let text = advice_row("alpha", "opt_in_trace", "");
+        let data = load_with_advice(&text).unwrap();
+        assert_eq!(data.build_defence_of(&ProviderId::new("beta")), None);
+        // And no rows at all is a valid, empty answer for everyone.
+        let none = load_with_advice("").unwrap();
+        assert_eq!(none.build_defence_of(&ProviderId::new("alpha")), None);
+    }
+
+    #[test]
+    fn a_bad_advice_row_is_refused_where_the_data_lives() {
+        let two = format!(
+            "{}{}",
+            advice_row("alpha", "opt_in_trace", ""),
+            advice_row("alpha", "default_clean_path", "")
+        );
+        let after_read = advice_row("alpha", "opt_in_trace", "index_as_of=\"2026-09-03\"\n");
+        let no_source =
+            "[[entry]]\nprovider=\"alpha\"\nbuild_defence=\"opt_in_trace\"\nsource=\"\"\nread_on=\"2026-09-02\"\n";
+        let bad_date = advice_row("alpha", "opt_in_trace", "").replace("2026-09-02", "someday");
+        let bad_id = advice_row("--force", "opt_in_trace", "");
+        for (what, text) in [
+            ("two rows for one provider", two),
+            ("an index updated after it was read", after_read),
+            ("no source", no_source.to_string()),
+            ("a read date that is no date", bad_date),
+            ("a provider id that is a flag", bad_id),
+        ] {
+            match load_with_advice(&text) {
+                Ok(_) => panic!("{what} loaded"),
+                Err(e) => assert_eq!(e.id, ErrorId::PolicyDataInvalid, "{what}: {}", e.detail),
+            }
+        }
+    }
+
+    #[test]
+    fn advice_ages_from_its_source_like_every_other_dated_row() {
+        // `read_on` far in the future would be the newest date in the data set
+        // unless `index_as_of` stands in for it.
+        let row = |extra: &str| {
+            format!(
+                "[[entry]]\nprovider=\"alpha\"\nbuild_defence=\"opt_in_trace\"\nsource=\"s\"\n\
+                 read_on=\"2099-01-01\"\n{extra}"
+            )
+        };
+        let plain = load_with_advice(&row("")).unwrap();
+        assert_eq!(plain.newest_read_on(), "2099-01-01");
+        let aged = load_with_advice(&row("index_as_of=\"2026-09-02\"\n")).unwrap();
+        assert!(aged.newest_read_on() < "2099-01-01");
+    }
+
+    /// F-48: a curated destination reaches `planner::command` without ever
+    /// passing `Snapshot::check`, which only sees what a provider reported.
+    ///
+    /// The planner's own guard did catch it, and answered `InputUnusable` —
+    /// telling the user to check their capture, snapshot or recording for a
+    /// defect that would be in the build's own compiled-in data. Refusing at the
+    /// layer that owns the data puts the blame where it belongs and makes the
+    /// planner's guard the second line the F-43 entry had wrongly claimed it was.
+    #[test]
+    fn a_curated_name_no_provider_could_report_is_refused_where_the_data_lives() {
+        let row = |source_name: &str, destination_name: &str| {
+            format!(
+                "[[entry]]\nsource_provider=\"homebrew\"\nsource_name=\"{source_name}\"\n\
+                 destination_provider=\"macports\"\ndestination_name=\"{destination_name}\"\n\
+                 confidence=\"EXACT\"\nsource=\"s\"\nread_on=\"2026-09-02\"\n"
+            )
+        };
+
+        // The shape itself must load, or the cases below prove nothing.
+        let mut sources = embedded_sources();
+        let good = row("wget", "wget");
+        sources.curated_mappings = &good;
+        PolicyData::load_from(sources).expect("an ordinary curated row loads");
+
+        for (source_name, destination_name) in [
+            ("wget", "--force"),
+            ("--force", "wget"),
+            ("wget", "../../../bin/sh"),
+            ("wget", ""),
+            ("wget", "foo bar"),
+        ] {
+            let mut sources = embedded_sources();
+            let bad = row(source_name, destination_name);
+            sources.curated_mappings = &bad;
+            // Matched rather than `expect_err`: the Ok side is the whole
+            // `PolicyData`, and a panic that prints it buries the one line
+            // whoever is debugging this needs.
+            match PolicyData::load_from(sources) {
+                Ok(_) => panic!(
+                    "{source_name:?} -> {destination_name:?} loaded; a curated name that \
+                     would read as a flag or a path must be refused"
+                ),
+                Err(e) => {
+                    assert_eq!(
+                        e.id,
+                        ErrorId::PolicyDataInvalid,
+                        "{source_name:?} -> {destination_name:?} is the build's defect, \
+                         not the user's"
+                    );
+                    // The identifier is what every failure in this module
+                    // carries, so on its own it cannot tell this check from a
+                    // parse error or from `check_support_bounds`.
+                    assert!(
+                        e.detail.contains("curated mapping"),
+                        "this must be the curated-name check: {}",
+                        e.detail
+                    );
+                }
+            }
+        }
+
+        // And the data this build actually ships passes.
+        PolicyData::load_embedded().expect("the shipped curated table");
     }
 
     #[test]

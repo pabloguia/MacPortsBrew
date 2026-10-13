@@ -12,6 +12,14 @@
   `03-planning-and-mapping.md`, the `doctor` surface, and the executable
   ownership classification in `05`.
 
+> **Machine note, added 2026-09-15.** This note states, correctly for its answer
+> date, that MacPorts could not be observed here. **It can be since 2026-09-06**,
+> when MacPorts 2.12.6 was installed at `/opt/local` (first ports 2026-09-07).
+> Nothing below has been re-checked against it; the citations stand as citations.
+> R-5 and R-5a were re-checked in place and show what that costs — R-5 gained
+> fourteen evidence blocks and produced SE-077. Where this note names a "future
+> attempt" that needed a MacPorts machine, that attempt is now available (F-46).
+
 ## Question
 
 `05-environment-and-primary-provider.md` states a **HYPOTHESIS** — a
@@ -72,11 +80,11 @@ is observed.**
 ```
 $ ls -l /usr/local/bin | head -20
 total 51232
-lrwxr-xr-x@  1 pirado  admin        43 Aug 17 07:36 2to3-3.12 -> ../Cellar/python@3.12/3.12.14/bin/2to3-3.12
-lrwxr-xr-x@  1 pirado  admin        38 Aug 18 23:12 411toppm -> ../Cellar/netpbm/11.02.28/bin/411toppm
-lrwxr-xr-x@  1 pirado  admin        28 Jan 10  2025 7z -> ../Cellar/p7zip/17.06/bin/7z
-lrwxr-xr-x@  1 pirado  admin        29 Jan 10  2025 7za -> ../Cellar/p7zip/17.06/bin/7za
-lrwxr-xr-x@  1 pirado  admin        29 Jan 10  2025 7zr -> ../Cellar/p7zip/17.06/bin/7zr
+lrwxr-xr-x@  1 <user>  admin        43 Aug 17 07:36 2to3-3.12 -> ../Cellar/python@3.12/3.12.14/bin/2to3-3.12
+lrwxr-xr-x@  1 <user>  admin        38 Aug 18 23:12 411toppm -> ../Cellar/netpbm/11.02.28/bin/411toppm
+lrwxr-xr-x@  1 <user>  admin        28 Jan 10  2025 7z -> ../Cellar/p7zip/17.06/bin/7z
+lrwxr-xr-x@  1 <user>  admin        29 Jan 10  2025 7za -> ../Cellar/p7zip/17.06/bin/7za
+lrwxr-xr-x@  1 <user>  admin        29 Jan 10  2025 7zr -> ../Cellar/p7zip/17.06/bin/7zr
 -rwxr-xr-x   1 root    wheel        80 Oct 17  2025 VBoxAudioTest
 -rwxr-xr-x   1 root    wheel        80 Oct 17  2025 VBoxAutostart
 -rwxr-xr-x   1 root    wheel        82 Oct 17  2025 VBoxBalloonCtrl
@@ -87,10 +95,10 @@ lrwxr-xr-x@  1 pirado  admin        29 Jan 10  2025 7zr -> ../Cellar/p7zip/17.06
 -rwxr-xr-x   1 root    wheel        79 Oct 17  2025 VBoxVRDP
 -rwxr-xr-x   1 root    wheel        77 Oct 17  2025 VirtualBox
 -rwxr-xr-x   1 root    wheel       115 Oct 17  2025 VirtualBoxVM
-lrwxr-xr-x@  1 pirado  admin        29 Sep  1 20:03 ab -> ../Cellar/httpd/2.4.68/bin/ab
-lrwxr-xr-x@  1 pirado  admin        42 Jun 30 19:20 actionlint -> ../Cellar/actionlint/1.7.12/bin/actionlint
-lrwxr-xr-x@  1 pirado  admin        37 Aug  7 12:27 acyclic -> ../Cellar/graphviz/15.1.1/bin/acyclic
-lrwxr-xr-x@  1 pirado  admin        36 Jul 31 13:00 adaparse -> ../Cellar/ada-url/4.0.0/bin/adaparse
+lrwxr-xr-x@  1 <user>  admin        29 Sep  1 20:03 ab -> ../Cellar/httpd/2.4.68/bin/ab
+lrwxr-xr-x@  1 <user>  admin        42 Jun 30 19:20 actionlint -> ../Cellar/actionlint/1.7.12/bin/actionlint
+lrwxr-xr-x@  1 <user>  admin        37 Aug  7 12:27 acyclic -> ../Cellar/graphviz/15.1.1/bin/acyclic
+lrwxr-xr-x@  1 <user>  admin        36 Jul 31 13:00 adaparse -> ../Cellar/ada-url/4.0.0/bin/adaparse
 ```
 
 Counted with a Python script over `os.listdir('/usr/local/bin')`:
@@ -266,16 +274,16 @@ On-disk link registry (**not documented in `man brew`**; `grep -i
 ```
 $ ls -l /usr/local/var/homebrew/linked | head -5
 total 0
-lrwxr-xr-x@ 1 pirado  admin  33 Jun 30 19:20 actionlint -> ../../../Cellar/actionlint/1.7.12
-lrwxr-xr-x@ 1 pirado  admin  29 Jul 31 13:00 ada-url -> ../../../Cellar/ada-url/4.0.0
-lrwxr-xr-x@ 1 pirado  admin  26 May 25 19:36 aom -> ../../../Cellar/aom/3.14.1
-lrwxr-xr-x@ 1 pirado  admin  33 Apr 27  2024 argon2 -> ../../../Cellar/argon2/20190702_1
+lrwxr-xr-x@ 1 <user>  admin  33 Jun 30 19:20 actionlint -> ../../../Cellar/actionlint/1.7.12
+lrwxr-xr-x@ 1 <user>  admin  29 Jul 31 13:00 ada-url -> ../../../Cellar/ada-url/4.0.0
+lrwxr-xr-x@ 1 <user>  admin  26 May 25 19:36 aom -> ../../../Cellar/aom/3.14.1
+lrwxr-xr-x@ 1 <user>  admin  33 Apr 27  2024 argon2 -> ../../../Cellar/argon2/20190702_1
 $ ls -1 /usr/local/var/homebrew/linked | wc -l
      160
 $ ls -ld /usr/local/var/homebrew/linked/pydantic
 ls: /usr/local/var/homebrew/linked/pydantic: No such file or directory
 $ ls -ld /usr/local/var/homebrew/linked/git
-lrwxr-xr-x@ 1 pirado  admin  26 Jul  3 02:36 /usr/local/var/homebrew/linked/git -> ../../../Cellar/git/2.55.0
+lrwxr-xr-x@ 1 <user>  admin  26 Jul  3 02:36 /usr/local/var/homebrew/linked/git -> ../../../Cellar/git/2.55.0
 ```
 
 160 = 180 installed − 19 keg-only − 1 (`pydantic`, unlinked).
@@ -294,10 +302,10 @@ $ brew --prefix ripgrep       # not installed at all
 exit=0
 
 $ ls -ld /usr/local/opt/git /usr/local/opt/curl /usr/local/opt/python@3.12 /usr/local/opt/pydantic
-lrwxr-xr-x@ 1 pirado  admin  21 Jul  3 02:34 /usr/local/opt/curl -> ../Cellar/curl/8.21.0
-lrwxr-xr-x@ 1 pirado  admin  20 Jul  3 02:36 /usr/local/opt/git -> ../Cellar/git/2.55.0
-lrwxr-xr-x@ 1 pirado  admin  29 Aug 17 07:36 /usr/local/opt/python@3.12 -> ../Cellar/python@3.12/3.12.14
-lrwxr-xr-x@ 1 pirado  admin  25 Sep  1 21:43 /usr/local/opt/pydantic -> ../Cellar/pydantic/2.13.5
+lrwxr-xr-x@ 1 <user>  admin  21 Jul  3 02:34 /usr/local/opt/curl -> ../Cellar/curl/8.21.0
+lrwxr-xr-x@ 1 <user>  admin  20 Jul  3 02:36 /usr/local/opt/git -> ../Cellar/git/2.55.0
+lrwxr-xr-x@ 1 <user>  admin  29 Aug 17 07:36 /usr/local/opt/python@3.12 -> ../Cellar/python@3.12/3.12.14
+lrwxr-xr-x@ 1 <user>  admin  25 Sep  1 21:43 /usr/local/opt/pydantic -> ../Cellar/pydantic/2.13.5
 $ ls -1 /usr/local/opt | wc -l
      223
 $ ls -1 /usr/local/Cellar/pydantic
@@ -318,15 +326,15 @@ $ which -a curl
 /usr/bin/curl
 $ ls -l /usr/local/opt/curl/bin
 total 648
--r-xr-xr-x@ 1 pirado  admin  308000 Jul  3 02:34 curl
--r-xr-xr-x@ 1 pirado  admin    6342 Jul  3 02:34 curl-config
--r-xr-xr-x@ 1 pirado  admin   11605 Jul  3 02:34 wcurl
+-r-xr-xr-x@ 1 <user>  admin  308000 Jul  3 02:34 curl
+-r-xr-xr-x@ 1 <user>  admin    6342 Jul  3 02:34 curl-config
+-r-xr-xr-x@ 1 <user>  admin   11605 Jul  3 02:34 wcurl
 
 $ which -a git
 /usr/local/bin/git
 /usr/bin/git
 $ ls -l /usr/local/bin/git
-lrwxr-xr-x@ 1 pirado  admin  28 Jul  3 02:36 /usr/local/bin/git -> ../Cellar/git/2.55.0/bin/git
+lrwxr-xr-x@ 1 <user>  admin  28 Jul  3 02:36 /usr/local/bin/git -> ../Cellar/git/2.55.0/bin/git
 ```
 
 Homebrew's `curl` 8.21.0 is installed and is **not** on `PATH`; the system
@@ -339,16 +347,16 @@ Three `python@3.x` formulae are installed, none keg-only, **all three linked**:
 
 ```
 $ ls -l /usr/local/bin | grep -E 'python|pip|idle|pydoc|wheel'
-lrwxr-xr-x@ 1 pirado admin 40 Aug 17 07:35 python3        -> ../Cellar/python@3.14/3.14.7/bin/python3
-lrwxr-xr-x@ 1 pirado admin 44 Aug 17 07:36 python3.12     -> ../Cellar/python@3.12/3.12.14/bin/python3.12
-lrwxr-xr-x@ 1 pirado admin 44 Aug  7 12:27 python3.13     -> ../Cellar/python@3.13/3.13.15/bin/python3.13
-lrwxr-xr-x@ 1 pirado admin 43 Aug 17 07:35 python3.14     -> ../Cellar/python@3.14/3.14.7/bin/python3.14
-lrwxr-xr-x@ 1 pirado admin 37 Aug 17 07:35 pip3           -> ../Cellar/python@3.14/3.14.7/bin/pip3
-lrwxr-xr-x@ 1 pirado admin 41 Aug 17 07:36 pip3.12        -> ../Cellar/python@3.12/3.12.14/bin/pip3.12
-lrwxr-xr-x@ 1 pirado admin 41 Aug  7 12:27 pip3.13        -> ../Cellar/python@3.13/3.13.15/bin/pip3.13
-lrwxr-xr-x@ 1 pirado admin 40 Aug 17 07:35 pip3.14        -> ../Cellar/python@3.14/3.14.7/bin/pip3.14
-lrwxr-xr-x@ 1 pirado admin 38 Aug 17 07:35 idle3          -> ../Cellar/python@3.14/3.14.7/bin/idle3
-lrwxr-xr-x@ 1 pirado admin 43 Aug 17 07:36 2to3-3.12      -> ../Cellar/python@3.12/3.12.14/bin/2to3-3.12
+lrwxr-xr-x@ 1 <user> admin 40 Aug 17 07:35 python3        -> ../Cellar/python@3.14/3.14.7/bin/python3
+lrwxr-xr-x@ 1 <user> admin 44 Aug 17 07:36 python3.12     -> ../Cellar/python@3.12/3.12.14/bin/python3.12
+lrwxr-xr-x@ 1 <user> admin 44 Aug  7 12:27 python3.13     -> ../Cellar/python@3.13/3.13.15/bin/python3.13
+lrwxr-xr-x@ 1 <user> admin 43 Aug 17 07:35 python3.14     -> ../Cellar/python@3.14/3.14.7/bin/python3.14
+lrwxr-xr-x@ 1 <user> admin 37 Aug 17 07:35 pip3           -> ../Cellar/python@3.14/3.14.7/bin/pip3
+lrwxr-xr-x@ 1 <user> admin 41 Aug 17 07:36 pip3.12        -> ../Cellar/python@3.12/3.12.14/bin/pip3.12
+lrwxr-xr-x@ 1 <user> admin 41 Aug  7 12:27 pip3.13        -> ../Cellar/python@3.13/3.13.15/bin/pip3.13
+lrwxr-xr-x@ 1 <user> admin 40 Aug 17 07:35 pip3.14        -> ../Cellar/python@3.14/3.14.7/bin/pip3.14
+lrwxr-xr-x@ 1 <user> admin 38 Aug 17 07:35 idle3          -> ../Cellar/python@3.14/3.14.7/bin/idle3
+lrwxr-xr-x@ 1 <user> admin 43 Aug 17 07:36 2to3-3.12      -> ../Cellar/python@3.12/3.12.14/bin/2to3-3.12
 ```
 
 The suffixed names (`python3.12`, `pip3.13`, …) coexist. The **unsuffixed**
@@ -411,12 +419,12 @@ $ cat /etc/paths
 /sbin
 
 $ echo "$PATH" | tr ':' '\n' | head -12
-/Users/pirado/.local/share/sonarqube-cli/bin
-/Users/pirado/.grok/bin
-/Users/pirado/.bun/bin
-/Users/pirado/bin
+/Users/<user>/.local/share/sonarqube-cli/bin
+/Users/<user>/.grok/bin
+/Users/<user>/.bun/bin
+/Users/<user>/bin
 /Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home/bin
-/Users/pirado/.local/bin
+/Users/<user>/.local/bin
 /usr/local/bin
 /usr/local/sbin
 /System/Cryptexes/App/usr/bin
@@ -659,7 +667,7 @@ installed_on_request True
 installed_as_dependency None
 {'poured_from_bottle': True, 'installed_on_request': True, 'time': 1783056973,
  'source': {'spec': 'stable', 'versions': {...}, 'path':
- '/Users/pirado/Library/Caches/Homebrew/api/internal/packages.tahoe.jws.json',
+ '/Users/<user>/Library/Caches/Homebrew/api/internal/packages.tahoe.jws.json',
  'tap_git_head': None, 'tap': 'homebrew/core'}}
 ```
 
@@ -852,7 +860,7 @@ Criteria taken verbatim from `05-environment-and-primary-provider.md`
 | Drift detection | Native and cheap: `--show` vs `--list` + stat targets (F3) | `linked_keg` in JSON, plus `${prefix}/var/homebrew/linked/` (F6) | Stat each symlink target; compare with the provider's current `opt`/`bin` path | Trivially |
 | Effect on `which git` | None — no `git` select group exists | `brew unlink git` removes `/usr/local/bin/git`, so `/usr/bin/git` or `/opt/local/bin/git` wins (E7 shows the mechanism) | Shim dir first on PATH → `which git` shows the shim path | None |
 | Breaks tools resolving by absolute path | Yes, if they hardcode `${prefix}/bin/python` — that path is what moves | Yes — `/usr/local/bin/<x>` disappears | **No** — provider paths untouched; only a new directory is added | No |
-| Needs elevation | Yes in a default `/opt/local` install (F4, UNRESOLVED) | No (Homebrew prefix is user-writable here: entries are `pirado:admin`, E1) | **No** — `~/.local/share/…` | No |
+| Needs elevation | Yes in a default `/opt/local` install (F4, UNRESOLVED) | No (Homebrew prefix is user-writable here: entries are `<user>:admin`, E1) | **No** — `~/.local/share/…` | No |
 | Shell rc interaction | None (MacPorts already owns its PATH entry, E12) | None for `link`; a PATH reorder means editing the user's own lines — forbidden by `05` ("Never reorder entries the user placed themselves") | One PATH prepend inside the managed block; no reordering of user lines | None |
 | Per-package vs global | Per group (INV-12 ok) | Per formula (INV-12 ok); PATH reorder is **global** (INV-12 violation if used as primary) | Per executable (INV-12 ok) | n/a |
 | Transfers dependency ownership | No (INV-11 ok) | No (INV-11 ok) | No (INV-11 ok) | No |

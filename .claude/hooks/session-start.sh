@@ -14,11 +14,31 @@ set -euo pipefail
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
+# The other half of the guarded-path escape's expiry. `arm-guard-edit.sh` clears
+# the marker on every user message, which ends the armed window *within* a
+# session; nothing there runs at session end, and a resumed session keeps its
+# `session_id`, so a marker left on disk would arm the run that inherits it.
+# Deleting it here is what makes "armed for one message" true across the seam as
+# well as inside it. A session that meant to arm the escape says so in its first
+# message and re-arms in the same breath.
+rm -f "$ROOT/.claude/.guard-edit-marker"
+
 pass="unknown"
 [ -f .claude/current-pass ] && pass="$(tr -d '[:space:]' < .claude/current-pass)"
 
-open_decisions="$(awk '/^## Open/,/^## Resolved/' docs/decisions-pending.md 2>/dev/null \
-  | grep -oE '^### DP-[0-9]+ — [^—]*' | sed 's/^### /  - /' || true)"
+# "Nothing to report" and "I could not look" must not be the same message.
+# Until DP-015 was resolved this file had never had an empty Open section, so
+# the fallback below had never rendered - and when it finally did, it told the
+# agent its own decision list had failed to parse. Same shape as a gate that
+# cannot fail (F-12, and the stop gate's cargo-absent hole).
+open_section="$(awk '/^## Open/,/^## Resolved/' docs/decisions-pending.md 2>/dev/null || true)"
+if [ -z "$open_section" ]; then
+  open_decisions="  (docs/decisions-pending.md has no '## Open' section - read the file)"
+else
+  open_decisions="$(printf '%s\n' "$open_section" \
+    | grep -oE '^### DP-[0-9]+ — [^—]*' | sed 's/^### /  - /' || true)"
+  [ -z "$open_decisions" ] && open_decisions="  (none)"
+fi
 
 # Only what no file the agent will open already says (11-agentic-sdlc.md):
 # which pass, which decisions are open, and where this pass's boundary is.
@@ -30,7 +50,7 @@ Active pass: ${pass}
   pass. If the pass is 'unknown', ask which pass this is before doing anything.
 
 Decisions still reserved for the human (docs/decisions-pending.md):
-${open_decisions:-  (none parsed - read the file)}
+${open_decisions}
 
 Reading order and working protocol: CLAUDE.md and AGENTS.md, already loaded."
 

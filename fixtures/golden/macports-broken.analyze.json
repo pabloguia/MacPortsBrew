@@ -1,4 +1,8 @@
 {
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  },
   "machine": {
     "architecture": "x86_64",
     "commandLineTools": {
@@ -13,18 +17,50 @@
     "translation": "NATIVE"
   },
   "packages": [],
-  "policyReadOn": "2026-09-02",
+  "policyReadOn": "2026-09-17",
   "policyStale": false,
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.10.12-4",
   "providers": {
     "homebrew": {
       "capabilities": {
-        "capabilities": {}
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "state": "UNKNOWN"
+          },
+          "DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "DEPRECATION_STATE": {
+            "state": "UNKNOWN"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "UNKNOWN"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "UNKNOWN"
+          },
+          "OFFLINE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "REQUESTED_RECORD": {
+            "state": "UNKNOWN"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "UNKNOWN"
+          }
+        }
       },
       "detection": {
         "architecture": null,
         "executable": null,
         "prefix": null,
+        "prefixRedacted": false,
         "presence": {
           "state": "ABSENT"
         },
@@ -37,7 +73,7 @@
         "endDate": "2027-09-01",
         "entry": "hb-x86_64-tier3-with-stated-end",
         "fact": {
-          "readOn": "2026-09-02",
+          "readOn": "2026-09-04",
           "source": "https://docs.brew.sh/Support-Tiers"
         },
         "prebuiltArtifacts": true,
@@ -75,6 +111,9 @@
           },
           "SERVICE_METADATA": {
             "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "UNKNOWN"
           }
         }
       },
@@ -82,6 +121,7 @@
         "architecture": null,
         "executable": "/opt/local/bin/port",
         "prefix": "/opt/local",
+        "prefixRedacted": false,
         "presence": {
           "reason": "error.provider_unhealthy",
           "state": "BROKEN"
@@ -115,6 +155,7 @@
     "byOutcome": {},
     "dependencyUnits": 0,
     "manualReview": 0,
+    "ownershipUnknown": 0,
     "topLevelUnits": 0
   },
   "today": "2026-09-02",

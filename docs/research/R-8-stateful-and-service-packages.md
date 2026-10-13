@@ -13,6 +13,14 @@
   (provider facts are dated data), `02-domain-model.md` (Snapshot / offline
   analysis, INV-15).
 
+> **Machine note, added 2026-09-15.** This note states, correctly for its answer
+> date, that MacPorts could not be observed here. **It can be since 2026-09-06**,
+> when MacPorts 2.12.6 was installed at `/opt/local` (first ports 2026-09-07).
+> Nothing below has been re-checked against it; the citations stand as citations.
+> R-5 and R-5a were re-checked in place and show what that costs — R-5 gained
+> fourteen evidence blocks and produced SE-077. Where this note names a "future
+> attempt" that needed a MacPorts machine, that attempt is now available (F-46).
+
 ## Question
 
 Enough to **detect** the `STATEFUL`, `SERVICE` and `RUNTIME` classes under both
@@ -61,7 +69,7 @@ $ stat -f "%Sm %N" -t "%H:%M" ~/Library/Caches/Homebrew/api/internal/*
 $ time brew info --json=v2 --installed > brew-installed.json
 brew info --json=v2 --installed  1.98s user 0.90s system 70% cpu 4.115 total
 $ ls -l brew-installed.json
--rw-r--r--  1 pirado  wheel  876713 Sep  2 09:40 brew-installed.json
+-rw-r--r--  1 <user>  wheel  876713 Sep  2 09:40 brew-installed.json
 ```
 
 Derived from that file (python, read-only):
@@ -927,6 +935,51 @@ Note `php@8.4` appears in **both** E-1 (has a `service` block) and here.
   future note or spec text pointing at it should point at `docs.brew.sh/Manpage`
   and `Homebrew/brew`'s `Library/Homebrew/services/` instead.
 
+## Addendum, 2026-10-10 — the startup-item location, observed (pass 08 slice 3)
+
+MacPorts 2.12.6 is now installed on the machine this note was written on, so
+part of E-7 moves from cited to read in source. All read-only, 2026-10-10.
+
+1. **Where an item lives.** `port1.0/portstartupitem.tcl` (sha256
+   `cc4d2c99b1e303d4677f9d562f8c3a9f076bea2d8e28263f099b805f0ee592b3`): the item
+   directory is `${prefix}/etc/${startupitem.location}/${uniquename}` (line
+   290); `startupitem.location` defaults to `LaunchDaemons` (line 108) and may
+   be `LaunchAgents` (lines 546-560); `uniquename` defaults to
+   `org.macports.<subport>` and the plist to `<uniquename>.plist`, every one
+   overridable per port, and a port may declare several items (lines 112-121,
+   158-166). The directory is created only when an item is (lines 130-133,
+   513).
+2. **A port that uses its own name.** `devel/dbus/Portfile` (sha256
+   `c5e92c79a8fe40d84ae5a2e8da30937924340d20687c0f54062576c84805c244`, the
+   rsync ports tree as synced on this machine) declares two items with
+   `uniquename` `org.freedesktop.dbus-system` (`LaunchDaemons`) and
+   `org.freedesktop.dbus-session` (`LaunchAgents`), with `startupitem.create
+   no` and the system plist written by the Portfile itself. A scan that reads
+   only `org.macports.<port>` reports `dbus` as defining no service.
+3. **Deactivation removes the item.** Deactivating a port deletes its files,
+   the item directory included (`registry2.0/portimage.tcl`,
+   `_deactivate_files`), so the absence of an item says nothing about an
+   inactive port.
+4. **The ordinary state is no location at all.** On this machine
+   `${prefix}/etc` holds only `macports`: no port has created an item.
+
+Consequence (implemented in `crates/adapters/src/macports/service.rs`, commit
+`ffdd3b3`, then attributed by the registry after the end-of-slice review): the
+scan reads both locations and answers "these ports define a service" only when
+every entry is a real directory holding a plist of its own name that
+`port -q provides` attributes to an installed port, the prefix's `etc/macports`
+is a real directory, and every installed port is active. The item belongs to
+the port the registry names, whatever it is called — `dbus`'s `org.freedesktop.*`
+items, and a subport that sets `startupitem.name` to its parent's name
+(`databases/mysql5/Portfile`, sha256
+`d8fa9bb9b07560d1cb6a526b8cf8bc458d8f3c5e18c457cd243d8555076b6287`, line 173:
+`mysql5-server` writes `org.macports.mysql5`;
+security review, pass 08 slice 3, M1). Anything it cannot attribute is
+**unknown**, which the planner treats as unknown rather than as "no service". Whether a port that *declares* an item but materialises
+none (`startupitem.type none`) should count is DP-032. The system
+`macports.conf` (which can set `startupitem_type none`) is not read; a user
+`macports.conf` is already a `PROVIDER_CONFIGURATION_RISK` (DP-027).
+
 ## Re-check when
 
 - **Homebrew's major version changes** (currently 6.0.21). The `--json=v2`
@@ -937,9 +990,12 @@ Note `php@8.4` appears in **both** E-1 (has a `service` block) and here.
   the most likely thing in this note to break silently. It carries
   `homebrew_version: 6.0.21-28-gfd18738` and `generated_at: 1788350020`
   (2026-09-02) — treat a mismatch in `homebrew_version` as a re-check trigger.
-- **When MacPorts becomes available on a test machine** — the whole of E-7 to
-  E-9 is then upgradable from cited to observed, and the three MacPorts
-  `UNRESOLVED` items above close.
+- **E-8 and E-9 on a MacPorts machine** — MacPorts 2.12.6 is now installed
+  here and E-7's location rules are read in source (addendum, 2026-10-10); E-8
+  and E-9 are still cited only, and the three MacPorts `UNRESOLVED` items above
+  stay open until they are observed.
+- **When MacPorts' minor version changes** (2.12.6 at the addendum):
+  `portstartupitem.tcl`'s location and naming rules, by its sha256.
 - **When the curated stateful list is first written** — regenerate the 86-name
   E-6 candidate list against the then-current catalogue rather than copying
   this note's list, and record the new revision and date.

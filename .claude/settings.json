@@ -70,7 +70,8 @@
       "Bash(xcode-select --install*)",
       "Bash(softwareupdate *)",
       "Bash(installer *)",
-      "Bash(brew sh*)",
+      "Bash(brew sh)",
+      "Bash(brew sh *)",
       "Bash(brew ruby *)",
       "Bash(brew irb*)",
       "Bash(brew test *)",
@@ -85,13 +86,62 @@
       "Bash(port bump *)",
       "Bash(port migrate*)",
       "Bash(port edit *)",
-      "Bash(rustup install *)"
+      "Bash(rustup install *)",
+      "Bash(csrutil *)",
+      "Bash(spctl *)",
+      "Bash(systemsetup *)",
+      "Bash(chsh)",
+      "Bash(launchctl)",
+      "Bash(sudo)",
+      "Bash(doas)",
+      "Bash(git push)",
+      "Bash(brew ln *)",
+      "Bash(brew up)",
+      "Bash(brew up *)",
+      "Bash(brew instal *)",
+      "Bash(brew uninstal *)",
+      "Bash(brew tap-new *)",
+      "Bash(port unarchive *)",
+      "Bash(rustup update*)",
+      "Edit(./rust-toolchain.toml)",
+      "Edit(./docs/spec/01-invariants.md)"
     ],
     "ask": [
-      "Bash(git commit *)",
       "Bash(git init*)"
     ],
     "allow": [
+      "Bash(git commit *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git add *)",
+      "Bash(git stash *)",
+      "Bash(git restore *)",
+      "Bash(git rev-parse *)",
+      "Bash(git branch*)",
+      "Bash(scripts/validate.sh*)",
+      "Bash(./scripts/validate.sh*)",
+      "Bash(scripts/run-fixture-matrix.sh*)",
+      "Bash(scripts/generate-codex-layer.sh*)",
+      "Bash(cargo run *)",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(find *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(diff *)",
+      "Bash(shasum *)",
+      "Bash(df *)",
+      "Bash(du *)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.unicode.org)",
+      "WebFetch(domain:formulae.brew.sh)",
+      "WebFetch(domain:www.macports.org)",
       "Bash(brew --prefix*)",
       "Bash(brew --version*)",
       "Bash(brew config*)",
@@ -171,6 +221,18 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/arm-guard-edit.sh",
+            "timeout": 10,
+            "statusMessage": "Checking the prompt for the guard-edit token"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -180,6 +242,12 @@
             "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/guard-provider-mutation.sh",
             "timeout": 15,
             "statusMessage": "Checking command against INV-05 / INV-06"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}\"/.claude/hooks/commit-gate.sh",
+            "timeout": 1500,
+            "statusMessage": "Validating before the commit"
           }
         ]
       },

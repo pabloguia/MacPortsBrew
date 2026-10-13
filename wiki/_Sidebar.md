@@ -10,7 +10,7 @@
 - [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md)
 - [MacPorts to Homebrew](MacPorts-to-Homebrew-Migration.md)
 - [Using Both Together](Using-Homebrew-and-MacPorts-Together.md)
-- [Undoing a Migration](Undoing-a-Migration.md)
+- [Restoring After a Migration](Restoring-After-a-Migration.md)
 
 ### Understanding the answers
 

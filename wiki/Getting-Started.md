@@ -2,11 +2,15 @@
 
 ## Install
 
-MacPortsBrew builds from source. There is no published release yet — the
-repository will be public on GitHub
-([`../docs/decisions-pending.md`](../docs/decisions-pending.md), DP-007,
-decided 2026-09-02) but the remote does not exist yet — so this is currently
-the only route.
+MacPortsBrew builds from source. There is no published release yet, so this
+is currently the only route.
+
+When there is one, each release will publish three downloads per architecture —
+a bare binary, a `.pkg` and a `.dmg` — carrying the same executable and
+differing only in how you install it. Which one to take, how to put it on your
+`PATH`, what happens the first time it runs and how to check what you
+downloaded are all in the [README's install section](../README.md#install) —
+the same text the release notes carry, kept in one place so it cannot drift.
 
 ```sh
 git clone <repository-url> macportsbrew
@@ -17,6 +21,9 @@ cargo build --release
 You need `rustup`. The toolchain is pinned in `rust-toolchain.toml` and
 installs itself on the first build; do not switch toolchains, because the pin
 is what holds the macOS floor of 10.12 on Intel and 11.0 on Apple Silicon.
+macOS 10.12–10.15 (and 11–14) are **best-effort**: the build is checked to
+declare that minimum, but only macOS 15 and 26 are covered by the CI
+configuration.
 
 The binary lands at `target/release/macportsbrew`. Put it somewhere on your
 `PATH`, or run it in place.
@@ -37,27 +44,31 @@ reports what it finds, including "neither".
 The dashboard: your machine, and each provider's presence, version, prefix,
 support state and package count.
 
+<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json status -->
 ```
 Machine
   macOS 26.6.2, x86_64, Native
 
 Providers
 Provider  Presence  Version  Prefix      Support    Packages
-homebrew  Present   6.0.21   /usr/local  degraded   189 (56 top-level)
-macports  Absent    -        -           supported  0 (0 top-level)
-56 top-level packages analysed; 15 need manual review. Policy 2026.09.02-1.
+homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
+macports  Absent    -        -           Supported  0 packages (0 top-level)
+56 packages in the default view; 15 need manual review. Policy 2026.10.12-4.
+Ownership is unknown for 11 rows: the provider kept no record, or this analysis could not read one.
 ```
 
 Three things to read here:
 
-- **`degraded` is a support state, not a verdict on the software.** It means
+- **`Degraded` is a support state, not a verdict on the software.** It means
   the provider itself has said this machine is not a first-class target. Run
   `macportsbrew doctor` and it will tell you which provider said what, with the
   source and the date it was read.
-- **"56 top-level"** is the number of packages *you asked for*. The rest are
-  dependencies that a provider installed on their behalf, and MacPortsBrew
-  hides them unless you pass `--advanced` — see
-  [Dependencies and Safety](Dependencies-and-Safety.md).
+- **"47 top-level"** is the number of packages *you asked for*. Most of the
+  rest are dependencies that a provider installed on their behalf, and
+  MacPortsBrew hides them unless you pass `--advanced` — see
+  [Dependencies and Safety](Dependencies-and-Safety.md). The default view, 56
+  rows here, also keeps every package whose ownership is unknown: an unknown
+  is shown, never hidden.
 - **The policy version** is the identifier of the dated provider facts this
   answer was computed from. Every recommendation carries it.
 
@@ -65,14 +76,17 @@ Three things to read here:
 
 One row per package, with what each provider has, how it got there, whether an
 install would be prebuilt or compiled, what kind of package it is, and the
-recommendation.
+recommendation. Below, four rows from the same recording (`…` marks rows left
+out); after the table, `analyze` lists the reasons behind each recommendation.
 
 ```
-Package     Provider  Version  Ownership  Availability  Class             Recommendation
-coreutils   homebrew  9.11     Requested  Prebuilt      Simple            Needs a human decision
-gemini-cli  homebrew  0.46.0   Requested  Deprecated    Simple            Nothing to do
-jupyterlab  homebrew  4.6.3    Requested  Prebuilt      Background service Needs a human decision
-python@3.12 homebrew  3.12.14  Requested  Prebuilt      Language runtime  Use a language runtime manager instead
+Package             Provider    Version      Ownership  Availability                                                Class               Recommendation
+…
+coreutils           homebrew    9.11         Requested  Prebuilt                                                    Simple              Needs a human decision
+gemini-cli          homebrew    0.46.0       Requested  Deprecated                                                  Simple              Needs a human decision
+jupyterlab          homebrew    4.6.3        Requested  Prebuilt                                                    Background service  Needs a human decision
+python@3.12         homebrew    3.12.14      Requested  Prebuilt                                                    Language runtime    Use a language runtime manager instead
+…
 ```
 
 "Needs a human decision" is a normal, common outcome. It is not an error, and
@@ -88,29 +102,31 @@ rules that were considered and did not fire**, and the mapping evidence.
 ```
 curl (held by homebrew)
   Recommendation: Needs a human decision
-  Policy version: 2026.09.02-1
+  Policy version: 2026.10.12-4
 
 Facts the policy engine read
-  ...
-  package.reverseDependencyCount: 2
+  …
+  package.homebrew.reverseDependencyCount: 2
+  …
   provider.homebrew.support: DEGRADED
   provider.homebrew.supportEndDate: 2027-09-01
-  ...
+  …
 
 Rules that fired
   KEEP_SOURCE_DEFAULT -> Keep under homebrew
       Nothing argues for moving curl, so it stays under homebrew.
   MANUAL_REVIEW_REVERSE_DEPENDENCIES -> Needs a human decision
-      2 packages under homebrew depend on this one, and removing or moving it
-      on its own can break them.
-  NO_ACTION_ALREADY_THERE -> Nothing to do
-      homebrew is the only package manager on this machine carrying curl, so
-      there is nowhere to move it to.
+      2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
+  NO_ALTERNATIVE_PROVIDER_PRESENT -> Nothing to do
+      homebrew is the only package manager on this machine carrying curl, so there is nowhere to move it to.
 
 Rules considered that did not fire
   DESTINATION_UNSUPPORTED_HERE
-  ...
+  …
 ```
+
+That is an excerpt (`…` marks lines left out) of
+`macportsbrew explain curl` replayed from the same recording.
 
 Everything MacPortsBrew concludes is reproducible from that page. If you
 disagree with an answer, this output names the rule to argue with.
@@ -118,12 +134,12 @@ disagree with an answer, this output names the rule to argue with.
 ## The rest of the surface
 
 ```sh
-macportsbrew list                     # inventory only, no recommendations
+macportsbrew list                     # the analyze table, without the reasons
 macportsbrew list --provider macports # one provider
 macportsbrew analyze --advanced       # include dependency-level packages
 macportsbrew doctor                   # PATH order, prefixes, provider health
-macportsbrew plan <pkg> --to macports # a plan; nothing is executed
-macportsbrew snapshot --out state.json
+macportsbrew plan <pkg> --to macports # or --to homebrew; nothing is executed
+macportsbrew snapshot --out state.json # replaces only its own earlier output
 macportsbrew analyze --from-snapshot state.json
 ```
 
@@ -133,18 +149,22 @@ Add `--json` to any of them for a versioned payload on stdout. See the
 
 ## What it will not do yet
 
-`plan` builds and prints a plan. **Executing one is a later pass** — there is
-no `migrate` command, and no code path in this binary runs a mutating provider
-subcommand or asks for a password. Nothing on your machine changes when you run
-any command on this page.
+`plan` builds and prints a plan. **Running one is for a later release** —
+`migrate --yes` reaches a refusal gate that refuses every plan this build
+produces, and no code path in this binary runs a mutating provider subcommand
+or asks for a password. Nothing in either package manager changes when you run
+any command on this page; `snapshot --out` writes only the new file you name,
+and replaces an existing file only when it is a MacPortsBrew document.
 
-`--dry-run`, `--yes`, `--no-network` and `--refresh` are accepted and do
-nothing, because this build is always a dry run, never prompts, never uses the
-network and has no cache. They exist so a script written today keeps working.
+`--no-network` and `--refresh` are accepted and do nothing in this build.
+`--yes` makes `migrate` put its plan to the execution gate, which refuses it
+(exit 4); adding `--dry-run` shows the plan without putting it to the gate.
+`--no-network` does not stop Homebrew, asked to read, fetching its catalogue on
+an empty cache.
 
 ## Where to go next
 
-- Your Homebrew shows `degraded` and you are on Intel:
+- Your Homebrew shows `Degraded` and you are on Intel:
   [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md).
 - You want to move something: pick your direction from
   [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) or

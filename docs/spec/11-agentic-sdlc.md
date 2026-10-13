@@ -24,7 +24,15 @@ actions come from a reviewed plan, not from good intentions — turned inward.
 The project's own three-source rule applies to the tools it is built with.
 Everything specified below was verified against Anthropic's Claude Code
 documentation at `https://code.claude.com/docs/en/`, read **2026-09-02**
-(re-verified the same day at the start of the Foundation Pass). The
+(re-verified the same day at the start of the Foundation Pass; the
+permissions, hooks, skills and github-actions pages re-read **2026-09-05**
+during the security review that produced SE-072), every group re-read
+**2026-09-27** (`docs/research/tooling/2026-09-27-*.md`), and the memory and
+settings group and the subagents and skills group re-read **2026-10-02**
+(`docs/research/tooling/2026-10-02-*.md`), and all three groups re-read
+**2026-10-03** at the start of pass 07 (`docs/research/tooling/2026-10-03-*.md`;
+what they found and what was left is in that pass's report), and all three
+groups re-read **2026-10-10** (`docs/research/tooling/2026-10-10-*.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -53,7 +61,9 @@ enforced boundaries, the delegation policy, and the mistakes that are easy to
 make here. Claude Code's memory documentation now describes exactly this
 pattern for projects that keep `AGENTS.md`.
 
-Rationale: Claude Code reads `CLAUDE.md`, not `AGENTS.md`. Making `CLAUDE.md`
+Rationale: Claude Code reads `CLAUDE.md` when one exists, and `AGENTS.md` only
+when none does (and not at all on v2.1.276 or earlier, or in the first session
+after upgrading from one — memory docs, read 2026-10-10). Making `CLAUDE.md`
 canonical would tie a project meant to outlive any one tool to that tool;
 making `AGENTS.md` canonical and importing it costs one line (SE-024).
 
@@ -65,7 +75,9 @@ moves to the specification. A rule that exists in both places will drift, and
 the copy in the memory file wins by proximity, which is the wrong copy to win.
 
 **MUST.** Claude Code's automatic per-repository memory is disabled in
-`.claude/settings.json` (`autoMemoryEnabled: false`). Everything a future
+`.claude/settings.json` (`autoMemoryEnabled: false`; the environment variable
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY` is the other switch, and also disables a
+subagent's `memory:` field). Everything a future
 session needs to know about this project is a versioned file — the
 specification, `../decisions-pending.md`, `../research/`, this chapter — with
 a source and a date. An undated recollection carried between sessions in a
@@ -89,11 +101,47 @@ paths exist.
 |---|---|
 | All elevation (`sudo`, `doas`) | INV-06. Nothing in this repository's agent workflow needs root. |
 | Every mutating `brew` and `port` subcommand | INV-05 and `07-quality-and-testing.md`: tests never touch the developer's real installation. |
-| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew` | INV-07, INV-08, and the rule against ever patching a binary. Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. |
+| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew`, `~/.homebrew` | `04-migration-and-safety.md`, "never rewrite, re-link or patch a binary" — that is the rule this defends. (INV-07 and INV-08 are about one provider satisfying the other's dependency, which is a different claim; citing them here would leave the rule orphaned the day either is reworded.) Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. Enforced for `Bash` too — a deny rule on a path does not reach a subprocess, and `cp target/release/… /opt/homebrew/bin/` was the way in. |
 | Writes to shell configuration files | `05-environment-and-primary-provider.md`: shell files are written only through the managed-block procedure. |
-| `launchctl`, `chsh`, and system security tools | INV-19. |
+| `launchctl`, `chsh`, `csrutil`, `spctl`, `systemsetup` | INV-19 for launch machinery; `05-environment-and-primary-provider.md` for the login shell; the threat model in `04-migration-and-safety.md` for the security tools. Three different rules, not one. |
 | `rustup default|override|toolchain`, `cargo install` | ADR-0002. The pinned toolchain is what holds the macOS floor. |
-| `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet. |
+| `git push` | DP-007 is decided (public GitHub), but the remote does not exist yet, so the first push is the owner's act of publishing. Both a bare `git push` and `git push <args>`: a rule ending in ` *` needs the argument. |
+| `rust-toolchain.toml`, `docs/spec/01-invariants.md` | ADR-0002 and Tier 1. The `rustup` rule tells the agent to change the pin in the file instead of the active toolchain, which made the file the unguarded path to the same outcome. |
+| The enforcement layer itself — `.claude/hooks/`, `.claude/settings.json`, **every** `scripts/*.sh`, `.github/workflows/`, and the generated `.codex/` and `.agents/skills/`. Since 2026-10-03 (SE-093, the owner's decision) `.claude/agents/`, `.claude/skills/` and `.claude/rules/` are not in it: they are guidance, not controls, and reach the generated layers only through the generator, whose drift `validate.sh` checks | A control that a session can edit is a control that session can switch off, and the gate can only detect that its own path changed, never prevent it. `MPB_ALLOW_GUARD_EDIT=1` is the disclosed escape, on the same terms as `MPB_SKIP_STOP_GATE`. It is armed two ways, and they differ: set in the environment before the session starts it cannot be forged from inside, while the same literal in a user message arms it for **that message only** through a `UserPromptSubmit` hook — which a session with a shell could write itself, making that route detective rather than preventive. **The message route is narrower than "the same literal" (2026-09-20, F-52).** A subagent hand-back reaches that hook through the same channel a human message does, and twice it armed the escape by quoting this very cell. The literal must now be the **first thing on a line**, and a prompt carrying a relay envelope arms nothing at all. SE-081 carries the rationale and what the rule still does not cover; DP-022 carries the two changes that would make it a boundary and what each costs the owner. Both append every write they permit to `.claude/.guard-edit-log`, and the report cites it (SE-081). |
+
+**MUST** be stated wherever the enforcement layer is described: **it is not a
+property of the repository, it is a property of the harness reading it.** The
+guards are Claude Code hooks declared in `.claude/settings.json`, plus the
+`.codex/` layer generated from them (DP-018). A surface that does not read those
+files runs none of it — no path guard, no provider-mutation guard, no `Stop`
+gate — and nothing in the checkout would say so.
+
+Which surfaces do, as of 2026-09-18 (code.claude.com/docs/en/overview):
+
+- **The terminal CLI** and **the IDE extensions**, which are Claude Code.
+- **The desktop app's `Code` tab.** The app "includes Claude Code, so you don't
+  need to install the CLI separately" — same hooks, same `CLAUDE.md`, same
+  skills.
+- **Not** the same app's ordinary chat surface, which is not Claude Code. Work
+  done there reaches this repository with every guard absent, and the absence is
+  silent, which is the same shape as F-12 and F-42: a path that enforced nothing
+  was indistinguishable from a path that enforced everything.
+
+Two conditions inside a surface that *does* read them, from the settings page
+re-read 2026-10-03 (`../research/tooling/2026-10-03-memory-settings-plugins.md`):
+
+- **A session started outside the repository root.** Claude Code reads the
+  shared `.claude/settings.json` from the session's primary working directory,
+  so a session opened in `crates/` or `docs/` runs no hook and no deny rule —
+  and the `SessionStart` hook that could warn is one of the things not loaded.
+  Start sessions at the root.
+- **A cloud session with several repositories** reads only `enabledPlugins` and
+  `extraKnownMarketplaces` from the project file: no permission rule, no hook.
+
+This was asked and answered because a session ended with the owner moving to the
+desktop app; the answer is reassuring and the question was not obviously so, and
+an unwritten "it depends which window you are in" is exactly the kind of thing
+this file exists to write down.
 
 **MUST.** Read-only provider subcommands are explicitly *allowed*. Observing
 the live system is how provider facts are meant to be established
@@ -138,7 +186,8 @@ not apply to what a subprocess does. Two layers, deliberately.
 | `PreToolUse(Bash)` | Deny elevation, mutating provider subcommands, toolchain switching, shell-file writes and launch machinery — including absolute-path, environment-prefixed and wrapped forms the rule syntax does not catch. |
 | `PreToolUse(Edit\|Write\|NotebookEdit)` | Deny writes outside the repository into provider prefixes, shell configuration and system paths. |
 | `PostToolUse(Edit\|Write)` | Cheap per-file checks only: format, lint, JSON validity, link resolution, SPDX header. Never blocks; findings are delivered as `additionalContext`, because exit-0 stderr from this event reaches nobody. |
-| `Stop` | The definition-of-done gate. Blocks the turn ending while an objective check fails. |
+| `PreToolUse(Bash)`, `git commit` | The definition-of-done gate where it binds: `scripts/validate.sh` before every commit (the default mode when code changed), refusing the commit while it fails (SE-093). |
+| `Stop` | The fast half of that gate: `validate.sh --quick` at every turn end. Blocks the turn ending while an objective check fails. |
 
 **MUST.** A guard hook that cannot read its input **fails closed** — both when
 the JSON parser is missing and when the input does not parse. "The parser was
@@ -190,7 +239,7 @@ reviewers:
 
 | Subagent | Why it is separate |
 |---|---|
-| `provider-researcher` | Read-only by construction. One research item per invocation; independent items run in parallel without polluting the main context. |
+| `provider-researcher` | Read-only *toward the machine and the specification*: it observes with read-only commands and writes only its research note. It holds `Write` and `Edit` because writing that note is its job, so the property is a discipline stated in its brief, not one the frontmatter enforces — unlike the three reviewers below. One research item per invocation; independent items run in parallel without polluting the main context. |
 | `spec-guardian` | Reviews a change against the invariants and the authority tiers. |
 | `security-reviewer` | Reviews against the threat model in `04-migration-and-safety.md`. |
 | `docs-auditor` | Links, dated claims, support-matrix honesty, peer-provider balance, i18n parity. |
@@ -202,7 +251,11 @@ harness's read-only mode for the file tools. Plan mode does **not** stop a
 2026-09-02, Foundation Pass recheck) says plan mode blocks the file-editing
 tools while "any other shell command goes through the regular permission
 flow" — which the readiness pass had already observed when a reviewer
-created files under its scratch directory through `Bash`. So `Bash` is the
+created files under its scratch directory through `Bash`. And `permissionMode`
+is ignored altogether when the main session runs in `bypassPermissions`,
+`acceptEdits` or auto mode (sub-agents documentation, read 2026-10-02); what
+still holds then is the `tools` list, which gives the reviewers no file-editing
+tool. So `Bash` is the
 documented gap, the `PreToolUse` guard is the boundary that holds during a
 review, and the reviewers' prompts are what keep them from patching. A
 reviewer that can fix what it finds stops reporting and starts patching, and
@@ -341,6 +394,13 @@ truth.
 **SHOULD.** Claude Code runs in CI for review, not for authorship: pull-request
 review and `@claude` mentions on issues and pull requests. Anthropic publishes
 `anthropics/claude-code-action` for this.
+
+**MUST.** An unattended run identifies itself: both Claude workflows set
+`MPB_UNATTENDED=1`, and `guard-protected-paths.sh` reads it and refuses edits
+to `decisions-pending.md` and `docs/adr/` under it. Interactive sessions keep
+the documented `/decision-pending` flow. Until 2026-09-05 the rule below was
+asserted in a workflow comment and enforced nowhere, which is the exact shape
+of defect this chapter's governing sentence is about.
 
 **MUST NOT.** No unattended agent run holds write access to the default branch,
 merges a pull request, publishes a release, or resolves an item in

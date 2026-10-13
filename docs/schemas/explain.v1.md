@@ -20,6 +20,7 @@ here.
 | `package` | `PackageReport` | The full unit, exactly as in [`analysis.v1.md`](analysis.v1.md) |
 | `facts` | `Facts` | The engine's entire input, besides the policy data |
 | `derivation` | `Derivation` | |
+| `concurrentProviderActivity` | object | Always written, last: whether a provider may have been changing the machine while it was read, never a check this build did not make — the one shape every document writes it in ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)). Added 2026-10-03; additive, so no version bump (SE-015) |
 
 ## `Facts`
 
@@ -54,7 +55,6 @@ no clock, no environment (INV-14).
 | `classes` | `ClassSet` | An empty set means a plain, self-contained package |
 | `installedVersion` | string, nullable | |
 | `perProvider` | map of provider id to `PackageProviderFacts` | **The source and every mapping candidate use the same map**, so neither direction is a special case (INV-17) |
-| `reverseDependencyCount` | integer | **Within the source provider only.** Never counted across providers (INV-04) |
 | `coexistenceRequested` | boolean | Whether the user asked for it under both |
 
 ### `PackageProviderFacts`
@@ -69,6 +69,7 @@ no clock, no environment (INV-14).
 | `replacedBy` | string, nullable | |
 | `mappingConfidence` | string | `NONE`, `AMBIGUOUS`, `PROBABLE`, `STRONG`, `EXACT`. `EXACT` for the source itself, because the source is not a mapping |
 | `mappedName` | string, nullable | The name under this provider, when known |
+| `reverseDependencyCount` | integer | How many packages **inside this provider** depend on this one. Per-provider because INV-04 counts inside one provider and INV-08 forbids the substitution; it replaced a single figure on `PackageFacts` that was filled with the maximum across providers (SE-045, DP-010) |
 
 ## `Derivation`
 
@@ -101,13 +102,22 @@ fact and every rule the engine knows, and the roster grows as rules are added.
 Three rules fired here with three different outcomes; `MANUAL_REVIEW` is the
 answer:
 
+**Abridged, and therefore unchecked**, like `analysis.v1.md`'s and unlike every
+other JSON sample in this directory, which carry `<!-- sample: ... -->` markers
+and are compared with the binary on every run (F-50). The roster shown is three
+fired and four not, against a real roster of fourteen rules. Note that "the
+roster grows as rules are added" is an argument *for* checking this block rather
+than against it: a document that silently falls behind the rule set is the drift
+F-27 exists to catch, and this is the one place in this directory still open to
+it.
+
 ```json
 {
   "schemaVersion": 1,
   "package": { "name": "curl", "source": "homebrew" },
   "facts": {
     "today": "2026-09-02",
-    "policyVersion": "2026.09.02-1",
+    "policyVersion": "2026.10.12-4",
     "providers": {
       "homebrew": {
         "presence": { "state": "PRESENT" },
@@ -139,7 +149,6 @@ answer:
           "mappedName": null
         }
       },
-      "reverseDependencyCount": 2,
       "coexistenceRequested": false
     }
   },
@@ -147,7 +156,8 @@ answer:
     "factsUsed": [
       ["machine.architecture", "x86_64"],
       ["machine.macos", "26.6.2"],
-      ["package.reverseDependencyCount", "2"],
+      ["package.homebrew.reverseDependencyCount", "3"],
+      ["package.macports.reverseDependencyCount", "0"],
       ["provider.homebrew.supportEndDate", "2027-09-01"]
     ],
     "fired": [
@@ -157,7 +167,7 @@ answer:
       { "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
         "outcome": { "kind": "MANUAL_REVIEW" },
         "reason": { "id": "reason.reverse_dependencies_present", "params": { "count": "2", "provider": "homebrew" } } },
-      { "rule": "NO_ACTION_ALREADY_THERE",
+      { "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT",
         "outcome": { "kind": "NO_ACTION" },
         "reason": { "id": "reason.no_alternative_provider_present", "params": { "package": "curl", "provider": "homebrew" } } }
     ],
@@ -170,9 +180,9 @@ answer:
     "recommendation": {
       "outcome": { "kind": "MANUAL_REVIEW" },
       "rulesNotFired": ["DESTINATION_UNSUPPORTED_HERE"],
-      "policyVersion": "2026.09.02-1"
+      "policyVersion": "2026.10.12-4"
     },
-    "policyVersion": "2026.09.02-1"
+    "policyVersion": "2026.10.12-4"
   }
 }
 ```
@@ -189,4 +199,10 @@ Every `Reason` is `{ id, params?, rule? }` with no display text. English
 templates live in `locales/en.toml`, keyed by the same identifiers, with a
 `{placeholder}` per parameter. A consumer either renders through that catalogue
 or displays the identifier; **the identifiers themselves are never localised**,
-regardless of `--language`.
+regardless of `--language`. Which parameters carry a domain identifier, and
+the known exceptions, are stated once in [`README.md`](README.md).
+
+## Not in this version
+
+Nothing outstanding. The concurrency flag, listed here until 2026-10-03, is
+now carried at the root (SE-015).

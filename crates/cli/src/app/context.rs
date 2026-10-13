@@ -6,11 +6,12 @@
 
 use super::Cli;
 use crate::i18n::{resolve, Messages};
+use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::persistence::{
     load_recording, load_snapshot, save_snapshot as persist_snapshot, snapshot_to_json,
     state_dir::StateDir, time, write_atomic,
 };
-use macportsbrew_adapters::process::{is_safe_path, ProcessRunner, ReplayRunner, SystemRunner};
+use macportsbrew_adapters::process::{ProcessRunner, ReplayRunner, SystemRunner};
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_adapters::system::machine::{
     from_process_environment, language_preference, state_dir_override, SystemMachine,
@@ -18,7 +19,9 @@ use macportsbrew_adapters::system::machine::{
 use macportsbrew_application::{
     analyze, capture, Analysis, AnalysisOptions, AnalysisSource, CaptureContext, DoctorReport,
 };
-use macportsbrew_domain::{DomainError, ErrorId, MachineRead, ProviderId, Snapshot};
+use macportsbrew_domain::{
+    DomainError, ErrorId, HomeRedaction, Machine, MachineRead, ProviderId, Snapshot,
+};
 use macportsbrew_policy::PolicyData;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -36,8 +39,79 @@ pub struct Context {
     pub today: String,
     /// Live capture, replayed recording, or a snapshot file.
     pub source: AnalysisSource,
-    /// Home directory, when known (never written to output).
+    /// The real home directory, when known. Locates the state directory; it is
+    /// never written to output, which is what `redaction` is for.
     pub home: Option<PathBuf>,
+    /// How home paths are redacted out of anything the user might share, and
+    /// why — the two reasons a home can be absent need opposite treatment.
+    pub redaction: HomeRedaction,
+    /// What the capture's adapters were built from — the runner among it —
+    /// kept past the capture so an execution reads through the same runner,
+    /// prefix answers and home (SE-050, "Not closed" 7). `None` for a snapshot
+    /// file, which has no runner and must not be executed against. Private:
+    /// [`Context::execution_registry`] is the one way to it, and `migrate` is
+    /// its one caller (SE-092; a word scan in `crates/cli/tests/migrate.rs`).
+    registry: Option<Registry>,
+    /// Whether this run may consult MacPortsBrew's migration history
+    /// (pass 08 slice 1). Decided once, beside every other fact the input's
+    /// origin decides, by [`HistoryScope::of`].
+    pub(crate) history: HistoryScope,
+    /// This run's compact UTC stamp, from the one clock read: what a history
+    /// record must not be later than to be trusted for ordering.
+    pub(crate) run_stamp: String,
+}
+
+/// Whether a run may read MacPortsBrew's own history.
+///
+/// **Only a live run does.** A recording is another machine and a snapshot
+/// file is another moment; history is this machine's, now (INV-15). The
+/// state directory can still be resolved under `--replay` — through
+/// `MACPORTSBREW_STATE_DIR`, with no home at all — which is why the answer is
+/// a field decided here rather than whatever happens to resolve: a user who
+/// exports that variable must not have a replay read their real store
+/// (security review, M5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryScope {
+    /// History may be read for this machine.
+    ThisMachine,
+    /// History is not consulted.
+    NotConsulted,
+}
+
+impl HistoryScope {
+    /// The scope of a run built from a recording (`replay`), a snapshot file
+    /// (`from_snapshot`), or neither.
+    #[must_use]
+    pub fn of(replay: bool, from_snapshot: bool) -> Self {
+        if replay || from_snapshot {
+            Self::NotConsulted
+        } else {
+            Self::ThisMachine
+        }
+    }
+}
+
+/// Everything a [`RegistryContext`] is built from, owned, so that the capture
+/// and an execution build theirs through one function ([`Registry::context`])
+/// from the same values rather than from two constructions that could drift.
+struct Registry {
+    runner: Rc<dyn ProcessRunner>,
+    filesystem: FilesystemScope,
+    home: Option<PathBuf>,
+    machine: Machine,
+    prefix_override: Option<Vec<(ProviderId, PathBuf)>>,
+}
+
+impl Registry {
+    fn context<'a>(&'a self, policy: &'a PolicyData) -> RegistryContext<'a> {
+        RegistryContext {
+            runner: &*self.runner,
+            home: self.home.clone(),
+            platform_tags: Box::new(move |id| policy.artifact_tags_for(id, &self.machine)),
+            filesystem: self.filesystem,
+            prefix_override: self.prefix_override.clone(),
+        }
+    }
 }
 
 /// The language preference from the process environment, collapsed the way
@@ -58,8 +132,8 @@ impl Context {
         let (path_env, variables, home) = from_process_environment();
 
         if let Some(file) = &cli.from_snapshot {
+            // `load_snapshot` runs every check, schema included.
             let snapshot = load_snapshot(file)?;
-            snapshot.check_schema()?;
             let today = cli
                 .today
                 .clone()
@@ -71,6 +145,12 @@ impl Context {
                 today,
                 source: AnalysisSource::Snapshot,
                 home,
+                // A snapshot file was redacted when it was captured, so it is
+                // read back on the same terms as a recording.
+                redaction: HomeRedaction::Recorded,
+                registry: None,
+                history: HistoryScope::of(false, true),
+                run_stamp: time::compact_stamp(now),
             });
         }
 
@@ -78,11 +158,21 @@ impl Context {
         let (runner, prefix_override, replay): (Rc<dyn ProcessRunner>, _, bool) =
             if let Some(file) = &cli.replay {
                 let recording = load_recording(file)?;
-                let overrides = prefix_overrides_from(&recording);
+                let overrides = macportsbrew_adapters::registry::prefix_overrides_from(&recording);
                 (Rc::new(ReplayRunner::new(recording)), Some(overrides), true)
             } else {
                 (Rc::new(SystemRunner::new()), None, false)
             };
+        // Why there is no home matters, so it is stated once here and carried
+        // as a reason rather than as an absent value. Under replay the recording
+        // was redacted when it was captured; on a live run an absent `HOME` means
+        // the home is unknown, which is not the same thing and must not be
+        // treated as "nothing to redact".
+        let home_redaction = if replay {
+            HomeRedaction::Recorded
+        } else {
+            HomeRedaction::live(home.clone())
+        };
         let machine = SystemMachine::new(
             Box::new(Rc::clone(&runner)),
             if replay { None } else { path_env },
@@ -91,17 +181,24 @@ impl Context {
             } else {
                 variables
             },
-            if replay { None } else { home.clone() },
+            home_redaction.clone(),
         );
-        let machine_facts = machine.machine()?;
+        let parts = Registry {
+            runner: Rc::clone(&runner),
+            // Set here, next to every other decision `--replay` drives, so
+            // the one place that knows the machine is a recording is the
+            // one place that says so (INV-15, F-25).
+            filesystem: if replay {
+                FilesystemScope::Elsewhere
+            } else {
+                FilesystemScope::ThisMachine
+            },
+            home: if replay { None } else { home.clone() },
+            machine: machine.machine()?,
+            prefix_override,
+        };
         let snapshot = {
-            let policy_ref = &policy;
-            let providers = registry::build(&RegistryContext {
-                runner: &*runner,
-                home: if replay { None } else { home.clone() },
-                platform_tags: Box::new(move |id| policy_ref.artifact_tags_for(id, &machine_facts)),
-                prefix_override,
-            });
+            let providers = registry::build(&parts.context(&policy));
             let provider_refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
                 providers.iter().map(AsRef::as_ref).collect();
             if cli.verbose {
@@ -120,7 +217,8 @@ impl Context {
                     "macportsbrew {}",
                     if replay { "--replay" } else { "capture" }
                 ),
-                home: if replay { None } else { home.clone() },
+                home: home_redaction.clone(),
+                environment_contracts: registry::environment_contracts(),
             })?
         };
         Ok(Self {
@@ -134,7 +232,26 @@ impl Context {
                 AnalysisSource::Live
             },
             home,
+            redaction: home_redaction,
+            registry: Some(parts),
+            history: HistoryScope::of(replay, false),
+            run_stamp: time::compact_stamp(now),
         })
+    }
+
+    /// The registry context the capture's adapters were built from, rebuilt
+    /// from the same parts for an execution — the runner the snapshot was read
+    /// through, the same prefix sources and the same home — or `None` when
+    /// the snapshot came from a file. A prefix is re-detected from those
+    /// sources, not reused from capture: one that changed in between makes a
+    /// plan's program disagree with the derived one, and the read is refused
+    /// as `ProgramDisagrees`. **`app/migrate.rs` is the one caller**:
+    /// it hands this to the run loop, which builds read sites from it only
+    /// after the execution gate passed the plan (SE-092).
+    pub fn execution_registry(&self) -> Option<RegistryContext<'_>> {
+        self.registry
+            .as_ref()
+            .map(|parts| parts.context(&self.policy))
     }
 
     /// Runs the analysis on the context's snapshot.
@@ -143,47 +260,43 @@ impl Context {
     }
 }
 
-/// Under replay, the prefixes come from the recording's own `--prefix` and
-/// `dir` answers rather than from this machine's filesystem.
-///
-/// A recording is a file the user may have been handed, so its contents are
-/// untrusted input in the sense of `04-migration-and-safety.md` ("Malicious or
-/// malformed provider metadata"). A prefix taken from one becomes the
-/// directory an executable path is built from, so every candidate is put
-/// through [`is_safe_path`] — absolute, bounded, no `..`, no control
-/// characters — and one that fails is dropped rather than repaired. Dropping
-/// it means the default candidate is used, which is what a recording without
-/// the answer already does.
-fn prefix_overrides_from(
-    recording: &macportsbrew_adapters::process::Recording,
-) -> Vec<(ProviderId, PathBuf)> {
-    let mut out = Vec::new();
-    let mut accept = |id: &str, path: PathBuf| {
-        if is_safe_path(&path) {
-            out.push((ProviderId::new(id), path));
-        }
-    };
-    for inv in recording.invocations.iter().map(|r| &r.invocation) {
-        if inv.program == "brew" && inv.argv == ["--prefix"] && inv.status.success() {
-            accept("homebrew", PathBuf::from(inv.stdout.trim()));
-        }
-        if inv.program == "port" && inv.argv == ["dir"] && inv.status.success() {
-            // `port dir` prints the port directory, not the prefix; the
-            // prefix is its ancestor above `var/macports/...`. Fall back to
-            // the default when it does not parse.
-            let text = inv.stdout.trim();
-            if let Some(idx) = text.find("/var/macports") {
-                accept("macports", PathBuf::from(&text[..idx]));
-            }
-        }
+/// Writes `bytes` to a file the user named. A path that already exists is
+/// replaced only when it is itself a document this tool writes (a JSON object
+/// carrying `schemaVersion` and `toolVersion`), so re-running a command
+/// refreshes its own output while a mistyped `--out` cannot replace an
+/// unrelated file in the home folder. The check and the write are not one
+/// operation, which leaves a window only another process of the same user
+/// could use; `write_atomic` still refuses a symbolic reference at the target.
+/// A hard-link publish would close the window but cannot write to exFAT or a
+/// network share.
+fn write_user_named(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
+    if std::fs::symlink_metadata(path).is_ok() && !is_own_document(path) {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            format!(
+                "{} already exists and is not a MacPortsBrew document; choose another name or remove it first",
+                path.display()
+            ),
+        ));
     }
-    out
+    write_atomic(path, bytes)
+}
+
+/// Whether `path` is a regular file holding a document this tool writes.
+/// Bounded like every other read of a file the user can point at, and read
+/// from one open handle that refuses a symlink and never blocks, so what is
+/// checked is what is read.
+fn is_own_document(path: &Path) -> bool {
+    const LIMIT: u64 = 64 * 1024 * 1024;
+    macportsbrew_adapters::persistence::read_regular_file_for_replacement(path, LIMIT)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|doc| doc.get("schemaVersion").is_some() && doc.get("toolVersion").is_some())
 }
 
 /// Saves the context's snapshot, to `out` or to the state directory.
 pub fn save_snapshot(ctx: &Context, out: Option<&Path>) -> Result<PathBuf, DomainError> {
     if let Some(path) = out {
-        write_atomic(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
+        write_user_named(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
         return Ok(path.to_path_buf());
     }
     let dir = StateDir::resolve(ctx.home.as_deref(), state_dir_override().as_deref())?;
@@ -216,10 +329,18 @@ pub fn write_diagnostic_report(
             )
         })
         .collect();
+    // Which redaction the paths in this file went through, so the reader is not
+    // left to assume. Three states rather than two: `AS_CAPTURED` says the file
+    // was built from a recording or a snapshot, which carries no record of how
+    // it was redacted — claiming "grounded" there would be a guess, and it would
+    // be wrong precisely when the snapshot was itself captured with no
+    // resolvable home.
+    let redaction = ctx.redaction.label();
     let report = serde_json::json!({
         "schemaVersion": doc.schema_version,
         "toolVersion": doc.tool_version,
         "policyVersion": doc.policy_version,
+        "redaction": redaction,
         "machine": ctx.snapshot.machine,
         "pathEntries": ctx.snapshot.environment.path.len(),
         "providers": providers,
@@ -227,7 +348,7 @@ pub fn write_diagnostic_report(
     });
     let text = serde_json::to_string_pretty(&report)
         .map_err(|e| DomainError::new(ErrorId::Internal, e.to_string()))?;
-    write_atomic(path, text.as_bytes())?;
+    write_user_named(path, text.as_bytes())?;
     Ok(path.to_path_buf())
 }
 
@@ -237,6 +358,7 @@ mod tests {
     use macportsbrew_adapters::process::{
         ExitStatus, Invocation, RecordedInvocation, Recording, RecordingProvenance,
     };
+    use macportsbrew_adapters::registry::prefix_overrides_from;
 
     fn recording(answers: &[(&str, &[&str], &str)]) -> Recording {
         Recording {
@@ -266,6 +388,14 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn only_a_live_run_consults_history() {
+        assert_eq!(HistoryScope::of(false, false), HistoryScope::ThisMachine);
+        assert_eq!(HistoryScope::of(true, false), HistoryScope::NotConsulted);
+        assert_eq!(HistoryScope::of(false, true), HistoryScope::NotConsulted);
+        assert_eq!(HistoryScope::of(true, true), HistoryScope::NotConsulted);
     }
 
     #[test]
@@ -308,6 +438,8 @@ mod tests {
         assert!(prefix_overrides_from(&recording(&[
             ("brew", &["--cellar"], "/opt/homebrew/Cellar\n"),
             ("port", &["dir"], "/opt/local/share/nothing\n"),
+            // A path component, not a substring: `macportsfoo` is not it.
+            ("port", &["dir"], "/x/var/macportsfoo/y\n"),
         ]))
         .is_empty());
     }

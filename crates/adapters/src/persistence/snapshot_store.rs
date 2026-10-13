@@ -11,7 +11,9 @@
 //!
 //! Everything read here is treated as untrusted input
 //! (`04-migration-and-safety.md`, threat model): the size is bounded before
-//! the file is read, a parse failure is `SnapshotUnusable` rather than a
+//! the file is read, a parse failure is `SnapshotUnusable` - or
+//! `RecordingUnusable` on the `--replay` route, because the remedies differ
+//! (F-41) - rather than a
 //! panic, the schema version is checked, and the capture timestamp — which is
 //! data from a file — is scrubbed to an alphanumeric stamp before it is
 //! allowed anywhere near a file name.
@@ -19,8 +21,6 @@
 use crate::persistence::atomic::write_atomic;
 use crate::process::Recording;
 use macportsbrew_domain::{DomainError, ErrorId, Snapshot};
-use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The largest snapshot or recording that will be read. A snapshot of a very
@@ -96,26 +96,57 @@ pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, D
     Ok(path)
 }
 
-/// Reads a snapshot, checking its size and its schema version.
+/// Reads a snapshot, checking its size, its schema version, and the invocation
+/// environments it states.
 ///
 /// Every failure is `SnapshotUnusable`, which is the "fails closed" of the
 /// threat model: a snapshot that cannot be trusted produces no plan, rather
 /// than a partial one.
+///
+/// The environment check runs here because this is where a snapshot enters the
+/// program. It is *also* run on a captured snapshot, because "constructed"
+/// turned out not to mean "safe": a recording that changes what `brew --prefix`
+/// answers moves the other provider's prefix into a legitimately built
+/// environment, which a review demonstrated. One rule, both routes. F-21.
 pub fn load_snapshot(path: &Path) -> Result<Snapshot, DomainError> {
-    let text = read_bounded(path)?;
-    let snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
+    let text = read_bounded(path, ErrorId::SnapshotUnusable)?;
+    let mut snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
         DomainError::new(
             ErrorId::SnapshotUnusable,
             format!("{} is not a readable snapshot: {e}", path.display()),
         )
     })?;
-    snapshot.check_schema()?;
+    // A capability this document does not mention is one this document cannot
+    // answer, which is not the same thing as one nobody asked about - see
+    // `Snapshot::mark_unrecorded_capabilities_unknown`. Here rather than inside
+    // `check` because it is the only route where the distinction exists: every
+    // producer of a `ProviderSnapshot` in this build answers all nine
+    // capabilities - both adapters, installed or not, and `capture::broken`
+    // for a provider whose read failed - so on the capture route there is
+    // never anything to fill, and `check` is shared with it (F-29, DP-016).
+    // That `broken` was writing an empty table, and so was a third shape the
+    // rule below is documented as never meeting, was found by
+    // `security-reviewer` on 2026-09-18 rather than by this comment.
+    //
+    // One consequence of filling *before* validating, worth knowing when
+    // `check` grows: any capability validation added there is pre-satisfied by
+    // this call and would be silently vacuous on the load route.
+    //
+    // Before `check`, so that what the checks see is what the rest of the
+    // program will see.
+    snapshot.mark_unrecorded_capabilities_unknown();
+    snapshot.check(&crate::registry::environment_contracts())?;
     Ok(snapshot)
 }
 
 /// Reads a recording — a fixture — with the same bounds as a snapshot.
+///
+/// Same reader, same bounds, **different identifier**. The two routes share one
+/// implementation (F-30) and that unification quietly preserved a message
+/// written for only one of them: a bad `--replay` told the user to take a fresh
+/// snapshot and point `--from-snapshot` at something else (F-41).
 pub fn load_recording(path: &Path) -> Result<Recording, DomainError> {
-    let text = read_bounded(path)?;
+    let text = read_bounded(path, ErrorId::RecordingUnusable)?;
     Recording::from_json(&text).map_err(|e| {
         DomainError::new(
             e.id,
@@ -136,34 +167,47 @@ pub fn load_recording(path: &Path) -> Result<Recording, DomainError> {
 /// applying to an object that need not be the one read — and an unbounded read
 /// of a file that grew, or of a device or a FIFO, is the threat-model item
 /// this cap exists for.
-fn read_bounded(path: &Path) -> Result<String, DomainError> {
-    let unusable = |detail: String| DomainError::new(ErrorId::SnapshotUnusable, detail);
-    let file = File::open(path)
-        .map_err(|e| unusable(format!("{} could not be read: {e}", path.display())))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| unusable(format!("{} could not be inspected: {e}", path.display())))?;
-    if !meta.is_file() {
-        return Err(unusable(format!("{} is not a file", path.display())));
-    }
-    if meta.len() > MAX_DOCUMENT_BYTES {
-        return Err(unusable(format!(
-            "{} is {} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit",
-            path.display(),
-            meta.len()
-        )));
-    }
-    let mut text = String::new();
-    file.take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|e| unusable(format!("{} could not be read: {e}", path.display())))?;
-    if text.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(unusable(format!(
+fn read_bounded(path: &Path, id: ErrorId) -> Result<String, DomainError> {
+    use crate::persistence::bounded_read::{any_regular_file, BoundedReadError};
+    // The identifier is the caller's, not this reader's. Every message below is
+    // about *a file*, and which file it is decides what the user should do
+    // about it - the distinction F-30's unification lost and F-41 found.
+    let unusable = |detail: String| DomainError::new(id, detail);
+    // The mechanism moved to `bounded_read` so the receipt reader could share it
+    // (F-30); this wrapper exists to keep every message below exactly where it
+    // was, because they are what a user sees when a snapshot will not load.
+    crate::persistence::bounded_read::read_bounded(
+        path,
+        MAX_DOCUMENT_BYTES,
+        // The user pointed at this file by name; a symlink is their
+        // arrangement, not an attack. Blocking is a separate question and is
+        // never chosen here - the reader never blocks, for anyone (F-31).
+        crate::persistence::bounded_read::OpenPolicy::FollowAsNamed,
+        any_regular_file,
+    )
+    .map_err(|e| match e {
+        BoundedReadError::Open(e) | BoundedReadError::Read(e) => {
+            unusable(format!("{} could not be read: {e}", path.display()))
+        }
+        BoundedReadError::Inspect(e) => {
+            unusable(format!("{} could not be inspected: {e}", path.display()))
+        }
+        BoundedReadError::NotAFile => unusable(format!("{} is not a file", path.display())),
+        BoundedReadError::TooLarge { len } => unusable(format!(
+            "{} is {len} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit",
+            path.display()
+        )),
+        BoundedReadError::Grew => unusable(format!(
             "{} grew past the {MAX_DOCUMENT_BYTES}-byte limit while being read",
             path.display()
-        )));
-    }
-    Ok(text)
+        )),
+        // This caller passes `any_regular_file`, so nothing reaches here.
+        // Mapped rather than panicked: a snapshot that will not load is a
+        // diagnostic, never a crash.
+        BoundedReadError::Rejected(reason) => {
+            unusable(format!("{} was refused: {reason}", path.display()))
+        }
+    })
 }
 
 #[cfg(test)]
@@ -201,7 +245,12 @@ mod tests {
     }
 
     #[test]
-    fn reading_something_that_is_not_there_fails_closed() {
+    fn reading_something_that_is_not_there_fails_closed_and_says_which_input() {
+        // This test used to assert `SnapshotUnusable` for *both* loaders, which
+        // is how F-41 stayed invisible: the defect was pinned as the expected
+        // answer. Failing closed is still the property - neither loader returns
+        // a partial document - and the identifier now says which of the two
+        // inputs failed, because the remedies are different commands.
         let missing = Path::new("/nonexistent/macportsbrew/snapshot.json");
         assert_eq!(
             load_snapshot(missing).unwrap_err().id,
@@ -209,12 +258,21 @@ mod tests {
         );
         assert_eq!(
             load_recording(missing).unwrap_err().id,
-            ErrorId::SnapshotUnusable
+            ErrorId::RecordingUnusable
         );
-        // A directory is not a document either.
+        // A directory is not a document either, on either route.
         assert_eq!(
             load_snapshot(Path::new("/")).unwrap_err().id,
             ErrorId::SnapshotUnusable
         );
+        assert_eq!(
+            load_recording(Path::new("/")).unwrap_err().id,
+            ErrorId::RecordingUnusable
+        );
+        // Same exit code either way: `06-cli-and-ux.md:68` is the category
+        // "8 stale/unusable input", and a new identifier must not quietly move
+        // one off it.
+        assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
+        assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
     }
 }

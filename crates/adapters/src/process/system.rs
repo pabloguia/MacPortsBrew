@@ -79,7 +79,37 @@ impl SystemRunner {
 /// a grandchild holding the write end, and then a blocking read never returns.
 /// Waiting for a bounded time and recording a truncated stream is the right
 /// trade — the alternative is a `macportsbrew analyze` that never comes back.
-const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+///
+/// Six seconds, and it was two. The move was made on a wrong diagnosis —
+/// that this repository's tests were failing because a loaded machine starved
+/// the reader of the CPU. They were failing on a held pipe after all: the test
+/// binary spawned on parallel threads, and a sibling test's long-lived child
+/// inherited `/bin/echo`'s write end (SE-057, and `spawn_alone` in the tests).
+/// Six was kept because it is still a sound bound for the case it exists for.
+/// Nothing mis-parsed either way — `Invocation::require_success` turns
+/// truncation into `ProviderOutputChanged`, which is the whole point of the
+/// flag.
+///
+/// Six costs nothing when the pipe is closed, which is every normal read: the
+/// channel already has the answer. It only lengthens the pathological case, and
+/// it is a twentieth of [`crate::process::DEFAULT_TIMEOUT`], the time the same
+/// executor already allows one command to take, so a drain cannot dominate a
+/// run.
+///
+/// **The two streams are drained one after the other, so the worst case is
+/// twice this.** A grandchild inherits both pipes and holds both, and
+/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` fixes twenty
+/// seconds as the ceiling for that. Six keeps the worst case at twelve, with
+/// margin; ten would have sat exactly on the bound, which is how this value was
+/// found out.
+///
+/// That same held-pipe case is why [`SystemRunner::run`] must not be called
+/// from two threads at once on macOS: a child's pipes are not created
+/// close-on-exec atomically there, so a concurrent spawn can hand one
+/// invocation's write end to another's child, and a long-lived child then
+/// holds it. No caller does today (SE-057); the first that needs to adds a
+/// process-wide lock around the spawn in `run` first.
+const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Reads a stream up to `cap` bytes, returning the text and whether anything
 /// was lost.
@@ -168,12 +198,49 @@ impl ProcessRunner for SystemRunner {
         // absolute path from a detected prefix, so a relative one here is a
         // programming error — refused before anything is spawned, and reported
         // through the same channel a missing program is.
-        if !spec.program.is_absolute() {
+        //
+        // Being absolute is necessary and not sufficient — `/bin/sh` is
+        // absolute — so the same guard asks the stronger question: is this one
+        // of the six programs this tool may run at all? That check is here, on
+        // the value about to reach the kernel, rather than upstream on the type
+        // or in a lint, because both of those were defeated in review: public
+        // fields let a spec be rewritten after construction, a module-level
+        // `OnceLock` manufactures the `&'static str` the constructors ask for,
+        // and a denylist of interpreters is missing `tclsh` — which `port`
+        // itself is written in — however long it grows.
+        //
+        // A plan read whose prefix was resolved through a replay runner names a
+        // binary nobody probed on this machine — a recording's answer, or a
+        // replay-only override. It may be answered from that recording and is
+        // never spawned here, whoever hands it over (SE-050, "Not closed" 7).
+        if spec.replay_only {
             return Ok(record(
                 ExitStatus::NotStarted {
                     error: format!(
-                        "refusing to run `{}`: the program must be an absolute path",
+                        "refusing to run `{}`: its prefix was resolved under replay, not \
+                         detected on this machine",
                         spec.program.display()
+                    ),
+                },
+                String::new(),
+                String::new(),
+                false,
+            ));
+        }
+
+        // And for a provider, which of its subcommands: a permitted program
+        // asked to do a permitted program's mutation is the same program (F-53).
+        if !crate::process::may_spawn(&spec.program, &spec.argv) {
+            return Ok(record(
+                ExitStatus::NotStarted {
+                    error: format!(
+                        "refusing to run `{}` with {:?}: this tool spawns only {}, each \
+                         at an absolute path, a provider's own executable only from a \
+                         `bin` directory under a detected prefix, and a provider only \
+                         for a subcommand on its read allowlist",
+                        spec.program.display(),
+                        spec.argv,
+                        crate::process::PERMITTED_PROGRAMS.join(", ")
                     ),
                 },
                 String::new(),
@@ -190,9 +257,19 @@ impl ProcessRunner for SystemRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Some(cwd) = &spec.cwd {
-            command.current_dir(cwd);
-        }
+        // Never the caller's working directory. It is not inherited any more
+        // than the environment is: `port` resolves its `current` pseudo-port,
+        // and an `info` with no names, to the Portfile in the directory it was
+        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
+        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
+        // let wherever the user happened to run this tool decide what a read
+        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
+        // made `port -q info current` report its contents). `/` is root-owned,
+        // read-only here and holds no Portfile; the Homebrew prefix would not
+        // do, since on Intel it is user-writable. There is deliberately no
+        // per-spec override - `CommandSpec` has no directory field - so no
+        // caller can reintroduce a relative or inherited one.
+        command.current_dir("/");
         // Its own process group, so a terminal signal aimed at this process's
         // foreground group (a Ctrl-C) does not also reach a provider read
         // mid-flight; cancellation is what [`CancelToken`] is for, and it is
@@ -205,7 +282,10 @@ impl ProcessRunner for SystemRunner {
         // `scripts/check-layering.sh` would not catch it here, because this
         // module is the one place the grep exempts. So a grandchild that
         // outlives its parent is handled by bounding the reads instead — see
-        // [`READER_DRAIN_TIMEOUT`]. Group kill needs a `libc`-free mechanism
+        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
+        // dependency decision does not belong in a comment (F-20); what is left
+        // here is what someone editing this line needs. Group kill needs a
+        // `libc`-free mechanism
         // or an ADR admitting the dependency.
         command.process_group(0);
 
@@ -246,14 +326,19 @@ impl ProcessRunner for SystemRunner {
             match child.try_wait() {
                 Ok(Some(s)) => break s,
                 Ok(None) => {}
-                Err(e) => {
+                Err(_) => {
+                    // The child *was* started, so this is not `NotStarted`,
+                    // which every adapter reads as "the program is not there"
+                    // and turns into an absent provider. The executor killed
+                    // it, and why it ended can no longer be learned: that is
+                    // a signal of unknown number. The OS error text has no
+                    // field to go in on this status, and stderr is the
+                    // child's, not ours to append to.
                     let _ = child.kill();
                     let (o, ot) = collect(&out_rx);
                     let (r, rt) = collect(&err_rx);
                     return Ok(record(
-                        ExitStatus::NotStarted {
-                            error: e.to_string(),
-                        },
+                        ExitStatus::Signalled { signal: None },
                         o,
                         r,
                         ot || rt,
@@ -287,6 +372,10 @@ impl ProcessRunner for SystemRunner {
         };
         Ok(record(exit, o, r, ot || rt))
     }
+
+    fn is_replay(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(unix)]
@@ -304,13 +393,46 @@ fn signal_of(_status: std::process::ExitStatus) -> Option<i32> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::sync::{Mutex, MutexGuard, PoisonError};
 
     fn env() -> BTreeMap<String, String> {
         crate::process::sanitised_environment(&crate::process::EnvironmentSpec::default())
     }
 
+    /// Every test here that reaches `Command::spawn` holds this for its whole
+    /// body, so no two of them spawn at the same time (SE-057).
+    ///
+    /// The test harness runs tests on parallel threads of one process, and on
+    /// macOS - which has no `pipe2` - a child's pipes are not created
+    /// close-on-exec atomically. A thread that spawns inside that window hands
+    /// its child a copy of the *other* test's write end. When that child is the
+    /// `sleep 30` that
+    /// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
+    /// or the `yes` that `output_is_bounded` runs for five seconds, the other
+    /// test's stream cannot reach end-of-file until it dies, its reader misses
+    /// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
+    /// marked truncated. Observed under load: `sleep 30` and `yes` children
+    /// holding pipe descriptors they were never given. The runner did exactly what it should with a
+    /// held pipe - the hazard is that this test binary spawns concurrently,
+    /// which the product does not: nothing in it calls `run` from two threads
+    /// at once (its one runner is an `Rc`, shared on one thread). `run` is not
+    /// safe to call concurrently on macOS; a caller that needs that must add a
+    /// process-wide spawn lock inside it first (SE-057).
+    ///
+    /// This removes the cause rather than retrying around the symptom, so every
+    /// assertion below keeps its full strength: a truncated read is still a
+    /// failure, never a reason to try again.
+    static SPAWN_ALONE: Mutex<()> = Mutex::new(());
+
+    fn spawn_alone() -> MutexGuard<'static, ()> {
+        // A test that panicked while holding the lock has already failed on its
+        // own; it is no reason to fail every test after it as well.
+        SPAWN_ALONE.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     #[test]
     fn runs_argv_without_a_shell_and_records() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::recording();
         let spec = CommandSpec::new(
             "/bin/echo",
@@ -318,6 +440,15 @@ mod tests {
             env(),
         );
         let inv = runner.run(&spec).unwrap();
+        // First, because a reader thread that misses `READER_DRAIN_TIMEOUT`
+        // returns an *empty* stdout with this flag set, and an assertion on the
+        // text then fails saying the output was wrong when what happened is
+        // that it never arrived. Production cannot confuse the two -
+        // `require_success` turns truncation into `ProviderOutputChanged` - but
+        // these tests call `run` directly. Under load it used to fail here at
+        // roughly one run in twelve; the cause was a sibling test's child
+        // holding this pipe, which `spawn_alone` now rules out.
+        assert!(!inv.truncated, "the reader thread did not drain in time");
         assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
         assert_eq!(inv.stdout, "hello $HOME; rm -rf /\n");
         assert_eq!(inv.program, "echo");
@@ -328,11 +459,13 @@ mod tests {
 
     #[test]
     fn environment_is_exactly_what_was_given() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let mut e = env();
         e.insert("MPB_TEST_MARKER".into(), "present".into());
         let spec = CommandSpec::new("/usr/bin/env", vec![], e);
         let inv = runner.run(&spec).unwrap();
+        assert!(!inv.truncated, "the reader thread did not drain in time");
         assert!(inv.stdout.contains("MPB_TEST_MARKER=present"));
         assert!(inv.stdout.contains("LC_ALL=C"));
         assert!(!inv.stdout.contains("PKG_CONFIG_PATH="));
@@ -341,7 +474,27 @@ mod tests {
     }
 
     #[test]
+    fn a_spec_resolved_under_replay_never_reaches_a_live_spawn() {
+        let _alone = spawn_alone();
+        // A program the test build would run, so a spec that got past the
+        // replay mark exits 0 from the kernel: the assertion is on the refusal.
+        let runner = SystemRunner::new();
+        let mut spec = CommandSpec::new("/bin/echo", vec!["replayed".into()], env());
+        let ran = runner.run(&spec).unwrap();
+        assert!(!ran.truncated, "the reader thread did not drain in time");
+        assert_eq!(ran.status, ExitStatus::Exited { code: 0 });
+        spec.replay_only = true;
+        let inv = runner.run(&spec).unwrap();
+        let ExitStatus::NotStarted { error } = &inv.status else {
+            panic!("a replay-resolved spec was spawned: {:?}", inv.status);
+        };
+        assert!(error.contains("under replay"), "{error}");
+        assert!(inv.stdout.is_empty());
+    }
+
+    #[test]
     fn missing_program_is_not_started() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/nonexistent/mpb-test-program", vec![], env());
         let inv = runner.run(&spec).unwrap();
@@ -350,7 +503,48 @@ mod tests {
     }
 
     #[test]
+    fn a_provider_asked_for_a_subcommand_off_its_read_list_is_not_started() {
+        // No `spawn_alone`: refused before anything is spawned, which is the
+        // assertion.
+        // F-53 at the spawn site. The prefix does not exist, so a spec that got
+        // past the guard would also end `NotStarted` - from the kernel. The
+        // assertion is on *which* refusal, so it cannot pass by that route. The
+        // verb is assembled at run time for the reason
+        // `.claude/hooks/test-hooks.sh` gives: the Stop gate greps `src/` for
+        // the literal, and this is test data rather than a code path.
+        let add = ["in", "stall"].concat();
+        let runner = SystemRunner::new();
+        let spec = CommandSpec::provider(
+            std::path::Path::new("/nonexistent-mpb-prefix"),
+            "bin/brew",
+            vec![add, "wget".into()],
+            env(),
+        );
+        let inv = runner.run(&spec).unwrap();
+        let ExitStatus::NotStarted { error } = &inv.status else {
+            panic!("a mutating subcommand reached the kernel: {:?}", inv.status);
+        };
+        assert!(error.contains("read allowlist"), "{error}");
+    }
+
+    #[test]
+    fn a_child_starts_in_the_root_directory_and_not_in_ours() {
+        let _alone = spawn_alone();
+        // The test process runs in the crate directory, so a child that
+        // inherited it would print that instead - checked first, or the test
+        // would pass vacuously when run from `/`.
+        assert_ne!(std::env::current_dir().unwrap(), std::path::Path::new("/"));
+        let runner = SystemRunner::new();
+        let spec = CommandSpec::new("/bin/sh", vec!["-c".into(), "pwd".into()], env());
+        let inv = runner.run(&spec).unwrap();
+        assert!(!inv.truncated, "the reader thread did not drain in time");
+        assert_eq!(inv.status, ExitStatus::Exited { code: 0 });
+        assert_eq!(inv.stdout, "/\n");
+    }
+
+    #[test]
     fn timeout_kills_the_child() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/bin/sleep", vec!["5".into()], env())
             .with_timeout(Duration::from_millis(200));
@@ -365,6 +559,7 @@ mod tests {
 
     #[test]
     fn cancellation_stops_the_child() {
+        let _alone = spawn_alone();
         let token = CancelToken::new();
         let runner = SystemRunner::new().with_cancel(token.clone());
         let t = token.clone();
@@ -379,6 +574,7 @@ mod tests {
 
     #[test]
     fn output_is_bounded() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let mut spec =
             CommandSpec::new("/usr/bin/yes", vec![], env()).with_timeout(Duration::from_secs(5));
@@ -390,6 +586,8 @@ mod tests {
 
     #[test]
     fn a_program_that_is_not_an_absolute_path_is_never_spawned() {
+        // No `spawn_alone`: refused before anything is spawned, which is the
+        // assertion.
         // `echo` exists on every machine's `PATH`, so a runner that resolved
         // bare names would succeed here. Succeeding is the bug: what ran would
         // be whatever an early `PATH` entry decided (`04-migration-and-safety`,
@@ -410,6 +608,7 @@ mod tests {
 
     #[test]
     fn a_grandchild_holding_the_pipe_does_not_hang_the_runner() {
+        let _alone = spawn_alone();
         // The child exits at once and leaves a background process holding the
         // write end of the inherited pipe. Reading until end-of-file would
         // block for the grandchild's whole lifetime, so the reads are bounded:
@@ -439,6 +638,7 @@ mod tests {
 
     #[test]
     fn non_zero_exit_is_reported_not_raised() {
+        let _alone = spawn_alone();
         let runner = SystemRunner::new();
         let spec = CommandSpec::new("/usr/bin/false", vec![], env());
         let inv = runner.run(&spec).unwrap();

@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `NO_ACTION_ALREADY_THERE`: there is nowhere else on this machine.
+//! `NO_ALTERNATIVE_PROVIDER_PRESENT`: there is nowhere else on this machine.
+//!
+//! It was `NO_ACTION_ALREADY_THERE` until F-20, which is what the rule *does*
+//! read as and not what it means: "already there" says the package has reached
+//! its destination, and this rule fires when there is no other destination on
+//! the machine at all. Its reason id has said
+//! `reason.no_alternative_provider_present` since it was written. `explain`'s
+//! job is clarity, and a rule id a reader has to translate is not it.
 
 use super::PRIORITY_NOTHING_TO_DO;
 use crate::data::PolicyData;
@@ -22,11 +29,11 @@ use macportsbrew_domain::{Outcome, Reason};
 /// It sits below coexistence on purpose. A package held under two providers
 /// is not "nowhere to go" — it has already gone, and INV-18 makes that a
 /// first-class end state that this rule must not overwrite.
-pub struct NoActionAlreadyThere;
+pub struct NoAlternativeProviderPresent;
 
-impl Rule for NoActionAlreadyThere {
+impl Rule for NoAlternativeProviderPresent {
     fn id(&self) -> &'static str {
-        "NO_ACTION_ALREADY_THERE"
+        "NO_ALTERNATIVE_PROVIDER_PRESENT"
     }
 
     fn since(&self) -> &'static str {
@@ -78,7 +85,7 @@ mod tests {
 
     #[test]
     fn another_provider_being_present_does_not_fire_it() {
-        assert!(NoActionAlreadyThere
+        assert!(NoAlternativeProviderPresent
             .evaluate(&testing::baseline(), &data())
             .is_none());
     }
@@ -87,7 +94,9 @@ mod tests {
     fn nowhere_else_to_go_is_nothing_to_do() {
         let mut facts = testing::baseline();
         facts.providers.get_mut(&testing::beta()).unwrap().presence = ProviderPresence::Absent;
-        let verdict = NoActionAlreadyThere.evaluate(&facts, &data()).unwrap();
+        let verdict = NoAlternativeProviderPresent
+            .evaluate(&facts, &data())
+            .unwrap();
         assert_eq!(verdict.outcome, Outcome::NoAction);
         assert_eq!(
             verdict.reason.id.as_str(),
@@ -101,7 +110,9 @@ mod tests {
         facts.providers.get_mut(&testing::beta()).unwrap().presence = ProviderPresence::Broken {
             reason: "PROVIDER_UNHEALTHY".to_string(),
         };
-        assert!(NoActionAlreadyThere.evaluate(&facts, &data()).is_some());
+        assert!(NoAlternativeProviderPresent
+            .evaluate(&facts, &data())
+            .is_some());
     }
 
     #[test]
@@ -114,6 +125,8 @@ mod tests {
             .get_mut(&testing::alpha())
             .unwrap()
             .installed = false;
-        assert!(NoActionAlreadyThere.evaluate(&facts, &data()).is_none());
+        assert!(NoAlternativeProviderPresent
+            .evaluate(&facts, &data())
+            .is_none());
     }
 }

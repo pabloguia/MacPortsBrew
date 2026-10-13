@@ -58,6 +58,7 @@ fn snapshot(captured_at: &str) -> Snapshot {
             },
         },
         environment: EnvironmentSnapshot {
+            installations: std::collections::BTreeMap::default(),
             path: vec!["~/bin".into(), "/usr/local/bin".into(), "/usr/bin".into()],
             reported: BTreeMap::from([("MANPATH".to_string(), "/opt/local/share/man".to_string())]),
             path_findings: Vec::new(),
@@ -357,9 +358,46 @@ fn corrupt_state_fails_closed() {
         ErrorId::SnapshotUnusable
     );
 
+    // The recording route fails closed the same way and names its own input.
+    // This assertion read `SnapshotUnusable` until 2026-09-08, which is how
+    // F-41 survived a review: the wrong identifier was pinned as correct, so
+    // the message telling a `--replay` user to take a fresh snapshot had a
+    // green test under it.
     assert_eq!(
         load_recording(&garbage).unwrap_err().id,
-        ErrorId::SnapshotUnusable
+        ErrorId::RecordingUnusable
+    );
+
+    // Both failure modes, not just the parse: a schema the build does not read
+    // is refused on this route too, and by the same identifier.
+    //
+    // The version is patched into a *real* fixture, the way the snapshot case
+    // eight lines above does. The first version of this test wrote
+    // `{"schemaVersion": 99, "invocations": []}` and asserted the same thing -
+    // and passed for the wrong reason, because `Recording::provenance` is
+    // required with no default, so that document dies at `serde_json::from_str`
+    // and never reaches the version check. Two reviewers found it
+    // independently. A test whose comment claims one arm and exercises another
+    // is worse than no test: it is a green light over an uncovered line, which
+    // is what this whole finding is about.
+    let ahead_recording = dir.join("ahead-recording.json");
+    let real = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/recordings/homebrew-only-intel-macos26.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        &ahead_recording,
+        real.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99")
+            .as_bytes(),
+    )
+    .unwrap();
+    let err = load_recording(&ahead_recording).unwrap_err();
+    assert_eq!(err.id, ErrorId::RecordingUnusable);
+    assert!(
+        err.detail.contains("schema 99"),
+        "this must reach the version check, not the parse: {}",
+        err.detail
     );
 
     std::fs::remove_dir_all(&dir).ok();

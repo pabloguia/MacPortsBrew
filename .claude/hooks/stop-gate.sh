@@ -30,9 +30,23 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-cd "$ROOT" || exit 0
+# Fail closed. This used to be `|| exit 0`, which meant a bad CLAUDE_PROJECT_DIR
+# skipped the entire gate silently - the same defect the Cargo.toml branch below
+# already reasons about, in the one place that decides whether the gate runs.
+if ! cd "$ROOT"; then
+  echo "MacPortsBrew stop gate: cannot enter '$ROOT', so no check ran. That is not" >&2
+  echo "the same as passing. Fix CLAUDE_PROJECT_DIR and try again." >&2
+  exit 2
+fi
 
-[ "${MPB_SKIP_STOP_GATE:-0}" = "1" ] && exit 0
+# The escape hatch leaves a trace. It is legitimate - a gate with none gets
+# deleted wholesale the first time it is wrong - but a silent skip is
+# indistinguishable from a pass to the human watching, and the obligation to
+# disclose it fell entirely on the report the agent writes itself.
+if [ "${MPB_SKIP_STOP_GATE:-0}" = "1" ]; then
+  mpb_message "Stop gate skipped: MPB_SKIP_STOP_GATE=1. Nothing was verified this turn, and the end-of-pass report must say so."
+  exit 0
+fi
 
 # The gate does not depend on its input, so unreadable input is not a reason
 # to skip it; it only loses the re-entry flag.
@@ -95,7 +109,7 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
   if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
      | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }' \
      | head -1 | grep -q .; then
-    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned.")
+    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned. And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
   fi
   if grep -RInE '\b(sudo|doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null \
      | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }' \
@@ -115,22 +129,91 @@ fi
 #    The checks themselves live in scripts/validate.sh - one implementation,
 #    three entry points (07-quality-and-testing.md). The gate only decides
 #    how much of it to run: --quick (format, lint, layering, SPDX, licences,
-#    i18n parity) on every turn end; the test suite too when code, tests,
-#    fixtures or catalogues changed, or when MPB_GATE_FULL=1.
+#    i18n parity) on every turn end; the test suite only when MPB_GATE_FULL=1,
+#    because commit-gate.sh runs it before every commit (SE-093).
+# Whether this turn touched anything the code checks cover.
+#
+# The working tree alone is not the answer: this repository commits mid-turn, so
+# an edit under `crates/` followed by a commit leaves a clean tree, and a check
+# keyed on `git status` reads that as "nothing changed". A committed change is
+# still a change this turn made. So: uncommitted work *or* anything committed
+# since the previous position of HEAD.
+#
+# `scripts` and `.claude` are in the pathspec because they are the gates
+# themselves, which `AGENTS.md` lists first under "dangerous to change". An edit
+# to `validate.sh` that runs no checks is the shape of defect this whole gate
+# exists to refuse.
+touched_paths() {
+  local spec=(crates src tests fixtures locales data scripts .claude Cargo.lock Cargo.toml)
+  command -v git >/dev/null 2>&1 || { echo unknown; return; }
+  git rev-parse --git-dir >/dev/null 2>&1 || { echo unknown; return; }
+  if [ -n "$(git status --porcelain -- "${spec[@]}" 2>/dev/null | head -1)" ]; then
+    echo yes; return
+  fi
+  # `HEAD@{1}` is where HEAD was before the most recent move. Absent on a fresh
+  # clone or a repository with no reflog, in which case say so rather than
+  # guessing "no".
+  if git rev-parse --verify --quiet 'HEAD@{1}' >/dev/null 2>&1; then
+    if [ -n "$(git diff --name-only 'HEAD@{1}' HEAD -- "${spec[@]}" 2>/dev/null | head -1)" ]; then
+      echo yes; return
+    fi
+    echo no; return
+  fi
+  echo unknown
+}
+
 if [ -f Cargo.toml ] && [ -x scripts/validate.sh ]; then
   PATH="$HOME/.cargo/bin:$PATH"
+  touched="$(touched_paths)"
   if command -v cargo >/dev/null 2>&1; then
+    # Since 2026-10-03 (SE-093) the turn-end gate runs --quick only; the test
+    # suite and the fixture matrix run before every `git commit`
+    # (commit-gate.sh), which is where "every commit passes validate.sh"
+    # binds. Running them here held a turn hostage to work a subagent was
+    # still doing. MPB_GATE_FULL=1 still asks for them.
     run_tests="${MPB_GATE_FULL:-0}"
-    if [ "$run_tests" != "1" ] && command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-      [ -n "$(git status --porcelain -- crates src tests fixtures locales data Cargo.lock 2>/dev/null | head -1)" ] && run_tests=1
-    fi
     mode=--quick
     [ "$run_tests" = "1" ] && mode=default
     if ! validate_out="$(scripts/validate.sh "$mode" 2>&1)"; then
-      fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60)")
+      # Redact the home path before this reaches the transcript: the same rule
+      # `doctor --report` follows in docs/spec/06-cli-and-ux.md, applied to the
+      # agent's own output.
+      fail+=("scripts/validate.sh $mode fails:"$'\n'"$(printf '%s\n' "$validate_out" | grep -vE '^\s*(Compiling|Checking|Finished|Running|Blocking)' | tail -60 | sed "s#${HOME}#~#g")")
     fi
   else
-    warn+=("Cargo.toml exists but cargo is not on PATH; the code checks did not run.")
+    # A warning here, and the previous pass concluded from it that this machine
+    # had no toolchain - which was false, and the report said so as fact. The
+    # gate must not be able to pass while the checks it exists to run did not
+    # run at all (F-20).
+    #
+    # Scoped to a change that needs them, so a documentation turn on a machine
+    # without a toolchain is not held hostage to one. A change under `crates/`,
+    # `tests/`, `fixtures/`, `locales/`, `data/` or `Cargo.lock` needs them, and
+    # that is the same set the mode decision uses above.
+    # `MPB_GATE_FULL=1` is an explicit request for the tests. Honouring it only
+    # when they can run, and warning otherwise, would answer "run everything"
+    # with silence.
+    if [ "$touched" != "no" ] || [ "${MPB_GATE_FULL:-0}" = "1" ]; then
+      fail+=("cargo is not on PATH, and this turn changed code, tests, fixtures, \
+locales or data. The checks that would have run did not run - which is not the \
+same as passing. Install the pinned toolchain, or say plainly in the turn's \
+report that nothing was verified.")
+    else
+      warn+=("cargo is not on PATH; the code checks did not run. No code changed \
+this turn, so nothing is blocked - but do not report anything as verified.")
+    fi
+  fi
+else
+  # The other half of the same defect: if this is not a Rust workspace, or
+  # `validate.sh` is not executable, the block above is skipped entirely and the
+  # gate exits 0 having checked nothing at all. Being in the wrong directory
+  # looks exactly like a clean turn.
+  if [ ! -f Cargo.toml ]; then
+    warn+=("no Cargo.toml here; the stop gate ran no code checks. If you expected \
+it to, the working directory is wrong.")
+  elif [ ! -x scripts/validate.sh ]; then
+    fail+=("scripts/validate.sh is not executable, so the one implementation of \
+\"valid\" did not run. Restore its mode rather than working around it.")
   fi
 fi
 

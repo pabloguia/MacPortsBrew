@@ -29,7 +29,14 @@
 
 # --- Program identity -------------------------------------------------------
 
-cli.about = "Analyse, compare and migrate packages between Homebrew and MacPorts on macOS. The two are peers: neither is treated as the better choice, and migration runs in both directions."
+# unreferenced: written for `--help`, which clap renders from a Rust literal
+# (F-23). It stopped counting as referenced when the i18n gate stopped treating
+# a doc comment as a render site (F-32) - the only three references were a
+# `///` example and prose naming the key. Wire it or delete it; it is not dead
+# text, it is unrouted.
+cli.about = "See what Homebrew and MacPorts have installed, compare them package by package, and plan a migration in either direction; the two are treated as peers. This version reads and plans; it changes nothing."
+# unreferenced: written for `--help`, which clap renders from a Rust literal
+# (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
 
 # --- Errors -----------------------------------------------------------------
@@ -39,14 +46,33 @@ cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` 
 # diagnostic detail the domain attached.
 
 error.usage = "That command line is not valid: {detail}. Run `macportsbrew --help` for the accepted commands and flags."
-error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew providers` to see what was detected and how to add it."
+error.provider_not_found = "The provider was not found on this machine: {detail}. Run `macportsbrew doctor` to see which providers were detected."
 error.provider_unhealthy = "The provider is present but did not answer correctly: {detail}. Run `macportsbrew doctor` for a full diagnosis before relying on its answers."
+# A recording is not a snapshot: it comes from scripts/capture-fixture.sh and is
+# consumed by --replay. Same exit code 8 as a snapshot - 06-cli-and-ux.md:68 is
+# the category "8 stale/unusable input" - and a different remediation, which is
+# the whole reason the identifier exists (F-41).
+error.recording_unusable = "The recording could not be read, or its schema is from an incompatible version: {detail}. Capture a fresh one with `scripts/capture-fixture.sh`, or point --replay at a readable file."
 error.provider_output_changed = "The provider's output did not have the shape this version expects: {detail}. The provider was probably updated; run `macportsbrew doctor --report` and attach the report to an issue."
-error.provider_timeout = "The provider did not answer within its time limit: {detail}. Try again, or pass --no-network if the delay is a metadata fetch."
+error.provider_timeout = "The provider did not answer within its time limit: {detail}. A first Homebrew read on an empty cache downloads its catalogue, so a retry usually succeeds."
 error.package_not_found = "That package is not present under that provider: {detail}. Run `macportsbrew list` to see what is there, and check the spelling."
 error.capability_missing = "The provider cannot supply something this operation needs: {detail}. Run `macportsbrew doctor` to see which capabilities were detected on this machine."
 error.snapshot_unusable = "The snapshot could not be read, or its schema is from an incompatible version: {detail}. Take a fresh one with `macportsbrew snapshot`, or point --from-snapshot at a readable file."
-error.policy_data_invalid = "The policy data could not be loaded or is inconsistent: {detail}. This is a defect in the build rather than something on this machine; please report it with `macportsbrew doctor --report`."
+error.input_unusable = "The input this run was built from cannot be used: {detail}. Run `macportsbrew doctor` to see what this machine looks like; if the input came from a snapshot file or a recording, check whatever produced it."
+error.policy_data_invalid = "The policy data could not be loaded or is inconsistent: {detail}. This is a defect in the build rather than something on this machine, so nothing you change here will fix it. Please report it and quote this message."
+# MacPortsBrew's own state (the history store, the run lock, the interrupted-run
+# marker), not an input the user named: the remedy is to look at the entry,
+# never to re-capture. Something that cannot be trusted is never read as
+# "nothing there", so this stops the command rather than guessing.
+error.history_unusable = "MacPortsBrew's own state could not be read, or holds something that cannot be trusted, so nothing was changed: {detail}. Look at what that names in MacPortsBrew's state directory: an entry this version did not write, a record or marker altered after it was written, a lock file that is not the one this version creates, or a directory open to other users."
+# Exit 7. The lock is held by a MacPortsBrew run, not by brew or port, and no
+# process is named because none is recorded.
+error.run_lock_held = "Another MacPortsBrew run is changing packages on this machine, so nothing was changed: {detail}. Wait for it to finish and run the command again; analysis, plan and dry runs do not need the lock and still work."
+# Exit 4. The marker file and its directory are named separately on purpose: the
+# default directory contains a space, and a pasted command line would be wrong.
+error.run_interrupted = "An earlier run was interrupted and has not been looked at, so nothing was changed: {detail}. Analysis, plan and dry runs still work. First check whether MacPortsBrew's history holds a record for that run; if it does not, look at what that run changed on this machine. Then, only when no other MacPortsBrew run is active, remove the single file named interrupted-run.json from MacPortsBrew's state directory (the one MACPORTSBREW_STATE_DIR names, or Application Support/macportsbrew in your Library); a future release may do this for you. If you are unsure whether another run is active, wait for any other MacPortsBrew window to finish first."
+error.safety_unverifiable = "A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: {detail}. This is not something to fix on your machine — the fact is absent from the document itself. `analyze`, `status` and `explain` do not depend on it and still work."
+error.provider_presence_unproven = "Nothing was changed, and this is not reported as already done: {detail}. Detection looks only where a provider is documented to live. If that provider is installed somewhere else, check it with that provider's own tools; if it is not installed at all, the package is under the provider you asked for and there is nothing to migrate."
 error.safety_blocked = "A safety check stopped this operation and nothing was changed: {detail}. Read the finding, resolve it, and run the command again."
 error.not_implemented_in_this_pass = "This build does not carry that operation yet: {detail}. It is specified but not shipped; the read-only commands are available now."
 error.io = "A file could not be read or written: {detail}. Check that the path exists and that you have permission to it."
@@ -70,16 +96,22 @@ reason.unknown = "Reason {id}."
 # `--json` and for `explain`, where a missing value is simply a missing key,
 # and the renderer presents them alongside the sentence rather than inside it.
 #
-# Parameters carrying a stable identifier from the domain (`{class}`,
-# `{cause}`, `{confidence}`, `{state}`, `{tier}`) are rendered through the
-# matching `class.*` / `source_build.*` / `support.*` key before substitution.
+# Parameters carrying a stable identifier from the domain are rendered through
+# the matching label before substitution: `{class}` through `class.*`,
+# `{cause}` through `source_build.*`, `{confidence}` and `{threshold}` through
+# `confidence.*`, `{tier}` through `support.*`, `{state}` through `state.*`.
+# A label is a noun-like name, so a sentence introduces it ("at
+# level {confidence}") rather than using it as an adjective.
 
 reason.class_requires_review = "{package} is classed as {class}, and packages in that class are never migrated automatically. A person decides this one."
 reason.package_owns_persistent_data = "{package} belongs to the {family} family, which keeps data outside the package's own directory under {provider}. Moving it would leave that data behind, so it needs a data-and-service plan first."
-reason.mapping_confidence_below_threshold = "The equivalent under {destination} is only a {confidence} match, and acting on one needs {threshold} or better. Look at the candidate before deciding."
+reason.mapping_confidence_below_threshold = "No equivalent under {destination} reaches confidence level {threshold}: the best is at level {confidence}. Check whether {destination} has an equivalent before deciding."
 reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
-reason.reverse_dependencies_present = "{count, plural, one {# package} other {# packages}} under {provider} depend on this one, and removing or moving it on its own can break them."
+reason.reverse_dependencies_present = "{count, plural, one {# package under {provider} depends} other {# packages under {provider} depend}} on this one, and removing or moving it on its own can break them."
 reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."
+reason.provider_configuration_outranks = "The configuration of {provider} ({file}) sets {keys}, which {provider} applies over the settings this tool would run it with. A step that changes {provider} is refused while it does."
+reason.provider_configuration_unreadable = "The configuration file {file} of {provider} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A step that changes {provider} is refused while it is."
+reason.provider_configuration_unknown = "Whether the configuration of {provider} overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes {provider} is refused while it is unknown."
 reason.runtime_family_managed_elsewhere = "{family} is a language runtime, and a version manager usually handles one better than either package manager does. This is a suggestion; nothing has been changed."
 reason.source_support_ending = "{provider} has published {endDate} as the end of its support for this machine, and already reports this machine as {tier}. {destination} offers a ready-built equivalent today."
 reason.destination_offers_prebuilt = "Under {source} this would be compiled here ({cause}), while {destination} has it ready-built for this machine."
@@ -104,7 +136,7 @@ table.recommendation = "Recommendation"
 
 presence.present = "Present"
 presence.absent = "Absent"
-presence.broken = "Broken ({reason})"
+presence.broken = "Broken"
 
 # --- Ownership --------------------------------------------------------------
 
@@ -145,6 +177,16 @@ support.degraded = "Degraded"
 support.unsupported = "Not supported"
 support.unknown = "Unknown"
 
+# --- Build defence ----------------------------------------------------------
+# Rendered through the identifier-family mechanism (`defence` -> `defence.*`), so
+# no source file spells these keys. Each claims no more than the dated research
+# behind its data row allows (docs/research/F-2-usr-local-interference.md).
+
+# unreferenced: rendered through the `defence` identifier family, never by literal key.
+defence.opt_in_trace = "Its own guide says that files in common system locations, /usr/local among them, can conflict with an installation, and suggests trying trace mode (`port -t`) when one fails; trace mode is off unless you ask for it."
+# unreferenced: rendered through the `defence` identifier family, never by literal key.
+defence.default_clean_path = "In a formula build its own tooling rebuilds the build's PATH from its own directories, so a directory on your PATH is not an input to that build; this does not cover a formula that asks for your PATH, post-install steps, or anything run outside a build."
+
 # --- Recommendation outcomes ------------------------------------------------
 
 outcome.keep = "Keep under {provider}"
@@ -156,54 +198,99 @@ outcome.no_action = "Nothing to do"
 
 # --- Status dashboard -------------------------------------------------------
 
+# unreferenced: superseded by `status.machine_heading`. This block was written
+# for a table shape the renderer no longer uses; delete it or restore the shape,
+# but it should not sit here looking live.
 status.title = "Machine and providers"
+# unreferenced: see `status.title` above.
 status.machine = "Machine"
+# unreferenced: see `status.title` above.
 status.architecture = "Architecture"
+# unreferenced: see `status.title` above.
 status.macos_version = "macOS"
+# unreferenced: see `status.title` above.
 status.providers = "Providers"
+# unreferenced: see `status.title` above.
 status.primary_provider = "Primary provider"
+# unreferenced: see `status.title` above.
 status.support = "Support"
+# unreferenced: see `status.title` above.
 status.packages = "Packages"
+# unreferenced: see `status.title` above.
 status.cache = "Cache"
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.cache_fresh = "Fresh, taken {age}."
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.cache_stale = "Stale, taken {age}. Pass --refresh to take it again."
+# unreferenced: caching and network use are both listed as not yet
+# implemented in `README.md`. Written ahead of the code deliberately.
 status.no_network = "Network use is off; facts that need it are shown as unknown."
 
 # --- Doctor -----------------------------------------------------------------
 
+# unreferenced: `doctor` prints findings without a heading. Add one or drop it.
 doctor.title = "Diagnosis"
 doctor.ok = "OK"
 doctor.warning = "Warning"
 doctor.error = "Error"
+# unreferenced: `doctor` prints nothing when it finds nothing, which is worse
+# than saying so. This is the string for saying so.
 doctor.no_findings = "No findings. Both providers answered as expected."
 doctor.report_written = "A redacted report was written to {path}. Read it before you share it; nothing is uploaded."
 
 # --- Counts -----------------------------------------------------------------
 
+# unreferenced: never had a call site. The renderer built
+# `"{} ({} top-level)"` in Rust from the beginning, which is the defect
+# `count.packages_with_top_level` was added to fix; this key was written for a
+# caller that was never wired. Kept because a count without the top-level figure
+# is the obvious next one. An earlier version of this comment said "superseded
+# at its one call site", which was not true of a key that had none.
 count.packages = "{count, plural, one {# package} other {# packages}}"
+count.packages_with_top_level = "{count, plural, one {# package} other {# packages}} ({topLevel} top-level)"
+# unreferenced: no surface counts findings yet; `doctor` lists them.
 count.findings = "{count, plural, =0 {no findings} one {# finding} other {# findings}}"
 
 # --- Policy data ------------------------------------------------------------
 
-policy.stale_notice = "Policy data was last verified on {readOn}; it may be out of date. See {url}."
+policy.stale_notice = "Policy data was last verified on {readOn}; provider facts may have changed since. A newer MacPortsBrew release may carry fresher data."
 
 # --- Advanced mode ----------------------------------------------------------
 # 06-cli-and-ux.md, "Advanced mode": entering it must say what the risk is.
 
+privilege.user_unknown = "MacPortsBrew could not tell which user it is running as, so it could not check that it is not running as root. It never needs administrator rights; run it as your own user."
 advanced.warning = "Advanced mode shows dependencies. These packages are managed automatically by their provider; removing or migrating one on its own can break the packages that depend on it. Reverse dependencies are still checked and dependencies are never preselected."
 
 # --- status ---------------------------------------------------------------
 "status.machine_heading" = "Machine"
 "status.machine_line" = "macOS {macos}, {arch}, {translation}"
 "status.providers_heading" = "Providers"
-"status.summary_line" = "{topLevel} top-level packages analysed; {manualReview} need manual review. Policy {policyVersion}."
+# `topLevel` here is the default-view population, which since DP-012 includes
+# packages whose ownership is `UNKNOWN` — not only those a provider records as
+# requested. `count.packages_with_top_level` below counts the narrower set and
+# still says "top-level", because that one is fed by `topLevelCount`.
+"status.summary_line" = "{topLevel, plural, one {# package} other {# packages}} in the default view; {manualReview, plural, one {# needs} other {# need}} manual review. Policy {policyVersion}."
+# Printed only when the count is non-zero. A replayed analysis cannot read a
+# cask's on-disk receipt, so it reports fewer top-level packages than the same
+# machine does live; without this line the count is the only clue (F-39).
+#
+# It names both causes and asserts neither. The first draft said "a replayed or
+# snapshot analysis cannot read evidence on the machine's own disk", which is
+# false on a live run - there, an unknown row means the provider genuinely kept
+# no record. A summary line that explains the wrong cause is worse than one that
+# explains none; `doctor` is where a diagnosis belongs.
+"status.ownership_unknown" = "Ownership is unknown for {count, plural, one {# row} other {# rows}}: the provider kept no record, or this analysis could not read one."
 "table.presence" = "Presence"
 "table.prefix" = "Prefix"
 "table.packages" = "Packages"
 "row.not_installed" = "not present"
 
 # --- analyze / list -------------------------------------------------------
-"analysis.nothing_to_show" = "No top-level packages found. Use --advanced to include dependencies, or check `macportsbrew doctor`."
+"analysis.no_provider" = "Neither Homebrew nor MacPorts answered here, so there is nothing to analyse. `macportsbrew doctor` shows where it looked."
+"analysis.provider_broken" = "{provider} is installed but did not answer correctly, so its packages could not be read. Run `macportsbrew doctor`."
+"analysis.nothing_to_show" = "Nothing in the default view. Use --advanced to include dependencies, or check `macportsbrew doctor`."
 "analysis.mapped_row_note" = "Rows marked * are mapping candidates that are not installed under that provider."
 "analysis.advanced_hint" = "Dependency-level packages are hidden; --advanced shows them."
 
@@ -211,45 +298,198 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "explain.heading" = "{package} (held by {provider})"
 "explain.recommendation" = "Recommendation"
 "explain.policy_version" = "Policy version"
+"explain.ownership_split_defaulted" = "{provider}: treated as a dependency by default - {provider} says nobody asked for this package, but whether anything installed still depends on it could not be read, so it was not called an orphan."
 "explain.facts_heading" = "Facts the policy engine read"
+"explain.fact_empty" = "none"
 "explain.fired_heading" = "Rules that fired"
 "explain.not_fired_heading" = "Rules considered that did not fire"
 "explain.mappings_heading" = "Mappings and their evidence"
 
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plan: move {package} from {source} to {destination}"
-"plan.dry_run_only" = "This build only shows plans. Nothing here is executed, and nothing asks for elevation."
-"plan.overrides" = "This plan overrides the recommendation ({recommendation}); the override would be recorded with the run."
+"plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk."
+"plan.overrides" = "This plan goes against the recommendation ({recommendation})."
 "plan.risks_heading" = "Risks detected"
 "plan.steps_heading" = "Steps, in order"
 "plan.elevation_required" = "elevation required"
 "plan.elevation_unknown" = "elevation unknown"
+"plan.placeholder" = "illustration only; this provider was not detected, so no executable path is known"
+"plan.success_omits" = "passes when this list does NOT name the package; refused unless it exited cleanly, was not truncated and came back non-empty"
+"plan.success_unknown" = "how success is established is not stated, so an executor must refuse this plan"
+"plan.tool_command_absent" = "Not a command in this version. To make the copy under {provider} the one that runs, put its bin directory ahead of the other package manager's on PATH, or call it by its full path."
 "plan.stops_here" = "Execution would stop here for a human decision (exit code 4)."
-"plan.elevated_summary" = "Steps that would need administrator rights: {steps}."
-"reason.snapshot_before_mutation" = "A snapshot is taken automatically before the first change, so the run can be restored."
+"plan.elevated_summary" = "Steps that need administrator rights: {steps}."
+"plan.unknown_elevation_summary" = "Steps where it is not known whether administrator rights are needed: {steps}."
+"reason.snapshot_before_mutation" = "Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first."
 "reason.add_under_destination" = "Add {package} under {provider}."
-"reason.verify_destination" = "Verify the destination per the verification contract: reported active, provider integrity check, executables owned by the destination, a liveness probe, and no cross-provider linkage."
-"reason.set_primary_shim" = "Make {provider} the primary implementation through the MacPortsBrew-managed directory; provider-native mechanisms cannot express a cross-provider choice."
-"reason.verify_resolution" = "Verify that `{executable}` now resolves to the destination."
+"reason.already_under_destination" = "{package} is already installed under {provider}; nothing to add."
+"reason.verify_destination" = "Check that the destination reports it installed and active, that its own integrity check passes, that the expected executables belong to it, that each one starts, and that nothing links across the two package managers."
+"reason.set_primary_shim" = "Make {provider}'s copy the one that runs."
+"reason.verify_resolution" = "Check which copy now runs: `command -v {executable}` should print a path under the destination's prefix."
 "reason.remove_from_source" = "Remove {package} from {provider}. This happens only after the destination is verified."
 "reason.verify_removal" = "Verify the removal."
 "reason.cleanup_review" = "Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically."
-"reason.record_history" = "Record the run so it can be listed and restored."
-"reason.destination_provider_absent" = "{provider} is not installed on this machine; installing a provider needs explicit consent and is a separate step."
+"reason.record_history" = "Record what was done. This version keeps no history and has no restore command; keep your before-snapshot."
+"reason.destination_provider_absent" = "{provider} is not installed on this machine. MacPortsBrew does not install package managers; install {provider} yourself first if you want to move packages there."
+
+# --- concurrency ------------------------------------------------------------
+# Whether a package manager was changing the machine while it was read
+# (`plan.v1.md`, obligation 5). The last line of `analyze`, `plan` and
+# `migrate`, the same sentence for all three because it renders the one flag
+# their `--json` carries (`concurrentProviderActivity`). This build never
+# looks, so only the first two are reached; none of them may claim a check
+# that was not made.
+"concurrency.not_checked" = "Possibly inconsistent: whether a package manager was changing this machine while it was read was not checked. This build has no such check, so if one was running, rerun this once it has finished."
+"concurrency.unknowable" = "Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read."
+"concurrency.none_observed" = "No package manager was seen changing this machine while it was read."
+"concurrency.observed" = "Possibly inconsistent: {count, plural, one {a package manager was} other {# package managers were}} running while this was read ({providers}), so what was read may have been changing. Rerun this once {count, plural, one {it has} other {they have}} finished."
+
+# --- migrate ----------------------------------------------------------------
+# Rendered after the plan. Every enumeration below is reached through an
+# exhaustive `match` in `crates/cli/src/app/human.rs`, so a new variant is a
+# compile error rather than an identifier shown to a person (F-20). Command
+# numbers count from 1 within their step.
+"migrate.nothing_to_move" = "Nothing to move: {package} is already under {provider}. In what was read, no other provider holds it, nor anything its mappings name as possibly the same package. Nothing was changed."
+"migrate.nothing_to_move_not_detected" = "{provider} was not detected in what was read, so this is as far as detection can see: detection looks only where a provider is documented to live, and a {provider} installed anywhere else, with any copy of {package} under it, would not be found."
+"migrate.retained_run_done" = "Already done: run {run} moved {package} to {provider} and kept the source, and what was read now shows {provider} holding it active and running it. Nothing was planned and nothing was changed."
+"migrate.history_not_recognised.latest_run_not_success" = "History shows an earlier run of this migration, {run}, but it did not succeed, so the migration is planned again."
+"migrate.history_not_recognised.latest_run_removed_source" = "History shows an earlier run of this migration, {run}, but it removed the source rather than keeping it, so this is planned as a new migration."
+"migrate.history_not_recognised.tie" = "History holds more than one run of this migration in the same second, so which came last cannot be told and none is taken as done. The migration is planned again."
+"migrate.history_not_recognised.record_from_the_future" = "History holds a run stamped later than this one, so the clock has moved and the order of runs cannot be trusted. The migration is planned again."
+"migrate.history_not_recognised.destination_not_active" = "History shows run {run} completed this migration, but what was read now does not show the destination holding the package active, so it is planned again."
+"migrate.history_not_recognised.primary_is_shim" = "History shows run {run} completed this migration, but the command now runs through MacPortsBrew's own shim, and this version cannot yet tell which provider a shim points at. It is planned again rather than reported done."
+"migrate.history_not_recognised.primary_not_confirmed" = "History shows run {run} completed this migration, but what was read now does not show the command running from the provider that run made primary, so it is planned again."
+"migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces."
+"migrate.execution_heading" = "Execution"
+"migrate.outcome.completed" = "Every step was carried out and every check passed."
+"migrate.outcome.refused" = "This version never changes your machine, so the plan was not run. The safety gate lists why it would refuse it ({count, plural, one {# reason} other {# reasons}}):"
+"migrate.by_hand" = "To do this yourself, run the commands shown under each step of the plan above, in order, and check each verification before going on. Use --retain-source so the original stays until you are sure. You run them at your own risk."
+"migrate.outcome.halted" = "The run stopped at step {step} having carried out nothing: {reason}."
+"migrate.outcome.partial_success" = "Some steps were carried out and some were not, which is not a success (exit code 3). Step {step}: {reason}."
+"migrate.steps_heading" = "What became of each step"
+"migrate.disposition.verified" = "verified ({count, plural, one {# read} other {# reads}})"
+"migrate.disposition.not_performed_in_this_build" = "not performed by this build"
+"migrate.disposition.not_dispatched_mutating" = "changes the machine and carries no command; not run"
+"migrate.disposition.halted" = "stopped the run: {reason}"
+"migrate.disposition.not_reached" = "not reached"
+"migrate.halt.manual_review" = "step {step} needs a human decision, so nothing runs"
+"migrate.halt.unexecuted_mutation" = "this step changes the machine, and this build never runs such a step"
+"migrate.halt.not_performed_in_this_build" = "this build does not perform this step, and nothing else was carried out"
+"migrate.halt.site_unavailable" = "command {command} has nowhere to run: its provider was not detected"
+"migrate.halt.site_refused" = "command {command} was refused before it could run"
+"migrate.halt.transport_failed" = "command {command} could not be run at all (error exit code {code})"
+"migrate.halt.expectation" = "what command {command} should show cannot be worked out: {why}"
+"migrate.halt.verification_failed" = "command {command} was read and its check failed: {cause}"
+"migrate.halt.elevation_not_none" = "command {command} needs administrator rights, or nobody knows whether it does, and a read is never run elevated"
+"migrate.halt.unevaluable_check" = "it cannot be shown that {check}: {why}"
+"migrate.halt.unevaluable" = "this step cannot be shown to hold: {why}"
+"migrate.halt.records_do_not_match_plan" = "the run's records do not match the plan"
+"migrate.expectation.step_not_in_plan" = "the plan has no such step"
+"migrate.expectation.command_not_in_step" = "the step has no such command"
+"migrate.expectation.not_a_verification_step" = "the step is not a verification step"
+"migrate.expectation.placeholder_command" = "the command is an illustration, not something that can be run"
+"migrate.expectation.not_a_provider_command" = "the command does not ask a provider about its own packages"
+"migrate.expectation.unrecognised_check" = "the step carries a check this build does not recognise"
+"migrate.expectation.success_unknown" = "the command does not say how its success is established"
+"migrate.expectation.wrong_provider" = "the step reads a different provider than its kind requires"
+"migrate.expectation.semantic_not_valid_for_step" = "the way success is established cannot certify this kind of step"
+"migrate.expectation.no_destination_name" = "the plan selected no name for the package at its destination"
+"migrate.expectation.unsafe_package_name" = "the package name it would read is not a safe name"
+"migrate.expectation.argv_does_not_name_destination" = "the command does not name the destination package"
+"migrate.expectation.argv_names_a_package" = "a removal check names a package, so its silence would mean nothing"
+"migrate.failure.did_not_finish" = "the read did not finish"
+"migrate.failure.truncated" = "the output was cut short"
+"migrate.failure.non_zero_exit" = "it exited with an error"
+"migrate.failure.empty_output" = "it printed nothing"
+"migrate.failure.name_absent" = "the package is not in what it printed"
+"migrate.failure.name_present" = "the package is still in what it printed"
+"migrate.unevaluable.no_evaluation_for_step_kind" = "this build has no way to check this kind of step"
+"migrate.unevaluable.no_command" = "the step has no command to read"
+"migrate.unevaluable.no_check" = "the step has no check to read against"
+"migrate.unevaluable.check_has_no_evaluation" = "this build cannot evaluate that check on this step"
+"migrate.unevaluable.no_passing_read" = "no read that passed answers it"
+"migrate.unevaluable.missing_read" = "fewer reads came back than the step has commands"
+"migrate.unevaluable.presence_before_unknown" = "whether the package was absent before the run is not known"
+"migrate.unevaluable.present_before_the_run" = "the package was already there before the run, so finding it proves nothing"
+"migrate.check.provider_reports_active" = "the provider reports it installed and active"
+"migrate.check.provider_integrity_check" = "the provider's own integrity check passes"
+"migrate.check.executables_owned_by_destination" = "the expected executables belong to the destination"
+"migrate.check.liveness_probe" = "the executable answers a liveness probe"
+"migrate.check.no_cross_provider_linkage" = "there is no new cross-provider linkage"
+"migrate.check.package_absent" = "the source no longer reports it installed"
+"migrate.check.package_newly_present" = "the destination reports it installed and did not before"
+"migrate.check.unknown" = "a check this build does not recognise holds"
+"migrate.refusal.schema_version_not_this_builds" = "The plan is schema version {found}; this build reads only version {expected}."
+"migrate.refusal.ordering" = "The steps are in an order that could remove the source before the destination is verified."
+"migrate.refusal.step_indices_not_sequential" = "The steps are not numbered 1, 2, 3 and so on in order, so a step cannot be named unambiguously."
+"migrate.refusal.empty_plan" = "The plan has no steps."
+"migrate.refusal.no_snapshot_before_first_mutation" = "Step {step} changes the machine and no snapshot is taken before it."
+"migrate.refusal.no_record_history_at_end" = "The plan changes the machine and does not end by recording the run."
+"migrate.refusal.more_than_one_snapshot_before" = "More than one step takes the snapshot, where a plan takes exactly one: {steps}."
+"migrate.refusal.more_than_one_record_history" = "More than one step records the run, where a plan records it exactly once: {steps}."
+"migrate.refusal.manual_review" = "Step {step} needs a human decision, and nothing outranks it."
+"migrate.refusal.placeholder" = "Steps carrying an illustration rather than a command that can be run: {steps}."
+"migrate.refusal.unrecognised_check" = "Steps carrying a check this build does not recognise: {steps}."
+"migrate.refusal.check_not_evaluable_in_this_build" = "Step {step} carries a check this build cannot evaluate there: {check}."
+"migrate.refusal.verification_asserts_nothing" = "Step {step} verifies by asserting nothing."
+"migrate.refusal.unknown_success" = "Steps carrying a command that does not say how its success is established: {steps}."
+"migrate.refusal.command_on_step_the_planner_writes_none_on" = "Step {step} carries a command where this build's planner writes none."
+"migrate.refusal.command_is_not_the_planners_read" = "Step {step} carries a check command that is not the one this build's planner writes."
+"migrate.refusal.expectation" = "What step {step} should show cannot be worked out: {why}."
+"migrate.refusal.same_provider_on_both_sides" = "The source and the destination are the same provider."
+"migrate.refusal.elevation_required" = "Steps that need administrator rights, which this build has no way to ask for: {steps}."
+"migrate.refusal.elevation_unknown" = "Steps where nobody has established whether administrator rights are needed, and this build has no way to ask: {steps}."
+"migrate.refusal.mutation_not_in_this_build" = "Step {step} changes the machine, and this build changes nothing."
+"migrate.refusal.provider_configuration" = "Step {step} is refused: the plan carries a configuration risk for {provider} - the configuration of {provider} overrides, or may override, the settings this tool would run it with (see the plan's risks)."
+"migrate.refusal.plan_not_dry_run_only" = "The plan says it was written by a build that can change the machine; this build is not one."
+"migrate.site.not_a_provider_command" = "Step {step}: the command was refused before it ran, because it does not invoke a provider."
+"migrate.site.unsafe_prefix" = "Step {step}: the command was refused before it ran, because the provider's location {prefix} is not a safe path."
+"migrate.site.program_disagrees" = "Step {step}: the command was refused before it ran, because the plan names {planned} and the detected provider is {derived}."
+"migrate.site.not_a_permitted_read" = "Step {step}: the command was refused before it ran, because {argv} is not a permitted read."
 
 # --- doctor ---------------------------------------------------------------
 "doctor.provider_present" = "{provider} {version} is present."
-"doctor.provider_absent" = "{provider} is not installed."
-"doctor.provider_broken" = "{provider} is present but not working: {reason}. See the troubleshooting page."
+"doctor.provider_configuration_none" = "{provider}: none of the configuration files this tool reviews sets anything that would override how it runs {provider}."
+"doctor.provider_configuration_outranks" = "{provider}: {file} sets {keys}. {provider} applies that file over the settings this tool runs it with, so its reads may not behave as this tool asks - they may report from somewhere else, or fetch differently - and a migration step that changes {provider} will be refused while the file sets them."
+"doctor.provider_configuration_unreadable" = "{provider}: {file} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A migration step that changes {provider} will be refused while it is."
+"doctor.provider_configuration_unknown" = "{provider}: this input does not record the configuration files of {provider} - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs {provider} is unknown."
+"doctor.provider_installed_once" = "{provider} is installed in one place."
+"doctor.provider_installed_more_than_once" = "{provider} is installed in {count} places: {prefixes}. This tool runs the copy at {running}. A second copy can answer for a command or be updated by mistake; if a second copy is not deliberate (some people keep an Intel copy for software that needs it), decide which one to keep and remove the extra one with {provider}'s own tools - not the one at {running} unless you mean to."
+"doctor.provider_installations_unknown" = "Whether {provider} is installed in more than one place is unknown: this input does not record it - it is a recording, or a snapshot taken before it was recorded - or none of the usual places holds it."
+"doctor.provider_absent" = "{provider} is not installed here (it was not found where it is documented to live)."
+# `{reason}` is deliberately absent. Every construction of
+# `ProviderPresence::Broken` sets it to an `ErrorId::*.message_id()` - an
+# identifier, never prose - so interpolating it printed
+# "error.provider_unhealthy" at the user (F-38). It stays in the finding's
+# params because `docs/schemas/doctor.v1.md` documents it as part of the
+# `--json` contract, where a stable identifier is exactly what a machine wants.
+# Resolving it through the catalogue instead was measured and rejected: it puts
+# a two-sentence remediation paragraph inside a table cell.
+"doctor.provider_broken" = "{provider} is present but not working. See Troubleshooting in the MacPortsBrew wiki."
+"doctor.provider_prefix_is_not_absolute" = "The recorded location of {provider} is {prefix}, which is not an absolute path: the home directory was removed when this snapshot was captured, so a report can be shared safely. Analysis reports on {provider} normally. No step that would run it can be built, so it cannot be a migration destination, and it can only be a source with --retain-source, which leaves the installed package alone."
 "doctor.provider_architecture_mismatch" = "{provider} is built for {provider_arch} on a {machine_arch} machine."
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."
-"doctor.prefix_not_on_path" = "{provider}'s prefix {prefix} is not on PATH."
+"doctor.prefix_not_on_path" = "The prefix of {provider}, {prefix}, is not on PATH."
+
+# One finding per ordered pair of present providers (DP-041). Severity is decided by
+# PATH order; the {defence} sentence is chosen by what the affected provider's own
+# tooling is recorded to do, so the two directions read differently.
+"doctor.cross_provider_exposure" = "{intruder} (under {intruder_prefix}) and {affected} share this machine. About {affected}: {defence} This is a warning only when {intruder} is searched first on your PATH. Which copy of a tool runs when you type its name follows your PATH order, and that order is yours to arrange. This is a report only; nothing was changed."
+"doctor.cross_provider_exposure_unadvised" = "{intruder} and {affected} share this machine, but nothing recorded says how {affected}'s own tooling guards its builds against {intruder}, so no direction-specific statement is made. This is a report only; nothing was changed."
+# A snapshot with no recorded PATH is a capture that could not read one, not
+# a machine with an empty PATH. Emitted instead of one false
+# `prefix_not_on_path` per provider (F-34).
+"doctor.path_unknown" = "This analysis carries no PATH, so nothing can be said about which provider's executables win. A recording does not capture the environment; run `doctor` live for the real answer."
 "doctor.path_duplicate" = "PATH contains {entry} more than once."
 "doctor.path_world_writable_precedes_system" = "PATH entry {entry} can be written by any user on this machine and is searched before the system directories, so anybody with an account here can decide what a command means for you."
 "doctor.path_world_writable" = "PATH entry {entry} can be written by any user on this machine."
 "doctor.path_group_writable" = "PATH entry {entry} can be written by every member of its group; on macOS that is commonly every administrator account."
+"doctor.path_has_no_system_directory" = "PATH contains none of /usr/bin, /bin, /usr/sbin or /sbin, so the ordinary system programs are either unreachable or reached from somewhere else."
 "doctor.path_missing" = "PATH entry {entry} is not a directory that exists."
+"doctor.path_owner_writable" = "PATH entry {entry} belongs to you and you can write to it, so anything running as you - an installer, a package postinstall - can place a program there that is found before the system copy."
+"doctor.path_finding_unknown" = "PATH entry {entry} has a problem this version does not recognise; the snapshot was written by a newer one."
+"doctor.path_relative_precedes_system" = "PATH entry {entry} is not an absolute path and comes before the system directories, so which program you get depends on the directory you are standing in. An empty entry means the working directory."
 "doctor.path_relative" = "PATH entry {entry} is not an absolute path, so what it resolves to depends on the directory you are standing in. An empty entry means the working directory."
 "doctor.build_variable_names_prefix" = "{variable} names {provider}'s prefix; build-flag variables leak one provider into the other's builds and are never managed by MacPortsBrew."
 "doctor.running_translated" = "This process runs under Rosetta translation on an Apple Silicon machine; provider detection reflects the translated view."
@@ -257,7 +497,47 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.command_line_tools_missing" = "Command Line Tools are not installed; both providers need them to build from source."
 "doctor.command_line_tools_unknown" = "Command Line Tools state could not be determined."
 "doctor.deep_not_in_this_build" = "Deep inspection of binaries for cross-prefix links (--deep) is not part of this build."
-"doctor.report_written" = "Diagnostic report written to {path}. It contains no user names, home paths or environment values."
 "snapshot.written" = "Snapshot written to {path}."
 "doctor.provider_support_ending" = "{provider} has announced the end of support for this machine in or after {endDate} (source: {source}, read {readOn}). This is dated data; re-check it before relying on it."
-reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but its provider will not replace it. Decide whether to move it or keep it deliberately."
+reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but {provider} no longer updates it. Decide whether to move it or keep it deliberately."
+
+# --- Enumerations rendered to a person -------------------------------------
+# Each of these was `format!("{:?}", value)` until F-20: a Rust identifier
+# reaching the user, invisible to the catalogue and to the pseudolocale. The
+# renderer maps the variant to a key here; a variant with no key is a compile
+# error, not a silent fallback, because the `match` is exhaustive.
+translation.native = "Native"
+translation.translated = "Under Rosetta"
+translation.unknown = "Unknown"
+
+step.snapshot_before = "Take a snapshot"
+step.add_destination = "Add under the destination"
+step.verify_destination = "Verify the destination"
+step.set_primary = "Set the primary"
+step.verify_resolution = "Verify what resolves"
+step.remove_source = "Remove from the source"
+step.verify_removal = "Verify the removal"
+step.cleanup_review = "Review what is left behind"
+step.record_history = "Record the run"
+step.manual_review = "Needs a human decision"
+
+verification.provider_reports_active = "the provider reports it installed and active"
+verification.provider_integrity_check = "the provider's own integrity check passes"
+verification.executables_owned_by_destination = "the expected executables belong to the destination: {executables}"
+verification.liveness_probe = "{executable} {flag} exits successfully"
+verification.no_cross_provider_linkage = "no new cross-provider linkage"
+verification.package_absent = "the source no longer reports it installed"
+verification.package_newly_present = "the destination reports it installed and did not before"
+verification.unknown = "a check this build does not recognise, which can never count as satisfied"
+
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.disabled = "disabled"
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.deprecated = "deprecated"
+# unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+state.replaced = "replaced"
+confidence.none = "None"
+confidence.ambiguous = "Ambiguous"
+confidence.probable = "Probable"
+confidence.strong = "Strong"
+confidence.exact = "Exact"

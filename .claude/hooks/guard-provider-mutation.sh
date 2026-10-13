@@ -57,12 +57,12 @@ if printf '%s' "$NORM" | grep -Eq "${SEP}(sudo|doas|su)([[:space:]]|\$)" \
 fi
 
 # --- Homebrew mutation ----------------------------------------------------
-if printf '%s' "$NORM" | grep -Eq "${SEP}brew[[:space:]]+${OPTS}(install|reinstall|uninstall|remove|rm|upgrade|update|update-reset|link|unlink|pin|unpin|tap|untap|services|cleanup|autoremove|bundle|postinstall|migrate|fetch|edit|sh|ruby|irb|test|vendor-install|developer|analytics)([[:space:]]|\$)"; then
+if printf '%s' "$NORM" | grep -Eq "${SEP}brew[[:space:]]+${OPTS}(install|instal|reinstall|uninstall|uninstal|remove|rm|upgrade|up|update|update-reset|link|ln|unlink|pin|unpin|tap|tap-new|untap|services|cleanup|autoremove|bundle|postinstall|migrate|fetch|edit|sh|ruby|irb|test|vendor-install|developer|analytics)([[:space:]]|\$)"; then
   deny "Blocked by MacPortsBrew INV-05 and by docs/spec/07-quality-and-testing.md. This command mutates the developer's real Homebrew installation. Read-only brew subcommands (list, leaves, deps, uses, info, config, outdated, --prefix) are allowed and are how provider behaviour is meant to be observed. To exercise a mutating path, capture a snapshot fixture instead - see docs/spec/07-quality-and-testing.md."
 fi
 
 # --- MacPorts mutation ----------------------------------------------------
-if printf '%s' "$NORM" | grep -Eq "${SEP}port[[:space:]]+${OPTS}(install|uninstall|upgrade|activate|deactivate|select|selfupdate|sync|clean|reclaim|load|unload|setrequested|unsetrequested|destroot|build|fetch|configure|extract|patch|checksum|test|archive|rev-upgrade|dmg|pkg|mpkg|mirror|bump|migrate|edit)([[:space:]]|\$)"; then
+if printf '%s' "$NORM" | grep -Eq "${SEP}port[[:space:]]+${OPTS}(install|uninstall|upgrade|activate|deactivate|select|selfupdate|sync|clean|reclaim|load|unload|setrequested|unsetrequested|destroot|build|fetch|configure|extract|patch|checksum|test|archive|unarchive|rev-upgrade|dmg|pkg|mpkg|mirror|bump|migrate|edit)([[:space:]]|\$)"; then
   deny "Blocked by MacPortsBrew INV-05 and by docs/spec/07-quality-and-testing.md. This command mutates the developer's real MacPorts installation. Read-only port subcommands (installed, echo, deps, rdeps, dependents, info, variants, outdated, version) are allowed. Use captured snapshot fixtures for anything else."
 fi
 
@@ -75,7 +75,7 @@ fi
 # The macOS floor is a product commitment, and the toolchain is what keeps it.
 # Rust has raised its own macOS floor before (see ADR-0002); an unpinned or
 # silently switched toolchain drops the target audience in a routine upgrade.
-if printf '%s' "$NORM" | grep -Eq "${SEP}rustup[[:space:]]+${OPTS}(default|override|toolchain|install|self)([[:space:]]|\$)"; then
+if printf '%s' "$NORM" | grep -Eq "${SEP}rustup[[:space:]]+${OPTS}(default|override|toolchain|install|update|self)([[:space:]]|\$)"; then
   deny "Blocked by ADR-0002. The toolchain is pinned in rust-toolchain.toml because the macOS 10.12 / 11.0 floor depends on it, and a floor increase is a breaking change that requires an ADR - not a routine upgrade. Change the pin in the file, with the ADR, rather than switching the active toolchain."
 fi
 
@@ -83,13 +83,60 @@ if printf '%s' "$NORM" | grep -Eq "${SEP}cargo[[:space:]]+(\+[^[:space:]]+[[:spa
   deny "Blocked: this mutates the developer's environment or the crates.io registry rather than this repository. 'cargo install' writes binaries into ~/.cargo/bin, which is the same class of action as 'brew install' and is the human's to take. Development tooling belongs in documented prerequisites."
 fi
 
+# --- writing verbs --------------------------------------------------------
+# Used by the dotfile and the provider-prefix rules below. In-place editors are
+# matched on the flag's real spellings, not on one of them: BSD sed takes
+# `sed -i ''` and `sed -i.bak` (the form an agent reaches for when it wants a
+# backup - the safety-minded instinct), and `perl -pi -e` is the most common
+# in-place idiom there is. Matching only `sed -i ` tested the least likely form.
+WRITER='(>|(^|[;&|]|[[:space:]])((tee|cp|mv|ln|install|ditto|rsync|truncate|dd|mkdir|chmod|chown|touch|unlink|shred)([[:space:]]|$)|sed([[:space:]]+-[^i[:space:]][^[:space:]]*)*[[:space:]]+-i|perl[[:space:]]+-[a-zA-Z]*i[a-zA-Z]*|(python3?|ruby)[[:space:]]+-[ce]|awk[[:space:]]+-i))'
+
 # --- shell configuration and launch machinery -----------------------------
 # A dotfile path together with any writing verb - not only a redirect.
-# shellcheck disable=SC2016  # the $HOME / $ZDOTDIR are literals to match, not to expand
+#
+# The directive must sit immediately above the assignment. It used to sit
+# twenty lines up, above a comment block, where it silenced nothing and CI's
+# very first gate step exited 1 on two SC2016 findings nobody had seen,
+# because CI has never run and validate.sh has no shellcheck stage (F-44).
+# shellcheck disable=SC2016  # $HOME / $ZDOTDIR are literals to match, not to expand
 DOTFILE='(~|\$HOME|\$ZDOTDIR|/Users/[^/ ]+|(^|[[:space:]]))/?\.(zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|bash_login|profile|config/fish/[^ ]*)([[:space:]]|$)'
-WRITER='(>|(^|[;&|]|[[:space:]])(tee|sed -i|sed -E -i|cp|mv|ln|install|truncate|dd|perl -i)([[:space:]]|$))'
 if printf '%s' "$NORM" | grep -Eq "$DOTFILE" && printf '%s' "$NORM" | grep -Eq "$WRITER"; then
   deny "Blocked by MacPortsBrew docs/spec/05-environment-and-primary-provider.md. Shell configuration is only ever written through the managed-block procedure (detect, locate, diff, preview, confirm, back up, write atomically, verify) and never by an agent writing to a dotfile. Reading one is fine; nothing in the foundation pass writes shell files at all."
+fi
+
+# --- writes into a provider prefix ----------------------------------------
+# guard-protected-paths.sh covers this for Edit and Write. A deny rule on a
+# path does not reach a subprocess, so Bash was the tool that could reach the
+# artifact without spelling it: `cp target/release/macportsbrew
+# /opt/homebrew/bin/` is the obvious way to "try the binary against the real
+# system" after a build, and nothing stopped it.
+#
+# The prefix must be in a DESTINATION position - the tail of the command, or a
+# redirect target. Reading out of a prefix is legitimate and common (capturing
+# a fixture), so `cp /opt/homebrew/etc/foo ./fixtures/` must stay allowed.
+# shellcheck disable=SC2016  # $HOME is a literal to match, not to expand
+PREFIX='(/opt/homebrew|/opt/local|/usr/local|/etc/paths\.d|(~|\$HOME|/Users/[^/ ]+)/\.(home|linux)brew)'
+if printf '%s' "$NORM" | grep -Eq ">>?[[:space:]]*${PREFIX}" \
+  || printf '%s' "$NORM" | grep -Eq "${SEP}(tee|cp|mv|ln|install|ditto|rsync|mkdir|chmod|chown|touch)[[:space:]]([^;&|]*[[:space:]])?${PREFIX}[^[:space:];&|]*[[:space:]]*([;&|]|\$)"; then
+  deny "Blocked: this writes into a package manager's prefix or into /etc/paths.d. MacPortsBrew never writes into a provider prefix - INV-07, INV-08, and the 'never rewrite, re-link or patch a binary' rule in docs/spec/04-migration-and-safety.md. Build artifacts stay in target/; to exercise the binary, run it from there. Reading out of a prefix is allowed and is how fixtures are captured."
+fi
+
+# --- the toolchain pin itself (ADR-0002) ----------------------------------
+# The rustup rule above guards the command that switches toolchains, and its
+# own deny message says to change the pin in the file instead. That made the
+# file the unguarded path to the same outcome: editing `channel` makes the next
+# cargo invocation download and use a different compiler, and the macOS floor
+# moves with no denied command anywhere.
+if printf '%s' "$NORM" | grep -Eq 'rust-toolchain\.toml' && printf '%s' "$NORM" | grep -Eq "$WRITER"; then
+  deny "Blocked by ADR-0002. rust-toolchain.toml holds the pin that keeps the macOS 10.12 / 11.0 deployment floor, which is a product commitment, not a build detail. Raising it is a breaking change that needs an ADR and an owner decision - so the change goes through docs/adr/ and a human, not through this command. Reading the file is fine."
+fi
+
+# --- publishing ------------------------------------------------------------
+# CLAUDE.md lists `git push` among the boundaries the hooks block "a second
+# time"; nothing here did. DP-007 leaves hosting undecided, so the first push
+# is the decision, not a step.
+if printf '%s' "$NORM" | grep -Eq "${SEP}git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|\$)"; then
+  deny "Blocked: DP-007 is decided (public GitHub) but the remote does not exist yet, so the first push is the owner's act of publishing, not a step an agent takes on the way to something else. .claude/settings.json denies it too; this is the layer CLAUDE.md said was here and was not."
 fi
 
 if printf '%s' "$NORM" | grep -Eq "${SEP}(launchctl|chsh|systemsetup|csrutil|spctl)([[:space:]]|\$)"; then

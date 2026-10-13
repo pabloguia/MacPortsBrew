@@ -38,7 +38,10 @@ deferred; the shape does not.
 1. **Report only — the default.** `analyze` and `doctor` explain the current
    resolution for each contested executable (winner, its owner, the losers in
    `PATH` order) and change nothing. It is the only option with no failure
-   mode, and the Homebrew reads it needs are offline-safe.
+   mode, and the Homebrew reads it needs stay offline once Homebrew's API
+   cache is present — with no cache, a Ruby read downloads it first, and a
+   `brew.env` can outrank the quieting environment
+   (`04-migration-and-safety.md`, Process execution; R-15).
 2. **Recommend the versioned executable name where one exists** — `python3.12`,
    `gcc-14`. Both providers already converge on this: Homebrew requires
    suffixed binaries before a versioned formula may be linked alongside its

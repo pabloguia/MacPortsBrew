@@ -2,8 +2,7 @@
 
 Having both installed is **a supported end state**, not a mess to clean up.
 MacPortsBrew treats coexistence as a first-class answer — `Keep both` is one of
-the outcomes the policy engine can produce, and there is an invariant and a
-test behind that (INV-18).
+the outcomes the policy engine can produce, and a test holds it to that.
 
 What follows is what coexistence actually requires, and the three ways it goes
 wrong.
@@ -20,13 +19,13 @@ read 2026-09-02).
 both get their own. This looks wasteful and is not: it is what keeps each
 provider able to reason about its own tree, upgrade it, and remove from it
 safely. MacPortsBrew will never propose making one provider's library serve the
-other's package (INV-08), and it will never create a deliberate cross-provider
-dependency (INV-07).
+other's package, and it will never create a deliberate cross-provider
+dependency.
 
 **Duplication is correct.** Two copies of the same tool under two providers is
 a normal, healthy state. MacPortsBrew reports it and does not offer to
 "consolidate" it, because consolidation is exactly the operation that breaks
-one of the two trees (INV-09).
+one of the two trees.
 
 **Exactly one of the duplicates runs.** That is the only genuinely interesting
 question coexistence raises, and it is `PATH` order plus what each provider
@@ -44,11 +43,12 @@ nothing announces it.
 macportsbrew doctor
 ```
 
-reports the order providers resolve in, flags a prefix that is not on `PATH` at
-all, and flags duplicate `PATH` entries. `macportsbrew analyze` shows the
-effective resolution per package: which executable runs, which provider owns
-it, and whether that ownership was confirmed by asking the provider or merely
-inferred from the path prefix.
+shows the order in which your `PATH` reaches each provider's prefix, flags a
+prefix that is not on `PATH` at all, and flags duplicate `PATH` entries. For one
+tool, `command -v git` shows the copy that runs and `which -a git` lists every
+copy in the order your shell finds them. A per-package report of which
+executable runs and which provider owns it is specified for `analyze` but is
+not in 0.1.0.
 
 ### 2. Build variables leaking one prefix into the other's builds
 
@@ -80,11 +80,9 @@ usefully when it fails. Let each provider install what it needs.
 
 Nothing, in this build. When it does, it will be through a single **managed
 block** — one clearly delimited region in one shell file, added with your
-consent, removable with `macportsbrew env --revert`. It will never edit a shell
+consent, removable with a `macportsbrew env --revert` command that does not
+exist yet. It will never edit a shell
 file outside that block, and it will never touch your `PATH` silently.
-
-The repository's own agent tooling denies writes to shell configuration files
-outright, which is the same rule applied inward.
 
 ## Deciding what lives where
 

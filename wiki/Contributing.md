@@ -4,6 +4,9 @@ The full guide is [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — prerequisites,
 build, test, validation, the architecture overview, licensing, and six
 step-by-step recipes. This page is the short version and the orientation.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](../CODE_OF_CONDUCT.md).
+
 ## Two things to know first
 
 **Homebrew and MacPorts are peers.** Neither is globally better, and no
@@ -27,9 +30,11 @@ cargo test --workspace
 scripts/validate.sh
 ```
 
-`scripts/validate.sh` is the one implementation of "valid" — format, clippy,
-layering, SPDX headers, dependency licences, i18n parity, and the test suite.
-CI runs it and is the authority; the same script is what you run locally.
+`scripts/validate.sh` is the one implementation of "valid"; the list of what it
+checks lives in that script's header and nowhere else. CI is configured to run
+it and will be the authority; the same script is what you run locally. Until CI
+has produced a green run, your local run is the authority, which is a reason to
+run the full one rather than `--quick`.
 
 **You do not need Homebrew or MacPorts installed to contribute.** Tests run
 against captured fixtures and never touch a live installation. That is a rule,
@@ -47,7 +52,7 @@ agent do the same thing.
 |---|---|
 | **Adding a package mapping** | The heuristics miss an equivalence, and you can cite the destination name from the destination provider's own index |
 | **Adding a policy rule** | A recommendation should change for a reason the existing rules do not express |
-| **Adding a locale** | Bringing user-facing text to `pt-BR`, `es`, `ja` or `zh-CN` |
+| **Adding a locale** | Bringing user-facing text to `es`, `ja` or `zh-CN` (`pt-BR` ships; a native review of it is welcome) |
 | **Adding a doctor check** | A machine condition should be reported before it causes a failure |
 | **Capturing a fixture** | Before writing any adapter test, or when a provider's output may have changed |
 | **Adding a provider** | Integrating a third package manager. Out of scope for the initial releases, but the abstraction must hold |
@@ -64,8 +69,9 @@ agent do the same thing.
 - **A documentation correction with a source.** Provider facts go out of date by
   construction. A correction that names what the source says now, and when you
   read it, can be applied immediately.
-- **A translation.** The i18n architecture and the complete English catalogue
-  are in place; the translations are not.
+- **A translation.** `pt-BR` ships; `es`, `ja` and `zh-CN` are not written. A
+  native speaker's review of the `pt-BR` error and `doctor` sentences is
+  especially welcome.
 
 ## What makes a change complete
 
@@ -102,7 +108,11 @@ Perfectly good contributions. The templates in
 [`../.github/ISSUE_TEMPLATE`](../.github/ISSUE_TEMPLATE) cover bugs, incorrect
 recommendations, mapping problems, provider compatibility, features and
 documentation. Each asks for the machine facts that make a report actionable —
-`macportsbrew doctor --report` collects them, redacted.
+`macportsbrew doctor --report <new-file>` collects them, without your user name
+or home folder path. `PATH` entries a finding mentions appear with your home
+folder shown as `~`; other environment variables are named but their values
+are left out. It also lists every installed package. Read it before you attach
+it.
 
 For a security problem, do not open an issue: see
 [`../SECURITY.md`](../SECURITY.md).

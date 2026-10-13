@@ -3,9 +3,20 @@
 # Dormant until the repository has a GitHub remote (DP-007).
 # Source: https://code.claude.com/docs/en/github-actions (read 2026-09-02).
 #
-# Review only. This workflow has read permissions on contents and pull requests
-# and cannot push, merge or release - docs/spec/11-agentic-sdlc.md requires that
-# no unattended agent run holds those.
+# Review only, in the sense docs/spec/11-agentic-sdlc.md:345 means: `contents`
+# stays read, so this workflow cannot push to the default branch, merge a pull
+# request or publish a release.
+#
+# Be precise about what it *can* do. `pull-requests: write` is the coarsest
+# thing here and GitHub does not subdivide it: besides commenting it also
+# permits closing and reopening a pull request, editing its title and body,
+# labelling it and requesting reviewers. It is granted because the inline-
+# comment tool below cannot post without it — at `read` the job ran and
+# silently produced nothing, which is worse than not running, since nobody
+# expects output from a review that never appears. What actually narrows the
+# agent to one capability is the `--allowedTools` line at the bottom, which
+# 11-agentic-sdlc.md:350 requires for exactly this reason: capability is
+# granted by enumeration, never by default.
 name: Code Review
 
 on:
@@ -16,18 +27,56 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Same gate as claude.yml, on the pull_request payload's own field. GitHub
+    # computes `author_association`; a contributor cannot set it.
+    #
+    # Be exact about what it does and does not do. It gates on the *author*, not
+    # on the head repository, so a MEMBER or COLLABORATOR working from their own
+    # fork - the normal maintainer workflow - still starts this job, and GitHub
+    # then withholds the secret from a fork-triggered `pull_request` run, so it
+    # fails for want of a key. What the gate reliably buys is that an outside
+    # contributor's pull request does not start it, and that the agent reads
+    # pull-request content - untrusted input - only for authors who already have
+    # standing in the repository. If the intent later becomes "no fork runs at
+    # all", the condition to add is on `pull_request.head.repo.full_name`.
+    #
+    # One caveat for the day DP-007 lands under an organisation rather than a
+    # personal account: `MEMBER` means org membership, not write access.
+    if: >-
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+      github.event.pull_request.author_association)
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
+      # Required by the action's default GitHub App authentication.
       id-token: write
+    env:
+      # See claude.yml. This job holds a secret and reads untrusted
+      # pull-request content, so it is an unattended run by any definition.
+      MPB_UNATTENDED: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Parity with claude.yml. Without this, the project's deny rules and
+          # hooks do not apply to this job at all. Nothing is exposed today,
+          # because --allowedTools below grants exactly one tool - but the next
+          # tool added here would land with no deny net under it.
+          settings: .claude/settings.json
+          # KNOWN GAP, left visible rather than papered over. Every `uses:` in
+          # this repository is pinned to a commit SHA and
+          # scripts/check-action-pins.sh enforces it. These two inputs are the
+          # one supply-chain input that escapes the rule: a git URL and a
+          # floating plugin name, both resolved at run time, in a job holding
+          # ANTHROPIC_API_KEY. `/plugin marketplace add` accepts a `#<ref>`
+          # suffix in a session; whether this action input does is NOT
+          # verified, and guessing here would be a claim the repository cannot
+          # support. Settle it in the next /tooling-recheck and pin it, or drop
+          # the plugin and inline the review prompt.
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"

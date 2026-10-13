@@ -46,13 +46,18 @@ impl Rule for ManualReviewReverseDependencies {
     }
 
     fn evaluate(&self, facts: &Facts, _data: &PolicyData) -> Option<RuleVerdict> {
-        if facts.package.reverse_dependency_count == 0 {
+        // The source side's own count, read from the per-provider map. The
+        // provider named in the reason is therefore the provider the number
+        // came from, which was not true while a single cross-provider maximum
+        // stood in for it.
+        let count = facts.source_package()?.reverse_dependency_count;
+        if count == 0 {
             return None;
         }
         Some(RuleVerdict::new(
             Outcome::ManualReview,
             Reason::new(reasons::REVERSE_DEPENDENCIES_PRESENT)
-                .with("count", &facts.package.reverse_dependency_count)
+                .with("count", &count)
                 .with("provider", &facts.package.source),
         ))
     }
@@ -77,7 +82,7 @@ mod tests {
     #[test]
     fn one_dependent_is_enough() {
         let mut facts = testing::baseline();
-        facts.package.reverse_dependency_count = 1;
+        testing::with_reverse_dependencies(&mut facts, 1);
         let verdict = ManualReviewReverseDependencies
             .evaluate(&facts, &data())
             .unwrap();

@@ -70,7 +70,7 @@ $ brew --caskroom
 $ brew --repository
 /usr/local/Homebrew
 $ brew --cache
-/Users/pirado/Library/Caches/Homebrew
+/Users/<user>/Library/Caches/Homebrew
 ```
 
 ```
@@ -721,9 +721,9 @@ Homebrew 6.0.21 uses a single merged, platform-tagged internal index:
 
 ```
 $ ls -la ~/Library/Caches/Homebrew/api/
-drwxr-xr-x@ 4 pirado  staff     128 Sep  2 09:20 .
--rw-r--r--@ 1 pirado  staff  106523 Sep  2 09:20 cask_names.txt
-drwxr-xr-x@ 5 pirado  staff     160 Sep  2 09:20 internal
+drwxr-xr-x@ 4 <user>  staff     128 Sep  2 09:20 .
+-rw-r--r--@ 1 <user>  staff  106523 Sep  2 09:20 cask_names.txt
+drwxr-xr-x@ 5 <user>  staff     160 Sep  2 09:20 internal
 
 $ for f in …; do TZ=UTC stat -f '%N  size=%z  mtime=%Sm UTC' -t '%Y-%m-%dT%H:%M:%S' "$f"; done
 …/api/cask_names.txt                                     size=106523    mtime=2026-09-02T12:20:29 UTC
@@ -1031,7 +1031,10 @@ One installed cask, complete (`visualdiffer`), for contrast:
    `HOMEBREW_NO_ENV_HINTS=1` suppresses advisory stderr noise; neither affects
    the network path. **Record for the adapter: the three variables the project
    already sets are necessary, and `HOMEBREW_NO_AUTO_UPDATE` is the one doing
-   the offline work.**
+   the offline work.** *(Narrowed 2026-10-02 by
+   [R-15](R-15-homebrew-brew-env.md): this holds for a present cache — with
+   none, a Ruby read downloads it first — and a `brew.env` can outrank or
+   delete the variable.)*
 
 3. **Metadata is answerable offline, from a signed local cache — but the cache
    is platform-filtered.** Homebrew 6.0.21 does **not** use
@@ -1055,9 +1058,19 @@ One installed cask, complete (`visualdiffer`), for contrast:
    192 receipts and in every JSON `installed[]` entry. `brew list
    --installed-on-request` (47) agrees exactly with the JSON field (47), so
    either is usable; the JSON is preferred because it is one call for the whole
-   inventory. **Casks carry no intent field at all** — a cask's `installed` is
-   a bare version string, with `installed_time` but no `installed_on_request`
-   (§E-11, §E-12).
+   inventory. **The cask JSON carries no intent field** — a cask's `installed`
+   is a bare version string, with `installed_time` but no
+   `installed_on_request` (§E-11, §E-12).
+
+   > **Corrected 2026-09-04 (R-12).** This finding originally read "Casks carry
+   > no intent field **at all**", generalising from the JSON to the provider.
+   > That is false: Homebrew writes `installed_on_request` into each cask's
+   > `<Caskroom>/<token>/.metadata/.../INSTALL_RECEIPT.json`, and 7 of the 9 casks
+   > on this machine carry one, all `true`. What §E-11 and §E-12 established —
+   > and all they established — is the JSON's shape, which is what the adapter
+   > reads and is re-verified on 2026-09-04 at 41 keys with no such field. The
+   > overgeneralisation propagated to `AGENTS.md`, `.claude/rules/adapters.md`,
+   > SE-042, SE-046 and two source comments before anyone looked on disk.
 
 5. **`brew leaves` is an inferred top-level position and is not a substitute
    for user intent.** On this machine `brew leaves` returns 49 formulae, of

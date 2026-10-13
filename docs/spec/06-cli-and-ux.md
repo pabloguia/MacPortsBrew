@@ -23,7 +23,8 @@ macportsbrew analyze [pkg...]     inventory + mapping + assessment + recommendat
 macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
 macportsbrew plan <pkg> --to <provider> [--retain-source]   build a migration plan (no mutation)
-macportsbrew migrate ...          execute a plan            [later pass]
+macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes]
+                                  show a plan; --yes executes it [this build: the gate refuses every plan]
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)
@@ -71,7 +72,14 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
 4 when executed, with the step named; a mutating command that refuses to start
-because an interrupted run has not been looked at exits 4 and names the run.
+because an interrupted run has not been looked at exits 4 and names the run
+(`RUN_INTERRUPTED`); a mutating command that finds another MacPortsBrew run
+holding the single-instance lock exits 7 (`RUN_LOCK_HELD`);
+and `migrate` reports *nothing to move*, exit 0, when another provider was not
+detected, naming it in the text and in `notDetected` (SE-092, DP-026). Another
+provider that is broken refuses as `PROVIDER_UNHEALTHY` (exit 5), and one
+missing from the input or with an unread inventory as `SAFETY_UNVERIFIABLE`
+(exit 4); `PROVIDER_PRESENCE_UNPROVEN` is reserved and no longer raised.
 
 **MUST.** An error taxonomy with stable identifiers, each carrying a
 user-facing remediation string. `"error: exit status 1"` is never acceptable
@@ -91,7 +99,9 @@ unscriptable and untestable.
 ## Caching and network
 
 **MUST.** `analyze` works with no network, degrading clearly-marked network
-dependent facts to `UNKNOWN` rather than failing or guessing.
+dependent facts to `UNKNOWN` rather than failing or guessing. *Untested on a
+machine whose Homebrew cache is empty, where Homebrew's own reads try to
+download the catalogue first (R-15, an open residual).*
 
 **MUST.** A cache with an explicit TTL, provenance (which command produced it,
 when, against which provider version) and a `--refresh` bypass. Cached facts are
@@ -113,7 +123,8 @@ presentation only.
 
 **Scope for the foundation pass:** the i18n *architecture* plus a complete
 English catalogue. Target locales are `en`, `pt-BR`, `es`, `ja`, `zh-CN`;
-translations land in later passes. Rationale in `docs/spec-evolution.md`.
+translations land in later passes (`pt-BR` has, 2026-10-12; `es`, `ja` and
+`zh-CN` have not). Rationale in `docs/spec-evolution.md`, SE-011.
 
 **MUST.** CI enforces key parity across catalogues and fails on a missing or
 orphaned key. A pseudolocale (`--language qps`) that lengthens and accents every
@@ -129,6 +140,13 @@ alignment. This is tested with the pseudolocale and with CJK fixtures.
 ## Privacy and diagnostics
 
 **MUST.** No telemetry, no network calls that report anything about the user.
+**Not met in one respect, recorded rather than relied on (R-15, 2026-10-02):**
+this tool reports nothing, but a `brew.env` in Homebrew's configuration can
+switch Homebrew's own analytics back on for the reads this tool asks of it,
+and Homebrew downloads its catalogue on an empty cache. The tool detects and
+discloses the first (`doctor`, a plan's risks; DP-027), and refuses a mutation
+under it; whether that disclosure meets this MUST is DP-028, open. README and
+wiki say so (SE-016 item 3).
 
 **MUST.** `doctor --report` writes a redacted local diagnostic file the user can
 attach to an issue: versions, architecture, macOS version, provider prefixes,

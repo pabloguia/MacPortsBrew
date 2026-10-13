@@ -76,6 +76,16 @@ pub struct PackageReport {
     pub recommendation: Recommendation,
     /// True when this unit is hidden in normal mode (not top-level, INV-13).
     pub advanced_only: bool,
+    /// The providers whose `DEPENDENCY` answer for this package was a default:
+    /// the provider's own record says nobody asked for it, but it could not say
+    /// whether anything installed still depends on it, so the dependency/orphan
+    /// split was **not answered** and `DEPENDENCY` is the cautious label, not a
+    /// finding. Empty (and omitted) when every answer was read.
+    ///
+    /// Kept beside `rows`, not inside each row's `ownershipEvidence`, so that
+    /// adding it changes no existing type's shape.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ownership_split_defaulted: Vec<ProviderId>,
 }
 
 /// What one provider reports about itself.
@@ -108,4 +118,14 @@ pub struct Summary {
     pub by_outcome: BTreeMap<String, u32>,
     /// Units needing manual review.
     pub manual_review: u32,
+    /// Rows whose ownership could not be established, counted so the
+    /// top-level figure above is never the only clue that it is smaller than
+    /// it would be on the machine itself.
+    ///
+    /// A cask's `installed_on_request` lives in an on-disk receipt, and a
+    /// replayed reader must not consult this host's filesystem (INV-15). It
+    /// therefore answers `UNKNOWN` where a live run answers `TOP_LEVEL`, and
+    /// the same capture analysed live and replayed reported 56 top-level
+    /// packages and 49 with nothing saying why (F-39).
+    pub ownership_unknown: u32,
 }

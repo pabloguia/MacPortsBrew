@@ -6,6 +6,9 @@ recipe below also exists as a skill under
 [`.claude/skills/`](.claude/README.md), written from this file so that a person
 and an agent follow identical steps.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
 Two things to know before anything else.
 
 **Homebrew and MacPorts are peers.** Neither is globally better, and no
@@ -33,6 +36,17 @@ go in [`docs/research/`](docs/research/README.md); dated facts go in
 - **`jq` and `python3`** — required by `scripts/capture-fixture.sh` and by the
   validation scripts.
 - **`shellcheck`** — for the hook and script checks.
+- **`cargo-llvm-cov`** — for `scripts/check-coverage.sh`, which enforces the
+  floors in [`docs/spec/07-quality-and-testing.md`](docs/spec/07-quality-and-testing.md).
+  CI installs it from a pinned action; locally it is one command:
+
+  ```sh
+  cargo install cargo-llvm-cov --locked
+  ```
+
+  An agent session cannot run that — it writes into `~/.cargo/bin`, which is
+  the developer's environment rather than this repository, and the guard says
+  so. That is why the tool is listed here rather than installed on demand.
 - **macOS**, for anything that reads a real provider. The domain and policy
   crates are pure and build anywhere.
 
@@ -51,15 +65,23 @@ cargo clippy --all-targets --all-features --workspace -- -D warnings
 ## Validation
 
 [`scripts/validate.sh`](scripts/validate.sh) is the one implementation of
-"valid". CI runs it and is the authority; you run it before opening a pull
-request; the agent `Stop` gate runs it at the end of every turn. Do not add a
-check anywhere else.
+"valid". CI is configured to run it and will be the authority; you run it before
+opening a pull request; the agent `Stop` gate runs it at the end of every turn.
+(Until CI has produced a green run, the local run and the `Stop` gate are the
+whole of it.) Do not add a check anywhere else.
 
 | Invocation | What it runs |
 |---|---|
-| `scripts/validate.sh --quick` | format, clippy, layering, SPDX headers, dependency licences, i18n key parity |
+| `scripts/validate.sh --quick` | every static check; the list lives in that script's header and is not repeated here, because this copy drifted by five stages once already |
 | `scripts/validate.sh` | the above plus `cargo test --workspace` |
 | `scripts/validate.sh --full` | the above plus the release build for both architectures with the deployment-target assertion (macOS only; needs `otool`) |
+
+**A second harness is generated from the first.** `.codex/` and
+`.agents/skills/` are produced from `.claude/` by
+`scripts/generate-codex-layer.sh`. Edit `.claude/`; a `validate.sh`
+stage fails when the copies drift, and the path guard refuses a hand-edit of a
+generated file. That is why an edit under `.agents/skills/` is blocked and the
+message names the source.
 
 ## Architecture in one screen
 
@@ -143,6 +165,27 @@ and follow the reasoning.
    `https://formulae.brew.sh/api/formula/<name>.json`. A row whose destination
    name was not read from the destination provider is not admissible — that is
    the standing admission rule for the file.
+
+   **Two further admission rules, both mechanical, and both applying to the
+   source name as much as to the destination** — `index_equivalences` builds the
+   reverse index from the same rows, so every source name is a destination name
+   read from the other side.
+
+   - **The name must be one `is_safe_provider_name` accepts**: no leading dash,
+     no path separator, nothing a provider would read as a flag or a path.
+     `check_curated_names` refuses the whole file at load with
+     `PolicyDataInvalid`, so a row that breaks this is a *build* defect failing
+     every command, not a surprise inside one plan. It is refused there rather
+     than in the planner because the planner's identical guard answered
+     `InputUnusable`, which sends the user to re-capture a snapshot over a
+     defect compiled into the binary.
+   - **The name must not be a word the provider reads as a set of ports** rather
+     than as one package — the `reserved_names` in
+     `crates/application/src/provider_commands.rs`. Unlike the rule above this
+     one is **not** checked at load: it refuses in the planner, with `Usage`,
+     and only when somebody plans that particular package. It is therefore the
+     one to check by hand while writing the row, because nothing will tell you
+     until a user asks for that plan.
 3. **Add one `[[entry]]` to `data/policy/curated-mappings.toml`** with every
    field: `source_provider`, `source_name`, `destination_provider`,
    `destination_name`, `confidence = "EXACT"` (a curated row is a human
@@ -215,7 +258,7 @@ and follow the reasoning.
 ## Adding a locale
 
 1. **Copy `locales/en.toml` to `locales/<tag>.toml`**, where `<tag>` is the
-   BCP-47 tag — the targets are `pt-BR`, `es`, `ja` and `zh-CN`, listed in
+   BCP-47 tag — the targets are `pt-BR` (shipped), `es`, `ja` and `zh-CN`, listed in
    `crates/cli/src/i18n/locale.rs` as `KNOWN`. English is the canonical source
    locale; every other catalogue is a translation of exactly its keys.
 2. **Translate the values only.** Keys, placeholder names (`{provider}`,
@@ -233,10 +276,13 @@ and follow the reasoning.
 4. **Do not translate machine-readable output**, log lines, history records,
    error identifiers or reason identifiers. Locale affects presentation only;
    `--json` is always English and stable.
-5. **Wire the catalogue up** in `Catalogue::for_locale`
-   (`crates/cli/src/i18n/mod.rs`). In this build that function returns English
-   for every tag except the pseudolocale, so a translation file on its own is
-   not yet rendered — the loader is part of your change.
+5. **Wire the catalogue up** in `Messages::for_locale`
+   (`crates/cli/src/i18n/mod.rs`), with a constructor beside
+   `Catalogue::portuguese_brazil` (`crates/cli/src/i18n/catalogue.rs`): the
+   translation laid over English, so a key it lacks renders in English. In this
+   build `pt-BR` is wired and the pseudolocale is generated; every other tag
+   still gets English, so a translation file on its own is not yet rendered —
+   the loader is part of your change.
 6. **Check parity and layout.** `scripts/check-i18n-parity.sh` fails on a
    missing or an orphaned key. Then run
    `macportsbrew --language qps analyze`: the pseudolocale lengthens and
@@ -260,11 +306,16 @@ and follow the reasoning.
    from a fixture.
 4. **Respect the redaction rules.** `doctor --report` may name versions,
    architecture, macOS version, provider prefixes, package names and findings.
-   It must never emit usernames, home paths, environment variable values or
-   tokens. A parameter that can carry a path is redacted the same way the rest
+   It must never emit the user name, the home directory path, tokens, or the
+   value of an environment variable other than the `PATH` entries a finding
+   names (shown with the home directory as `~`). A parameter that can carry a path is redacted the same way the rest
    of the report is — the home directory becomes `~`.
-5. **Add a test in the same file** covering the finding present and the finding
-   absent.
+5. **Add a test in `crates/application/tests/doctor_findings.rs`** covering the
+   finding present and the finding absent. Not "in the same file", which this
+   step used to say: `doctor.rs` has no `#[cfg(test)]` module and never had one,
+   and every doctor finding is tested there instead. A step that names a place
+   that does not exist is one the next contributor has to work around and then
+   guess at, which is how the two halves of a paired procedure start to drift.
 6. **Verify:** `scripts/check-i18n-parity.sh`, then
    `macportsbrew --replay fixtures/recordings/<fixture>.json doctor` and the
    same with `--json`, on a fixture that exercises the check.
@@ -322,14 +373,24 @@ and follow the reasoning.
    reported as `Available`; the analysis degrades and says so rather than
    guessing.
 4. **Add one entry to `crates/adapters/src/registry.rs`:** the provider id in
-   `known_provider_ids()`, and its candidate prefixes in detection order in
-   `candidate_prefixes()`. That file is the only place above the adapter which
-   knows a provider exists.
+   `known_provider_ids()`. That file is the only place above the adapter which
+   knows a provider exists. Its **candidate prefixes go in
+   `data/policy/provider-prefixes.toml`**, in detection order, with a `source`
+   and a `read_on` like every other provider fact — INV-20 names prefixes, and
+   the INV-20 test refuses one written into source (DP-014).
 5. **Add the provider's data with `source` and `read_on` on every entry:** its
    verbs and per-operation elevation in `data/policy/provider-commands.toml`,
    and its support state per architecture and macOS range in
    `data/policy/provider-support.toml`. Both are data (INV-20); no verb and no
-   deadline is written into Rust.
+   deadline is written into Rust. **Four verbs, not three**: `add`, `remove`,
+   `verify` — and `verify_absent`, which is how a removal is certified and whose
+   argv must ask for the **whole inventory** with no package name. Observe what
+   your provider answers when asked about a package that is *not* installed
+   before you write that cell: on both shipped providers the single-name form
+   answers "absent", "never existed" and "could not run" identically, which is
+   why the inventory form exists. The loader refuses the semantic on a verb that
+   takes a name, and `embedded_table_loads_with_provenance` refuses an entry
+   that omits the verb.
 6. **Capture a fixture** for the new provider (see *Capturing a fixture*) and
    add a contract test per parsed command in `crates/adapters/tests/`.
 7. **Write no policy rule that names it.** Rules read facts, and provider

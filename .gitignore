@@ -2,13 +2,19 @@
 .claude/settings.local.json
 .claude/agent-memory/
 
+# Session state for the guarded-path escape: which prompt armed it, and every
+# write it let through. Both are per-session facts about one machine, and the
+# log is the evidence an end-of-pass report cites rather than a thing to keep.
+.claude/.guard-edit-marker
+.claude/.guard-edit-log*
+
 # Local research and capture scratch. Committed fixtures live under tests/.
 docs/research/.scratch/
 
 # macOS
 .DS_Store
 
-# Build output (path confirmed once the implementation language is; ADR-0002)
+# Build output (Rust; ADR-0002)
 /target/
 /dist/
 

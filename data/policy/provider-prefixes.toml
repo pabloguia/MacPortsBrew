@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Where each provider expects to be installed, as dated data (INV-20;
+# docs/spec/03-policy-and-recommendations.md, "Policy data"). Prefixes are
+# named in INV-20 alongside support tiers and deadlines, and they were the one
+# category still held in a `match` (DP-014).
+#
+# Order is detection order and is significant: the first candidate holding the
+# provider's executable wins. Both of Homebrew's candidates are probed on every
+# machine, so a migrated Mac carrying an Intel Homebrew under Rosetta is found
+# and reported rather than missed.
+#
+# A prefix decides which executable is run, so this file is the *only* source
+# of candidates on a live machine — nothing a flag or a snapshot can reach may
+# add one (docs/spec/04-migration-and-safety.md, "Process execution", and
+# registry::override_for, which honours an override under replay alone).
+#
+# Fields
+#   provider   provider id, lower case, matching crates/adapters/src/<name>
+#   prefixes   absolute paths, in detection order, at least one
+#   source     precise enough that someone else can re-read what was read
+#   read_on    YYYY-MM-DD, the day it was read
+#   note       what the source actually said, in English
+
+[[entry]]
+provider = "homebrew"
+prefixes = ["/opt/homebrew", "/usr/local"]
+# The prefix the adapter is built over when neither candidate holds the
+# executable, so an absent Homebrew is reported through the same contract.
+# Named rather than chosen by position, so reordering `prefixes` cannot move it.
+fallback = "/usr/local"
+source = "https://docs.brew.sh/Installation"
+read_on = "2026-09-02"
+note = """
+"macOS Apple Silicon: /opt/homebrew"; "macOS Intel: /usr/local". Homebrew \
+also classifies a non-default prefix as a Tier 2 or Tier 3 configuration \
+(https://docs.brew.sh/Support-Tiers, read 2026-09-02, F-1 finding 7), which \
+is why the documented defaults are the candidates and a discovered directory \
+is not. Both are probed on every architecture: an Apple Silicon Mac migrated \
+from an Intel one can carry a working /usr/local installation under Rosetta.\
+"""
+
+[[entry]]
+provider = "macports"
+prefixes = ["/opt/local"]
+fallback = "/opt/local"
+source = "https://guide.macports.org/chunked/installing.macports.html"
+read_on = "2026-09-02"
+note = """
+The MacPorts guide installs to /opt/local and the package installers use it \
+without asking. A source install can choose another prefix with --prefix; \
+that machine is served by the replay override rather than by widening this \
+list, because a candidate here is a path this tool will execute from.\
+"""

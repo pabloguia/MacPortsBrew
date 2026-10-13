@@ -77,7 +77,8 @@ machine-translate them and move on.
 ## Adding a locale
 
 Follow the `add-locale` skill, or the matching section of `CONTRIBUTING.md`;
-they are the same steps. Note that `Catalogue::for_locale` in
-`crates/cli/src/i18n/mod.rs` currently returns English for every tag except the
-pseudolocale, so a translation file on its own is not yet rendered — wiring the
-loader is part of the change.
+they are the same steps. Note that `Messages::for_locale` in
+`crates/cli/src/i18n/mod.rs` wires `pt-BR` (through `Catalogue::portuguese_brazil`,
+the translation laid over English) and the pseudolocale, and returns English for
+every other tag, so a translation file on its own is not yet rendered — wiring
+the loader is part of the change.

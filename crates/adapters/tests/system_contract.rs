@@ -17,7 +17,9 @@
 use macportsbrew_adapters::persistence::load_recording;
 use macportsbrew_adapters::process::ReplayRunner;
 use macportsbrew_adapters::system::SystemMachine;
-use macportsbrew_domain::{Architecture, CommandLineTools, MachineRead, MacosVersion, Translation};
+use macportsbrew_domain::{
+    Architecture, CommandLineTools, HomeRedaction, MachineRead, MacosVersion, Translation,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -29,7 +31,7 @@ fn reader() -> SystemMachine {
         Box::new(ReplayRunner::new(recording)),
         Some("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin".to_string()),
         BTreeMap::new(),
-        Some(PathBuf::from("/Users/ada")),
+        HomeRedaction::Known(PathBuf::from("/Users/ada")),
     )
 }
 
@@ -102,7 +104,7 @@ fn the_adapter_needs_only_what_the_capture_script_records() {
         Box::new(ReplayRunner::new(recording)),
         None,
         BTreeMap::new(),
-        None,
+        HomeRedaction::Recorded,
     );
     let machine = reader.machine().unwrap();
     assert_eq!(machine.architecture, Architecture::X86_64);

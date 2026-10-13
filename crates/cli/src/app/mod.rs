@@ -8,18 +8,20 @@
 
 mod context;
 mod human;
+mod migrate;
+pub mod version;
 
 use crate::i18n::Messages;
 use clap::{Parser, Subcommand};
 use context::Context;
 use macportsbrew_application::{AnalysisOptions, DoctorReport, PlanRequest, Severity};
-use macportsbrew_domain::{DomainError, ErrorId};
+use macportsbrew_domain::{redact_home, ConcurrencyFlag, DomainError, ErrorId, HomeRedaction};
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// MacPortsBrew: safely migrate and manage packages between Homebrew and
-/// MacPorts on macOS.
+/// MacPortsBrew: see what Homebrew and MacPorts have installed, compare them
+/// package by package, and plan a migration in either direction.
 ///
 /// The global flags are the ones `06-cli-and-ux.md` lists; several are
 /// accepted for forward compatibility and change nothing in this build.
@@ -28,17 +30,21 @@ use std::path::PathBuf;
 #[command(
     name = "macportsbrew",
     version,
-    about = "Safely migrate and manage packages between Homebrew and MacPorts on macOS.",
+    about = "See what Homebrew and MacPorts have installed, compare them package by package, \
+and plan a migration in either direction; the two are treated as peers. This version reads and \
+plans; it changes nothing.",
     long_about = "MacPortsBrew analyses what is installed under Homebrew and MacPorts, maps \
 equivalent packages, explains which provider is the better choice for each package on this \
 machine, and builds reviewable migration plans. `mpb` is the same program under a shorter name.\n\n\
-This build is read-only: it inventories, analyses and plans, and executes nothing."
+This version changes nothing on your machine: `migrate --yes` shows why each plan is refused, \
+and nothing runs. A plan lists the commands a migration would run, in order, with how to check \
+each one, so you can carry it out yourself."
 )]
 pub struct Cli {
     /// Machine-readable output with a versioned schema, on stdout only.
     #[arg(long, global = true)]
     pub json: bool,
-    /// Locale for human output (`en`, `qps` pseudolocale).
+    /// Locale for human output (`en`, `pt-BR`, `qps` pseudolocale).
     #[arg(long, global = true, value_name = "TAG")]
     pub language: Option<String>,
     /// Plain output without colour.
@@ -47,33 +53,37 @@ pub struct Cli {
     /// More detail on stderr.
     #[arg(long, global = true)]
     pub verbose: bool,
-    /// Do not use the network. Analysis never does in this build; accepted
-    /// so scripts written now keep working.
+    /// Accepted so scripts keep working; this build makes no network call of
+    /// its own, and it does not stop a Homebrew read fetching its catalogue
+    /// on an empty cache.
     #[arg(long, global = true)]
     pub no_network: bool,
     /// Bypass caches. There is no cache in this build; accepted for the
     /// same reason.
     #[arg(long, global = true)]
     pub refresh: bool,
-    /// Show what would be done. Everything in this build is a dry run.
+    /// Show what would be done and run nothing. Wins over --yes. Every
+    /// command but `migrate --yes` is a dry run in this build anyway.
     #[arg(long, global = true)]
     pub dry_run: bool,
-    /// Assume yes at prompts. Nothing in this build prompts.
+    /// Confirm: `migrate` puts its plan to the execution gate instead of only
+    /// showing it. The gate refuses every plan this build produces, so
+    /// nothing runs; nothing in this build prompts.
     #[arg(long, global = true)]
     pub yes: bool,
-    /// Analyse a captured snapshot instead of this machine. The analysis is
-    /// computed as of the snapshot's capture date unless --today is given.
-    #[arg(long, global = true, value_name = "FILE")]
+    /// Analyse a captured snapshot instead of this machine, as of the date it
+    /// was captured.
+    #[arg(long, global = true, value_name = "FILE", conflicts_with = "replay")]
     pub from_snapshot: Option<PathBuf>,
     /// Replay a recorded fixture as if it were this machine (testing).
     #[arg(long, global = true, value_name = "FILE", hide = true)]
     pub replay: Option<PathBuf>,
     /// The date to analyse for, YYYY-MM-DD (testing; defaults to today, or
     /// to the snapshot's capture date with --from-snapshot).
-    #[arg(long, global = true, value_name = "DATE", hide = true)]
+    #[arg(long, global = true, value_name = "DATE", hide = true, value_parser = calendar_date)]
     pub today: Option<String>,
     /// Include dependency-level packages, which are managed automatically by
-    /// their provider (INV-13).
+    /// their provider.
     #[arg(long, global = true)]
     pub advanced: bool,
     /// The command. Without one, `status` runs.
@@ -81,7 +91,8 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-/// The read commands of this pass.
+/// The commands of this build. Every one is a read but `migrate --yes`, which
+/// reaches a refusal gate that refuses every plan this build produces.
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Machine and provider dashboard.
@@ -93,8 +104,8 @@ pub enum Command {
     },
     /// Packages, one unit per package across providers.
     List {
-        /// Only packages held by this provider.
-        #[arg(long)]
+        /// Only packages held by this provider, by the id `status` lists.
+        #[arg(long, value_parser = known_provider)]
         provider: Option<String>,
     },
     /// The full derivation of one recommendation.
@@ -106,8 +117,20 @@ pub enum Command {
     Plan {
         /// Package name.
         package: String,
-        /// Destination provider id.
+        /// Destination provider, by the id `status` lists it under.
+        #[arg(long, value_parser = known_provider)]
+        to: String,
+        /// Keep the source package after migration.
         #[arg(long)]
+        retain_source: bool,
+    },
+    /// Show a migration plan; with --yes, put it to the execution gate. The
+    /// gate refuses every plan this build produces, so nothing is changed.
+    Migrate {
+        /// Package name.
+        package: String,
+        /// Destination provider, by the id `status` lists it under.
+        #[arg(long, value_parser = known_provider)]
         to: String,
         /// Keep the source package after migration.
         #[arg(long)]
@@ -139,12 +162,82 @@ pub fn run(cli: &Cli, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
                 cli.language.as_deref(),
                 context::env_language().as_deref(),
             ));
-            let _ = writeln!(stderr, "macportsbrew: {}", messages.render_error(&e));
+            // The detail can quote the command line (a `--to` value, a
+            // package name), so it is escaped like any other quoted text. It
+            // can also carry a path under this host's home - a snapshot file
+            // given on the command line, the state directory - and an error is
+            // what a person pastes into a bug report, so both lines are
+            // redacted against this host's home the way `doctor --report` is
+            // (`06-cli-and-ux.md`, privacy). Always against *this* host, even
+            // under replay: an error is about the run, not the recording, and
+            // the analysis output INV-15 governs is never written here.
+            let (_, _, home) = macportsbrew_adapters::system::machine::from_process_environment();
+            let redaction = HomeRedaction::live(home);
+            let shown =
+                |text: &str| crate::executor::escape_controls(&redact_home(text, &redaction));
+            let _ = writeln!(
+                stderr,
+                "macportsbrew: {}",
+                shown(&messages.render_error(&e))
+            );
             if cli.verbose {
-                let _ = writeln!(stderr, "  {}", e.detail);
+                let _ = writeln!(stderr, "  {}", shown(&e.detail));
             }
             e.exit_code()
         }
+    }
+}
+
+/// A provider id this build knows, for `--to` and `--provider`; anything else
+/// is a usage error naming the valid ids, rather than an empty view or a
+/// "not found on this machine" that reads like a fact about the machine.
+/// The ids come from the registry, so this layer names no provider.
+fn known_provider(value: &str) -> Result<String, String> {
+    let known = macportsbrew_adapters::registry::known_provider_ids();
+    if known.iter().any(|id| id.as_str() == value) {
+        return Ok(value.to_string());
+    }
+    let names: Vec<&str> = known
+        .iter()
+        .map(macportsbrew_domain::ProviderId::as_str)
+        .collect();
+    Err(format!(
+        "not a provider this build knows; use one of: {}",
+        names.join(", ")
+    ))
+}
+
+/// `--today`: a calendar date, `YYYY-MM-DD`. A malformed value used to switch
+/// the staleness notice off silently and reach the JSON as it was typed.
+fn calendar_date(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let shape = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit());
+    let field = |range: std::ops::Range<usize>| value[range].parse::<u32>().unwrap_or(0);
+    if shape && (1..=12).contains(&field(5..7)) && (1..=31).contains(&field(8..10)) {
+        Ok(value.to_string())
+    } else {
+        Err("expected a date written YYYY-MM-DD".to_string())
+    }
+}
+
+/// Refuses to run as root: nothing MacPortsBrew does needs it (INV-06).
+/// `Ok(false)` when the user could not be learned: the check did not run, and
+/// the caller says so rather than proceeding as if it had passed.
+pub(crate) fn refuse_if_root(euid: Option<u32>) -> Result<bool, DomainError> {
+    match euid {
+        Some(0) => Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "macportsbrew never runs as root; run it as your own user, without elevation"
+                .to_string(),
+        )),
+        Some(_) => Ok(true),
+        None => Ok(false),
     }
 }
 
@@ -153,7 +246,29 @@ fn run_inner(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
+    // Never wholly root (INV-06): run elevated, the process keeps the
+    // invoking user's home, so it would read providers as root and leave
+    // root-owned state under that home which later runs as the user refuse.
+    // An answer of `None` means the probe could not run: that is said on
+    // stderr once the catalogue is loaded, and the state directory's own
+    // owner check still stands behind it (a read-only run writes no state).
+    let root_checked = refuse_if_root(macportsbrew_adapters::system::machine::effective_uid())?;
+    // Before anything is built or printed: nothing executes against a
+    // snapshot file (`04-migration-and-safety.md`, "Process execution").
+    if matches!(cli.command, Some(Command::Migrate { .. }))
+        && migrate::Mode::of(cli) == migrate::Mode::Execute
+        && cli.from_snapshot.is_some()
+    {
+        return Err(migrate::refuse_execution_from_a_snapshot_file());
+    }
     let ctx = Context::build(cli, stderr)?;
+    if !root_checked {
+        let _ = writeln!(
+            stderr,
+            "{}",
+            ctx.messages.render_id("privilege.user_unknown")
+        );
+    }
     let advanced = cli.advanced;
     if advanced {
         let _ = writeln!(stderr, "{}", ctx.messages.render_id("advanced.warning"));
@@ -168,10 +283,6 @@ fn run_inner(
         params.insert(
             "readOn".to_string(),
             ctx.policy.newest_read_on().to_string(),
-        );
-        params.insert(
-            "url".to_string(),
-            "https://github.com/macportsbrew/macportsbrew".to_string(),
         );
         let _ = writeln!(
             stderr,
@@ -197,6 +308,9 @@ fn run_inner(
                 writeln!(stdout, "{}", json(&analysis)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::analysis(&ctx, &analysis, true)).map_err(io)?;
+                // The analysis's own flag, the one its `--json` carries.
+                let activity = analysis.concurrent_provider_activity.activity();
+                write!(stdout, "{}", human::concurrency(&ctx, activity)).map_err(io)?;
             }
             Ok(0)
         }
@@ -220,10 +334,21 @@ fn run_inner(
                 &options(BTreeSet::new()),
                 package,
             )?;
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&explanation)?).map_err(io)?;
+                let document = Flagged {
+                    body: &explanation,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::explanation(&ctx, &explanation)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             Ok(0)
         }
@@ -241,16 +366,45 @@ fn run_inner(
                     to: macportsbrew_domain::ProviderId::new(to),
                     retain_source: *retain_source,
                 },
+                // The planner names no provider; the registry is what knows
+                // which ones a complete input must carry.
+                &macportsbrew_adapters::registry::known_provider_ids(),
             )?;
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&plan)?).map_err(io)?;
+                let document = Flagged {
+                    body: &plan,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::plan(&ctx, &plan)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             // A plan that stops at manual review is reported with the
             // safety-check code so scripts can tell (06-cli-and-ux.md).
             Ok(if plan.requires_manual_review() { 4 } else { 0 })
         }
+        Command::Migrate {
+            package,
+            to,
+            retain_source,
+        } => migrate::migrate(
+            &ctx,
+            cli,
+            &PlanRequest {
+                package: package.clone(),
+                to: macportsbrew_domain::ProviderId::new(to),
+                retain_source: *retain_source,
+            },
+            &options(BTreeSet::new()),
+            stdout,
+        ),
         Command::Doctor { report, deep } => {
             if *deep && !cli.json {
                 let _ = writeln!(
@@ -274,10 +428,21 @@ fn run_inner(
                     )
                 );
             }
+            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
             if cli.json {
-                writeln!(stdout, "{}", json(&doc)?).map_err(io)?;
+                let document = Flagged {
+                    body: &doc,
+                    concurrent_provider_activity: concurrency,
+                };
+                writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::doctor(&ctx, &doc)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}",
+                    human::concurrency(&ctx, concurrency.activity())
+                )
+                .map_err(io)?;
             }
             Ok(match doc.worst() {
                 Severity::Error => 5,
@@ -304,7 +469,53 @@ fn run_inner(
     }
 }
 
+/// What `plan`, `explain` and `doctor` write with `--json`: the payload
+/// exactly as its schema documents it, then the concurrency flag at the same
+/// root (`plan.v1.md`, obligation 5; SE-015).
+///
+/// The payload types are not given the field: `MigrationPlan` is the contract
+/// the planner, the execution gate and the run loop share, and `migrate`
+/// carries it under its own `plan` key with the flag at *its* root; the
+/// explanation and the doctor report are the application's answers, and where
+/// the input came from is the command's to say. The payload is flattened
+/// first, so every byte it wrote before this field keeps its place and the
+/// flag is appended after it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Flagged<'a, T: serde::Serialize> {
+    #[serde(flatten)]
+    body: &'a T,
+    concurrent_provider_activity: ConcurrencyFlag,
+}
+
 fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {
     serde_json::to_string_pretty(value)
         .map_err(|e| DomainError::new(ErrorId::Internal, format!("serialising output: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invariant_06_the_tool_refuses_to_run_wholly_as_root() {
+        let refused = refuse_if_root(Some(0)).unwrap_err();
+        assert_eq!(refused.id, ErrorId::SafetyBlocked);
+        assert!(
+            refused.detail.contains("never runs as root"),
+            "{}",
+            refused.detail
+        );
+        assert!(refuse_if_root(Some(501)).expect("an ordinary user runs"));
+        // A user that could not be learned is "not checked", never "passed".
+        assert!(!refuse_if_root(None).expect("not a refusal"));
+    }
+
+    #[test]
+    fn invariant_06_a_root_check_that_did_not_run_is_said() {
+        // The notice the caller prints when the user could not be learned.
+        let messages = crate::i18n::Messages::for_locale(&crate::i18n::resolve(Some("en"), None));
+        let text = messages.render_id("privilege.user_unknown");
+        assert!(text.contains("could not tell"), "{text}");
+    }
 }

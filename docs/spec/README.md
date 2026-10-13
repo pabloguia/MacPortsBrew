@@ -31,6 +31,7 @@ Related:
   - [0003 — Product name and CLI alias](../adr/0003-name-and-cli-alias.md)
   - [0004 — Dependency gate](../adr/0004-dependency-gate.md)
   - [0005 — Release signing and distribution artifacts](../adr/0005-release-signing-and-artifacts.md)
+  - [0006 — No `libc`, and the timeout kills one process rather than a group](../adr/0006-no-libc-and-the-timeout-kills-one-process.md)
 
 ## Authority
 

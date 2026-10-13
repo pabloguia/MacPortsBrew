@@ -25,7 +25,7 @@ use macportsbrew_domain::{Outcome, Reason};
 mod destination_unsupported_here;
 mod keep_both_healthy;
 mod keep_source_default;
-pub(crate) mod labels;
+pub mod labels;
 mod manual_review_availability_unknown;
 mod manual_review_class;
 mod manual_review_destination_deprecated;
@@ -33,7 +33,7 @@ mod manual_review_mapping_confidence;
 mod manual_review_persistent_data;
 mod manual_review_reverse_dependencies;
 mod manual_review_source_withdrawn;
-mod no_action_already_there;
+mod no_alternative_provider_present;
 mod runtime_use_manager;
 mod source_no_prebuilt_destination_prebuilt;
 mod source_support_ending;
@@ -126,7 +126,7 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(manual_review_persistent_data::ManualReviewPersistentData),
         Box::new(manual_review_reverse_dependencies::ManualReviewReverseDependencies),
         Box::new(manual_review_source_withdrawn::ManualReviewSourceWithdrawn),
-        Box::new(no_action_already_there::NoActionAlreadyThere),
+        Box::new(no_alternative_provider_present::NoAlternativeProviderPresent),
         Box::new(runtime_use_manager::RuntimeUseManager),
         Box::new(source_no_prebuilt_destination_prebuilt::SourceNoPrebuiltDestinationPrebuilt),
         Box::new(source_support_ending::SourceSupportEnding),

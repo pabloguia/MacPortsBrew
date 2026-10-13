@@ -38,23 +38,24 @@ use crate::process::{
 };
 use macportsbrew_domain::{
     Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, ErrorId, Machine,
-    MachineRead, MacosVersion, Translation,
+    MachineRead, MacosVersion, PathFinding, Translation,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// `sw_vers`, absolute: correctness here must not depend on `PATH`
 /// (`04-migration-and-safety.md`, threat model, "Executable shadowing").
-const SW_VERS: &str = "/usr/bin/sw_vers";
+pub(crate) const SW_VERS: &str = "/usr/bin/sw_vers";
 /// `uname`, absolute.
-const UNAME: &str = "/usr/bin/uname";
+pub(crate) const UNAME: &str = "/usr/bin/uname";
 /// `sysctl`, absolute.
-const SYSCTL: &str = "/usr/sbin/sysctl";
+pub(crate) const SYSCTL: &str = "/usr/sbin/sysctl";
 /// `xcode-select`, absolute.
-const XCODE_SELECT: &str = "/usr/bin/xcode-select";
+pub(crate) const XCODE_SELECT: &str = "/usr/bin/xcode-select";
 
 /// These probes answer instantly or not at all; a long wait means something is
 /// wrong with the machine, not that the answer is coming.
@@ -89,29 +90,13 @@ pub const STATE_DIR_VARIABLE: &str = "MACPORTSBREW_STATE_DIR";
 /// not. That split is not yet recorded in `docs/spec-evolution.md`, and it
 /// needs to be before `--report` ships.
 ///
-/// The set below mirrors `process::environment::is_build_flag`, which this
-/// module cannot call because `process` does not re-export it. Re-exporting it
-/// and deleting this copy is the right end state; until then the two are kept
-/// in step by hand, and `system_contract.rs` asserts the mirror is complete.
+/// The build-flag list itself is [`macportsbrew_domain::is_build_flag`], so a
+/// variable the executor strips is reported here without anyone keeping two
+/// lists in step by hand. `MANPATH` is the deliberate extra: it is not stripped,
+/// because it changes no build, but a `MANPATH` pointing at the other prefix is
+/// worth telling a reader about.
 pub fn is_reported(name: &str) -> bool {
-    matches!(
-        name,
-        "MANPATH"
-            | "CPATH"
-            | "C_INCLUDE_PATH"
-            | "CPLUS_INCLUDE_PATH"
-            | "LIBRARY_PATH"
-            | "LD_LIBRARY_PATH"
-            | "PKG_CONFIG_PATH"
-            | "PKG_CONFIG_LIBDIR"
-            | "LDFLAGS"
-            | "CPPFLAGS"
-            | "CFLAGS"
-            | "CXXFLAGS"
-            | "OBJCFLAGS"
-            | "ACLOCAL_PATH"
-            | "CMAKE_PREFIX_PATH"
-    ) || name.starts_with("DYLD_")
+    name == "MANPATH" || macportsbrew_domain::is_build_flag(name)
 }
 
 /// Replaces the home directory with `~`, wherever it appears.
@@ -121,7 +106,7 @@ pub fn is_reported(name: &str) -> bool {
 /// provider hands back — two layers redacting with two copies of the rule is
 /// two rules waiting to disagree, and the one that disagrees quietly is the one
 /// that publishes a username.
-pub use macportsbrew_domain::redact_home;
+pub use macportsbrew_domain::{redact_home, HomeRedaction};
 
 /// Reads the process environment.
 ///
@@ -137,11 +122,67 @@ pub fn from_process_environment() -> (Option<String>, BTreeMap<String, String>, 
     let variables = std::env::vars()
         .filter(|(name, _)| is_reported(name))
         .collect();
-    let home = std::env::var("HOME")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute());
+    let home = std::env::var("HOME").ok().as_deref().and_then(usable_home);
     (path, variables, home)
+}
+
+/// Trailing slashes are trimmed and `/` is rejected outright. `HOME` is what
+/// redaction substitutes and what a provider reads its own configuration
+/// from, and `/Users/x/` is a shape shells and launchd hand out freely: it
+/// redacts to `~/` rather than `~`, which made every live run refuse its own
+/// snapshot until this normalised. Doing it at the one place that reads the
+/// environment fixes redaction everywhere rather than teaching each consumer
+/// the same trick.
+pub fn usable_home(value: &str) -> Option<PathBuf> {
+    let trimmed = PathBuf::from(value.trim_end_matches('/'));
+    (trimmed.is_absolute() && trimmed.components().count() > 1).then_some(trimmed)
+}
+
+/// This process's effective uid, read as the owner of a file it just created.
+///
+/// Not from `$HOME`, which was the first attempt and was wrong in both
+/// directions: the environment decides what `$HOME` says, so a home the process
+/// does not own makes every directory this user *cannot* write look writable —
+/// a run with `HOME=/private/var` reported `/usr/bin` as "belongs to you" —
+/// while a home that cannot be stat'd silently switches the check off, which is
+/// one line in a shell profile away for exactly the adversary who put `~/bin`
+/// on the `PATH` in the first place. It is also not this process under `sudo`,
+/// where the euid is 0 and `$HOME` still names the invoking user.
+///
+/// The owner of a file this process just made is this process, and no variable
+/// can redirect that. `std` exposes no `getuid`; it does expose the owner of a
+/// file. The technique is the one `persistence::state_dir` already uses. A
+/// directory that will not take the probe yields `None`, and the caller reports
+/// that the check did not run rather than reporting nothing.
+///
+/// The name is never removed before use: a file already there, whoever made
+/// it, is someone else's, and the probe moves to the next name instead.
+/// Another user pre-creating every name to blind the check would have to
+/// guess sixteen of them per process.
+pub fn effective_uid() -> Option<u32> {
+    let dir = std::env::temp_dir();
+    for attempt in 0..16u32 {
+        let probe = dir.join(format!(
+            ".macportsbrew-uid.{}.{attempt}",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&probe)
+        {
+            Ok(file) => {
+                let uid = file.metadata().map(|m| m.uid()).ok();
+                drop(file);
+                std::fs::remove_file(&probe).ok();
+                return uid;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 /// Reads the locale preference variables in the order `06-cli-and-ux.md`
@@ -171,7 +212,7 @@ pub struct SystemMachine {
     runner: Box<dyn ProcessRunner>,
     path_env: Option<String>,
     variables: BTreeMap<String, String>,
-    home: Option<PathBuf>,
+    home: HomeRedaction,
     /// The probes are pure with respect to a given machine, so the answer is
     /// computed once. A failure is cached too: re-running a probe that already
     /// failed would produce a second, differently worded error for one cause.
@@ -188,7 +229,7 @@ impl SystemMachine {
         runner: Box<dyn ProcessRunner>,
         path_env: Option<String>,
         variables: BTreeMap<String, String>,
-        home: Option<PathBuf>,
+        home: HomeRedaction,
     ) -> Self {
         Self {
             runner,
@@ -212,14 +253,14 @@ impl SystemMachine {
     }
 
     /// The home directory this reader redacts against, when one is known.
-    pub fn home(&self) -> Option<&Path> {
-        self.home.as_deref()
+    pub fn home(&self) -> &HomeRedaction {
+        &self.home
     }
 
     /// Runs one probe. A probe that could not be started is not an error here:
     /// each caller decides what a missing tool means for the fact it is after.
-    fn probe(&self, program: &str, argv: &[&str]) -> Result<Invocation, DomainError> {
-        let spec = CommandSpec::new(
+    fn probe(&self, program: &'static str, argv: &[&str]) -> Result<Invocation, DomainError> {
+        let spec = CommandSpec::system(
             program,
             argv.iter().map(|a| (*a).to_string()).collect(),
             sanitised_environment(&EnvironmentSpec::default()),
@@ -279,13 +320,61 @@ impl SystemMachine {
         })
     }
 
+    /// What one `sysctl -n` probe established, and nothing more.
+    fn sysctl_answer(&self, name: &str) -> SysctlAnswer {
+        let Ok(inv) = self.sysctl(name) else {
+            return SysctlAnswer::NoAnswer;
+        };
+        if inv.status.success() {
+            return SysctlAnswer::Value(inv.stdout.trim().to_string());
+        }
+        // `sysctl(8)` surfaces `ENOENT` as an exit with `unknown oid` on
+        // stderr (module documentation). Anything else that did not exit 0 -
+        // not started, timed out, signalled, another error - answered nothing.
+        let unknown_oid = matches!(inv.status, ExitStatus::Exited { .. })
+            && inv.stderr.to_ascii_lowercase().contains("unknown oid");
+        if unknown_oid {
+            SysctlAnswer::UnknownOid
+        } else {
+            SysctlAnswer::NoAnswer
+        }
+    }
+
     /// The hardware architecture. `hw.optional.arm64` is asked first because
     /// it is the only one of the three that is true of the machine rather than
     /// of the process.
+    ///
+    /// `hw.machine` and `uname -m` describe the **process**: a translated
+    /// process on Apple Silicon sees `x86_64` from both. So they are consulted
+    /// only once the hardware question has a clean answer that is not "arm64"
+    /// (`hw.optional.arm64` reported `0` or does not exist) or, when that
+    /// probe failed, once `sysctl.proc_translated` has ruled translation out.
+    /// A probe that failed is never read as "not Apple Silicon".
     fn detect_architecture(&self) -> Result<Architecture, DomainError> {
-        if let Ok(inv) = self.sysctl("hw.optional.arm64") {
-            if inv.status.success() && inv.stdout.trim() == "1" {
-                return Ok(Architecture::Arm64);
+        match self.sysctl_answer("hw.optional.arm64") {
+            SysctlAnswer::Value(value) if value == "1" => return Ok(Architecture::Arm64),
+            SysctlAnswer::Value(value) if value == "0" => {}
+            SysctlAnswer::UnknownOid => {}
+            SysctlAnswer::Value(_) | SysctlAnswer::NoAnswer => {
+                match self.sysctl_answer("sysctl.proc_translated") {
+                    // Only Apple Silicon translates.
+                    SysctlAnswer::Value(value) if value == "1" => {
+                        return Ok(Architecture::Arm64);
+                    }
+                    // A native process: what it sees is the hardware. An
+                    // absent OID is an Intel Mac - it always exists on Apple
+                    // Silicon (see `detect_translation`).
+                    SysctlAnswer::Value(value) if value == "0" => {}
+                    SysctlAnswer::UnknownOid => {}
+                    SysctlAnswer::Value(_) | SysctlAnswer::NoAnswer => {
+                        return Err(DomainError::new(
+                            ErrorId::Io,
+                            "hw.optional.arm64 did not answer and sysctl.proc_translated could \
+                             not rule out a translated process, so hw.machine and uname -m \
+                             cannot be trusted to name the hardware",
+                        ));
+                    }
+                }
             }
         }
         for (program, argv) in [(SYSCTL, &["-n", "hw.machine"][..]), (UNAME, &["-m"][..])] {
@@ -355,10 +444,21 @@ impl SystemMachine {
             CommandLineTools::Unknown
         } else {
             CommandLineTools::Installed {
-                path: PathBuf::from(redact_home(path, self.home.as_deref())),
+                path: PathBuf::from(redact_home(path, &self.home)),
             }
         }
     }
+}
+
+/// The three things a `sysctl -n <name>` probe can establish. A failure to
+/// answer is its own case, never folded into "the OID does not exist".
+enum SysctlAnswer {
+    /// Exited 0; the value, trimmed.
+    Value(String),
+    /// Exited reporting `unknown oid`: the documented `ENOENT`.
+    UnknownOid,
+    /// Not started, timed out, signalled, or failed some other way.
+    NoAnswer,
 }
 
 impl MachineRead for SystemMachine {
@@ -371,30 +471,51 @@ impl MachineRead for SystemMachine {
     }
 
     fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
-        let home = self.home.as_deref();
-        let path = self
-            .path_entries()
-            .iter()
-            .map(|e| redact_home(e, home))
-            .collect();
+        let home = &self.home;
         let mut reported = BTreeMap::new();
         for (name, value) in &self.variables {
             if is_reported(name) {
                 reported.insert(name.clone(), redact_home(value, home));
             }
         }
-        let mut snapshot = EnvironmentSnapshot {
-            path,
+        // Audit first, on the **raw** entries, and redact afterwards.
+        //
+        // The order is the whole point. Auditing a redacted entry means asking
+        // the filesystem about a path that has been rewritten, and the rewrite
+        // is not always reversible: `~` cannot be expanded when the home is
+        // unresolved, so every home-relative entry was classified `Relative` and
+        // never stat'd — silently dropping the world- and group-writable checks
+        // on exactly the runs (`HOME` unset: cron, launchd, CI) that the
+        // redaction fallback exists for, and reporting an absolute path as
+        // "not absolute" while doing it. The same round trip turned a username
+        // outside the home — `/tmp/build/ada/bin` — into `/tmp/build/USER/bin`,
+        // which is absolute, so it *was* stat'd, at a path that does not exist:
+        // a spurious `Missing` in place of a real finding.
+        //
+        // The audit stats real directories, so it belongs to the capture and not
+        // to the analysis: what it finds is a fact about *this* host, it is
+        // written into the snapshot here, and everything downstream reads the
+        // recording rather than the filesystem (INV-15). A replayed reader has
+        // no `PATH`, so it produces no findings at all.
+        let raw = EnvironmentSnapshot {
+            installations: std::collections::BTreeMap::default(),
+            path: self.path_entries().clone(),
             reported,
             path_findings: Vec::new(),
         };
-        // The audit stats real directories, so it belongs to the capture and
-        // not to the analysis: what it finds is a fact about *this* host, it is
-        // written into the snapshot here, and everything downstream reads the
-        // recording rather than the filesystem (INV-15). A replayed reader has
-        // no `PATH` and no home, so it produces no findings at all.
-        snapshot.path_findings = crate::system::path_audit::audit_path(&snapshot, home);
-        Ok(snapshot)
+        let me = effective_uid();
+        let path_findings = crate::system::path_audit::audit_path(&raw, me)
+            .into_iter()
+            .map(|f| PathFinding {
+                entry: redact_home(&f.entry, home),
+                ..f
+            })
+            .collect();
+        Ok(EnvironmentSnapshot {
+            path: raw.path.iter().map(|e| redact_home(e, home)).collect(),
+            path_findings,
+            ..raw
+        })
     }
 
     /// Resolves a name against the observed `PATH`.
@@ -546,7 +667,7 @@ mod tests {
             Box::new(ReplayRunner::new(recording(invocations))),
             None,
             BTreeMap::new(),
-            None,
+            HomeRedaction::Recorded,
         )
     }
 
@@ -731,7 +852,81 @@ mod tests {
     }
 
     #[test]
-    fn architecture_falls_back_to_uname_when_no_sysctl_answers() {
+    fn architecture_falls_back_to_uname_once_the_hardware_question_is_answered() {
+        // `hw.optional.arm64` absent (an Intel Mac) and `hw.machine` gone:
+        // `uname -m` is a native process's answer, so it names the hardware.
+        let mut invocations = without(intel_native(), &["-n", "hw.machine"]);
+        invocations.push(absent("sysctl", &["-n", "hw.machine"]));
+        let m = reader(invocations).machine().unwrap();
+        assert_eq!(m.architecture, Architecture::X86_64);
+        assert_eq!(m.translation, Translation::Native);
+    }
+
+    #[test]
+    fn a_failed_arm64_probe_on_a_translated_process_never_reads_x86_64() {
+        // Synthetic, labelled: Apple Silicon seen from a Rosetta process, the
+        // `hw.optional.arm64` probe failing in every way it can fail. `uname -m`
+        // and `hw.machine` say `x86_64` there; before the fix any of these
+        // failures fell straight through to them.
+        let failures = [
+            absent("sysctl", &["-n", "hw.optional.arm64"]),
+            record(
+                "sysctl",
+                &["-n", "hw.optional.arm64"],
+                ExitStatus::TimedOut,
+                "",
+                "",
+            ),
+            failed(
+                "sysctl",
+                &["-n", "hw.optional.arm64"],
+                1,
+                "sysctl: some error",
+            ),
+            ok("sysctl", &["-n", "hw.optional.arm64"], "garbled"),
+        ];
+        for failure in failures {
+            let mut translated = without(apple_silicon_translated(), &["-n", "hw.optional.arm64"]);
+            translated.push(failure.clone());
+            let m = reader(translated).machine().unwrap();
+            assert_eq!(m.architecture, Architecture::Arm64, "{failure:?}");
+            assert_eq!(m.translation, Translation::Translated, "{failure:?}");
+
+            // And when translation cannot be ruled out either, the answer is
+            // an error, not the process's x86_64.
+            let mut blind = without(apple_silicon_translated(), &["-n", "hw.optional.arm64"]);
+            blind = without(blind, &["-n", "sysctl.proc_translated"]);
+            blind.push(failure.clone());
+            blind.push(absent("sysctl", &["-n", "sysctl.proc_translated"]));
+            assert_eq!(
+                reader(blind).machine().unwrap_err().id,
+                ErrorId::Io,
+                "{failure:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_arm64_probe_falls_back_once_translation_is_ruled_out() {
+        // A native process (`proc_translated` 0) sees the hardware itself.
+        let mut native = without(apple_silicon_native(), &["-n", "hw.optional.arm64"]);
+        native.push(absent("sysctl", &["-n", "hw.optional.arm64"]));
+        assert_eq!(
+            reader(native).machine().unwrap().architecture,
+            Architecture::Arm64
+        );
+        // An absent `proc_translated` is an Intel Mac.
+        let mut intel = without(intel_native(), &["-n", "hw.optional.arm64"]);
+        intel.push(absent("sysctl", &["-n", "hw.optional.arm64"]));
+        assert_eq!(
+            reader(intel).machine().unwrap().architecture,
+            Architecture::X86_64
+        );
+    }
+
+    #[test]
+    fn a_machine_whose_sysctl_will_not_start_names_no_architecture() {
+        // `uname -m` alone cannot tell Intel from a translated process.
         let invocations = vec![
             ok("sw_vers", &["-productVersion"], "10.12.6"),
             ok("uname", &["-m"], "x86_64"),
@@ -744,10 +939,7 @@ mod tests {
                 "/Library/Developer/CommandLineTools",
             ),
         ];
-        let m = reader(invocations).machine().unwrap();
-        assert_eq!(m.architecture, Architecture::X86_64);
-        assert_eq!(m.macos, MacosVersion::new(10, 12, 6));
-        assert_eq!(m.translation, Translation::Unknown);
+        assert_eq!(reader(invocations).machine().unwrap_err().id, ErrorId::Io);
     }
 
     #[test]
@@ -795,7 +987,7 @@ mod tests {
             Box::new(ReplayRunner::new(recording(intel_native()))),
             Some("/Users/ada/bin:/usr/local/bin:/usr/bin".to_string()),
             variables,
-            Some(PathBuf::from("/Users/ada")),
+            HomeRedaction::Known(PathBuf::from("/Users/ada")),
         );
         let env = reader.environment().unwrap();
         assert_eq!(env.path, vec!["~/bin", "/usr/local/bin", "/usr/bin"]);
@@ -807,33 +999,54 @@ mod tests {
         assert!(!env.reported.contains_key("PATH"));
         // Unredacted entries stay available to the code that must search them.
         assert_eq!(reader.path_entries()[0], "/Users/ada/bin");
-        assert_eq!(reader.home(), Some(Path::new("/Users/ada")));
+        assert_eq!(
+            reader.home(),
+            &HomeRedaction::Known(PathBuf::from("/Users/ada"))
+        );
+    }
+
+    #[test]
+    fn a_home_with_a_trailing_slash_is_the_same_home() {
+        // Not cosmetic. `HOME` is what redaction substitutes, and `/Users/x/`
+        // redacts to `~/` rather than `~`, which made the tool refuse the very
+        // snapshot it had just written - in every subcommand, on any machine
+        // whose `HOME` carried a trailing slash, a shape shells and launchd hand
+        // out freely. The guard that stops that lives in one expression, so it
+        // gets a test of its own.
+        assert_eq!(
+            usable_home("/Users/ada/"),
+            Some(PathBuf::from("/Users/ada"))
+        );
+        assert_eq!(
+            usable_home("/Users/ada///"),
+            Some(PathBuf::from("/Users/ada"))
+        );
+        assert_eq!(usable_home("/Users/ada"), Some(PathBuf::from("/Users/ada")));
+        // A home of `/` names no directory of the user's, and redacting against
+        // it would rewrite every absolute path in the snapshot.
+        assert_eq!(usable_home("/"), None);
+        assert_eq!(usable_home("//"), None);
+        assert_eq!(usable_home("relative"), None);
+        assert_eq!(usable_home(""), None);
     }
 
     #[test]
     fn every_variable_the_executor_strips_is_one_doctor_reports() {
-        // The mirror of `process::environment::is_build_flag`. If that list
-        // grows, this fails until the copy here grows too.
+        // A property now, not a copy: whatever the executor strips, `doctor`
+        // reports. The list this iterates is the one the executor filters on.
+        assert!(is_reported("MANPATH"), "the deliberate extra");
         for name in [
             "CPATH",
-            "C_INCLUDE_PATH",
-            "CPLUS_INCLUDE_PATH",
-            "LIBRARY_PATH",
-            "LD_LIBRARY_PATH",
-            "PKG_CONFIG_PATH",
-            "PKG_CONFIG_LIBDIR",
             "LDFLAGS",
             "CPPFLAGS",
-            "CFLAGS",
             "CXXFLAGS",
-            "OBJCFLAGS",
-            "ACLOCAL_PATH",
             "CMAKE_PREFIX_PATH",
             "DYLD_LIBRARY_PATH",
-            "DYLD_FALLBACK_FRAMEWORK_PATH",
-            "MANPATH",
         ] {
-            assert!(is_reported(name), "{name} is stripped but not reported");
+            assert!(
+                macportsbrew_domain::is_build_flag(name) && is_reported(name),
+                "{name} is stripped but not reported"
+            );
         }
         // `PATH` has its own ordered field, and nothing else is captured.
         assert!(!is_reported("PATH"));
@@ -847,31 +1060,131 @@ mod tests {
     #[test]
     fn home_redaction_replaces_whole_components_wherever_they_appear() {
         let home = PathBuf::from("/Users/ada");
-        assert_eq!(redact_home("/Users/ada", Some(&home)), "~");
-        assert_eq!(redact_home("/Users/ada/bin", Some(&home)), "~/bin");
-        assert_eq!(redact_home("/usr/bin", Some(&home)), "/usr/bin");
-        assert_eq!(redact_home("/Users/ada", None), "/Users/ada");
-        // A longer name that merely starts with the home path is not it.
-        assert_eq!(redact_home("/Users/adamant", Some(&home)), "/Users/adamant");
+        let known = HomeRedaction::Known(home.clone());
+        assert_eq!(redact_home("/Users/ada", &known), "~");
+        assert_eq!(redact_home("/Users/ada/bin", &known), "~/bin");
+        assert_eq!(redact_home("/usr/bin", &known), "/usr/bin");
         assert_eq!(
-            redact_home("/Users/adamant/Users/ada/x", Some(&home)),
+            redact_home("/Users/ada", &HomeRedaction::Recorded),
+            "/Users/ada"
+        );
+        // A longer name that merely starts with the home path is not it.
+        assert_eq!(redact_home("/Users/adamant", &known), "/Users/adamant");
+        assert_eq!(
+            redact_home("/Users/adamant/Users/ada/x", &known),
             "/Users/adamant~/x"
         );
         // Embedded and repeated occurrences, which is what a compiler-flag
         // variable and a colon-separated list actually look like.
         assert_eq!(
-            redact_home("-I/Users/ada/.local/include", Some(&home)),
+            redact_home("-I/Users/ada/.local/include", &known),
             "-I~/.local/include"
         );
         assert_eq!(
-            redact_home("/Users/ada/a:/opt/local/b:/Users/ada", Some(&home)),
+            redact_home("/Users/ada/a:/opt/local/b:/Users/ada", &known),
             "~/a:/opt/local/b:~"
         );
         // A home of `/` would redact the whole filesystem; it is left alone.
-        assert_eq!(redact_home("/usr/bin", Some(Path::new("/"))), "/usr/bin");
         assert_eq!(
-            redact_home("/Users/ada/x", Some(Path::new("/Users/ada/"))),
+            redact_home("/usr/bin", &HomeRedaction::Known(PathBuf::from("/"))),
+            "/usr/bin"
+        );
+        assert_eq!(
+            redact_home(
+                "/Users/ada/x",
+                &HomeRedaction::Known(PathBuf::from("/Users/ada/"))
+            ),
             "~/x"
+        );
+    }
+
+    #[test]
+    fn a_live_run_with_no_resolvable_home_still_redacts_by_shape() {
+        // The regression test for the leak this variant exists to close. With
+        // `HOME` unset, `doctor --report` wrote the real home path 39 times into
+        // a file `06-cli-and-ux.md` invites the user to attach to an issue,
+        // because "no home" was treated as "nothing to redact".
+        let live = HomeRedaction::Unresolved;
+        assert_eq!(redact_home("/Users/ada", &live), "~");
+        assert_eq!(redact_home("/Users/ada/bin", &live), "~/bin");
+        assert_eq!(
+            redact_home("-I/Users/ada/.local/include", &live),
+            "-I~/.local/include"
+        );
+        // Once a name has been seen under /Users it is redacted elsewhere in the
+        // same value too, on the same terms as the grounded path.
+        assert_eq!(
+            redact_home("/Users/ada/a -I/Volumes/build/ada/x", &live),
+            "~/a -I/Volumes/build/USER/x"
+        );
+        // And the limit of the heuristic, stated rather than glossed: a name
+        // that never appears under /Users cannot be recognised as a user name,
+        // because nothing here knows it is one. This is exactly why the
+        // diagnostic report records `heuristic` instead of implying the file was
+        // redacted against a known home.
+        assert_eq!(
+            redact_home("/Volumes/build/ada/x", &live),
+            "/Volumes/build/ada/x"
+        );
+        // Two different users in one value are both redacted.
+        assert_eq!(redact_home("/Users/ada/a:/Users/bo/b", &live), "~/a:~/b");
+        // Directories macOS puts under /Users that name no user are left alone,
+        // and so is anything outside /Users.
+        assert_eq!(redact_home("/Users/Shared/x", &live), "/Users/Shared/x");
+        // A one-character home is still a home: the length filter belongs to the
+        // bare-name pass, not to the path itself, which is where the grounded
+        // path puts it too.
+        assert_eq!(redact_home("/Users/j/bin", &live), "~/bin");
+        // A multi-word directory yields a fragment, and rewriting a fragment
+        // mangles the path while leaving the real name behind. Left alone
+        // instead, which is what `HEURISTIC` on the artifact is for.
+        assert_eq!(
+            redact_home("/Users/Deleted Users/bob/x", &live),
+            "/Users/Deleted Users/bob/x"
+        );
+        // Multi-byte names do not panic and are redacted like any other.
+        assert_eq!(redact_home("/Users/Jos\u{e9}/lib", &live), "~/lib");
+        assert_eq!(redact_home("/usr/local/bin", &live), "/usr/local/bin");
+        // Already redacted input is unchanged, so replaying our own output is
+        // not a second rewrite.
+        assert_eq!(redact_home("~/bin", &live), "~/bin");
+        // The cost of guessing, asserted rather than discovered later: a home
+        // whose last component collides with an ordinary directory name takes
+        // that name with it everywhere in the value. `/Users/runner` is the
+        // home on a GitHub-hosted macOS runner, so this is the realistic case
+        // and not a contrived one. It errs toward redacting, which is the right
+        // direction for privacy and the wrong one for a legible report - which
+        // is what the `HEURISTIC` label on the artifact exists to tell a reader.
+        assert_eq!(
+            redact_home("/Users/runner/w:/opt/runner/bin", &live),
+            "~/w:/opt/USER/bin"
+        );
+        // But a name that is an ordinary path component far more often than it
+        // is a user name keeps its home redacted and skips the bare-name pass:
+        // rewriting `/opt/local/bin` to `/opt/USER/bin` would destroy the single
+        // most load-bearing fact in a diagnostic report to hide a name that is
+        // very probably not a name.
+        assert_eq!(
+            redact_home("/opt/local/bin:/Users/local/x", &live),
+            "/opt/local/bin:~/x"
+        );
+    }
+
+    #[test]
+    fn a_recorded_home_is_left_exactly_as_captured() {
+        // The other half of the distinction. A recording was redacted when it
+        // was captured, and redacting it again against *this* host would be a
+        // host fact reaching a replayed analysis (INV-15).
+        let recorded = HomeRedaction::Recorded;
+        assert_eq!(redact_home("/Users/ada/bin", &recorded), "/Users/ada/bin");
+        // Three distinct labels. `Recorded` must not claim to be grounded: a
+        // recording carries no record of how it was redacted, and a snapshot
+        // captured with no resolvable home was redacted heuristically.
+        assert_eq!(recorded.label(), "AS_CAPTURED");
+        assert_eq!(HomeRedaction::Unresolved.label(), "HEURISTIC");
+        assert_eq!(
+            HomeRedaction::Known(PathBuf::from("/Users/ada")).label(),
+            "GROUNDED"
         );
     }
 
@@ -881,19 +1194,17 @@ mod tests {
         // `scripts/capture-fixture.sh` already replaces `id -un`. A build
         // directory on another volume is where the two rules differ.
         let home = PathBuf::from("/Users/ada");
+        let known = HomeRedaction::Known(home.clone());
         assert_eq!(
-            redact_home("-I/Volumes/build/ada/include", Some(&home)),
+            redact_home("-I/Volumes/build/ada/include", &known),
             "-I/Volumes/build/USER/include"
         );
-        assert_eq!(redact_home("/opt/ada", Some(&home)), "/opt/USER");
+        assert_eq!(redact_home("/opt/ada", &known), "/opt/USER");
         // A longer word that merely contains the name is left alone.
-        assert_eq!(
-            redact_home("/opt/adabas/lib", Some(&home)),
-            "/opt/adabas/lib"
-        );
-        assert_eq!(redact_home("/opt/prada", Some(&home)), "/opt/prada");
+        assert_eq!(redact_home("/opt/adabas/lib", &known), "/opt/adabas/lib");
+        assert_eq!(redact_home("/opt/prada", &known), "/opt/prada");
         // The home path is still replaced first, so `~` wins where both apply.
-        assert_eq!(redact_home("/Users/ada/ada", Some(&home)), "~/USER");
+        assert_eq!(redact_home("/Users/ada/ada", &known), "~/USER");
     }
 
     #[test]
@@ -926,7 +1237,7 @@ mod tests {
             Box::new(crate::process::SystemRunner::new()),
             Some(path),
             BTreeMap::new(),
-            None,
+            HomeRedaction::Recorded,
         );
         assert!(!reader.is_replay());
         assert_eq!(reader.which("tool"), Some(second.join("tool")));

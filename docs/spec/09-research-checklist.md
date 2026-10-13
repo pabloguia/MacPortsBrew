@@ -61,7 +61,7 @@ readable again. On Intel Macs, `/usr/local` is exactly where Homebrew lives.
 
 The other direction exists and Homebrew mitigates it **in its compiler shim,
 not in `doctor`**: `shims/super/cc` drops any `-I` or `-L` flag whose path lies
-under `/opt/local` (also `/sw`, `/opt/X11`), always on, for every source build.
+under `/opt/local` (also `/sw`, `/opt/X11`), always on, for every source build. (Corrected 2026-10-12: the shim filters only when argument refurbishing is on, which macOS builds do not enable by default; see the F-2 addendum and SE-098.)
 `brew doctor` has **no** MacPorts, Fink or `/opt/local` check at any version
 examined — none at HEAD, none at 1.9.0, 2.7.0 or 3.6.0 — so MacPortsBrew's
 `doctor` must implement that check itself and cannot delegate it.
@@ -142,7 +142,9 @@ binary availability. This is what makes the availability model symmetric
 
 ### R-5 · Privilege requirements
 *Answered 2026-09-02 — `docs/research/R-5-privilege-requirements.md`*; the
-MacPorts half is cited, not observed, and is re-checked on a MacPorts machine.
+MacPorts half was cited, not observed, and **was re-checked on a MacPorts
+machine on 2026-09-08** (E19-E32), which this line asked for and which the note
+itself flagged as outstanding until then.
 Exactly which operations of each provider require elevation, on each
 architecture and prefix. Confirm that everything the foundation pass does
 requires none.
@@ -186,8 +188,33 @@ Current availability of hosted Intel macOS runners on GitHub Actions, and the
 fallback if there are none.
 
 ### R-11 · Apple signing and notarisation toolchain
-*Open. Blocks the implementation pass that writes the release workflow, not
-ADR-0005, which is decided.*
+*Partially answered 2026-09-06 — `docs/research/R-11-apple-signing-toolchain.md`.
+Three of the five closed from official documentation; two remain open and need
+something other than reading. Still blocks the implementation pass that writes
+the release workflow, not ADR-0005, which is decided.*
+
+**One premise below is wrong and is left in place so the correction is
+visible.** `macos-15-intel` is not a free standard runner: GitHub's
+`runner-images` README lists it as an alias of `macos-15-large`, and GitHub Docs
+says larger runners "are always charged for, even when used by public
+repositories". Bare `macos-15` is the free arm64 image. An Intel release job
+costs money on a public repository, which is a cost DP-007 did not weigh.
+
+**Answered:** a standalone binary **cannot be stapled at all** ("Although
+tickets are created for standalone binaries, it's not currently possible to
+staple tickets to them"), so the `.dmg` is the only staplable container that
+delivers a single binary and is the *only* offline-verifiable path — the
+opposite of what the question below supposes. And the `.pkg` is signed by a
+**Developer ID Installer** identity, a different certificate from the Developer
+ID Application identity that signs the Mach-O and the `.dmg`, so shipping all
+three needs two.
+
+**Still open:** whether the hardened runtime wants an entitlement for a tool
+that spawns `brew` and `port` (needs one notarisation attempt), and what a
+quarantined, notarised, unstapled binary does offline (needs a machine with the
+quarantine attribute set and the network off).
+
+The original five, as filed:
 Five things the signing decision assumes and this repository has not verified:
 **whether stapling a `.pkg` or `.dmg` covers a binary copied out of it or only
 the container** — if only the container, the `.dmg` buys nothing the bare binary
@@ -208,6 +235,206 @@ Mach-O files, disk images and command-line tools (C-3) — the `.pkg` is not in
 that list and stays open above — whether the hardened runtime is required for a command-line
 tool (C-1, C-3, C-4), and what container `notarytool` accepts for a standalone
 binary (C-2).
+
+### R-12 · Cask migratability
+*Answered 2026-09-04 — `docs/research/R-12-cask-migratability.md`.*
+Whether a Homebrew cask has a MacPorts destination at all, and whether a cask
+can consume MacPorts components in place of the Homebrew formulae it declares.
+Answers: sometimes a destination exists and it is never the same operation, so
+INV-01's verification cannot mean for a cask what it means for a formula; and
+0.32% of casks declare a formula dependency, which a MacPorts equivalent on
+`PATH` can satisfy and the next `brew upgrade --cask` un-does. Raised by DP-012.
+
+Found on the way, and larger than the question: Homebrew records
+`installed_on_request` for casks in the on-disk `INSTALL_RECEIPT.json`, which
+falsifies the absolute six places in this repository stated (F-28) and gives
+DP-012 a third option the charter may forbid.
+
+### R-13 · What revocation actually does to a published artifact
+*Open. Raised 2026-09-04 by DP-009. Blocks nothing; it decides how much of
+`SECURITY.md`'s withdrawal plan is load-bearing.*
+ADR-0005 asserts that a revoked Developer ID certificate, or a revoked
+notarisation ticket, stops **previously published** artifacts from launching,
+and that the secure timestamp does not answer revocation the way it answers
+expiry. Nothing in this tree cites that. Checked on 2026-09-04 and found not to
+say it: Apple's Gatekeeper page
+(<https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web>)
+contains no occurrence of "revoke" or "revocation"; the notarisation page
+(<https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution>)
+is JavaScript-rendered and yielded no text.
+
+**Read rendered on 2026-09-06, and the page does say something.** The
+JavaScript-rendering obstacle above is a tooling limit, not a fact about Apple:
+the page reads fine in a browser, and anyone continuing R-13 or R-11 should
+render rather than fetch. What it says, in full, on revocation:
+
+> Notarization also protects your users if your Developer ID signing key is
+> exposed. The notary service maintains an audit trail of the software
+> distributed using your signing key. **If you discover unauthorized versions of
+> your software, you can work with Apple to revoke the tickets associated with
+> those versions.**
+
+That is the first citation in this tree for ticket revocation existing at all,
+and it establishes two things: revocation is of **tickets**, not only of
+certificates, and it is **Apple-mediated** — "work with Apple" is not a button
+the owner presses, so any runbook step that assumes same-day self-service
+revocation is wrong about the mechanism.
+
+Also relevant, from the same page: "When the user **first** installs or runs
+your macOS software, the presence of a ticket (either online or attached to the
+executable) tells Gatekeeper that Apple notarized the software." That is
+suggestive of a first-launch evaluation but is prose about the happy path, not a
+statement about re-evaluation, and it must not be read as one.
+
+**Everything behavioural in the paragraph below remains open**, and none of it
+looks documented: whether a stapled ticket keeps an artifact launching after
+revocation, whether that differs offline, whether an already-launched binary is
+re-evaluated, and the bare-Mach-O-from-a-shell case. These need observation, and
+observing them needs a real certificate and a real revocation — which is to say
+R-13's behavioural half may simply not be answerable before the first release.
+
+What an answer needs: whether Gatekeeper consults revocation state for a
+Developer ID signature and when — first launch only, or every launch; whether a
+**stapled** ticket keeps an artifact launching after the ticket is revoked, and
+whether it differs offline; whether an already-launched-once binary is
+re-evaluated; and whether any of it differs for a bare Mach-O run from a shell,
+which R-9 already found Apple does not document. The distinction that matters
+for the plan is *published-and-already-downloaded* versus *downloaded after
+revocation* — only the first makes the outbound channel urgent.
+
+### R-14 · What actually reaches a user of a published binary
+*Partially answered 2026-09-06 — `docs/research/R-14-what-reaches-a-user.md`.
+Two of four closed; two need a remote rather than a reading. Raised 2026-09-04
+by the security review of DP-009's plan.*
+
+**The withdrawn claim was nearer right than its withdrawal.** A published
+repository advisory *is* added to the GitHub Advisory Database — "GitHub will
+review each published security advisory, add it to the GitHub Advisory
+Database" — unconditionally, subject to review. The ecosystem-package condition
+the review reasoned from applies to **forks** and to **Dependabot alerts**, not
+to inclusion. The reach is still near zero, but for a different reason: nothing
+can declare a dependency on a binary shipped through Releases, so there is
+nothing for Dependabot to alert. An advisory is a public record, not a push
+channel, and `SECURITY.md` should say that rather than either the original claim
+or its blanket withdrawal.
+
+**And a feature the plan was written without: immutable releases.** Assets
+"cannot be modified or deleted", and deleting the release permits deleting the
+tag but "you cannot reuse the same tag name" — not even in a same-named
+successor repository. Withdrawing one bad artifact therefore means deleting the
+whole release and permanently burning that version number. Attestations are
+generated automatically. Whether the attestation survives deletion — which the
+runbook's step 2 leans on — is still uncited. This is an owner decision, not a
+release-workflow detail.
+
+**Still open:** what a "Watch → Releases only" subscriber actually receives and
+when, and whether `releases.atom` includes deleted releases. Both are minutes of
+observation once a remote exists, and neither should be guessed at first.
+
+The original four, as filed:
+The withdrawal plan originally claimed a repository security advisory
+"syndicates to the GitHub Advisory Database" and was therefore "the only
+outbound channel with reach". That is uncited, and doubtful in this project's
+shape: the global database is curated around packages in supported ecosystems,
+and MacPortsBrew publishes a signed binary through Releases and no ecosystem
+package. The claim is withdrawn until answered.
+
+What an answer needs, each with a source and a read date: whether a repository
+advisory for a project with no ecosystem package appears in the global database
+at all; what a "Watch → Releases only" subscriber actually receives, and when;
+whether `releases.atom` includes deleted or de-listed releases; and whether
+deleting a release leaves the tag, the `SHA256SUMS` asset and the build
+provenance attestations in place — the plan's step 2 depends on the last of
+these and states it without a citation.
+
+### R-15 · Whether a `brew.env` can undo the quieting environment
+*Answered 2026-10-02 — `docs/research/R-15-homebrew-brew-env.md`.* Raised by
+SE-092's end-of-pass amendment; blocks the mutating half of the executor
+relying on that environment. Answers: yes — `brew` exports the `HOMEBREW_*`
+lines of up to three `brew.env` files after the environment it is given, an
+empty value deletes a key, and nothing switches the files off (Homebrew 7.0.4).
+Also found: `HOMEBREW_NO_AUTO_UPDATE` does not keep a read offline when the API
+cache is missing. What to do about it is DP-027. Left open: whether a
+substituted API domain or curl configuration can get altered API data
+accepted, and what a Ruby read does on a cold cache with no network at all
+(it bears on "`analyze` works with no network").
+
+### R-16 · Whether a MacPorts user configuration can outrank the invocation
+*Answered 2026-10-03 — `docs/research/R-16-macports-user-configuration.md`.*
+Raised 2026-10-02 by the review of R-15 (DP-027). Answers: yes, per key —
+`mportinit` overlays the system `macports.conf`, then
+`~/.macports/macports.conf` (read under the `HOME` the executor passes, only
+if `~/.macports` is a directory), then `$PORTSRC`, last one wins; `user.conf`
+is opened but accepts no key, because `user_options` is empty (MacPorts
+2.12.6). No file can undo `-q`/`-N`, which are argv-only. A user file can
+redirect what a read reports (`portdbpath`, `sources_conf`, `prefix`) and
+steers nearly every part of an install (`binpath`, `pubkeys_conf`,
+`sources_conf`, `buildfromsource`, …). No read was found to reach the network or
+evaluate a Portfile. Pointing `HOME` at an empty directory suppresses the
+user file at almost no cost, because `port` replaces `HOME` itself. The
+system files are root-owned. What to do about it is DP-027. Left open: which
+user's file an elevated `port` reads (depends on the sudo policy), and the
+network finding was established from source, not from a traced run.
+
+### R-17 · Where each provider holds a lock while it mutates, and whether a filesystem read can see it
+*Answered 2026-10-05 — `docs/research/R-17-provider-mutation-locks.md`.*
+Answers: both providers use held advisory `flock`s whose files are left behind
+after release, so a file's presence proves nothing and a "stale lock" does not
+exist (Homebrew 7.0.4 `var/homebrew/locks/<name>.<type>.lock`, `update`,
+`vendor-install-<name>`; MacPorts 2.12.6 `<portdbpath>/registry/.registry.lock`,
+taken only by a registry-writable `port`). Casks, Homebrew cleanup, and MacPorts
+`sync`/`selfupdate`/`clean` take none. A filesystem-only detector can say "a
+lock is held right now" (positive evidence) through `fcntl(F_GETLK)` on an
+`O_RDONLY` fd, observed to see `flock` locks on macOS 26.7.1 without acquiring,
+creating or altering anything; it cannot say "idle". The `flock(LOCK_SH|LOCK_NB)`
+probe is unsafe against Homebrew, whose `EX|NB` taker aborts. Left open: no real
+provider mutation was observed holding a lock; other macOS versions and network
+volumes; the official documentation.
+
+### R-18 · Whether advisory file locks are available on the pinned toolchain
+*Answered 2026-10-05 — `docs/research/R-18-advisory-file-locks-on-the-pinned-toolchain.md`.*
+Answers: yes — `File::lock`, `lock_shared`, `try_lock`, `try_lock_shared` and
+`unlock` are stable since 1.89.0 and the pinned 1.98.0 compiles them;
+`TryLockError` is `Error(io::Error) | WouldBlock`. On Apple targets std calls
+`flock(2)`; contention is per open file description (two opens in one process
+conflict), the lock is released when its holder dies (observed with SIGKILL),
+and a lock file must never be unlinked (a recreated path is a second inode that
+locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
+(`man flock` is silent and this machine has none), and whether std opens with
+close-on-exec, which decides whether a spawned child can keep a lock alive.
+
+### R-19 · What the release workflow can rely on: notarisation, reproducible builds, deployment target, packaging, runners
+*Partially answered 2026-10-10 — `docs/research/R-19-release-toolchain.md`.*
+Continues R-11; blocks the implementation pass that writes the release workflow.
+Answers:
+- **R-11 Q4 is closed.** The hardened runtime documents no exception for
+  spawning a child, and an ad-hoc `runtime`-flagged binary spawned one normally.
+- **R-11's "`macos-15-intel` is a paid larger runner" is wrong.** GitHub Docs
+  lists `macos-15-intel` and `macos-26-intel` as free standard runners, and
+  `-large` is the billed label of the same image.
+- **Notarising a CLI** needs the hardened runtime, a secure timestamp
+  (`timestamp.apple.com`, so network) and no `get-task-allow`. A bare Mach-O
+  can be notarised as a ZIP but never stapled; only a UDIF `.dmg` or a signed
+  flat `.pkg` can be.
+- **Reproducibility.** Two release builds of one commit are byte-identical on
+  one machine with the current profile (x86_64 and arm64, same `LC_UUID` and
+  CDHash). Across machines, the Cargo registry paths must be remapped and one
+  Xcode pinned.
+- **The achievable "byte-identical" claim is payload identity within one
+  build**: the `.pkg` and `.dmg` payloads hashed to the bare binary. Signed
+  binaries and containers differ across rebuilds.
+- **Deployment target.** The 1.98.0 defaults record 10.12 (x86_64) and 11.0
+  (arm64), but no hosted Xcode's stated range includes 10.12.
+- **Packaging.** Extract with documented `pkgutil --expand` plus `tar`. Use
+  `-fs HFS+` for the x86_64 `.dmg`. GitHub's keychain recipe puts passwords in
+  argv, against ADR-0005.
+
+Left open:
+- R-11 Q5 (offline, quarantined, unstapled CLI).
+- Whether the nested ticket covers the bare binary.
+- Developer ID CDHash stability.
+- How a home-domain `.pkg` places `--install-location`.
+- Feeding `security` passwords by stdin.
 
 ---
 

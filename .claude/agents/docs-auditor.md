@@ -21,7 +21,7 @@ line.
 
 **2. Honest support claims.** The published support matrix must distinguish
 **tested**, **best-effort** and **unsupported**, and must be consistent with
-what CI actually runs. No hosted runner for macOS 10.12-10.15 is known (R-10 in the research checklist is open, and the versions are treated as untested until it is answered), so they are
+what CI is configured to run — and note that no CI job has ever executed, so "tested" is a configuration claim everywhere it appears. No hosted runner for macOS 10.12-10.15 is known (R-10 in the research checklist is open, and the versions are treated as untested until it is answered), so they are
 best-effort and the documentation must say so in those words. Claiming tested
 support for an untested OS is the specific dishonesty this project cannot
 afford - its users are on exactly those machines. Flag any drift between the

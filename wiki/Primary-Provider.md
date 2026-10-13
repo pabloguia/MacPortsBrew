@@ -12,37 +12,38 @@ They get confused constantly, so they are named separately here:
 - **Primary** — which copy your shell resolves when you type the command. A
   consequence of `PATH` order and of what each provider linked.
 
-**Choosing a primary never transfers ownership** (INV-11). If Homebrew
+**Choosing a primary never transfers ownership.** If Homebrew
 installed `git` and MacPorts installed `git`, and you make MacPorts' the one
 that runs, Homebrew still owns its copy and will still upgrade it. Nothing
 about ownership changed.
 
-**A package-level choice is not a global priority** (INV-12). Making MacPorts'
+**A package-level choice is not a global priority.** Making MacPorts'
 `git` primary says nothing about `curl`.
 
 ## What runs today
 
 ```sh
-macportsbrew analyze
-```
-
-reports the effective resolution per package: the executable, the path `PATH`
-resolves to, the canonical path after following symlinks, and **which provider
-owns it**. Ownership is determined by asking the provider which package owns
-the resolved path; prefix matching is a fallback and is marked as one, because
-people relocate prefixes.
-
-```sh
 macportsbrew doctor
 ```
 
-reports the order providers resolve in, a prefix that is not on `PATH`, and
-duplicate `PATH` entries.
+shows the order in which your `PATH` reaches each provider's prefix, a prefix
+that is not on `PATH` at all, and duplicate `PATH` entries. Run it on the live
+machine: a recording or a snapshot does not carry your `PATH`, and `doctor`
+says so rather than guessing.
 
-Owners are reported as `SYSTEM`, a provider id, `MACPORTSBREW_SHIM`, `EXTERNAL`
-or `UNKNOWN`. `UNKNOWN` means it could not be attributed — commonly a tool
-installed outside either provider — and is reported as unknown rather than
-guessed at.
+For one particular tool, ask your shell directly:
+
+```sh
+command -v git     # the copy that runs
+which -a git       # every copy on PATH, in the order they are found
+```
+
+**Per-package resolution is specified but not in 0.1.0.** The design is for
+`analyze` to report, for each package, the executable `PATH` resolves to, the
+canonical path after following symlinks, and which provider owns it — asking
+the provider which package owns the resolved path, with prefix matching as a
+marked fallback, and an owner of `UNKNOWN` rather than a guess when nothing
+claims it. This build's `analyze` does not show that.
 
 ## The four layers, in order of invasiveness
 
@@ -53,39 +54,46 @@ is the least invasive one that can express what you asked for
 
 ### 1. Report only — the default, and what this build does
 
-`analyze` and `doctor` explain the current resolution for every contested
-executable — the winner, its owner, and the losers in `PATH` order — and change
-nothing. It is the only option with no failure mode, and it is often all you
-need: once you can see that `/usr/local/bin/git` is winning over
-`/opt/local/bin/git`, you know what to do about it.
+Report what wins and change nothing. It is the only option with no failure
+mode, and it is often all you need: once you can see that `/usr/local/bin/git`
+is winning over `/opt/local/bin/git`, you know what to do about it. In 0.1.0
+this layer is `doctor`'s `PATH`-order report plus `command -v` and `which -a`;
+the per-executable report of the winner, its owner and the losers is designed
+and not yet built.
 
 ### 2. Recommend the versioned executable name
 
 Where one exists — `python3.12`, `gcc-14` — using it is free and cannot drift.
-Both providers already converge on this convention: Homebrew requires suffixed
-binaries before a versioned formula may be linked alongside its unversioned
-counterpart, and automating the same choice is what MacPorts' own selection
-mechanism exists for.
+Both providers already lean on this convention. Homebrew's documentation says a
+versioned formula should be linkable alongside its unversioned counterpart only
+if upstream supports it, "e.g. by using suffixed binaries"
+(<https://docs.brew.sh/Versions>, read 2026-09-02); MacPorts' own selection
+command exists to choose which version the unsuffixed name points to
+(`port(1)`, read 2026-09-02; both in
+[research note R-6](../docs/research/R-6-primary-provider-mechanisms.md)).
 
-MacPortsBrew offers this before it offers to move any symlink.
+When primary selection is built, MacPortsBrew is designed to offer this before
+it offers to move any symlink.
 
 ### 3. Delegate an intra-MacPorts version choice to MacPorts' own selection mechanism
 
 For choosing between versions *within* MacPorts, the provider's own selection
 command is the right tool, doing the job it was built for.
 
-**MacPortsBrew proposes the exact command and shows its impact. It does not run
-it.** The write goes into the MacPorts prefix and needs elevation, and keeping
-primary selection off the elevating path is what keeps analysis, `doctor` and
-dry-run unprivileged as INV-06 requires. Afterwards it re-reads the selection to
-verify what happened.
+**When this layer is built, MacPortsBrew will propose the exact command and
+show its impact. It will not run it.** The write goes into the MacPorts prefix
+and needs elevation, and keeping primary selection off the elevating path is
+what keeps analysis, `doctor` and dry-run unprivileged. Afterwards it will
+re-read the selection to verify what happened.
 
 ### 4. A MacPortsBrew-owned shim directory
 
-For a genuine cross-provider choice, a directory MacPortsBrew owns —
-`~/.local/share/macportsbrew/bin` or the platform equivalent — containing
-symlinks to the chosen implementation, with **exactly one** `PATH` prepend
-inside a managed block in your shell configuration.
+For a genuine cross-provider choice, a directory MacPortsBrew would own — the
+specification sketches `~/.local/share/macportsbrew/bin`, but the location is
+not decided; it is neither `~/.macportsbrew/bin`, where the installer puts the
+program, nor the state directory — containing symlinks to the chosen
+implementation, with **exactly one** `PATH` prepend inside a managed block in
+your shell configuration. Not built in 0.1.0.
 
 This is the only layer that can express a cross-provider primary at all, and the
 only one symmetric between the two migration directions. It is also the most
@@ -105,8 +113,10 @@ invasive, which is why it is last.
 
 ## In this build
 
-Layer 1 only. `macportsbrew primary` and `macportsbrew provider-priority` are
-specified and not yet written; `macportsbrew env` likewise. Nothing in version
+Layer 1 only, and only its `PATH`-order part. `macportsbrew primary`,
+`macportsbrew provider-priority` and `macportsbrew env` are specified and not
+yet written: they do not exist in 0.1.0, and a plan that mentions `primary`
+describes a step a later release will run, not a command you can type today. Nothing in version
 0.1.0 writes to a shell file, creates a symlink, or changes what runs.
 
 ## See also

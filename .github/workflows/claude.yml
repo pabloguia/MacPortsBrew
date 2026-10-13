@@ -25,6 +25,15 @@ jobs:
     # documented at
     # https://docs.github.com/en/graphql/reference/enums#commentauthorassociation
     # (read 2026-09-02).
+    #
+    # Two caveats, so nobody reads this gate as stronger than it is. `MEMBER`
+    # means organisation membership, not write access. `COLLABORATOR` is
+    # weaker still: GitHub assigns it to anyone *invited* to the repository,
+    # including read-only and triage-only collaborators - so an invitee who
+    # cannot push can nonetheless start a job holding the API key and
+    # `contents: write`. Acceptable for a repository with no collaborators,
+    # and a decision to revisit the day one is added: narrow to `OWNER`, or
+    # gate on a maintainers team.
     if: >-
       contains(github.event.comment.body, '@claude') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
@@ -34,20 +43,36 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      # Required by the action's default GitHub App authentication, not left
+      # over from an OIDC step - https://code.claude.com/docs/en/github-actions
+      # (read 2026-09-05), whose own example carries it.
       id-token: write
       actions: read
     env:
+      # Marks the run as unattended. guard-protected-paths.sh reads it and
+      # refuses edits to docs/decisions-pending.md and docs/adr/ - the
+      # MUST NOT in docs/spec/11-agentic-sdlc.md that until now was asserted
+      # in this comment and enforced nowhere.
+      MPB_UNATTENDED: "1"
       # The Stop gate would run cargo clippy/test on the checked-out head
       # with this job's secrets in the environment. Disabled here on purpose;
       # the same gate runs in repository-validation.yml with no secret. Per
       # docs/spec/11-agentic-sdlc.md this disclosure is the price of the
       # escape hatch.
       MPB_SKIP_STOP_GATE: "1"
+      # The same reasoning for the commit gate (SE-093): it runs
+      # scripts/validate.sh, which builds and tests the checked-out head,
+      # before any `git commit` this job's session makes - with
+      # ANTHROPIC_API_KEY in the environment. Project hooks run under `-p`
+      # (code.claude.com/docs/en/headless, read 2026-10-03), and the settings
+      # input allows `git commit`, so without this the exposure the comment
+      # above avoids came back through the commit (tooling recheck D4).
+      MPB_SKIP_COMMIT_GATE: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # The checked-in permissions apply here too: no elevation, no mutating

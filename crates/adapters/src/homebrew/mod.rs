@@ -5,7 +5,9 @@
 //! This module implements [`ProviderRead`] over the central process executor.
 //! It reads and never writes: the eight commands it may run are a code-level
 //! allowlist ([`ALLOWED_ARGV`]), and every one of them is a read that works
-//! offline (R-1 finding 11, R-6 finding 15). The executable is resolved from
+//! offline once Homebrew's API cache is present (R-1 finding 11, R-6 finding
+//! 15; on an empty cache a Ruby read downloads it first, and a `brew.env` can
+//! outrank the quieting environment - R-15). The executable is resolved from
 //! a prefix the caller detected, never from `PATH` — a path-prefix lookup is
 //! the executable-shadowing item of the threat model
 //! (`04-migration-and-safety.md`).
@@ -29,10 +31,11 @@
 
 pub mod json;
 
+use crate::filesystem::FilesystemScope;
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
 };
-use json::{parse_installed_json, Cask, Formula, Observed, Parsed};
+use json::{checked_name, parse_installed_json, Cask, Formula, Observed, Parsed};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -48,8 +51,12 @@ use std::path::{Path, PathBuf};
 /// The provider id this adapter answers for.
 pub const PROVIDER_ID: &str = "homebrew";
 
-/// The executable's name under `<prefix>/bin`.
-const EXECUTABLE_NAME: &str = "brew";
+/// Where the executable sits under the prefix.
+///
+/// One constant, not two. A separate `EXECUTABLE_NAME` used by the presence
+/// check while this one was used by the spawn would let the tool check one path
+/// and run another the day they diverged; MacPorts always had one.
+pub(crate) const EXECUTABLE_RELATIVE: &str = "bin/brew";
 
 /// The mechanism string recorded on [`RequestedSet`]: Homebrew's own record
 /// of user intent, and the only one that is authoritative (R-1 finding 4).
@@ -93,7 +100,12 @@ fn changed(detail: impl Into<String>) -> DomainError {
 /// `/opt/homebrew` then `/usr/local`. Resolving the prefix here and the
 /// executable from it is what keeps a shadowing entry on `PATH` out of the
 /// picture.
-pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
+pub fn detect_prefix(candidates: &[PathBuf], filesystem: FilesystemScope) -> Option<PathBuf> {
+    if !filesystem.is_this_machine() {
+        // The recording is the machine, and this host's disk says nothing
+        // about which prefix it has. The caller supplies one (INV-15, F-25).
+        return None;
+    }
     candidates
         .iter()
         .find(|prefix| executable_in(prefix).is_file())
@@ -101,27 +113,42 @@ pub fn detect_prefix(candidates: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn executable_in(prefix: &Path) -> PathBuf {
-    prefix.join("bin").join(EXECUTABLE_NAME)
+    prefix.join(EXECUTABLE_RELATIVE)
 }
+
+/// The variables this adapter adds to a sanitised environment, and the only
+/// ones a snapshot may state for Homebrew. Named here so the reader that
+/// validates a captured environment and the builder that makes one cannot
+/// disagree about the list.
+pub const QUIETING_KEYS: &[&str] = &[
+    "HOMEBREW_NO_AUTO_UPDATE",
+    "HOMEBREW_NO_ANALYTICS",
+    "HOMEBREW_NO_ENV_HINTS",
+    "HOMEBREW_NO_INSTALL_CLEANUP",
+    "HOMEBREW_NO_COLOR",
+    "HOMEBREW_NO_EMOJI",
+];
 
 /// The environment every invocation of this provider runs in.
 ///
-/// `HOMEBREW_NO_AUTO_UPDATE` is the load-bearing one: it is what makes a
-/// read offline and side-effect-free (R-1 finding 6). The rest suppress
-/// analytics, hints, colour and emoji so the output parses stably. Nothing
-/// is inherited — [`sanitised_environment`] builds the whole environment,
-/// drops build-affecting variables, and pins the locale (INV-10).
+/// `HOMEBREW_NO_AUTO_UPDATE` is the load-bearing one: it keeps a read from
+/// updating Homebrew (R-1 finding 2). The rest suppress analytics, hints,
+/// colour and emoji so the output parses stably. Nothing is inherited —
+/// [`sanitised_environment`] builds the whole environment, drops
+/// build-affecting variables, and pins the locale (INV-10).
+///
+/// This is what the tool asks for, not what `brew` is guaranteed to run
+/// with (R-15, Homebrew 7.0.4, read 2026-10-02): a read still downloads the
+/// API data when Homebrew's cache is missing, and a `brew.env` in
+/// `/etc/homebrew/`, the prefix or the user's configuration directory is
+/// exported after this environment, so a line there outranks or deletes any
+/// of these keys. No variable turns the files off, so capture records which
+/// of those files set a reviewed key ([`crate::configuration`]), and the
+/// execution gate refuses a mutating step against them (DP-027).
 pub fn quiet_environment(prefix: &Path, home: Option<PathBuf>) -> BTreeMap<String, String> {
     let mut extra = BTreeMap::new();
-    for key in [
-        "HOMEBREW_NO_AUTO_UPDATE",
-        "HOMEBREW_NO_ANALYTICS",
-        "HOMEBREW_NO_ENV_HINTS",
-        "HOMEBREW_NO_INSTALL_CLEANUP",
-        "HOMEBREW_NO_COLOR",
-        "HOMEBREW_NO_EMOJI",
-    ] {
-        extra.insert(key.to_string(), "1".to_string());
+    for key in QUIETING_KEYS {
+        extra.insert((*key).to_string(), "1".to_string());
     }
     sanitised_environment(&EnvironmentSpec {
         leading_path: vec![prefix.join("bin")],
@@ -194,9 +221,16 @@ struct Analysis {
 pub struct HomebrewAdapter<'r> {
     runner: &'r dyn ProcessRunner,
     id: ProviderId,
+    /// Whether this host's disk describes the machine being read. Separate
+    /// from `runner.is_replay()`, which answers a different question; see
+    /// [`crate::filesystem`] (F-25).
+    filesystem: FilesystemScope,
     prefix: PathBuf,
     home: Option<PathBuf>,
     platform_tags: Vec<String>,
+    /// Every prefix this provider could be installed under, for the search
+    /// [`ProviderRead::installations`] makes. Empty unless the registry sets it.
+    installation_candidates: Vec<PathBuf>,
     environment: BTreeMap<String, String>,
     runs: RefCell<BTreeMap<Vec<String>, Invocation>>,
     analysis: RefCell<Option<Analysis>>,
@@ -212,24 +246,39 @@ impl<'r> HomebrewAdapter<'r> {
     /// `platform_tags` are the artifact tags that satisfy this machine, most
     /// specific first (for example `tahoe`, `sequoia`, `sonoma`, `all`);
     /// they come from dated policy data, never from this adapter (R-2).
+    /// `filesystem` says whether this host's disk describes the machine being
+    /// read; where it does not, every filesystem answer is the unknown one
+    /// (INV-15, F-25).
     pub fn new(
         runner: &'r dyn ProcessRunner,
         prefix: PathBuf,
         home: Option<PathBuf>,
         platform_tags: Vec<String>,
+        filesystem: FilesystemScope,
     ) -> Self {
         let environment = quiet_environment(&prefix, home.clone());
         Self {
             runner,
             id: ProviderId::new(PROVIDER_ID),
+            filesystem,
             prefix,
             home,
             platform_tags,
+            installation_candidates: Vec::new(),
             environment,
             runs: RefCell::new(BTreeMap::new()),
             analysis: RefCell::new(None),
             detection: RefCell::new(None),
         }
+    }
+
+    /// Names every prefix this provider could be installed under, so a second
+    /// installation is reported rather than hidden behind the first. They come
+    /// from dated policy data through the registry, never from this adapter.
+    #[must_use]
+    pub fn with_installation_candidates(mut self, candidates: Vec<PathBuf>) -> Self {
+        self.installation_candidates = candidates;
+        self
     }
 
     /// The executable this adapter runs, resolved from the prefix.
@@ -256,7 +305,12 @@ impl<'r> HomebrewAdapter<'r> {
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
         }
-        let spec = CommandSpec::new(self.executable(), key.clone(), self.environment.clone());
+        let spec = CommandSpec::provider(
+            &self.prefix,
+            EXECUTABLE_RELATIVE,
+            key.clone(),
+            self.environment.clone(),
+        );
         let invocation = self.runner.run(&spec)?;
         self.runs.borrow_mut().insert(key, invocation.clone());
         Ok(invocation)
@@ -300,14 +354,19 @@ impl<'r> HomebrewAdapter<'r> {
     }
 
     /// The names the user holds at their current version.
+    ///
+    /// Each name is validated like every other name this adapter takes from
+    /// the provider: a set member is compared against formula names and could
+    /// otherwise carry anything the provider printed into the analysis.
     fn pinned(&self) -> Result<BTreeSet<String>, DomainError> {
         let invocation = self.run(ARGV_PINNED)?;
         invocation.require_success()?;
-        Ok(invocation
+        invocation
             .stdout
             .split_whitespace()
-            .map(ToString::to_string)
-            .collect())
+            .enumerate()
+            .map(|(index, name)| checked_name(name, &format!("`list --pinned`[{index}]")))
+            .collect()
     }
 
     /// The path whose presence proves the provider can answer metadata
@@ -371,6 +430,14 @@ impl<'r> HomebrewAdapter<'r> {
                 }
                 capabilities.insert(Capability::FileOwnership, CapabilityState::Unknown);
                 capabilities.insert(Capability::OfflineMetadata, self.offline_metadata_state());
+                // Not `Unavailable`, even though every capability beside it is.
+                // A read that failed does not say whether it failed because the
+                // user may not read, or because there was nothing to read: a
+                // missing binary and a permission denial arrive here the same
+                // way. Claiming "this read needs elevation" from that is the
+                // guess INV-06 forbids, so the honest answer is that nothing
+                // was established (F-35).
+                capabilities.insert(Capability::UnprivilegedRead, CapabilityState::Unknown);
                 return ProviderCapabilities { capabilities };
             }
         };
@@ -396,17 +463,35 @@ impl<'r> HomebrewAdapter<'r> {
         );
         // A machine on which no package defines a background service cannot
         // demonstrate that the field exists, so the honest answer is Unknown.
+        // `service` is a required key per formula (`json.rs`), so a document
+        // in which any row lacked it never parsed and never reaches here: a
+        // missing key cannot be read as "this package defines no service".
         capabilities.insert(
             Capability::ServiceMetadata,
             observed(document.saw(Observed::ServiceMetadata)),
         );
         // Homebrew has no "which package owns this file" query (R-1).
         capabilities.insert(Capability::FileOwnership, CapabilityState::Unknown);
+        // The read that produced `document` ran as the invoking user and came
+        // back, which is the observation. Note it is `info --json=v2
+        // --installed` and the verb it relaxes is `list --versions`: same
+        // binary, same prefix, same user, so the inference is sound — but it is
+        // an inference here, where on MacPorts the two argvs are identical. No new
+        // probe, nothing stat-ed, no permission inspected — INV-20's "detection
+        // wins over stored knowledge" answered from a read already performed
+        // (F-24, F-35).
+        capabilities.insert(Capability::UnprivilegedRead, CapabilityState::Available);
         capabilities.insert(Capability::OfflineMetadata, self.offline_metadata_state());
         ProviderCapabilities { capabilities }
     }
 
     fn offline_metadata_state(&self) -> CapabilityState {
+        if !self.filesystem.is_this_machine() {
+            // Stat'ing the replaying host's cache would answer a question
+            // about the wrong machine, and the answer would differ between
+            // two hosts replaying one recording (INV-15, F-25).
+            return CapabilityState::Unknown;
+        }
         match self.offline_index_path() {
             None => CapabilityState::Unknown,
             Some(path) if path.is_file() => CapabilityState::Available,
@@ -440,7 +525,7 @@ impl HomebrewAdapter<'_> {
             availability.insert(formula.name.clone(), self.formula_availability(formula));
         }
         for cask in &document.casks {
-            installed.push(cask_row(cask, &caskroom));
+            installed.push(cask_row(cask, &caskroom, self.filesystem));
             metadata.insert(cask.token.clone(), cask_metadata(cask));
             availability.insert(cask.token.clone(), cask_availability());
         }
@@ -577,7 +662,96 @@ fn cask_availability() -> AvailabilityAssessment {
     AvailabilityAssessment::unknown("cask", "cask: prebuilt by vendor, out of migration scope")
 }
 
-fn cask_row(cask: &Cask, caskroom: &Path) -> InstalledPackage {
+/// The bytes of a cask receipt this reader will look at.
+///
+/// Provider output is untrusted input and a receipt is a file inside a
+/// provider's prefix, which is a directory this tool does not own. The one
+/// observed here was 1268 bytes; a megabyte is four hundred times that and
+/// still cheap to refuse.
+const MAX_RECEIPT_BYTES: u64 = 1024 * 1024;
+
+/// The cask's own record of whether the user asked for it.
+///
+/// `brew info --json=v2 --cask` carries no intent field — 41 keys on Homebrew
+/// 6.0.21, re-verified 2026-09-04 — but Homebrew writes `installed_on_request`
+/// into `<caskroom>/<token>/.metadata/INSTALL_RECEIPT.json`, and 7 of the 9 casks
+/// on the machine this was measured on carry one (R-12, DP-012).
+///
+/// **Every failure answers `None`, which is `UNKNOWN` upstream.** Absent, a
+/// symlink or a FIFO, hardlinked, swapped between the check and the open, grown
+/// past the cap while being read, unreadable, not JSON, or JSON whose
+/// `installed_on_request` is missing or is not a boolean: none of those is
+/// evidence that the user did not ask for the package, and folding them into
+/// `false` would make a dependency out of a file this reader could not open.
+pub fn cask_requested(caskroom: &Path, token: &str, filesystem: FilesystemScope) -> Option<bool> {
+    use std::os::unix::fs::MetadataExt;
+    if !filesystem.is_this_machine() {
+        // The recording is the machine, and it carries no receipt: a
+        // filesystem answer here would describe the replaying host (INV-15).
+        return None;
+    }
+    let path = caskroom
+        .join(token)
+        .join(".metadata")
+        .join("INSTALL_RECEIPT.json");
+
+    // Refuse a non-regular file *before* opening. Two of the three reasons for
+    // this check are permanent; the third has moved, and saying which is the
+    // difference between a guard someone maintains and one someone deletes.
+    //
+    //   1. `before` is the dev/ino baseline the identity check below compares
+    //      against. Remove this line and the swap detector goes with it.
+    //   2. A character device's open can have side effects. Not opening a
+    //      non-regular object at all is stronger than opening and rejecting.
+    //   3. It used to be the *only* thing standing between `analyze` and a
+    //      permanent hang on a FIFO. It is not any more: this caller passes
+    //      `O_NONBLOCK`, so the open returns whatever is there and the
+    //      regular-file test inside `read_bounded` refuses it. The blocking
+    //      argument now belongs to the flags (F-31).
+    let before = std::fs::symlink_metadata(&path).ok()?;
+    if !before.is_file() {
+        return None;
+    }
+
+    // From here the name is resolved exactly once, by `read_bounded`. The first
+    // version of this function stat'd the path and then opened it again by
+    // name — the shape that reader's documentation already called wrong, three
+    // modules away, in this same crate. Prose did not reach here; the shared
+    // function does (F-30).
+    //
+    // Both checks below run on the *opened* handle, before any byte is read.
+    let text = crate::persistence::bounded_read::read_bounded(
+        &path,
+        MAX_RECEIPT_BYTES,
+        // The pre-check above refuses a symlink present when it looks; this
+        // covers the window between that look and the open, for the final
+        // component only (F-31).
+        crate::persistence::bounded_read::OpenPolicy::RefuseSymlink,
+        |opened| {
+            if (opened.dev(), opened.ino()) != (before.dev(), before.ino()) {
+                // Not the object the pre-check inspected: something was swapped
+                // in between the two calls.
+                return Err("the receipt changed between the pre-check and the open");
+            }
+            if opened.nlink() > 1 {
+                // More than one name for these bytes is not something a receipt
+                // needs, and is a signal the file is not what it appears to be.
+                return Err("the receipt has more than one name");
+            }
+            Ok(())
+        },
+    )
+    .ok()?;
+
+    // Every refusal is `None`, deliberately: an unreadable receipt is not
+    // evidence that the user did not ask for the package, so it must not
+    // become `false`. The reasons are distinguished inside `read_bounded` for
+    // the caller that reports them; this one has nothing to report them to.
+    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    document.get("installed_on_request")?.as_bool()
+}
+
+fn cask_row(cask: &Cask, caskroom: &Path, filesystem: FilesystemScope) -> InstalledPackage {
     InstalledPackage {
         identity: PackageIdentity::new(ProviderId::new(PROVIDER_ID), cask.token.clone()),
         kind: PackageKind::GuiApp,
@@ -585,8 +759,12 @@ fn cask_row(cask: &Cask, caskroom: &Path) -> InstalledPackage {
         revision: None,
         variants: BTreeSet::new(),
         active: true,
-        // A cask carries no record of user intent at all (R-1 finding 4).
-        requested: None,
+        // The cask JSON carries no intent field: 41 keys on Homebrew 6.0.21,
+        // none of them `installed_on_request` (R-1 finding 4, re-verified
+        // 2026-09-04). Homebrew records it on disk instead, and since DP-012
+        // this reads it — `None` where there is no receipt, which is `UNKNOWN`
+        // upstream and never an inferred `TOP_LEVEL`.
+        requested: cask_requested(caskroom, &cask.token, filesystem),
         // Nor any record of how it was built; the vendor built it.
         installed_from_prebuilt: None,
         install_path: Some(caskroom.join(&cask.token).join(&cask.installed)),
@@ -764,21 +942,38 @@ impl ProviderRead for HomebrewAdapter<'_> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let Ok(canonical) = std::fs::canonicalize(executable) else {
-            return Ok(Resolution {
-                executable: name,
-                path: Some(executable.to_path_buf()),
-                canonical_path: None,
-                owner: ExecutableOwner::Unknown,
-                authoritative: false,
-            });
+        let unresolved = || Resolution {
+            executable: name.clone(),
+            path: Some(executable.to_path_buf()),
+            canonical_path: None,
+            owner: ExecutableOwner::Unknown,
+            authoritative: false,
         };
-        let owner = self.owner_of(&canonical)?;
+        // Only following the symlink needs this host's disk. The Cellar and
+        // the Caskroom come from the recording, so where the disk is not the
+        // machine the classification is still answerable and is still done -
+        // refusing it threw away recorded evidence and made this adapter
+        // degrade differently from its peer, which is the INV-17 shape the
+        // F-25 review caught.
+        let canonical = if self.filesystem.is_this_machine() {
+            let Ok(resolved) = std::fs::canonicalize(executable) else {
+                return Ok(unresolved());
+            };
+            Some(resolved)
+        } else {
+            None
+        };
+        let target = canonical.as_deref().unwrap_or(executable);
+        let owner = self.owner_of(target)?;
         Ok(Resolution {
             executable: name,
             path: Some(executable.to_path_buf()),
-            canonical_path: (canonical != executable).then(|| canonical.clone()),
-            authoritative: matches!(owner, ExecutableOwner::Provider { .. }),
+            // A Cellar hit is authoritative only when the link was actually
+            // followed. Computed from the path as written it is a heuristic,
+            // and `analysis::resolution_for` ranks the two differently on
+            // purpose.
+            authoritative: canonical.is_some() && matches!(owner, ExecutableOwner::Provider { .. }),
+            canonical_path: canonical.filter(|c| c != executable),
             owner,
         })
     }
@@ -804,6 +999,14 @@ impl ProviderRead for HomebrewAdapter<'_> {
         Ok(info)
     }
 
+    fn installations(&self) -> macportsbrew_domain::Installations {
+        crate::installations::read(
+            &self.installation_candidates,
+            EXECUTABLE_RELATIVE,
+            self.filesystem,
+        )
+    }
+
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
         let detection = self.detect()?;
         let present = matches!(detection.presence, ProviderPresence::Present);
@@ -812,7 +1015,25 @@ impl ProviderRead for HomebrewAdapter<'_> {
             capabilities: if present {
                 self.capabilities()?
             } else {
-                ProviderCapabilities::default()
+                // Nine unknowns, not an empty table. A provider that is not
+                // here cannot be asked what it can do, and `Unknown` is what
+                // "could not determine" means; an empty table says the
+                // question was never put, which is a different claim and not
+                // one this adapter is entitled to make.
+                //
+                // It is also what the MacPorts adapter has always done. The
+                // two are peer providers and this was the one place they
+                // disagreed about the shape of "absent" - invisible until a
+                // rule about documents had to be written around it, and the
+                // rule it forced left INV-19's refusal bypassable by deleting
+                // the table rather than a key (F-29, spec-guardian
+                // 2026-09-18).
+                ProviderCapabilities {
+                    capabilities: Capability::all()
+                        .iter()
+                        .map(|c| (*c, CapabilityState::Unknown))
+                        .collect(),
+                }
             },
             inventory: if present {
                 self.inventory()?
@@ -826,16 +1047,31 @@ impl ProviderRead for HomebrewAdapter<'_> {
             },
             invocation_environment: self.environment.clone(),
             resolutions: BTreeMap::new(),
+            // Only for a provider that is here: an absent one is never
+            // invoked, so nothing of its configuration can outrank anything.
+            configuration: if present {
+                crate::configuration::read(
+                    PROVIDER_ID,
+                    &self.prefix,
+                    self.home.as_deref(),
+                    self.filesystem,
+                )
+            } else {
+                macportsbrew_domain::ProviderConfiguration::NotRecorded
+            },
         })
     }
 }
 
 impl HomebrewAdapter<'_> {
     fn detect_uncached(&self) -> Result<ProviderDetection, DomainError> {
-        // Against the live machine an absent executable is answered without
-        // spawning anything. Against a recording the recording is the
-        // machine, so the local filesystem is not consulted at all.
-        if !self.runner.is_replay() && !self.executable().is_file() {
+        // Where this host's disk is the machine, an absent executable is
+        // answered without spawning anything. Where it is not, the recording
+        // is the machine and the local filesystem is not consulted at all.
+        // This asks the filesystem question, not `runner.is_replay()`: a
+        // contract test replays subprocesses while reading a scratch tree
+        // that really is its subject (F-25).
+        if self.filesystem.is_this_machine() && !self.executable().is_file() {
             return Ok(self.absent());
         }
         let invocation = self.run(ARGV_VERSION)?;
@@ -851,7 +1087,10 @@ impl HomebrewAdapter<'_> {
                     prefix: Some(self.prefix.clone()),
                     executable: Some(self.executable()),
                     architecture: None,
-                })
+                    // Detection never redacts - `capture` does, and is the only
+                    // thing that may say so (F-49, SE-080).
+                    prefix_redacted: false,
+                });
             }
             _ => {}
         }
@@ -862,6 +1101,7 @@ impl HomebrewAdapter<'_> {
             prefix: Some(self.one_path(ARGV_PREFIX, "--prefix")?),
             executable: Some(self.executable()),
             architecture: architecture_from_config(&self.config()?)?,
+            prefix_redacted: false,
         })
     }
 
@@ -873,6 +1113,7 @@ impl HomebrewAdapter<'_> {
             prefix: None,
             executable: None,
             architecture: None,
+            prefix_redacted: false,
         }
     }
 
@@ -882,7 +1123,11 @@ impl HomebrewAdapter<'_> {
     /// a package, and only that answer is marked authoritative.
     fn owner_of(&self, canonical: &Path) -> Result<ExecutableOwner, DomainError> {
         for root in [self.cellar()?, self.caskroom()?] {
-            let root = std::fs::canonicalize(&root).unwrap_or(root);
+            let root = if self.filesystem.is_this_machine() {
+                std::fs::canonicalize(&root).unwrap_or(root)
+            } else {
+                root
+            };
             if let Ok(rest) = canonical.strip_prefix(&root) {
                 let package = rest
                     .components()
@@ -894,7 +1139,11 @@ impl HomebrewAdapter<'_> {
                 });
             }
         }
-        let prefix = std::fs::canonicalize(&self.prefix).unwrap_or_else(|_| self.prefix.clone());
+        let prefix = if self.filesystem.is_this_machine() {
+            std::fs::canonicalize(&self.prefix).unwrap_or_else(|_| self.prefix.clone())
+        } else {
+            self.prefix.clone()
+        };
         if canonical.starts_with(&prefix) {
             return Ok(ExecutableOwner::External);
         }
@@ -905,6 +1154,109 @@ impl HomebrewAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scratch Caskroom holding one cask, with whatever receipt bytes the
+    /// case wants — or none.
+    fn caskroom_with(token: &str, receipt: Option<&[u8]>) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "mpb-caskroom-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let meta = root.join(token).join(".metadata");
+        std::fs::create_dir_all(&meta).expect("scratch caskroom");
+        if let Some(bytes) = receipt {
+            std::fs::write(meta.join("INSTALL_RECEIPT.json"), bytes).expect("receipt");
+        }
+        root
+    }
+
+    #[test]
+    fn a_cask_receipt_answers_the_intent_the_json_does_not_carry() {
+        // DP-012 / R-12. `brew info --json=v2 --cask` has no
+        // `installed_on_request`; the on-disk receipt does, and 7 of the 9
+        // casks measured carried one.
+        for (recorded, expected) in [("true", Some(true)), ("false", Some(false))] {
+            let body = format!(r#"{{"installed_on_request": {recorded}}}"#);
+            let root = caskroom_with("meld", Some(body.as_bytes()));
+            assert_eq!(
+                cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+                expected,
+                "a receipt saying {recorded}"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn every_way_a_receipt_can_fail_is_unknown_and_never_false() {
+        // `false` would mean "the user did not ask for this", which makes a
+        // dependency out of a file this reader could not open. Each of these
+        // must be `None`, which is `UNKNOWN` upstream.
+        let oversized = vec![b' '; usize::try_from(MAX_RECEIPT_BYTES + 1).expect("64-bit")];
+        let cases: Vec<(&str, Option<&[u8]>)> = vec![
+            ("no receipt at all", None),
+            ("not JSON", Some(b"this is not json")),
+            ("JSON without the field", Some(br#"{"arch": "x86_64"}"#)),
+            (
+                "the field is not a boolean",
+                Some(br#"{"installed_on_request": "yes"}"#),
+            ),
+            (
+                "the field is null",
+                Some(br#"{"installed_on_request": null}"#),
+            ),
+            ("empty file", Some(b"")),
+            ("oversized", Some(oversized.as_slice())),
+        ];
+        for (what, bytes) in cases {
+            let root = caskroom_with("meld", bytes);
+            assert_eq!(
+                cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+                None,
+                "{what} must be unknown, not a negative"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn a_receipt_is_not_read_for_a_machine_this_disk_does_not_describe() {
+        // INV-15. The recording carries no receipt, so reading this host's
+        // would answer about the wrong machine (F-25).
+        let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::Elsewhere),
+            None
+        );
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            Some(true),
+            "the same tree, declared as the machine, must answer"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_receipt_that_grew_past_the_cap_is_refused() {
+        // `metadata.len()` is a snapshot. The read is capped independently, so
+        // a file that grows between the two does not defeat the bound - the
+        // failure the first version of this reader had.
+        let root = caskroom_with("meld", None);
+        let receipt = root
+            .join("meld")
+            .join(".metadata")
+            .join("INSTALL_RECEIPT.json");
+        let oversized = vec![b' '; usize::try_from(MAX_RECEIPT_BYTES + 2).expect("64-bit")];
+        std::fs::write(&receipt, &oversized).expect("oversized receipt");
+        assert_eq!(
+            cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+            None
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     #[test]
     fn an_argument_vector_outside_the_allow_list_is_refused_at_run_time() {
@@ -925,8 +1277,13 @@ mod tests {
             },
             invocations: Vec::new(),
         });
-        let adapter =
-            HomebrewAdapter::new(&runner, PathBuf::from("/opt/homebrew"), None, Vec::new());
+        let adapter = HomebrewAdapter::new(
+            &runner,
+            PathBuf::from("/opt/homebrew"),
+            None,
+            Vec::new(),
+            FilesystemScope::ThisMachine,
+        );
         let error = adapter
             .run(&["outdated"])
             .expect_err("nothing outside the allow-list reaches the executor");
@@ -1009,7 +1366,13 @@ mod tests {
 
     #[test]
     fn an_absent_prefix_detects_as_none() {
-        assert_eq!(detect_prefix(&[PathBuf::from("/nonexistent-prefix")]), None);
-        assert_eq!(detect_prefix(&[]), None);
+        assert_eq!(
+            detect_prefix(
+                &[PathBuf::from("/nonexistent-prefix")],
+                FilesystemScope::ThisMachine
+            ),
+            None
+        );
+        assert_eq!(detect_prefix(&[], FilesystemScope::ThisMachine), None);
     }
 }

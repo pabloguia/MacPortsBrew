@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// The system directories every invocation may see.
-const SYSTEM_PATH: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+use macportsbrew_domain::{PINNED_ENVIRONMENT, SYSTEM_PATH};
 
 /// What the caller contributes to the environment.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -44,10 +44,9 @@ pub fn sanitised_environment(spec: &EnvironmentSpec) -> BTreeMap<String, String>
         }
     }
     env.insert("PATH".into(), path.join(":"));
-    env.insert("LANG".into(), "C".into());
-    env.insert("LC_ALL".into(), "C".into());
-    env.insert("TERM".into(), "dumb".into());
-    env.insert("NO_COLOR".into(), "1".into());
+    for (key, value) in PINNED_ENVIRONMENT {
+        env.insert((*key).to_string(), (*value).to_string());
+    }
     if let Some(home) = &spec.home {
         env.insert("HOME".into(), home.to_string_lossy().into_owned());
     }
@@ -61,29 +60,14 @@ pub fn sanitised_environment(spec: &EnvironmentSpec) -> BTreeMap<String, String>
 }
 
 fn is_reserved(key: &str) -> bool {
-    matches!(key, "PATH" | "LANG" | "LC_ALL" | "TERM" | "NO_COLOR")
+    key == "PATH" || PINNED_ENVIRONMENT.iter().any(|(k, _)| *k == key)
 }
 
 /// Variables that make one prefix visible to the other's build system.
-pub fn is_build_flag(key: &str) -> bool {
-    matches!(
-        key,
-        "CPATH"
-            | "C_INCLUDE_PATH"
-            | "CPLUS_INCLUDE_PATH"
-            | "LIBRARY_PATH"
-            | "LD_LIBRARY_PATH"
-            | "PKG_CONFIG_PATH"
-            | "PKG_CONFIG_LIBDIR"
-            | "LDFLAGS"
-            | "CPPFLAGS"
-            | "CFLAGS"
-            | "CXXFLAGS"
-            | "OBJCFLAGS"
-            | "ACLOCAL_PATH"
-            | "CMAKE_PREFIX_PATH"
-    ) || key.starts_with("DYLD_")
-}
+/// The list itself is `domain`, so the filter here, the reporting superset in
+/// `system::machine` and the INV-10 test all read one definition rather than
+/// three copies kept in step by hand.
+pub use macportsbrew_domain::is_build_flag;
 
 #[cfg(test)]
 mod tests {

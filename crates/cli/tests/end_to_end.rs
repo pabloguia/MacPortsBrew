@@ -218,6 +218,74 @@ fn the_machine_facts_are_the_ones_each_fixture_records() {
 }
 
 #[test]
+fn an_unknown_ownership_is_shown_in_the_default_view_and_not_counted_as_requested() {
+    // DP-012, decided by the owner 2026-09-05, and until now held only by
+    // golden files - which the next fixture recapture would rewrite without
+    // anyone noticing the decision had been reversed.
+    //
+    // Two halves. A package whose ownership is `UNKNOWN` is **shown**: it is
+    // not a package known to be a dependency, and hiding it would make normal
+    // mode quietest about the rows nobody has established anything about,
+    // which is the opposite of INV-13. And it is **not counted** as one the
+    // provider's own record claims, because that is what `topLevelCount`
+    // means.
+    let scratch = Scratch::new("unknown-ownership");
+    let a = json_ok(&scratch, HOMEBREW_ONLY, &["analyze"]);
+
+    // Ownership is per provider row, not per unit: one unit can be recorded by
+    // one provider and unknown to another.
+    let listed = units(&a);
+    let unknown: Vec<&Value> = listed
+        .iter()
+        .filter(|u| {
+            u["rows"].as_object().is_some_and(|rows| {
+                rows.values()
+                    .any(|r| r["ownershipEvidence"]["mechanism"] == "no_provider_record")
+            })
+        })
+        .collect();
+    assert!(
+        !unknown.is_empty(),
+        "this fixture must carry an UNKNOWN ownership or the assertions below \
+         prove nothing - the casks in it have no receipt under replay"
+    );
+    for unit in &unknown {
+        assert_eq!(
+            unit["advancedOnly"], false,
+            "an UNKNOWN ownership was hidden behind --advanced: {}",
+            unit["name"]
+        );
+        for row in unit["rows"].as_object().expect("rows").values() {
+            if row["ownershipEvidence"]["mechanism"] != "no_provider_record" {
+                // `not_installed` is the other route to `UNKNOWN` and is a
+                // different fact: the package is not there at all.
+                continue;
+            }
+            assert_eq!(
+                row["ownership"], "UNKNOWN",
+                "an absent record produced something other than UNKNOWN"
+            );
+            assert_eq!(
+                row["ownershipEvidence"]["authoritative"], false,
+                "an absent record was reported as authoritative"
+            );
+        }
+    }
+
+    let counted: u64 = a["providers"]["homebrew"]["topLevelCount"]
+        .as_u64()
+        .expect("topLevelCount");
+    let shown: u64 = a["summary"]["topLevelUnits"]
+        .as_u64()
+        .expect("topLevelUnits");
+    assert!(
+        counted < shown,
+        "topLevelCount ({counted}) must be narrower than topLevelUnits ({shown}) \
+         while any unit is UNKNOWN - they mean different things (DP-012)"
+    );
+}
+
+#[test]
 fn counts_match_the_units_the_analysis_lists() {
     let scratch = Scratch::new("counts");
     for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED, NEITHER, BROKEN] {
@@ -421,6 +489,12 @@ fn invariant_13_dependency_units_appear_only_with_advanced() {
         hidden as u64
     );
     assert!(units(&advanced).len() > units(&normal).len());
+
+    // The subset property F-19 asks for is not asserted here, and deliberately:
+    // `invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view` already
+    // does it, across four fixtures, comparing the top-level sets themselves and
+    // each unit's `source`. Restating it here would be a second copy to keep
+    // true. What this test owns is the count and the flag.
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +581,101 @@ fn doctor_exits_five_on_a_broken_provider_and_zero_elsewhere() {
 }
 
 #[test]
+fn a_broken_provider_is_explained_to_a_person_without_naming_an_identifier() {
+    // F-38's second half. `ProviderPresence::Broken` carries a `reason`, and
+    // every construction of it - both adapters and `capture::broken` - sets that
+    // to an `ErrorId::*.message_id()`. It is an identifier, never prose. The
+    // human template used to interpolate it, so a user diagnosing a broken
+    // install read "macports is present but not working: error.provider_unhealthy".
+    //
+    // Both halves are asserted here, and the second is the one that matters:
+    // without it, someone reads "the message no longer uses reason" and deletes
+    // the parameter, silently breaking a contract `docs/schemas/doctor.v1.md`
+    // documents. A machine wants the stable identifier; a person does not.
+    let scratch = Scratch::new("broken-reason");
+    let path = fixture(BROKEN);
+    let args = |json: bool| {
+        let mut v = vec!["--replay", path.to_str().expect("path")];
+        if json {
+            v.push("--json");
+        }
+        v.extend(["doctor", "--today", TODAY]);
+        v
+    };
+
+    let human = run(&scratch, &args(false));
+    let text = String::from_utf8(human.stdout).expect("utf-8");
+    assert!(
+        text.contains("not working"),
+        "the fixture must actually reach the broken branch: {text}"
+    );
+    assert!(
+        !text.contains("error."),
+        "a message identifier reached the user: {text}"
+    );
+
+    let out = run(&scratch, &args(true));
+    let doc: Value = serde_json::from_slice(&out.stdout).expect("doctor JSON");
+    let broken = doc["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .find(|f| f["id"] == "provider_broken")
+        .expect("the fixture is the broken one");
+    assert_eq!(
+        broken["reason"]["params"]["reason"], "error.provider_unhealthy",
+        "the JSON contract keeps the identifier the human text drops: {broken}"
+    );
+}
+
+#[test]
+fn a_bad_recording_is_not_diagnosed_as_a_bad_snapshot() {
+    // F-41. `--from-snapshot` and `--replay` share one bounded reader (F-30),
+    // and that unification preserved a message written for only one of them:
+    // every failure was `SnapshotUnusable`, so pointing `--replay` at a
+    // directory told the user to run `macportsbrew snapshot` and aim
+    // `--from-snapshot` - a command that cannot produce a recording, and a flag
+    // they had not used.
+    //
+    // The exit code is asserted as *unchanged* on purpose. A new identifier
+    // that quietly moved an input error off 8 would break the contract in
+    // `06-cli-and-ux.md` while looking like a wording fix.
+    let scratch = Scratch::new("bad-recording");
+    let dir = scratch.path().join("not-a-file");
+    std::fs::create_dir_all(&dir).expect("a directory is unreadable as either");
+    let arg = dir.to_str().expect("path").to_string();
+
+    for (flag, wanted, unwanted) in [
+        ("--replay", "capture-fixture", "--from-snapshot"),
+        (
+            "--from-snapshot",
+            "macportsbrew snapshot",
+            "capture-fixture",
+        ),
+    ] {
+        let out = run(&scratch, &[flag, &arg, "status"]);
+        assert_eq!(
+            out.status.code(),
+            Some(8),
+            "{flag}: an unreadable input still exits 8"
+        );
+        assert!(
+            out.stdout.is_empty(),
+            "{flag}: an unreadable input produces no document, not a partial one"
+        );
+        let text = String::from_utf8(out.stderr).expect("utf-8");
+        assert!(
+            text.contains(wanted),
+            "{flag} must name the remedy that produces its own input: {text}"
+        );
+        assert!(
+            !text.contains(unwanted),
+            "{flag} must not send the user to the other route: {text}"
+        );
+    }
+}
+
+#[test]
 fn an_unknown_flag_is_a_usage_error() {
     let scratch = Scratch::new("usage");
     let out = run(&scratch, &["--json", "--not-a-flag", "status"]);
@@ -520,8 +689,35 @@ fn an_unknown_flag_is_a_usage_error() {
 #[test]
 fn a_snapshot_from_an_unsupported_schema_is_refused() {
     let scratch = Scratch::new("schema");
+
+    // A *real* snapshot with its version patched, not `{"schemaVersion": 99}`.
+    // That document is refused by the parse arm — `toolVersion` and the rest are
+    // required with no default — so it never reaches the version check, and this
+    // test asserted exit 8 and a non-empty stderr over a line it never executed.
+    // Both are true of the parse failure too, which is what made it a green
+    // light over an uncovered line (F-43).
+    let clean = scratch.path().join("clean.json");
+    let captured = run(
+        &scratch,
+        &[
+            "--replay",
+            fixture(BOTH).to_str().expect("path"),
+            "--json",
+            "snapshot",
+            "--out",
+            clean.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(captured.status.code(), Some(0), "capturing the snapshot");
+
+    let real = std::fs::read_to_string(&clean).expect("read");
+    let mut doc: Value = serde_json::from_str(&real).expect("the capture is JSON");
+    doc["schemaVersion"] = serde_json::json!(99);
     let path = scratch.path().join("future.json");
-    std::fs::write(&path, b"{\"schemaVersion\": 99}\n").expect("write");
+    std::fs::write(&path, doc.to_string().as_bytes()).expect("write");
+
     let out = run(
         &scratch,
         &[
@@ -533,7 +729,1054 @@ fn a_snapshot_from_an_unsupported_schema_is_refused() {
     );
     assert_eq!(out.status.code(), Some(8), "snapshot-unusable is exit 8");
     assert!(out.stdout.is_empty());
-    assert!(!out.stderr.is_empty(), "the refusal is explained on stderr");
+    // The whole phrase, not just "99": the parse arm quotes the file path, and a
+    // scratch directory that happened to contain those digits would satisfy a
+    // bare `contains("99")` from the wrong arm. The parse arm's message for the
+    // old document was "missing field `toolVersion`", which this cannot match.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("schema version 99 is not the supported"),
+        "this must reach the version check, not the parse: {stderr}"
+    );
+
+    // And the untampered capture loads, or the case above proves nothing.
+    // `--today` is pinned like every other run in this file: without it the date
+    // comes from the snapshot's `capturedAt`, which capture writes from the real
+    // clock whatever `--today` said, so this control would start emitting a
+    // staleness notice on whatever day `data/policy`'s newest `read_on` ages out.
+    let ok = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            clean.to_str().expect("path"),
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        ok.status.code(),
+        Some(0),
+        "the untampered snapshot must load"
+    );
+}
+
+/// F-43 item 1 at the boundary: `check` also runs on a capture.
+///
+/// F-41 gave `--replay` its own identifier in the reader. `Snapshot::check` is
+/// the other place a replayed run can be refused, because a capture runs it and
+/// a capture under `--replay` is built from a recording - so this run used to
+/// answer "Take a fresh one with `macportsbrew snapshot`, or point
+/// --from-snapshot at a readable file" to a user who had done neither. A live
+/// capture got the same sentence, and it was wrong there too; only
+/// `--from-snapshot` was ever being told the truth, and that route keeps
+/// `SnapshotUnusable`.
+///
+/// Reproduced by answering `brew --prefix` with the other provider's prefix,
+/// which is the lever F-21's replay half already pulls.
+#[test]
+fn a_replayed_run_is_not_sent_after_a_snapshot_it_never_had() {
+    let scratch = Scratch::new("f43");
+    let mut recording: Value =
+        serde_json::from_slice(&std::fs::read(fixture(BOTH)).expect("fixture")).expect("JSON");
+    let mut patched = 0;
+    for invocation in recording["invocations"]
+        .as_array_mut()
+        .expect("invocations")
+    {
+        if invocation["program"] == serde_json::json!("brew")
+            && invocation["argv"] == serde_json::json!(["--prefix"])
+        {
+            invocation["stdout"] = serde_json::json!("/opt/local\n");
+            patched += 1;
+        }
+    }
+    assert_eq!(patched, 1, "the fixture must still record `brew --prefix`");
+
+    let doctored = scratch.path().join("overlap.json");
+    std::fs::write(
+        &doctored,
+        serde_json::to_vec(&recording).expect("serialise"),
+    )
+    .expect("write");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            doctored.to_str().expect("path"),
+            "--json",
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "an overlapping prefix is refused"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("overlaps"),
+        "the refusal must still say what is wrong: {stderr}"
+    );
+    // The point of the finding is not which identifier fires, but that the
+    // remediation does not send this user after a file and a flag they never used.
+    for route in ["macportsbrew snapshot", "--from-snapshot"] {
+        assert!(
+            !stderr.contains(route),
+            "a --replay run must not be sent after {route}: {stderr}"
+        );
+    }
+    // And that it still says something. Without this, an empty remediation - or
+    // a regression to the bare detail - passes the two checks above.
+    assert!(
+        stderr.contains("macportsbrew doctor"),
+        "the neutral remediation must still be rendered: {stderr}"
+    );
+}
+
+/// F-43 item 1 at the planner, which is not a second line but the designed
+/// enforcement point - and is reachable by an ordinary machine.
+///
+/// I filed this as unreachable, having fed a snapshot a *relative* prefix and
+/// watched the boundary refuse it. That was the wrong probe.
+/// `snapshot::prefix_shape_error` says in its own comment that a `~`-rooted
+/// prefix is "allowed *here* and refused where it matters", because it is an
+/// absolute path with the home elided by redaction - the privacy machinery
+/// exists so a home-installed provider can be captured at all - and that
+/// `planner::command` is what refuses it. So the boundary passes `~/homebrew`,
+/// `analyze` works, and `plan` stops at `planner.rs`. `security-reviewer` found
+/// this and reproduced it; the claim had been written into four places.
+///
+/// Migrating *away* from the home-rooted provider, so it is the source whose
+/// program `REMOVE_SOURCE` names — the case that matters, and the one DP-016's
+/// refusal leaves reachable: a MacPorts-source plan under replay is now refused
+/// earlier, for not being able to answer the service question.
+///
+/// No boundary refusal can produce this message, which is what makes the
+/// assertion a test of the planner rather than of the exit code. The F-09 test
+/// asserts exit 8, which the boundary already produces, so it could never have
+/// told the two apart.
+#[test]
+fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
+    let scratch = Scratch::new("f43b");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the clean snapshot"
+    );
+
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("JSON");
+    // Both, because the boundary requires the `PATH` leader to be the detected
+    // prefix (INV-10): a home-installed provider's snapshot is coherent, not
+    // half-edited, and editing only one field tests the boundary rather than the
+    // planner.
+    doc["providers"]["homebrew"]["detection"]["prefix"] = serde_json::json!("~/homebrew");
+    let path = doc["providers"]["homebrew"]["invocationEnvironment"]["PATH"]
+        .as_str()
+        .expect("a PATH");
+    let rest = path
+        .split_once(':')
+        .expect("more than one entry")
+        .1
+        .to_string();
+    doc["providers"]["homebrew"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!(format!("~/homebrew/bin:{rest}"));
+    let home_rooted = scratch.path().join("home-rooted.json");
+    std::fs::write(&home_rooted, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    let analyze = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        analyze.status.code(),
+        Some(0),
+        "the boundary allows a `~`-rooted prefix on purpose, or this test proves nothing"
+    );
+
+    let planned = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+        ],
+    );
+    assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
+    let stderr = String::from_utf8_lossy(&planned.stderr);
+    assert!(
+        stderr.contains("installed under the home directory"),
+        "this must be the planner's refusal, which no boundary check emits: {stderr}"
+    );
+    // This document sets `prefix` and never `prefixRedacted`, so it reads
+    // `false` - exactly the pre-field document that flag's doc comment warns
+    // about - and the refusal is reached by the shape alone. The message is
+    // about the home directory because that is the *only* shape reaching it:
+    // `is_safe_captured_path_admits_only_absolute_or_home_rooted` in
+    // `crates/domain/src/snapshot.rs` is what holds that true (DP-021).
+    assert!(
+        !stderr.contains("names no directory this tool can resolve"),
+        "the superseded generic message must not be what answered: {stderr}"
+    );
+}
+
+/// The direction the test above does not cover, and DP-021 got wrong.
+///
+/// That test makes the **source** home-rooted and migrates away. The entry then
+/// claimed "`plan --retain-source` exits 0", which is true only for that
+/// direction: `ADD_DESTINATION` and `VERIFY_DESTINATION` build their commands
+/// from the **destination**, and `--retain-source` drops only `REMOVE_SOURCE`
+/// and `VERIFY_REMOVAL`. So a user whose *destination* lives under `$HOME` is
+/// refused with or without it.
+///
+/// Found by `spec-guardian` on 2026-09-19, and it is an INV-17 shape: one
+/// direction covered and one not, on a path both reach. The code is symmetric —
+/// the refusal names no provider — so what was missing was the test, which is
+/// the harder half to notice.
+#[test]
+fn a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it() {
+    let scratch = Scratch::new("dp021dest");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the clean snapshot"
+    );
+
+    // The mirror of the test above: **macports** is the home-installed one, so
+    // it is the destination of `--to macports` rather than the source. Both
+    // fields for the same reason that one states - the boundary requires the
+    // `PATH` leader to be the detected prefix (INV-10), so a half-edited
+    // document tests the boundary instead of the planner.
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("JSON");
+    let detected = doc["providers"]["macports"]["detection"]["prefix"]
+        .as_str()
+        .expect("a prefix")
+        .to_string();
+    doc["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("~/local");
+    // Every entry, not only the leader. MacPorts contributes both `bin` and
+    // `sbin`, and the boundary checks each against the detected prefix - moving
+    // one and leaving the other is the half-edited document this comment warns
+    // against, and it refuses at the boundary with an INV-10 message instead of
+    // reaching the planner at all.
+    let path = doc["providers"]["macports"]["invocationEnvironment"]["PATH"]
+        .as_str()
+        .expect("a PATH")
+        .replace(&detected, "~/local");
+    doc["providers"]["macports"]["invocationEnvironment"]["PATH"] = serde_json::json!(path);
+    let home_rooted = scratch.path().join("home-rooted-destination.json");
+    std::fs::write(&home_rooted, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    for extra in [Vec::new(), vec!["--retain-source"]] {
+        let mut args = vec![
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+        ];
+        args.extend(extra.iter().copied());
+        let planned = run(&scratch, &args);
+        assert_eq!(
+            planned.status.code(),
+            Some(8),
+            "a home-installed destination is refused whatever {extra:?} says, because \
+             ADD_DESTINATION builds its command from the destination"
+        );
+        let stderr = String::from_utf8_lossy(&planned.stderr);
+        assert!(
+            stderr.contains("installed under the home directory"),
+            "and for the same stated reason as the source direction: {stderr}"
+        );
+    }
+}
+
+/// F-21: a snapshot must not be able to state the environment a provider
+/// command runs in.
+///
+/// The finding's second half was that no test could see it — the INV-10 plan
+/// test writes an environment into its own fixture and the planner clones it,
+/// so it never crosses a boundary. This one crosses both: `--from-snapshot`,
+/// where the environment is read from a file, and `--replay`, where it is
+/// *constructed* from a recording that decides what `brew --prefix` answers.
+/// The second was the surprise. "Constructed" was taken to mean "safe", and a
+/// review showed it does not: `sanitised_environment` never sees the other
+/// provider, so it cannot notice that this one has moved on top of it.
+///
+/// Every case runs against both providers, because a guard that only holds one
+/// way is not a guard (INV-17) — an earlier version alternated them by index
+/// and, as it turned out, exercised no rule in both directions.
+#[test]
+fn invariant_10_a_snapshot_cannot_dictate_a_provider_command_environment() {
+    let scratch = Scratch::new("f21");
+    let clean = scratch.path().join("clean.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            fixture(BOTH).to_str().expect("path"),
+            "--json",
+            "snapshot",
+            "--out",
+            clean.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "capturing the clean snapshot");
+
+    let load = |file: &Path| {
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "analyze",
+            ],
+        )
+    };
+    let base: Value = serde_json::from_slice(&std::fs::read(&clean).expect("read"))
+        .expect("the captured snapshot is JSON");
+    assert_eq!(
+        load(&clean).status.code(),
+        Some(0),
+        "the untampered snapshot must still load, or this test proves nothing"
+    );
+
+    let write = |doc: &Value, name: &str| {
+        let file = scratch.path().join(name);
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        file
+    };
+
+    for (id, own, other) in [
+        ("homebrew", "/opt/homebrew", "/opt/local"),
+        ("macports", "/opt/local", "/opt/homebrew"),
+    ] {
+        let ok_path = format!("{own}/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+        // Each case names a fragment the refusal must contain. Without that a
+        // case can be refused for another case's reason and the test stays
+        // green — which is how the first version of this test hid the fact
+        // that four of its cases were tripping the same rule.
+        let cases: Vec<(&str, Value, &str)> = vec![
+            (
+                "a variable that runs a program of the attacker's choosing",
+                serde_json::json!({"PATH": ok_path, "SUDO_ASKPASS": "/tmp/evil/askpass.sh"}),
+                "SUDO_ASKPASS",
+            ),
+            (
+                "a variable that injects code into the provider's own runtime",
+                serde_json::json!({"PATH": ok_path, "RUBYOPT": "-r/tmp/evil.rb"}),
+                "RUBYOPT",
+            ),
+            (
+                "a plausible-looking provider variable that is still not on the list",
+                serde_json::json!({"PATH": ok_path, "HOMEBREW_ARTIFACT_DOMAIN": "http://elsewhere.example"}),
+                "HOMEBREW_ARTIFACT_DOMAIN",
+            ),
+            (
+                "a dynamic linker injection",
+                serde_json::json!({"PATH": ok_path, "DYLD_INSERT_LIBRARIES": "/tmp/x.dylib"}),
+                "DYLD_INSERT_LIBRARIES",
+            ),
+            (
+                "a build flag",
+                serde_json::json!({"PATH": ok_path, "CPPFLAGS": format!("-I{own}/include")}),
+                "CPPFLAGS",
+            ),
+            (
+                "a pinned variable given another value",
+                serde_json::json!({"PATH": ok_path, "LANG": "en_US.UTF-8"}),
+                "LANG",
+            ),
+            (
+                "a PATH entry reaching through `..`",
+                serde_json::json!({"PATH": format!("/opt/../{}/bin:{ok_path}", other.trim_start_matches('/'))}),
+                "..",
+            ),
+            (
+                "a writable directory first on PATH",
+                serde_json::json!({"PATH": format!("/tmp/evil/bin:{ok_path}")}),
+                "not a directory it was detected at",
+            ),
+            (
+                "the other provider's prefix on PATH",
+                serde_json::json!({"PATH": format!("{other}/bin:{ok_path}")}),
+                "is under",
+            ),
+            (
+                "a real path that is nobody's prefix",
+                serde_json::json!({"PATH": format!("/private{own}/bin:{ok_path}")}),
+                "not a directory it was detected at",
+            ),
+            (
+                "an empty PATH entry",
+                serde_json::json!({"PATH": format!("{own}/bin::{ok_path}")}),
+                "empty, relative",
+            ),
+            (
+                "a relative PATH entry",
+                serde_json::json!({"PATH": format!(".:{ok_path}")}),
+                "empty, relative",
+            ),
+            (
+                "no PATH at all",
+                serde_json::json!({"LANG": "C"}),
+                "states no PATH",
+            ),
+            (
+                "a home of the snapshot's choosing",
+                serde_json::json!({"PATH": ok_path, "HOME": "/tmp/evil"}),
+                "HOME=",
+            ),
+            (
+                "a PATH that does not end with the system directories",
+                serde_json::json!({"PATH": format!("{own}/bin")}),
+                "does not end with the system directories",
+            ),
+            (
+                "a pinned variable left out",
+                serde_json::json!({"PATH": ok_path}),
+                "states no",
+            ),
+        ];
+
+        for (what, mut environment, names) in cases {
+            // Every case but the two that are *about* the pinned variables
+            // carries them, so each reaches the rule it is written for rather
+            // than tripping an earlier one - which is how an earlier version of
+            // this test came to exercise four cases against one rule.
+            if !matches!(names, "LANG" | "states no") {
+                for (key, value) in [
+                    ("LANG", "C"),
+                    ("LC_ALL", "C"),
+                    ("TERM", "dumb"),
+                    ("NO_COLOR", "1"),
+                ] {
+                    environment[key] = serde_json::json!(value);
+                }
+                // And whatever the adapter itself adds, which the reader now
+                // requires by value and not only by name.
+                if id == "homebrew" {
+                    for key in [
+                        "HOMEBREW_NO_ANALYTICS",
+                        "HOMEBREW_NO_AUTO_UPDATE",
+                        "HOMEBREW_NO_COLOR",
+                        "HOMEBREW_NO_EMOJI",
+                        "HOMEBREW_NO_ENV_HINTS",
+                        "HOMEBREW_NO_INSTALL_CLEANUP",
+                    ] {
+                        environment[key] = serde_json::json!("1");
+                    }
+                }
+            }
+            let mut doc = base.clone();
+            doc["providers"][id]["invocationEnvironment"] = environment;
+            let out = load(&write(&doc, "tampered.json"));
+            assert_eq!(
+                out.status.code(),
+                Some(8),
+                "{id}: {what} must be refused as an unusable snapshot"
+            );
+            assert!(
+                out.stdout.is_empty(),
+                "{id}: {what}: a refusal prints no analysis"
+            );
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                stderr.contains(names),
+                "{id}: {what}: the refusal should name {names}, said: {stderr}"
+            );
+        }
+
+        // The prefix a provider declares widens what it may put on its `PATH`,
+        // so it is not taken on trust: claiming the other provider's is how a
+        // tampered recording would have laundered a leak through the
+        // *constructed* route.
+        let mut doc = base.clone();
+        doc["providers"][id]["detection"]["prefix"] = serde_json::json!(other);
+        doc["providers"][id]["invocationEnvironment"] =
+            serde_json::json!({"PATH": format!("{other}/bin:/usr/bin:/bin:/usr/sbin:/sbin")});
+        let out = load(&write(&doc, "claimed.json"));
+        assert_eq!(
+            out.status.code(),
+            Some(8),
+            "{id} claiming {other} must be refused"
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("overlaps"),
+            "{id}: the refusal names whose prefix it overlaps"
+        );
+    }
+
+    // A case-folded prefix. The boot volume is case-insensitive, so `/OPT/Local`
+    // and `/opt/local` are one directory while a byte comparison calls them two -
+    // the same class as `..`, the string and the kernel disagreeing.
+    let mut folded = base.clone();
+    folded["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("/OPT/Homebrew");
+    folded["providers"]["macports"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "/OPT/Homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    let out = load(&write(&folded, "folded.json"));
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "a case-folded prefix is the same prefix"
+    );
+
+    // A prefix reaching through `..`, which would otherwise become a program.
+    let mut dotdot = base.clone();
+    dotdot["providers"]["homebrew"]["detection"]["prefix"] =
+        serde_json::json!("/opt/homebrew/../../tmp/evil");
+    assert_eq!(
+        load(&write(&dotdot, "dotdot.json")).status.code(),
+        Some(8),
+        "a prefix reaching through `..` is not a usable directory"
+    );
+
+    // `/usr/local` is a prefix the registry knows for Homebrew, and
+    // `/usr/local/bin` is group-writable on every Mac - `doctor` calls that an
+    // error in its own right. A Homebrew detected at `/opt/homebrew` may not
+    // have it on the PATH just because the registry knows the name.
+    let mut known = base.clone();
+    known["providers"]["homebrew"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    assert_eq!(
+        load(&write(&known, "known.json")).status.code(),
+        Some(8),
+        "a known prefix is not the detected one"
+    );
+
+    // A prefix shallow enough to contain other things switches the containment
+    // rule off entirely: `/opt` makes the other provider's whole tree "mine",
+    // and `/` makes everything mine. This was a working bypass of the rule the
+    // whole check exists to enforce, found by review after two rebuilds.
+    for (id, prefix, entry) in [
+        ("homebrew", "/opt", "/opt/local/bin"),
+        ("homebrew", "/", "/tmp/evil/bin"),
+        ("homebrew", "/usr", "/usr/local/bin"),
+        ("macports", "/opt", "/opt/homebrew/bin"),
+    ] {
+        let mut shallow = base.clone();
+        shallow["providers"][id]["detection"]["prefix"] = serde_json::json!(prefix);
+        let mut environment = serde_json::json!({
+            "PATH": format!("{entry}:/usr/bin:/bin:/usr/sbin:/sbin"),
+            "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+        if id == "homebrew" {
+            for key in [
+                "HOMEBREW_NO_ANALYTICS",
+                "HOMEBREW_NO_AUTO_UPDATE",
+                "HOMEBREW_NO_COLOR",
+                "HOMEBREW_NO_EMOJI",
+                "HOMEBREW_NO_ENV_HINTS",
+                "HOMEBREW_NO_INSTALL_CLEANUP",
+            ] {
+                environment[key] = serde_json::json!("1");
+            }
+        }
+        shallow["providers"][id]["invocationEnvironment"] = environment;
+        assert_eq!(
+            load(&write(&shallow, "shallow.json")).status.code(),
+            Some(8),
+            "{id} declaring {prefix} must not thereby own {entry}"
+        );
+    }
+
+    // A quieting variable turned off, or dropped. `HOMEBREW_NO_AUTO_UPDATE` is
+    // what makes a read-only command read-only, and permitting the key by name
+    // rather than by value let a snapshot set it to "0" while the rule claimed
+    // to assert what the builder emits.
+    for (what, mutate) in [
+        (
+            "a quieting variable turned off",
+            serde_json::json!({"HOMEBREW_NO_AUTO_UPDATE": "0"}),
+        ),
+        (
+            "a quieting variable dropped",
+            serde_json::json!({"HOMEBREW_NO_AUTO_UPDATE": null}),
+        ),
+    ] {
+        let mut quiet = base.clone();
+        let environment = quiet["providers"]["homebrew"]["invocationEnvironment"]
+            .as_object_mut()
+            .expect("environment object");
+        for (key, value) in mutate.as_object().expect("object") {
+            if value.is_null() {
+                environment.remove(key);
+            } else {
+                environment.insert(key.clone(), value.clone());
+            }
+        }
+        assert_eq!(
+            load(&write(&quiet, "quiet.json")).status.code(),
+            Some(8),
+            "{what} must be refused"
+        );
+    }
+
+    // A provider the file calls present while stating no prefix. Every provider
+    // this tool detects reports where it was found, so this is not a document it
+    // wrote - and honouring it would hand back the registry's whole list as
+    // "its own", which is the narrowing the containment rule exists for.
+    let mut headless = base.clone();
+    headless["providers"]["homebrew"]["detection"]["prefix"] = Value::Null;
+    headless["providers"]["homebrew"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    assert_eq!(
+        load(&write(&headless, "headless.json")).status.code(),
+        Some(8),
+        "a present provider states where it was found"
+    );
+
+    // Two providers claiming the same place. Neither is a registry candidate,
+    // so only the other provider's own claim can catch it.
+    let mut both = base.clone();
+    for id in ["homebrew", "macports"] {
+        both["providers"][id]["detection"]["prefix"] = serde_json::json!("~/shared");
+        both["providers"][id]["invocationEnvironment"] = serde_json::json!({
+            "PATH": "~/shared/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"});
+    }
+    assert_eq!(
+        load(&write(&both, "both.json")).status.code(),
+        Some(8),
+        "two providers cannot both own one directory"
+    );
+
+    // And two shapes that must keep loading, because refusing a document this
+    // tool wrote is the failure mode a check like this actually causes.
+    let mut home_install = base.clone();
+    home_install["providers"]["homebrew"]["detection"]["prefix"] = serde_json::json!("~/homebrew");
+    home_install["providers"]["homebrew"]["invocationEnvironment"] = serde_json::json!({
+        "PATH": "~/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1",
+        "HOMEBREW_NO_ANALYTICS": "1", "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_COLOR": "1", "HOMEBREW_NO_EMOJI": "1",
+        "HOMEBREW_NO_ENV_HINTS": "1", "HOMEBREW_NO_INSTALL_CLEANUP": "1"});
+    assert_eq!(
+        load(&write(&home_install, "home.json")).status.code(),
+        Some(0),
+        "a Homebrew installed under $HOME is redacted to `~`, and must still load"
+    );
+
+    let mut broken = base.clone();
+    broken["providers"]["macports"]["detection"]["presence"] =
+        serde_json::json!({"state": "BROKEN", "reason": "error.provider_unhealthy"});
+    broken["providers"]["macports"]["detection"]["prefix"] = Value::Null;
+    broken["providers"]["macports"]
+        .as_object_mut()
+        .expect("provider object")
+        .remove("invocationEnvironment");
+    assert_eq!(
+        load(&write(&broken, "broken.json")).status.code(),
+        Some(0),
+        "a provider whose capture failed states no environment, and `capture::broken` \
+         writes exactly that - refusing it would reject the snapshot taken on the \
+         broken machine someone is asking for help with"
+    );
+}
+
+/// The other half of F-21, and the one that was missed: a *constructed*
+/// environment is not automatically a safe one.
+///
+/// `sanitised_environment` builds Homebrew's `PATH` by prepending
+/// `<prefix>/bin`, and the prefix is whatever `brew --prefix` answered - which
+/// under `--replay` comes from the recording, and on a live run comes from the
+/// provider, which the threat model treats as untrusted either way. So a file
+/// can move one provider on top of the other without ever touching an
+/// `invocationEnvironment`. Nothing objected before this check ran on captured
+/// snapshots too.
+#[test]
+fn invariant_10_a_recording_cannot_move_one_provider_onto_the_other() {
+    let scratch = Scratch::new("f21-replay");
+    let mut recording: Value =
+        serde_json::from_slice(&std::fs::read(fixture(BOTH)).expect("read")).expect("recording");
+    let mut patched = 0;
+    for invocation in recording["invocations"]
+        .as_array_mut()
+        .expect("invocations")
+        .iter_mut()
+    {
+        let is_prefix_query = invocation["argv"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v == "--prefix"));
+        if is_prefix_query {
+            invocation["stdout"] = serde_json::json!("/opt/local\n");
+            patched += 1;
+        }
+    }
+    assert!(patched > 0, "the recording must contain a prefix query");
+    let file = scratch.path().join("evil-recording.json");
+    std::fs::write(&file, serde_json::to_vec(&recording).expect("serialise")).expect("write");
+
+    let out = run(
+        &scratch,
+        &[
+            "--json",
+            "--replay",
+            file.to_str().expect("path"),
+            "analyze",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(8),
+        "a recording that makes one provider claim the other's prefix is unusable"
+    );
+    assert!(out.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("overlaps"),
+        "the refusal names whose prefix it overlaps"
+    );
+}
+
+/// F-09: `--from-snapshot` was an unvalidated source of plan argv.
+///
+/// The adapters apply `is_safe_name` / `checked_name` to everything a provider
+/// says, and the planner turns names into argv elements and executable names
+/// without passing any allow-list — because the allow-lists live in the
+/// adapters, and a snapshot never met one. "Here is a snapshot from my machine,
+/// what should I migrate?" is a workflow the documentation invites; a package in
+/// that file called `--force` is a flag the executor would hand to `brew`.
+///
+/// Both providers, and every field that reaches a command: the package name, the
+/// dependency edges, the resolved executables, and the paths.
+#[test]
+fn a_snapshot_cannot_turn_provider_metadata_into_a_flag_or_a_path() {
+    let scratch = Scratch::new("f09");
+    let clean = scratch.path().join("clean.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                fixture(BOTH).to_str().expect("path"),
+                "--json",
+                "snapshot",
+                "--out",
+                clean.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+    );
+    let base: Value = serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("json");
+    let load = |doc: &Value, name: &str| {
+        let file = scratch.path().join(name);
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "wget",
+                "--to",
+                "macports",
+            ],
+        )
+    };
+    assert_ne!(
+        load(&base, "clean.json").status.code(),
+        Some(8),
+        "the untampered snapshot must not be refused, or this test proves nothing"
+    );
+
+    for id in ["homebrew", "macports"] {
+        for hostile in [
+            "--force",
+            "-o/etc/anything",
+            "../../../bin/sh",
+            "foo bar",
+            "foo;rm -rf /",
+            "",
+        ] {
+            let mut doc = base.clone();
+            let inventory = &mut doc["providers"][id]["inventory"];
+            let previous = inventory["installed"][0]["identity"]["name"]
+                .as_str()
+                .expect("a name")
+                .to_string();
+            inventory["installed"][0]["identity"]["name"] = serde_json::json!(hostile);
+            for map in ["metadata", "availability"] {
+                if let Some(object) = inventory[map].as_object_mut() {
+                    if let Some(value) = object.remove(&previous) {
+                        object.insert(hostile.to_string(), value);
+                    }
+                }
+            }
+            let out = load(&doc, "hostile.json");
+            assert_eq!(
+                out.status.code(),
+                Some(8),
+                "{id}: a package named {hostile:?} must not reach a command"
+            );
+            assert!(out.stdout.is_empty(), "{id}: {hostile:?} produced a plan");
+        }
+
+        // The same names by the other routes into a command.
+        let mut edge = base.clone();
+        edge["providers"][id]["inventory"]["dependencies"]
+            .as_array_mut()
+            .expect("dependencies")
+            .push(serde_json::json!({"from": "--force", "to": "wget", "buildOnly": false}));
+        assert_eq!(
+            load(&edge, "edge.json").status.code(),
+            Some(8),
+            "{id}: a dependency edge is a name too"
+        );
+
+        // `detection.executable` is where the provider's own binary was found.
+        // It is printed and never run - the planner builds a program from the
+        // prefix and the verb table - so `..` in it is not a defect, and
+        // refusing it would be the strict rule applied where it does not belong.
+        // Escape codes are refused, because it reaches a terminal.
+        let mut executable = base.clone();
+        executable["providers"][id]["detection"]["executable"] =
+            serde_json::json!("/opt/homebrew/../bin/brew");
+        assert_ne!(
+            load(&executable, "executable.json").status.code(),
+            Some(8),
+            "{id}: a reported executable path is not a program"
+        );
+        executable["providers"][id]["detection"]["executable"] =
+            serde_json::json!("/opt/homebrew/bin/\u{1b}[31mbrew\u{1b}[0m");
+        assert_eq!(
+            load(&executable, "painted-executable.json").status.code(),
+            Some(8),
+            "{id}: but it is printed, so it carries no escape codes"
+        );
+
+        // The prefix is the one field that becomes a command's `program`, and
+        // it was the field the first version of this fix left out - while
+        // validating `detection.executable`, which no command uses. A provider
+        // whose capture failed is skipped by the environment rule, and can
+        // still be the source side of a plan, so these reached a `REMOVE_SOURCE`
+        // step that elevates.
+        for hostile in [
+            "relative/evil",
+            ".",
+            "/opt/../tmp/evil",
+            "/tmp/\u{1b}[31mPWNED\u{1b}[0m",
+            "/usr",
+        ] {
+            let mut doc = base.clone();
+            doc["providers"][id]["detection"]["presence"] = serde_json::json!({"state": "ABSENT"});
+            doc["providers"][id]["detection"]["prefix"] = serde_json::json!(hostile);
+            doc["providers"][id]
+                .as_object_mut()
+                .expect("provider")
+                .remove("invocationEnvironment");
+            assert_eq!(
+                load(&doc, "prefix.json").status.code(),
+                Some(8),
+                "{id}: a prefix of {hostile:?} becomes the program of every command"
+            );
+        }
+    }
+
+    // Words `port` reads as a set of ports. A provider-neutral predicate can say
+    // "not a flag"; it cannot say "not a keyword", so the list is data with a
+    // source, and the guard sits where the argv is built.
+    for word in ["installed", "all", "INACTIVE", "installed@1", "not"] {
+        let mut doc = base.clone();
+        for id in ["homebrew", "macports"] {
+            let inventory = &mut doc["providers"][id]["inventory"];
+            let previous = inventory["installed"][0]["identity"]["name"]
+                .as_str()
+                .expect("a name")
+                .to_string();
+            inventory["installed"][0]["identity"]["name"] = serde_json::json!(word);
+            for map in ["metadata", "availability"] {
+                if let Some(object) = inventory[map].as_object_mut() {
+                    if let Some(value) = object.remove(&previous) {
+                        object.insert(word.to_string(), value);
+                    }
+                }
+            }
+        }
+        let file = scratch.path().join("pseudo.json");
+        std::fs::write(&file, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+        let out = run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                word,
+                "--to",
+                "macports",
+            ],
+        );
+        assert_ne!(
+            out.status.code(),
+            Some(0),
+            "a package named {word:?} must not become an argument"
+        );
+    }
+
+    // What reaches a reader is bounded and printable; what becomes a command is
+    // held to the stricter rule. Getting that split wrong in either direction is
+    // a defect: escape codes painted into `doctor`'s output on one side, and a
+    // refused capture on any machine whose `PATH` contains `.../bin/../bin` on
+    // the other, because `which` answers with the entry as written.
+    let mut painted = base.clone();
+    painted["environment"]["path"]
+        .as_array_mut()
+        .expect("path")
+        .insert(0, serde_json::json!("/tmp/\u{1b}[31mPWNED\u{1b}[0m/bin"));
+    assert_eq!(
+        load(&painted, "painted.json").status.code(),
+        Some(8),
+        "a snapshot must not paint a warning in someone's terminal"
+    );
+
+    let resolution = |name: &str, path: &str| {
+        serde_json::json!({name: {"executable": name, "path": path,
+                                  "owner": {"owner": "SYSTEM"}, "authoritative": false}})
+    };
+    let mut indirect = base.clone();
+    indirect["providers"]["homebrew"]["resolutions"] =
+        resolution("wget", "/usr/local/bin/../bin/wget");
+    assert_ne!(
+        load(&indirect, "indirect.json").status.code(),
+        Some(8),
+        "a resolution is where `PATH` said something was, not a program"
+    );
+    let mut flagged = base.clone();
+    flagged["providers"]["homebrew"]["resolutions"] = resolution("--force", "/usr/local/bin/wget");
+    assert_eq!(
+        load(&flagged, "flagged.json").status.code(),
+        Some(8),
+        "the executable name in a resolution is a name"
+    );
+
+    // A `~`-rooted prefix is a redacted absolute path, so it reads; but it
+    // cannot become a program, because `Command::new` would resolve it against
+    // the working directory. Refused where it matters, not where it is read.
+    let mut home_prefix = base.clone();
+    home_prefix["providers"]["macports"]["detection"]["prefix"] = serde_json::json!("~/evil");
+    home_prefix["providers"]["macports"]["invocationEnvironment"]["PATH"] =
+        serde_json::json!("~/evil/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    let file = scratch.path().join("home-prefix.json");
+    std::fs::write(&file, serde_json::to_vec(&home_prefix).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "analyze",
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "a redacted home prefix is readable"
+    );
+    assert_ne!(
+        run(
+            &scratch,
+            &[
+                "--json",
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "wget",
+                "--to",
+                "macports",
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "but it cannot become the program of a command"
+    );
+
+    // And the shapes a correct machine reports that earlier versions of this
+    // rule refused outright.
+    let mut variant = base.clone();
+    variant["providers"]["macports"]["inventory"]["installed"][0]["variants"] =
+        serde_json::json!(["-x11", "+universal"]);
+    assert_ne!(
+        load(&variant, "variant.json").status.code(),
+        Some(8),
+        "MacPorts records a deselected variant with its sign (R-3 E-1)"
+    );
+    // The same field, filled by the other provider with something else
+    // entirely: Homebrew copies a keg's `used_options`, which are option flags.
+    // A predicate designed from the MacPorts shape refused these at *capture*,
+    // so the tool declined the machine in front of it.
+    variant["providers"]["homebrew"]["inventory"]["installed"][0]["variants"] =
+        serde_json::json!(["--with-openssl", "--HEAD", "--c++11"]);
+    assert_ne!(
+        load(&variant, "options.json").status.code(),
+        Some(8),
+        "Homebrew records a keg's used_options in the same field"
+    );
+    let mut shallow = base.clone();
+    shallow["providers"]["homebrew"]["detection"]["version"] =
+        serde_json::json!(">=4.3.0 (shallow or no git repository)");
+    assert_ne!(
+        load(&shallow, "shallow.json").status.code(),
+        Some(8),
+        "Homebrew answers this when installed from the .pkg or a shallow clone"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +1973,717 @@ fn json_goes_to_stdout_and_nothing_else_does() {
     assert_eq!(out.status.code(), Some(0));
     assert!(!out.stderr.is_empty(), "the written path is announced");
     serde_json::from_slice::<Value>(&out.stdout).expect("stdout is still the snapshot JSON");
+}
+
+#[test]
+fn every_installed_package_is_reported_somewhere() {
+    // The assertion the suite never had, and the one that would have caught a
+    // package disappearing. Making the unit merge defer to the provider whose
+    // executable resolves is right, but mappings are scored per direction and
+    // are not symmetric, so the other side does not always claim the row back -
+    // and an installed, user-requested port was then reported nowhere at all,
+    // in either mode, while `plan` said it was not installed under any
+    // provider. Tidiness is not worth a package vanishing.
+    //
+    // Stated over the inventory rather than over the units, because that is the
+    // direction the defect ran: units looked fine, one input had no output.
+    let scratch = Scratch::new("completeness");
+    for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED, BROKEN, NEITHER] {
+        let advanced = json_run(&scratch, name, &["analyze", "--advanced"], true);
+        let reported: std::collections::BTreeSet<(String, String)> = units(&advanced)
+            .iter()
+            .flat_map(|u| {
+                u["rows"].as_object().into_iter().flat_map(|rows| {
+                    rows.iter().filter_map(|(provider, row)| {
+                        row["installed"].as_array().filter(|i| !i.is_empty())?;
+                        Some((provider.clone(), row["name"].as_str()?.to_string()))
+                    })
+                })
+            })
+            .collect();
+        for (provider, p) in advanced["providers"].as_object().expect("providers") {
+            if p["detection"]["presence"]["state"] != "PRESENT" {
+                continue;
+            }
+            for row in p["inventory"]["installed"].as_array().into_iter().flatten() {
+                let installed = row["identity"]["name"].as_str().unwrap_or_default();
+                assert!(
+                    reported.contains(&(provider.clone(), installed.to_string())),
+                    "{name}: {provider} has {installed} installed and the analysis \
+                     reports it under no unit, as neither a unit nor a row"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn invariant_13_advanced_mode_only_ever_adds_to_the_top_level_view() {
+    // One assertion, and it is the one that was missing. The suite asserted
+    // only that advanced mode yields *more* units, which stayed true while
+    // `--advanced` was quietly removing a user-requested package from the
+    // top-level set and flipping its source with it - the foundation pass
+    // recorded that as a count that "differs by one … Known, not fixed".
+    //
+    // The property that actually holds: visibility is applied to finished
+    // units, so the top-level set is identical in both modes and advanced mode
+    // only reveals dependencies (SE-048).
+    let scratch = Scratch::new("advanced-additive");
+    for name in [BOTH, HOMEBREW_ONLY, MACPORTS_ONLY, TAPPED] {
+        let plain = json_ok(&scratch, name, &["analyze"]);
+        // `--advanced` writes its documented notice to stderr, which is the
+        // point of notices being on stderr at all.
+        let advanced = json_run(&scratch, name, &["analyze", "--advanced"], true);
+
+        let top = |v: &Value| -> Vec<String> {
+            units(v)
+                .iter()
+                .filter(|u| u["advancedOnly"] != true)
+                .map(|u| u["name"].as_str().unwrap_or_default().to_string())
+                .collect()
+        };
+        assert_eq!(
+            top(&plain),
+            top(&advanced),
+            "{name}: the top-level set must not change with a visibility flag"
+        );
+        assert!(
+            units(&advanced).len() >= units(&plain).len(),
+            "{name}: advanced mode reveals, it does not hide"
+        );
+        // And the unit's identity is the same in both, not only its presence.
+        for u in units(&plain) {
+            let n = u["name"].as_str().unwrap_or_default();
+            let same = units(&advanced)
+                .iter()
+                .find(|a| a["name"] == u["name"])
+                .unwrap_or_else(|| panic!("{name}: {n} vanished under --advanced"));
+            assert_eq!(u["source"], same["source"], "{name}: {n} changed source");
+        }
+    }
+}
+
+#[test]
+fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() {
+    // The redaction policy is chosen in `Context::build`, and nothing else
+    // observes the choice — so without this the mapping could be flipped from
+    // `Recorded` to `Unresolved` and no test would notice: no fixture contains a
+    // `/Users/<name>` string, so the shape redaction is a no-op over all six
+    // recordings and every golden file stays byte-identical. That is a gate
+    // blind to exactly the regression this policy makes possible.
+    //
+    // `AS_CAPTURED` is the observable proof that a replayed or snapshotted run
+    // redacts nothing against *this* host (INV-15). It is deliberately not
+    // `GROUNDED`: neither a recording nor a snapshot records how it was redacted
+    // when it was captured, and one captured with no resolvable home was
+    // redacted heuristically.
+    let scratch = Scratch::new("redaction-policy");
+    let fixture_path = fixture(HOMEBREW_ONLY);
+    let path = fixture_path.to_str().expect("fixture path is UTF-8");
+
+    let replayed = scratch.path().join("replayed.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            path,
+            "doctor",
+            "--report",
+            replayed.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert!(
+        out.status.code() == Some(0) || out.status.code() == Some(5),
+        "doctor exits 0, or 5 on a broken provider; got {:?}",
+        out.status.code()
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(&replayed).expect("the report was written"))
+            .expect("the report is JSON");
+    assert_eq!(
+        report["redaction"], "AS_CAPTURED",
+        "a --replay run must not redact against this host"
+    );
+
+    // The same for a snapshot file, which reaches `Context::build` by a
+    // different branch and returns before a machine is ever built.
+    let snapshot = scratch.path().join("s.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            path,
+            "snapshot",
+            "--out",
+            snapshot.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let from_snapshot = scratch.path().join("from-snapshot.json");
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            snapshot.to_str().expect("path"),
+            "doctor",
+            "--report",
+            from_snapshot.to_str().expect("path"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert!(
+        out.status.code() == Some(0) || out.status.code() == Some(5),
+        "got {:?}",
+        out.status.code()
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(&from_snapshot).expect("the report was written"))
+            .expect("the report is JSON");
+    assert_eq!(
+        report["redaction"], "AS_CAPTURED",
+        "a --from-snapshot run must not redact against this host"
+    );
+}
+
+#[test]
+fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the_plan() {
+    // DP-016(c) refuses a plan whose source cannot say whether its packages
+    // define services, and it keys on `CapabilityState::Unknown`. An *absent*
+    // entry is deliberately not `Unknown` — in memory a capability nobody
+    // reported was never asked about, which is what lets a hand-made snapshot
+    // still be planned.
+    //
+    // A document is not in that position, and that was the hole this closes
+    // (F-29's residual). Both shipping adapters always write the entry, so the
+    // live path was safe; a document written by a build predating the
+    // capability carries the same `SNAPSHOT_SCHEMA_VERSION`, so it loaded, and
+    // INV-19's rule went silently unevaluated on a real plan — the exact
+    // outcome DP-016 exists to prevent, one route over.
+    //
+    // Demonstrated rather than asserted: a real capture, the key deleted, the
+    // real binary planning from it.
+    let scratch = Scratch::new("f29-absent-capability");
+    let path = fixture("both-providers-arm64-macos15");
+    let path = path.to_str().expect("fixture path is UTF-8");
+
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path,
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    // The capture answers the question — under replay MacPorts cannot scan
+    // another machine's filesystem, so it says `UNKNOWN` and says it out loud.
+    // Set it to a definite answer first, so that what this test removes is the
+    // *record* and not an unknown that was already there: without this the
+    // refusal would fire for the reason DP-016(c) already covered and prove
+    // nothing new.
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "AVAILABLE" });
+    let answerable = scratch.path().join("answerable.json");
+    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                answerable.to_str().expect("path"),
+                "plan",
+                "htop",
+                "--to",
+                "homebrew",
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "the control: a document that answers the question plans normally"
+    );
+
+    // Now the same document with the entry simply not there.
+    let obj = doc["providers"]["macports"]["capabilities"]["capabilities"]
+        .as_object_mut()
+        .expect("the capability table is an object");
+    assert!(
+        obj.remove("SERVICE_METADATA").is_some(),
+        "the key this test is about must have been there to remove"
+    );
+    let silent = scratch.path().join("silent.json");
+    std::fs::write(&silent, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            silent.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "a document that does not record the service question must refuse to \
+         plan, not plan as though the answer were no"
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "a refusal writes no plan document: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // And read-only analysis of the same document still works, because the
+    // analysis degrades and says so rather than failing (`.claude/rules/
+    // adapters.md`, "UNKNOWN is a first-class answer"). Only the planning path
+    // refuses.
+    let analysed = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            silent.to_str().expect("path"),
+            "--json",
+            "analyze",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        analysed.status.code(),
+        Some(0),
+        "analysis of the same document still succeeds"
+    );
+    let report: Value = serde_json::from_slice(&analysed.stdout).expect("JSON");
+    assert_eq!(
+        report["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"]
+            ["state"],
+        serde_json::json!("UNKNOWN"),
+        "and it reports the capability as unknown rather than omitting it"
+    );
+
+    // A third spelling, and the one that survived both earlier attempts.
+    // `security-reviewer` reproduced it on 2026-09-18: the refusal matched
+    // only `UNKNOWN`, so a document whose capability read `UNAVAILABLE` -
+    // which is the other way a record says "I cannot establish this" - planned
+    // normally, `REMOVE_SOURCE` step and all.
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "UNAVAILABLE", "reason": "nope" });
+    let unavailable = scratch.path().join("unavailable.json");
+    std::fs::write(&unavailable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                unavailable.to_str().expect("path"),
+                "plan",
+                "htop",
+                "--to",
+                "homebrew",
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(4),
+        "UNAVAILABLE is the same answer as UNKNOWN to the question the rule \
+         asks, and only AVAILABLE is not"
+    );
+
+    // Deleting the whole table must refuse too, and this arm exists because
+    // the first two versions of the fix did not.
+    //
+    // Version one filled every provider's table and the fixture matrix refused
+    // it on INV-15 grounds. Version two skipped empty tables to satisfy the
+    // matrix - and `spec-guardian` then demonstrated that emptying the table,
+    // rather than deleting one key, walked straight past this refusal: exit 0
+    // and a byte-identical plan, on a source provider still declaring itself
+    // PRESENT with a full inventory. A snapshot file is untrusted input here
+    // (F-09, F-21), so a one-keystroke bypass of INV-19 is the whole finding.
+    //
+    // Both symptoms had one cause, in neither place: the Homebrew adapter
+    // wrote an empty capability table for an absent provider where MacPorts
+    // wrote nine unknowns. With the peers agreeing, the rule is unconditional
+    // and both shapes refuse.
+    doc["providers"]["macports"]["capabilities"]["capabilities"] = serde_json::json!({});
+    let blank = scratch.path().join("blank.json");
+    std::fs::write(&blank, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    let blanked = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            blank.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
+        ],
+    );
+    assert_eq!(
+        blanked.status.code(),
+        Some(4),
+        "emptying the capability table must refuse exactly as deleting the \
+         one key does, or the refusal is one keystroke from being bypassed"
+    );
+    assert!(
+        blanked.stdout.is_empty(),
+        "and it writes no plan: {}",
+        String::from_utf8_lossy(&blanked.stdout)
+    );
+}
+
+/// SE-092's S3 addendum, through the real binary. A package only its
+/// destination holds is "already there" only if every *other* provider's
+/// inventory was read. The planner names no provider, so which providers a
+/// complete document must carry comes from the registry, and this is the one
+/// test that proves `plan` passes it: an application-level test supplies its
+/// own list and cannot see the command line forgetting to.
+#[test]
+fn a_package_is_not_reported_as_already_moved_on_an_inventory_nobody_read() {
+    let scratch = Scratch::new("s3-unread-inventory");
+    let path = fixture(BOTH);
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path.to_str().expect("fixture path is UTF-8"),
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+    let doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    // `nginx` is held by MacPorts alone in this fixture.
+    let plan_nginx = |label: &str, doc: &Value| {
+        let file = scratch.path().join(format!("{label}.json"));
+        std::fs::write(&file, serde_json::to_vec(doc).expect("serialise")).expect("write");
+        run(
+            &scratch,
+            &[
+                "--from-snapshot",
+                file.to_str().expect("path"),
+                "plan",
+                "nginx",
+                "--to",
+                "macports",
+                "--today",
+                TODAY,
+            ],
+        )
+    };
+
+    let control = plan_nginx("control", &doc);
+    assert_eq!(
+        control.status.code(),
+        Some(2),
+        "the control: read in full, nginx is already held by macports: {}",
+        String::from_utf8_lossy(&control.stderr)
+    );
+
+    // The other provider's entry deleted: not recorded as absent, just gone.
+    let mut missing = doc.clone();
+    missing["providers"]
+        .as_object_mut()
+        .expect("providers is an object")
+        .remove("homebrew")
+        .expect("the fixture carries homebrew");
+    let out = plan_nginx("missing", &missing);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(4), "{text}");
+    assert!(text.contains("homebrew"), "the refusal names it: {text}");
+    assert!(out.stdout.is_empty(), "a refusal writes no plan");
+
+    // The other provider broken, as `capture` records one it could not read.
+    let mut broken = doc.clone();
+    let hb = &mut broken["providers"]["homebrew"];
+    hb["detection"]["presence"] =
+        serde_json::json!({ "state": "BROKEN", "reason": "error.provider_unhealthy" });
+    hb["inventory"]["installed"] = serde_json::json!([]);
+    hb["capabilities"]["capabilities"]["MACHINE_READABLE_INVENTORY"] =
+        serde_json::json!({ "state": "UNKNOWN" });
+    let out = plan_nginx("broken", &broken);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(5), "{text}");
+    assert!(text.contains("homebrew is broken"), "it names it: {text}");
+    assert!(
+        !text.contains("error."),
+        "a message identifier reached the user: {text}"
+    );
+}
+
+#[test]
+fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
+    // Finding F-10, reproduced exactly as it was observed: the plan for
+    // `htop --to macports` ended "Steps that would need administrator rights:
+    // 2, 3", where step 3 is `port -q installed htop` - a read. It said that
+    // because `verify` had no entry in `[entry.elevation]` and the planner maps
+    // a missing key to `Elevation::Unknown`, which the summary then rendered as
+    // "would need administrator rights".
+    //
+    // Two things fixed it. The elevation is stated in the data rather than
+    // reached by omission; and where the answer is not known, the summary says
+    // so instead of saying you will be asked for a password. Under INV-06 the
+    // harm was never the fold toward caution, it was training someone to
+    // approve a prompt for a read.
+    //
+    // **Updated 2026-09-06.** This test used to assert that step 3 carried
+    // `elevation unknown`, because MacPorts was not installed on the machine
+    // the research was done on and its documentation did not settle it. It is
+    // installed now: `port -q installed` runs as a non-root user and exits 0,
+    // the registry is world-readable, and the data says `none` with that
+    // observation as its source (F-24). So the honest answer changed, and the
+    // assertion has to change with it or it asserts the old world.
+    //
+    // **This test is the rendering check and nothing more.** An earlier version
+    // of this rewrite claimed it asserted INV-06 "more strongly than before".
+    // That was false, and `spec-guardian` proved it by mutation: flipping one
+    // provider's `verify` cell to `required` makes the binary print "Steps that
+    // need administrator rights: 3, 6" with step 3 a read, and every test in
+    // the repository stayed green. The invariant itself is now asserted where
+    // it is a property of the plan rather than of a string - in
+    // `macportsbrew-application`, `invariant_06_a_step_whose_job_is_to_read_
+    // never_elevates`, which fails under that mutation. What remains here is
+    // that the *renderer* does not turn a non-elevating read into a password
+    // prompt, and that a genuine elevation is still reported.
+    //
+    // One thing was lost and is recorded rather than papered over: with the
+    // last reachable `unknown` gone, the renderer's "Steps where it is not
+    // known" branch is no longer reachable through any plan, so nothing
+    // exercises it. Manufacturing an `unknown` to keep that green would test a
+    // path no user can reach. See F-24's closure note and F-35.
+    let scratch = Scratch::new("f10-elevation");
+    let path = fixture("both-providers-arm64-macos15");
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let out = run(
+        &scratch,
+        &[
+            "--replay", path, "plan", "htop", "--to", "macports", "--today", TODAY,
+        ],
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    let verify = text
+        .lines()
+        .find(|l| l.contains("-q installed htop"))
+        .expect("the verify step names its command");
+    assert!(
+        !verify.contains("elevation required"),
+        "a read must never be annotated as elevating: {verify}"
+    );
+
+    // Deliberately *not* `summary.is_empty()`. That was this rewrite's second
+    // mistake: this direction happens to have no elevating step only because
+    // htop is already installed under MacPorts in this fixture, so
+    // ADD_DESTINATION emits no command at all. Recapture the fixture with htop
+    // absent and the destination's add verb appears, `required` with it, and a
+    // test named after INV-06 fails on a plan that is entirely correct. The
+    // property is about the verify step's own annotation, asserted above.
+
+    // And the other direction, because the branch that reports a *real*
+    // elevation was rewritten by the same change and nothing asserted it. A bug
+    // that emptied `required` - an inverted `matches!`, an empty-command guard -
+    // would hide a genuine administrator prompt, which is the INV-06-relevant
+    // direction of failure, and the assertions above would still pass: they see
+    // one summary line either way. Running both directions also exercises
+    // INV-17: the same code renders both, and only the data differs.
+    //
+    // Through a snapshot rather than `--replay`, because DP-016(c) refuses a
+    // plan whose source cannot say whether its packages define services — and
+    // under replay MacPorts never can, since the scan will not read another
+    // machine's filesystem (F-25, F-29). The one thing patched is that
+    // capability, to what a live MacPorts machine reports; the binary, the
+    // planner and the rendering are the real ones, and this direction is the
+    // only place INV-06's *elevating* branch and INV-17's symmetry are
+    // asserted at all.
+    let captured = scratch.path().join("both.json");
+    assert_eq!(
+        run(
+            &scratch,
+            &[
+                "--replay",
+                path,
+                "--json",
+                "snapshot",
+                "--out",
+                captured.to_str().expect("path"),
+                "--today",
+                TODAY,
+            ],
+        )
+        .status
+        .code(),
+        Some(0),
+        "capturing the snapshot"
+    );
+    let mut doc: Value =
+        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
+    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
+        serde_json::json!({ "state": "AVAILABLE" });
+    let answerable = scratch.path().join("answerable.json");
+    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+
+    let out = run(
+        &scratch,
+        &[
+            "--from-snapshot",
+            answerable.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "homebrew",
+            "--today",
+            TODAY,
+        ],
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    let reverse: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("administrator rights"))
+        .collect();
+    // Exactly one line here, and it is the other one. Removing from MacPorts
+    // elevates; the Homebrew destination's `verify` is a cited `none`, and the
+    // removal-verification step carries no command at all - so nothing in this
+    // direction is unknown. Asserting both lines appear was this test's first
+    // shape and it was wrong, which is the useful kind of wrong: the assertion
+    // was about what I expected rather than what the data says.
+    assert_eq!(
+        reverse.len(),
+        1,
+        "one summary line in this direction: {reverse:?}"
+    );
+    // The **exact** line, not "starts with the right words and contains some
+    // digit". Those two assertions passed unchanged under the mutation that
+    // added a read to this list, because "3, 6" starts identically and still
+    // contains a digit. Step 6 is REMOVE_SOURCE and is the only step in this
+    // direction that genuinely elevates; naming it is what makes the assertion
+    // able to fail.
+    assert_eq!(
+        reverse[0].trim(),
+        "Steps that need administrator rights: 6.",
+        "only the removal elevates in this direction; any other step appearing \
+         here is a read being presented as a password prompt (INV-06)"
+    );
+}
+
+#[test]
+fn no_rust_identifier_reaches_the_reader() {
+    // Five sites rendered a domain enumeration with `{:?}`, so `SnapshotBefore`
+    // and `ProviderReportsActive` reached a person as written in the source -
+    // seen by no catalogue and marked by no pseudolocale (F-20, which listed
+    // three of the five).
+    //
+    // The property, not the strings: no CamelCase variant name survives into
+    // human output. That catches a sixth site nobody has written yet, which a
+    // list of expected sentences would not.
+    let scratch = Scratch::new("no-debug-render");
+    let path = fixture(BOTH);
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let mut seen = 0usize;
+    for args in [
+        vec!["plan", "htop", "--to", "macports"],
+        vec!["status"],
+        vec!["explain", "htop"],
+    ] {
+        let mut argv = vec!["--replay", path];
+        argv.extend_from_slice(&args);
+        argv.extend_from_slice(&["--today", TODAY]);
+        let out = run(&scratch, &argv);
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(!text.is_empty(), "{args:?} printed nothing");
+        seen += 1;
+        for name in [
+            "SnapshotBefore",
+            "AddDestination",
+            "VerifyDestination",
+            "RemoveSource",
+            "ManualReview",
+            "ProviderReportsActive",
+            "LivenessProbe",
+            "NoCrossProviderLinkage",
+            "PackageAbsent",
+            "ExecutablesOwnedByDestination",
+        ] {
+            assert!(
+                !text.contains(name),
+                "{args:?} showed the reader the Rust identifier `{name}`"
+            );
+        }
+    }
+    assert_eq!(seen, 3, "all three surfaces were exercised");
+}
+
+#[test]
+fn the_status_table_renders_through_the_catalogue() {
+    // Both columns were built in code: the tier as
+    // `format!("{:?}", tier).to_ascii_lowercase()` and the count as
+    // `"{} ({} top-level)"` (F-20). Nothing asserted either, so swapping two
+    // catalogue keys or reverting to `{:?}` would pass clippy, pass the parity
+    // check - the keys exist and are referenced either way - and pass the suite.
+    let scratch = Scratch::new("status-render");
+    let path = fixture(BOTH);
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let out = run(&scratch, &["--replay", path, "status", "--today", TODAY]);
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        text.contains("Supported"),
+        "the tier comes from the catalogue, capitalised as it writes it: {text}"
+    );
+    assert!(
+        !text.contains(" supported ") && !text.lines().any(|l| l.contains("  supported")),
+        "and not lower-cased from the enum: {text}"
+    );
+    assert!(
+        text.contains("packages (") && text.contains("top-level)"),
+        "the count is one catalogue string with a plural rule: {text}"
+    );
+    // The plural rule is the catalogue's, not a format string's: a provider
+    // holding one package says "package", not "1 packages".
+    assert!(
+        !text.contains("1 packages"),
+        "the plural rule did not apply: {text}"
+    );
 }
 
 #[test]

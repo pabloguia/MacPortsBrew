@@ -26,7 +26,9 @@ pub mod facts;
 pub mod reasons;
 pub mod rules;
 
-pub use data::{days_between, shift_date, PolicyData, PolicySources};
+pub use data::{
+    days_between, shift_date, BuildDefence, CrossProviderAdvice, PolicyData, PolicySources,
+};
 pub use engine::{explain, recommend, Derivation, FiredRule};
 pub use facts::{Facts, PackageFacts, PackageProviderFacts, ProviderFacts};
-pub use rules::{Rule, RuleVerdict};
+pub use rules::{labels, Rule, RuleVerdict};

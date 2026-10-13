@@ -19,9 +19,21 @@ mpb_have() { command -v "$1" >/dev/null 2>&1; }
 # field" from "could not read the input" - a guard must block on the latter.
 mpb_json_field() {
   local json="$1" path="$2" out
+  # Empty or whitespace-only input is unreadable, not "a document with no such
+  # field". `jq` has no inputs to process there: it exits 0 and prints nothing,
+  # which a caller would read as "no command to check" and therefore allow.
+  # The same holds for a top-level `null`, which parses but carries no field.
+  # Both must fail closed, or the guard's fail-closed property depends on which
+  # parser the machine happens to have.
+  case "$json" in
+    *[![:space:]]*) : ;;
+    *) return 3 ;;
+  esac
   if mpb_have jq; then
     out="$(printf '%s' "$json" | jq -r --arg p "$path" '
-      getpath($p | split(".")) // "" | if type == "string" then . else tojson end
+      if type != "object" then error("tool input is not a JSON object") else
+        getpath($p | split(".")) // "" | if type == "string" then . else tojson end
+      end
     ' 2>/dev/null)" || return 3
     printf '%s' "$out"
   elif mpb_have python3; then
@@ -30,6 +42,8 @@ import json, sys
 try:
     doc = json.load(sys.stdin)
 except Exception:
+    sys.exit(3)
+if not isinstance(doc, dict):
     sys.exit(3)
 node = doc
 for part in sys.argv[1].split("."):
@@ -126,7 +140,15 @@ print(json.dumps({"systemMessage":sys.argv[1]}))
 }
 
 # mpb_realpath <path>: canonical absolute path with symlinks resolved, so a
-# guard matches the target and not the spelling. Falls back to the input.
+# guard matches the target and not the spelling.
+#
+# Returns non-zero and prints nothing when it cannot canonicalise. It used to
+# fall back to returning the input unchanged, which is an identity function
+# wearing a guard's name: on a machine with jq but no python3 and BSD readlink
+# (older macOS - exactly this project's target), a symlinked parent directory
+# would then reach the caller un-resolved and evade a prefix check that only
+# tests the leaf. A guard that cannot resolve the target cannot say the target
+# is safe, which is the same rule mpb_json_field applies to an unreadable input.
 mpb_realpath() {
   if mpb_have python3; then
     python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null && return 0
@@ -134,5 +156,19 @@ mpb_realpath() {
   if readlink -f / >/dev/null 2>&1; then
     readlink -f "$1" 2>/dev/null && return 0
   fi
-  printf '%s\n' "$1"
+  return 1
+}
+
+# mpb_realpath_or_fail_closed <variable-name> <path>
+# Sets the named variable in the caller's shell; exits the caller with 2 when
+# the path cannot be canonicalised.
+mpb_realpath_or_fail_closed() {
+  local __mpb_real
+  if ! __mpb_real="$(mpb_realpath "$2")"; then
+    echo "MacPortsBrew hook: could not canonicalise '$2', so this guard cannot" >&2
+    echo "tell what the write would reach. Failing closed. (Install python3, or" >&2
+    echo "use a shell whose readlink supports -f.)" >&2
+    exit 2
+  fi
+  printf -v "$1" '%s' "$__mpb_real"
 }

@@ -3,6 +3,10 @@
 //! The error taxonomy: stable identifiers, each mapping to an exit code and
 //! to a user-facing remediation message rendered by the UI
 //! (`06-cli-and-ux.md`, "Output contract").
+//!
+//! Exit 3, partial success, is deliberately no error's code: it is a run
+//! outcome, `PARTIAL_SUCCESS_EXIT_CODE` in `macportsbrew_application::executor`,
+//! and a test there holds every identifier here away from it (INV-03).
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -27,10 +31,81 @@ pub enum ErrorId {
     CapabilityMissing,
     /// A snapshot could not be read or has an incompatible schema.
     SnapshotUnusable,
+    /// A recording could not be read or has an incompatible schema.
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] only because the remediation
+    /// differs: a snapshot is produced by `macportsbrew snapshot` and consumed
+    /// by `--from-snapshot`, a recording by `scripts/capture-fixture.sh` and
+    /// consumed by `--replay`. One reader serves both (F-30), so before this
+    /// existed a bad `--replay` told the user to take a fresh snapshot and
+    /// point a flag they had not used at a different file (F-41). The exit code
+    /// is deliberately the same 8: `06-cli-and-ux.md:68` is the category
+    /// "8 stale/unusable input", and a recording is one.
+    RecordingUnusable,
+    /// The input this run was built from cannot be used.
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] and
+    /// [`ErrorId::RecordingUnusable`] for the same reason those are separate
+    /// from each other - the remediation - but in the opposite direction: this
+    /// one names **no** route. The planner is handed a `Snapshot` whose values
+    /// may have come from a live capture, a snapshot file or a recording, and
+    /// `planner.rs` refused them all with the snapshot remediation, telling a
+    /// `--replay` user to take a fresh snapshot and point a flag they had not
+    /// used at a different file (F-43, the same defect as F-41 one layer up).
+    ///
+    /// The route is *visible* - `Provenance.captured_by` carries it - but only
+    /// as a free-text display string assembled in the CLI, and branching an
+    /// error identifier on one of those is the wrong instrument. An identifier
+    /// that presumes nothing needs no branch. Exit code 8 for the reason
+    /// `RecordingUnusable` has it: `06-cli-and-ux.md:68` is the category
+    /// "8 stale/unusable input", and this is one.
+    InputUnusable,
     /// Policy data could not be loaded or is inconsistent.
     PolicyDataInvalid,
+    /// The history store could not be read, or holds an entry it cannot trust
+    /// (`04-migration-and-safety.md`, History).
+    ///
+    /// Separate from [`ErrorId::SnapshotUnusable`] for the remediation: the
+    /// store is MacPortsBrew's own state, not an input the user pointed a flag
+    /// at, so the user looks at the named entry rather than taking a fresh
+    /// capture. Exit 8, the category "8 stale/unusable input": a record that
+    /// cannot be trusted is never read as "no record" (fail closed).
+    HistoryUnusable,
+    /// Another MacPortsBrew run holds the single-instance lock
+    /// (`04-migration-and-safety.md`, Concurrency and locking). Exit 7, "lock
+    /// held by another instance". No process is named: none is recorded, and
+    /// the lock belongs to whoever holds it, not to a pid.
+    RunLockHeld,
+    /// A previous mutating run left its marker and was never accounted for
+    /// (`06-cli-and-ux.md`: "exits 4 and names the run"). Separate from
+    /// [`ErrorId::SafetyBlocked`] for the remediation: the user looks at the
+    /// named run, not at a finding. Exit 4.
+    RunInterrupted,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
     SafetyBlocked,
+    /// A safety rule could not be evaluated, because the input does not carry
+    /// the fact it needs.
+    ///
+    /// Separate from [`ErrorId::SafetyBlocked`] for the reason
+    /// [`ErrorId::RecordingUnusable`] is separate from
+    /// [`ErrorId::SnapshotUnusable`] — the remediation. `SafetyBlocked` means a
+    /// rule fired and the user can read the finding, resolve it and re-run.
+    /// Here no rule fired and nothing the user does resolves it: the fact is
+    /// absent from the document, so there is no plan to correct. Same exit code
+    /// 4, because `06-cli-and-ux.md:67` is the category "blocked by a safety
+    /// check" and being unable to run one is why this operation stopped
+    /// (DP-016).
+    SafetyUnverifiable,
+    /// An answer that is only true if another provider holds nothing could
+    /// not be given, because that provider was not detected and detection
+    /// looks only where a provider is documented to live (`migrate`'s
+    /// "nothing to move", SE-092).
+    ///
+    /// Separate from [`ErrorId::SafetyUnverifiable`] for the remediation:
+    /// there the missing fact is absent from the document; here it is about
+    /// this machine, and the user may be able to settle it. Exit 4: why the
+    /// operation stopped is a safety answer that could not be given.
+    ProviderPresenceUnproven,
     /// The operation exists in the specification but not in this build
     /// (the foundation pass ships no mutating code path).
     NotImplementedInThisPass,
@@ -45,13 +120,21 @@ impl ErrorId {
     pub fn exit_code(self) -> i32 {
         match self {
             ErrorId::Usage => 2,
-            ErrorId::SafetyBlocked => 4,
+            ErrorId::SafetyBlocked
+            | ErrorId::SafetyUnverifiable
+            | ErrorId::ProviderPresenceUnproven
+            | ErrorId::RunInterrupted => 4,
+            ErrorId::RunLockHeld => 7,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
             | ErrorId::ProviderOutputChanged
             | ErrorId::ProviderTimeout
             | ErrorId::CapabilityMissing => 5,
-            ErrorId::SnapshotUnusable | ErrorId::PolicyDataInvalid => 8,
+            ErrorId::SnapshotUnusable
+            | ErrorId::RecordingUnusable
+            | ErrorId::InputUnusable
+            | ErrorId::PolicyDataInvalid
+            | ErrorId::HistoryUnusable => 8,
             ErrorId::PackageNotFound
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
@@ -70,8 +153,15 @@ impl ErrorId {
             ErrorId::PackageNotFound => "error.package_not_found",
             ErrorId::CapabilityMissing => "error.capability_missing",
             ErrorId::SnapshotUnusable => "error.snapshot_unusable",
+            ErrorId::RecordingUnusable => "error.recording_unusable",
+            ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
+            ErrorId::HistoryUnusable => "error.history_unusable",
+            ErrorId::RunLockHeld => "error.run_lock_held",
+            ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
+            ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
+            ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
             ErrorId::Io => "error.io",
             ErrorId::Internal => "error.internal",
@@ -89,8 +179,15 @@ impl ErrorId {
             ErrorId::PackageNotFound,
             ErrorId::CapabilityMissing,
             ErrorId::SnapshotUnusable,
+            ErrorId::RecordingUnusable,
+            ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
+            ErrorId::HistoryUnusable,
+            ErrorId::RunLockHeld,
+            ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
+            ErrorId::SafetyUnverifiable,
+            ErrorId::ProviderPresenceUnproven,
             ErrorId::NotImplementedInThisPass,
             ErrorId::Io,
             ErrorId::Internal,
@@ -140,10 +237,58 @@ mod tests {
     fn exit_codes_follow_the_contract() {
         assert_eq!(ErrorId::Usage.exit_code(), 2);
         assert_eq!(ErrorId::SafetyBlocked.exit_code(), 4);
+        // Same bucket, deliberately: a safety rule that cannot be evaluated is
+        // why the operation stopped, which is what category 4 names (DP-016).
+        assert_eq!(ErrorId::SafetyUnverifiable.exit_code(), 4);
+        assert_eq!(ErrorId::ProviderPresenceUnproven.exit_code(), 4);
         assert_eq!(ErrorId::ProviderUnhealthy.exit_code(), 5);
         assert_eq!(ErrorId::SnapshotUnusable.exit_code(), 8);
+        // Same bucket, deliberately: `06-cli-and-ux.md:68` is "8 stale/unusable
+        // input", a category, and a recording is one. Asserted here rather than
+        // only in the adapter that reads recordings, so re-bucketing the
+        // identifier fails where the contract lives (F-41).
+        assert_eq!(ErrorId::RecordingUnusable.exit_code(), 8);
+        // And the planner's, which names no route at all (F-43).
+        assert_eq!(ErrorId::InputUnusable.exit_code(), 8);
+        // And the history store's: an untrusted record is unusable input,
+        // never "no record" (pass 08).
+        assert_eq!(ErrorId::HistoryUnusable.exit_code(), 8);
+        assert_eq!(ErrorId::RunLockHeld.exit_code(), 7);
+        assert_eq!(ErrorId::RunInterrupted.exit_code(), 4);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
+
+    #[test]
+    fn all_is_the_whole_enum_and_not_a_stale_copy_of_it() {
+        // `all()` is a hand-written mirror of the enum, and `crates/cli/tests/
+        // i18n.rs` iterates it to prove every identifier has a catalogue
+        // message, a `{detail}` slot and a remediation sentence - the MUST at
+        // `06-cli-and-ux.md:76`. Forget to extend `all()` and every one of
+        // those tests still passes while an identifier ships with no message
+        // at all, which that MUST calls never acceptable (F-43).
+        //
+        // Rust cannot enumerate variants without a derive, and ADR-0004 makes
+        // a dependency for that a decision. What is available is a chain, and
+        // it closes: `exit_code` and `message_id` are exhaustive matches with
+        // no wildcard, so a new variant is a **compile error** in this file -
+        // the author is already here - and this count then fails until `all()`
+        // is extended too. `every_id_has_a_distinct_message` below rules out
+        // padding the count with a duplicate.
+        //
+        // What it does not prove: that `all()` lists the *right* identifiers,
+        // only that it lists as many as exist. Stated because a count that is
+        // mistaken for a set is how the next version of F-43 gets written.
+        assert_eq!(
+            ErrorId::all().len(),
+            NUMBER_OF_ERROR_IDS,
+            "a variant was added without extending all(); the i18n coverage \
+             tests iterate all() and would have stayed green"
+        );
+    }
+
+    /// Update this **and** `all()` when adding an identifier. The exhaustive
+    /// matches above will already have refused to compile.
+    const NUMBER_OF_ERROR_IDS: usize = 20;
 
     #[test]
     fn every_id_has_a_distinct_message() {

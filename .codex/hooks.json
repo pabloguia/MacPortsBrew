@@ -1,0 +1,65 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'cd \"$(git rev-parse --show-toplevel)\" && exec .codex/hooks/guard-provider-mutation.sh'",
+            "timeout": 15,
+            "statusMessage": "Checking command against INV-05 / INV-06"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'cd \"$(git rev-parse --show-toplevel)\" && exec .codex/hooks/guard-protected-paths.sh'",
+            "timeout": 15,
+            "statusMessage": "Checking write target"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'cd \"$(git rev-parse --show-toplevel)\" && exec .codex/hooks/post-edit-checks.sh'",
+            "timeout": 120,
+            "statusMessage": "Formatting and checking the edited file"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'cd \"$(git rev-parse --show-toplevel)\" && exec .codex/hooks/session-start.sh'",
+            "timeout": 20,
+            "statusMessage": "Loading MacPortsBrew pass context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'cd \"$(git rev-parse --show-toplevel)\" && exec .codex/hooks/stop-gate.sh'",
+            "timeout": 600,
+            "statusMessage": "Running the definition-of-done gate"
+          }
+        ]
+      }
+    ]
+  }
+}

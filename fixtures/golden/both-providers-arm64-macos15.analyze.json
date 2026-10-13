@@ -1,4 +1,8 @@
 {
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  },
   "machine": {
     "architecture": "arm64",
     "commandLineTools": {
@@ -36,7 +40,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -57,7 +61,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -138,7 +142,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -166,7 +170,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -204,10 +208,10 @@
             }
           ],
           "name": "adoptopenjdk",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -238,7 +242,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -259,7 +263,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -339,7 +343,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -360,7 +364,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -434,7 +438,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -455,7 +459,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -535,7 +539,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -556,7 +560,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -643,7 +647,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -671,7 +675,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -709,10 +713,10 @@
             }
           ],
           "name": "copilot-cli",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -742,7 +746,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -770,7 +774,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -843,7 +847,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -871,7 +875,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -945,7 +949,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -966,7 +970,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1040,7 +1044,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1061,7 +1065,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1148,7 +1152,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1176,7 +1180,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1214,10 +1218,10 @@
             }
           ],
           "name": "gcloud-cli",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -1247,7 +1251,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1277,7 +1281,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1356,7 +1360,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1377,7 +1381,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1457,7 +1461,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1478,7 +1482,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1565,7 +1569,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1593,7 +1597,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1631,10 +1635,10 @@
             }
           ],
           "name": "gimp",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -1665,7 +1669,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1686,7 +1690,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1760,7 +1764,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1781,7 +1785,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1861,7 +1865,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1882,7 +1886,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -1946,7 +1950,7 @@
               "confidence": "STRONG",
               "evidence": [
                 {
-                  "detail": "https://gnutls.org/",
+                  "detail": "https://www.gnutls.org/",
                   "kind": "homepage",
                   "weight": 30
                 },
@@ -1958,17 +1962,17 @@
               ],
               "package": {
                 "name": "gnutls",
-                "provider": "homebrew"
+                "provider": "macports"
               }
             }
           ],
           "confidence": "STRONG",
-          "destination": "homebrew",
+          "destination": "macports",
           "selected": {
             "confidence": "STRONG",
             "evidence": [
               {
-                "detail": "https://gnutls.org/",
+                "detail": "https://www.gnutls.org/",
                 "kind": "homepage",
                 "weight": 30
               },
@@ -1980,12 +1984,12 @@
             ],
             "package": {
               "name": "gnutls",
-              "provider": "homebrew"
+              "provider": "macports"
             }
           },
           "source": {
             "name": "gnutls",
-            "provider": "macports"
+            "provider": "homebrew"
           }
         }
       ],
@@ -1994,7 +1998,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -2009,7 +2013,7 @@
             "id": "reason.keep_source_default",
             "params": {
               "package": "gnutls",
-              "provider": "macports"
+              "provider": "homebrew"
             },
             "rule": "KEEP_SOURCE_DEFAULT"
           },
@@ -2017,18 +2021,9 @@
             "id": "reason.reverse_dependencies_present",
             "params": {
               "count": "3",
-              "provider": "macports"
+              "provider": "homebrew"
             },
             "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
-          },
-          {
-            "id": "reason.destination_offers_prebuilt",
-            "params": {
-              "cause": "NON_DEFAULT_OPTIONS",
-              "destination": "homebrew",
-              "source": "macports"
-            },
-            "rule": "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT"
           }
         ],
         "rulesNotFired": [
@@ -2039,8 +2034,9 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
+          "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
       },
@@ -2137,7 +2133,7 @@
           "reverseDependencyCount": 0
         }
       },
-      "source": "macports"
+      "source": "homebrew"
     },
     {
       "advancedOnly": false,
@@ -2162,7 +2158,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2183,7 +2179,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2257,7 +2253,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2278,7 +2274,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2391,7 +2387,7 @@
           "kind": "KEEP_BOTH",
           "primary": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -2420,7 +2416,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2541,7 +2537,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2569,7 +2565,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2643,7 +2639,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2664,7 +2660,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2738,7 +2734,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2759,7 +2755,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2847,7 +2843,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2875,7 +2871,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -2913,10 +2909,10 @@
             }
           ],
           "name": "meld",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -2947,7 +2943,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2968,7 +2964,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -3060,7 +3056,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3081,7 +3077,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -3168,7 +3164,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3204,7 +3200,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -3277,7 +3273,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3298,7 +3294,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -3408,7 +3404,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3459,7 +3455,7 @@
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -3588,7 +3584,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3624,7 +3620,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -3718,6 +3714,20 @@
         {
           "candidates": [
             {
+              "confidence": "EXACT",
+              "evidence": [
+                {
+                  "detail": "nodejs24 -> node@24",
+                  "kind": "curated",
+                  "weight": 100
+                }
+              ],
+              "package": {
+                "name": "node@24",
+                "provider": "homebrew"
+              }
+            },
+            {
               "confidence": "PROBABLE",
               "evidence": [
                 {
@@ -3732,19 +3742,19 @@
               }
             }
           ],
-          "confidence": "PROBABLE",
+          "confidence": "EXACT",
           "destination": "homebrew",
           "selected": {
-            "confidence": "PROBABLE",
+            "confidence": "EXACT",
             "evidence": [
               {
-                "detail": "https://nodejs.org/",
-                "kind": "homepage",
-                "weight": 30
+                "detail": "nodejs24 -> node@24",
+                "kind": "curated",
+                "weight": 100
               }
             ],
             "package": {
-              "name": "node",
+              "name": "node@24",
               "provider": "homebrew"
             }
           },
@@ -3759,17 +3769,8 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
-          {
-            "id": "reason.present_under_both_providers",
-            "params": {
-              "criterion": "SUPPORTED_HERE",
-              "other": "homebrew",
-              "primary": "macports"
-            },
-            "rule": "KEEP_BOTH_HEALTHY"
-          },
           {
             "id": "reason.keep_source_default",
             "params": {
@@ -3779,21 +3780,12 @@
             "rule": "KEEP_SOURCE_DEFAULT"
           },
           {
-            "id": "reason.mapping_confidence_below_threshold",
+            "id": "reason.availability_unknown",
             "params": {
-              "confidence": "PROBABLE",
-              "destination": "homebrew",
-              "threshold": "STRONG"
+              "package": "nodejs24",
+              "provider": "homebrew"
             },
-            "rule": "MANUAL_REVIEW_MAPPING_CONFIDENCE"
-          },
-          {
-            "id": "reason.reverse_dependencies_present",
-            "params": {
-              "count": "4",
-              "provider": "macports"
-            },
-            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
+            "rule": "MANUAL_REVIEW_AVAILABILITY_UNKNOWN"
           },
           {
             "id": "reason.runtime_family_managed_elsewhere",
@@ -3806,12 +3798,14 @@
         ],
         "rulesNotFired": [
           "DESTINATION_UNSUPPORTED_HERE",
-          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "KEEP_BOTH_HEALTHY",
           "MANUAL_REVIEW_CLASS",
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -3820,49 +3814,29 @@
         "homebrew": {
           "availability": {
             "availability": {
-              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM",
-              "state": "SOURCE_BUILD_REQUIRED"
+              "state": "UNKNOWN"
             },
-            "cached": true,
+            "cached": false,
             "evidence": [
               {
-                "detail": "no tag offered for this machine",
+                "detail": "the destination's catalogue is not consulted offline in this pass",
                 "offline": true,
-                "source": "bottle.stable.files"
-              },
-              {
-                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
-                "offline": true,
-                "source": "cached metadata index"
+                "source": "destination_catalogue"
               }
             ]
           },
-          "availableVersion": "26.8.1",
-          "dependencyCount": 26,
+          "dependencyCount": 0,
           "deprecated": false,
           "disabled": false,
-          "installed": [
-            {
-              "active": true,
-              "identity": {
-                "name": "node",
-                "provider": "homebrew"
-              },
-              "installPath": "/opt/homebrew/Cellar/node/26.7.0",
-              "installedFromPrebuilt": true,
-              "kind": "PACKAGE",
-              "requested": true,
-              "version": "26.7.0"
-            }
-          ],
-          "name": "node",
-          "ownership": "TOP_LEVEL",
+          "installed": [],
+          "name": "node@24",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": true,
-            "mechanism": "installed_on_request"
+            "mechanism": "not_installed"
           },
-          "presence": "INSTALLED",
-          "reverseDependencyCount": 4
+          "presence": "MAPPED",
+          "reverseDependencyCount": 0
         },
         "macports": {
           "availability": {
@@ -3930,7 +3904,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3951,7 +3925,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4025,7 +3999,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4046,7 +4020,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4120,7 +4094,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4141,7 +4115,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4222,7 +4196,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4250,7 +4224,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4288,10 +4262,10 @@
             }
           ],
           "name": "oracle-jdk",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -4322,7 +4296,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4343,7 +4317,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4417,7 +4391,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4438,7 +4412,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4518,7 +4492,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4539,7 +4513,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4614,7 +4588,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4635,7 +4609,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4767,7 +4741,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -4811,7 +4785,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -4907,8 +4881,7 @@
       "class": {
         "classes": [
           "STATEFUL",
-          "SERVICE",
-          "RUNTIME"
+          "SERVICE"
         ],
         "evidence": [
           {
@@ -4920,11 +4893,6 @@
             "class": "SERVICE",
             "detail": "postgresql@17",
             "rule": "provider_service_definition"
-          },
-          {
-            "class": "RUNTIME",
-            "detail": "postgresql@18",
-            "rule": "versioned_family"
           }
         ]
       },
@@ -4978,7 +4946,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5021,14 +4989,6 @@
               "provider": "homebrew"
             },
             "rule": "MANUAL_REVIEW_PERSISTENT_DATA"
-          },
-          {
-            "id": "reason.runtime_family_managed_elsewhere",
-            "params": {
-              "family": "postgresql",
-              "managers": ""
-            },
-            "rule": "RUNTIME_USE_MANAGER"
           }
         ],
         "rulesNotFired": [
@@ -5037,7 +4997,8 @@
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
+          "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -5109,7 +5070,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5139,7 +5100,7 @@
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -5266,9 +5227,9 @@
       "name": "python@3.12",
       "recommendation": {
         "outcome": {
-          "kind": "MANUAL_REVIEW"
+          "kind": "USE_RUNTIME_MANAGER"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -5288,14 +5249,6 @@
             "rule": "KEEP_SOURCE_DEFAULT"
           },
           {
-            "id": "reason.reverse_dependencies_present",
-            "params": {
-              "count": "1",
-              "provider": "homebrew"
-            },
-            "rule": "MANUAL_REVIEW_REVERSE_DEPENDENCIES"
-          },
-          {
             "id": "reason.runtime_family_managed_elsewhere",
             "params": {
               "family": "python",
@@ -5311,8 +5264,9 @@
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
           "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
+          "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -5420,6 +5374,20 @@
         {
           "candidates": [
             {
+              "confidence": "EXACT",
+              "evidence": [
+                {
+                  "detail": "python@3.13 -> python313",
+                  "kind": "curated",
+                  "weight": 100
+                }
+              ],
+              "package": {
+                "name": "python313",
+                "provider": "macports"
+              }
+            },
+            {
               "confidence": "PROBABLE",
               "evidence": [
                 {
@@ -5439,24 +5407,19 @@
               }
             }
           ],
-          "confidence": "PROBABLE",
+          "confidence": "EXACT",
           "destination": "macports",
           "selected": {
-            "confidence": "PROBABLE",
+            "confidence": "EXACT",
             "evidence": [
               {
-                "detail": "https://www.python.org/",
-                "kind": "homepage",
-                "weight": 30
-              },
-              {
-                "detail": "python (version differs)",
-                "kind": "versioned_family",
-                "weight": 10
+                "detail": "python@3.13 -> python313",
+                "kind": "curated",
+                "weight": 100
               }
             ],
             "package": {
-              "name": "python312",
+              "name": "python313",
               "provider": "macports"
             }
           },
@@ -5471,17 +5434,8 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
-          {
-            "id": "reason.present_under_both_providers",
-            "params": {
-              "criterion": "PREBUILT_ARTIFACT",
-              "other": "macports",
-              "primary": "homebrew"
-            },
-            "rule": "KEEP_BOTH_HEALTHY"
-          },
           {
             "id": "reason.keep_source_default",
             "params": {
@@ -5491,13 +5445,12 @@
             "rule": "KEEP_SOURCE_DEFAULT"
           },
           {
-            "id": "reason.mapping_confidence_below_threshold",
+            "id": "reason.availability_unknown",
             "params": {
-              "confidence": "PROBABLE",
-              "destination": "macports",
-              "threshold": "STRONG"
+              "package": "python@3.13",
+              "provider": "macports"
             },
-            "rule": "MANUAL_REVIEW_MAPPING_CONFIDENCE"
+            "rule": "MANUAL_REVIEW_AVAILABILITY_UNKNOWN"
           },
           {
             "id": "reason.reverse_dependencies_present",
@@ -5518,12 +5471,13 @@
         ],
         "rulesNotFired": [
           "DESTINATION_UNSUPPORTED_HERE",
-          "MANUAL_REVIEW_AVAILABILITY_UNKNOWN",
+          "KEEP_BOTH_HEALTHY",
           "MANUAL_REVIEW_CLASS",
           "MANUAL_REVIEW_DESTINATION_DEPRECATED",
+          "MANUAL_REVIEW_MAPPING_CONFIDENCE",
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
         ]
@@ -5578,37 +5532,24 @@
             "cached": false,
             "evidence": [
               {
-                "detail": "binary archive availability requires the network (ports.macports.org builds API); not queried offline. The filename would be keyed on this machine's (darwin_<macos-major>, arch) tuple (R-4 Findings 2 and 9).",
+                "detail": "the destination's catalogue is not consulted offline in this pass",
                 "offline": true,
-                "source": "archive_sites"
+                "source": "destination_catalogue"
               }
             ]
           },
-          "availableVersion": "3.12.9_0",
-          "dependencyCount": 3,
+          "dependencyCount": 0,
           "deprecated": false,
           "disabled": false,
-          "installed": [
-            {
-              "active": true,
-              "identity": {
-                "name": "python312",
-                "provider": "macports"
-              },
-              "kind": "PACKAGE",
-              "requested": true,
-              "revision": "0",
-              "version": "3.12.9"
-            }
-          ],
-          "name": "python312",
-          "ownership": "TOP_LEVEL",
+          "installed": [],
+          "name": "python313",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": true,
-            "mechanism": "requested_pseudo_portname"
+            "mechanism": "not_installed"
           },
-          "presence": "INSTALLED",
-          "reverseDependencyCount": 1
+          "presence": "MAPPED",
+          "reverseDependencyCount": 0
         }
       },
       "source": "homebrew"
@@ -5636,7 +5577,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5657,7 +5598,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -5737,7 +5678,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5758,7 +5699,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -5839,7 +5780,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5860,7 +5801,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -5934,7 +5875,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5955,7 +5896,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6035,7 +5976,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6056,7 +5997,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6130,7 +6071,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6151,7 +6092,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6225,7 +6166,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6246,7 +6187,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6320,7 +6261,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6341,7 +6282,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6416,7 +6357,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6437,7 +6378,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6524,7 +6465,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6552,7 +6493,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6590,10 +6531,10 @@
             }
           ],
           "name": "visualdiffer",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -6631,7 +6572,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6659,7 +6600,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6697,10 +6638,10 @@
             }
           ],
           "name": "wailbrew",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -6731,7 +6672,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6752,7 +6693,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -6871,7 +6812,7 @@
           "kind": "KEEP_BOTH",
           "primary": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -6900,7 +6841,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -7022,7 +6963,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -7043,7 +6984,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -7124,7 +7065,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -7152,7 +7093,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -7190,10 +7131,10 @@
             }
           ],
           "name": "wireshark-chmodbpf",
-          "ownership": "TOP_LEVEL",
+          "ownership": "UNKNOWN",
           "ownershipEvidence": {
             "authoritative": false,
-            "mechanism": "dependency_graph_inference"
+            "mechanism": "no_provider_record"
           },
           "presence": "INSTALLED",
           "reverseDependencyCount": 0
@@ -7224,7 +7165,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -7245,7 +7186,7 @@
           "MANUAL_REVIEW_PERSISTENT_DATA",
           "MANUAL_REVIEW_REVERSE_DEPENDENCIES",
           "MANUAL_REVIEW_SOURCE_WITHDRAWN",
-          "NO_ACTION_ALREADY_THERE",
+          "NO_ALTERNATIVE_PROVIDER_PRESENT",
           "RUNTIME_USE_MANAGER",
           "SOURCE_NO_PREBUILT_DESTINATION_PREBUILT",
           "SOURCE_SUPPORT_ENDING"
@@ -7303,9 +7244,9 @@
       "source": "homebrew"
     }
   ],
-  "policyReadOn": "2026-09-02",
+  "policyReadOn": "2026-09-17",
   "policyStale": false,
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.10.12-4",
   "providers": {
     "homebrew": {
       "capabilities": {
@@ -7336,6 +7277,9 @@
           },
           "SERVICE_METADATA": {
             "state": "AVAILABLE"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "AVAILABLE"
           }
         }
       },
@@ -7343,6 +7287,7 @@
         "architecture": "arm64",
         "executable": "/opt/homebrew/bin/brew",
         "prefix": "/opt/homebrew",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },
@@ -7354,14 +7299,14 @@
       "support": {
         "entry": "hb-arm64-tier1-current",
         "fact": {
-          "readOn": "2026-09-02",
+          "readOn": "2026-09-04",
           "source": "https://docs.brew.sh/Support-Tiers"
         },
         "prebuiltArtifacts": true,
         "providerLabel": "tier1",
         "tier": "SUPPORTED"
       },
-      "topLevelCount": 57
+      "topLevelCount": 48
     },
     "macports": {
       "capabilities": {
@@ -7374,7 +7319,7 @@
             "state": "AVAILABLE"
           },
           "DEPRECATION_STATE": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "FILE_OWNERSHIP": {
             "state": "AVAILABLE"
@@ -7393,6 +7338,9 @@
           },
           "SERVICE_METADATA": {
             "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "AVAILABLE"
           }
         }
       },
@@ -7400,6 +7348,7 @@
         "architecture": null,
         "executable": "/opt/local/bin/port",
         "prefix": "/opt/local",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },
@@ -7432,10 +7381,12 @@
     "byOutcome": {
       "KEEP": 38,
       "KEEP_BOTH": 2,
-      "MANUAL_REVIEW": 23
+      "MANUAL_REVIEW": 22,
+      "USE_RUNTIME_MANAGER": 1
     },
     "dependencyUnits": 0,
-    "manualReview": 23,
+    "manualReview": 22,
+    "ownershipUnknown": 12,
     "topLevelUnits": 63
   },
   "today": "2026-09-02",

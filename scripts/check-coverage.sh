@@ -4,8 +4,19 @@
 # Coverage floors per layer (docs/spec/07-quality-and-testing.md):
 #   domain, policy      95% lines
 #   application         95% lines (planning, verification, safety logic)
-#   adapters            80% lines
+#   adapters            95% lines
 #   cli (ui)            reported, no floor
+#   workspace overall   90% lines, as a backstop
+# The owner set these on 2026-09-06 after the first measurement this repository
+# had ever taken (DP-015). `adapters` rose from 80 because it already measured
+# 95.29% - the raise cost nothing and removed a floor nobody was near.
+#
+# The overall figure is a *backstop*, not a target: it sits below every named
+# floor, so the only layer it can bite is `cli`, which has none. That matters
+# because 07-quality-and-testing.md carries a MUST NOT against "a single
+# blanket percentage across the repository" - the hazard being padding in
+# adapters and UI while the parts that matter stay thin. Differentiated floors
+# still do the work here; this one only stops the unnamed layer sliding.
 # Branch coverage: cargo-llvm-cov's --branch needs a nightly toolchain, and
 # the pinned toolchain is stable (ADR-0002), so branch floors are not
 # enforced yet; this is recorded as a limitation in the pass report.
@@ -25,7 +36,8 @@ cargo llvm-cov --workspace --locked --all-features --json --output-path target/l
 python3 - <<'PY'
 import json, sys
 data = json.load(open("target/llvm-cov.json"))
-floors = {"domain": 95.0, "policy": 95.0, "application": 95.0, "adapters": 80.0, "cli": None}
+floors = {"domain": 95.0, "policy": 95.0, "application": 95.0, "adapters": 95.0, "cli": None}
+OVERALL = 90.0
 totals = {k: [0, 0] for k in floors}
 for f in data["data"][0]["files"]:
     name = f["filename"]
@@ -40,5 +52,11 @@ for layer, (cov, cnt) in totals.items():
     verdict = "reported" if floor is None else ("ok" if pct >= floor else "BELOW FLOOR")
     print(f"coverage: {layer:12s} {pct:6.2f}% lines ({cov}/{cnt})  floor {floor if floor is not None else '-'}  {verdict}")
     if floor is not None and pct < floor: bad = 1
+cov = sum(v[0] for v in totals.values())
+cnt = sum(v[1] for v in totals.values())
+pct = 100.0 * cov / cnt if cnt else 0.0
+verdict = "ok" if pct >= OVERALL else "BELOW FLOOR"
+print(f"coverage: {'overall':12s} {pct:6.2f}% lines ({cov}/{cnt})  floor {OVERALL}  {verdict}")
+if pct < OVERALL: bad = 1
 sys.exit(bad)
 PY

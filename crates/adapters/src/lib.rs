@@ -12,9 +12,13 @@
 //!
 //! The provider names appear here and nowhere above this layer.
 
+pub mod configuration;
+pub mod filesystem;
 pub mod homebrew;
+pub mod installations;
 pub mod macports;
 pub mod persistence;
+pub mod prefixes;
 pub mod process;
 pub mod registry;
 pub mod system;

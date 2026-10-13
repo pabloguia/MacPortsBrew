@@ -29,7 +29,7 @@ than analysing something it has misread.
 | `provenance` | `Provenance` | |
 | `machine` | `Machine` | Same shape as in [`analysis.v1.md`](analysis.v1.md) |
 | `environment` | `EnvironmentSnapshot` | |
-| `providers` | map of provider id to `ProviderSnapshot` | Ordered by provider id |
+| `providers` | map of provider id to `ProviderSnapshot` | Ordered by provider id. Each id is an identifier — `[A-Za-z0-9_.@+-]`, no leading `-`, at most 128 bytes — and must equal its entry's `detection.provider`; validated on load and on capture. **Compatibility:** a v1 file whose id breaks either rule loaded before 2026-10-02 and is now refused; no capture writes one (SE-092) |
 
 ## `Provenance`
 
@@ -48,17 +48,70 @@ output format, which is why the fields are not optional.
 | Field | Type | Notes |
 |---|---|---|
 | `path` | array of string, optional | `PATH` entries in order, redacted — the home directory becomes `~` |
-| `reported` | map of string to string, optional | The build and provider variables that were **named**, for the leaked-variable check. Values that could carry secrets are not recorded |
+| `reported` | map of string to string, optional | The build and provider variables that were **named**, for the leaked-variable check. Values that could carry secrets are not recorded. Validated on load and on capture. A **name** is held to the display-field rule (below) — bounded and free of control characters — because `doctor` prints it back, and a capture only ever writes names from a fixed list. A **value** is kept as recorded and unbounded beyond the document's own size limit (64 MiB, applied before parsing): it is whatever the shell held, and a tab or newline in `CPPFLAGS`, or a very long `PKG_CONFIG_PATH`, is a correct machine. Any rendering of a value escapes it. **Compatibility:** a v1 file with a control character in a reported name — which a capture never writes — loaded before 2026-10-02 and is now refused; a tightening of the load check, as SE-051 tightened names (SE-092) |
+| `pathFindings` | array of `{entry, index, kind}`, optional | What was wrong with each `PATH` entry at capture time, in entry order. `kind` is `DUPLICATE`, `RELATIVE`, `MISSING`, `WORLD_WRITABLE`, `GROUP_WRITABLE` or `OWNER_WRITABLE`; **a reader that meets a value it does not know reports it as unknown rather than refusing the snapshot**, which is what keeps adding one additive. `entry` is redacted like every other path |
+| `installations` | object keyed by provider id, optional | Where each installed provider was found: every candidate prefix that holds its executable, not only the one this tool runs (a second installation is what a detection that stops at the first hit never mentions). A value is `{"state": "READ", "prefixes": [...]}` - the candidates that hold the executable, in detection order; one entry is one installation - or `{"state": "UNKNOWABLE"}` when the capture was a replay of a recording, which carries no filesystem facts (INV-15). **A provider with no entry, or a state a reader does not know, is *not recorded*, and is never read as "one"**; the field is omitted when empty, and a document written before it existed has none (added 2026-10-12, pass 12; `schemaVersion` unchanged). Each prefix is held to the same path rule as every other captured path, and a list longer than 16 is refused. The candidates come from `data/policy/provider-prefixes.toml`, never from the snapshot |
 
 ## `ProviderSnapshot`
 
 | Field | Type | Notes |
 |---|---|---|
 | `detection` | `ProviderDetection` | See [`analysis.v1.md`](analysis.v1.md) |
-| `capabilities` | `ProviderCapabilities` | See [`analysis.v1.md`](analysis.v1.md) |
-| `inventory` | `ProviderInventory` | |
-| `environment` | map of string to string, optional | The sanitised environment this provider was invoked in |
+| `capabilities` | `ProviderCapabilities` | See [`analysis.v1.md`](analysis.v1.md). **On load, every capability this document does not mention is recorded as `UNKNOWN`** - see the note below |
+| `inventory` | `ProviderInventory` | Validated on load and on capture, by where each value goes. A **name** becomes an argument, so it must be one a provider could have reported: `[A-Za-z0-9_.@+-]`, no leading `-`, not `.` or `..`, at most 128 bytes. Everything else — versions, **variants**, install paths, resolved paths — reaches a reader rather than a command, and is only bounded and free of control characters; two providers fill `variants` and they fill it with different things. "Control characters" is the control class of the one classification in `crates/domain/src/text.rs` (Unicode Cc). Unicode format characters (Cf) and U+2028/U+2029 are **kept** — legitimate names carry them (a ZWJ emoji sequence, ZWNJ in a Persian word) and a snapshot is the record of what was reported — and every human rendering escapes them as `\u{..}`, so they can neither reorder the text around them nor break a line (default-ignorable characters outside Cf, such as Hangul fillers and variation selectors, are not covered). `--json` output does not: it carries them as JSON escapes only where JSON requires one (SE-092). The twelve MacPorts pseudo-portnames are refused by the *planner*, not here, so a snapshot naming a port `installed` loads and is reported, and only a plan for it is refused. A snapshot naming a package `--force` is refused rather than rendered into a plan (SE-051, finding F-09) |
+| `environment` | map of string to string, optional | What this provider reported about its own environment. Descriptive; nothing is run with it |
+| `invocationEnvironment` | map of string to string, optional | The sanitised environment this provider's commands are stated to run in. **Validated on load and on capture** — a reader refuses a snapshot whose value is not one the tool builds: only the variables an adapter emits, all four pinned ones present and unchanged (`LANG`/`LC_ALL` = `C`, `TERM` = `dumb`, `NO_COLOR` = `1`), `HOME` exactly `~` when present, and a `PATH` ending in `/usr/bin:/bin:/usr/sbin:/sbin` whose leading entries are all under the prefix that provider was *detected* at — or, for a provider that was not detected, under a prefix the registry knows for it, which is the common case whenever one provider is absent. No leading entry may be under another provider's prefix whatever this one declares, and a declared prefix must name a directory of its own: at least two components, no overlap with another provider's, never an ancestor of a system directory. The cross-provider comparisons fold case, because the default boot volume is case-insensitive; a case-sensitive APFS volume is supported and there the fold is merely stricter than it needs to be. Absent only for a provider whose capture failed. Note the limit: "detected at" is read from `detection.prefix` in the same document, which this version does not otherwise validate (F-09). Adding a provider variable to an adapter changes what older builds accept without changing `schemaVersion` (SE-051, finding F-21) |
 | `resolutions` | map of executable name to `Resolution`, optional | |
+| `configuration` | `ProviderConfiguration`, optional | Since 2026-10-04 (DP-027, ruled 2026-10-03); additive. Tagged by `state`: `READ` with `files`, each `{ "path", "scope", "readable", "keys" }` — only files that exist, `scope` one of `SYSTEM`, `PREFIX`, `USER`, `keys` the **names** of every key the provider's reader accepts from the file (never a value); a scope from a newer build reads as `UNKNOWN`; `UNKNOWABLE` when the capture was a replay, which carries no files (INV-15). Absent for a provider that is not installed and in a document from before the field, which reads as not recorded — a state an unknown `state` value from a newer build also reads as. **Validated on load and on capture:** `path` follows the captured-path rule (absolute, or `~/`-rooted), and a key is `[A-Za-z0-9_]`, at most 128 bytes. A `~/` path never names the home; a prefix path is redacted like every other |
+
+### An unrecorded capability, on load, is an unknown one
+
+**A rule about documents, and the opposite of the rule about values in
+memory.** In memory an absent capability entry means nobody asked: a snapshot
+built by hand in a test states the few capabilities the test is about, and
+reading the rest as "could not be detected" would refuse every such plan.
+
+A document is not in that position. A capture asks every capability and writes
+every answer, so a document that omits one was written by a build that did not
+have the question, and nothing in the file says what answer it would have
+given. Absence there means the record does not say, which is what `UNKNOWN`
+means - so `load_snapshot` fills every missing entry with it before any check
+runs.
+
+**The rule is unconditional, and an empty table is not an exception.** Both
+adapters write every capability for a provider that is not installed - for
+a while Homebrew wrote none, which is the asymmetry that made this rule look
+like it needed an exception, and fixing the adapter removed the need for one
+(SE-084). So the rule is a no-op on every table this build writes, which is
+what keeps the live and document routes identical (INV-15), and a document
+whose table is empty or partial refuses to be planned from either way.
+
+The case this closes is `SERVICE_METADATA`. The planner refuses to build a plan
+when the source cannot say whether its packages define services, because
+INV-19's `MANUAL_REVIEW` is driven by a boolean that renders unknown as
+`false`, so the rule would silently not fire (DP-016, option (c)). That refusal
+keys on `UNKNOWN`, and a document predating the capability carries the same
+`schemaVersion` - so it loaded, and planned, as though the answer were no. That
+was F-29's residual hole and this is what closes it.
+
+Two consequences worth stating, because each is a choice:
+
+- **`schemaVersion` does not change.** Nothing about the shape moved; a
+  document that parsed before parses now. What changed is that one that omits
+  a capability can no longer be planned from - which is the point, and is a
+  refusal with exit code 4 rather than a parse failure.
+- **The other direction is a hard failure, and that is a cost rather than an
+  oversight.** A document carrying a capability key, or a `CapabilityState`
+  variant, that this build's enums do not have is rejected whole with
+  `SnapshotUnusable` (exit 8) - so "someone sends you their snapshot" stops
+  working across a capability addition, in the newer-to-older direction, while
+  `schemaVersion` says the documents are compatible. It fails closed, which is
+  the right default for a document that decides whether a package is removed,
+  and it is stated here because the bullet above only considered the
+  older-to-newer direction (security-reviewer, 2026-09-18).
+- **Read-only analysis still works on such a document**, and reports the
+  capability as `UNKNOWN`. The analysis degrades and says so rather than
+  failing; only the planning path refuses.
 
 ### `ProviderInventory`
 

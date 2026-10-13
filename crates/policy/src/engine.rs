@@ -183,10 +183,12 @@ fn facts_used(facts: &Facts) -> Vec<(String, String)> {
             .collect::<Vec<_>>()
             .join(","),
     );
-    used.insert(
-        "package.reverseDependencyCount".into(),
-        facts.package.reverse_dependency_count.to_string(),
-    );
+    for (id, per) in &facts.package.per_provider {
+        used.insert(
+            format!("package.{id}.reverseDependencyCount"),
+            per.reverse_dependency_count.to_string(),
+        );
+    }
     used.insert(
         "package.coexistenceRequested".into(),
         facts.package.coexistence_requested.to_string(),
@@ -355,7 +357,7 @@ mod tests {
     fn every_reason_the_engine_emits_is_in_the_catalogue() {
         let mut facts = testing::baseline();
         facts.package.coexistence_requested = true;
-        facts.package.reverse_dependency_count = 2;
+        testing::with_reverse_dependencies(&mut facts, 2);
         facts
             .package
             .classes

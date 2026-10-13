@@ -15,6 +15,10 @@ use super::format::matching_brace;
 /// conditional on the filesystem.
 const EN_TOML: &str = include_str!("../../../../locales/en.toml");
 
+/// The Brazilian Portuguese translation, compiled in for the same reason as
+/// English: the remediation sentences must not depend on the filesystem.
+const PT_BR_TOML: &str = include_str!("../../../../locales/pt-BR.toml");
+
 /// A set of message templates, keyed by stable identifier.
 ///
 /// The map is a `BTreeMap`, so iteration order is the identifiers' order on
@@ -35,6 +39,29 @@ impl Catalogue {
     /// the binary — and `english_parses` in this module fails first.
     pub fn english() -> Self {
         Self::from_toml(EN_TOML).expect("the embedded English catalogue must parse")
+    }
+
+    /// The Brazilian Portuguese catalogue: the translation laid over English,
+    /// so a key the translation lacks renders in English rather than as a
+    /// bracketed identifier. `scripts/check-i18n-parity.sh` keeps that fallback
+    /// from being needed for any key that ships.
+    ///
+    /// # Panics
+    ///
+    /// If the embedded `locales/pt-BR.toml` is not a flat table of strings,
+    /// for the reason [`Catalogue::english`] gives.
+    pub fn portuguese_brazil() -> Self {
+        Self::english()
+            .overlaid_with(PT_BR_TOML)
+            .expect("the embedded Brazilian Portuguese catalogue must parse")
+    }
+
+    /// This catalogue with `translation`'s entries laid over it: a key the
+    /// translation carries is replaced, a key it lacks keeps this catalogue's
+    /// text. That is the whole of the "missing falls back to English" rule.
+    pub(crate) fn overlaid_with(mut self, translation: &str) -> Result<Self, DomainError> {
+        self.entries.extend(Self::from_toml(translation)?.entries);
+        Ok(self)
     }
 
     /// The pseudolocale, derived from English.
@@ -236,11 +263,68 @@ fn pseudo_value(source: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Templates are trusted text and `Messages::render` does not escape them,
+    /// so none may carry a hostile character (`macportsbrew_domain::text`): a
+    /// right-to-left mark or an embedded line break added to a template must
+    /// fail here rather than reorder or break what a user reads. A template
+    /// that genuinely needs one is listed here, by key and character, with
+    /// the reason beside it.
+    #[test]
+    fn no_template_carries_a_hostile_character() {
+        const ALLOWED: &[(&str, char)] = &[];
+        let locales = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales");
+        let mut catalogues = vec![("pseudolocale".to_string(), Catalogue::pseudolocale())];
+        for entry in std::fs::read_dir(&locales).expect("locales/ is readable") {
+            let path = entry.expect("a directory entry").path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                let text = std::fs::read_to_string(&path).expect("a readable catalogue");
+                let catalogue = Catalogue::from_toml(&text).expect("a catalogue that parses");
+                catalogues.push((path.display().to_string(), catalogue));
+            }
+        }
+        assert!(
+            catalogues.len() >= 2,
+            "no catalogue was read from {}",
+            locales.display()
+        );
+        let mut offenders = Vec::new();
+        for (name, catalogue) in &catalogues {
+            for key in catalogue.keys() {
+                let template = catalogue.get(key).unwrap_or_default();
+                for c in template.chars() {
+                    if macportsbrew_domain::is_hostile(c) && !ALLOWED.contains(&(key, c)) {
+                        offenders.push(format!("{name}: {key}: {}", c.escape_unicode()));
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+    }
+
     #[test]
     fn english_parses() {
         let catalogue = Catalogue::english();
         assert!(!catalogue.is_empty());
         assert!(catalogue.get("cli.about").is_some());
+    }
+
+    #[test]
+    fn an_overlay_replaces_what_it_carries_and_keeps_the_rest() {
+        let base = Catalogue::from_toml("a = \"one\"\nb = \"two\"\n").unwrap();
+        let merged = base.overlaid_with("a = \"um\"\n").unwrap();
+        assert_eq!(merged.get("a"), Some("um"));
+        assert_eq!(
+            merged.get("b"),
+            Some("two"),
+            "a missing key must stay English"
+        );
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn an_overlay_that_is_not_a_flat_table_of_strings_is_refused() {
+        let base = Catalogue::from_toml("a = \"one\"\n").unwrap();
+        assert!(base.overlaid_with("a = 3\n").is_err());
     }
 
     #[test]
@@ -275,11 +359,11 @@ mod tests {
     #[test]
     fn the_pseudolocale_accents_text_and_preserves_placeholders() {
         let pseudo = Catalogue::pseudolocale();
-        let notice = pseudo.get("policy.stale_notice").unwrap();
+        let notice = pseudo.get("plan.heading").unwrap();
         assert!(notice.starts_with('['), "{notice}");
         assert!(notice.ends_with(']'), "{notice}");
-        assert!(notice.contains("{readOn}"), "{notice}");
-        assert!(notice.contains("{url}"), "{notice}");
+        assert!(notice.contains("{package}"), "{notice}");
+        assert!(notice.contains("{destination}"), "{notice}");
         // Accented, so an untranslated string is obvious on screen.
         assert!(notice.contains('ø') || notice.contains('á'), "{notice}");
     }

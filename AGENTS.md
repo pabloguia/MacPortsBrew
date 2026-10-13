@@ -4,22 +4,21 @@ MacPortsBrew is evolved largely by coding agents. That is a design constraint,
 not a footnote, and this file is the entry point.
 
 **Read `docs/spec/01-invariants.md` and `docs/spec-evolution.md` before any
-significant work.** The invariants are not changeable by you; the evolution file
-records what was already argued, so you do not spend a pass re-litigating
-settled ground. Then `docs/spec/00-charter.md`, `docs/spec/11-agentic-sdlc.md`
-(once), and the work order for your pass in `prompts/`.
+significant work.** The invariants are not yours to change; the evolution file
+records what was already argued, so a pass is not spent re-litigating settled
+ground. Then `docs/spec/00-charter.md`, `docs/spec/11-agentic-sdlc.md` (once),
+and your pass's work order in `prompts/`.
 
 ## What MacPortsBrew is
 
 An open-source package-manager orchestrator for macOS. It analyses what is
 installed under Homebrew and MacPorts, maps equivalent packages, explains which
-provider is the better choice for each package *on this machine*, and migrates
-in either direction without ever removing something before its replacement is
-installed and verified. Homebrew and MacPorts are **peer providers**: neither is
-globally better, and MacPorts-to-Homebrew is a first-class direction with the
-same planner and the same executor (INV-17). Homebrew's Intel timeline is why
-the project started and is not what it is; it is dated data (INV-20), never
-architecture. Full identity and non-goals: `docs/spec/00-charter.md`.
+provider suits each package *on this machine*, and migrates in either direction
+without ever removing something before its replacement is installed and
+verified. The two are **peer providers**: MacPorts-to-Homebrew is first-class,
+same planner and executor (INV-17). Homebrew's Intel timeline is why the project
+started, not what it is - dated data (INV-20), never architecture. Identity and
+non-goals: `docs/spec/00-charter.md`.
 
 ## The authority tiers
 
@@ -70,22 +69,21 @@ layering rule; `scripts/check-layering.sh` asserts them from `cargo metadata`.
 | `policy` | `domain` | The rule engine and its versioned data. `recommend(facts, data)` is pure |
 | `application` | `domain`, `policy` | Capture, analysis, classification, mapping, planning, `doctor`. I/O only through domain traits |
 | `adapters` | `domain` | The only layer that touches the machine. Provider names appear here and nowhere above |
-| `cli` | all | Presentation: i18n catalogue, renderer, command surface |
+| `cli` | all | Presentation: i18n catalogue, renderer, command surface; and `executor/`, the run loop's I/O shell, whose every decision is in `application::executor` (SE-092) |
 
 | Path | What it holds |
 |---|---|
 | `docs/spec/` | The specification. Its `README.md` is the reading order |
-| `docs/spec-evolution.md` · `docs/adr/` | Current rationale per topic |
-| `docs/decisions-pending.md` · `docs/research/` | The owner's decisions; dated provider facts |
-| `docs/schemas/` · `docs/passes/` · `prompts/` | `--json` contracts; pass reports; work orders |
-| `data/policy/` | Provider facts as data, every entry with `source` and `read_on` |
-| `locales/` · `fixtures/recordings/` | The English catalogue; captured provider recordings |
-| `scripts/` · `.claude/` | `validate.sh` is the one "valid"; permissions, hooks, subagents, skills, and `rules/*.md`, which load the relevant specification chapter when you touch a subtree |
+| `docs/spec-evolution.md` · `docs/adr/` · `docs/decisions-pending.md` | Current rationale per topic; the owner's open decisions |
+| `docs/research/` · `docs/schemas/` · `docs/passes/` · `prompts/` | Dated provider facts; `--json` contracts; pass reports; work orders |
+| `data/policy/` · `locales/` · `fixtures/recordings/` | Provider facts as data, every entry with `source` and `read_on`; the English catalogue and the `pt-BR` translation; captured provider recordings |
+| `scripts/` · `.claude/` | `validate.sh` is the one "valid"; permissions, hooks, subagents, skills, and `rules/*.md`, which load the relevant specification chapter when you touch a subtree. **`.claude/` is the source**: `.codex/` and `.agents/skills/` are generated from it by `scripts/generate-codex-layer.sh` (DP-018, SE-078), a `validate.sh` stage fails when they drift, and the path guard refuses a hand-edit of either |
 
 ## Provider neutrality and the isolation boundary
 
 **Nothing above `crates/adapters/` names a provider.** `registry.rs` is the only
-place that knows which providers exist and where their prefixes are; everything
+place that knows which providers exist, and it reads where they install from
+`data/policy/provider-prefixes.toml` rather than holding it (DP-014); everything
 else works with `dyn ProviderRead`. Adding a provider is an adapter plus one
 registry entry.
 
@@ -106,9 +104,12 @@ runs) · `SupportState` (always carrying a `DatedFact`) · `MigrationPlan`.
 
 **Ownership model.** Use the provider's *own* record of intent, never a graph
 inference: Homebrew's `installed_on_request`, MacPorts' registry `requested`
-flag. `brew leaves` is a different set and is never substituted; casks carry no
-intent field, so ownership is `UNKNOWN`. Ownership is a fact about a provider,
-not about the machine.
+flag. `brew leaves` is a different set and is never substituted. The cask JSON
+carries no intent field; Homebrew records it in the cask's on-disk receipt, and
+the adapter reads that (R-12, DP-012) — no receipt means `UNKNOWN`, never an
+inferred `TOP_LEVEL`. Ownership is a fact about a provider, not about the
+machine, and an `UNKNOWN` row appears in the default view rather than being
+hidden behind `--advanced`.
 
 **Mapping model.** Never by name alone. `1→1`, `1→many`, `many→1` and *no
 equivalent* are all first-class. Every candidate records evidence — a mapping
@@ -118,10 +119,10 @@ table for what heuristics miss. `AMBIGUOUS` and `NONE` never act automatically.
 ## Adapters: what each must never do
 
 An adapter implements `ProviderRead` over a `process::ProcessRunner`. It must
-**never** construct `std::process::Command` itself (the executor is the only
-site, checked textually), never build a command by string interpolation, never
+**never** construct `std::process::Command` itself (the process executor is the
+only site, checked textually), never build a command by string interpolation, never
 report `CapabilityState::Unknown` as `Available`, never read a clock or the
-environment outside the executor's sanitised one, and never let provider
+environment outside the process executor's sanitised one, and never let provider
 metadata become a path or a flag. A parser that meets unrecognised output fails
 with `ErrorId::ProviderOutputChanged` rather than mis-parsing. Homebrew is
 quieted by environment, MacPorts by argv; that asymmetry lives in one place.
@@ -164,12 +165,11 @@ ownership (INV-11) and is not a global priority (INV-12).
 
 `scripts/validate.sh` (`--quick` | default | `--full`) is the one definition of
 valid; CI is the authority. Tests run against captured fixtures, never a live
-installation. Coverage floors: `domain`/`policy`/planning 95%, `adapters` 80%
-plus a contract test per parsed command, `cli` reported. Invariant tests are
-named `invariant_NN_*` in `crates/*/tests/` (and, for the engine's own, in
-`crates/policy/src/engine.rs`); find them with
-`grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change that touches
-an invariant and cannot point at its test is incomplete.**
+installation. Coverage floors are in `docs/spec/07-quality-and-testing.md`.
+Invariant tests are named `invariant_NN_*`, in `crates/*/tests/` and in some `src`
+test modules (`domain/src/plan.rs`, `adapters/src/process/mod.rs`, others); find
+them with `grep -rn "fn invariant_" crates/*/tests crates/*/src`. **A change
+that touches an invariant and cannot point at its test is incomplete.**
 
 ## The six recipes
 
@@ -184,7 +184,8 @@ Touch these only deliberately, and run `security-reviewer` and `spec-guardian`
 before reporting done. **`crates/adapters/src/process/`** — the only subprocess
 site; argv only, no shell, sanitised environment, so command injection is
 prevented structurally. **`crates/application/src/planner.rs`** — step ordering
-*is* INV-01; reordering is a safety change, not a refactor.
+*is* INV-01; reordering is a safety change, not a refactor. **`crates/cli/src/executor/`, `application/src/executor.rs` and `execution_gate.rs`,
+`domain/src/verification.rs`, `registry::plan_read_spec`** — gate first, dispatch guard, read sites only, what certifies a step.
 **`crates/policy/src/rules/mod.rs`** — the priority constants and `all()` are a
 total order the engine depends on. **`scripts/*.sh` and `.claude/hooks/*.sh`** —
 the gates; weakening one is invisible until something it would have caught
@@ -192,7 +193,7 @@ ships. **`crates/domain/src/error.rs`** — exit codes are a documented contract
 
 ## Project language
 
-Everything internal is English: source, identifiers, comments, test names, log
-messages, configuration keys, error identifiers, commit messages, ADRs,
-specification, this file. Only text presented to a user is translated, and only
+Everything internal is English — source, identifiers, comments, test names, log
+messages, configuration keys, error identifiers, commit messages, ADRs, the
+specification, this file. Only text shown to a user is translated, and only
 through the i18n layer.

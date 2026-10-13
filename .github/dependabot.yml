@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pinning every action to a commit SHA (SE-055) removes a mutable reference and
+# replaces it with a frozen one. Frozen is safer only if something thaws it on
+# purpose: without an update path the pin stops a compromised tag and equally
+# stops a security fix, and the pin becomes the liability it was meant to
+# remove. Dependabot's `github-actions` ecosystem updates a SHA and preserves
+# the `# version` trailing comment, which is the form `scripts/check-action-pins.sh`
+# requires.
+#
+# Cargo is deliberately not listed. `Cargo.lock` is committed and CI builds
+# `--locked`; a dependency change has to pass ADR-0004's gate — licence, macOS
+# deployment floor, and the `unsafe`/build-script surface — which is a review
+# question rather than something to merge on a bot's say-so. The advisory side
+# is covered instead by `cargo-deny check advisories` on every push (SE-055).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies

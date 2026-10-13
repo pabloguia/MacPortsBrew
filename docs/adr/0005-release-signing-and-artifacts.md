@@ -254,9 +254,12 @@ read as a commitment.
 ## Revisit when
 
 - **R-11 finding 1 shows a stapled container does not cover an extracted
-  binary.**
-  Then the `.dmg` is buying nothing the bare binary does not already offer and
-  should be dropped rather than carried.
+  binary.** This record said the `.dmg` should then be dropped rather than
+  carried. **Superseded by DP-008 (2026-09-04):** all three artifacts are
+  published unconditionally and the choice is the user's, because the containers
+  also differ from the bare binary in how they install, which this bullet did not
+  weigh. What R-11 now decides is what the documentation may claim for a stapled
+  container, not whether one is published.
 - Apple changes what `notarytool` accepts or what can be stapled.
 - The owner lets the Developer Program membership lapse — at which point the
   secure timestamp is what decides whether published releases keep verifying,

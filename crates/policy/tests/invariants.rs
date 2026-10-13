@@ -96,6 +96,22 @@ source = "fixture"
 read_on = "2026-09-02"
 "#;
 
+    // Two providers with identical advice, so any difference in what `doctor`
+    // says about them can only come from the provider's own situation.
+    const ADVICE: &str = r#"
+[[entry]]
+provider = "alpha"
+build_defence = "default_clean_path"
+source = "fixture"
+read_on = "2026-09-02"
+
+[[entry]]
+provider = "beta"
+build_defence = "default_clean_path"
+source = "fixture"
+read_on = "2026-09-02"
+"#;
+
     PolicyData::load_from(PolicySources {
         manifest: MANIFEST,
         support: SUPPORT,
@@ -103,6 +119,7 @@ read_on = "2026-09-02"
         stateful: STATEFUL,
         runtime_managers: MANAGERS,
         curated_mappings: MAPPINGS,
+        cross_provider_advice: ADVICE,
     })
     .expect("the symmetric fixture must parse")
 }
@@ -157,7 +174,7 @@ fn scenarios() -> Vec<(&'static str, Facts)> {
         .add(PackageClass::Runtime, "fixture", "fixture");
 
     let mut dependents = testing::baseline();
-    dependents.package.reverse_dependency_count = 3;
+    testing::with_reverse_dependencies(&mut dependents, 3);
 
     vec![
         ("baseline", testing::baseline()),
@@ -467,13 +484,158 @@ fn invariant_20_provider_facts_are_dated_data() {
             mapping.destination_name
         );
         assert!(shift_date(&mapping.read_on, 0).is_some());
+        // A row read from an index synced earlier says when, and never later
+        // than the day it was read (DP-043).
+        if let Some(as_of) = &mapping.index_as_of {
+            assert!(
+                shift_date(as_of, 0).is_some(),
+                "{}",
+                mapping.destination_name
+            );
+            assert!(as_of.as_str() <= mapping.read_on.as_str());
+        }
         assert_eq!(mapping.confidence, Confidence::Exact);
+    }
+
+    for advice in data.cross_provider_advice() {
+        assert!(
+            !advice.source.trim().is_empty(),
+            "{}: advice with no source is a claim from memory",
+            advice.provider
+        );
+        assert!(
+            shift_date(&advice.read_on, 0).is_some(),
+            "{}: read_on must be a date",
+            advice.provider
+        );
+        if let Some(as_of) = &advice.index_as_of {
+            assert!(shift_date(as_of, 0).is_some(), "{}", advice.provider);
+            assert!(
+                as_of.as_str() <= advice.read_on.as_str(),
+                "{}",
+                advice.provider
+            );
+        }
     }
 
     // At least one published end date exists, and it lives in the data.
     assert!(
         data.support_entries().iter().any(|e| e.end_date.is_some()),
         "the data set records no stated end of support at all"
+    );
+}
+
+/// The manifest convention INV-20's data set depends on, stated in prose in
+/// three places and enforced by nothing.
+///
+/// Named `invariant_20_*` for where it sits and what it protects, **not**
+/// because INV-20 says anything about a version string's composition — it does
+/// not. What is enforced here is `data/policy/policy.toml`'s header and
+/// `.claude/rules/policy-data.md`, which are Tier 3/4. Said plainly because in
+/// this repository the difference decides who may change a thing: an agent may
+/// relax a Tier 3 convention with a `docs/spec-evolution.md` entry and may never
+/// touch Tier 1, and a test name that blurs the two argues for the wrong answer.
+///
+/// `data/policy/policy.toml`'s own header defines `version` as `<newest read_on
+/// across the data set>-<serial within that day>`, and says why: "the version
+/// exists so a recommendation can be traced to the data that produced it;
+/// anything that changes the data and not the version defeats that." Nothing
+/// checked it. On 2026-09-08 commit `33439cb` moved `provider-commands.toml`'s
+/// `read_on` forward for F-33 and left the manifest reading `2026.09.06-1`, so
+/// for eleven days two different data sets shared one version string — which is
+/// the exact failure the header names, sitting in the file that names it.
+///
+/// This asserts the date half only. The serial cannot be checked from the tree:
+/// it counts edits within a day, and an edit that moves nothing else leaves no
+/// trace a test could count. Saying so is better than a check that looks
+/// complete — the argument `invariant_20_no_provider_deadline_is_written_into_source`
+/// already makes about the two categories it cannot scan for.
+#[test]
+fn invariant_20_the_policy_version_names_the_newest_read_date_in_the_data() {
+    let policy_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the workspace root")
+        .join("data")
+        .join("policy");
+
+    // Sorted, so that two files tying on the newest date always name the same
+    // one in the failure message. The assertion is order-independent either
+    // way; the diagnostic was not, and "everything serialised is ordered" is
+    // this project's rule about exactly that.
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&policy_dir)
+        .expect("data/policy must be readable")
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            (path.extension()? == "toml").then_some(path)
+        })
+        .collect();
+    entries.sort();
+
+    let mut newest: Option<(String, String)> = None;
+    let mut files = 0usize;
+    for path in entries {
+        files += 1;
+        let name = path
+            .file_name()
+            .expect("a file name")
+            .to_string_lossy()
+            .into_owned();
+        let text = std::fs::read_to_string(&path).expect("a readable data file");
+        // Deliberately textual, and not through `PolicyData`. The loader knows
+        // four of these files; `provider-commands.toml` is read by the
+        // application layer and `provider-prefixes.toml` by the adapters, so a
+        // check written against the parsed type would silently exclude the two
+        // that are not this crate's — and it was one of those that drifted.
+        for line in text.lines() {
+            let Some(rest) = line.trim_start().strip_prefix("read_on") else {
+                continue;
+            };
+            let Some(value) = rest.split('"').nth(1) else {
+                continue;
+            };
+            if newest
+                .as_ref()
+                .is_none_or(|(date, _)| value > date.as_str())
+            {
+                newest = Some((value.to_string(), name.clone()));
+            }
+        }
+    }
+
+    // A scan that finds nothing passes every assertion below while proving
+    // nothing (F-19). The floor is what stops a renamed directory or a changed
+    // extension from turning this test green and empty. Deliberately not the
+    // current count: the first draft wrote "Six files ship today" and there
+    // were eight — a fresh wrong number, in the change whose own argument was
+    // that a count in prose is a claim that ages (`spec-guardian`, 2026-09-19).
+    assert!(
+        files >= 4,
+        "expected the policy data set, found {files} .toml files in {}",
+        policy_dir.display()
+    );
+    let (newest_read_on, source_file) = newest.expect("no read_on anywhere in data/policy");
+
+    let manifest =
+        std::fs::read_to_string(policy_dir.join("policy.toml")).expect("policy.toml is readable");
+    let version = manifest
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("version")?.split('"').nth(1))
+        .expect("policy.toml states a version");
+    let (dotted, serial) = version
+        .split_once('-')
+        .expect("the version is <date>-<serial>");
+    assert!(
+        !serial.is_empty() && serial.chars().all(|c| c.is_ascii_digit()),
+        "the serial {serial:?} is not a number, so two data sets could share a version"
+    );
+
+    assert_eq!(
+        dotted.replace('.', "-"),
+        newest_read_on,
+        "policy.toml says version {version:?}, but the newest read_on in data/policy is \
+         {newest_read_on} (in {source_file}). A recommendation carrying {version:?} cannot \
+         be traced to the data that produced it, which is the one thing the version is for"
     );
 }
 
@@ -484,35 +646,100 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
     // Rule metadata dates are not that — they say when a rule was reviewed,
     // not what a provider promised — so the check names the deadline years
     // rather than every date-shaped literal.
-    let src = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    //
+    // Two of the four things INV-20 names are checkable this way, and the test
+    // used to check one of them, in one crate of five (F-19). A **deadline** is
+    // a year a provider published. A **prefix** is a path that, by `AGENTS.md`'s
+    // provider-neutrality rule, only `registry.rs` may know - and a prefix
+    // compiled in anywhere else is the same defect as a date compiled in:
+    // re-checking it means re-releasing.
+    //
+    // **There is no exemption any more, and that is the point.** This check
+    // used to excuse `registry.rs`, because it held the prefixes in a `match`
+    // with the provenance in a doc comment beside it - which is provenance, and
+    // is not a data file. DP-014 resolved it: the values live in
+    // `data/policy/provider-prefixes.toml` and `crates/adapters/src/prefixes.rs`
+    // reads them, embedded the same way `crates/policy` embeds its own data.
+    // The layering objection was real and is answered by the loader sitting in
+    // `adapters` rather than by reaching up into `application`.
+    //
+    // What that did *not* buy is a prefix editable without a rebuild. No policy
+    // file in this project is; `include_str!` is how all of them arrive. INV-20
+    // asks that a fact be stated as versioned data with a source and a read
+    // date, where a person can re-check it against the source - not that it be
+    // hot-swappable, which nothing here claims and DP-014's own rationale
+    // overstated.
+    //
+    // An earlier version of this comment cited `04-migration-and-safety.md` for
+    // the single-site rule. That file contains no occurrence of the word
+    // "registry", and no file under `docs/spec/` names `registry.rs` at all.
+    //
+    // The other two are not checkable textually and this test does not pretend
+    // to. A **support tier** appears in source only as the neutral `SupportTier`
+    // enumeration, which is the shape INV-20 asks for; the dated values are in
+    // `provider-support.toml`. **Known-package knowledge** is a package name,
+    // and a package name is indistinguishable from an ordinary identifier by
+    // grep. Saying so here is better than a check that looks complete.
     let mut offenders: Vec<String> = Vec::new();
     let mut files: Vec<std::path::PathBuf> = Vec::new();
-    collect_rust_files(std::path::Path::new(src), &mut files);
-    assert!(files.len() > 5, "expected to find the crate's sources");
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .to_path_buf();
+    for crate_name in ["domain", "policy", "application", "adapters", "cli"] {
+        collect_rust_files(&workspace.join(crate_name).join("src"), &mut files);
+    }
+    assert!(
+        files.len() > 30,
+        "expected the whole workspace, found {} files",
+        files.len()
+    );
 
     for path in files {
         let text = std::fs::read_to_string(&path).expect("readable source file");
+        // Where test code begins, and only where it *begins as a module*. The
+        // first version latched on any `#[cfg(test)]`, which in
+        // `adapters/src/process/mod.rs` is a `const` three hundred lines above
+        // the test module - so the whole of the only subprocess site in the
+        // repository went unread, silently. A review measured 27% of the
+        // workspace excluded that way.
+        let mut in_tests = false;
+        let mut previous_was_cfg_test = false;
         for (number, line) in text.lines().enumerate() {
             let code = line.trim_start();
-            if code.starts_with("//") {
+            if previous_was_cfg_test && code.starts_with("mod tests") {
+                in_tests = true;
+            }
+            previous_was_cfg_test = code.starts_with("#[cfg(test)]");
+            if in_tests || code.starts_with("//") {
                 continue;
             }
+            let mut hit = |what: &str| {
+                offenders.push(format!(
+                    "{}:{}: {what}: {}",
+                    path.display(),
+                    number + 1,
+                    line.trim()
+                ));
+            };
             for year in ["2027", "2028", "2029", "2030"] {
                 if code.contains(year) {
-                    offenders.push(format!(
-                        "{}:{}: {}",
-                        path.display(),
-                        number + 1,
-                        line.trim()
-                    ));
+                    hit("a provider deadline");
+                }
+            }
+            for prefix in ["/opt/homebrew", "/usr/local", "/opt/local"] {
+                if code.contains(prefix) {
+                    hit("a provider prefix");
                 }
             }
         }
     }
+    offenders.sort();
     assert!(
         offenders.is_empty(),
-        "a provider deadline appears in source; it belongs in data/policy/ with its \
-         source and read date (INV-20):\n{}",
+        "a dated provider fact appears in source; it belongs in data/policy/ with its \
+         source and read date - a prefix in provider-prefixes.toml, which \
+         crates/adapters/src/prefixes.rs reads (INV-20, DP-014):\n{}",
         offenders.join("\n")
     );
 }
@@ -620,15 +847,21 @@ fn every_reason_the_rules_can_emit_is_in_the_catalogue() {
 
 #[test]
 fn invariant_04_reverse_dependencies_are_read_only_from_the_source_provider() {
-    // Partly type-level, and deliberately so: `reverse_dependency_count` is a
-    // field of `PackageFacts`, which is scoped to the package on the side
-    // holding it, and `PackageProviderFacts` — the per-provider row — carries
-    // no dependents field at all. There is therefore no way to express a
-    // cross-provider count in the engine's input, which is a stronger
-    // guarantee than any rule checking itself.
+    // This test used to argue the opposite of what was true. Its comment held
+    // that keeping the count as one field on `PackageFacts` made a
+    // cross-provider count impossible to express — and the single scalar was
+    // precisely what allowed one to be smuggled in, because a lone number
+    // cannot say which provider it came from. `analysis.rs` filled it with the
+    // maximum across every provider holding the package, and the engine
+    // reported three MacPorts dependents for a package that had none there.
+    //
+    // The count is per-provider now (DP-010, SE-045), so the guarantee is real:
+    // every number is keyed by the provider it was counted in, and the rule
+    // reads the source's own. The second half of this test is the assertion
+    // that was missing and that would have caught the defect.
     let data = data();
     let mut facts = testing::baseline();
-    facts.package.reverse_dependency_count = 4;
+    testing::with_reverse_dependencies(&mut facts, 4);
 
     let recommendation = engine::recommend(&facts, &data);
     assert_eq!(recommendation.outcome, Outcome::ManualReview);
@@ -655,6 +888,28 @@ fn invariant_04_reverse_dependencies_are_read_only_from_the_source_provider() {
     assert_eq!(
         mirrored_reason.params.get("provider").map(String::as_str),
         Some(testing::beta().as_str())
+    );
+
+    // The assertion that was missing, and the one the defect needed. Dependents
+    // on the *other* side, none on the source: the rule must stay silent. A
+    // single cross-provider count made this fire, and named the source as the
+    // provider the dependents were in.
+    let mut only_elsewhere = testing::baseline();
+    testing::with_reverse_dependencies(&mut only_elsewhere, 0);
+    let other = testing::beta();
+    only_elsewhere
+        .package
+        .per_provider
+        .get_mut(&other)
+        .expect("the baseline carries both sides")
+        .reverse_dependency_count = 7;
+    assert!(
+        !engine::recommend(&only_elsewhere, &data)
+            .reasons
+            .iter()
+            .any(|r| r.id.as_str() == reasons::REVERSE_DEPENDENCIES_PRESENT),
+        "dependents under another provider must not block a removal from this one \
+         (INV-04 counts inside one provider; INV-08 forbids the substitution)"
     );
 }
 

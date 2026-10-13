@@ -8,7 +8,7 @@ use crate::data::PolicyData;
 use crate::facts::Facts;
 use crate::reasons;
 use crate::rules::{Rule, RuleVerdict};
-use macportsbrew_domain::{Confidence, Outcome, Reason};
+use macportsbrew_domain::{Outcome, Reason};
 
 /// Fires when some other provider offers a candidate equivalent whose
 /// confidence is below `STRONG` (`03-policy-and-recommendations.md`,
@@ -57,13 +57,14 @@ impl Rule for ManualReviewMappingConfidence {
                 .and_then(|per| (!per.mapping_confidence.is_strong()).then(|| (id.clone(), per)))
         })?;
 
-        Some(RuleVerdict::new(
-            Outcome::ManualReview,
-            Reason::new(reasons::MAPPING_CONFIDENCE_BELOW_THRESHOLD)
-                .with("destination", &destination)
-                .with("confidence", &labels::confidence(per.mapping_confidence))
-                .with("threshold", &labels::confidence(Confidence::Strong)),
-        ))
+        let reason = labels::mapping_confidence_params(per.mapping_confidence)
+            .into_iter()
+            .fold(
+                Reason::new(reasons::MAPPING_CONFIDENCE_BELOW_THRESHOLD)
+                    .with("destination", &destination),
+                |reason, (name, value)| reason.with(name, &value),
+            );
+        Some(RuleVerdict::new(Outcome::ManualReview, reason))
     }
 }
 
@@ -71,6 +72,7 @@ impl Rule for ManualReviewMappingConfidence {
 mod tests {
     use super::*;
     use crate::rules::testing;
+    use macportsbrew_domain::Confidence;
 
     fn data() -> PolicyData {
         PolicyData::load_embedded().unwrap()
@@ -107,6 +109,23 @@ mod tests {
                 verdict.reason.params.get("confidence").map(String::as_str),
                 Some(labels::confidence(confidence))
             );
+            assert_eq!(
+                verdict.reason.params.get("threshold").map(String::as_str),
+                Some(labels::confidence(Confidence::Strong))
+            );
+        }
+    }
+
+    #[test]
+    fn the_threshold_is_the_one_is_strong_draws() {
+        let threshold = labels::MAPPING_CONFIDENCE_THRESHOLD;
+        assert!(threshold.is_strong());
+        for below in [
+            Confidence::None,
+            Confidence::Ambiguous,
+            Confidence::Probable,
+        ] {
+            assert!(below < threshold && !below.is_strong());
         }
     }
 

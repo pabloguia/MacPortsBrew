@@ -14,9 +14,13 @@
 pub mod analysis;
 pub mod capture;
 pub mod classify;
+pub mod configuration_recheck;
 pub mod doctor;
+pub mod execution_gate;
+pub mod executor;
 pub mod explain;
 pub mod facts;
+pub mod history;
 pub mod mapping;
 pub mod planner;
 pub mod provider_commands;
@@ -24,9 +28,25 @@ pub mod report;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 pub use capture::{capture, CaptureContext};
+pub use configuration_recheck::{
+    recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
+};
 pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
+pub use execution_gate::{
+    evaluable_in_this_build, execution_refusals, ExecutionRefusal, GateReport,
+};
+pub use executor::{
+    judge_step, next_action, outcome_of, refused, Action, CheckKind, Disposition, HaltReason,
+    PlannedRun, RunOutcome, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+};
 pub use explain::{explain_package, Explanation};
-pub use planner::{build_plan, PlanRequest};
+pub use history::{
+    migration_key, must_record, recognise_retained_run, run_record, HistoryConsultation,
+    NotRecognised, Recognition,
+};
+pub use planner::{
+    build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
+};
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 
 /// The tool version, from the workspace manifest.

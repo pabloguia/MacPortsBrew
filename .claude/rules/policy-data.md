@@ -34,7 +34,10 @@ the adapter can observe; add one for what it cannot.
 |---|---|
 | `policy.toml` | The manifest: `version` (the policy version every recommendation carries) and `stale_after_days` |
 | `provider-support.toml` | Support tier, published end date, prebuilt-artifact availability, per architecture and macOS range |
+| `provider-prefixes.toml` | Where each provider installs, in detection order. Read by `crates/adapters/src/prefixes.rs`, not by `application` — the loader is in the layer that needs it |
+| `provider-configuration.toml` | Which configuration files each provider reads over the environment this tool invokes it with, and how a line names a key (DP-027). Read by `crates/adapters/src/configuration.rs` |
 | `curated-mappings.toml` | Package equivalences the heuristics miss |
+| `cross-provider-advice.toml` | How each provider's own tooling guards its builds against another provider's prefix (`build_defence`, a closed vocabulary), one row per affected provider; `doctor` picks its direction-specific wording from it (DP-041). Rows carry `index_as_of` for a source that is a local checkout |
 | `provider-commands.toml` | Provider verbs and per-operation elevation |
 | `bottle-tags.toml` | Which prebuilt-artifact tags satisfy a machine |
 | `runtime-managers.toml` | Runtime families and the managers to suggest |
@@ -65,6 +68,11 @@ answerable and neither provider is a special case (INV-17). One source name may
 legitimately appear more than once: a package one provider ships whole and the
 other splits is a one-to-many mapping, and collapsing it loses the half that
 carries the service or the data.
+
+A row read from a **local index** that was itself synced earlier also carries
+`index_as_of` (`YYYY-MM-DD`, the index's own last-update date; for a row spanning two
+indexes, the older; never later than `read_on`). Staleness is measured from it, so
+reading rows today from an old index does not make older facts look newer (DP-043).
 
 Every curated row also carries a `rationale` saying why a heuristic does not get
 there. That is what lets the row be retired when the heuristics improve, instead

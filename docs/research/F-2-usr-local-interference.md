@@ -377,7 +377,7 @@ session.
   concrete, citable checks it can implement are: (a) `/usr/local` present and
   non-empty while MacPorts is installed → warn, recommend `port -t` for failing
   builds, citing Guide §3.1.12; (b) `/opt/local` present while Homebrew is
-  installed → note that Homebrew's compiler shim already strips `-I/opt/local`
+  installed → note that Homebrew's compiler shim already strips `-I/opt/local` (corrected 2026-10-12: only when refurbishing is on; see the addendum)
   and `-L/opt/local`, so the residual risk is in `PATH`-resolved *tools*, not in
   headers and libraries. Direction (b) is materially *lower* risk than direction
   (a) and the UX should say so rather than presenting them as symmetric.
@@ -398,3 +398,121 @@ session.
 - MacPorts changes trace mode's default, or the Guide's §3.1.12 wording changes.
 - The Intel dates in E-6 move in either direction (they are policy data under
   INV-20).
+
+## Addendum, re-read 2026-10-12 (pass 13, DP-041)
+
+This note's "Re-check when" asked for a re-read whenever the `doctor`
+contamination check is touched; pass 13 touches it. Read-only, on this machine,
+2026-10-12: macOS 26.7.1 (`sw_vers`, build 25G241) x86_64, **Homebrew 7.0.4** at
+`/usr/local/Homebrew` (its repository at `edb70f031e4170c780799633a1226ff73e1077f4`,
+committed 2026-09-17T16:04:39Z, tag 7.0.4), **MacPorts 2.12.6** at `/opt/local`
+(`port` warned its definitions were more than two weeks old; the ports index
+`PortIndex` was modified 2026-09-06 local time). Both are local copies; their
+dates are the **index dates** the policy rows carry as `index_as_of`.
+
+**Corrections to earlier findings, from this re-read** (a docs-auditor review of
+the first draft of this addendum found them; each was re-checked against the
+source):
+
+- **Finding 4 and E-5 overstated the shim.** The `-I`/`-L` filtering is **not**
+  always on. `refurbished_args` is reached only when `refurbish_args?` is true
+  (`shims/super/cc` lines 129-133), and that is `config.include?("O")` (lines
+  435-437). On macOS `determine_cccfg` never adds `O`
+  (`extend/os/mac/extend/ENV/super.rb` lines 78-88); it is added only by
+  `ENV.refurbish_args`, whose callers are the Python `setup.py`/`build.py` and
+  setuptools-shim path, virtualenv creation and `bundle exec`. The comment in
+  `extend/ENV/super.rb` lines 142-143 ("Only active under the make/bsdmake
+  wrappers currently") is stale. The same gate existed at E-5's commit.
+- **Finding 7 is out of date for 7.0.4 on Intel.** `macos_bottle_remediation`
+  (`diagnostic.rb` lines 112-130, since commit `686e8a54d5`, 2026-09-05) recommends
+  **nothing** on Intel macOS Tahoe or later ("Existing bottles may still work,
+  but updated formulae may build from source", because MacPorts lacks a full set
+  of Intel Tahoe binaries); it names MacPorts only on other outdated releases.
+  The Tier 3 text in `extend/os/mac/diagnostic.rb` lines 136-167 does not mention
+  MacPorts.
+- E-5's verbatim shim block no longer matches the file: `d7b311f` (2026-09-05)
+  keeps explicit `-L` for declared dependencies and `9801e04` (2026-09-15) adds the
+  `@build_dir` arm. The `/opt/local` arm itself is unchanged.
+
+### E-8 · Homebrew's compiler shim, `Library/Homebrew/shims/super/cc` at that commit
+
+`keep?(path)` (lines 284-309) returns `false` for a path starting with
+`/opt/local`, `/opt/boxen/homebrew`, `/opt/X11`, `/sw` or `/usr/X11` ("ignore
+MacPorts, Boxen's Homebrew, X11, fink"), and for `/usr/local` when Homebrew's own
+prefix is not `/usr/local`. It is called only from the `-I` and `-L` arms of
+`refurbish_arg` (lines 264-272), which is reached only through
+`refurbished_args`, and **that is skipped unless argument refurbishing is on** (see
+the corrections above), as it is for the linker and for autoconf `configure` runs.
+So in an ordinary macOS formula build the shim does not filter `-I` or `-L`
+flags. Other arguments (`-isystem`, `-F`/`-iframework`) reach the compiler through
+the `else args << arg` arm (line 274) and `-Wl,` options through the
+`-W[alp],` arm (lines 233-234); none is filtered. The search paths Homebrew adds
+itself (`HOMEBREW_ISYSTEM_PATHS`, `_INCLUDE_PATHS`, `_LIBRARY_PATHS`,
+`_RPATH_PATHS`) come from its own environment, not from the user's.
+
+### E-9 · What reaches a formula build from the user's `PATH`
+
+`Library/Homebrew/extend/ENV/super.rb`, `determine_path` (lines 189-207; the gcc
+formula's `opt_bin` is appended at lines 197-204): in a superenv build the build's
+`PATH` is **rebuilt** from the shims directory, the formula's dependencies'
+`opt_bin`, Homebrew's extra paths and `/usr/bin:/bin:/usr/sbin:/sbin`. The user's
+`PATH` is not an input, so `/opt/local/bin` does not reach a build in that
+environment. This holds for every superenv build, and it is the defence
+`default_clean_path` records.
+
+Where the user's `PATH` **does** reach Homebrew-run code: a formula that declares
+`env :std` (`extend/ENV/std.rb` line 29 prepends `ORIGINAL_PATHS`, taken from the
+user's `PATH`, `global.rb` line 144); and `post_install`, which
+`formula.rb` lines 1729-1738 runs with `PATH.new(ORIGINAL_PATHS)`, including after
+a bottle is poured. The install command's `--env=` option is described as
+"Disabled other than for internal Homebrew use" (`cmd/install.rb` lines 58-61, 185:
+`odisabled` pointing at `env :std` in formula files); the manual text about
+`--env=std` belongs to the build-environment shell command (`docs/Manpage.md` at
+that commit, under `### sh`).
+
+### E-10 · MacPorts, re-read
+
+MacPorts Guide, 3.1.12 "port install" (<https://guide.macports.org/chunked/using.html>,
+read 2026-10-12), unchanged from E-3: "You might also want to try enabling trace
+mode, which can prevent conflicts caused by files installed by other ports or in
+common system locations, such as `/usr/local`. To do that, re-run the
+installation with the `-t` flag". `port(1)` (<https://man.macports.org/port.1.html>,
+read 2026-10-12): `-t`, "Enable trace mode debug facilities on platforms that
+support it" (the fetched text cut off after "support i"; E-3 holds the full text).
+In `/opt/local/libexec/macports/lib/macports1.0/macports.tcl` (2.12.6): `porttrace`
+is listed among the config file options (lines 52-55 and 81), defaults to `no`
+(lines 1414-1415), and the `-t` flag sets it through the `ports_trace` global
+option (line 221). The installed `/opt/local/etc/macports/macports.conf` is
+byte-identical to `macports.conf.default` and does not mention it. So trace mode
+is **off unless asked for**: opt-in, whether by flag or by a configuration line.
+
+### E-11 · `brew doctor` has no check for another package manager's prefix
+
+`Library/Homebrew/diagnostic.rb` (last changed 2026-09-13 in that checkout) and
+`extend/os/mac/diagnostic.rb` contain no `/opt/local`, MacPorts-on-`PATH`, Fink or
+`/sw` check. (`check_for_nix_homebrew` detects Nix managing Homebrew, a different
+thing.) Finding 6 stands for 7.0.4: `doctor` must implement the check itself.
+
+### What changed in "Cannot determine"
+
+| F-2 item | Now |
+|---|---|
+| The MacPorts FAQ text | Not re-attempted; whether it is still blocked is unknown. The Guide is the cited source. |
+| Whether `/opt/local` on `PATH` affects Homebrew at runtime | **Builds: answered** (E-9: the build `PATH` is rebuilt, except under `env :std`). Code Homebrew runs with the user's `PATH` is known for `post_install` only; `brew`'s other non-build subprocesses: **not investigated**, still unanswered. |
+| Whether the shim covers `-isystem`, `-F`, `rpath` | **Answered: it does not**, and it does not filter `-I`/`-L` either in an ordinary build (E-8). |
+| Trace mode default | **Answered for 2.12.6:** `porttrace` defaults to `no` (E-10). |
+
+### What each advice sentence may claim (the input to pass 13, step C)
+
+| Sentence (`BuildDefence`) | May claim | May not claim |
+|---|---|---|
+| `opt_in_trace` (the affected provider is MacPorts) | Its own Guide says files in common system locations such as `/usr/local` can conflict with a port install and suggests trace mode (`port -t`) as a way to try to avoid that; trace mode is not on by default (E-10). | The autotools/gcc probing mechanism (uncited since F-2). That `-t` always works: it is for "platforms that support it". Anything about what `/usr/local` holds on this machine (nothing looked). |
+| `default_clean_path` (the affected provider is Homebrew) | In a formula build Homebrew rebuilds the build's `PATH` from its own directories, so a directory on the user's `PATH`, `/opt/local/bin` included, is not an input to that build (E-9). | That include or library flags are filtered (E-8: not in an ordinary build). That every build is protected (`env :std`, `post_install` and anything run outside Homebrew's build environment are not). Anything about `brew`'s other non-build subprocesses. |
+| Both | Which copy of a tool you get when you type its name still follows your `PATH` order, and that order is yours to arrange. The finding reports only; nothing was changed. | A remedy the tool performs. |
+
+### Re-check when (added)
+
+Homebrew's `shims/super/cc`, `ENV/super.rb` or the macOS `determine_cccfg` change
+(record the commit as above); a MacPorts release changes trace mode, the
+`porttrace` default or the Guide's 3.1.12 wording; `brew doctor` gains a check for
+another package manager.

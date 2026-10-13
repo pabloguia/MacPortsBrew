@@ -139,7 +139,8 @@ at the test defending it is incomplete.
 
 ## This build
 
-Read-only. No executor, no mutation, no elevation, no network. A gate script
+Read-only. No mutation, no elevation, no network call of its own (Homebrew,
+asked to read, may fetch its catalogue on an empty cache — see the FAQ). A gate script
 greps the source on every change for a mutating provider subcommand literal or
 an elevation token and fails the build if it finds one — so "this build cannot
 mutate anything" is enforced rather than promised.

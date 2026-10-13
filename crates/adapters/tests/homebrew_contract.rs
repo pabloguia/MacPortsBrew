@@ -10,7 +10,8 @@
 //! live installation), and the numbers come from `docs/research/R-1` and
 //! `docs/research/R-2`, which were written from the same machine.
 
-use macportsbrew_adapters::homebrew::{detect_prefix, HomebrewAdapter, PROVIDER_ID};
+use macportsbrew_adapters::filesystem::FilesystemScope;
+use macportsbrew_adapters::homebrew::{self, detect_prefix, HomebrewAdapter, PROVIDER_ID};
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, ProcessRunner, RecordedInvocation, Recording, RecordingProvenance,
     ReplayRunner,
@@ -46,7 +47,14 @@ fn recording() -> Recording {
 }
 
 fn adapter(runner: &dyn ProcessRunner) -> HomebrewAdapter<'_> {
-    HomebrewAdapter::new(runner, prefix(), None, platform_tags())
+    // The fixture recording is the machine; this host's disk is not it.
+    HomebrewAdapter::new(
+        runner,
+        prefix(),
+        None,
+        platform_tags(),
+        FilesystemScope::Elsewhere,
+    )
 }
 
 fn machine() -> Machine {
@@ -161,7 +169,13 @@ fn the_offline_metadata_capability_follows_the_cached_index() {
     std::fs::create_dir_all(&index).unwrap();
     let runner = ReplayRunner::new(recording());
 
-    let absent = HomebrewAdapter::new(&runner, prefix(), Some(home.clone()), platform_tags());
+    let absent = HomebrewAdapter::new(
+        &runner,
+        prefix(),
+        Some(home.clone()),
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
     assert!(matches!(
         absent.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
         CapabilityState::Unavailable { .. }
@@ -169,7 +183,13 @@ fn the_offline_metadata_capability_follows_the_cached_index() {
 
     std::fs::write(index.join("packages.tahoe.jws.json"), "{}").unwrap();
     let runner = ReplayRunner::new(recording());
-    let present = HomebrewAdapter::new(&runner, prefix(), Some(home.clone()), platform_tags());
+    let present = HomebrewAdapter::new(
+        &runner,
+        prefix(),
+        Some(home.clone()),
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
     assert_eq!(
         present.capabilities().unwrap().capabilities[&Capability::OfflineMetadata],
         CapabilityState::Available
@@ -265,7 +285,11 @@ fn casks_are_reported_as_applications_and_carry_no_record_of_intent() {
         .expect("the captured machine has a gimp cask");
     assert_eq!(gimp.kind, PackageKind::GuiApp);
     assert_eq!(gimp.version.as_str(), "3.2.4");
-    // A cask has no intent field at all (R-1 finding 4).
+    // The cask JSON has no intent field (R-1 finding 4, re-verified
+    // 2026-09-04). Homebrew records one in the on-disk receipt, which this
+    // adapter reads only where the filesystem is the machine, and this test
+    // replays: the recording carries no receipt. `gimp` is also one of the two
+    // casks on the captured machine that has no receipt at all (R-12).
     assert_eq!(gimp.requested, None);
     assert_eq!(
         gimp.install_path.as_deref(),
@@ -514,6 +538,63 @@ fn a_document_missing_a_required_key_fails_loudly() {
     );
 }
 
+/// The captured recording with one invocation's stdout rewritten in memory -
+/// a labelled mutation of a captured document, not an invented fixture.
+fn with_stdout(argv: &[&str], rewrite: impl FnOnce(&str) -> String) -> Recording {
+    let mut mutated = recording();
+    let record = mutated
+        .invocations
+        .iter_mut()
+        .find(|r| r.invocation.argv == argv)
+        .expect("the fixture records the command");
+    let before = record.invocation.stdout.clone();
+    record.invocation.stdout = rewrite(&before);
+    assert_ne!(
+        record.invocation.stdout, before,
+        "the fixture shape changed"
+    );
+    mutated
+}
+
+#[test]
+fn a_formula_row_missing_its_service_key_fails_rather_than_reading_as_no_service() {
+    // Every formula row in the capture carries `service` (R-8). Drop the key
+    // from one row while the five non-null blocks elsewhere still mark
+    // ServiceMetadata Available: before this, that row read as "defines no
+    // service" under a capability that vouched for the answer.
+    let mutated = with_stdout(&["info", "--json=v2", "--installed"], |s| {
+        s.replacen("\"service\": null", "\"renamed_service\": null", 1)
+    });
+    let runner = ReplayRunner::new(mutated);
+    let adapter = adapter(&runner);
+    let error = adapter.inventory().unwrap_err();
+    assert_eq!(error.id, ErrorId::ProviderOutputChanged);
+    assert!(error.detail.contains("`service`"), "{}", error.detail);
+    assert_eq!(
+        adapter.capabilities().unwrap().capabilities[&Capability::ServiceMetadata],
+        CapabilityState::Unavailable {
+            reason: "error.provider_output_changed".to_string()
+        }
+    );
+}
+
+#[test]
+fn a_pinned_name_is_validated_like_every_other_provider_name() {
+    // A valid pinned name reaches the metadata.
+    let pinned = with_stdout(&["list", "--pinned"], |_| "wget\n".to_string());
+    let runner = ReplayRunner::new(pinned);
+    assert!(adapter(&runner).inventory().unwrap().metadata["wget"].pinned);
+
+    // One that could not be a package name is a shape change, not a set member.
+    for hostile in ["../../etc/passwd", "-rf", "wgét"] {
+        let mutated = with_stdout(&["list", "--pinned"], |_| format!("wget\n{hostile}\n"));
+        let runner = ReplayRunner::new(mutated);
+        let error = adapter(&runner).inventory().unwrap_err();
+        assert_eq!(error.id, ErrorId::ProviderOutputChanged, "{hostile}");
+        assert!(error.detail.contains("list --pinned"), "{}", error.detail);
+    }
+}
+
 #[test]
 fn only_the_documented_read_commands_are_consulted() {
     let runner = ReplayRunner::new(recording());
@@ -628,7 +709,13 @@ fn ownership_comes_from_the_resolved_path_not_the_containing_prefix() {
         (&["--cellar"], &cellar.display().to_string(), ok()),
         (&["--caskroom"], &caskroom.display().to_string(), ok()),
     ]));
-    let adapter = HomebrewAdapter::new(&runner, root.clone(), None, platform_tags());
+    let adapter = HomebrewAdapter::new(
+        &runner,
+        root.clone(),
+        None,
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
 
     let owned = adapter.resolution(&keg.join("wget")).unwrap();
     assert_eq!(owned.executable, "wget");
@@ -677,8 +764,17 @@ fn a_prefix_is_detected_only_where_an_executable_exists() {
     std::fs::create_dir_all(root.join("bin")).unwrap();
     std::fs::write(root.join("bin/brew"), "").unwrap();
     let candidates = vec![PathBuf::from("/nonexistent-prefix"), root.clone()];
-    assert_eq!(detect_prefix(&candidates), Some(root.clone()));
-    assert_eq!(detect_prefix(&[PathBuf::from("/nonexistent-prefix")]), None);
+    assert_eq!(
+        detect_prefix(&candidates, FilesystemScope::ThisMachine),
+        Some(root.clone())
+    );
+    assert_eq!(
+        detect_prefix(
+            &[PathBuf::from("/nonexistent-prefix")],
+            FilesystemScope::ThisMachine
+        ),
+        None
+    );
     std::fs::remove_dir_all(&root).ok();
 }
 
@@ -765,4 +861,110 @@ impl ProcessRunner for CountingRunner {
     fn is_replay(&self) -> bool {
         true
     }
+}
+
+// -- the cask receipt, where the reader must refuse ------------------------
+//
+// These two live here rather than beside the other receipt tests in
+// `homebrew/mod.rs` because they name `symlink` and `hard_link`, and the stop
+// gate refuses those tokens anywhere under `src/` — a Rust module inside `src/`
+// is compiled into the shipped binary whatever the directory is called. An
+// integration test is a separate binary that no release carries, which is the
+// placement the guard's own message points at. Not a workaround: the guard is
+// right about where this code belongs.
+
+/// A scratch Caskroom holding one cask, with whatever receipt bytes the case
+/// wants — or none.
+fn caskroom_with(token: &str, receipt: Option<&[u8]>) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "mpb-caskroom-contract-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let meta = root.join(token).join(".metadata");
+    std::fs::create_dir_all(&meta).expect("scratch caskroom");
+    if let Some(bytes) = receipt {
+        std::fs::write(meta.join("INSTALL_RECEIPT.json"), bytes).expect("receipt");
+    }
+    root
+}
+
+fn receipt_path(root: &std::path::Path, token: &str) -> PathBuf {
+    root.join(token)
+        .join(".metadata")
+        .join("INSTALL_RECEIPT.json")
+}
+
+#[test]
+fn a_receipt_with_a_second_name_is_refused() {
+    // A hard link means these bytes are reachable under a name this tool did
+    // not check. One boolean is an oracle rather than a disclosure, but the
+    // cheap refusal is the right default in a directory the tool does not own.
+    let root = caskroom_with("meld", Some(br#"{"installed_on_request": true}"#));
+    std::fs::hard_link(receipt_path(&root, "meld"), root.join("second-name"))
+        .expect("a second name");
+    assert_eq!(
+        homebrew::cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+        None,
+        "a receipt with more than one name was read"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_receipt_reached_through_a_link_is_refused() {
+    // The pre-check refuses a non-regular file before the open. Its blocking
+    // rationale moved to the open flags (F-31) - this caller passes
+    // `O_NONBLOCK` now - but the check is still what refuses the link here,
+    // and still supplies the dev/ino baseline the identity test compares.
+    let real = caskroom_with("real", Some(br#"{"installed_on_request": true}"#));
+    let root = caskroom_with("meld", None);
+    std::os::unix::fs::symlink(receipt_path(&real, "real"), receipt_path(&root, "meld"))
+        .expect("a link");
+    assert_eq!(
+        homebrew::cask_requested(&root, "meld", FilesystemScope::ThisMachine),
+        None,
+        "a linked receipt was followed"
+    );
+    std::fs::remove_dir_all(&root).ok();
+    std::fs::remove_dir_all(&real).ok();
+}
+
+#[test]
+fn an_adapter_reports_every_candidate_prefix_that_holds_its_executable() {
+    use macportsbrew_domain::Installations;
+    let root = scratch("installations");
+    let (a, b, empty) = (root.join("a"), root.join("b"), root.join("empty"));
+    for prefix in [&a, &b] {
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::write(prefix.join("bin/brew"), "").unwrap();
+    }
+    std::fs::create_dir_all(&empty).unwrap();
+    let candidates = vec![a.clone(), empty, b.clone()];
+    let runner = ReplayRunner::new(recording());
+    let build = |scope| {
+        HomebrewAdapter::new(&runner, a.clone(), None, platform_tags(), scope)
+            .with_installation_candidates(candidates.clone())
+    };
+
+    let on_this_machine = build(FilesystemScope::ThisMachine).installations();
+    assert_eq!(on_this_machine.count(), Some(2));
+    // A recording is the machine: this host's disk is never consulted, so the
+    // answer is unknown and not "one" (INV-15).
+    assert_eq!(
+        build(FilesystemScope::Elsewhere).installations(),
+        Installations::Unknowable
+    );
+    // Told no candidates, nothing was searched.
+    let unsearched = HomebrewAdapter::new(
+        &runner,
+        a.clone(),
+        None,
+        platform_tags(),
+        FilesystemScope::ThisMachine,
+    );
+    assert_eq!(unsearched.installations(), Installations::NotRecorded);
+    std::fs::remove_dir_all(&root).ok();
 }

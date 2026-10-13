@@ -1,4 +1,8 @@
 {
+  "concurrentProviderActivity": {
+    "activity": "UNKNOWABLE",
+    "possiblyInconsistent": true
+  },
   "machine": {
     "architecture": "x86_64",
     "commandLineTools": {
@@ -35,7 +39,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -51,7 +55,7 @@
               "package": "gnutls",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -152,7 +156,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -185,7 +189,7 @@
               "package": "nginx",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -304,7 +308,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -337,7 +341,7 @@
               "package": "postgresql17-server",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -446,7 +450,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -472,7 +476,7 @@
               "package": "py-pygments",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -555,7 +559,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.09.02-1",
+        "policyVersion": "2026.10.12-4",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -571,7 +575,7 @@
               "package": "wget",
               "provider": "macports"
             },
-            "rule": "NO_ACTION_ALREADY_THERE"
+            "rule": "NO_ALTERNATIVE_PROVIDER_PRESENT"
           }
         ],
         "rulesNotFired": [
@@ -642,18 +646,50 @@
       "source": "macports"
     }
   ],
-  "policyReadOn": "2026-09-02",
+  "policyReadOn": "2026-09-17",
   "policyStale": false,
-  "policyVersion": "2026.09.02-1",
+  "policyVersion": "2026.10.12-4",
   "providers": {
     "homebrew": {
       "capabilities": {
-        "capabilities": {}
+        "capabilities": {
+          "ARTIFACT_AVAILABILITY": {
+            "state": "UNKNOWN"
+          },
+          "DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "DEPRECATION_STATE": {
+            "state": "UNKNOWN"
+          },
+          "FILE_OWNERSHIP": {
+            "state": "UNKNOWN"
+          },
+          "MACHINE_READABLE_INVENTORY": {
+            "state": "UNKNOWN"
+          },
+          "OFFLINE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "REQUESTED_RECORD": {
+            "state": "UNKNOWN"
+          },
+          "REVERSE_DEPENDENCIES": {
+            "state": "UNKNOWN"
+          },
+          "SERVICE_METADATA": {
+            "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "UNKNOWN"
+          }
+        }
       },
       "detection": {
         "architecture": null,
         "executable": null,
         "prefix": null,
+        "prefixRedacted": false,
         "presence": {
           "state": "ABSENT"
         },
@@ -666,7 +702,7 @@
         "endDate": "2027-09-01",
         "entry": "hb-x86_64-tier3-with-stated-end",
         "fact": {
-          "readOn": "2026-09-02",
+          "readOn": "2026-09-04",
           "source": "https://docs.brew.sh/Support-Tiers"
         },
         "prebuiltArtifacts": true,
@@ -686,7 +722,7 @@
             "state": "AVAILABLE"
           },
           "DEPRECATION_STATE": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "FILE_OWNERSHIP": {
             "state": "AVAILABLE"
@@ -705,6 +741,9 @@
           },
           "SERVICE_METADATA": {
             "state": "UNKNOWN"
+          },
+          "UNPRIVILEGED_READ": {
+            "state": "AVAILABLE"
           }
         }
       },
@@ -712,6 +751,7 @@
         "architecture": null,
         "executable": "/opt/local/bin/port",
         "prefix": "/opt/local",
+        "prefixRedacted": false,
         "presence": {
           "state": "PRESENT"
         },
@@ -747,6 +787,7 @@
     },
     "dependencyUnits": 0,
     "manualReview": 3,
+    "ownershipUnknown": 1,
     "topLevelUnits": 5
   },
   "today": "2026-09-02",

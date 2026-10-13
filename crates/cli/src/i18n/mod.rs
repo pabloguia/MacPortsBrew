@@ -171,13 +171,15 @@ impl Messages {
 
     /// The catalogue this build has for a locale.
     ///
-    /// The pseudolocale is generated; every other tag currently gets English,
-    /// because the translations land in a later pass. The locale is kept as
-    /// asked for even so, so plural rules and layout are already the target
-    /// locale's while the text is still English.
+    /// The pseudolocale is generated and `pt-BR` is translated; every other tag
+    /// currently gets English, because those translations land in a later pass.
+    /// The locale is kept as asked for even so, so plural rules and layout are
+    /// already the target locale's while the text is still English.
     pub fn for_locale(locale: &Locale) -> Self {
         let catalogue = if locale.is_pseudo() {
             Catalogue::pseudolocale()
+        } else if locale.as_str() == "pt-BR" {
+            Catalogue::portuguese_brazil()
         } else {
             Catalogue::english()
         };
@@ -195,12 +197,80 @@ impl Messages {
     }
 
     /// Renders an identifier with parameters.
+    ///
+    /// **Every parameter value is escaped here** with
+    /// [`macportsbrew_domain::escape_hostile`], before it is substituted. This
+    /// is the one place catalogue parameters reach text, and parameters are
+    /// where snapshot-derived values travel into human output - a `PATH` entry,
+    /// a `reported` variable's name and value in `doctor`, a provider's
+    /// version. A snapshot keeps format characters and the line separators
+    /// (legitimate names carry them); this is where they stop being able to
+    /// reorder text or break a line, and stop hiding text as far as Unicode
+    /// format characters can (other default-ignorable characters - Hangul
+    /// fillers, variation selectors - are not in the classification). The
+    /// template is the catalogue's own text and is not escaped;
+    /// `catalogue::tests::no_template_carries_a_hostile_character` holds it
+    /// to that.
+    ///
+    /// **Every** parameter is escaped, with no exception: a multi-line value,
+    /// or a fragment already rendered from the catalogue and passed in as a
+    /// parameter, has its line breaks and format characters escaped too. No
+    /// caller does that today. One that needs to compose trusted fragments is
+    /// owed a separate, explicitly trusted path - not a way round this one.
     pub fn render(&self, id: &str, params: &BTreeMap<String, String>) -> String {
         if let Some(template) = self.catalogue.get(id) {
+            let params: BTreeMap<String, String> = params
+                .iter()
+                .map(|(k, v)| (k.clone(), macportsbrew_domain::escape_hostile(v)))
+                .collect();
+            let params = &self.resolve_identifiers(&params);
             return format::format_message(&self.locale, template, params);
         }
         self.missing.borrow_mut().insert(id.to_string());
         format!("[{id}]")
+    }
+
+    /// Parameters whose value is a stable domain identifier, rendered through
+    /// the catalogue key for that identifier before substitution.
+    ///
+    /// The families are named in `locales/en.toml`, which has described this
+    /// mechanism since it was written while nothing implemented it: a rule
+    /// emitting `labels::tier(SupportTier::Degraded)` put the literal
+    /// `DEGRADED` into a sentence a person reads, and `doctor` put
+    /// `format!("{:?}", tier)` there - a `Debug` rendering built in the
+    /// *application* layer, which is a display string above the layer allowed to
+    /// have one (F-20).
+    ///
+    /// A family is keyed by parameter *name*, across every template: a
+    /// `{confidence}` or `{threshold}` anywhere is read as a mapping
+    /// confidence. `crates/cli/tests/reasons_catalogue.rs` holds every such
+    /// parameter to that vocabulary, so a later reason cannot reuse the name
+    /// for something else and have it rendered as a confidence label.
+    ///
+    /// A value that names no key is left exactly as it is. That is deliberate
+    /// and not a fallback to be tidied away: silently blanking a value no
+    /// family covers would be worse than showing an identifier.
+    fn resolve_identifiers(&self, params: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+        const FAMILIES: &[(&str, &str)] = &[
+            ("tier", "support"),
+            ("class", "class"),
+            ("cause", "source_build"),
+            ("confidence", "confidence"),
+            ("threshold", "confidence"),
+            ("state", "state"),
+            ("defence", "defence"),
+        ];
+        let mut out = params.clone();
+        for (name, family) in FAMILIES {
+            let Some(value) = out.get_mut(*name) else {
+                continue;
+            };
+            let key = format!("{family}.{}", value.to_ascii_lowercase());
+            if let Some(template) = self.catalogue.get(&key) {
+                *value = format::format_message(&self.locale, template, &BTreeMap::new());
+            }
+        }
+        out
     }
 
     /// Renders an identifier that takes no parameters.
@@ -251,6 +321,47 @@ impl Messages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_stable_identifier_parameter_is_rendered_through_its_catalogue_key() {
+        // `locales/en.toml` has described this since it was written and nothing
+        // implemented it, so a rule emitting `labels::tier(Unsupported)` put the
+        // literal `UNSUPPORTED` into a sentence a person reads — while
+        // `support.unsupported = "Not supported"` sat in the catalogue unused
+        // (F-20).
+        let messages = Messages::english();
+        let with = |name: &str, value: &str| {
+            let mut p = BTreeMap::new();
+            p.insert(name.to_string(), value.to_string());
+            p
+        };
+        let rendered = messages.render("doctor.provider_support", &with("tier", "UNSUPPORTED"));
+        assert!(
+            rendered.contains("Not supported"),
+            "the catalogue's wording, not the identifier: {rendered}"
+        );
+        assert!(
+            !rendered.contains("UNSUPPORTED"),
+            "and the identifier does not survive: {rendered}"
+        );
+        // Every variant the domain has.
+        for (identifier, text) in [
+            ("SUPPORTED", "Supported"),
+            ("DEGRADED", "Degraded"),
+            ("UNSUPPORTED", "Not supported"),
+            ("UNKNOWN", "Unknown"),
+        ] {
+            let out = messages.render("doctor.provider_support", &with("tier", identifier));
+            assert!(
+                out.contains(text),
+                "{identifier} should render {text}: {out}"
+            );
+        }
+        // A value naming no key is left exactly as it is, rather than blanked.
+        // `{state}` and friends carry values from families this does not cover.
+        let out = messages.render("doctor.provider_support", &with("tier", "SOMETHING_NEW"));
+        assert!(out.contains("SOMETHING_NEW"), "{out}");
+    }
+
     use super::*;
     use macportsbrew_domain::ErrorId;
 
@@ -324,6 +435,45 @@ mod tests {
         let messages = Messages::english();
         assert!(!messages.render_id("cli.about").is_empty());
         assert!(messages.missing().is_empty());
+    }
+
+    #[test]
+    fn every_hostile_parameter_value_is_escaped_and_benign_text_is_not() {
+        use macportsbrew_domain::{CHARACTER_SAMPLES, LEGITIMATE_TEXT_WITH_FORMAT};
+        let m = Messages::english();
+        // `doctor`'s leaked-variable finding, whose `{variable}` comes straight
+        // from a snapshot's `reported` keys.
+        let template = m
+            .catalogue()
+            .get("doctor.build_variable_names_prefix")
+            .expect("the finding exists");
+        assert!(template.contains("{variable}"), "{template}");
+        for &(c, class) in CHARACTER_SAMPLES {
+            let value = format!("CPP{c}FLAGS");
+            let text = m.render(
+                "doctor.build_variable_names_prefix",
+                &crate::params! { variable: value.clone(), provider: "p" },
+            );
+            if class.is_some() {
+                assert!(!text.contains(c), "{c:?} survived: {text:?}");
+                assert!(
+                    text.contains(&format!("CPP{}FLAGS", c.escape_unicode())),
+                    "{text}"
+                );
+            } else {
+                assert!(text.contains(&value), "{c:?} was altered: {text:?}");
+            }
+        }
+        for name in LEGITIMATE_TEXT_WITH_FORMAT {
+            let text = m.render(
+                "doctor.build_variable_names_prefix",
+                &crate::params! { variable: *name, provider: "p" },
+            );
+            assert!(
+                !text.chars().any(macportsbrew_domain::is_hostile),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]

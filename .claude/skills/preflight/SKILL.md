@@ -1,7 +1,7 @@
 ---
 name: preflight
 description: Run the MacPortsBrew definition-of-done checks before committing or before reporting a pass complete. Verifies links, config validity, the no-mutation boundary, invariant test coverage and specification currency, and reports what it could not check.
-allowed-tools: Read, Grep, Glob, Bash(bash -n *), Bash(shellcheck *), Bash(python3 -m json.tool *), Bash(git status*), Bash(git diff*), Bash(grep *), Bash(cargo fmt*), Bash(cargo clippy*), Bash(cargo test*), Bash(cargo tree*), Bash(otool -l *), Bash(vtool -show *), Bash(${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-gate.sh), Bash(${CLAUDE_PROJECT_DIR}/.claude/hooks/test-hooks.sh)
+allowed-tools: Read, Grep, Glob, Bash(bash -n *), Bash(shellcheck *), Bash(python3 -m json.tool *), Bash(git status*), Bash(git diff*), Bash(grep *), Bash(otool -l *), Bash(vtool -show *), Bash(${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-gate.sh), Bash(${CLAUDE_PROJECT_DIR}/.claude/hooks/test-hooks.sh)
 license: Apache-2.0
 ---
 

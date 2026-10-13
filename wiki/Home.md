@@ -1,6 +1,8 @@
 # MacPortsBrew
 
-> Safely migrate and manage packages between Homebrew and MacPorts on macOS.
+> See what Homebrew and MacPorts have installed, compare them package by
+> package, and plan a migration in either direction. Version 0.1.0 reads and
+> plans; it changes nothing.
 
 MacPortsBrew looks at what you have installed under Homebrew and under
 MacPorts, works out which packages are equivalent, explains which provider is
@@ -47,26 +49,38 @@ the order.
   — prebuilt artifacts, source builds, and how to tell which you will get.
 - [Primary Provider](Primary-Provider.md) — when both providers have the same
   tool, which one actually runs.
-- [Undoing a Migration](Undoing-a-Migration.md) — snapshots, history and the
-  restore path.
+- [Restoring After a Migration](Restoring-After-a-Migration.md) — how to take
+  your own snapshot before you change anything by hand. History and a restore
+  command are designed but are not in 0.1.0.
 
 ## What this build does
 
 Version 0.1.0 is **read-only**. It inventories, analyses, maps, explains and
 plans. It executes nothing, elevates nothing, writes nothing into either
-provider's prefix, and makes no network calls.
+provider's prefix, and makes no network calls of its own (Homebrew, which it
+asks to read, may fetch its package catalogue; see the FAQ).
 
-`plan` prints exactly what would happen and stops. There is no `migrate`
-command yet; execution is a later pass. Every page here that describes a
-migration says plainly where the plan ends and the not-yet-written executor
-would begin.
+`plan` prints exactly what would happen and stops, and so does `migrate`;
+`migrate --yes` reaches a refusal gate that refuses every plan this build
+produces, and exits 4. Running a plan is for a later release. Until then, a
+plan is something you can follow by hand, at your own risk; every page here
+that describes a migration says plainly where the plan ends.
+
+**Mapping looks only at what is already installed.** In 0.1.0 a package is
+matched to the other provider only if that provider already has an equivalent
+installed, or the small curated table names one. For anything else the plan
+stops at *Needs a human decision* with "no equivalent found" — nothing was
+found, which does not mean no equivalent exists. Searching the other provider's
+full catalogue is planned for a later release.
 
 ## Privacy
 
 No telemetry, and no network call that reports anything about you.
-`macportsbrew doctor --report` writes a **redacted** diagnostic file locally —
-no usernames, home paths, environment variable values or tokens — which you
-read and choose to share. MacPortsBrew never uploads it.
+`macportsbrew doctor --report` writes a diagnostic file locally, without your
+user name or home folder path. `PATH` entries a finding mentions appear with
+your home folder shown as `~`; other environment variables are named but their
+values are left out. It also lists every installed package. Read it before you
+share it; MacPortsBrew never uploads it.
 
 ## Not affiliated
 

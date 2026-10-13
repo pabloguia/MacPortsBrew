@@ -357,8 +357,8 @@ and setting it has no effect on the resolution:
 
 ```
 $ HOMEBREW_BUILD_FROM_SOURCE=1 brew --cache wget autoconf
-/Users/pirado/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
-/Users/pirado/Library/Caches/Homebrew/downloads/5ed6ef9a…--autoconf--2.73.tahoe.bottle.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/5ed6ef9a…--autoconf--2.73.tahoe.bottle.tar.gz
 ```
 
 `pour_bottle?` DSL usage across the whole core tap:
@@ -435,9 +435,9 @@ trailing forms are verbatim.)
 It downloads nothing:
 
 ```
-$ ls -1 /Users/pirado/Library/Caches/Homebrew/downloads | wc -l
+$ ls -1 /Users/<user>/Library/Caches/Homebrew/downloads | wc -l
        0
-$ ls -la /Users/pirado/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
+$ ls -la /Users/<user>/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
 ls: …: No such file or directory
 ```
 
@@ -445,10 +445,10 @@ Flags:
 
 ```
 $ brew --cache --build-from-source wget
-/Users/pirado/Library/Caches/Homebrew/downloads/d06ba293…--wget-1.25.0.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/d06ba293…--wget-1.25.0.tar.gz
 
 $ brew --cache --force-bottle gh
-/Users/pirado/Library/Caches/Homebrew/downloads/2c704b49…--cli-2.99.0.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/2c704b49…--cli-2.99.0.tar.gz
 
 $ brew --cache --bottle-tag=arm64_tahoe wget
 Warning: Bottle for tag :arm64_tahoe is unavailable.
@@ -597,8 +597,8 @@ $ stat -f '%Sm %N' -t '%H:%M:%S' ~/Library/Caches/Homebrew/api/internal/packages
 09:20:29 …/packages.tahoe.jws.json          # at 12:47:55Z, after ~15 brew invocations
 
 $ HOMEBREW_API_DOMAIN=http://127.0.0.1:1 brew --cache wget gh
-/Users/pirado/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
-/Users/pirado/Library/Caches/Homebrew/downloads/2c704b49…--cli-2.99.0.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/d2d3f876…--wget--1.25.0.sonoma.bottle.2.tar.gz
+/Users/<user>/Library/Caches/Homebrew/downloads/2c704b49…--cli-2.99.0.tar.gz
 ```
 
 Manpage, Homebrew 6.0.21, read 2026-09-02:
