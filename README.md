@@ -145,7 +145,8 @@ macportsbrew plan git --to macports    # a migration plan; nothing is executed
                                        # (stops for a human decision unless
                                        # MacPorts already has git installed)
 macportsbrew doctor              # prefixes, PATH order, leaked build variables,
-                                 # a package manager installed in two places
+                                 # a package manager installed in two places,
+                                 # which side is exposed to the other
 macportsbrew snapshot            # capture both providers' state to a file
 ```
 
@@ -170,7 +171,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 packages in the default view; 15 need manual review. Policy 2026.10.12-3.
+56 packages in the default view; 15 need manual review. Policy 2026.10.12-4.
 Ownership is unknown for 11 rows: the provider kept no record, or this analysis could not read one.
 ```
 

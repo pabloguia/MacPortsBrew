@@ -112,7 +112,7 @@ support.unknown = "Desconhecido"
 
 # --- Defesa de compilação ---------------------------------------------------
 
-defence.opt_in_trace = "O guia dele diz que arquivos em locais comuns do sistema, como /usr/local, podem entrar em conflito com uma instalação, e sugere tentar o modo trace (a opção -t) quando uma falha; o modo trace fica desligado a menos que você peça."
+defence.opt_in_trace = "O guia dele diz que arquivos em locais comuns do sistema, como /usr/local, podem entrar em conflito com uma instalação, e sugere tentar o modo trace (`port -t`) quando uma falha; o modo trace fica desligado a menos que você peça."
 defence.default_clean_path = "Em uma compilação de fórmula, as ferramentas dele reconstroem o PATH da compilação a partir de diretórios próprios, então um diretório do seu PATH não entra nessa compilação; isso não vale para uma fórmula que pede o seu PATH, para etapas de pós-instalação nem para o que roda fora de uma compilação."
 
 # --- Recommendation outcomes ------------------------------------------------
@@ -340,7 +340,7 @@ advanced.warning = "O modo avançado mostra dependências. Esses pacotes são ge
 "doctor.provider_support" = "O suporte de {provider} para esta máquina está no nível {tier} (fonte: {source}, lido em {readOn})."
 "doctor.path_order" = "O PATH encontra os gerenciadores de pacotes nesta ordem: {order}."
 "doctor.prefix_not_on_path" = "O prefixo de {provider}, {prefix}, não está no PATH."
-"doctor.cross_provider_exposure" = "{intruder} (em {intruder_prefix}) e {affected} dividem esta máquina. {defence} Qual cópia de uma ferramenta roda quando você digita o nome dela depende da ordem do seu PATH, e essa ordem é sua para organizar. Isto é apenas um relatório; nada foi alterado."
+"doctor.cross_provider_exposure" = "{intruder} (em {intruder_prefix}) e {affected} dividem esta máquina. Sobre {affected}: {defence} Isto é um aviso apenas quando {intruder} é pesquisado primeiro no seu PATH. Qual cópia de uma ferramenta roda quando você digita o nome dela depende da ordem do seu PATH, e essa ordem é sua para organizar. Isto é apenas um relatório; nada foi alterado."
 "doctor.cross_provider_exposure_unadvised" = "{intruder} e {affected} dividem esta máquina, mas nada registrado diz como as ferramentas de {affected} protegem as compilações dele contra {intruder}, então nenhuma afirmação sobre a direção é feita. Isto é apenas um relatório; nada foi alterado."
 "doctor.path_unknown" = "Esta análise não traz o PATH, então não é possível dizer os executáveis de qual gerenciador de pacotes têm prioridade. Uma gravação não captura o ambiente; execute `doctor` ao vivo para ter a resposta real."
 "doctor.path_duplicate" = "O PATH contém {entry} mais de uma vez."

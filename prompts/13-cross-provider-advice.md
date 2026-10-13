@@ -157,8 +157,8 @@ prefix (the **affected** provider). Fields: `provider`, `build_defence`,
 `build_defence` is a **closed vocabulary of stable identifiers**, one Rust enum
 in `crates/policy`, never prose: `opt_in_trace` (the provider can sandbox a
 build against other prefixes, but only when asked) and `default_clean_path` (the
-provider's own build tooling drops other prefixes' search paths on every source
-build). Adding a third mechanism later is a new variant, a catalogue entry and
+provider's own build tooling builds in an environment whose `PATH` it constructs, so the
+user's is not an input by default; corrected after the research, SE-098). Adding a third mechanism later is a new variant, a catalogue entry and
 a data row, and the compiler points at all three.
 
 A **provider-neutral rule** in `crates/application/src/doctor.rs`: for every

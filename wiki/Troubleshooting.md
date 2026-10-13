@@ -55,6 +55,28 @@ A per-package report of what runs and which provider owns it is specified for
 See [Primary Provider](Primary-Provider.md) for the four ways to change it,
 least invasive first. This build reports; it does not change what runs.
 
+## `doctor` says one provider is exposed to the other
+
+With both Homebrew and MacPorts present, `doctor` reports each direction separately,
+because they are not equally risky and the two sentences differ. It is a warning only
+when your `PATH` is known and the *other* provider's directory is searched first (or
+yours is not on it); a recording carries no `PATH`, so nothing can be judged there and `doctor` says so once
+(`path_unknown`).
+
+- **MacPorts' side** (MacPorts 2.12.6, read 2026-10-12). Its own guide says files in common
+  system locations such as `/usr/local` can conflict with an installation and suggests
+  trying trace mode (`port -t`) when one fails. Trace mode is off unless you ask for it. The guide names `/usr/local`; it says nothing
+  about other prefixes such as `/opt/homebrew`.
+- **Homebrew's side** (Homebrew 7.0.4, read 2026-10-12). In a formula build Homebrew rebuilds the
+  build's `PATH` from its own directories, so a directory on yours is not an input to
+  that build. That does not cover a formula that asks for your `PATH`, post-install
+  steps, or anything run outside a build.
+- **What it does not tell you.** Which copy of a tool runs when you type its name still
+  follows your `PATH` order, and that order is yours to arrange. Nothing was looked up
+  about what `/usr/local` actually holds on your machine. The finding reports only;
+  nothing was changed. The facts are dated data in `data/policy/cross-provider-advice.toml`
+  with their sources.
+
 ## A package compiles instead of installing
 
 There is no prebuilt artifact for your machine, or non-default options were

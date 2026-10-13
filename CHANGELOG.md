@@ -36,8 +36,8 @@ the same planner and the same safety rules.
 
 **What it does:** `status`, `analyze`, `list`, `explain`, `plan`, `migrate`
 (shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
-provider health, a package manager installed in more than one place, and dated
-support facts) and `snapshot`. Every command has a
+provider health, a package manager installed in more than one place, which
+provider is exposed to the other, and dated support facts) and `snapshot`. Every command has a
 versioned `--json` form. `doctor --report` writes a diagnostic file for issue
 reports, without your user name or home folder path. `PATH` entries a finding
 mentions appear with your home folder shown as `~`; other environment variables
@@ -79,7 +79,7 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.12-2`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.10.12-4`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.
@@ -90,7 +90,7 @@ The detailed record of how 0.1.0 was built, kept for contributors. It uses the
 project's internal vocabulary (passes, slices, decision and specification
 identifiers); the summary above is the user-facing account.
 
-**Policy version: `2026.10.12-2`.** The provider facts it carries were read on
+**Policy version: `2026.10.12-4`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
 2026-10-03 and 2026-10-12 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
@@ -150,7 +150,7 @@ what it may run.
 
 **Changed**
 
-- **Policy data is version `2026.10.12-2`.** A curated row may carry `index_as_of`,
+- **Policy data is version `2026.10.12-4`.** A curated row may carry `index_as_of`,
   the date of the index it was read from, and the "may be out of date" notice
   measures from that date, so rows read from an older local index do not make
   older facts look newer (DP-043).
@@ -164,7 +164,33 @@ what it may run.
   ownership is unknown, and its sentence says the provider kept no record.
 - The two owed items of the pre-release review that this does not close: a plan's
   rollback field, and `PROVIDER_REPORTS_ACTIVE` asserting "active" (SE-094).
-- `doctor --deep` and a MacPorts-specific `PATH` wording (DP-041) remain owed.
+- `doctor --deep` remains owed (the `PATH` wording DP-041 asked for is pass 13, below).
+
+#### Pass 13: which direction of cross-provider contamination is the riskier one
+
+- **`doctor` says how each provider's own tooling guards its builds against the
+  other's prefix.** For every ordered pair of present providers there is one
+  `cross_provider_exposure` finding (`--json`: `doctor.cross_provider_exposure`, with
+  `affected`, `intruder`, `intruder_prefix` and `defence`). It is a warning only when
+  `PATH` is known and the other provider's directory is searched first, or yours is not
+  on it while theirs is; a recording carries no `PATH`, so it is `OK` there. The sentence differs by
+  direction, because the advice is dated data
+  (`data/policy/cross-provider-advice.toml`), not code: MacPorts' own guide suggests trying
+  trace mode (`port -t`) for conflicts with files in places such as `/usr/local`, and
+  trace mode is off unless asked for (MacPorts 2.12.6, read 2026-10-12); Homebrew 7.0.4 builds a formula
+  with a `PATH` it constructs itself, so a directory on yours is not an input, unless a
+  formula asks for yours (`env :std`) or the step runs outside a build (`post_install`).
+  A provider the data does not describe is reported as such, never as safe. Report only:
+  nothing is changed.
+- **A correction to an earlier reading.** The first research note said Homebrew's
+  compiler shim drops `-I`/`-L` flags under `/opt/local` on every source build. Re-reading
+  Homebrew 7.0.4 showed it does so only when argument refurbishing is on, which is not the
+  default on macOS; the note, the specification and the data now say what the source
+  shows (SE-098).
+- **Policy data is version `2026.10.12-4`**, and `policyReadOn` is 2026-09-17, the date
+  of the Homebrew checkout the new rows were read from.
+- Still owed: a check of what `/usr/local` holds, `doctor --deep`, and what `brew`'s own
+  non-build subprocesses do with `/opt/local` on `PATH`.
 
 #### Added
 

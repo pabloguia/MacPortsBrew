@@ -377,7 +377,7 @@ session.
   concrete, citable checks it can implement are: (a) `/usr/local` present and
   non-empty while MacPorts is installed → warn, recommend `port -t` for failing
   builds, citing Guide §3.1.12; (b) `/opt/local` present while Homebrew is
-  installed → note that Homebrew's compiler shim already strips `-I/opt/local`
+  installed → note that Homebrew's compiler shim already strips `-I/opt/local` (corrected 2026-10-12: only when refurbishing is on; see the addendum)
   and `-L/opt/local`, so the residual risk is in `PATH`-resolved *tools*, not in
   headers and libraries. Direction (b) is materially *lower* risk than direction
   (a) and the UX should say so rather than presenting them as symmetric.

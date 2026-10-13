@@ -61,7 +61,7 @@ readable again. On Intel Macs, `/usr/local` is exactly where Homebrew lives.
 
 The other direction exists and Homebrew mitigates it **in its compiler shim,
 not in `doctor`**: `shims/super/cc` drops any `-I` or `-L` flag whose path lies
-under `/opt/local` (also `/sw`, `/opt/X11`), always on, for every source build.
+under `/opt/local` (also `/sw`, `/opt/X11`), always on, for every source build. (Corrected 2026-10-12: the shim filters only when argument refurbishing is on, which macOS builds do not enable by default; see the F-2 addendum and SE-098.)
 `brew doctor` has **no** MacPorts, Fink or `/opt/local` check at any version
 examined — none at HEAD, none at 1.9.0, 2.7.0 or 3.6.0 — so MacPortsBrew's
 `doctor` must implement that check itself and cannot delegate it.

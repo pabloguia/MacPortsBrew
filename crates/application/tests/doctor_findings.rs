@@ -776,7 +776,7 @@ fn the_two_directions_are_not_the_same_advice() {
 }
 
 #[test]
-fn the_advice_follows_the_data_and_swaps_when_the_data_swaps() {
+fn invariant_17_doctor_exposure_advice_follows_the_data_not_the_provider_id() {
     // Neutrality proof: two ids no code has heard of. Whatever each is told is
     // what the data says about it; exchange the rows and the advice exchanges.
     let snap = snapshot(
@@ -870,6 +870,11 @@ fn an_unknown_path_is_ok_and_never_a_warning() {
     // A recording carries no environment (F-34): nothing can be said about order.
     let found = exposures(&two_providers(&[]), &embedded());
     assert_eq!(found.len(), 2);
+    assert_eq!(
+        findings(&two_providers(&[]), TODAY, "path_unknown").len(),
+        1,
+        "the unknown PATH is said once"
+    );
     assert!(found.iter().all(|f| f.3 == Severity::Ok), "{found:?}");
 }
 

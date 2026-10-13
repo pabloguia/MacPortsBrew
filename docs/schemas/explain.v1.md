@@ -117,7 +117,7 @@ it.
   "package": { "name": "curl", "source": "homebrew" },
   "facts": {
     "today": "2026-09-02",
-    "policyVersion": "2026.10.12-3",
+    "policyVersion": "2026.10.12-4",
     "providers": {
       "homebrew": {
         "presence": { "state": "PRESENT" },
@@ -180,9 +180,9 @@ it.
     "recommendation": {
       "outcome": { "kind": "MANUAL_REVIEW" },
       "rulesNotFired": ["DESTINATION_UNSUPPORTED_HERE"],
-      "policyVersion": "2026.10.12-3"
+      "policyVersion": "2026.10.12-4"
     },
-    "policyVersion": "2026.10.12-3"
+    "policyVersion": "2026.10.12-4"
   }
 }
 ```

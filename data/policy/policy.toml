@@ -20,5 +20,5 @@
 # produced. 180 days is one half-year, chosen so that a data set survives a
 # macOS release cycle but not two.
 
-version = "2026.10.12-3"
+version = "2026.10.12-4"
 stale_after_days = 180

@@ -59,6 +59,8 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `path_relative_precedes_system` | `ERROR` | `doctor.path_relative_precedes_system` | `entry` |
 | `path_finding_unknown` | `WARNING` | `doctor.path_finding_unknown` | `entry` |
 | `path_unknown` | `WARNING` | `doctor.path_unknown` | — |
+| `cross_provider_exposure` | `OK` or `WARNING` | `doctor.cross_provider_exposure` | `affected`, `intruder`, `intruder_prefix`, `defence` |
+| `cross_provider_exposure_unadvised` | `OK` | `doctor.cross_provider_exposure_unadvised` | `affected`, `intruder` |
 | `path_has_no_system_directory` | `ERROR` | `doctor.path_has_no_system_directory` | — |
 | `build_variable_names_prefix` | `WARNING` | `doctor.build_variable_names_prefix` | `variable`, `provider` |
 | `running_translated` | `WARNING` | `doctor.running_translated` | — |
@@ -147,6 +149,61 @@ path — measured at 39 occurrences, username included. A reader who sees
 The user sees the file and chooses to share it. **MacPortsBrew never uploads
 it, and makes no network call that reports anything about the user.**
 
+## Cross-provider exposure
+
+One `cross_provider_exposure` finding per **ordered pair** of present providers; its
+`provider` is the **affected** one and `intruder` the other, so two providers give two
+findings, one in each direction (DP-041, SE-098). It is `WARNING` only when `PATH` is
+known and the intruder's directory is searched before the affected provider's, or the
+intruder is on it and the affected provider's directory is not; otherwise `OK`, an unknown `PATH` (a
+recording) included. `defence` is a stable identifier from a closed vocabulary that the
+human output renders as a sentence: `opt_in_trace` (the affected provider offers a trace
+mode that can prevent conflicts with other prefixes, but only when asked to) or `default_clean_path` (its own
+build tooling constructs the build's `PATH`, so the user's is not an input by default).
+The two directions carry **different** values because the data says so
+(`data/policy/cross-provider-advice.toml`), not because any code does. An affected
+provider the data does not describe gets `cross_provider_exposure_unadvised` instead: the
+pair is reported and no direction-specific claim is made. The finding reports only;
+nothing is changed.
+
+A recording carries no `PATH`, so both findings below are `OK`:
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/4 -->
+```json
+{
+  "id": "cross_provider_exposure",
+  "severity": "OK",
+  "reason": {
+    "id": "doctor.cross_provider_exposure",
+    "params": {
+      "affected": "homebrew",
+      "defence": "default_clean_path",
+      "intruder": "macports",
+      "intruder_prefix": "/opt/local"
+    }
+  },
+  "provider": "homebrew"
+}
+```
+
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/5 -->
+```json
+{
+  "id": "cross_provider_exposure",
+  "severity": "OK",
+  "reason": {
+    "id": "doctor.cross_provider_exposure",
+    "params": {
+      "affected": "macports",
+      "defence": "opt_in_trace",
+      "intruder": "homebrew",
+      "intruder_prefix": "/opt/homebrew"
+    }
+  },
+  "provider": "macports"
+}
+```
+
 ## Worked example
 
 `macportsbrew doctor --json` on an Intel Mac with Homebrew and no MacPorts:
@@ -156,7 +213,7 @@ it, and makes no network call that reports anything about the user.**
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.12-3",
+  "policyVersion": "2026.10.12-4",
   "findings": [
     {
       "id": "path_unknown",

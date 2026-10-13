@@ -211,11 +211,19 @@ can carry both), and architecture mismatches.
 defers to the provider. `brew doctor` has no MacPorts, Fink or `/opt/local`
 check at any version examined — none in `diagnostic.rb` at HEAD or at tags
 1.9.0, 2.7.0 or 3.6.0 (F-2, 2026-09-02). The two directions are also not equally
-risky, and the wording says which: MacPorts' documented remedy for
-`/usr/local` interference is opt-in trace mode (`port -t`), whereas Homebrew's
-compiler shim already drops `-I`/`-L` flags under `/opt/local` on every source
-build by default, so the residual risk toward Homebrew is in `PATH`-resolved
-*tools*, not in headers and libraries (F-2, 2026-09-02).
+risky, and the wording says which. The advice is **dated data**, not a sentence in
+code: `data/policy/cross-provider-advice.toml` records, for each provider that can be
+exposed to another's prefix, which build defence its own tooling has, and `doctor`
+selects the sentence by that row, never by a provider's name (INV-17, INV-20; DP-041,
+SE-098). For MacPorts the documented remedy for `/usr/local` interference is opt-in
+trace mode (`port -t`). For Homebrew the build's `PATH` is rebuilt from its own
+directories, so a directory on the user's `PATH` is not an input to a formula build;
+its compiler shim also drops `-I`/`-L` flags under `/opt/local`, but only when
+argument refurbishing is on, which is **not** the default on macOS (F-2, re-read
+2026-10-12; the 2026-09-02 reading that the shim filters "on every source build" was
+wrong and is corrected there). What was read in source to run with the user's `PATH` is `env :std` formulae and
+`post_install`; nothing was read about `brew`'s own non-build subprocesses, and the
+sentence claims nothing about them.
 
 **SHOULD.** `doctor --deep` inspects the dynamic-library dependencies of
 installed binaries for links crossing prefixes. Expensive; opt-in; bounded;

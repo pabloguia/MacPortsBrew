@@ -100,8 +100,10 @@ is as far as detection can see, and `--json` lists the provider in
 Structural checks: provider presence and health, prefixes, `PATH` order,
 duplicate `PATH` entries, leaked build variables, a package manager installed
 in more than one place (every standard prefix is searched; an unknown is
-reported as unknown, never as one), Command Line Tools, support state with its
-source and read date.
+reported as unknown, never as one), for each pair of providers, in each direction, how
+the affected one's own tooling guards its builds (a warning only when the other is
+searched first on a known `PATH`; see [Troubleshooting](Troubleshooting.md)), Command Line Tools,
+support state with its source and read date.
 
 | Flag | Effect |
 |---|---|

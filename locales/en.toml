@@ -183,7 +183,7 @@ support.unknown = "Unknown"
 # behind its data row allows (docs/research/F-2-usr-local-interference.md).
 
 # unreferenced: rendered through the `defence` identifier family, never by literal key.
-defence.opt_in_trace = "Its own guide says that files in common system locations, /usr/local among them, can conflict with an installation, and suggests trying trace mode (the -t flag) when one fails; trace mode is off unless you ask for it."
+defence.opt_in_trace = "Its own guide says that files in common system locations, /usr/local among them, can conflict with an installation, and suggests trying trace mode (`port -t`) when one fails; trace mode is off unless you ask for it."
 # unreferenced: rendered through the `defence` identifier family, never by literal key.
 defence.default_clean_path = "In a formula build its own tooling rebuilds the build's PATH from its own directories, so a directory on your PATH is not an input to that build; this does not cover a formula that asks for your PATH, post-install steps, or anything run outside a build."
 
@@ -475,7 +475,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 # One finding per ordered pair of present providers (DP-041). Severity is decided by
 # PATH order; the {defence} sentence is chosen by what the affected provider's own
 # tooling is recorded to do, so the two directions read differently.
-"doctor.cross_provider_exposure" = "{intruder} (under {intruder_prefix}) and {affected} share this machine. {defence} Which copy of a tool runs when you type its name follows your PATH order, and that order is yours to arrange. This is a report only; nothing was changed."
+"doctor.cross_provider_exposure" = "{intruder} (under {intruder_prefix}) and {affected} share this machine. About {affected}: {defence} This is a warning only when {intruder} is searched first on your PATH. Which copy of a tool runs when you type its name follows your PATH order, and that order is yours to arrange. This is a report only; nothing was changed."
 "doctor.cross_provider_exposure_unadvised" = "{intruder} and {affected} share this machine, but nothing recorded says how {affected}'s own tooling guards its builds against {intruder}, so no direction-specific statement is made. This is a report only; nothing was changed."
 # A snapshot with no recorded PATH is a capture that could not read one, not
 # a machine with an empty PATH. Emitted instead of one false

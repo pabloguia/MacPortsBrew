@@ -14,9 +14,9 @@
 #                   each.
 #   build_defence   a stable identifier from a closed vocabulary
 #                   (crates/policy BuildDefence), never prose:
-#                     opt_in_trace        the provider can sandbox a build
-#                                         against other prefixes, but only when
-#                                         asked to
+#                     opt_in_trace        the provider offers a trace mode
+#                                         that can prevent conflicts with other
+#                                         prefixes, but only when asked to
 #                     default_clean_path  the provider's own build tooling builds
 #                                         in an environment whose PATH it
 #                                         constructs, so the user's PATH is not

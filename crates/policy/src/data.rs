@@ -310,7 +310,7 @@ pub struct CuratedMapping {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuildDefence {
-    /// The provider can sandbox a build against other prefixes, but only when
+    /// The provider offers a trace mode that can prevent conflicts with other prefixes, but only when
     /// asked to.
     OptInTrace,
     /// The provider's own build tooling builds in an environment whose `PATH`

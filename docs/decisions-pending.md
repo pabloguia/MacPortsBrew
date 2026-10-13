@@ -372,18 +372,20 @@ file is unchanged; this entry is the warning.
   per-key fallback means deleting that entry in `locales/pt-BR.toml` restores the English one
   with no code change. The deviation from the `add-locale` skill's refusal is accepted.
 
-### DP-041 — The MacPorts-on-PATH wording `04` asks for, given INV-17 — **RESOLVED 2026-10-12: (b) direction-specific advice as dated data**
+### DP-041 — The MacPorts-on-PATH wording `04` asks for, given INV-17 — **RESOLVED 2026-10-12: (b) direction-specific advice as dated data; IMPLEMENTED 2026-10-12 (pass 13, SE-098)**
 
 - **Ruled 2026-10-12 by the owner:** option (b). The advice that the two directions are not
   equally risky (`04-migration-and-safety.md`, "Cross-provider contamination", F-2) is carried
-  as **dated data** - each sentence with `source` and `read_on` - which a provider-neutral
-  `doctor` rule selects by a fact the provider reports about itself, never by its name
-  (INV-17, INV-20). **Not implemented yet**: it needs its own pass (a data file and loader in
-  `crates/policy`, the selecting fact in the snapshot, a `doctor` finding, catalogue text in
-  both languages, tests with a mutant per branch, and a `docs/research/` note re-reading the
-  two cited facts: MacPorts' `port -t` trace mode and Homebrew's compiler shim dropping
-  `/opt/local` flags, dated). Until then `path_order` and `prefix_not_on_path` are the
-  provider-neutral findings and SE-095 lists the MUST as owed.
+  as **dated data** - each row with `source` and `read_on` - which a provider-neutral `doctor`
+  rule selects by the affected provider's row, never by its name (INV-17, INV-20).
+- **Implemented** in pass 13: `data/policy/cross-provider-advice.toml`, the `doctor` finding
+  `cross_provider_exposure` (and `_unadvised`), catalogue text in both languages, tests with a
+  mutant per branch, and the research note re-read (F-2 addendum, 2026-10-12). One thing the
+  re-read changed: Homebrew's compiler shim does **not** drop `/opt/local` flags on every build
+  (it does so only when refurbishing is on, which macOS does not turn on by default), so the
+  Homebrew side of the advice is that the build's `PATH` is rebuilt, not that flags are
+  filtered; `04` and F-2 were corrected. The ruling's substance (advice as data, neutral rule)
+  is unchanged. What remains owed is listed in SE-098.
 
 ### DP-042 — Searching the other provider's whole catalogue for a match — **RULED 2026-10-12: (c) a sweep; not implemented, needs the owner's allowlist change**
 

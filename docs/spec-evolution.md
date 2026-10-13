@@ -231,7 +231,7 @@ change is made. Silent deviation remains the one unrecoverable error.
      `09-research-checklist.md` F-2 now says so in those words rather than
      repeating it as fact.
   2. The other direction is established and is **not symmetric in risk**.
-     Homebrew mitigates in its compiler shim, always on for every source build:
+     Homebrew mitigates in its compiler shim, always on for every source build (Corrected 2026-10-12: the shim filters only when argument refurbishing is on, which macOS builds do not enable by default; see the F-2 addendum and SE-098.):
      `shims/super/cc` drops any `-I`/`-L` flag under `/opt/local`. MacPorts'
      equivalent, trace mode, is opt-in. So the residual exposure toward Homebrew
      is `PATH`-resolved *tools*, not headers and libraries, and `doctor`'s
@@ -2810,7 +2810,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   the stated reason described a hazard the invariant does not address. F-2 found
   the filesystem half already covered by the providers themselves — MacPorts
   keeps an allowlist and offers opt-in trace mode, Homebrew's compiler shim
-  always drops `-I` and `-L` flags pointing at the other prefix. The rationale
+  always drops `-I` and `-L` flags pointing at the other prefix (corrected 2026-10-12, SE-098: only when refurbishing is on, off by default on macOS). The rationale
   now gives the reason that does hold: the developer's shell may export flags
   pointing at the other prefix, a provider invoked with those inherited behaves
   differently than it does on its own, and MacPortsBrew must not be the source
@@ -7297,7 +7297,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   direction-specific wording (the two directions are not equally risky), which
   no finding carries. INV-17 forbids a per-direction branch in code, so it would
   have to come from data; filed as DP-041, **ruled (b) on 2026-10-12** (dated data
-  selected by a neutral rule) and still owed.
+  selected by a neutral rule). **Implemented in pass 13 (SE-098)**; the paragraph above
+  is what was true when this entry was written.
   `doctor --deep` (a SHOULD) is not implemented - the flag says so - and stays
   owed. MUST NOT rewrite a binary: nothing here can.
 - Not refused, on purpose: an installation record for a provider the snapshot lacks
@@ -7419,3 +7420,73 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: the policy version changes, so in every `--json` payload and
   the documented samples; `policyReadOn` is back at 2026-09-04, its value
   before item D; no shape changes (the new field is optional data, not output).
+
+## SE-098 — `doctor` says which direction of cross-provider contamination is the riskier one, from dated data
+- Status: accepted
+- Date / Pass: 2026-10-12 / pass 13 (DP-041, ruled (b))
+- Original assumption: `04-migration-and-safety.md` ("Cross-provider contamination")
+  required the MacPorts-on-`PATH` check to say that the two directions are not equally
+  risky, and its text carried the direction-specific sentence (MacPorts: opt-in trace
+  mode; Homebrew: a compiler shim that drops `-I`/`-L` under `/opt/local` on every source
+  build). SE-095 found no finding carried it, and INV-17 forbids a per-provider branch
+  in code.
+- Change: `data/policy/cross-provider-advice.toml`, one row per provider that can be
+  exposed to another's prefix, with `build_defence` from a closed vocabulary
+  (`opt_in_trace`, `default_clean_path`; a Rust enum in `crates/policy`), `source`,
+  `read_on` and `index_as_of`. `doctor` emits `cross_provider_exposure` for every
+  ordered pair of present providers (`provider` is the affected one; params `affected`,
+  `intruder`, `intruder_prefix`, `defence`): `WARNING` only when `PATH` is known and the
+  intruder's directory is searched before the affected provider's, or the affected
+  provider's is not on it; `OK` otherwise, an unknown `PATH` included. A provider with
+  no row gets `cross_provider_exposure_unadvised` (`OK`, no direction-specific claim).
+  The sentence is the catalogue's `defence.*` entry for that provider's row, rendered
+  through the identifier-family mechanism, in English and pt-BR. No code names a
+  provider: the rule is a pure function of two ids, their positions and the data.
+- **The design changed during the pass, and the record says why.** The work order
+  defined `default_clean_path` as the compiler shim dropping other prefixes' flags on
+  every source build, and called the vocabulary `always_on_filter`. Re-reading
+  Homebrew 7.0.4 (`docs/research/F-2-usr-local-interference.md`, addendum of
+  2026-10-12, E-8 and E-9) showed that is **false**: the shim reaches its `-I`/`-L`
+  filter only when argument refurbishing is on, which `determine_cccfg` never turns on
+  for macOS, so in an ordinary formula build the shim does not filter. What does hold for
+  every superenv build is that the build's `PATH` is rebuilt from Homebrew's own
+  directories (`determine_path`). The identifier became `default_clean_path` and means
+  that; the earlier finding 4 of F-2 and the sentence in `04` were corrected. A
+  docs-auditor review of the first draft found this; the data would otherwise have
+  shipped a claim the source contradicts.
+- Rationale: DP-041 option (b). The asymmetry survives: MacPorts guards only on request
+  (trace mode is off unless asked for: `porttrace` defaults to `no`), Homebrew's build
+  does not take the user's `PATH` as input unless a formula asks for it (`env :std`) or
+  the step runs outside a build (`post_install`). The sentences claim no more than that
+  and say nothing was changed; the table of what each may and may not claim is in the
+  research note.
+- Rejected: a per-provider branch or a provider name in a catalogue key selected in code
+  (INV-17); hard-coding the sentence in the application layer (INV-20); a finding that
+  defers to the provider's own diagnostic (`brew doctor` has none; DP-041's text).
+- Evidence: `crates/policy` tests (loader refusals, the accessor answers `None` rather
+  than a default, aging follows `index_as_of`); `crates/application/tests/doctor_findings.rs`
+  (the two directions differ with the real data; synthetic ids follow the data and swap
+  with it; a third id is unadvised; severity follows `PATH` order; an unknown `PATH`, an
+  absent provider and a broken one yield no warning); `crates/cli/tests/cross_provider_advice_parity.rs`
+  (every registry provider has exactly one row and no row names an unknown provider);
+  `crates/cli/tests/reasons_catalogue.rs` (a sentence per variant, both languages).
+  Mutants killed (each by hand, test seen to fail, source restored): B: the duplicate-provider
+  check dropped, the accessor defaulting to a defence, `index_as_of` ignored when aging; C:
+  inverted precedence, always `OK`, advice looked up by the intruder instead of the affected
+  provider, an intruder on `PATH` beside an absent affected provider ignored. A pair for a
+  provider that is not `Present` has no mutant: pairs are built from the present providers
+  only, and `fewer_than_two_present_providers_have_no_pair_to_report` pins it. "Same position"
+  cannot occur (two providers' directories are two `PATH` entries).
+- Dating note: the MacPorts row's `index_as_of` (2026-09-06) is its ports-tree index date; the
+  trace-mode default comes from the installed base, the Guide and manual page were read live,
+  so the date errs toward older. The work order was edited in place by step A (rename and
+  definition) for its text to follow the research; this entry is the record of the change.
+  Spec 03 has no list of policy data files, so the work order's item to extend it did not apply.
+- Owed: the non-empty `/usr/local` check (nothing looks at what the directory holds);
+  `doctor --deep`; what `brew`'s own non-build subprocesses do with a `PATH` containing
+  `/opt/local`; the MacPorts mechanism
+  by which a build picks up `/usr/local` (the Guide does not say and the sentence does
+  not claim it); a native reading of the pt-BR sentences (DP-040).
+- Compatibility impact: additive. Two new `doctor` findings per pair in the text and in
+  `--json` (`doctor.v1`), new catalogue keys; the policy version is `2026.10.12-4` and
+  `policyReadOn` moves to 2026-09-17 (the Homebrew checkout's date).
