@@ -131,7 +131,7 @@ assert "/usr/local is denied"                 "$P" deny   "$(edit_input '/usr/lo
 assert "/opt/local is denied"                 "$P" deny   "$(edit_input '/opt/local/etc/x')"
 assert "/opt/homebrew is denied"              "$P" deny   "$(edit_input '/opt/homebrew/x')"
 assert "double-slash prefix is denied"        "$P" deny   "$(edit_input '//opt/local/etc/x')"
-assert "traversal into a prefix is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/../../../../opt/local/etc/x")"
+assert "traversal into a prefix is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/../../../../../../../../../../../../opt/local/etc/x")"
 assert "shell rc is denied"                   "$P" deny   "$(edit_input "$HOME/$ZRC")"
 assert "relative shell rc is denied"          "$P" deny   "$(edit_input "$ZRC")"
 assert "fish config is denied"                "$P" deny   "$(edit_input "$HOME/.config/fish/config.fish")"

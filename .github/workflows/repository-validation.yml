@@ -44,16 +44,19 @@ jobs:
       # which is the defect that commit set out to remove. The install step
       # above stays: the gate needs the binary.
 
-      - name: Hooks decide what the specification says they decide
-        env:
-          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
-        run: .claude/hooks/test-hooks.sh
-
+      # Before the hook tests, not after: the stop-gate case in test-hooks.sh runs
+      # `scripts/validate.sh --quick`, which needs the pinned toolchain, and on a
+      # runner without it that case fails for a reason that is not the hook's.
       - name: Rust toolchain (pinned by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
+
+      - name: Hooks decide what the specification says they decide
+        env:
+          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
+        run: .claude/hooks/test-hooks.sh
 
       - name: Repository gate
         env:
