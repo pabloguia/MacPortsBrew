@@ -61,7 +61,7 @@ body:
       description: "The full output of `macportsbrew --version` — all four lines."
       placeholder: |
         macportsbrew 0.1.0
-        policy 2026.10.12-2
+        policy 2026.10.12-3
         target x86_64-apple-darwin
         commit 0123abc
       render: text
@@ -73,7 +73,7 @@ body:
     attributes:
       label: Policy version
       description: "Printed at the end of `macportsbrew status`, and in every `--json` payload."
-      placeholder: "2026.10.12-2"
+      placeholder: "2026.10.12-3"
     validations:
       required: true
 

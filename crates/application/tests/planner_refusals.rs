@@ -529,7 +529,7 @@ fn explaining_a_package_by_the_other_providers_name_finds_it() {
 /// which is a worse misattribution than the one F-48 was filed about.
 ///
 /// The two lists do not meet in either layer. `policy` *could* read
-/// `provider-commands.toml` — it is in `data/policy/` beside the six files
+/// `provider-commands.toml` — it is in `data/policy/` beside the seven files
 /// `policy` already embeds — but the parse lives here, in
 /// `provider_commands.rs`, together with the absoluteness check on `executable`,
 /// so a copy in `policy` would be two spellings of one file. `build_plan` does

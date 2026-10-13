@@ -13,8 +13,8 @@ it references. The compatibility rule is in [`README.md`](README.md).
 |---|---|---|
 | `schemaVersion` | integer | `1` |
 | `toolVersion` | string | The MacPortsBrew version, e.g. `"0.1.0"` |
-| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.10.12-2"` |
-| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across **the files the policy engine loads** — not the whole of `data/policy/`. `provider-commands.toml` is read by the application layer and `provider-prefixes.toml` by the adapters (DP-014), so a read date moving in either does not move this. `policyVersion` *does* span the directory, so the two can differ: a newer read date in one of those other files moves `policyVersion` and not this. The narrower set is deliberate — it drives the staleness notice below. A curated row read from a local index carries `index_as_of`, the index's own last-update date, and counts at that date rather than at the day it was read (DP-043), so reading rows today from an old index does not make older facts look newer |
+| `policyVersion` | string | Stamped on every recommendation, e.g. `"2026.10.12-3"` |
+| `policyReadOn` | string | `YYYY-MM-DD`; the newest `read_on` across **the files the policy engine loads** — not the whole of `data/policy/`. `provider-commands.toml` is read by the application layer and `provider-prefixes.toml` by the adapters (DP-014), so a read date moving in either does not move this. `policyVersion` *does* span the directory, so the two can differ: a newer read date in one of those other files moves `policyVersion` and not this. The narrower set is deliberate — it drives the staleness notice below. A curated row, or a cross-provider advice row, read from a local index carries `index_as_of`, the index's own last-update date, and counts at that date rather than at the day it was read (DP-043), so reading rows today from an old index does not make older facts look newer |
 | `policyStale` | boolean | True when `today` minus `policyReadOn` exceeds the threshold in `data/policy/policy.toml`. Advisory: recommendations are still produced |
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
 | `source` | `AnalysisSource` | `LIVE` or `SNAPSHOT` |
@@ -251,8 +251,8 @@ to end.
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.12-2",
-  "policyReadOn": "2026-09-04",
+  "policyVersion": "2026.10.12-3",
+  "policyReadOn": "2026-09-17",
   "policyStale": false,
   "today": "2026-09-04",
   "source": "LIVE",

@@ -96,6 +96,22 @@ source = "fixture"
 read_on = "2026-09-02"
 "#;
 
+    // Two providers with identical advice, so any difference in what `doctor`
+    // says about them can only come from the provider's own situation.
+    const ADVICE: &str = r#"
+[[entry]]
+provider = "alpha"
+build_defence = "default_clean_path"
+source = "fixture"
+read_on = "2026-09-02"
+
+[[entry]]
+provider = "beta"
+build_defence = "default_clean_path"
+source = "fixture"
+read_on = "2026-09-02"
+"#;
+
     PolicyData::load_from(PolicySources {
         manifest: MANIFEST,
         support: SUPPORT,
@@ -103,6 +119,7 @@ read_on = "2026-09-02"
         stateful: STATEFUL,
         runtime_managers: MANAGERS,
         curated_mappings: MAPPINGS,
+        cross_provider_advice: ADVICE,
     })
     .expect("the symmetric fixture must parse")
 }
@@ -478,6 +495,27 @@ fn invariant_20_provider_facts_are_dated_data() {
             assert!(as_of.as_str() <= mapping.read_on.as_str());
         }
         assert_eq!(mapping.confidence, Confidence::Exact);
+    }
+
+    for advice in data.cross_provider_advice() {
+        assert!(
+            !advice.source.trim().is_empty(),
+            "{}: advice with no source is a claim from memory",
+            advice.provider
+        );
+        assert!(
+            shift_date(&advice.read_on, 0).is_some(),
+            "{}: read_on must be a date",
+            advice.provider
+        );
+        if let Some(as_of) = &advice.index_as_of {
+            assert!(shift_date(as_of, 0).is_some(), "{}", advice.provider);
+            assert!(
+                as_of.as_str() <= advice.read_on.as_str(),
+                "{}",
+                advice.provider
+            );
+        }
     }
 
     // At least one published end date exists, and it lives in the data.

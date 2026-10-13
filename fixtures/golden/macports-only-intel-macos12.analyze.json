@@ -39,7 +39,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.12-2",
+        "policyVersion": "2026.10.12-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -156,7 +156,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-2",
+        "policyVersion": "2026.10.12-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -308,7 +308,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-2",
+        "policyVersion": "2026.10.12-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -450,7 +450,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-2",
+        "policyVersion": "2026.10.12-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -559,7 +559,7 @@
         "outcome": {
           "kind": "NO_ACTION"
         },
-        "policyVersion": "2026.10.12-2",
+        "policyVersion": "2026.10.12-3",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -646,9 +646,9 @@
       "source": "macports"
     }
   ],
-  "policyReadOn": "2026-09-04",
+  "policyReadOn": "2026-09-17",
   "policyStale": false,
-  "policyVersion": "2026.10.12-2",
+  "policyVersion": "2026.10.12-3",
   "providers": {
     "homebrew": {
       "capabilities": {

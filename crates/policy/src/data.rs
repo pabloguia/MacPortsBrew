@@ -20,7 +20,7 @@ use macportsbrew_domain::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The six data files, as text. Separating the sources from the parser keeps
+/// The seven data files, as text. Separating the sources from the parser keeps
 /// the crate free of run-time I/O while still letting a test build a data set
 /// of its own — which is how the symmetry test (INV-17) gets two providers
 /// whose data is identical.
@@ -38,6 +38,8 @@ pub struct PolicySources<'a> {
     pub runtime_managers: &'a str,
     /// `curated-mappings.toml`.
     pub curated_mappings: &'a str,
+    /// `cross-provider-advice.toml`.
+    pub cross_provider_advice: &'a str,
 }
 
 /// The data files shipped with this build.
@@ -49,6 +51,7 @@ pub fn embedded_sources() -> PolicySources<'static> {
         stateful: include_str!("../../../data/policy/stateful-packages.toml"),
         runtime_managers: include_str!("../../../data/policy/runtime-managers.toml"),
         curated_mappings: include_str!("../../../data/policy/curated-mappings.toml"),
+        cross_provider_advice: include_str!("../../../data/policy/cross-provider-advice.toml"),
     }
 }
 
@@ -299,6 +302,66 @@ pub struct CuratedMapping {
     pub rationale: String,
 }
 
+/// How a provider's own tooling guards its builds against **another**
+/// provider's prefix. A closed vocabulary of stable identifiers, never prose:
+/// `doctor` renders each through the catalogue, so the sentence for one differs
+/// from the other's, and a third mechanism is a new variant, a catalogue entry
+/// and a data row - which the compiler and a test point at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildDefence {
+    /// The provider can sandbox a build against other prefixes, but only when
+    /// asked to.
+    OptInTrace,
+    /// The provider's own build tooling builds in an environment whose `PATH`
+    /// it constructs itself, so the user's `PATH` is not an input by default.
+    DefaultCleanPath,
+}
+
+impl BuildDefence {
+    /// The stable identifier, as the data and the catalogue spell it.
+    #[must_use]
+    pub fn identifier(self) -> &'static str {
+        match self {
+            BuildDefence::OptInTrace => "opt_in_trace",
+            BuildDefence::DefaultCleanPath => "default_clean_path",
+        }
+    }
+
+    /// Every variant. The `match` has no wildcard, so a new variant is a
+    /// compile error here, and the length check in the tests then fails until
+    /// the array is extended too (the same chain `Capability::all` uses).
+    #[must_use]
+    pub fn all() -> &'static [BuildDefence] {
+        const ALL: &[BuildDefence] = &[BuildDefence::OptInTrace, BuildDefence::DefaultCleanPath];
+        match BuildDefence::OptInTrace {
+            BuildDefence::OptInTrace | BuildDefence::DefaultCleanPath => {}
+        }
+        ALL
+    }
+}
+
+/// What the data says about one provider as the **affected** side of a
+/// cross-provider contamination (`04-migration-and-safety.md`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrossProviderAdvice {
+    /// The provider whose builds and tools can be exposed to another's prefix.
+    pub provider: String,
+    /// How that provider guards its own builds.
+    pub build_defence: BuildDefence,
+    /// Where this was read.
+    pub source: String,
+    /// When, `YYYY-MM-DD`.
+    pub read_on: String,
+    /// When the source (a local checkout, say) was itself last updated, if
+    /// older than `read_on`; staleness measures from it (DP-043).
+    #[serde(default)]
+    pub index_as_of: Option<String>,
+    /// What the source said, in English.
+    #[serde(default)]
+    pub note: String,
+}
+
 // ---------------------------------------------------------------- file shapes
 
 #[derive(Debug, Deserialize)]
@@ -337,6 +400,12 @@ struct MappingFile {
     entry: Vec<CuratedMapping>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AdviceFile {
+    #[serde(default)]
+    entry: Vec<CrossProviderAdvice>,
+}
+
 // ---------------------------------------------------------------- the data set
 
 /// The whole policy data set, parsed and indexed.
@@ -350,6 +419,7 @@ pub struct PolicyData {
     stateful: Vec<StatefulFamily>,
     managers: Vec<RuntimeManager>,
     mappings: Vec<CuratedMapping>,
+    advice: Vec<CrossProviderAdvice>,
     equivalences: BTreeMap<(String, String, String), BTreeSet<String>>,
 }
 
@@ -368,6 +438,8 @@ impl PolicyData {
         let stateful: StatefulFile = parse(sources.stateful, "stateful-packages.toml")?;
         let managers: ManagerFile = parse(sources.runtime_managers, "runtime-managers.toml")?;
         let mappings: MappingFile = parse(sources.curated_mappings, "curated-mappings.toml")?;
+        let advice: AdviceFile =
+            parse(sources.cross_provider_advice, "cross-provider-advice.toml")?;
 
         let mut provenance: Vec<(&str, &str, &str)> = Vec::new();
         for e in &support.entry {
@@ -391,7 +463,17 @@ impl PolicyData {
                 m.index_as_of.as_deref().unwrap_or(&m.read_on),
             ));
         }
+        for a in &advice.entry {
+            // The date the advice is as old as: the source's own, when it gave
+            // one, else the day it was read (DP-043).
+            provenance.push((
+                &a.provider,
+                &a.source,
+                a.index_as_of.as_deref().unwrap_or(&a.read_on),
+            ));
+        }
         let newest = newest_provenance(&provenance)?;
+        check_advice(&advice.entry)?;
         check_support_bounds(&support.entry)?;
         check_curated_names(&mappings.entry)?;
         check_index_dates(&mappings.entry)?;
@@ -406,6 +488,8 @@ impl PolicyData {
         stateful_families.sort_by(|a, b| a.family.cmp(&b.family));
         let mut manager_entries = managers.entry;
         manager_entries.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut advice_entries = advice.entry;
+        advice_entries.sort_by(|a, b| a.provider.cmp(&b.provider));
         let mut mapping_entries = mappings.entry;
         mapping_entries.sort_by(|a, b| {
             (
@@ -431,6 +515,7 @@ impl PolicyData {
             stateful: stateful_families,
             managers: manager_entries,
             mappings: mapping_entries,
+            advice: advice_entries,
             equivalences,
         })
     }
@@ -474,6 +559,24 @@ impl PolicyData {
     pub fn is_stale(&self, today: &str) -> bool {
         days_between(&self.newest_read_on, today)
             .is_some_and(|days| days > i64::from(self.stale_after_days))
+    }
+
+    /// How `provider`'s own tooling guards its builds against another
+    /// provider's prefix, or `None` when the data says nothing about it.
+    ///
+    /// `None` is an answer and not a default: a caller must not turn it into
+    /// "protected" or "unprotected". The provider is a value handed in; nothing
+    /// here compares it to a literal (INV-17).
+    pub fn build_defence_of(&self, provider: &ProviderId) -> Option<BuildDefence> {
+        self.advice
+            .iter()
+            .find(|a| a.provider == provider.as_str())
+            .map(|a| a.build_defence)
+    }
+
+    /// Every cross-provider advice row, sorted by provider.
+    pub fn cross_provider_advice(&self) -> &[CrossProviderAdvice] {
+        &self.advice
     }
 
     /// Every support row, sorted by id.
@@ -614,23 +717,63 @@ fn newest_provenance(entries: &[(&str, &str, &str)]) -> Result<String, DomainErr
 /// measure into the future, which is the mistake this field exists to prevent.
 fn check_index_dates(entries: &[CuratedMapping]) -> Result<(), DomainError> {
     for m in entries {
-        if parse_date(&m.read_on).is_none() {
+        check_index_as_of(
+            &format!("curated row {} -> {}", m.source_name, m.destination_name),
+            &m.read_on,
+            m.index_as_of.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// The one rule for `index_as_of`, shared by every file that carries it: the
+/// row's `read_on` is a date, and `index_as_of`, when given, is a date no later
+/// than it. Compared trimmed, as `parse_date` reads them: a leading space sorts
+/// below every digit and would pass a raw comparison.
+fn check_index_as_of(
+    what: &str,
+    read_on: &str,
+    index_as_of: Option<&str>,
+) -> Result<(), DomainError> {
+    if parse_date(read_on).is_none() {
+        return Err(invalid(format!(
+            "{what} carries no usable read date: {read_on:?} (INV-20)"
+        )));
+    }
+    if let Some(as_of) = index_as_of {
+        if parse_date(as_of).is_none() || as_of.trim() > read_on.trim() {
             return Err(invalid(format!(
-                "curated row {} -> {} carries no usable read date: {:?} (INV-20)",
-                m.source_name, m.destination_name, m.read_on
+                "{what} has index_as_of {as_of:?}, which is not a date on or before its \
+                 read_on {read_on:?} (DP-043)"
             )));
         }
-        if let Some(as_of) = &m.index_as_of {
-            // Compared trimmed, as `parse_date` reads them: a leading space
-            // sorts below every digit and would pass a raw comparison.
-            if parse_date(as_of).is_none() || as_of.trim() > m.read_on.trim() {
-                return Err(invalid(format!(
-                    "curated row {} -> {} has index_as_of {as_of:?}, which is not a date \
-                     on or before its read_on {:?} (DP-043)",
-                    m.source_name, m.destination_name, m.read_on
-                )));
-            }
+    }
+    Ok(())
+}
+
+/// Checks the cross-provider advice rows: a safe provider id, one row per
+/// provider (two would make the answer depend on file order), and the dates by
+/// the same rule as every other file.
+fn check_advice(entries: &[CrossProviderAdvice]) -> Result<(), DomainError> {
+    let mut seen = BTreeSet::new();
+    for a in entries {
+        if !macportsbrew_domain::is_safe_provider_name(&a.provider) {
+            return Err(invalid(format!(
+                "cross-provider advice names provider {:?}, which is not a provider id",
+                a.provider
+            )));
         }
+        if !seen.insert(a.provider.as_str()) {
+            return Err(invalid(format!(
+                "cross-provider advice has two rows for provider {}",
+                a.provider
+            )));
+        }
+        check_index_as_of(
+            &format!("cross-provider advice for {}", a.provider),
+            &a.read_on,
+            a.index_as_of.as_deref(),
+        )?;
     }
     Ok(())
 }
@@ -1134,6 +1277,107 @@ mod tests {
         }
         // Not a date: refused at load, by whichever check meets it first.
         assert!(newest_with("index_as_of=\"soon\"\n").is_err());
+    }
+
+    // --- cross-provider advice (pass 13, DP-041) ----------------------------
+
+    fn advice_row(provider: &str, defence: &str, extra: &str) -> String {
+        format!(
+            "[[entry]]\nprovider=\"{provider}\"\nbuild_defence=\"{defence}\"\nsource=\"s\"\n\
+             read_on=\"2026-09-02\"\n{extra}"
+        )
+    }
+
+    fn load_with_advice(text: &str) -> Result<PolicyData, DomainError> {
+        let mut sources = embedded_sources();
+        sources.cross_provider_advice = text;
+        PolicyData::load_from(sources)
+    }
+
+    #[test]
+    fn the_shipped_advice_names_every_provider_and_every_defence_has_a_name() {
+        let data = PolicyData::load_embedded().expect("embedded data loads");
+        let rows = data.cross_provider_advice();
+        assert!(rows.len() >= 2, "one row per provider the data names");
+        for row in rows {
+            assert!(!row.source.trim().is_empty(), "{}", row.provider);
+            assert!(shift_date(&row.read_on, 0).is_some(), "{}", row.provider);
+            if let Some(as_of) = &row.index_as_of {
+                assert!(as_of.as_str() <= row.read_on.as_str(), "{}", row.provider);
+            }
+        }
+        // The chain `Capability::all` uses: the `match` in `all()` has no
+        // wildcard, so a new variant is a compile error there, and this count
+        // fails until the array is extended.
+        assert_eq!(BuildDefence::all().len(), 2);
+        let identifiers: BTreeSet<&str> =
+            BuildDefence::all().iter().map(|d| d.identifier()).collect();
+        assert_eq!(identifiers.len(), BuildDefence::all().len(), "distinct");
+    }
+
+    #[test]
+    fn an_identifier_in_the_data_is_the_identifier_the_enum_reports() {
+        for defence in BuildDefence::all() {
+            let text = advice_row("alpha", defence.identifier(), "");
+            let data = load_with_advice(&text).expect("the identifier loads");
+            assert_eq!(
+                data.build_defence_of(&ProviderId::new("alpha")),
+                Some(*defence)
+            );
+        }
+        assert!(load_with_advice(&advice_row("alpha", "made_up", "")).is_err());
+    }
+
+    #[test]
+    fn a_provider_the_advice_does_not_name_has_no_defence_not_a_default() {
+        let text = advice_row("alpha", "opt_in_trace", "");
+        let data = load_with_advice(&text).unwrap();
+        assert_eq!(data.build_defence_of(&ProviderId::new("beta")), None);
+        // And no rows at all is a valid, empty answer for everyone.
+        let none = load_with_advice("").unwrap();
+        assert_eq!(none.build_defence_of(&ProviderId::new("alpha")), None);
+    }
+
+    #[test]
+    fn a_bad_advice_row_is_refused_where_the_data_lives() {
+        let two = format!(
+            "{}{}",
+            advice_row("alpha", "opt_in_trace", ""),
+            advice_row("alpha", "default_clean_path", "")
+        );
+        let after_read = advice_row("alpha", "opt_in_trace", "index_as_of=\"2026-09-03\"\n");
+        let no_source =
+            "[[entry]]\nprovider=\"alpha\"\nbuild_defence=\"opt_in_trace\"\nsource=\"\"\nread_on=\"2026-09-02\"\n";
+        let bad_date = advice_row("alpha", "opt_in_trace", "").replace("2026-09-02", "someday");
+        let bad_id = advice_row("--force", "opt_in_trace", "");
+        for (what, text) in [
+            ("two rows for one provider", two),
+            ("an index updated after it was read", after_read),
+            ("no source", no_source.to_string()),
+            ("a read date that is no date", bad_date),
+            ("a provider id that is a flag", bad_id),
+        ] {
+            match load_with_advice(&text) {
+                Ok(_) => panic!("{what} loaded"),
+                Err(e) => assert_eq!(e.id, ErrorId::PolicyDataInvalid, "{what}: {}", e.detail),
+            }
+        }
+    }
+
+    #[test]
+    fn advice_ages_from_its_source_like_every_other_dated_row() {
+        // `read_on` far in the future would be the newest date in the data set
+        // unless `index_as_of` stands in for it.
+        let row = |extra: &str| {
+            format!(
+                "[[entry]]\nprovider=\"alpha\"\nbuild_defence=\"opt_in_trace\"\nsource=\"s\"\n\
+                 read_on=\"2099-01-01\"\n{extra}"
+            )
+        };
+        let plain = load_with_advice(&row("")).unwrap();
+        assert_eq!(plain.newest_read_on(), "2099-01-01");
+        let aged = load_with_advice(&row("index_as_of=\"2026-09-02\"\n")).unwrap();
+        assert!(aged.newest_read_on() < "2099-01-01");
     }
 
     /// F-48: a curated destination reaches `planner::command` without ever
