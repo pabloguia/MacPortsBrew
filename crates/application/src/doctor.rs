@@ -273,6 +273,27 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
             }
         }
     }
+    // Cross-provider exposure (DP-041): for every ordered pair of present
+    // providers, whether the one earlier on `PATH` can reach into the other's
+    // builds and tools, and what the *affected* provider's own tooling does about
+    // it. Which direction is the riskier one is the data's answer
+    // (`cross-provider-advice.toml`), never this function's.
+    for (affected, _) in &prefixes {
+        for (intruder, intruder_prefix) in &prefixes {
+            if affected == intruder {
+                continue;
+            }
+            let (finding, severity, reason) = cross_provider_exposure(
+                affected,
+                intruder,
+                intruder_prefix,
+                policy,
+                path_position(&prefixes, affected, &position),
+                path_position(&prefixes, intruder, &position),
+            );
+            add(finding, severity, reason, Some(affected.clone()));
+        }
+    }
     // What was wrong with the `PATH` entries themselves, audited at capture
     // and carried in the snapshot (`adapters::system::path_audit`). The audit
     // is provider-neutral and deliberately stops at "this entry is writable";
@@ -521,6 +542,68 @@ fn installation_finding(
             "provider_installations_unknown",
             Severity::Ok,
             Reason::new("doctor.provider_installations_unknown").with("provider", id),
+        ),
+    }
+}
+
+/// A present provider's position on `PATH`, `None` when `PATH` is unknown or the
+/// provider's directories are not on it.
+fn path_position(
+    prefixes: &[(ProviderId, String)],
+    id: &ProviderId,
+    position: &dyn Fn(&str) -> Option<usize>,
+) -> Option<usize> {
+    prefixes
+        .iter()
+        .find(|(p, _)| p == id)
+        .and_then(|(_, prefix)| position(prefix))
+}
+
+/// One ordered pair of present providers: `intruder`'s executables and
+/// libraries against `affected`'s builds and tools (DP-041).
+///
+/// A pure function of two ids, their positions on a `PATH` and the policy
+/// data; it names no provider. The finding is `Warning` only when `PATH` is
+/// known and the intruder's directory is searched before the affected
+/// provider's, or the affected provider's is not on it at all. Everything else
+/// is `Ok`, an unknown `PATH` included: an unknown is never a warning, and never
+/// a clean bill either. The sentence is chosen by the affected provider's
+/// recorded build defence; a provider the data says nothing about gets the
+/// `_unadvised` finding, which makes no direction-specific claim.
+fn cross_provider_exposure(
+    affected: &ProviderId,
+    intruder: &ProviderId,
+    intruder_prefix: &str,
+    policy: &PolicyData,
+    affected_at: Option<usize>,
+    intruder_at: Option<usize>,
+) -> (&'static str, Severity, Reason) {
+    let intruder_first = match (intruder_at, affected_at) {
+        (Some(i), Some(a)) => i < a,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    let severity = if intruder_first {
+        Severity::Warning
+    } else {
+        Severity::Ok
+    };
+    match policy.build_defence_of(affected) {
+        Some(defence) => (
+            "cross_provider_exposure",
+            severity,
+            Reason::new("doctor.cross_provider_exposure")
+                .with("affected", affected)
+                .with("intruder", intruder)
+                .with("intruder_prefix", &intruder_prefix)
+                .with("defence", &defence.identifier()),
+        ),
+        None => (
+            "cross_provider_exposure_unadvised",
+            Severity::Ok,
+            Reason::new("doctor.cross_provider_exposure_unadvised")
+                .with("affected", affected)
+                .with("intruder", intruder),
         ),
     }
 }

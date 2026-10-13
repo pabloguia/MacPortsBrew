@@ -177,6 +177,16 @@ support.degraded = "Degraded"
 support.unsupported = "Not supported"
 support.unknown = "Unknown"
 
+# --- Build defence ----------------------------------------------------------
+# Rendered through the identifier-family mechanism (`defence` -> `defence.*`), so
+# no source file spells these keys. Each claims no more than the dated research
+# behind its data row allows (docs/research/F-2-usr-local-interference.md).
+
+# unreferenced: rendered through the `defence` identifier family, never by literal key.
+defence.opt_in_trace = "Its own guide says that files in common system locations, /usr/local among them, can conflict with an installation, and suggests trying trace mode (the -t flag) when one fails; trace mode is off unless you ask for it."
+# unreferenced: rendered through the `defence` identifier family, never by literal key.
+defence.default_clean_path = "In a formula build its own tooling rebuilds the build's PATH from its own directories, so a directory on your PATH is not an input to that build; this does not cover a formula that asks for your PATH, post-install steps, or anything run outside a build."
+
 # --- Recommendation outcomes ------------------------------------------------
 
 outcome.keep = "Keep under {provider}"
@@ -461,6 +471,12 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."
 "doctor.prefix_not_on_path" = "The prefix of {provider}, {prefix}, is not on PATH."
+
+# One finding per ordered pair of present providers (DP-041). Severity is decided by
+# PATH order; the {defence} sentence is chosen by what the affected provider's own
+# tooling is recorded to do, so the two directions read differently.
+"doctor.cross_provider_exposure" = "{intruder} (under {intruder_prefix}) and {affected} share this machine. {defence} Which copy of a tool runs when you type its name follows your PATH order, and that order is yours to arrange. This is a report only; nothing was changed."
+"doctor.cross_provider_exposure_unadvised" = "{intruder} and {affected} share this machine, but nothing recorded says how {affected}'s own tooling guards its builds against {intruder}, so no direction-specific statement is made. This is a report only; nothing was changed."
 # A snapshot with no recorded PATH is a capture that could not read one, not
 # a machine with an empty PATH. Emitted instead of one false
 # `prefix_not_on_path` per provider (F-34).

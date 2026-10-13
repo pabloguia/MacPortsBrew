@@ -258,6 +258,7 @@ impl Messages {
             ("confidence", "confidence"),
             ("threshold", "confidence"),
             ("state", "state"),
+            ("defence", "defence"),
         ];
         let mut out = params.clone();
         for (name, family) in FAMILIES {

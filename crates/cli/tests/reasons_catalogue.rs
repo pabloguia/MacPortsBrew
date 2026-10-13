@@ -249,3 +249,63 @@ fn every_package_class_has_a_label() {
         );
     }
 }
+
+#[test]
+fn every_build_defence_has_a_sentence_in_both_languages() {
+    // `defence.*` is rendered through the identifier-family mechanism, so no
+    // source file spells the key and the compiler cannot connect a data row's
+    // `build_defence` to its sentence. A new `BuildDefence` variant without a
+    // sentence would render as the bare identifier in front of a user; this is
+    // the net (DP-041).
+    for catalogue in [Catalogue::english(), Catalogue::portuguese_brazil()] {
+        for defence in macportsbrew_policy::BuildDefence::all() {
+            let key = format!("defence.{}", defence.identifier());
+            let sentence = catalogue
+                .get(&key)
+                .unwrap_or_else(|| panic!("the catalogue has no {key}"));
+            assert!(!sentence.trim().is_empty(), "{key} is empty");
+            assert!(
+                !sentence.contains(defence.identifier()),
+                "{key} repeats its own identifier"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_defence_parameter_is_rendered_through_its_sentence_and_nothing_else_names_it() {
+    // `resolve_identifiers` resolves `{defence}` by parameter name in every
+    // template, so only the exposure reason may interpolate it, and the emitter
+    // takes the value from `BuildDefence::identifier`.
+    use macportsbrew::i18n::Messages;
+    use macportsbrew_domain::Reason;
+    let messages = Messages::english();
+    let using: BTreeSet<&str> = messages
+        .catalogue()
+        .keys()
+        .filter(|key| {
+            messages
+                .catalogue()
+                .get(key)
+                .unwrap_or_default()
+                .contains("{defence")
+        })
+        .collect();
+    assert_eq!(using, BTreeSet::from(["doctor.cross_provider_exposure"]));
+    for defence in macportsbrew_policy::BuildDefence::all() {
+        let reason = Reason::new("doctor.cross_provider_exposure")
+            .with("affected", &"alpha")
+            .with("intruder", &"beta")
+            .with("intruder_prefix", &"/opt/beta")
+            .with("defence", &defence.identifier());
+        let rendered = messages.render_reason(&reason);
+        let sentence = messages
+            .catalogue()
+            .get(&format!("defence.{}", defence.identifier()))
+            .expect("a sentence per defence");
+        assert!(
+            rendered.contains(sentence) && !rendered.contains(defence.identifier()),
+            "{rendered}"
+        );
+    }
+}

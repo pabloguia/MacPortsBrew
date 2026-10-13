@@ -691,3 +691,221 @@ fn a_build_variable_naming_a_providers_prefix_is_a_warning_and_one_that_does_not
         "exactly the variable that names the prefix, and not the other"
     );
 }
+
+// --- cross-provider exposure (DP-041) ---------------------------------------
+
+/// Every exposure finding: `(affected, intruder-or-"-", finding id, severity,
+/// defence-or-"-")`, in the order `doctor` emitted them.
+fn exposures(
+    snap: &Snapshot,
+    policy: &PolicyData,
+) -> Vec<(String, String, String, Severity, String)> {
+    doctor(snap, policy, TODAY)
+        .findings
+        .iter()
+        .filter(|f| f.id.starts_with("cross_provider_exposure"))
+        .map(|f| {
+            let param = |k: &str| {
+                f.reason
+                    .params
+                    .get(k)
+                    .cloned()
+                    .unwrap_or_else(|| "-".into())
+            };
+            (
+                f.provider
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                param("intruder"),
+                f.id.clone(),
+                f.severity,
+                param("defence"),
+            )
+        })
+        .collect()
+}
+
+fn embedded() -> PolicyData {
+    PolicyData::load_embedded().expect("the embedded policy data loads")
+}
+
+/// The embedded data with `advice` in place of its cross-provider advice file.
+fn with_advice(advice: &str) -> PolicyData {
+    let mut sources = macportsbrew_policy::data::embedded_sources();
+    sources.cross_provider_advice = advice;
+    PolicyData::load_from(sources).expect("the synthetic advice loads")
+}
+
+fn two_providers(path: &[&str]) -> Snapshot {
+    snapshot(
+        Architecture::Arm64,
+        installed(),
+        path,
+        vec![
+            (HB, provider(HB, "/opt/homebrew", Architecture::Arm64)),
+            (MP, provider(MP, "/opt/local", Architecture::Arm64)),
+        ],
+    )
+}
+
+fn row(provider: &str, defence: &str) -> String {
+    format!(
+        "[[entry]]\nprovider = \"{provider}\"\nbuild_defence = \"{defence}\"\nsource = \"s\"\n\
+         read_on = \"2026-09-02\"\n"
+    )
+}
+
+#[test]
+fn the_two_directions_are_not_the_same_advice() {
+    // The property the MUST names: with the real data, the pair gets a finding in
+    // each direction and the two carry different defences.
+    let snap = two_providers(&["/opt/local/bin", "/opt/homebrew/bin", "/usr/bin"]);
+    let found = exposures(&snap, &embedded());
+    assert_eq!(found.len(), 2, "{found:?}");
+    let defence_of = |affected: &str| {
+        found
+            .iter()
+            .find(|f| f.0 == affected)
+            .unwrap_or_else(|| panic!("no finding for {affected}"))
+            .4
+            .clone()
+    };
+    assert_ne!(defence_of(HB), defence_of(MP));
+    assert!(found.iter().all(|f| f.2 == "cross_provider_exposure"));
+}
+
+#[test]
+fn the_advice_follows_the_data_and_swaps_when_the_data_swaps() {
+    // Neutrality proof: two ids no code has heard of. Whatever each is told is
+    // what the data says about it; exchange the rows and the advice exchanges.
+    let snap = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/p/alpha/bin", "/p/beta/bin", "/usr/bin"],
+        vec![
+            ("alpha", provider("alpha", "/p/alpha", Architecture::Arm64)),
+            ("beta", provider("beta", "/p/beta", Architecture::Arm64)),
+        ],
+    );
+    let one = with_advice(&format!(
+        "{}{}",
+        row("alpha", "opt_in_trace"),
+        row("beta", "default_clean_path")
+    ));
+    let other = with_advice(&format!(
+        "{}{}",
+        row("alpha", "default_clean_path"),
+        row("beta", "opt_in_trace")
+    ));
+    let defence = |found: &[(String, String, String, Severity, String)], who: &str| {
+        found.iter().find(|f| f.0 == who).unwrap().4.clone()
+    };
+    let (a, b) = (exposures(&snap, &one), exposures(&snap, &other));
+    assert_eq!(defence(&a, "alpha"), "opt_in_trace");
+    assert_eq!(defence(&a, "beta"), "default_clean_path");
+    assert_eq!(defence(&b, "alpha"), "default_clean_path");
+    assert_eq!(defence(&b, "beta"), "opt_in_trace");
+}
+
+#[test]
+fn a_provider_the_data_does_not_describe_is_unadvised_never_safe() {
+    let snap = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/p/alpha/bin", "/p/gamma/bin", "/usr/bin"],
+        vec![
+            ("alpha", provider("alpha", "/p/alpha", Architecture::Arm64)),
+            ("gamma", provider("gamma", "/p/gamma", Architecture::Arm64)),
+        ],
+    );
+    let found = exposures(&snap, &with_advice(&row("alpha", "opt_in_trace")));
+    let gamma = found
+        .iter()
+        .find(|f| f.0 == "gamma")
+        .expect("a gamma finding");
+    assert_eq!(gamma.2, "cross_provider_exposure_unadvised");
+    assert_eq!(gamma.3, Severity::Ok);
+    assert_eq!(gamma.4, "-", "no defence is claimed for it");
+    let alpha = found
+        .iter()
+        .find(|f| f.0 == "alpha")
+        .expect("an alpha finding");
+    assert_eq!(alpha.2, "cross_provider_exposure");
+}
+
+#[test]
+fn it_warns_only_when_the_intruder_is_searched_first() {
+    let severity_for = |path: &[&str], affected: &str| {
+        exposures(&two_providers(path), &embedded())
+            .into_iter()
+            .find(|f| f.0 == affected)
+            .map(|f| f.3)
+    };
+    // MacPorts first: Homebrew is the one exposed to it, not the reverse.
+    let macports_first = ["/opt/local/bin", "/opt/homebrew/bin", "/usr/bin"];
+    assert_eq!(severity_for(&macports_first, HB), Some(Severity::Warning));
+    assert_eq!(severity_for(&macports_first, MP), Some(Severity::Ok));
+    let homebrew_first = ["/opt/homebrew/bin", "/opt/local/bin", "/usr/bin"];
+    assert_eq!(severity_for(&homebrew_first, HB), Some(Severity::Ok));
+    assert_eq!(severity_for(&homebrew_first, MP), Some(Severity::Warning));
+    // The `sbin` directory counts as the provider's position too.
+    let sbin_first = ["/opt/local/sbin", "/opt/homebrew/bin", "/usr/bin"];
+    assert_eq!(severity_for(&sbin_first, HB), Some(Severity::Warning));
+}
+
+#[test]
+fn an_intruder_on_the_path_beside_an_affected_provider_that_is_not_on_it_warns() {
+    // The affected provider's own directory is not searched at all, so whatever
+    // the intruder ships wins every name they share.
+    let found = exposures(&two_providers(&["/opt/local/bin", "/usr/bin"]), &embedded());
+    let hb = found.iter().find(|f| f.0 == HB).expect("a finding for HB");
+    assert_eq!(hb.3, Severity::Warning);
+    let mp = found.iter().find(|f| f.0 == MP).expect("a finding for MP");
+    assert_eq!(mp.3, Severity::Ok, "its intruder is not on PATH at all");
+}
+
+#[test]
+fn an_unknown_path_is_ok_and_never_a_warning() {
+    // A recording carries no environment (F-34): nothing can be said about order.
+    let found = exposures(&two_providers(&[]), &embedded());
+    assert_eq!(found.len(), 2);
+    assert!(found.iter().all(|f| f.3 == Severity::Ok), "{found:?}");
+}
+
+#[test]
+fn fewer_than_two_present_providers_have_no_pair_to_report() {
+    let one = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/opt/homebrew/bin", "/usr/bin"],
+        vec![(HB, provider(HB, "/opt/homebrew", Architecture::Arm64))],
+    );
+    assert!(exposures(&one, &embedded()).is_empty());
+
+    let mut absent = two_providers(&["/opt/local/bin", "/opt/homebrew/bin", "/usr/bin"]);
+    absent
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .detection
+        .presence = ProviderPresence::Absent;
+    assert!(
+        exposures(&absent, &embedded()).is_empty(),
+        "an absent provider intrudes on nothing"
+    );
+
+    let mut broken = two_providers(&["/opt/local/bin", "/opt/homebrew/bin", "/usr/bin"]);
+    broken
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .detection
+        .presence = ProviderPresence::Broken {
+        reason: "test".into(),
+    };
+    assert!(
+        exposures(&broken, &embedded()).is_empty(),
+        "a broken provider is reported as broken, not as an intruder"
+    );
+}
