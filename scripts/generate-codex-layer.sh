@@ -224,13 +224,17 @@ trap 'rm -rf "$tmp"' EXIT
 generate_into "$tmp" "$tmp/skills"
 
 status=0
+# A skill in SKILLS_NOT_GENERATED is not this check's business, present or not:
+# it is deliberately not derived from .claude/, so a hand-written Codex copy of it
+# (which some Codex sessions create) is neither drift nor something to delete.
+skip=(); for n in $SKILLS_NOT_GENERATED; do skip+=(-x "$n"); done
 if ! diff -rq "$tmp/hooks" .codex/hooks >/dev/null 2>&1 \
    || ! diff -rq "$tmp/agents" .codex/agents >/dev/null 2>&1 \
-   || ! diff -rq "$tmp/skills" .agents/skills >/dev/null 2>&1; then
+   || ! diff -rq "${skip[@]}" "$tmp/skills" .agents/skills >/dev/null 2>&1; then
   echo "codex layer: .codex/ is not what .claude/ generates." >&2
   diff -rq "$tmp/hooks" .codex/hooks 2>&1 | sed 's/^/  /' >&2 || true
   diff -rq "$tmp/agents" .codex/agents 2>&1 | sed 's/^/  /' >&2 || true
-  diff -rq "$tmp/skills" .agents/skills 2>&1 | sed 's/^/  /' >&2 || true
+  diff -rq "${skip[@]}" "$tmp/skills" .agents/skills 2>&1 | sed 's/^/  /' >&2 || true
   echo "  Run scripts/generate-codex-layer.sh. If the difference is deliberate," >&2
   echo "  it belongs in .claude/ or in this generator, not in .codex/ (DP-018)." >&2
   status=1

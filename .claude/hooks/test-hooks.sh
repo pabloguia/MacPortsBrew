@@ -287,7 +287,7 @@ rm -rf "$broken"
 # including src/tests/ (Rust compiles any module in), embedded in a longer
 # string, and in build.rs; a comment does not; the top-level tests/ is not
 # scanned.
-gate_case() {  # <label> <expected rc> <grep-needle-or-empty>
+boundary_case() {  # <label> <expected rc> <grep-needle-or-empty>
   local label="$1" want="$2" needle="$3" out rc
   out="$(printf '{}' | CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"
   rc=$?
@@ -300,29 +300,29 @@ gate_case() {  # <label> <expected rc> <grep-needle-or-empty>
 boundary="$(mktemp -d)"
 mkdir -p "$boundary/src/application" "$boundary/src/tests" "$boundary/tests"
 printf 'let step = "%s";\n' "$INST" > "$boundary/src/application/planner.rs"
-gate_case "literal in src/application/planner.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in src/application/planner.rs blocks" 2 'mutating subcommand literal'
 printf '// the plan may say "%s" in a comment\n' "$INST" > "$boundary/src/application/planner.rs"
 printf 'let s = "%s";\n' "$INST" > "$boundary/tests/fixture.rs"
-gate_case "comment and top-level tests/ do not block" 0 ''
+boundary_case "comment and top-level tests/ do not block" 0 ''
 printf 'let s = "%s";\n' "$INST" > "$boundary/src/tests/live.rs"
-gate_case "literal under src/tests/ still blocks" 2 'mutating subcommand literal'
+boundary_case "literal under src/tests/ still blocks" 2 'mutating subcommand literal'
 rm -f "$boundary/src/tests/live.rs"
 printf 'let s = "brew %s jq";\n' "$INST" > "$boundary/src/application/exec.rs"
-gate_case "literal inside a longer string blocks" 2 'mutating subcommand literal'
+boundary_case "literal inside a longer string blocks" 2 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/build.rs"
-gate_case "literal in build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in build.rs blocks" 2 'mutating subcommand literal'
 rm -f "$boundary/build.rs"
 printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/src/application/exec.rs"
-gate_case "elevation token in code blocks" 2 'INV-06'
+boundary_case "elevation token in code blocks" 2 'INV-06'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 # The workspace layout: one crate per layer under crates/<layer>/src.
 mkdir -p "$boundary/crates/domain/src"
 printf 'let s = "%s";\n' "$INST" > "$boundary/crates/domain/src/plan.rs"
-gate_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
+boundary_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
-gate_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
 rm -rf "$boundary"
 
 # --- cases added after the 2026-09-05 security review ------------------------

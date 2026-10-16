@@ -23,3 +23,7 @@ CLAUDE.local.md
 
 # Local tooling caches (token-pilot).
 .token-pilot/
+
+# A hand-written Codex copy of the one skill the generator deliberately does not
+# derive (scripts/generate-codex-layer.sh, SKILLS_NOT_GENERATED); not versioned here.
+.agents/skills/tooling-recheck/
