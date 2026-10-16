@@ -7490,3 +7490,23 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: additive. Two new `doctor` findings per pair in the text and in
   `--json` (`doctor.v1`), new catalogue keys; the policy version is `2026.10.12-4` and
   `policyReadOn` moves to 2026-09-17 (the Homebrew checkout's date).
+
+## SE-099 — A session may publish a topic branch; nothing that rewrites or removes what is published
+- Status: accepted
+- Date / Pass: 2026-10-16 / after pass 13 (owner's instruction in chat, armed with `MPB_ALLOW_GUARD_EDIT=1`)
+- Original assumption: `CLAUDE.md` and the hooks denied every `git push` because the remote did not exist
+  and DP-007's first push was the owner's act of publishing.
+- Change: the remote exists (`pabloguia/MacPortsBrew`, public) and the owner asked that the session be able
+  to push. The two `Bash(git push ...)` deny rules in `.claude/settings.json` are removed, and
+  `.claude/hooks/guard-provider-mutation.sh` now allows an ordinary push of a topic branch to `origin` and
+  denies: force and delete forms (`-f`, `--force*`, `--delete`, `-d`), `--mirror`, `--all`, `--prune`,
+  `--no-verify`, a refspec starting with `+` or `:`; any push aimed at `main` or `master`, or made from
+  them or from a detached HEAD; a destination that is a URL or a path; and an `origin` that is not
+  `pabloguia/MacPortsBrew` on GitHub. 21 cases in `test-hooks.sh`, each in a scratch repository.
+- Rationale: pull requests become the way `main` changes; the owner keeps what is irreversible.
+- Limits, stated: the hook is now the only layer for this and it is a text matcher, a tripwire for the
+  accident and not a cage (its header says so). It cannot see a push issued through an alias or a script.
+  The SSH key used by `origin` has a passphrase, so a session cannot push over SSH until the remote is HTTPS
+  with the `gh` credential helper or the key is in an agent; that is a separate, owner-side step.
+- Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
+  date; it is updated with this change.

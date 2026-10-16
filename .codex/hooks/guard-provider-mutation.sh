@@ -138,11 +138,33 @@ if printf '%s' "$NORM" | grep -Eq 'rust-toolchain\.toml' && printf '%s' "$NORM" 
 fi
 
 # --- publishing ------------------------------------------------------------
-# CLAUDE.md lists `git push` among the boundaries the hooks block "a second
-# time"; nothing here did. DP-007 leaves hosting undecided, so the first push
-# is the decision, not a step.
+# DP-007 is decided (public GitHub) and the repository exists, so an ordinary
+# push of a topic branch to `origin` is an agent's step, authorised by the owner
+# on 2026-10-16. What stays the owner's: anything that rewrites or removes what
+# is already published, anything aimed at the default branch, and any push that
+# names a destination other than the `origin` remote of this project's own
+# repository. The settings.json deny rules for pushing were removed with this
+# change; this hook is now the only layer, so it fails closed.
 if printf '%s' "$NORM" | grep -Eq "${SEP}git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|\$)"; then
-  deny "Blocked: DP-007 is decided (public GitHub) but the remote does not exist yet, so the first push is the owner's act of publishing, not a step an agent takes on the way to something else. .claude/settings.json denies it too; this is the layer CLAUDE.md said was here and was not."
+  if printf '%s' "$NORM" | grep -Eq '[[:space:]](-f|--force[a-z-]*|--delete|-d|--mirror|--all|--prune|--no-verify|--receive-pack[a-z-]*|--exec)([[:space:]]|$)' \
+    || printf '%s' "$NORM" | grep -Eq 'push([[:space:]]+[^[:space:]]+)*[[:space:]]+(\+|:)[^[:space:]]'; then
+    deny "Blocked: a force, a delete, a mirror or all-branches push, or a refspec starting with + or :, rewrites or removes what is already published. That stays the owner's act. An ordinary push of a topic branch to origin is allowed."
+  fi
+  if printf '%s' "$NORM" | grep -Eq '(^|[[:space:]:/])(main|master)([[:space:]]|$)|HEAD:|refs/heads/(main|master)'; then
+    deny "Blocked: a push aimed at main or master. The default branch changes through a pull request, not a push from this session."
+  fi
+  if printf '%s' "$NORM" | grep -Eqi 'github\.com|git@|https?://|ssh://|file://|[[:space:]]/[^[:space:]]'; then
+    deny "Blocked: a push that names a URL or a path. Only the origin remote is allowed, and only when it is this project's repository."
+  fi
+  PUSH_URL="$(git -C "${CLAUDE_PROJECT_DIR:-.}" remote get-url origin 2>/dev/null || true)"
+  if ! printf '%s' "$PUSH_URL" | grep -Eq '^(git@github\.com:|https://github\.com/)pabloguia/MacPortsBrew(\.git)?$'; then
+    deny "Blocked: the origin remote is not pabloguia/MacPortsBrew on GitHub (it is '${PUSH_URL:-unset}'), so this session does not push. Fix the remote, or push by hand."
+  fi
+  PUSH_BRANCH="$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  case "$PUSH_BRANCH" in
+    main|master|HEAD|"")
+      deny "Blocked: the current branch is '${PUSH_BRANCH:-unknown}'. A push from main, master or a detached HEAD is not made from this session; switch to a topic branch." ;;
+  esac
 fi
 
 if printf '%s' "$NORM" | grep -Eq "${SEP}(launchctl|chsh|systemsetup|csrutil|spctl)([[:space:]]|\$)"; then
