@@ -7529,5 +7529,16 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   hand in an emergency; this session cannot, by the hook. It is a GitHub setting, so a change there is
   not visible in a diff: re-read it with
   `gh api repos/pabloguia/MacPortsBrew/branches/main/protection`.
+- **The Claude workflows are manual only, 2026-10-17 (owner's instruction).** `claude-code-review.yml` and
+  `claude.yml` start only by `workflow_dispatch`: the review takes a pull request number, the other takes
+  the task as text. The first run of CI on the public repository showed the review check failing on every
+  pull request, because the repository holds no `ANTHROPIC_API_KEY` or OAuth token, and it would cost money
+  per pull request if it had one; the pre-commit subagent reviews (`spec-guardian`, `security-reviewer`,
+  `docs-auditor`) already do that work. Their `if:` conditions read fields of the old events and would have
+  skipped every dispatch, so they now test `github.event_name`, and the comments that describe the old
+  triggers say so at the top of each file. The ones that name the author-association gate are left in
+  place as the record of what to restore. `docs/spec/11-agentic-sdlc.md` ("Continuous integration") said
+  Claude runs in CI for review; that SHOULD now says it is manual. DP-039 stays open, narrower: it applies
+  to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.

@@ -130,7 +130,9 @@ hook.
 
 The boundary that does not move: per `docs/spec/11-agentic-sdlc.md`, no
 unattended run merges, releases, pushes to the default branch, or resolves an
-item in `docs/decisions-pending.md`. The `@claude` workflow needs
+item in `docs/decisions-pending.md`. (Both Claude workflows have been manual-only
+since 2026-10-17, SE-099: nothing here starts them by itself, and they need a
+key that the repository does not hold.) The `@claude` workflow needs
 `contents: write` to push to pull-request branches; what keeps it off the
 default branch is branch protection, which is a repository setting and is
 therefore a sentence here, not a mechanism in this repository — enable it in

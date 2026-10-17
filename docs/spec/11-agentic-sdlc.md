@@ -393,7 +393,11 @@ truth.
 
 **SHOULD.** Claude Code runs in CI for review, not for authorship: pull-request
 review and `@claude` mentions on issues and pull requests. Anthropic publishes
-`anthropics/claude-code-action` for this.
+`anthropics/claude-code-action` for this. **Status since 2026-10-17 (SE-099):
+both workflows are started by hand only** (`workflow_dispatch`), because the
+repository holds no API key and the review it would make is already made by the
+subagents before each commit; the SHOULD stands for the day the owner turns them
+back on, and DP-039 has to be settled first.
 
 **MUST.** An unattended run identifies itself: both Claude workflows set
 `MPB_UNATTENDED=1`, and `guard-protected-paths.sh` reads it and refuses edits
