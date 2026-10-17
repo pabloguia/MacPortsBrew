@@ -65,7 +65,9 @@ fn executor_files() -> Vec<SourceFile> {
 /// last), no comment of any kind, no string literal's content. A token inside
 /// any of those is not wiring.
 fn code_of(text: &str) -> String {
-    let before_tests = text.split("#[cfg(test)]").next().unwrap_or("");
+    // Cut at the test module only: an earlier `#[cfg(test)]` helper must not
+    // hide the rest of the file from the scans (slice 4 review).
+    let before_tests = text.split("#[cfg(test)]\nmod").next().unwrap_or("");
     let chars: Vec<char> = before_tests.chars().collect();
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     let mut out = String::with_capacity(chars.len());
@@ -881,7 +883,11 @@ fn site_violations(files: &[SourceFile]) -> Vec<String> {
         let code = code_of(text);
         // Every occurrence: `calls_of` would skip a method call, whose dot is
         // glued to the receiver's name.
-        let performs: Vec<usize> = code.match_indices(".perform(").map(|(at, _)| at).collect();
+        let mut performs: Vec<usize> = code.match_indices(".perform(").map(|(at, _)| at).collect();
+        performs.extend(
+            code.match_indices("MutationSite::perform(")
+                .map(|(at, _)| at),
+        );
         let inside = body_of(&code, "mutation_dispatch").map(|body| {
             let at = code.find(body).expect("the body is in the code");
             at..at + body.len()
@@ -934,6 +940,10 @@ fn mutation_dispatch(site: &dyn MutationSite) { site.perform(); }
             "the read helper renamed dispatch",
             good.replace("fn read_commands(", "fn dispatch("),
         ),
+        (
+            "a fully qualified perform outside mutation_dispatch",
+            format!("{good}\nfn elsewhere(site: &S) {{ MutationSite::perform(site); }}"),
+        ),
     ] {
         assert!(
             site_violations(&one(&text))
@@ -964,8 +974,17 @@ fn workspace_file(relative: &str) -> String {
 #[test]
 fn the_switch_needs_snapshot_before_and_record_history_performed() {
     let executor = code_of(&workspace_file("application/src/executor.rs"));
-    let not_performed = executor.contains(
-        "StepKind::SnapshotBefore | StepKind::RecordHistory => {\n            Action::PassOver(Disposition::NotPerformedInThisBuild)",
+    // Compared with all whitespace removed, so a reflow cannot make the
+    // detection pass silently (slice 4 review).
+    let squeeze = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let executor = squeeze(&executor);
+    let not_performed = executor.contains(&squeeze(
+        "StepKind::SnapshotBefore | StepKind::RecordHistory => { Action::PassOver(Disposition::NotPerformedInThisBuild)",
+    ));
+    assert!(
+        not_performed || THIS_BUILD_DISPATCHES_MUTATIONS,
+        "the detection no longer matches the source: update it with the change that performs \
+         the brackets"
     );
     assert!(
         !(THIS_BUILD_DISPATCHES_MUTATIONS && not_performed),
@@ -977,9 +996,13 @@ fn the_switch_needs_snapshot_before_and_record_history_performed() {
 /// Detection: no product code outside the consent module calls `consent::ask`.
 #[test]
 fn the_switch_needs_consent_wired() {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut callers = 0;
-    let mut stack = vec![crates];
+    let mut stack: Vec<_> = std::fs::read_dir(&crates)
+        .expect("crates/")
+        .map(|e| e.expect("entry").path().join("src"))
+        .filter(|p| p.is_dir())
+        .collect();
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).expect("readable") {
             let path = entry.expect("entry").path();
@@ -1040,5 +1063,23 @@ fn the_switch_needs_release_builds_free_of_the_test_support_feature() {
         !switch,
         "no check holds a release artifact's build free of --all-features, which would compile \
          the test-only mutation allowance in (slice 4 review L1); remove this only with that check"
+    );
+}
+
+/// Detection: the destination check 04's contract names first is still not
+/// evaluable, so a removal is guarded by fewer checks than the contract
+/// (INV-01; slice 4 review, spec 2).
+#[test]
+fn the_switch_needs_the_destination_contract_evaluable() {
+    use macportsbrew_application::evaluable_in_this_build;
+    use macportsbrew_domain::{StepKind, VerificationCheck};
+    let evaluable = evaluable_in_this_build(
+        StepKind::VerifyDestination,
+        &VerificationCheck::ProviderReportsActive,
+    );
+    assert!(
+        !THIS_BUILD_DISPATCHES_MUTATIONS || evaluable,
+        "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
+         destination contract (04, Verification contract; SE-094)"
     );
 }

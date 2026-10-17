@@ -154,7 +154,7 @@ mod tests {
             step,
             provider: ProviderId::new("alpha"),
             program: "/Users/ada/opt/bin/tool".into(),
-            argv: vec!["install".into(), "a b\u{1b}[2J".into(), "x".repeat(400)],
+            argv: vec!["verb".into(), "a b\u{1b}[2J".into(), "x".repeat(400)],
             known: true,
         }
     }

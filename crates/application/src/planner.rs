@@ -1277,6 +1277,25 @@ fn command(
     })
 }
 
+/// The kind of the package `plan` moves, as the snapshot it was planned from
+/// records it — the input the planner keys elevation on. A package that
+/// snapshot does not hold is a `GUI_APP` here, whose mutating cells are
+/// `unknown` in every table entry, so an undeterminable kind fails closed
+/// (slice 4 review: a kind-blind re-derivation read a cask's `UNKNOWN` as
+/// `NONE`).
+pub(crate) fn package_kind_in(plan: &MigrationPlan, before: &Snapshot) -> PackageKind {
+    before
+        .providers
+        .get(&plan.source)
+        .and_then(|p| {
+            p.inventory
+                .installed
+                .iter()
+                .find(|r| r.identity.name == plan.package.name)
+        })
+        .map_or(PackageKind::GuiApp, |r| r.kind)
+}
+
 /// The elevation a command for `operation` needs: the table's cell for the
 /// package kind, relaxed to `NONE` **only for a read operation** whose
 /// provider detected `UNPRIVILEGED_READ` as available (INV-20; obligation 9).

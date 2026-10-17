@@ -535,13 +535,123 @@ fn a_run_that_is_not_live_is_refused_before_the_state_directory_is_touched() {
 
 #[test]
 fn without_an_allowance_the_mutating_run_is_not_entered() {
+    // A witness cleared without an allowance — a plan with no mutating step,
+    // which the gate passes for the read-only loop — is refused by the
+    // mutating run before anything is touched (`INTERNAL`).
     let direction = Direction::toward_homebrew();
+    let read_only = direction.plan_of(&direction.snapshot).map_plan(|p| {
+        p.dry_run_only = true;
+        p.steps.retain(|s| s.kind == StepKind::VerifyDestination);
+        for (i, step) in p.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).expect("small") + 1;
+        }
+    });
+    let cleared = clear(read_only, None).unwrap_or_else(|(_, r)| panic!("{:?}", r.refusals()));
+    assert!(cleared.allowance().is_none());
     let scratch = Scratch::new("no-allowance");
-    // The gate without an allowance refuses the narrowed plan for the build.
-    assert!(clear(direction.plan_of(&direction.snapshot), None).is_err());
     let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let error = run(
+        &cleared,
+        &scratch,
+        &site,
+        unchanged(&direction, &scratch),
+        &seen,
+    )
+    .expect_err("refused");
+    assert_eq!(error.id, ErrorId::Internal);
+    assert!(seen.all().is_empty());
     assert!(site.handed.borrow().is_empty());
     assert!(!scratch.state.root().exists());
+    // And the narrowed mutating plan is refused by the gate without one.
+    assert!(clear(direction.plan_of(&direction.snapshot), None).is_err());
+}
+
+#[test]
+fn invariant_02_the_mutation_site_is_handed_exactly_the_plans_command() {
+    for (name, direction) in directions() {
+        let scratch = Scratch::new("inv02");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let cleared = direction.cleared();
+        run(
+            &cleared,
+            &scratch,
+            &site,
+            unchanged(&direction, &scratch),
+            &seen,
+        )
+        .expect("a report");
+        let planned: Vec<(ProviderId, Vec<String>)> = cleared
+            .run()
+            .plan()
+            .steps
+            .iter()
+            .filter(|s| !s.commands.is_empty() && s.kind.is_mutating())
+            .flat_map(|s| {
+                s.commands
+                    .iter()
+                    .map(|c| (s.provider.clone().expect("a provider"), c.argv.clone()))
+            })
+            .collect();
+        assert_eq!(*site.handed.borrow(), planned, "{name}");
+    }
+}
+
+#[test]
+fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
+    // Toward MacPorts the removal follows VERIFY_DESTINATION; a read that does
+    // not name the destination halts it, and the removal is never handed over.
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("inv01");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let report = run_with_mutations(
+        &cleared,
+        || Absent,
+        MutatingRun {
+            live: true,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: unchanged(&direction, &scratch).recapture,
+            reread: unchanged(&direction, &scratch).reread,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    assert!(site.handed.borrow().is_empty(), "nothing was removed");
+    assert!(report
+        .records
+        .iter()
+        .any(|r| r.kind == StepKind::VerifyDestination
+            && matches!(r.disposition, Disposition::Halted { .. })));
+    assert!(!scratch.marker().exists() && scratch.records() == 0);
+}
+
+/// Answers every read with an inventory that names nothing the plan moves.
+struct Absent;
+
+impl ReadSite for Absent {
+    fn read(
+        &self,
+        _provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError> {
+        Ok(Invocation {
+            program: "x".into(),
+            argv: command.argv.clone(),
+            environment: BTreeMap::new(),
+            status: ExitStatus::Exited { code: 0 },
+            stdout: "  unrelated 1.0\n".to_string(),
+            stderr: String::new(),
+            truncated: false,
+            duration_ms: 1,
+        })
+    }
 }
 
 #[test]
@@ -698,6 +808,85 @@ fn a_configuration_that_drifted_or_could_not_be_read_stops_the_step_before_its_c
     }
 }
 
+/// Records the boundaries and, once the marker is written, replaces
+/// `run.lock` with another file: the lock this run holds is no longer the one
+/// at the path, which is what `verify_still_current` notices.
+struct LosesTheLock<'a> {
+    scratch: &'a Scratch,
+    seen: Seen,
+}
+
+impl Observer for LosesTheLock<'_> {
+    fn at(&self, boundary: Boundary, step: Option<u32>) {
+        self.seen.at(boundary, step);
+        if boundary == Boundary::MarkerWritten {
+            let path = self.scratch.state.root().join(LOCK_FILE);
+            std::fs::rename(&path, self.scratch.base.join("old.lock")).expect("moved aside");
+            std::fs::write(&path, b"").expect("another lock file");
+        }
+    }
+}
+
+#[test]
+fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
+    // The mutation proof's two lock survivors: no test ever lost the lock, so
+    // neither dropping the still-current check nor moving it after the
+    // configuration re-read failed anything (plan §4, item 2).
+    for (name, direction) in directions() {
+        let scratch = Scratch::new("lock-lost");
+        let site = Site::exits(&scratch, 0);
+        let observer = LosesTheLock {
+            scratch: &scratch,
+            seen: Seen::default(),
+        };
+        let reread_called = std::cell::Cell::new(false);
+        let mut setup = unchanged(&direction, &scratch);
+        setup.reread = &*Box::leak(Box::new(|_: &ProviderId, _: &str| {
+            reread_called.set(true);
+            Ok(ProviderConfiguration::Read { files: Vec::new() })
+        }));
+        let plan = direction.cleared().run().plan().clone();
+        let report = run_with_mutations(
+            &direction.cleared(),
+            || Reads(Box::leak(Box::new(plan))),
+            MutatingRun {
+                live: setup.live,
+                state: &scratch.state,
+                euid: scratch.euid,
+                start: scratch.start(),
+                site: &site,
+                recapture: setup.recapture,
+                reread: setup.reread,
+                observer: &observer,
+            },
+            &HomeRedaction::Recorded,
+        );
+        let halt = report.as_ref().ok().and_then(|report| {
+            report.records.iter().find_map(|r| match &r.disposition {
+                Disposition::Halted { reason, .. } => Some(reason.clone()),
+                _ => None,
+            })
+        });
+        assert_eq!(
+            halt,
+            Some(HaltReason::PreconditionFailed {
+                command: 0,
+                why: Precondition::LockLost,
+            }),
+            "{name}: {report:?}"
+        );
+        assert!(site.handed.borrow().is_empty(), "{name}");
+        assert!(
+            !reread_called.get(),
+            "{name}: the re-read comes after the check"
+        );
+        let seen = observer.seen.all();
+        assert!(!seen.contains(&Boundary::StillCurrent), "{name}: {seen:?}");
+        assert!(!seen.contains(&Boundary::Dispatched), "{name}: {seen:?}");
+        assert_ne!(report.map(|r| r.exit_code()).ok(), Some(0), "{name}");
+    }
+}
+
 #[test]
 fn a_refused_or_failed_command_is_recorded_as_dispatched() {
     for (what, action) in [
@@ -826,5 +1015,25 @@ fn a_marker_gone_or_another_runs_after_the_record_is_an_error_and_stays() {
         assert_ne!(report.exit_code(), 0, "{what}");
         assert_eq!(scratch.records(), 1, "{what}: the record was written first");
         assert!(!seen.all().contains(&Boundary::MarkerCleared), "{what}");
+    }
+}
+
+#[test]
+fn a_completed_run_whose_history_went_wrong_never_exits_zero() {
+    // Unreachable through a run in this build (every mutating run is partial,
+    // D9), so the mutation proof found the `(0, Some(_))` branch untested.
+    let report = |history_error| RunReport {
+        outcome: RunOutcome::Completed,
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: Vec::new(),
+        history_error,
+        marker_left: None,
+        record_written: false,
+    };
+    assert_eq!(report(None).exit_code(), 0);
+    for error in [ErrorId::Io, ErrorId::HistoryUnusable] {
+        assert_eq!(report(Some(error)).exit_code(), error.exit_code());
+        assert_ne!(error.exit_code(), 0, "{error:?}");
     }
 }

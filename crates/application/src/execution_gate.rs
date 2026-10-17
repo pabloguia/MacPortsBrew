@@ -50,7 +50,7 @@
 //! filtered.
 
 use crate::executor::PlannedRun;
-use crate::planner::{elevation_for, planned_argv, planned_success};
+use crate::planner::{elevation_for, package_kind_in, planned_argv, planned_success};
 use crate::provider_commands;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
@@ -278,6 +278,15 @@ pub enum ExecutionRefusal {
         /// The step.
         step: u32,
     },
+    /// Whenever mutations would be dispatched: an `ADD_DESTINATION` carrying a
+    /// command with no `VERIFY_DESTINATION` after it, or a `REMOVE_SOURCE`
+    /// with no `VERIFY_REMOVAL` after it (slice 4 review, INV-03). A
+    /// mutation's success is never its exit status, so a commanded change with
+    /// nothing after it to judge it could otherwise end the run a success.
+    MutationNotVerifiedAfter {
+        /// The step.
+        step: u32,
+    },
 }
 
 impl ExecutionRefusal {
@@ -311,6 +320,7 @@ impl ExecutionRefusal {
             Self::PlanNotDryRunOnly => (0, 21),
             Self::ProviderConfiguration { step, .. } => (*step, 22),
             Self::MutationIsNotThePlannersCommand { step } => (*step, 23),
+            Self::MutationNotVerifiedAfter { step } => (*step, 24),
         }
     }
 }
@@ -392,6 +402,29 @@ impl std::fmt::Debug for MutationAllowance {
     }
 }
 
+/// Compile-time proof that a type is **not** `Clone` and **not** `Default`
+/// (slice 4 review, M2): with either implemented, the blanket impls below make
+/// the item ambiguous and this file stops compiling. No dependency.
+mod not_clone_nor_default {
+    pub(super) trait AmbiguousIfClone<A> {
+        fn item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfClone<()> for T {}
+    impl<T: Clone> AmbiguousIfClone<u8> for T {}
+    pub(super) trait AmbiguousIfDefault<A> {
+        fn item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfDefault<()> for T {}
+    impl<T: Default> AmbiguousIfDefault<u8> for T {}
+}
+const _: fn() = || {
+    use not_clone_nor_default::{AmbiguousIfClone, AmbiguousIfDefault};
+    <MutationAllowance as AmbiguousIfClone<_>>::item();
+    <MutationAllowance as AmbiguousIfDefault<_>>::item();
+    <GateClear as AmbiguousIfClone<_>>::item();
+    <GateClear as AmbiguousIfDefault<_>>::item();
+};
+
 /// The allowance this build grants: one only when it dispatches mutations.
 /// The single product producer; `migrate` asks here rather than choosing.
 #[must_use]
@@ -441,7 +474,7 @@ pub fn clear(
     run: PlannedRun,
     allowance: Option<MutationAllowance>,
 ) -> Result<GateClear, (PlannedRun, GateReport)> {
-    let report = execution_refusals_with(run.plan(), allowance.as_ref());
+    let report = execution_refusals_for(&run, allowance.as_ref());
     if report.may_execute() {
         Ok(GateClear { run, allowance })
     } else {
@@ -492,16 +525,32 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
 /// Never refuses rendering: a caller showing a plan does not consult this.
 #[must_use]
 pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
-    execution_refusals_with(plan, None)
+    refusals(plan, None, PackageKind::GuiApp)
 }
 
-/// [`execution_refusals`] under `allowance` (D2). The allowance changes the
-/// two build-state refusals and **adds** pins on mutating steps; it removes no
-/// other refusal. Without one this is exactly [`execution_refusals`].
+/// [`execution_refusals`] for a run under `allowance` (D2): the pins on
+/// mutating steps re-derive elevation for the package's kind as the run's own
+/// snapshot records it, never from the plan.
 #[must_use]
-pub fn execution_refusals_with(
+pub fn execution_refusals_for(
+    run: &PlannedRun,
+    allowance: Option<&MutationAllowance>,
+) -> GateReport {
+    refusals(
+        run.plan(),
+        allowance,
+        package_kind_in(run.plan(), run.before()),
+    )
+}
+
+/// The gate. An allowance changes the two build-state refusals; whenever
+/// mutations would be dispatched — under an allowance, or in a build whose
+/// constant is `true` — it **adds** pins on mutating steps; it removes no
+/// other refusal. `kind` is the package's, for the elevation pin.
+fn refusals(
     plan: &MigrationPlan,
     allowance: Option<&MutationAllowance>,
+    kind: PackageKind,
 ) -> GateReport {
     let dispatches = THIS_BUILD_DISPATCHES_MUTATIONS || allowance.is_some();
     let mut refusals = Vec::new();
@@ -692,7 +741,21 @@ pub fn execution_refusals_with(
     // exactly what the planner derives from the table — argv, success and
     // elevation (D2). For a mutating operation the table alone decides
     // elevation, so this needs no snapshot.
-    if allowance.is_some() {
+    if dispatches {
+        for (position, step) in plan.steps.iter().enumerate() {
+            let judged_by = match step.kind {
+                StepKind::AddDestination if !step.commands.is_empty() => {
+                    Some(StepKind::VerifyDestination)
+                }
+                StepKind::RemoveSource => Some(StepKind::VerifyRemoval),
+                _ => None,
+            };
+            if let Some(kind) = judged_by {
+                if !plan.steps[position + 1..].iter().any(|s| s.kind == kind) {
+                    refusals.push(ExecutionRefusal::MutationNotVerifiedAfter { step: step.index });
+                }
+            }
+        }
         for step in &plan.steps {
             let (side, operation, name) = match step.kind {
                 StepKind::AddDestination => (
@@ -710,7 +773,7 @@ pub fn execution_refusals_with(
                 (
                     planned_argv(entry, operation, name),
                     planned_success(entry, operation),
-                    elevation_for(entry, operation, PackageKind::Package, None),
+                    elevation_for(entry, operation, kind, None),
                 )
             });
             let disagrees = step.commands.iter().any(|c| {

@@ -212,9 +212,20 @@ fn execute_mutating(
     allowance: MutationAllowance,
     registry: &macportsbrew_adapters::registry::RegistryContext<'_>,
 ) -> Result<RunReport, DomainError> {
+    // The live-scope refusal first, before the state directory is resolved
+    // (D13; INV-15): a replay must not fail on a missing home instead.
+    if ctx.history != HistoryScope::ThisMachine {
+        return Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "a run that changes the machine runs only against this machine, never a recording \
+             or a snapshot file; nothing was changed",
+        ));
+    }
     let cleared = match clear(planned, Some(allowance)) {
         Ok(cleared) => cleared,
-        Err((planned, _)) => return Ok(executor::run(&planned, registry, &ctx.redaction)),
+        // The refusals under the allowance, not a read-only re-run's (slice 4
+        // review, security 5).
+        Err((_, report)) => return Ok(executor::refused_report(&report, &ctx.redaction)),
     };
     let (state, euid) = state_and_user(ctx)?;
     let ids = macportsbrew_adapters::registry::known_provider_ids();
@@ -223,7 +234,8 @@ fn execute_mutating(
         let replan =
             |consultation| migration_start(&now, &ctx.policy, options, request, &ids, consultation);
         let start = if ctx.history == HistoryScope::ThisMachine && request.retain_source {
-            let view = read_history(ctx, &migration_key(cleared.run().plan()))?;
+            // Under the lock, from the state directory resolved once above.
+            let view = read_view(&state, &migration_key(cleared.run().plan()), euid)?;
             replan(HistoryConsultation::Consulted {
                 view: &view,
                 run_stamp: &ctx.run_stamp,

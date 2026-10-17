@@ -1098,6 +1098,24 @@ fn product_sources() -> Vec<(PathBuf, String)> {
     out
 }
 
+/// The whole attribute and doc block above `marker`: every line directly
+/// above it that is an attribute or a comment (slice 4 review: a scan of one
+/// line let a derive above `#[must_use]` through).
+fn attributes_above<'a>(text: &'a str, marker: &str) -> Vec<&'a str> {
+    let at = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("{marker} is defined"));
+    text[..at]
+        .lines()
+        .rev()
+        .skip_while(|l| l.trim().is_empty())
+        .take_while(|l| {
+            let t = l.trim();
+            t.starts_with("#[") || t.starts_with("//") || t.is_empty()
+        })
+        .collect()
+}
+
 /// The lines just above `marker` in `text`.
 fn lines_above<'a>(text: &'a str, marker: &str, count: usize) -> Vec<&'a str> {
     let at = text
@@ -1151,11 +1169,34 @@ fn the_mutation_allowance_and_the_gate_witness_are_made_only_by_the_gate() {
     );
     for definition in ["pub struct MutationAllowance(", "pub struct GateClear {"] {
         assert!(
-            lines_above(&text, definition, 1)
+            attributes_above(&text, definition)
                 .iter()
+                .filter(|l| l.trim().starts_with("#["))
                 .all(|l| !l.contains("derive")),
             "{definition} derives nothing"
         );
+    }
+    // Inside the gate's own file, where the compiler allows construction:
+    // one product producer, one test constructor, one witness construction.
+    assert_eq!(
+        text.matches("MutationAllowance(())").count(),
+        2,
+        "the definition and the one producer"
+    );
+    assert_eq!(text.matches("Self(())").count(), 1, "one test constructor");
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("GateClear {"))
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("pub struct") && !t.starts_with("impl")
+            })
+            .count(),
+        1,
+        "one construction: clear()'s construction"
+    );
+    for banned in ["impl Default", "impl Clone", "impl From"] {
+        assert!(!text.contains(banned), "the gate file: {banned}");
     }
     // The only product producer reads the constant.
     assert!(text.contains("THIS_BUILD_DISPATCHES_MUTATIONS.then_some(MutationAllowance(()))"));
@@ -1183,10 +1224,26 @@ fn consent_is_minted_only_by_confirm_and_asked_only_by_the_consent_module() {
     }
     let text = std::fs::read_to_string(&home).expect("consent.rs");
     assert!(
-        lines_above(&text, "pub struct ConsentGiven {", 2)
+        attributes_above(&text, "pub struct ConsentGiven {")
             .iter()
+            .filter(|l| l.trim().starts_with("#["))
             .all(|l| !l.contains("Clone") && !l.contains("Copy") && !l.contains("Deserialize")),
         "ConsentGiven is neither Clone, Copy nor read from a file"
+    );
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("ConsentGiven {"))
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("pub struct") && !t.starts_with("impl")
+            })
+            .count(),
+        1,
+        "one construction: confirm()'s construction"
+    );
+    assert!(
+        !text.contains("for ConsentGiven"),
+        "no trait implementation"
     );
 }
 
@@ -1195,10 +1252,19 @@ fn there_is_exactly_one_mutation_site_and_it_refuses() {
     // D7: the product mutation site refuses every command, so no mutating
     // command spec is built anywhere in shipped source. One implementation
     // under `crates/*/src`, naming no runner, registry or process item.
+    // Any `impl`, generic or not, whose trait is `MutationSite`.
     let mut impls = Vec::new();
     for (path, text) in product_sources() {
-        for (at, _) in text.match_indices("impl MutationSite for") {
-            impls.push((path.clone(), text[at..].to_string()));
+        for (at, _) in text.match_indices("impl") {
+            let head = &text[at..];
+            let header = &head[..head.find(['{', ';']).unwrap_or(head.len())];
+            let word_start = text[..at]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+            if word_start && header.contains("MutationSite for") {
+                impls.push((path.clone(), head.to_string()));
+            }
         }
     }
     assert_eq!(

@@ -866,27 +866,30 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     }
     // What went wrong with the run's own history (slice 4, D8). Never an offer
     // to restore: a run whose record is not known to be durable has none.
-    match report.history_error {
+    let remedy = match report.history_error {
+        // Not known to be durable: the marker may be the only trace left, so
+        // nothing here suggests removing it (slice 4 review, security 1).
         Some(ErrorId::Io) => {
             let _ = writeln!(out, "  {}", label(ctx, "migrate.history.not_durable"));
+            "migrate.history.marker_is_the_only_trace"
         }
         Some(_) => {
-            let _ = writeln!(
-                out,
-                "  {}",
-                label(ctx, "migrate.history.marker_not_cleared")
-            );
+            let key = if report.record_written {
+                "migrate.history.marker_not_cleared"
+            } else {
+                "migrate.history.marker_not_cleared_no_record"
+            };
+            let _ = writeln!(out, "  {}", label(ctx, key));
+            "migrate.history.marker_left"
         }
-        None => {}
-    }
+        None => "migrate.history.marker_left",
+    };
     if let Some(run_id) = &report.marker_left {
         let _ = writeln!(
             out,
             "  {}",
-            ctx.messages.render(
-                "migrate.history.marker_left",
-                &params(&[("run_id", run_id.clone())]),
-            )
+            ctx.messages
+                .render(remedy, &params(&[("run_id", run_id.clone())]))
         );
     }
     out
@@ -1197,6 +1200,9 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
         ExecutionRefusal::MutationIsNotThePlannersCommand { step: s } => {
             step("migrate.refusal.mutation_is_not_the_planners_command", *s)
         }
+        ExecutionRefusal::MutationNotVerifiedAfter { step: s } => {
+            step("migrate.refusal.mutation_not_verified_after", *s)
+        }
     }
 }
 
@@ -1424,6 +1430,7 @@ mod tests {
                     gate_refusals: Vec::new(),
                     history_error: None,
                     marker_left: None,
+                    record_written: false,
                 };
                 text.push_str(&run_report(&ctx, &plan, &report));
             }

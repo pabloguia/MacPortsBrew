@@ -49,7 +49,7 @@
 //! and the append-only store is deferred to the mutating pass.
 
 use crate::execution_gate::{evaluable_in_this_build, GateReport, MutationAllowance};
-use crate::planner::elevation_for;
+use crate::planner::{elevation_for, package_kind_in};
 use crate::provider_commands;
 use macportsbrew_domain::{
     evaluate, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget, Elevation,
@@ -501,7 +501,7 @@ impl PlannedRun {
 /// halt the run.
 #[must_use]
 pub fn next_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> Action {
-    next_action_with(plan, position, records, None)
+    next_action_guarded(plan, position, records, None)
 }
 
 /// [`next_action`], and under a [`MutationAllowance`] the one source of
@@ -518,10 +518,21 @@ pub fn next_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]
 /// not exist and `CLEANUP_REVIEW` is a review: neither is ever dispatched.
 #[must_use]
 pub fn next_action_with(
-    plan: &MigrationPlan,
+    run: &PlannedRun,
     position: usize,
     records: &[StepRecord],
     allowance: Option<&MutationAllowance>,
+) -> Action {
+    let kind = package_kind_in(run.plan(), run.before());
+    next_action_guarded(run.plan(), position, records, allowance.map(|a| (a, kind)))
+}
+
+/// The one implementation behind [`next_action`] and [`next_action_with`].
+fn next_action_guarded(
+    plan: &MigrationPlan,
+    position: usize,
+    records: &[StepRecord],
+    allowance: Option<(&MutationAllowance, PackageKind)>,
 ) -> Action {
     let in_step = records.len() == position
         && records
@@ -545,7 +556,7 @@ pub fn next_action_with(
     if step.kind.is_mutating() {
         return match allowance {
             None => guard(step.commands.is_empty()),
-            Some(_) => mutating_action(plan, position, records),
+            Some((_, kind)) => mutating_action(plan, position, records, kind),
         };
     }
     match step.kind {
@@ -592,7 +603,12 @@ pub fn next_action_with(
 /// What a mutating step gets under an allowance (D3). Every refusal here is a
 /// halt or a pass-over; nothing below answers a dispatch unless every
 /// condition held.
-fn mutating_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> Action {
+fn mutating_action(
+    plan: &MigrationPlan,
+    position: usize,
+    records: &[StepRecord],
+    kind: PackageKind,
+) -> Action {
     let step = &plan.steps[position];
     let operation = match step.kind {
         StepKind::AddDestination => "add",
@@ -621,7 +637,7 @@ fn mutating_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]
         }
         // Re-derived, never read from the plan; a mutating operation is
         // never relaxed by a capability, so no snapshot is consulted.
-        let derived = elevation_for(entry, operation, PackageKind::Package, None);
+        let derived = elevation_for(entry, operation, kind, None);
         if derived != Elevation::None || c.elevation != Elevation::None {
             return Action::Halt(HaltReason::ElevationNotNone { command });
         }

@@ -38,8 +38,8 @@ pub use consent::{
 };
 pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
 pub use execution_gate::{
-    clear, evaluable_in_this_build, execution_refusals, execution_refusals_with,
-    mutation_allowance, ExecutionRefusal, GateClear, GateReport, MutationAllowance,
+    clear, evaluable_in_this_build, execution_refusals, execution_refusals_for, mutation_allowance,
+    ExecutionRefusal, GateClear, GateReport, MutationAllowance,
 };
 pub use executor::{
     judge_mutation, judge_step, next_action, next_action_with, outcome_of, plan_still_holds,

@@ -611,6 +611,20 @@ impl RunRecord {
             {
                 return Err(unusable("states a manual review that was carried out"));
             }
+            // A mutation's ends are written only on the two steps this build
+            // ever hands to a mutation site (slice 4 review, security 4).
+            let mutating_ends = match &recorded.result {
+                StepResult::Performed { .. } => true,
+                StepResult::Halted { ends, .. } => !ends.is_empty(),
+                _ => false,
+            };
+            if mutating_ends
+                && !matches!(step.kind, StepKind::AddDestination | StepKind::RemoveSource)
+            {
+                return Err(unusable(
+                    "states a mutation's result on a step no mutation runs on",
+                ));
+            }
             if recorded.dispatched != step.dispatched {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }

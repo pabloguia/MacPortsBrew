@@ -485,7 +485,7 @@ fn partial_success_exits_three_and_nothing_else_does() {
 
 // --- Under a mutation allowance (pass 08 slice 4) -------------------------
 
-use crate::execution_gate::{clear, execution_refusals_with, ExecutionRefusal, MutationAllowance};
+use crate::execution_gate::{clear, execution_refusals_for, ExecutionRefusal, MutationAllowance};
 use crate::history::run_record;
 use macportsbrew_domain::{RunStart, RunStatus};
 
@@ -557,11 +557,12 @@ fn verified() -> Disposition {
 
 /// Records for `plan` up to `position`, each as `next_action_with` would have
 /// let it end with every dispatch succeeding.
-fn records_until(plan: &MigrationPlan, position: usize) -> Vec<StepRecord> {
+fn records_until(run: &PlannedRun, position: usize) -> Vec<StepRecord> {
+    let plan = run.plan();
     let allowance = MutationAllowance::forced_in_tests();
     let mut records = Vec::new();
     for at in 0..position {
-        let disposition = match next_action_with(plan, at, &records, Some(&allowance)) {
+        let disposition = match next_action_with(run, at, &records, Some(&allowance)) {
             Action::Dispatch => verified(),
             Action::DispatchMutating => Disposition::Performed {
                 ends: vec![CommandEnd::Exited { code: 0 }],
@@ -586,7 +587,7 @@ fn without_an_allowance_next_action_with_is_next_action() {
         let plan = run.plan();
         for position in 0..plan.steps.len() {
             assert_eq!(
-                next_action_with(plan, position, &[], None),
+                next_action_with(&run, position, &[], None),
                 next_action(plan, position, &[]),
             );
         }
@@ -601,7 +602,7 @@ fn an_allowance_dispatches_an_unelevated_add_and_halts_an_elevated_one() {
     let plan = run.plan();
     let add = position(plan, StepKind::AddDestination);
     assert_eq!(
-        next_action_with(plan, add, &records_until(plan, add), Some(&allowance)),
+        next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
         Action::DispatchMutating
     );
     // From Homebrew toward MacPorts: MacPorts' add elevates (data, not code).
@@ -609,7 +610,7 @@ fn an_allowance_dispatches_an_unelevated_add_and_halts_an_elevated_one() {
     let plan = run.plan();
     let add = position(plan, StepKind::AddDestination);
     assert_eq!(
-        next_action_with(plan, add, &records_until(plan, add), Some(&allowance)),
+        next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
         Action::Halt(HaltReason::ElevationNotNone { command: 0 })
     );
 }
@@ -627,10 +628,10 @@ fn elevation_is_re_derived_from_the_table_never_read_from_the_plan() {
     let plan = run.plan();
     let add = position(plan, StepKind::AddDestination);
     assert_eq!(
-        next_action_with(plan, add, &records_until(plan, add), Some(&allowance)),
+        next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
         Action::Halt(HaltReason::ElevationNotNone { command: 0 })
     );
-    let report = execution_refusals_with(plan, Some(&allowance));
+    let report = execution_refusals_for(&run, Some(&allowance));
     let step = plan.steps[add].index;
     assert!(report
         .refusals()
@@ -649,7 +650,7 @@ fn a_mutating_command_that_is_not_the_planners_is_refused_under_an_allowance() {
     });
     let plan = run.plan();
     let step = plan.steps[position(plan, StepKind::AddDestination)].index;
-    assert!(execution_refusals_with(plan, Some(&allowance))
+    assert!(execution_refusals_for(&run, Some(&allowance))
         .refusals()
         .contains(&ExecutionRefusal::MutationIsNotThePlannersCommand { step }));
     // Without the allowance the same plan is refused for the build anyway.
@@ -661,14 +662,13 @@ fn the_narrowed_plan_clears_the_gate_only_under_an_allowance() {
     // Toward Homebrew the removal is MacPorts' and elevates: refused even
     // under an allowance, because consent is not wired.
     let elevated = forced_run(MP);
-    let report =
-        execution_refusals_with(elevated.plan(), Some(&MutationAllowance::forced_in_tests()));
+    let report = execution_refusals_for(&elevated, Some(&MutationAllowance::forced_in_tests()));
     assert!(report
         .refusals()
         .iter()
         .any(|r| matches!(r, ExecutionRefusal::ElevationRequired { .. })));
     let run = consolidation_run();
-    assert!(execution_refusals_with(run.plan(), None)
+    assert!(execution_refusals_for(&run, None)
         .refusals()
         .iter()
         .any(|r| matches!(r, ExecutionRefusal::MutationNotInThisBuild { .. })));
@@ -681,6 +681,11 @@ fn the_narrowed_plan_clears_the_gate_only_under_an_allowance() {
     assert!(clear(unnarrowed, Some(MutationAllowance::forced_in_tests())).is_err());
 }
 
+/// "Verified" here means the plan's own checks on that `VERIFY_DESTINATION`
+/// passed. 04's full destination contract is not evaluable in this build
+/// (`PROVIDER_REPORTS_ACTIVE` and four more are refused by the gate), so the
+/// narrowed plan carries `PACKAGE_NEWLY_PRESENT` only; a flip tripwire holds
+/// the switch off until the contract is evaluable (slice 4 review, spec 2).
 #[test]
 fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     let allowance = MutationAllowance::forced_in_tests();
@@ -688,9 +693,9 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     let plan = run.plan();
     let remove = position(plan, StepKind::RemoveSource);
     let verify = position(plan, StepKind::VerifyDestination);
-    let good = records_until(plan, remove);
+    let good = records_until(&run, remove);
     assert_eq!(
-        next_action_with(plan, remove, &good, Some(&allowance)),
+        next_action_with(&run, remove, &good, Some(&allowance)),
         Action::DispatchMutating
     );
     // Any other ending of the guarding verification: never a dispatch.
@@ -702,7 +707,7 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
         let mut records = good.clone();
         records[verify].disposition = other.clone();
         assert_ne!(
-            next_action_with(plan, remove, &records, Some(&allowance)),
+            next_action_with(&run, remove, &records, Some(&allowance)),
             Action::DispatchMutating,
             "{other:?}"
         );
@@ -717,12 +722,12 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     });
     let plan = run.plan();
     let remove = position(plan, StepKind::RemoveSource);
-    let records = records_until(plan, remove);
+    let records = records_until(&run, remove);
     assert_ne!(
-        next_action_with(plan, remove, &records, Some(&allowance)),
+        next_action_with(&run, remove, &records, Some(&allowance)),
         Action::DispatchMutating
     );
-    assert!(!execution_refusals_with(plan, Some(&allowance)).may_execute());
+    assert!(!execution_refusals_for(&run, Some(&allowance)).may_execute());
 }
 
 #[test]
@@ -737,7 +742,7 @@ fn a_mutating_step_with_checks_of_its_own_halts_rather_than_dropping_them() {
     let plan = run.plan();
     let add = position(plan, StepKind::AddDestination);
     assert_eq!(
-        next_action_with(plan, add, &records_until(plan, add), Some(&allowance)),
+        next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
         Action::Halt(HaltReason::MutatingStepCarriesVerification)
     );
 }
@@ -759,11 +764,30 @@ fn set_primary_and_cleanup_are_never_dispatched_under_an_allowance() {
                 })
                 .collect();
             assert_ne!(
-                next_action_with(plan, at, &records, Some(&allowance)),
+                next_action_with(&run, at, &records, Some(&allowance)),
                 Action::DispatchMutating
             );
         }
     }
+}
+
+#[test]
+fn a_set_primary_step_carrying_a_provider_command_halts_under_an_allowance() {
+    // The mutation proof found the test above only meets planner plans, whose
+    // SET_PRIMARY targets the tool; a doctored plan pointing it at a provider
+    // must halt rather than dispatch as an add (plan §9).
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = forced_run(MP).map_plan(|p| {
+        let add = position(p, StepKind::AddDestination);
+        let command = p.steps[add].commands[0].clone();
+        let set = position(p, StepKind::SetPrimary);
+        p.steps[set].commands = vec![command];
+    });
+    let set = position(run.plan(), StepKind::SetPrimary);
+    assert_eq!(
+        next_action_with(&run, set, &records_until(&run, set), Some(&allowance)),
+        Action::Halt(HaltReason::UnexecutedMutation)
+    );
 }
 
 fn exited(code: i32) -> MutationResult {
@@ -822,6 +846,17 @@ fn a_halt_on_the_second_command_keeps_the_first_and_is_recorded_as_dispatched() 
             },
             1,
         ),
+        // The mutation proof's most serious survivor: a precondition that
+        // fails before the second command must not lose the first's end, or a
+        // performed mutation would go unrecorded (obligation 12).
+        (
+            MutationResult::PreconditionFailed(Precondition::LockLost),
+            HaltReason::PreconditionFailed {
+                command: 1,
+                why: Precondition::LockLost,
+            },
+            1,
+        ),
     ];
     for (second, reason, kept) in cases {
         let disposition = judge_mutation(run.plan(), add, &[exited(0), second]);
@@ -859,7 +894,7 @@ fn a_performed_mutation_with_a_halted_verification_is_partial_never_success() {
     let run = forced_run(MP);
     let plan = run.plan();
     let add = position(plan, StepKind::AddDestination);
-    let mut records = records_until(plan, add + 1);
+    let mut records = records_until(&run, add + 1);
     records.push(StepRecord {
         index: plan.steps[add + 1].index,
         kind: plan.steps[add + 1].kind,
@@ -904,7 +939,7 @@ fn record_with(
     disposition: Disposition,
 ) -> macportsbrew_domain::RunRecord {
     let plan = run.plan();
-    let mut records = records_until(plan, at);
+    let mut records = records_until(run, at);
     records.push(StepRecord {
         index: plan.steps[at].index,
         kind: plan.steps[at].kind,
@@ -951,10 +986,21 @@ fn invariant_04_a_dependent_that_appeared_under_the_lock_refuses_the_run() {
         .inventory
         .dependencies
         .push(macportsbrew_domain::DependencyEdge {
-            from: "other".into(),
+            from: "dependent".into(),
             to: "gnu-sed".into(),
             build_only: false,
         });
+    // The dependent is a package of the source provider itself (INV-04).
+    let dependent = provider(HB, "/opt/first-provider", &[pkg("dependent")])
+        .inventory
+        .installed
+        .remove(0);
+    now.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("homebrew")
+        .inventory
+        .installed
+        .push(dependent);
     let fresh = replanned(&now);
     assert_ne!(*run.plan(), fresh, "the planner sees the dependent");
     assert_eq!(
@@ -996,6 +1042,41 @@ fn plans_that_differ_for_no_listed_fact_are_named_plan_differs() {
 }
 
 #[test]
+fn a_provider_that_moved_or_changed_what_it_can_do_under_the_lock_is_named() {
+    // The mutation proof: the run is refused either way, but the diagnosis
+    // named neither fact in any test, so swapping them survived.
+    let run = consolidation_run();
+    let differs = |now: &Snapshot| {
+        let mut fresh = replanned(now);
+        fresh.policy_version.push('x');
+        plan_still_holds(run.plan(), &fresh, run.before(), now)
+    };
+    let mut moved = consolidation_snapshot();
+    moved
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("homebrew")
+        .detection
+        .prefix = Some("/somewhere/else".into());
+    assert_eq!(differs(&moved), Err(StateFact::ProviderLocation));
+
+    let mut changed = consolidation_snapshot();
+    let capabilities = &mut changed
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("homebrew")
+        .capabilities
+        .capabilities;
+    let state = capabilities
+        .values_mut()
+        .next()
+        .expect("the fixture states a capability");
+    assert_ne!(*state, macportsbrew_domain::CapabilityState::Unknown);
+    *state = macportsbrew_domain::CapabilityState::Unknown;
+    assert_eq!(differs(&changed), Err(StateFact::ProviderCapability));
+}
+
+#[test]
 fn the_source_package_changing_under_the_lock_is_named() {
     let run = consolidation_run();
     let mut now = consolidation_snapshot();
@@ -1027,4 +1108,80 @@ fn the_source_package_changing_under_the_lock_is_named() {
         ),
         Err(StateFact::SourcePackage)
     );
+}
+
+// --- slice 4 end-of-slice review additions ---------------------------------
+
+#[test]
+fn a_gui_apps_mutation_is_re_derived_for_its_kind_and_never_dispatched_on_none() {
+    // Security 2 / spec 1: the table's `*_gui_app` cells are `unknown`, so a
+    // kind-blind re-derivation read a cask's UNKNOWN as NONE. With the plan's
+    // field edited to NONE, nothing re-derived for the kind may agree with it.
+    let allowance = MutationAllowance::forced_in_tests();
+    let mut snap = consolidation_snapshot();
+    for p in snap.providers.values_mut() {
+        for row in &mut p.inventory.installed {
+            row.kind = PackageKind::GuiApp;
+        }
+    }
+    // The planner stops a GUI app at MANUAL_REVIEW, so the run is the
+    // narrowed consolidation paired with a snapshot that says GUI app.
+    let narrowed = consolidation_run();
+    let run = PlannedRun::new(narrowed.plan().clone(), snap);
+    let plan = run.plan();
+    let remove = position(plan, StepKind::RemoveSource);
+    assert_eq!(plan.steps[remove].commands[0].elevation, Elevation::None);
+    assert_ne!(
+        next_action_with(&run, remove, &records_until(&run, remove), Some(&allowance)),
+        Action::DispatchMutating
+    );
+    let step = plan.steps[remove].index;
+    assert!(execution_refusals_for(&run, Some(&allowance))
+        .refusals()
+        .contains(&ExecutionRefusal::MutationIsNotThePlannersCommand { step }));
+}
+
+#[test]
+fn invariant_19_manual_review_halts_and_is_refused_under_an_allowance() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = consolidation_run().map_plan(|p| {
+        let last = p.steps.len();
+        let mut review = p.steps[last - 1].clone();
+        review.kind = StepKind::ManualReview;
+        review.index = u32::try_from(last).expect("small") + 1;
+        p.steps.push(review);
+    });
+    let plan = run.plan();
+    let review = plan.steps.last().expect("a step").index;
+    // Checked over the whole plan before anything about the step, allowance
+    // or not: the first step already halts at the review.
+    assert_eq!(
+        next_action_with(&run, 0, &[], Some(&allowance)),
+        Action::Halt(HaltReason::ManualReview { step: review })
+    );
+    assert!(execution_refusals_for(&run, Some(&allowance))
+        .refusals()
+        .contains(&ExecutionRefusal::ManualReview { step: review }));
+}
+
+#[test]
+fn invariant_03_a_mutation_with_no_verification_after_it_is_refused() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = consolidation_run().map_plan(|p| {
+        p.steps.retain(|s| s.kind != StepKind::VerifyRemoval);
+        for (i, step) in p.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).expect("small") + 1;
+        }
+    });
+    let plan = run.plan();
+    let step = plan.steps[position(plan, StepKind::RemoveSource)].index;
+    assert!(execution_refusals_for(&run, Some(&allowance))
+        .refusals()
+        .contains(&ExecutionRefusal::MutationNotVerifiedAfter { step }));
+    // And with nothing dropped, nothing of this kind is refused.
+    let run = consolidation_run();
+    assert!(!execution_refusals_for(&run, Some(&allowance))
+        .refusals()
+        .iter()
+        .any(|r| matches!(r, ExecutionRefusal::MutationNotVerifiedAfter { .. })));
 }

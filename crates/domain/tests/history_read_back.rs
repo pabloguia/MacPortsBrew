@@ -589,6 +589,16 @@ fn invariant_03_only_every_step_carried_out_is_success_and_performed_counts() {
 #[test]
 fn a_performed_step_whose_ends_are_not_all_zero_or_empty_is_unusable() {
     let original = record(mutating_steps()[2].clone(), RunEnding::Completed, None);
+    // The control: the path below is where the ends live, so a good value
+    // reads back and only the bad ones are refused (the mutation proof found
+    // this test once wrote to a path the reader never looked at).
+    let mut control = stored_json(&original);
+    assert!(
+        control["steps"][0]["result"]["ends"].is_array(),
+        "{control}"
+    );
+    control["steps"][0]["result"]["ends"] = serde_json::json!([{"end": "EXITED", "code": 0}]);
+    assert!(read_back(control).is_ok());
     for ends in [
         serde_json::json!([]),
         serde_json::json!([{"end": "EXITED", "code": 1}]),
@@ -596,7 +606,7 @@ fn a_performed_step_whose_ends_are_not_all_zero_or_empty_is_unusable() {
         serde_json::json!([{"end": "EXITED", "code": 0, "extra": true}]),
     ] {
         let mut value = stored_json(&original);
-        value["steps"][0]["ends"] = ends.clone();
+        value["steps"][0]["result"]["ends"] = ends.clone();
         assert_eq!(
             read_back(value).unwrap_err(),
             ErrorId::HistoryUnusable,
@@ -616,5 +626,37 @@ fn a_read_halt_is_stored_without_an_ends_field() {
         None,
     );
     let value = stored_json(&original);
-    assert!(value["steps"][1].get("ends").is_none(), "{value}");
+    assert!(value["steps"][1]["result"].is_object(), "{value}");
+    assert!(value["steps"][1]["result"].get("ends").is_none(), "{value}");
+}
+
+#[test]
+fn a_mutations_result_on_a_step_no_mutation_runs_on_is_unusable() {
+    // Slice 4 review, security 4: the writer puts PERFORMED, or a halt's
+    // ends, only on ADD_DESTINATION and REMOVE_SOURCE.
+    for kind in [
+        StepKind::RecordHistory,
+        StepKind::VerifyDestination,
+        StepKind::SetPrimary,
+    ] {
+        for result in [
+            performed(),
+            StepResult::Halted {
+                error: ErrorId::SafetyBlocked,
+                evidence: Vec::new(),
+                ends: vec![CommandEnd::Exited { code: 0 }],
+            },
+        ] {
+            let original = record(
+                vec![step(1, kind, result, false)],
+                RunEnding::Completed,
+                None,
+            );
+            assert_eq!(
+                read_back(stored_json(&original)).unwrap_err(),
+                ErrorId::HistoryUnusable,
+                "{kind:?}"
+            );
+        }
+    }
 }

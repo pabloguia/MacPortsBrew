@@ -167,6 +167,11 @@ pub struct RunReport {
     /// was: the next run refuses until it is dealt with (D8). Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marker_left: Option<String>,
+    /// Whether this run's record was written durably — what the human report
+    /// needs to say which remedy applies. Not in the document: `historyError`
+    /// already says it there.
+    #[serde(skip)]
+    pub record_written: bool,
 }
 
 impl RunReport {
@@ -198,19 +203,8 @@ pub fn run_with<S: ReadSite>(
 ) -> RunReport {
     let plan = planned.plan();
     let gate = execution_refusals(plan);
-    if let Some(outcome) = refused(&gate) {
-        return RunReport {
-            outcome,
-            records: Vec::new(),
-            refusal: None,
-            gate_refusals: gate
-                .refusals()
-                .iter()
-                .map(|r| clean_value(refusal_document(r), home))
-                .collect(),
-            history_error: None,
-            marker_left: None,
-        };
+    if refused(&gate).is_some() {
+        return refused_report(&gate, home);
     }
     let site = sites();
     let mut records: Vec<StepRecord> = Vec::new();
@@ -263,6 +257,7 @@ pub fn run_with<S: ReadSite>(
         gate_refusals: Vec::new(),
         history_error: None,
         marker_left: None,
+        record_written: false,
     }
 }
 
@@ -460,6 +455,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             gate_refusals: Vec::new(),
             history_error: None,
             marker_left: None,
+            record_written: false,
         });
     }
     io.observer.at(Boundary::Replanned, None);
@@ -477,7 +473,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     let mut records: Vec<StepRecord> = Vec::new();
     let mut refusal = None;
     for (position, step) in plan.steps.iter().enumerate() {
-        let disposition = match next_action_with(plan, position, &records, Some(allowance)) {
+        let disposition = match next_action_with(planned, position, &records, Some(allowance)) {
             Action::PassOver(disposition) => disposition,
             Action::Halt(reason) => Disposition::Halted {
                 reason,
@@ -558,6 +554,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     let record = run_record(planned, &records, io.start.clone());
     let mut history_error = None;
     let mut marker_left = None;
+    let mut record_written = false;
     let mut left = |error: ErrorId| {
         history_error = Some(error);
         marker_left = Some(marker.run_id().to_string());
@@ -565,6 +562,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     if must_record(&record) {
         match history_store::write_record(state, &record, euid) {
             Ok(()) => {
+                record_written = true;
                 io.observer.at(Boundary::RecordWritten, None);
                 match run_marker::clear(&lock, state, &marker, euid) {
                     Ok(ClearOutcome::Cleared) => io.observer.at(Boundary::MarkerCleared, None),
@@ -594,6 +592,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         gate_refusals: Vec::new(),
         history_error,
         marker_left,
+        record_written,
     })
 }
 
@@ -614,6 +613,29 @@ fn mutation_dispatch(
         Ok(end) => MutationResult::Ended(end),
         Err(MutationRefusal::Refused) => MutationResult::Refused,
         Err(MutationRefusal::Transport(error)) => MutationResult::TransportFailed(error),
+    }
+}
+
+/// The report of a run the gate refused, its refusals cleaned like every
+/// other plan text it keeps. A report the gate passed gives a `COMPLETED`
+/// outcome with no steps, which no caller asks for.
+#[must_use]
+pub fn refused_report(
+    gate: &macportsbrew_application::GateReport,
+    home: &HomeRedaction,
+) -> RunReport {
+    RunReport {
+        outcome: refused(gate).unwrap_or(RunOutcome::Completed),
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: gate
+            .refusals()
+            .iter()
+            .map(|r| clean_value(refusal_document(r), home))
+            .collect(),
+        history_error: None,
+        marker_left: None,
+        record_written: false,
     }
 }
 
@@ -754,6 +776,33 @@ pub(crate) fn escape_controls(value: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn a_zero_never_hides_an_unwritten_record_or_a_marker_left_behind() {
+        // D8: the outcome's code, unless it is 0 and the history went wrong.
+        let report = |outcome, history_error| RunReport {
+            outcome,
+            records: Vec::new(),
+            refusal: None,
+            gate_refusals: Vec::new(),
+            history_error,
+            marker_left: None,
+            record_written: false,
+        };
+        assert_eq!(report(RunOutcome::Completed, None).exit_code(), 0);
+        for error in [ErrorId::Io, ErrorId::HistoryUnusable] {
+            assert_eq!(
+                report(RunOutcome::Completed, Some(error)).exit_code(),
+                error.exit_code()
+            );
+            assert_ne!(error.exit_code(), 0);
+        }
+        let partial = RunOutcome::PartialSuccess {
+            step: 1,
+            reason: HaltReason::NotPerformedInThisBuild,
+        };
+        assert_eq!(report(partial, Some(ErrorId::Io)).exit_code(), 3);
+    }
 
     #[test]
     fn a_refusal_is_rendered_with_the_home_redacted_and_controls_escaped() {

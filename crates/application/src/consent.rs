@@ -24,9 +24,9 @@
 //! The prompt itself — terminal checks, where it is written, how input is
 //! read — is the command-line crate's `consent` module.
 
-use crate::planner::{elevation_for, planned_argv};
+use crate::planner::{elevation_for, package_kind_in, planned_argv};
 use crate::provider_commands;
-use macportsbrew_domain::{Elevation, MigrationPlan, PackageKind, ProviderId, Snapshot, StepKind};
+use macportsbrew_domain::{Elevation, MigrationPlan, ProviderId, Snapshot, StepKind};
 use std::path::Path;
 
 /// One operation that would need administrator rights.
@@ -132,6 +132,7 @@ pub fn elevation_requests(
     snapshot: &Snapshot,
 ) -> Result<Vec<ElevationRequest>, ConsentRefusal> {
     let table = provider_commands::load().unwrap_or_default();
+    let kind = package_kind_in(plan, snapshot);
     let mut requests = Vec::new();
     for step in &plan.steps {
         let (side, operation, name) = match step.kind {
@@ -147,7 +148,7 @@ pub fn elevation_requests(
             continue;
         }
         let entry = table.get(side.as_str());
-        let elevation = elevation_for(entry, operation, PackageKind::Package, None);
+        let elevation = elevation_for(entry, operation, kind, None);
         if elevation == Elevation::None {
             continue;
         }

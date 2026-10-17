@@ -228,7 +228,8 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::CommandIsNotThePlannersRead { step }
         | ExecutionRefusal::MutationNotInThisBuild { step }
         | ExecutionRefusal::ProviderConfiguration { step, .. }
-        | ExecutionRefusal::MutationIsNotThePlannersCommand { step } => *step,
+        | ExecutionRefusal::MutationIsNotThePlannersCommand { step }
+        | ExecutionRefusal::MutationNotVerifiedAfter { step } => *step,
         ExecutionRefusal::Placeholder { steps }
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
