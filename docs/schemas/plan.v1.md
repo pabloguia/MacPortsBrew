@@ -315,9 +315,13 @@ comments:
    gate's pin on mutating steps under an allowance, the run loop (which
    dispatches a mutating command only when the re-derived elevation is `NONE`)
    and `consent::elevation_requests` (which lists `REQUIRED` and `UNKNOWN`
-   alike); a plan whose field disagrees is refused under an allowance. The live
-   probe is the capability capture records; a mutating operation is never
-   relaxed by it. The gate still refuses every elevated step.
+   alike); a plan whose field disagrees is refused under an allowance. The
+   lookup is **for the package's kind**, read from the snapshot the plan was
+   built from (a `GUI_APP`'s mutating cells are `unknown` in every entry), and
+   a package that snapshot does not hold counts as a `GUI_APP`, so an
+   undeterminable kind fails closed. The live probe is the capability capture
+   records; a mutating operation is never relaxed by it. The gate still
+   refuses every elevated step.
 10. **The spawn site re-derives `program` and `environment` from live
     detection. It reads `PlanCommand.program` only to refuse a plan whose
     program disagrees with the derived one (DP-023), and never reads
@@ -373,7 +377,12 @@ comments:
     `check_ordering` reads only the first snapshot, so a second is a shape no
     rule covers, and a second record would record a run twice. The closing
     bracket is the run's **success path**, not the only place a record is
-    written — obligation 12. Every plan the planner builds meets it, which
+    written — obligation 12. **And, whenever mutations would be dispatched**
+    (pass 08 slice 4), a commanded `ADD_DESTINATION` must have a
+    `VERIFY_DESTINATION` after it and a `REMOVE_SOURCE` a `VERIFY_REMOVAL`
+    (`MUTATION_NOT_VERIFIED_AFTER`), so no change ends a run judged by its exit
+    status alone (INV-03), and each mutating command must be the planner's own
+    (`MUTATION_IS_NOT_THE_PLANNERS_COMMAND`). Every plan the planner builds meets it, which
     `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
     `crates/cli/tests/execution_gate_fixtures.rs` assert over the synthesised
     snapshot and every recording.

@@ -314,7 +314,7 @@ shipped source and the spawn-site allowlist does not grow.
 - **Record not written:**
   - the marker is kept;
   - the exit is non-zero (a 0 becomes `IO`);
-  - the report says the history was not written, and names the snapshot path
+  - the report says the history is not known to be durable, and names the snapshot path (carried: no snapshot is taken yet, §10)
     when one exists;
   - `restore --run` is never offered for that id (SE-092 D4).
 - **Nothing mutating dispatched:** no record (`must_record`). If the marker was
@@ -404,7 +404,7 @@ commitment is amended rather than met.**
     verification path does not do today. It is sized with slice 5's read-back.
   - **A new success semantic** over MacPorts' existing verify read, whose output
     is believed to mark the active version. That is unobserved here, so a
-    `provider-researcher` note is owed. Homebrew's verify read shows no
+    `provider-researcher` note is owed. Homebrew's verify read is believed to show no
     linkage, so this would answer for one provider only.
 - **Effect.** The gate adds one `CheckNotEvaluableInThisBuild` refusal per plan
   that carries the check. The shipped binary already refuses every plan, and the
@@ -432,7 +432,7 @@ is carried, and its DoD box stays unticked.**
     before the marker and writes no record. It proves the reads, the gate, the
     lock and the re-plan, and that nothing mutating is reached;
   - in every direction `VERIFY_RESOLUTION` halts before `REMOVE_SOURCE`, so
-    `REMOVE_SOURCE` **cannot be reached in this build even when forced**;
+    `REMOVE_SOURCE` **cannot be reached in this build even when forced** (overturned while building: see §9);
   - dispatching twice in one run (the per-step re-check and token across two
     dispatches) is proved only by the text scan and by unit tests, never by a
     shell run.
@@ -732,3 +732,28 @@ fixed silently in the text above.
 - **A failed provider command is `SAFETY_BLOCKED`.** No error identifier says
   "a provider command failed", and adding one is an exit-code contract change;
   carried (D15).
+
+## 10. End-of-slice review (2026-10-17)
+
+`spec-guardian`, `security-reviewer` and `docs-auditor` over `main...HEAD`; no
+Tier 1 or Tier 2 finding. SE-092's slice 4 entry records the changes; in short:
+
+| Finding | Disposition |
+|---|---|
+| Elevation re-derived without the package kind (SR 2, SG 1) | Fixed: kind from the run's snapshot, an unknown kind counts as a GUI app; a GUI-app test |
+| Remedy text could have a user delete the only trace (SR 1, DA F1, F2) | Fixed: a separate message when the record is not durable; "could not be confirmed cleared"; the documented remedy reused |
+| D1/M2 checks weaker than the plan (SR 3, SG 10) | Fixed: compile-time not-`Clone`/not-`Default`; construction counts in the defining files; whole attribute blocks; generic and qualified forms |
+| Read-back accepted `PERFORMED` on any step (SR 4) | Fixed |
+| Pins keyed on the allowance; refusal re-ran the read-only loop (SR 5) | Fixed: keyed on dispatching; the allowance's refusals reported |
+| A change with no verification after it could end a success (SG 3) | Fixed: `MUTATION_NOT_VERIFIED_AFTER` |
+| Removal guarded by fewer checks than 04's contract (SG 2) | Flip tripwire; the INV-01 test says what "verified" means here |
+| Missing INV-02, INV-19-under-allowance, INV-01 shell negative tests (SG 4) | Added; `invariant_04` now uses a dependent of the source provider |
+| Vacuous no-allowance test; exit-code rule untested (SR 8, SG 5) | Fixed |
+| Tripwire detections that fail open (SR 7, SG 6) | Fixed: whitespace-insensitive, `crates/*/src`, test-module cut |
+| Live-scope refusal after the state directory; history re-read resolved twice (SG 8) | Fixed |
+| Departures only in §9 (SG 9) | Recorded in SE-092 |
+| Mutation proofs not run (SG 7) | Run in an isolated worktree: 41 of 52 killed; the survivors killed by new tests (one test had been vacuous) or argued, in the report |
+| pt-BR terminology, plurals, jargon, phrase language (DA F3–F6) | Fixed; the phrase is declared English in the prompt |
+| Unsourced Homebrew claim (DA F7) | Softened; a provider-researcher note is owed |
+| Report stale, CHANGELOG gaps, plan contradictions (DA F9–F12) | Fixed |
+| Typed-ahead consent input (SR 10); token without its program (SR 9); snapshot path in the report | Carried, with their reasons in SE-092 |

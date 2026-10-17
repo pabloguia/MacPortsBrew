@@ -331,7 +331,7 @@ of it (SE-059, finding F-10).
 
 **The consent path is built and not wired** (pass 08 slice 4, D10; SE-016).
 Whether to ask is re-derived from the command table — never the plan's
-`elevation` field — and `UNKNOWN` asks. Consent is per operation: one token per
+`elevation` field, and for the package's kind — and `UNKNOWN` asks. Consent is per operation: one token per
 step, minted only when the person types an exact phrase naming that step, never
 cached and never inherited; `--yes` cannot stand for it. The question is asked
 only when both input and the question's own stream are terminals, on standard

@@ -22,14 +22,26 @@ output may change freely.
 
 ## [Unreleased]
 
-### Changed since 0.1.0
+These changes come after the 0.1.0 release candidate and are not part of
+0.1.0.
+
+### Changed after the release candidate
 
 - `migrate --json`: the execution gate now also refuses `PROVIDER_REPORTS_ACTIVE`
   as a check this build cannot evaluate. It used to be answered by a read that
   shows a package is installed, which is not the same as active. Every plan was
   already refused for execution; the refusal list gains one entry.
 
-### Internal since 0.1.0
+### Added after the release candidate
+
+- `migrate --json`, additive and reachable only under the mutation switch that
+  no build turns on: the optional `historyError` and `markerLeft` execution
+  fields, the `PERFORMED` step disposition with `ends`, and the halt reasons
+  `MUTATION_FAILED`, `MUTATION_REFUSED`, `MUTATING_STEP_CARRIES_VERIFICATION`,
+  `PRECONDITION_FAILED` and `STATE_CHANGED`; `history.v1` gains `PERFORMED`.
+  Consumers that match these values exhaustively should accept them.
+
+### Under the hood, after the release candidate
 
 - The mutating run loop is wired behind a switch this build does not turn on:
   run lock, interrupted-run marker, a fresh capture and re-plan under the lock,

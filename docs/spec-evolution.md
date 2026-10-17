@@ -7136,7 +7136,37 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   toward MacPorts, whose writes elevate, the plan's add narrowed away, leaving
   the removal from Homebrew — a consolidation cannot stand in, because since
   D11 its `VERIFY_DESTINATION` carries no check this build evaluates. Every
-  forced run ends `PARTIAL_SUCCESS`.
+  forced run ends `PARTIAL_SUCCESS` (record status `PARTIAL`).
+  **As built** (the plan's §9): `SET_PRIMARY` with a command halts
+  (`UNEXECUTED_MUTATION`) rather than being passed over; a check before a
+  mutating command that fails is `PRECONDITION_FAILED { command, why }`; the
+  record write is failed for real in the behavioural test, not injected.
+  **End-of-slice review (2026-10-17)**, `spec-guardian`, `security-reviewer`
+  and `docs-auditor` over the built range; no Tier 1 or Tier 2 finding.
+  **Changed because of them:** elevation is re-derived **for the package's
+  kind** from the run's own snapshot (`execution_refusals_for`,
+  `next_action_with` taking the run), because a kind-blind lookup read a
+  cask's `UNKNOWN` as `NONE` — an undeterminable kind counts as a GUI app and
+  fails closed; whenever mutations would be dispatched the gate pins mutating
+  commands and refuses a commanded add with no `VERIFY_DESTINATION` after it
+  or a removal with no `VERIFY_REMOVAL` after it
+  (`MUTATION_NOT_VERIFIED_AFTER`, INV-03); a refusal under the allowance is
+  reported as such rather than by re-running the read-only loop; a record
+  states `PERFORMED` or a halt's `ends` only on `ADD_DESTINATION` and
+  `REMOVE_SOURCE`, and a record saying otherwise is `HISTORY_UNUSABLE`; the
+  allowance and the witness are proved not `Clone` and not `Default` at compile
+  time, and the scans count constructions in their own files, read whole
+  attribute blocks and catch a generic or fully qualified form; the remedy text
+  never suggests removing a marker that may be the only trace of a run; the
+  live-scope refusal comes before the state directory is resolved; new tests
+  name INV-01 (a destination that is not there stops the removal), INV-02 (the
+  site is handed exactly the plan's command), INV-03, INV-19 under an
+  allowance and a GUI app; a flip tripwire holds the switch off while 04's
+  destination contract is not evaluable. **Carried:** flushing typed-ahead
+  input before each consent question (needs `tcflush`, so `unsafe` or a
+  dependency); a configuration token that records the program it was
+  re-read under (the future site would compare it); the human report naming
+  the snapshot path when a record is not written (no snapshot is taken yet).
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)
@@ -7292,8 +7322,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       carry `active`), which the verification path does not do today and which
       is sized with slice 5's read-back; or a new success semantic over
       MacPorts' existing verify read, whose output is believed to mark the
-      active version — unobserved here, a `provider-researcher` note is owed —
-      while Homebrew's verify read shows no linkage. A consequence: a
+      active version, and Homebrew's, which is believed to show no linkage —
+      neither observed for this purpose here, so a `provider-researcher` note
+      is owed for both. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
     - 04 asks the plan for environment changes, cleanup policy and a rollback
