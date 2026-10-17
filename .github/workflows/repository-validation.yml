@@ -104,6 +104,13 @@ jobs:
           rustc --print deployment-target --target x86_64-apple-darwin
           rustc --print deployment-target --target aarch64-apple-darwin
 
+      # `validate.sh` has a shellcheck stage (F-45) and the macOS runner image does
+      # not ship the binary: the stage failed with "command not found" on all four
+      # runners while everything else passed. The Linux job installs it the same
+      # way, from apt.
+      - name: Install shellcheck
+        run: brew install shellcheck
+
       - name: Full validation, including the deployment-target assertion on both artifacts
         run: scripts/validate.sh --full
 
