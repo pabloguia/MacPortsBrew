@@ -89,6 +89,7 @@ fn halted_steps() -> Vec<RecordedStep> {
             2,
             StepKind::AddDestination,
             StepResult::Halted {
+                ends: Vec::new(),
                 error: ErrorId::SafetyBlocked,
                 evidence: Vec::new(),
             },
@@ -235,6 +236,7 @@ fn invariant_03_a_partial_run_is_written_as_partial() {
         2,
         StepKind::AddDestination,
         StepResult::Halted {
+            ends: Vec::new(),
             error: ErrorId::SafetyBlocked,
             evidence: Vec::new(),
         },
@@ -505,4 +507,114 @@ fn a_manual_review_stored_as_carried_out_is_unusable() {
     steps[1] = step(2, StepKind::ManualReview, verified(), false);
     let base = stored_json(&record(steps, RunEnding::Completed, None));
     assert_eq!(read_back(base), Err(ErrorId::HistoryUnusable));
+}
+
+// --- A performed mutation and a mutating halt (pass 08 slice 4, D4) -------
+
+use macportsbrew_domain::CommandEnd;
+
+fn performed() -> StepResult {
+    StepResult::Performed {
+        ends: vec![CommandEnd::Exited { code: 0 }],
+    }
+}
+
+/// A mutation performed and its verification halted; a second mutation that
+/// halted on its second command, keeping the first command's end.
+fn mutating_steps() -> Vec<Vec<RecordedStep>> {
+    vec![
+        vec![
+            step(1, StepKind::AddDestination, performed(), false),
+            step(
+                2,
+                StepKind::VerifyDestination,
+                StepResult::Halted {
+                    error: ErrorId::SafetyBlocked,
+                    evidence: Vec::new(),
+                    ends: Vec::new(),
+                },
+                true,
+            ),
+        ],
+        vec![step(
+            1,
+            StepKind::RemoveSource,
+            StepResult::Halted {
+                error: ErrorId::SafetyBlocked,
+                evidence: Vec::new(),
+                ends: vec![
+                    CommandEnd::Exited { code: 0 },
+                    CommandEnd::Exited { code: 1 },
+                ],
+            },
+            false,
+        )],
+        vec![step(1, StepKind::AddDestination, performed(), false)],
+    ]
+}
+
+#[test]
+fn a_performed_mutation_and_a_mutating_halt_read_back_as_themselves() {
+    for steps in mutating_steps() {
+        for ending in every_ending() {
+            let original = record(steps.clone(), ending.clone(), None);
+            assert!(original.mutation_dispatched());
+            let back = read_back(stored_json(&original)).expect("reads back");
+            assert_eq!(back, original);
+        }
+    }
+}
+
+#[test]
+fn a_mutating_halt_with_an_end_is_dispatched_whatever_the_caller_says() {
+    let steps = &mutating_steps()[1];
+    assert!(steps[0].dispatched());
+}
+
+#[test]
+fn invariant_03_only_every_step_carried_out_is_success_and_performed_counts() {
+    let all = record(
+        vec![
+            step(1, StepKind::AddDestination, performed(), false),
+            step(2, StepKind::VerifyDestination, verified(), false),
+        ],
+        RunEnding::Completed,
+        None,
+    );
+    assert_eq!(all.status(), RunStatus::Success);
+    let one_short = record(mutating_steps()[0].clone(), RunEnding::Completed, None);
+    assert_eq!(one_short.status(), RunStatus::Partial);
+}
+
+#[test]
+fn a_performed_step_whose_ends_are_not_all_zero_or_empty_is_unusable() {
+    let original = record(mutating_steps()[2].clone(), RunEnding::Completed, None);
+    for ends in [
+        serde_json::json!([]),
+        serde_json::json!([{"end": "EXITED", "code": 1}]),
+        serde_json::json!([{"end": "DID_NOT_FINISH"}]),
+        serde_json::json!([{"end": "EXITED", "code": 0, "extra": true}]),
+    ] {
+        let mut value = stored_json(&original);
+        value["steps"][0]["ends"] = ends.clone();
+        assert_eq!(
+            read_back(value).unwrap_err(),
+            ErrorId::HistoryUnusable,
+            "{ends}"
+        );
+    }
+}
+
+#[test]
+fn a_read_halt_is_stored_without_an_ends_field() {
+    let original = record(
+        halted_steps(),
+        RunEnding::Halted {
+            step: 2,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
+    );
+    let value = stored_json(&original);
+    assert!(value["steps"][1].get("ends").is_none(), "{value}");
 }

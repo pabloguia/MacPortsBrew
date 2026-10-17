@@ -60,15 +60,23 @@
 //! network side effect and not a change to the machine; the mutating pass
 //! inherits it as a recorded fact, and this build cannot reach it.
 
+use macportsbrew_adapters::persistence::run_lock::{self, RunLock};
+use macportsbrew_adapters::persistence::run_marker::{self, ClearOutcome};
+use macportsbrew_adapters::persistence::{history_store, StateDir};
 use macportsbrew_adapters::process::{Invocation, PlanReadRefusal};
 use macportsbrew_adapters::registry::{
     plan_read_sites, PlanReadError, PlanReadSites, RegistryContext,
 };
 use macportsbrew_application::{
-    execution_refusals, judge_step, next_action, outcome_of, refused, Action, Disposition,
-    PlannedRun, RunOutcome, StepRead, StepRecord,
+    execution_refusals, judge_mutation, judge_step, must_record, next_action, next_action_with,
+    outcome_of, plan_still_holds, recheck_provider_configuration, refused, run_record, Action,
+    ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
+    Precondition, RunOutcome, StepRead, StepRecord,
 };
-use macportsbrew_domain::{redact_home, HomeRedaction, PlanCommand, ProviderId};
+use macportsbrew_domain::{
+    redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
+    PlanCommand, ProviderConfiguration, ProviderId, RunStart, Snapshot,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -149,13 +157,28 @@ pub struct RunReport {
     /// document (its `refusal` tag and its fields) with every string in it
     /// cleaned like `refusal`'s text: a check's fields are plan text.
     pub gate_refusals: Vec<serde_json::Value>,
+    /// What went wrong with the run's history, when something did (D8): `IO`
+    /// when the record is not known to be written durably, `HISTORY_UNUSABLE`
+    /// when the marker could not be cleared after it. Absent from the document
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_error: Option<ErrorId>,
+    /// The run id whose interrupted-run marker was left in place, when one
+    /// was: the next run refuses until it is dealt with (D8). Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marker_left: Option<String>,
 }
 
 impl RunReport {
-    /// The exit code the run reports.
+    /// The exit code the run reports: the outcome's, and when that is 0 but
+    /// the history went wrong, the history's (a 0 never hides an unwritten
+    /// record or a marker left behind, D8).
     #[must_use]
     pub fn exit_code(&self) -> i32 {
-        self.outcome.exit_code()
+        match (self.outcome.exit_code(), self.history_error) {
+            (0, Some(error)) => error.exit_code(),
+            (code, _) => code,
+        }
     }
 }
 
@@ -185,6 +208,8 @@ pub fn run_with<S: ReadSite>(
                 .iter()
                 .map(|r| clean_value(refusal_document(r), home))
                 .collect(),
+            history_error: None,
+            marker_left: None,
         };
     }
     let site = sites();
@@ -196,9 +221,17 @@ pub fn run_with<S: ReadSite>(
             Action::Halt(reason) => Disposition::Halted {
                 reason,
                 evidence: Vec::new(),
+                ends: Vec::new(),
+            },
+            // Not answered without an allowance, and this loop has none: if it
+            // ever were, nothing is dispatched.
+            Action::DispatchMutating => Disposition::Halted {
+                reason: macportsbrew_application::HaltReason::UnexecutedMutation,
+                evidence: Vec::new(),
+                ends: Vec::new(),
             },
             Action::Dispatch => {
-                let results = dispatch(step.provider.as_ref(), &step.commands, &site);
+                let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
                     refusal = Some(rendered_refusal(step.index, r, home));
                 }
@@ -228,11 +261,364 @@ pub fn run_with<S: ReadSite>(
         records,
         refusal,
         gate_refusals: Vec::new(),
+        history_error: None,
+        marker_left: None,
+    }
+}
+
+/// Where a mutating command would be performed (pass 08 slice 4, D7).
+///
+/// **The only product implementation, [`NotInThisBuild`], refuses every
+/// command**, so no mutating command spec is built anywhere in shipped source
+/// and the spawn site's allowlist does not grow. A test double records what it
+/// is handed.
+///
+/// **What any implementation owes** (`plan.v1.md` obligations 9 and 10), for
+/// the day one is written: the program is re-derived from the provider's
+/// detected prefix, which must be the prefix the run re-planned under, and the
+/// call is refused otherwise; the argv is checked against an allowlist; and
+/// `PlanCommand::program` and `PlanCommand::environment` are never spawned. A
+/// word scan allows exactly one implementation under `crates/*/src`.
+pub trait MutationSite {
+    /// Performs `command` against `provider`. Takes the configuration
+    /// re-check's token **by value** and the run lock, so a command cannot be
+    /// performed without a fresh re-check or outside the lock.
+    ///
+    /// # Errors
+    /// Why the command was not performed.
+    fn perform(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+        checked: ConfigurationRechecked,
+        lock: &RunLock,
+    ) -> Result<CommandEnd, MutationRefusal>;
+}
+
+/// Why a mutation site did not perform a command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MutationRefusal {
+    /// The site refused it.
+    Refused,
+    /// No invocation could be recorded.
+    Transport(ErrorId),
+}
+
+/// The product mutation site: this build performs no mutating command.
+pub struct NotInThisBuild;
+
+impl MutationSite for NotInThisBuild {
+    fn perform(
+        &self,
+        _provider: &ProviderId,
+        _command: &PlanCommand,
+        _checked: ConfigurationRechecked,
+        _lock: &RunLock,
+    ) -> Result<CommandEnd, MutationRefusal> {
+        Err(MutationRefusal::Refused)
+    }
+}
+
+/// A boundary of the mutating run, as an [`Observer`] is told of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Boundary {
+    /// The history store was probed.
+    Probed,
+    /// The run lock was taken.
+    Locked,
+    /// The machine was captured again under the lock and re-planned, and the
+    /// plan still holds.
+    Replanned,
+    /// The interrupted-run marker was looked for and none was there.
+    MarkerRead,
+    /// The marker was written, before the first mutating command.
+    MarkerWritten,
+    /// The lock was confirmed still this run's, before a mutating command.
+    StillCurrent,
+    /// The provider's configuration was re-read and re-checked.
+    ConfigurationRechecked,
+    /// A mutating command was handed to the mutation site.
+    Dispatched,
+    /// The run's record was written.
+    RecordWritten,
+    /// The marker was cleared.
+    MarkerCleared,
+}
+
+/// Told of each boundary as the mutating run passes it, for a test that pins
+/// the order. **Takes only `Copy` identifiers** — never the lock, the state
+/// directory, a token, plan text or a path — so it can neither leak nor change
+/// what the run does; failures are never injected through it. [`Unobserved`]
+/// is the only product implementation, with no switch that selects another.
+pub trait Observer {
+    /// The run passed `boundary`, at the step numbered `step` when there is one.
+    fn at(&self, boundary: Boundary, step: Option<u32>);
+}
+
+/// The product observer: nothing.
+pub struct Unobserved;
+
+impl Observer for Unobserved {
+    fn at(&self, _boundary: Boundary, _step: Option<u32>) {}
+}
+
+/// The machine captured again and the plan re-built from it, under the lock.
+pub type Recapture<'a> = Box<dyn FnOnce() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>;
+
+/// A provider's configuration re-read for a step whose planned program is the
+/// second argument (`registry::reread_configuration` in the product).
+pub type Reread<'a> = &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>;
+
+/// What only the caller can supply to a mutating run.
+pub struct MutatingRun<'a, M: MutationSite> {
+    /// Whether this run reads the machine it is on (`HistoryScope::ThisMachine`).
+    /// Anything else — a recording, a snapshot file — is refused before the
+    /// state directory is touched (INV-15).
+    pub live: bool,
+    /// The state directory, resolved once by the caller.
+    pub state: &'a StateDir,
+    /// The effective user, learned once by the caller.
+    pub euid: u32,
+    /// The run's id and start, fixed before its first step.
+    pub start: RunStart,
+    /// Where mutating commands go.
+    pub site: &'a M,
+    /// Captures the machine again and re-plans, under the lock (D6).
+    pub recapture: Recapture<'a>,
+    /// Re-reads a provider's configuration before a mutating command (D7).
+    pub reread: Reread<'a>,
+    /// Told of each boundary.
+    pub observer: &'a dyn Observer,
+}
+
+/// [`run_with_mutations`] with the read sites `ctx` detects, built only after
+/// the gate cleared the run — so the caller never holds a read site.
+///
+/// # Errors
+/// As [`run_with_mutations`].
+pub fn run_mutating<M: MutationSite>(
+    cleared: &GateClear,
+    ctx: &RegistryContext<'_>,
+    io: MutatingRun<'_, M>,
+    home: &HomeRedaction,
+) -> Result<RunReport, DomainError> {
+    run_with_mutations(cleared, || plan_read_sites(ctx), io, home)
+}
+
+/// Runs a plan the gate cleared **under a mutation allowance** (pass 08
+/// slice 4): the live-scope check; the history probe; the lock; the machine
+/// captured again and re-planned under it, refusing on any difference; the
+/// marker looked for; the read steps; and, before the first mutating command,
+/// the marker written — then per mutating command the lock confirmed, the
+/// provider's configuration re-read and re-checked, and the command handed to
+/// the mutation site with the token; then the record written durably on every
+/// ending and the marker cleared, or kept, by D8's rule.
+///
+/// Every decision is the application's: `next_action_with` answers what to do
+/// with each step, `judge_mutation` and `judge_step` what came of it,
+/// `plan_still_holds` whether to go on, `must_record` whether to record.
+///
+/// # Errors
+/// A refusal before anything was dispatched: a witness without an allowance,
+/// a run that is not live, the probe, the lock, the recapture, an interrupted
+/// run's marker, or a marker that could not be written. Nothing mutating ran.
+pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
+    cleared: &GateClear,
+    sites: impl FnOnce() -> S,
+    io: MutatingRun<'_, M>,
+    home: &HomeRedaction,
+) -> Result<RunReport, DomainError> {
+    let Some(allowance) = cleared.allowance() else {
+        return Err(DomainError::new(
+            ErrorId::Internal,
+            "the mutating run was entered without a mutation allowance",
+        ));
+    };
+    if !io.live {
+        return Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "a run that changes the machine runs only against this machine, never a recording \
+             or a snapshot file; nothing was changed",
+        ));
+    }
+    let planned = cleared.run();
+    let plan = planned.plan();
+    let (state, euid) = (io.state, io.euid);
+    history_store::probe(state, euid)?;
+    io.observer.at(Boundary::Probed, None);
+    let lock = run_lock::acquire(state, euid)?;
+    io.observer.at(Boundary::Locked, None);
+    let (now, fresh) = (io.recapture)()?;
+    if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &now) {
+        return Ok(RunReport {
+            outcome: RunOutcome::Halted {
+                step: 0,
+                reason: HaltReason::StateChanged { fact },
+            },
+            records: Vec::new(),
+            refusal: None,
+            gate_refusals: Vec::new(),
+            history_error: None,
+            marker_left: None,
+        });
+    }
+    io.observer.at(Boundary::Replanned, None);
+    if let Some(earlier) = run_marker::read(&lock, state, euid)? {
+        return Err(DomainError::new(
+            ErrorId::RunInterrupted,
+            earlier.run_id().to_string(),
+        ));
+    }
+    io.observer.at(Boundary::MarkerRead, None);
+    let marker = InterruptedRun::new(&io.start.id)
+        .map_err(|why| DomainError::new(ErrorId::Internal, why))?;
+    let site = sites();
+    let mut marker_written = false;
+    let mut records: Vec<StepRecord> = Vec::new();
+    let mut refusal = None;
+    for (position, step) in plan.steps.iter().enumerate() {
+        let disposition = match next_action_with(plan, position, &records, Some(allowance)) {
+            Action::PassOver(disposition) => disposition,
+            Action::Halt(reason) => Disposition::Halted {
+                reason,
+                evidence: Vec::new(),
+                ends: Vec::new(),
+            },
+            Action::Dispatch => {
+                let results = read_commands(step.provider.as_ref(), &step.commands, &site);
+                if let Some(Err(PlanReadError::Refused(r))) = results.last() {
+                    refusal = Some(rendered_refusal(step.index, r, home));
+                }
+                let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
+                judge_step(planned, position, &reads)
+            }
+            Action::DispatchMutating => {
+                if !marker_written {
+                    run_marker::write(&lock, state, &marker, euid)?;
+                    marker_written = true;
+                    io.observer.at(Boundary::MarkerWritten, Some(step.index));
+                }
+                let mut results: Vec<MutationResult> = Vec::new();
+                for command in &step.commands {
+                    let Some(provider) = step.provider.as_ref() else {
+                        results.push(MutationResult::PreconditionFailed(Precondition::NoProvider));
+                        break;
+                    };
+                    if lock.verify_still_current().is_err() {
+                        results.push(MutationResult::PreconditionFailed(Precondition::LockLost));
+                        break;
+                    }
+                    io.observer.at(Boundary::StillCurrent, Some(step.index));
+                    let Ok(configuration) = (io.reread)(provider, &command.program) else {
+                        results.push(MutationResult::PreconditionFailed(
+                            Precondition::ConfigurationUnreadable,
+                        ));
+                        break;
+                    };
+                    let checked =
+                        recheck_provider_configuration(provider, planned.before(), &configuration);
+                    let Ok(checked) = checked else {
+                        results.push(MutationResult::PreconditionFailed(
+                            Precondition::ConfigurationDrift,
+                        ));
+                        break;
+                    };
+                    io.observer
+                        .at(Boundary::ConfigurationRechecked, Some(step.index));
+                    let result = mutation_dispatch(io.site, provider, command, checked, &lock);
+                    if !matches!(result, MutationResult::PreconditionFailed(_)) {
+                        io.observer.at(Boundary::Dispatched, Some(step.index));
+                    }
+                    let stop = !matches!(result, MutationResult::Ended(end) if end.exited_zero());
+                    results.push(result);
+                    if stop {
+                        break;
+                    }
+                }
+                judge_mutation(plan, position, &results)
+            }
+        };
+        let halted = matches!(disposition, Disposition::Halted { .. });
+        records.push(StepRecord {
+            index: step.index,
+            kind: step.kind,
+            disposition,
+        });
+        if halted {
+            break;
+        }
+    }
+    for step in &plan.steps[records.len()..] {
+        records.push(StepRecord {
+            index: step.index,
+            kind: step.kind,
+            disposition: Disposition::NotReached,
+        });
+    }
+    let record = run_record(planned, &records, io.start.clone());
+    let mut history_error = None;
+    let mut marker_left = None;
+    let mut left = |error: ErrorId| {
+        history_error = Some(error);
+        marker_left = Some(marker.run_id().to_string());
+    };
+    if must_record(&record) {
+        match history_store::write_record(state, &record, euid) {
+            Ok(()) => {
+                io.observer.at(Boundary::RecordWritten, None);
+                match run_marker::clear(&lock, state, &marker, euid) {
+                    Ok(ClearOutcome::Cleared) => io.observer.at(Boundary::MarkerCleared, None),
+                    // Under the lock this run holds, the marker it wrote cannot
+                    // have gone or changed hands: either is an anomaly to show.
+                    Ok(ClearOutcome::AlreadyAbsent | ClearOutcome::NotOurs) | Err(_) => {
+                        left(ErrorId::HistoryUnusable);
+                    }
+                }
+            }
+            // Not known to be durable — it may exist — so the marker stays and
+            // the run says so; nothing offers to restore it.
+            Err(_) => left(ErrorId::Io),
+        }
+    } else if marker_written {
+        match run_marker::clear(&lock, state, &marker, euid) {
+            Ok(ClearOutcome::Cleared) => io.observer.at(Boundary::MarkerCleared, None),
+            Ok(ClearOutcome::AlreadyAbsent | ClearOutcome::NotOurs) | Err(_) => {
+                left(ErrorId::HistoryUnusable);
+            }
+        }
+    }
+    Ok(RunReport {
+        outcome: outcome_of(plan, &records),
+        records,
+        refusal,
+        gate_refusals: Vec::new(),
+        history_error,
+        marker_left,
+    })
+}
+
+/// Hands one mutating command to the mutation site with its re-check token —
+/// the only place [`MutationSite::perform`] is called. A token for another
+/// provider is refused here and nothing is handed over.
+fn mutation_dispatch(
+    site: &dyn MutationSite,
+    provider: &ProviderId,
+    command: &PlanCommand,
+    checked: ConfigurationRechecked,
+    lock: &RunLock,
+) -> MutationResult {
+    if checked.provider() != provider {
+        return MutationResult::PreconditionFailed(Precondition::WrongProviderToken);
+    }
+    match site.perform(provider, command, checked, lock) {
+        Ok(end) => MutationResult::Ended(end),
+        Err(MutationRefusal::Refused) => MutationResult::Refused,
+        Err(MutationRefusal::Transport(error)) => MutationResult::TransportFailed(error),
     }
 }
 
 /// Reads each command in order, stopping at the first that could not be read.
-fn dispatch(
+fn read_commands(
     provider: Option<&ProviderId>,
     commands: &[PlanCommand],
     site: &dyn ReadSite,

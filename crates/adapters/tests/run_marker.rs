@@ -242,7 +242,16 @@ fn a_marker_of_the_wrong_size_mode_or_kind_is_unusable() {
     std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
     std::os::unix::fs::symlink(&target, s.path()).unwrap();
     assert_eq!(s.read().unwrap_err().id, ErrorId::HistoryUnusable);
-    assert_eq!(s.clear(FIRST).unwrap_err().id, ErrorId::HistoryUnusable);
+    let refused = s.clear(FIRST).unwrap_err();
+    assert_eq!(refused.id, ErrorId::HistoryUnusable);
+    // Refused for what it is on every host — `clear` looks before it opens, as
+    // `read` does — never followed and never reported as "replaced" (slice 4
+    // review, L3).
+    assert!(
+        refused.detail.contains("symbolic reference"),
+        "{}",
+        refused.detail
+    );
     assert!(target.exists(), "nothing was removed through the reference");
 }
 

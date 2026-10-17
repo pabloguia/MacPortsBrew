@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod capture;
 pub mod classify;
 pub mod configuration_recheck;
+pub mod consent;
 pub mod doctor;
 pub mod execution_gate;
 pub mod executor;
@@ -31,13 +32,19 @@ pub use capture::{capture, CaptureContext};
 pub use configuration_recheck::{
     recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
 };
+pub use consent::{
+    confirm, confirmation_phrase, elevation_requests, ConsentDecision, ConsentGiven,
+    ConsentRefusal, ElevationRequest,
+};
 pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
 pub use execution_gate::{
-    evaluable_in_this_build, execution_refusals, ExecutionRefusal, GateReport,
+    clear, evaluable_in_this_build, execution_refusals, execution_refusals_with,
+    mutation_allowance, ExecutionRefusal, GateClear, GateReport, MutationAllowance,
 };
 pub use executor::{
-    judge_step, next_action, outcome_of, refused, Action, CheckKind, Disposition, HaltReason,
-    PlannedRun, RunOutcome, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+    judge_mutation, judge_step, next_action, next_action_with, outcome_of, plan_still_holds,
+    refused, Action, CheckKind, Disposition, HaltReason, MutationResult, PlannedRun, Precondition,
+    RunOutcome, StateFact, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{

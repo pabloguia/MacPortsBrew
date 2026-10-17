@@ -54,8 +54,12 @@ pub const MAX_MARKER_BYTES: u64 = 4096;
 pub enum ClearOutcome {
     /// The run's own marker was removed.
     Cleared,
-    /// There was none: a hand removal does not turn a finished run into an
-    /// error, and the caller says so.
+    /// There was none. **The run loop treats this as an error** after a run
+    /// that wrote its marker (pass 08 slice 4, D8): under the lock it holds,
+    /// the marker it wrote cannot have gone, so its absence is an anomaly to
+    /// surface (`HISTORY_UNUSABLE`), never a run reported done. Only
+    /// [`write`]'s own take-back of a marker it failed to publish durably reads
+    /// it as harmless.
     AlreadyAbsent,
     /// Another run's marker is there and was left alone. Under the held lock
     /// that is an anomaly, and the caller surfaces it rather than treating the
@@ -259,6 +263,20 @@ fn clear_with(
 ) -> Result<ClearOutcome, DomainError> {
     lock.verify_still_current()?;
     let path = state.root().join(MARKER_FILE);
+    // The same look `read` makes: `open_flags` carries no flags off Darwin, so
+    // without it the open would follow a symbolic reference (pass 08 slice 4,
+    // L3). The inode comparison below would still refuse, with a misleading
+    // "replaced" message.
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(unusable(format!("{MARKER_FILE} is a symbolic reference")))
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ClearOutcome::AlreadyAbsent)
+        }
+        Err(e) => return Err(io_unusable("could not be inspected", &e)),
+    }
     let mut file = match OpenOptions::new()
         .read(true)
         .custom_flags(open_flags(OpenPolicy::RefuseSymlink))

@@ -1237,6 +1237,61 @@ fn command(
     // as evidence that the rest of this function handles casks — only the
     // elevation lookup is kind-aware, and that asymmetry is the defect.
     let argv = planned_argv(entry, operation, package);
+    let elevation = elevation_for(
+        entry,
+        operation,
+        kind,
+        provider
+            .capabilities
+            .capabilities
+            .get(&Capability::UnprivilegedRead),
+    );
+    // Unknown when the table does not say, and the fallback is the refusing
+    // value on purpose: an executor that meets it must refuse the plan rather
+    // than fall back to exit status, which on one of the two providers cannot
+    // fail (F-33). The loader refuses an entry that omits the cell, so a plan
+    // this build produces never carries `Unknown` from a provider it has an
+    // entry for.
+    //
+    // No entry at all does reach here, and that case is always a placeholder
+    // too - `placeholder` is `(prefix, entry)` being absent, so no-entry
+    // implies it. Not the converse: a provider with an entry and no detected
+    // prefix is a placeholder with a stated semantic, which is the ordinary
+    // "what would happen if you installed it" plan.
+    //
+    // One narrower gap, recorded rather than closed: the loader keys this
+    // check on `verbs` alone, where F-10 forced the elevation check onto the
+    // union of both tables. An operation that lives only in `[entry.elevation]`
+    // - `set_primary` is the one - would reach here with no cell and no loader
+    // complaint. It cannot today, because `set_primary` does not route through
+    // this function, and the fallback fails closed if it ever does.
+    let success = planned_success(entry, operation);
+    Ok(PlanCommand {
+        placeholder,
+        target: CommandTarget::Provider,
+        program,
+        argv,
+        environment: provider.invocation_environment.clone(),
+        elevation,
+        success,
+    })
+}
+
+/// The elevation a command for `operation` needs: the table's cell for the
+/// package kind, relaxed to `NONE` **only for a read operation** whose
+/// provider detected `UNPRIVILEGED_READ` as available (INV-20; obligation 9).
+///
+/// The one derivation, shared by the planner, the execution gate's pin on
+/// mutating steps, the run loop and the consent requests, so none of them reads
+/// elevation from a plan's own field (pass 08 slice 4, D3). For a mutating
+/// operation `unprivileged_read` changes nothing, so a caller that has no
+/// snapshot may pass `None`.
+pub(crate) fn elevation_for(
+    entry: Option<&ProviderCommands>,
+    operation: &str,
+    kind: PackageKind,
+    unprivileged_read: Option<&CapabilityState>,
+) -> Elevation {
     let elevation_key = match kind {
         PackageKind::GuiApp => format!("{operation}_gui_app"),
         PackageKind::Package => operation.to_string(),
@@ -1289,46 +1344,13 @@ fn command(
     //    the elevation lookup is kind-aware and that the asymmetry is the
     //    defect; a second kind-blind consumer of a kind-aware lookup is that
     //    defect again (`spec-guardian`, 2026-09-19).
-    let elevation = if READ_OPERATIONS.contains(&elevation_key.as_str())
-        && provider
-            .capabilities
-            .capabilities
-            .get(&Capability::UnprivilegedRead)
-            == Some(&CapabilityState::Available)
+    if READ_OPERATIONS.contains(&elevation_key.as_str())
+        && unprivileged_read == Some(&CapabilityState::Available)
     {
         Elevation::None
     } else {
         stored
-    };
-    // Unknown when the table does not say, and the fallback is the refusing
-    // value on purpose: an executor that meets it must refuse the plan rather
-    // than fall back to exit status, which on one of the two providers cannot
-    // fail (F-33). The loader refuses an entry that omits the cell, so a plan
-    // this build produces never carries `Unknown` from a provider it has an
-    // entry for.
-    //
-    // No entry at all does reach here, and that case is always a placeholder
-    // too - `placeholder` is `(prefix, entry)` being absent, so no-entry
-    // implies it. Not the converse: a provider with an entry and no detected
-    // prefix is a placeholder with a stated semantic, which is the ordinary
-    // "what would happen if you installed it" plan.
-    //
-    // One narrower gap, recorded rather than closed: the loader keys this
-    // check on `verbs` alone, where F-10 forced the elevation check onto the
-    // union of both tables. An operation that lives only in `[entry.elevation]`
-    // - `set_primary` is the one - would reach here with no cell and no loader
-    // complaint. It cannot today, because `set_primary` does not route through
-    // this function, and the fallback fails closed if it ever does.
-    let success = planned_success(entry, operation);
-    Ok(PlanCommand {
-        placeholder,
-        target: CommandTarget::Provider,
-        program,
-        argv,
-        environment: provider.invocation_environment.clone(),
-        elevation,
-        success,
-    })
+    }
 }
 
 /// The unit `name` designates in an analysis: an exact unit name wins
@@ -1548,6 +1570,58 @@ mod tests {
         )
         .expect("the command builds")
         .elevation
+    }
+
+    /// `elevation_for` is what the gate, the run loop and the consent requests
+    /// re-derive elevation with (pass 08 slice 4, D3): a detected capability
+    /// never relaxes a **mutating** operation, so a caller with no snapshot
+    /// gets the same answer as the planner for every write, and the planner's
+    /// commands agree with it for every operation and capability.
+    #[test]
+    fn invariant_06_a_capability_never_relaxes_a_mutating_operation() {
+        let table = provider_commands::load().expect("the shipped table parses");
+        for (id, entry) in &table {
+            for operation in ["add", "remove"] {
+                for kind in [PackageKind::Package, PackageKind::GuiApp] {
+                    let stored = elevation_for(Some(entry), operation, kind, None);
+                    for detected in [
+                        None,
+                        Some(CapabilityState::Unknown),
+                        Some(CapabilityState::Available),
+                    ] {
+                        assert_eq!(
+                            elevation_for(Some(entry), operation, kind, detected.as_ref()),
+                            stored,
+                            "{id} {operation} {kind:?} {detected:?}"
+                        );
+                    }
+                }
+            }
+            for operation in ["add", "remove", "verify", "verify_absent"] {
+                for detected in [None, Some(CapabilityState::Available)] {
+                    let planned = command(
+                        &table,
+                        &provider(detected.clone()),
+                        &ProviderId::new(id.as_str()),
+                        operation,
+                        "htop",
+                        PackageKind::Package,
+                    )
+                    .expect("the command builds")
+                    .elevation;
+                    assert_eq!(
+                        planned,
+                        elevation_for(
+                            Some(entry),
+                            operation,
+                            PackageKind::Package,
+                            detected.as_ref()
+                        ),
+                        "{id} {operation}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -72,6 +72,7 @@ fn step(index: u32, kind: StepKind, result: StepResult, after_dispatch: bool) ->
 
 fn halted() -> StepResult {
     StepResult::Halted {
+        ends: Vec::new(),
         error: ErrorId::SafetyBlocked,
         evidence: Vec::new(),
     }
@@ -236,6 +237,7 @@ fn whether_a_step_was_dispatched_is_fixed_by_its_result_where_the_result_says() 
         truncated: false,
     };
     let with_read = StepResult::Halted {
+        ends: Vec::new(),
         error: ErrorId::SafetyBlocked,
         evidence: vec![ReadEvidence::of(&read, Verdict::Passed)],
     };

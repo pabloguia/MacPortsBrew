@@ -2,10 +2,22 @@
 
 //! Preconditions the history store, the run lock, the interrupted-run marker
 //! and the concurrent-provider detector put on the switch that turns mutations
-//! on (pass 08 slices 1 and 2; SE-092, SE-015). Each is a tripwire: it holds
-//! trivially while `THIS_BUILD_DISPATCHES_MUTATIONS` is `false`, and fails the
-//! build that flips it without wiring what a mutating run needs first — so the
-//! precondition is a gate, not a checklist item.
+//! on (pass 08 slices 1, 2 and 4; SE-092, SE-015).
+//!
+//! **Since slice 4 the wiring rules run unconditionally** against the shell:
+//! the mutating sequence exists behind a mutation allowance, so its order is
+//! checked on every build, not only the one that flips the switch. The **flip
+//! tripwires** at the end still hold trivially while
+//! `THIS_BUILD_DISPATCHES_MUTATIONS` is `false`, and each fails the build that
+//! flips it while the item it names is outstanding — so the precondition is a
+//! gate, not a checklist item.
+//!
+//! **The dispatch token is `mutation_dispatch(`** (slice 4, D5, its own SE-092
+//! entry). `calls_of` ignores a match glued to an identifier character, so
+//! once the read helper became `read_commands` and the mutating one
+//! `mutation_dispatch`, the old `dispatch(` named no call at all; the token
+//! moved with the names, and the inverse tripwires below make sure no read
+//! helper can be named out of the rule's reach.
 //!
 //! The text checks live in [`wiring_violations`], a pure function of the flag
 //! and the shell's files, which is itself tested **with the flag true** on a
@@ -192,7 +204,7 @@ const PROBE: &str = "history_store::probe(";
 const ACQUIRE: &str = "run_lock::acquire(";
 const MARKER_READ: &str = "run_marker::read(";
 const MARKER_WRITE: &str = "run_marker::write(";
-const DISPATCH: &str = "dispatch(";
+const DISPATCH: &str = "mutation_dispatch(";
 const WRITE_RECORD: &str = "history_store::write_record(";
 const MARKER_CLEAR: &str = "run_marker::clear(";
 const RECHECK: &str = "recheck_provider_configuration(";
@@ -401,7 +413,8 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
 }
 
 fn violations_with(tag: &str) -> Vec<String> {
-    wiring_violations(THIS_BUILD_DISPATCHES_MUTATIONS, &executor_files())
+    // Unconditionally since slice 4: the sequence is wired behind an allowance.
+    wiring_violations(true, &executor_files())
         .into_iter()
         .filter(|v| v.starts_with(&format!("[{tag}]")))
         .collect()
@@ -493,11 +506,11 @@ fn run_with() {
     let earlier = run_marker::read(&lock, &state, uid)?;
     run_marker::write(&lock, &state, &run, uid)?;
     let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;
-    let results = dispatch(step, &site, checked);
+    let results = mutation_dispatch(step, &site, checked);
     history_store::write_record(&state, &record, uid)?;
     run_marker::clear(&lock, &state, &run, uid)?;
 }
-fn dispatch() {}
+fn mutation_dispatch() {}
 ";
 
 fn one(text: &str) -> Vec<SourceFile> {
@@ -535,8 +548,10 @@ fn removing_any_one_call_is_a_violation_of_its_own_kind() {
             "removing {call} gave {v:?}"
         );
     }
-    let v =
-        violations_of(&GOOD.replace("dispatch(step, &site, checked)", "step.run(&site, checked)"));
+    let v = violations_of(&GOOD.replace(
+        "mutation_dispatch(step, &site, checked)",
+        "step.run(&site, checked)",
+    ));
     assert!(v.iter().any(|x| x.contains("never dispatches")), "{v:?}");
 }
 
@@ -662,12 +677,12 @@ fn every_kind_of_comment_and_string_hides_a_call() {
 
 #[test]
 fn a_function_definition_or_a_longer_name_is_not_a_call() {
-    let defined_only = GOOD.replace("let results = dispatch(step, &site, checked);", "");
+    let defined_only = GOOD.replace("let results = mutation_dispatch(step, &site, checked);", "");
     assert!(violations_of(&defined_only)
         .iter()
         .any(|v| v.contains("never dispatches")));
     let longer = GOOD.replace(
-        "dispatch(step, &site, checked)",
+        "mutation_dispatch(step, &site, checked)",
         "redispatch(step, &site, checked)",
     );
     assert!(violations_of(&longer)
@@ -688,8 +703,8 @@ fn each_reordering_is_a_violation_of_the_order() {
         ("history_store::probe", "run_lock::acquire"),
         ("run_lock::acquire", "run_marker::read"),
         ("run_marker::read", "run_marker::write"),
-        ("run_marker::write", "dispatch(step"),
-        ("dispatch(step", "history_store::write_record"),
+        ("run_marker::write", "mutation_dispatch(step"),
+        ("mutation_dispatch(step", "history_store::write_record"),
         ("history_store::write_record", "run_marker::clear"),
     ] {
         let v = violations_of(&swap(a, b));
@@ -717,8 +732,8 @@ fn a_second_site_for_the_lock_the_marker_write_or_the_probe_is_a_violation() {
     }
     // The record and the clear may be on every ending.
     let many = GOOD.replace(
-        "}\nfn dispatch",
-        "    history_store::write_record(&state, &record, uid)?;\n    run_marker::clear(&lock, &state, &run, uid)?;\n}\nfn dispatch",
+        "}\nfn mutation_dispatch",
+        "    history_store::write_record(&state, &record, uid)?;\n    run_marker::clear(&lock, &state, &run, uid)?;\n}\nfn mutation_dispatch",
     );
     assert_eq!(violations_of(&many), Vec::<String>::new());
 }
@@ -732,7 +747,7 @@ fn the_wiring_must_be_in_one_file() {
         ),
         (
             "b.rs".to_string(),
-            "fn b() { run_marker::read(); run_marker::write(); dispatch(); history_store::write_record(); run_marker::clear(); }".to_string(),
+            "fn b() { run_marker::read(); run_marker::write(); mutation_dispatch(); history_store::write_record(); run_marker::clear(); }".to_string(),
         ),
     ];
     assert!(!wiring_violations(true, &split).is_empty());
@@ -778,18 +793,21 @@ fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_viola
         &format!("{line}\n    run_marker::write(&lock, &state, &run, uid)?;"),
     );
     let shared = GOOD.replace(
-        "    let results = dispatch(step, &site, checked);",
-        "    let results = dispatch(step, &site, checked);\n    let more = dispatch(next, &site, checked);",
+        "    let results = mutation_dispatch(step, &site, checked);",
+        "    let results = mutation_dispatch(step, &site, checked);\n    let more = mutation_dispatch(next, &site, checked);",
     );
-    let not_handed = GOOD.replace("dispatch(step, &site, checked)", "dispatch(step, &site)");
+    let not_handed = GOOD.replace(
+        "mutation_dispatch(step, &site, checked)",
+        "mutation_dispatch(step, &site)",
+    );
     let handed_another = GOOD.replace(
-        "dispatch(step, &site, checked)",
-        "dispatch(step, &site, stale)",
+        "mutation_dispatch(step, &site, checked)",
+        "mutation_dispatch(step, &site, stale)",
     );
     let shared_token = GOOD.replace(
-        "    let results = dispatch(step, &site, checked);",
+        "    let results = mutation_dispatch(step, &site, checked);",
         &format!(
-            "    let results = dispatch(step, &site, checked);\n{}\n    let more = dispatch(next, &site, checked);",
+            "    let results = mutation_dispatch(step, &site, checked);\n{}\n    let more = mutation_dispatch(next, &site, checked);",
             line.replace("checked", "checked_again")
         ),
     );
@@ -815,9 +833,9 @@ fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_viola
     }
     // One re-check per dispatch is fine.
     let each = GOOD.replace(
-        "    let results = dispatch(step, &site, checked);",
+        "    let results = mutation_dispatch(step, &site, checked);",
         &format!(
-            "    let results = dispatch(step, &site, checked);\n{}\n    let more = dispatch(next, &site, checked_again);",
+            "    let results = mutation_dispatch(step, &site, checked);\n{}\n    let more = mutation_dispatch(next, &site, checked_again);",
             line.replace("checked", "checked_again")
         ),
     );
@@ -826,7 +844,201 @@ fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_viola
 
 #[test]
 fn a_calls_arguments_end_at_its_matching_parenthesis() {
-    let code = "dispatch(step, f(&site)); then(checked)";
+    let code = "mutation_dispatch(step, f(&site)); then(checked)";
     assert_eq!(call_arguments(code, 0), ["step", "f", "site"]);
     assert!(call_arguments("x", 0).is_empty());
+}
+
+// --- slice 4: the inverse tripwires (D5) -------------------------------------
+
+/// The body of the function named `name` in `code`: from its `fn name(` to the
+/// brace that closes the first block after it.
+fn body_of<'a>(code: &'a str, name: &str) -> Option<&'a str> {
+    let start = code.find(&format!("fn {name}("))?;
+    let open = start + code[start..].find('{')?;
+    let mut depth = 0usize;
+    for (i, c) in code[open..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&code[open..=open + i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Every way a mutating command could reach the mutation site other than
+/// through `mutation_dispatch`, or a read helper could be named out of the
+/// wiring rules' reach.
+fn site_violations(files: &[SourceFile]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (name, text) in files {
+        let code = code_of(text);
+        // Every occurrence: `calls_of` would skip a method call, whose dot is
+        // glued to the receiver's name.
+        let performs: Vec<usize> = code.match_indices(".perform(").map(|(at, _)| at).collect();
+        let inside = body_of(&code, "mutation_dispatch").map(|body| {
+            let at = code.find(body).expect("the body is in the code");
+            at..at + body.len()
+        });
+        for at in performs {
+            if !inside.as_ref().is_some_and(|r| r.contains(&at)) {
+                violations.push(format!(
+                    "[site] {name}: the mutation site is called outside mutation_dispatch"
+                ));
+            }
+        }
+        if body_of(&code, "read_commands").is_some_and(|b| b.contains(".perform(")) {
+            violations.push(format!(
+                "[site] {name}: read_commands calls the mutation site"
+            ));
+        }
+        if code.contains("fn dispatch(") || code.contains("fn dispatch<") {
+            violations.push(format!(
+                "[site] {name}: a function is named bare `dispatch`, which the wiring rules \
+                 cannot see"
+            ));
+        }
+    }
+    violations
+}
+
+#[test]
+fn the_mutation_site_is_reached_only_through_mutation_dispatch() {
+    let v = site_violations(&executor_files());
+    assert!(v.is_empty(), "{v:?}");
+}
+
+#[test]
+fn the_inverse_tripwires_fire_on_their_mutants() {
+    let good = r"
+fn read_commands(site: &dyn ReadSite) { site.read(); }
+fn mutation_dispatch(site: &dyn MutationSite) { site.perform(); }
+";
+    assert_eq!(site_violations(&one(good)), Vec::<String>::new());
+    for (what, text) in [
+        (
+            "a perform outside mutation_dispatch",
+            format!("{good}\nfn elsewhere(site: &dyn MutationSite) {{ site.perform(); }}"),
+        ),
+        (
+            "read_commands performing",
+            good.replace("site.read();", "site.perform();"),
+        ),
+        (
+            "the read helper renamed dispatch",
+            good.replace("fn read_commands(", "fn dispatch("),
+        ),
+    ] {
+        assert!(
+            site_violations(&one(&text))
+                .iter()
+                .any(|v| v.starts_with("[site]")),
+            "{what}: {:?}",
+            site_violations(&one(&text))
+        );
+    }
+}
+
+// --- slice 4: the flip tripwires (D14) ---------------------------------------
+//
+// Each holds trivially while the switch is off and fails the build that turns
+// it on while its item is outstanding. Each names how it detects the item; an
+// item with no structural fact to detect is an unconditional failure while the
+// switch is on, removable only in the change that delivers the item with its
+// evidence.
+
+fn workspace_file(relative: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Detection: `next_action` still passes the brackets over as not performed.
+#[test]
+fn the_switch_needs_snapshot_before_and_record_history_performed() {
+    let executor = code_of(&workspace_file("application/src/executor.rs"));
+    let not_performed = executor.contains(
+        "StepKind::SnapshotBefore | StepKind::RecordHistory => {\n            Action::PassOver(Disposition::NotPerformedInThisBuild)",
+    );
+    assert!(
+        !(THIS_BUILD_DISPATCHES_MUTATIONS && not_performed),
+        "mutations dispatch and SNAPSHOT_BEFORE / RECORD_HISTORY are still not performed \
+         (plan.v1.md obligation 11; SE-092, slice 4 D9)"
+    );
+}
+
+/// Detection: no product code outside the consent module calls `consent::ask`.
+#[test]
+fn the_switch_needs_consent_wired() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut callers = 0;
+    let mut stack = vec![crates];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && path.file_name().is_some_and(|n| n != "consent.rs")
+            {
+                let code = code_of(&std::fs::read_to_string(&path).expect("source"));
+                callers += calls_of(&code, "consent::ask(").len();
+            }
+        }
+    }
+    assert!(
+        !(THIS_BUILD_DISPATCHES_MUTATIONS && callers == 0),
+        "mutations dispatch and elevation consent is not wired (INV-06; SE-016, slice 4 D10)"
+    );
+}
+
+/// Detection: `doctor` has no check that names an interrupted-run marker.
+#[test]
+fn the_switch_needs_doctor_to_show_a_stranded_marker() {
+    let doctor = code_of(&workspace_file("application/src/doctor.rs"));
+    assert!(
+        !THIS_BUILD_DISPATCHES_MUTATIONS || doctor.contains("interrupted_run"),
+        "mutations dispatch and doctor does not show an interrupted-run marker (SE-092, slice 4 D15)"
+    );
+}
+
+/// No structural fact yet: an unconditional failure while the switch is on.
+#[test]
+fn the_switch_needs_the_executed_plan_tied_to_the_one_shown() {
+    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    assert!(
+        !switch,
+        "plan.v1.md obligation 8 (the executed plan tied to the plan shown) is not built; \
+         remove this only in the change that builds it, with its test"
+    );
+}
+
+/// No structural fact yet: an unconditional failure while the switch is on.
+#[test]
+fn the_switch_needs_the_window_before_removal_closed_or_accepted() {
+    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    assert!(
+        !switch,
+        "nothing re-checks the destination between VERIFY_DESTINATION and REMOVE_SOURCE \
+         (04, slice 4 review M6a; next to DP-030); remove this only with that check or the \
+         owner's acceptance of the residual"
+    );
+}
+
+/// No structural fact yet: an unconditional failure while the switch is on.
+#[test]
+fn the_switch_needs_release_builds_free_of_the_test_support_feature() {
+    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    assert!(
+        !switch,
+        "no check holds a release artifact's build free of --all-features, which would compile \
+         the test-only mutation allowance in (slice 4 review L1); remove this only with that check"
+    );
 }

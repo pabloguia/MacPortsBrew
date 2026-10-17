@@ -115,10 +115,16 @@ fn result_of(disposition: &Disposition) -> (StepResult, bool) {
         ),
         Disposition::NotPerformedInThisBuild => (StepResult::NotPerformedInThisBuild, false),
         Disposition::NotDispatchedMutating => (StepResult::NotDispatchedMutating, false),
-        Disposition::Halted { reason, evidence } => (
+        Disposition::Performed { ends } => (StepResult::Performed { ends: ends.clone() }, true),
+        Disposition::Halted {
+            reason,
+            evidence,
+            ends,
+        } => (
             StepResult::Halted {
                 error: reason.error_id(),
                 evidence: evidence.clone(),
+                ends: ends.clone(),
             },
             halted_after_dispatch(reason),
         ),
@@ -139,13 +145,22 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
         HaltReason::ManualReview { .. }
         | HaltReason::UnexecutedMutation
         | HaltReason::NotPerformedInThisBuild
-        | HaltReason::ElevationNotNone { .. } => false,
+        | HaltReason::ElevationNotNone { .. }
+        | HaltReason::MutatingStepCarriesVerification
+        | HaltReason::StateChanged { .. } => false,
+        // The command it names was not handed over; the ends of any before it
+        // make the step dispatched (`RecordedStep::new`).
+        HaltReason::PreconditionFailed { .. } => false,
         // Given only by `judge_step`, after the dispatch.
         HaltReason::SiteUnavailable { .. }
         | HaltReason::SiteRefused { .. }
         | HaltReason::TransportFailed { .. }
         | HaltReason::Expectation { .. }
-        | HaltReason::VerificationFailed { .. } => true,
+        | HaltReason::VerificationFailed { .. }
+        // A mutating command was handed to the site, whatever became of it:
+        // a refusal of the first counts too (D4, failing toward a record).
+        | HaltReason::MutationFailed { .. }
+        | HaltReason::MutationRefused { .. } => true,
         HaltReason::Unevaluable { why, .. } => match why {
             Unevaluable::NoEvaluationForStepKind | Unevaluable::NoCommand => false,
             Unevaluable::NoCheck

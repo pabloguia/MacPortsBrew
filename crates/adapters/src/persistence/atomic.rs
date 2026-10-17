@@ -168,9 +168,10 @@ pub fn write_new_durable(path: &Path, bytes: &[u8]) -> Result<(), PublishError> 
 /// Whether a failed directory sync fails the write.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Durability {
-    /// A record: the marker notices a power loss before the sync.
+    /// The history store's probe: nothing is lost if its entry is.
     BestEffort,
-    /// The marker itself: nothing notices if it is lost.
+    /// The marker, and a run record (pass 08 slice 4, D8): the run loop
+    /// clears the marker only after the record is durable.
     Required,
 }
 

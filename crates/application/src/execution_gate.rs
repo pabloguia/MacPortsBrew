@@ -49,12 +49,13 @@
 //! and an `EXPECTATION` refusal for the same cause. Both are true; neither is
 //! filtered.
 
-use crate::planner::{planned_argv, planned_success};
+use crate::executor::PlannedRun;
+use crate::planner::{elevation_for, planned_argv, planned_success};
 use crate::provider_commands;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
-    expectation_for, ErrorId, ExpectationError, MigrationPlan, ProviderId, StepKind,
-    VerificationCheck,
+    expectation_for, Elevation, ErrorId, ExpectationError, MigrationPlan, PackageKind, ProviderId,
+    StepKind, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -267,6 +268,16 @@ pub enum ExecutionRefusal {
         /// The provider the risk names.
         provider: ProviderId,
     },
+    /// Under a mutation allowance only: an `ADD_DESTINATION` or
+    /// `REMOVE_SOURCE` command whose argv, success semantic or elevation is not
+    /// what the planner derives from the provider command table for that
+    /// side, or that names another provider (pass 08 slice 4, D2). The
+    /// mutating counterpart of [`Self::CommandIsNotThePlannersRead`]: what is
+    /// dispatched is what the table says, never what a plan claims.
+    MutationIsNotThePlannersCommand {
+        /// The step.
+        step: u32,
+    },
 }
 
 impl ExecutionRefusal {
@@ -299,6 +310,7 @@ impl ExecutionRefusal {
             Self::MutationNotInThisBuild { step } => (*step, 20),
             Self::PlanNotDryRunOnly => (0, 21),
             Self::ProviderConfiguration { step, .. } => (*step, 22),
+            Self::MutationIsNotThePlannersCommand { step } => (*step, 23),
         }
     }
 }
@@ -347,14 +359,110 @@ impl GateReport {
     }
 }
 
+/// The proof that this build may dispatch mutating steps (pass 08 slice 4, D1).
+///
+/// **Not a feature of the binary.** The field is private and this file is the
+/// only place one is made: [`mutation_allowance`] makes one only when
+/// [`THIS_BUILD_DISPATCHES_MUTATIONS`] is `true` (it is not), and
+/// [`MutationAllowance::forced_in_tests`] exists only in test builds and under
+/// the non-default `test-support` feature, which only the command-line crate's
+/// tests enable. A word scan keeps that constructor, any other construction
+/// and any trait implementation for this type out of product source
+/// (`crates/cli/tests/executor.rs`). It has no `Clone`, `Copy`, `Default`,
+/// `From` or serde implementation, by design.
+#[must_use]
+pub struct MutationAllowance(());
+
+impl MutationAllowance {
+    /// An allowance for a test that exercises the mutating path against fakes.
+    ///
+    /// **Test builds only.** A declared deviation from the letter of the work
+    /// order, which asks for `#[cfg(test)]` or a file under `crates/*/tests/`:
+    /// the command-line crate's tests cannot reach a private field across the
+    /// crate boundary otherwise (SE-092, slice 4 D1).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn forced_in_tests() -> Self {
+        Self(())
+    }
+}
+
+impl std::fmt::Debug for MutationAllowance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MutationAllowance")
+    }
+}
+
+/// The allowance this build grants: one only when it dispatches mutations.
+/// The single product producer; `migrate` asks here rather than choosing.
+#[must_use]
+pub fn mutation_allowance() -> Option<MutationAllowance> {
+    THIS_BUILD_DISPATCHES_MUTATIONS.then_some(MutationAllowance(()))
+}
+
+/// The witness that the gate refused nothing for a run, and under which
+/// allowance (D2). It **owns** the run and the allowance it was cleared under
+/// and hands out only borrows, so a witness cannot accompany another plan, and
+/// one cleared without an allowance cannot be paired with one. Only
+/// [`clear`] makes one.
+pub struct GateClear {
+    run: PlannedRun,
+    allowance: Option<MutationAllowance>,
+}
+
+impl GateClear {
+    /// The run the gate cleared.
+    #[must_use]
+    pub fn run(&self) -> &PlannedRun {
+        &self.run
+    }
+
+    /// The allowance it was cleared under.
+    #[must_use]
+    pub fn allowance(&self) -> Option<&MutationAllowance> {
+        self.allowance.as_ref()
+    }
+}
+
+impl std::fmt::Debug for GateClear {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GateClear")
+            .field("allowance", &self.allowance.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The gate's verdict as a witness: [`GateClear`] when it refused nothing,
+/// and otherwise the run back with the report.
+///
+/// # Errors
+/// The run and the gate's report, when anything was refused.
+#[allow(clippy::result_large_err)]
+pub fn clear(
+    run: PlannedRun,
+    allowance: Option<MutationAllowance>,
+) -> Result<GateClear, (PlannedRun, GateReport)> {
+    let report = execution_refusals_with(run.plan(), allowance.as_ref());
+    if report.may_execute() {
+        Ok(GateClear { run, allowance })
+    } else {
+        Err((run, report))
+    }
+}
+
 /// Whether this build has an evaluation for `check` on a step of `kind`.
 ///
 /// A check is answered by its step's own provider read through
 /// `verification::evaluate`, so evaluability is per (step kind, check), not
-/// per check. `true` for three pairs only: `PROVIDER_REPORTS_ACTIVE` and
-/// `PACKAGE_NEWLY_PRESENT` on `VERIFY_DESTINATION`, and `PACKAGE_ABSENT` on
-/// `VERIFY_REMOVAL`. The same check on any other step — `SET_PRIMARY` carries
-/// `PROVIDER_REPORTS_ACTIVE` and reads nothing — has no read to answer it.
+/// per check. `true` for two pairs only: `PACKAGE_NEWLY_PRESENT` on
+/// `VERIFY_DESTINATION`, and `PACKAGE_ABSENT` on `VERIFY_REMOVAL`. The same
+/// check on any other step has no read to answer it.
+///
+/// **`PROVIDER_REPORTS_ACTIVE` is never evaluable** (pass 08 slice 4, D11;
+/// SE-094). It used to be answered by the destination's presence read, which
+/// establishes *installed*, not *active*: certifying one as the other is a
+/// false verification guarding INV-01. No read a plan carries establishes
+/// "active" for both providers, and answering it for one only would be a
+/// direction asymmetry (INV-17).
 ///
 /// The other checks need evidence this build does not gather — an integrity
 /// verb, an ownership query, a linkage scan — and `LIVENESS_PROBE` would run
@@ -367,11 +475,10 @@ impl GateReport {
 #[must_use]
 pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> bool {
     let reads = match check {
-        VerificationCheck::ProviderReportsActive | VerificationCheck::PackageNewlyPresent => {
-            StepKind::VerifyDestination
-        }
+        VerificationCheck::PackageNewlyPresent => StepKind::VerifyDestination,
         VerificationCheck::PackageAbsent => StepKind::VerifyRemoval,
-        VerificationCheck::ProviderIntegrityCheck
+        VerificationCheck::ProviderReportsActive
+        | VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
         | VerificationCheck::NoCrossProviderLinkage
@@ -385,6 +492,18 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
 /// Never refuses rendering: a caller showing a plan does not consult this.
 #[must_use]
 pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
+    execution_refusals_with(plan, None)
+}
+
+/// [`execution_refusals`] under `allowance` (D2). The allowance changes the
+/// two build-state refusals and **adds** pins on mutating steps; it removes no
+/// other refusal. Without one this is exactly [`execution_refusals`].
+#[must_use]
+pub fn execution_refusals_with(
+    plan: &MigrationPlan,
+    allowance: Option<&MutationAllowance>,
+) -> GateReport {
+    let dispatches = THIS_BUILD_DISPATCHES_MUTATIONS || allowance.is_some();
     let mut refusals = Vec::new();
 
     if plan.schema_version != PLAN_SCHEMA_VERSION {
@@ -564,9 +683,58 @@ pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
     if !unknown.is_empty() {
         refusals.push(ExecutionRefusal::ElevationUnknown { steps: unknown });
     }
-    if !THIS_BUILD_DISPATCHES_MUTATIONS {
+    if !dispatches {
         if let Some(step) = plan.steps.iter().find(|s| s.kind.is_mutating()) {
             refusals.push(ExecutionRefusal::MutationNotInThisBuild { step: step.index });
+        }
+    }
+    // Under an allowance, a mutating step that would be dispatched must carry
+    // exactly what the planner derives from the table — argv, success and
+    // elevation (D2). For a mutating operation the table alone decides
+    // elevation, so this needs no snapshot.
+    if allowance.is_some() {
+        for step in &plan.steps {
+            let (side, operation, name) = match step.kind {
+                StepKind::AddDestination => (
+                    &plan.destination,
+                    "add",
+                    plan.destination_package.as_deref(),
+                ),
+                StepKind::RemoveSource => {
+                    (&plan.source, "remove", Some(plan.package.name.as_str()))
+                }
+                _ => continue,
+            };
+            let entry = table.get(side.as_str());
+            let derived = name.map(|name| {
+                (
+                    planned_argv(entry, operation, name),
+                    planned_success(entry, operation),
+                    elevation_for(entry, operation, PackageKind::Package, None),
+                )
+            });
+            let disagrees = step.commands.iter().any(|c| {
+                derived.as_ref().is_none_or(|(argv, success, elevation)| {
+                    *argv != c.argv
+                        || argv.iter().any(|a| a.starts_with('<'))
+                        || *success != c.success
+                        || *elevation != c.elevation
+                        || step.provider.as_ref() != Some(side)
+                })
+            });
+            if disagrees {
+                refusals
+                    .push(ExecutionRefusal::MutationIsNotThePlannersCommand { step: step.index });
+            }
+            if derived
+                .as_ref()
+                .is_some_and(|(_, _, elevation)| *elevation != Elevation::None)
+                && !step.commands.is_empty()
+            {
+                refusals.push(ExecutionRefusal::ElevationRequired {
+                    steps: vec![step.index],
+                });
+            }
         }
     }
     // DP-027 (b). Read from the plan's risks, so the gate still reads nothing
@@ -592,7 +760,7 @@ pub fn execution_refusals(plan: &MigrationPlan) -> GateReport {
         }
     }
     // What the planner writes; a plan saying anything else is not this build's.
-    let dry_run_only = !THIS_BUILD_DISPATCHES_MUTATIONS;
+    let dry_run_only = !dispatches;
     if plan.dry_run_only != dry_run_only {
         refusals.push(ExecutionRefusal::PlanNotDryRunOnly);
     }
