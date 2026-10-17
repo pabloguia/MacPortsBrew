@@ -10,10 +10,13 @@ Nothing is merged, tagged or released by this session; it opens a pull request.
 
 ## Progress
 
-- Plan to `docs/passes/08-slice-4-plan.md`: todo
-- Plan reviewed by `spec-guardian` and `security-reviewer` before code: todo
-- Part A, the wiring behind the switch, with the behavioural run-order test: todo
-- Part B, elevation consent (gate still refusing): todo
-- Owed items from SE-092 done or carried: todo
+- Plan to `docs/passes/08-slice-4-plan.md`: done (revision 3)
+- Plan reviewed by `spec-guardian` and `security-reviewer` before code: done,
+  twice (§7 and §8 of the plan)
+- Part A, the wiring behind the switch, with the behavioural run-order test:
+  done (`crates/cli/tests/executor_wiring.rs`, both directions)
+- Part B, elevation consent (gate still refusing): done, not wired
+- Owed items from SE-092 done or carried: done or carried, each carried item
+  behind a flip tripwire (plan D14, D15)
 - Mutation proof of every rule and ordering edge: todo
 - Docs (04, `plan.v1.md`, SE-092, CHANGELOG), final reviews, coverage, "As built": todo

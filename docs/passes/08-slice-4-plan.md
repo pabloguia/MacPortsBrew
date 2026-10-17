@@ -691,3 +691,44 @@ items below.
 | SG N7 — which snapshot; the gate needs none | Fixed: D2 and D3 |
 | SG N8 — D6 tests by invariant | Fixed: D6 and §4's mutation list |
 | SG D9 wording | Fixed: "no shipped build" |
+
+## 9. As built — where the implementation departs from revision 3
+
+Each departure was found while building and is recorded here rather than
+fixed silently in the text above.
+
+- **What the forced runs reach (D12, §4).** Revision 3 had the →MacPorts run
+  be a consolidation. D11 made `PROVIDER_REPORTS_ACTIVE` unevaluable, and a
+  consolidation's `VERIFY_DESTINATION` carried no other evaluable check, so the
+  gate now refuses it as asserting nothing. Toward MacPorts the behavioural test
+  narrows a plan's add away instead — as if the package had been installed by
+  hand, because MacPorts' writes elevate and consent is not wired — which
+  leaves `VERIFY_DESTINATION` with `PACKAGE_NEWLY_PRESENT` and Homebrew's
+  unelevated removal. So **`REMOVE_SOURCE` is reached** by a forced run, unlike
+  revision 3's claim, and `invariant_01_a_removal_is_dispatched_only_after_its_destination_verified`
+  uses the same narrowing. `VERIFY_RESOLUTION` is removed by the narrowing
+  rather than given a check: the gate refuses a command on it
+  (`COMMAND_ON_STEP_THE_PLANNER_WRITES_NONE_ON`).
+- **`SET_PRIMARY` with a command halts** (`UNEXECUTED_MUTATION`) rather than
+  being passed over: passing over a step that carries a command would skip a
+  planned change silently. The narrowing removes its command.
+- **A check before a command that fails** — the lock lost, the configuration
+  unreadable or drifted, a token for another provider — is a halt reason of its
+  own, `PRECONDITION_FAILED { command, why }`, decided in the application
+  (`MutationResult::PreconditionFailed`); the command named was not handed over,
+  and the ends before it decide the dispatch.
+- **The record write is not injectable.** The wiring tripwire wants the literal
+  `history_store::write_record(` in the shell, so the behavioural test makes it
+  fail for real (a file already at the record's name); a directory sync that
+  fails after publish is tested at the adapter (`atomic.rs`'s seam), not in the
+  shell.
+- **`RunReport` gained `historyError` and `markerLeft`**, carried into
+  `migrate.v1` (N10), and its exit code is the outcome's unless that is 0 and
+  the history failed.
+- **The recapture** is `Context::recapture`, which captures again through the
+  same registry parts and machine-reader inputs as the first capture, stamped
+  with the run's start (no second clock read). The state-directory override
+  and the start instant are read once, at context build.
+- **A failed provider command is `SAFETY_BLOCKED`.** No error identifier says
+  "a provider command failed", and adding one is an exit-code contract change;
+  carried (D15).

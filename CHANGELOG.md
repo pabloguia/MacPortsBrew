@@ -22,6 +22,21 @@ output may change freely.
 
 ## [Unreleased]
 
+### Changed since 0.1.0
+
+- `migrate --json`: the execution gate now also refuses `PROVIDER_REPORTS_ACTIVE`
+  as a check this build cannot evaluate. It used to be answered by a read that
+  shows a package is installed, which is not the same as active. Every plan was
+  already refused for execution; the refusal list gains one entry.
+
+### Internal since 0.1.0
+
+- The mutating run loop is wired behind a switch this build does not turn on:
+  run lock, interrupted-run marker, a fresh capture and re-plan under the lock,
+  a configuration re-check before each change, and a durable history record on
+  every ending. The elevation consent prompt is built and not wired. Nothing a
+  user can run changes a machine.
+
 ## [0.1.0] - not yet tagged
 
 _The owner adds the date when the release is tagged._
