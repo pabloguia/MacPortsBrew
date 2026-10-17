@@ -89,11 +89,25 @@ agent's leftover, which is never committed.
 
 1. If review comments or a CI failure arrive on #8, address them on this
    branch.
-2. Find why `scripts/validate.sh` (default) takes ~25 minutes at ~24% CPU on
-   this machine — mostly waiting, not compiling. The commit gate's deadline is
-   1380 s, so a cold or busy machine gets a commit refused. Diagnose by timing
-   the stages by hand; the gate itself is a guarded path, so any change to it
-   needs the owner's `MPB_ALLOW_GUARD_EDIT=1` in their own message.
+2. ~~Find why `scripts/validate.sh` (default) takes ~25 minutes.~~ **Found
+   (2026-10-17).** On macOS the dev profile's `split-debuginfo = "unpacked"`
+   keeps every codegen unit's `.o` in `target/debug/deps` for the debugger,
+   and Cargo never removes them when a crate rebuilds under a new hash. The
+   night's rebuilds (mutation proof, coverage) left 605,518 of them, 9.8 GB.
+   Launching a test binary from that directory then blocked in exec, with no
+   CPU used, for 20–100 s — the same bytes started in 0.9 s from
+   `target/debug/` — because something on the exec path walks the
+   executable's directory (an Endpoint Security extension, Kaspersky here, or
+   `syspolicyd`). With ~60 test binaries that was the 25 minutes. After
+   `cargo clean`: the default validation from cold, rebuild included, in
+   449 s; a test binary starts in 0.07 s. **When validation turns slow,
+   count `target/debug/deps` (`ls target/debug/deps | wc -l`) and
+   `cargo clean` if it is in the hundreds of thousands.** Not done, and
+   worth a decision: setting `split-debuginfo` to `packed` (one `.dSYM` per
+   binary, slower links) in `[profile.dev]` would stop the accumulation for
+   every contributor. Separately, an untracked `.claude/worktrees/` made the
+   commit gate treat a docs-only commit as touching `.claude` and run the
+   full validation; it is now git-ignored.
 3. After #8 merges, slice 5 needs a work order in `prompts/` before code: the
    carried items, each behind a flip tripwire — `SNAPSHOT_BEFORE` and
    `RECORD_HISTORY` performed, consent wired to the gate, `doctor` showing a

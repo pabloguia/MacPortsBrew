@@ -8,6 +8,11 @@
 .claude/.guard-edit-marker
 .claude/.guard-edit-log*
 
+# Worktrees Claude Code makes for isolated subagents. Untracked, one of these
+# made the commit gate read a docs-only commit as touching `.claude` and run
+# the full validation, past what the app waits for.
+.claude/worktrees/
+
 # Local research and capture scratch. Committed fixtures live under tests/.
 docs/research/.scratch/
 
