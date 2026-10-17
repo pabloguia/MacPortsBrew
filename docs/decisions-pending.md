@@ -359,6 +359,19 @@ guarded, so either needs the owner's armed write. **What it blocks:** setting
 the repository's `ANTHROPIC_API_KEY` secret. **Reversible default taken:** the
 file is unchanged; this entry is the warning.
 
+**Update 2026-10-17 (owner's instruction, SE-099):** both Claude workflows
+(`claude.yml` and `claude-code-review.yml`) are now **manual only**
+(`workflow_dispatch`, with the task or the pull request number as an input). This
+is a step toward (a), not (b): the file is kept, nothing starts it by itself, and
+the exposure above is reachable only by someone with write access who runs it on
+purpose and holds the key. The repository holds no key, so neither can run today
+(the review check had failed on every pull request for that reason). **Still
+open, and now narrower:** the hardening of (b) before any automatic trigger is put
+back, or before the key is set and the workflow is run against a ref someone else
+controls. To re-enable the old triggers, restore `issue_comment` and
+`pull_request_review_comment` (and `pull_request`) and the author-association
+conditions that the workflows' own comments describe, and set the secret.
+
 ---
 
 ## Resolved
