@@ -222,11 +222,12 @@ jobs:
   sign:
     name: sign (${{ matrix.target }})
     needs: build
-    # Owed once DP-031 names the repository: add
-    # `github.repository == '<owner>/<repo>'` to this condition, so a fork's
-    # copy of the workflow can never reach the environment even by
-    # misconfiguration (plan, [SG2 B-L5]).
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # DP-031 named the repository (resolved 2026-10-16): a fork's copy of the
+    # workflow can never reach the environment even by misconfiguration (plan,
+    # [SG2 B-L5]).
+    if: >-
+      github.repository == 'pabloguia/MacPortsBrew' &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     # Three notarisations of at most 30 minutes each (notarytool --timeout in
     # build-release.sh), plus signing and stapling; never the 6-hour default
     # with a credential on the VM.

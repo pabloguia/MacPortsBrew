@@ -70,11 +70,12 @@ these, so the script's `--version` check is satisfied when it first runs in CI.
 Nothing here is done by an agent: each item creates or handles a credential, or
 spends or commits something of yours.
 
-**The repository (DP-007, DP-031).** Create the public GitHub repository and
-push. The workspace `repository` URL says `macportsbrew/macportsbrew`; whether
-that organisation is available or yours is DP-031, and if it is not, the
-workspace field, README links and D-S3's identifier change first. In Settings →
-General, enable **immutable releases** (08 MUST).
+**The repository (DP-007, DP-031).** Done 2026-10-16: the repository is
+`pabloguia/MacPortsBrew`, public (DP-031 resolved (b), a personal account), and
+the workspace `repository` field says so. D-S3's identifier, staged below as
+`io.github.macportsbrew.macportsbrew`, is DP-035 and is still yours: it should
+not claim `io.github.macportsbrew` now. Still to do in Settings → General:
+enable **immutable releases** (08 MUST).
 
 **The protected tag.** The workflow that runs is the one at the tagged commit,
 so whoever can create a `v*` tag chooses the code that receives the signing

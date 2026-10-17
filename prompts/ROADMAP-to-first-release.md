@@ -80,13 +80,13 @@ They block the work orders named, and none of them can be done by an agent.
 
 | Item | Blocks | Notes |
 |---|---|---|
-| Create the GitHub repository and add the remote (DP-007 decided public GitHub) | 9 (CI on a real runner), publish | `git push` is denied in sessions until then. |
+| ~~Create the GitHub repository and add the remote~~ **Done 2026-10-16:** `pabloguia/MacPortsBrew`, public (DP-031 (b)); CI runs on real runners and is green; the default branch is protected (SE-099) | — | A session may publish a topic branch (SE-099); the default branch changes by pull request. |
 | Apple Developer Program membership; **Developer ID Application** and **Developer ID Installer** certificates; an App Store Connect API key for `notarytool` | 9 (signing job), publish | Stored as repository secrets; never in a file, never in a session (prohibited for an agent to handle). |
 | Decide DP-019's remaining sub-question: Intel artifacts built per commit or per release | 9 | Cost of the Intel runner. |
 | Arm the guarded-path escape for the session that edits `scripts/*.sh` and `.github/workflows/` | 9 | `SE-093`: the agent stages, you arm, it writes guarded files first and runs hook tests last. |
 | Rule on **DP-030** (detector) | 6 | The flip is blocked by a test until it is ruled. Recommendation (a) now, (b) at the flip. |
 | Rule on **DP-028** (INV-10 wording) and **DP-029** (umask test) | 6 (DP-028 at the latest) | Neither blocks v0.1.0. |
-| Remove the stray untracked `.agents/skills/tooling-recheck/` | 9's validate run | Generated layer; the path guard refuses an agent's edit. |
+| ~~Remove the stray untracked `.agents/skills/tooling-recheck/`~~ **Settled 2026-10-16:** the layer check ignores the skills the generator does not derive, and the path is git-ignored | — | A Codex session recreates it; whether to version a hand-written Codex copy is still open, and blocks nothing. |
 | A disposable macOS VM per architecture (or two spare Macs) for acceptance | 7 | INV-05 forbids tests on a live install; acceptance is a human-run protocol. |
 
 ## How to start each session
