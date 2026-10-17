@@ -73,3 +73,40 @@ not to the wiring tests. Each is killed; the wiring tests' fakes cannot tell
 those orderings apart without failing the probe or the marker read, which the
 history store's own tests already do. Carried as a note for the slice that
 performs the brackets, when a run can complete.
+
+## Handoff (2026-10-17)
+
+For the session that picks this up. State: four commits on
+`pass/08-slice-4-wiring-and-consent` (`650e623`, `0856190`, `8d837cc`,
+`0351754`), pushed; pull request
+[pabloguia/MacPortsBrew#8](https://github.com/pabloguia/MacPortsBrew/pull/8)
+open, CI green (12 of 12), **not to be merged without the owner's
+authorization**. PR #7 (closes DP-031 and DP-038) is green and waits the same
+way. The working tree is clean but for `.claude/worktrees/`, the mutation
+agent's leftover, which is never committed.
+
+**Next, in order:**
+
+1. If review comments or a CI failure arrive on #8, address them on this
+   branch.
+2. Find why `scripts/validate.sh` (default) takes ~25 minutes at ~24% CPU on
+   this machine — mostly waiting, not compiling. The commit gate's deadline is
+   1380 s, so a cold or busy machine gets a commit refused. Diagnose by timing
+   the stages by hand; the gate itself is a guarded path, so any change to it
+   needs the owner's `MPB_ALLOW_GUARD_EDIT=1` in their own message.
+3. After #8 merges, slice 5 needs a work order in `prompts/` before code: the
+   carried items, each behind a flip tripwire — `SNAPSHOT_BEFORE` and
+   `RECORD_HISTORY` performed, consent wired to the gate, `doctor` showing a
+   stranded marker, the executed plan tied to the one shown, the window before
+   removal closed or accepted, release builds free of `test-support`. Also owed:
+   a `provider-researcher` note for SE-094's softened Homebrew claim, the
+   typed-ahead consent input (SR 10), the token carrying its program (SR 9).
+   Writing the work order is a planning task; start it in plan mode and have
+   `spec-guardian` and `security-reviewer` review the plan before code.
+
+**What trips a session here:** the `Stop` gate refuses a quoted mutating verb
+(and `symlink`) anywhere under `crates/*/src`, test modules included — use a
+neutral word in samples. Commit when nothing else is compiling, or the commit
+gate times out. Open a file with Read before editing it, so the path-scoped
+rule in `.claude/rules/` loads. `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`
+until a work order says otherwise.
