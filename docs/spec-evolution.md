@@ -7520,5 +7520,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   name. Revisit if the hook is ever the only barrier for something that matters more than a topic branch,
   or if branch protection on `main` is not enabled on GitHub (it is the real barrier for the default
   branch and is the owner's setting).
+- **Branch protection on `main`, configured 2026-10-17 (owner's instruction), is the real barrier for the
+  default branch** and sits on GitHub, outside the repository: a pull request is required (no approval
+  count, the owner being the only maintainer), the checks `validate`, `coverage floors per layer` and the
+  four `macos (...)` runners must pass, and force pushes and deleting the branch are refused. The
+  `review` check is not required: it needs the Claude Code Action credential and fails without it.
+  Administrators are not bound (`enforce_admins` is off), so the owner can still write to the branch by
+  hand in an emergency; this session cannot, by the hook. It is a GitHub setting, so a change there is
+  not visible in a diff: re-read it with
+  `gh api repos/pabloguia/MacPortsBrew/branches/main/protection`.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
