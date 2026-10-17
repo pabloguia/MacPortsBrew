@@ -7508,5 +7508,17 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   accident and not a cage (its header says so). It cannot see a push issued through an alias or a script.
   The SSH key used by `origin` has a passphrase, so a session cannot push over SSH until the remote is HTTPS
   with the `gh` credential helper or the key is in an agent; that is a separate, owner-side step.
+- **Known gaps, accepted by the owner on 2026-10-16.** An automated security review of the commit found
+  that the hook matches text and can be passed: an option cluster containing `f` or `d` (`-fu`), a global
+  `-c remote.origin.pushurl=...`, `--repo`, `--push-option`, a `remote.origin.pushurl`, `remote.origin.push`
+  or `url.*.pushInsteadOf` setting that redirects a push that names `origin`, and a destination that only
+  resolves to `main` or `master` through configuration. The suggested hardening (require the remote to be
+  exactly `origin`; refuse `-c`, `--repo`, `--push-option` and any cluster with `f`, `d` or `+`; refuse
+  when a push-redirecting setting exists; check `remote get-url --push origin`) was **not** applied: the
+  owner chose to keep the hook as it is. The residual risk is a push to a different destination or a
+  rewrite of a topic branch through one of those forms, not a push of the default branch under its own
+  name. Revisit if the hook is ever the only barrier for something that matters more than a topic branch,
+  or if branch protection on `main` is not enabled on GitHub (it is the real barrier for the default
+  branch and is the owner's setting).
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
