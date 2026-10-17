@@ -12,6 +12,12 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# The workspace crates depend on one another by path, with no version, and are
+# all `publish = false` (Cargo.toml). Without this every such edge counts as a
+# wildcard; with it, a wildcard on an *external* crate is still denied, which is
+# what the rule is for. cargo-deny applies the allowance to private crates only,
+# so publishing one without a version would bring the failure back.
+allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
