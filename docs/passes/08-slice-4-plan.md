@@ -7,11 +7,11 @@ Backlog: SE-092's "Owed with the wiring" lists (slice 1 addendum, D4, D-L3,
 D-M1, the slice 2 review additions, the mirror-fixture addendum), SE-016 D-R1′,
 SE-050's "S5 must assert the gate passed", SE-094's `PROVIDER_REPORTS_ACTIVE`.
 
-Revision 2, 2026-10-17. Revision 1 was reviewed by `spec-guardian` and
+Revision 3, 2026-10-17. Revision 1 was reviewed by `spec-guardian` and
 `security-reviewer` **before any code**. Both found holes the forced-allowance
 tests would have certified and the flip would then have shipped. §7 records
-each finding and what this revision does with it. The decisions below are
-already the revised ones.
+each finding and what was done with it. Revision 2 had a second read; §8 records
+those findings. The decisions below are already the revised ones.
 
 `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`. While it is `false`, the
 shipped binary behaves exactly as it does today: the gate refuses every plan
@@ -51,7 +51,9 @@ shipped source and the spawn-site allowlist does not grow.
 ## 2. Decisions
 
 **D1 — `MutationAllowance` is the seam, not a feature of the binary.**
-- **The type.** `application::executor::MutationAllowance`: a zero-sized
+- **The type.** `application::execution_gate::MutationAllowance`, defined in the
+  gate's own file so the gate constructs it directly and no crate-visible
+  constructor exists. It is a zero-sized
   `#[must_use]` type with a private field. It implements none of `Clone`,
   `Copy`, `Default`, `Serialize`, `Deserialize` or any `From`. A hand-written
   compile-time check asserts it is not `Clone` and not `Default`, without a new
@@ -67,7 +69,8 @@ shipped source and the spawn-site allowlist does not grow.
   definition and the gate's producer:
   - `forced_in_tests`;
   - `MutationAllowance(`;
-  - an `impl` of a trait for `MutationAllowance`.
+  - an `impl` of a trait for `MutationAllowance`, or a `derive(` attribute on it;
+  - the same three for `GateClear` and `ConsentGiven`.
 
   The exemption names exact files, not a directory.
 - **`migrate` asks the gate.** It obtains its allowance from
@@ -97,13 +100,20 @@ shipped source and the spawn-site allowlist does not grow.
     derivation from `provider-commands.toml` (`planned_argv` and
     `planned_success`, which today pin only `VERIFY_*` steps);
   - a mutating step whose plan `elevation` field differs from the elevation
-    re-derived for it (D3).
+    re-derived for it (D3). For a mutating operation the command table alone
+    decides, because a capability may relax only a read (obligation 9). So the
+    pin needs no snapshot, and the gate gains no input beyond the allowance.
 - **Everything else is unchanged.** Elevation, placeholders, unknown checks,
   unevaluable checks and the configuration refusal (DP-027 (b)) all still refuse
   under a forced allowance.
-- **The witness.** `execution_gate::clear(plan, allowance) -> Result<GateClear, Vec<ExecutionRefusal>>`
-  returns the witness only when the refusals are empty. The mutating loop's entry
-  takes the `GateClear` by value, so read sites, the `MutationSite` and the
+- **The witness.** `execution_gate::clear(run: PlannedRun, allowance: Option<MutationAllowance>) -> Result<GateClear, (PlannedRun, Vec<ExecutionRefusal>)>`
+  takes both **by value** and returns the witness only when the refusals are
+  empty. `GateClear` owns the run and the allowance it was cleared under and
+  hands out only borrows (`run()`, `allowance()`). It has a private
+  constructor, no `Clone` and no derives. `run_with_mutations` takes only the
+  witness, so a witness cannot accompany another plan, and one cleared without
+  an allowance cannot be paired with one: the argv and elevation pins have
+  always run on what is dispatched. Read sites, the `MutationSite` and the
   recapture are built only after the gate passed. That is structural, and it
   closes SE-050 "Not closed" (1).
 - **The input change.** Adding an input to the gate is a design change for
@@ -119,10 +129,15 @@ shipped source and the spawn-site allowlist does not grow.
   - every command has `CommandTarget::Provider`;
   - every command's **re-derived** elevation is `NONE`;
   - the step's own `verification` list is empty.
-- **Where elevation comes from.** It is re-derived from the command table plus
-  the capability the snapshot recorded, the way the planner derives it
-  (`elevation_of_kind`, made `pub(crate)` and shared). It is never read from the
-  plan's field, which is plan.v1 obligation 9.
+- **Where elevation comes from.** It is re-derived by a product function,
+  `planner::elevation_for(entry, operation, kind, detected)`. That function is
+  extracted from the inline derivation in the planner's `command()`: the stored
+  cell keyed by kind, then relaxation **only** for read operations. The planner,
+  the gate pin, `next_action_with` and `elevation_requests` all use it. A test
+  shows the planner's elevation and the re-derived one agree for every operation
+  and kind. The `detected` capability comes from the validated plan's snapshot;
+  D6's equal plans make the fresh capture equivalent. Elevation is never read
+  from the plan's field, which is plan.v1 obligation 9.
 - **When it halts instead:**
   - `UNKNOWN` counts as elevating, so it halts `ElevationNotNone`;
   - a non-empty verification list on a mutating step halts
@@ -136,6 +151,12 @@ shipped source and the spawn-site allowlist does not grow.
 - **The test.** A plan edited so that an elevating table entry says `NONE` is
   refused by the gate (D2), still halted by the loop, and still listed by
   `elevation_requests` (D10).
+- **INV-01 under an allowance.** `invariant_01_a_removal_is_dispatched_only_after_its_destination_verified`
+  is a new application-level test with a forced allowance: `REMOVE_SOURCE` is
+  answered `DispatchMutating` only when the `VERIFY_DESTINATION` guarding it is
+  recorded `Verified`, and never after a halted, passed-over or missing record.
+  It is mutation-proved. `invariant_01_the_loop_never_dispatches_a_mutating_step`
+  (without an allowance) stays unchanged.
 
 **D4 — a dispatched mutating step's disposition, and what counts as dispatched.**
 - **`Disposition::Performed { ends: Vec<ProcessEndEvidence> }`:** every command
@@ -161,8 +182,15 @@ shipped source and the spawn-site allowlist does not grow.
   - a performed mutation whose verification halted is `Partial`, never
     `Success` (INV-03);
   - a refusal, a non-zero exit and a transport failure on the **second**
-    command each produce a record and keep the marker until that record is
-    durable.
+    command each produce a record. These are **application-level** tests (the
+    disposition, `halted_after_dispatch`, `RecordedStep::new`, `RunRecord`).
+    Under an allowance the gate refuses any mutating argv that is not the
+    planner's, and the planner writes one command per mutating step, so the
+    shell cannot be reached with two. The shell test covers a single-command
+    refusal, and no further seam is added.
+- **For slice 5's backlog.** `restore` decides from `ends_before` plus the halt
+  reason, never from the dispatched flag. A refusal of command 0 is recorded as
+  dispatched (fail toward dispatched), but nothing was added.
 
 **D5 — the order, and the tripwire rule this slice changes (declared).**
 - **When the marker is written.** Immediately before the **first dispatched
@@ -171,8 +199,9 @@ shipped source and the spawn-site allowlist does not grow.
   every retain-source consolidation plan: `ADD_DESTINATION` has no commands
   there, so `VERIFY_DESTINATION` reads run before `REMOVE_SOURCE` or nothing.
 - **The pinning test** states the rule exactly that way.
-- **The renames.** The read helper becomes `read_commands`. The only function
-  that calls `MutationSite::dispatch` is `mutation_dispatch`.
+- **The renames.** The read helper becomes `read_commands`. The trait method is
+  `MutationSite::perform`, and the only function that calls it is
+  `mutation_dispatch`.
 - **Why the tripwire's token has to move.** `calls_of` ignores a match glued to
   an identifier character. So after the renames, `dispatch(` names no call at
   all. Revision 1 claimed it would then name only mutating dispatches, and that
@@ -181,9 +210,9 @@ shipped source and the spawn-site allowlist does not grow.
   - `DISPATCH` moves to `mutation_dispatch(`.
   - The `GOOD` stub and every mutant stub are updated.
 - **New inverse tripwires:**
-  - `MutationSite::dispatch` is called only inside `mutation_dispatch`;
+  - `MutationSite::perform` is called only inside `mutation_dispatch`;
   - `read_commands` never calls it;
-  - no function in the shell is named bare `dispatch`.
+  - no function in the shell, free, inherent or trait, is named bare `dispatch`.
 - **Running `wiring_violations`.** Once this slice lands it runs
   **unconditionally** against the shell. It no longer waits for the constant,
   because the sequence it checks now exists.
@@ -196,9 +225,9 @@ shipped source and the spawn-site allowlist does not grow.
 - **The closure.** The caller supplies
   `recapture_and_replan: FnOnce() -> Result<(Snapshot, MigrationPlan), DomainError>`,
   run **after** the lock is held:
-  - `migrate` captures through the same registry and runner, then calls
-    `migration_start` with the same request, policy, provider ids and history
-    consultation;
+  - `migrate` captures through the same registry and runner, reads the history
+    view **again** under the lock, and calls `migration_start` with the same
+    request, policy and provider ids;
   - a test supplies one that applies the same narrowing it applied to the
     validated plan.
 - **The comparison.** A pure `application::executor::plan_still_holds(validated: &MigrationPlan, fresh: &MigrationPlan, before: &Snapshot, fresh_snapshot: &Snapshot) -> Result<(), StateChanged>`
@@ -210,6 +239,13 @@ shipped source and the spawn-site allowlist does not grow.
   a reverse dependency (INV-04), classification (INV-19), ownership, mapping, a
   configuration risk, elevation capability, prefix, executable. When no listed
   fact explains the difference, it names `PLAN_DIFFERS`.
+- **Tests named for what they protect.** Between the plan and the lock:
+  - a dependent appears in the source provider: `invariant_04_*`, refused, the
+    fact named;
+  - a service starts: `invariant_19_*`, refused, the fact named;
+  - the plans differ and no listed fact explains it: `PLAN_DIFFERS`.
+
+  Each is in the mutation list.
 - **What this covers.** Re-planning covers every planner input, which a
   hand-picked subset cannot. Naming the fact is the diagnosis that follows, so
   nothing is hidden by comparing first.
@@ -219,9 +255,12 @@ shipped source and the spawn-site allowlist does not grow.
   1. `lock.verify_still_current()`. A refusal stops the run with nothing
      dispatched.
   2. The provider's configuration is re-read through
-     `adapters::registry::reread_configuration(provider_id, home, scope)`. This
-     is a new adapters function outside `process/`: it re-detects the prefix
-     itself and returns the fresh `ProviderConfiguration`. The CLI therefore
+     `adapters::registry::reread_configuration(provider_id, planned_program, home, scope)`.
+     This is a new adapters function outside `process/`. It re-detects the
+     prefix, refuses when the program derived from it is not the step's planned
+     program (as the site does, DP-023), and returns the fresh
+     `ProviderConfiguration`. The configuration that was checked and the command
+     that runs therefore share one prefix. The CLI therefore
      never holds a prefix, and the existing ban on the word `detected_prefix` in
      `crates/cli/src` holds unchanged.
   3. `recheck_provider_configuration(provider, planned.before(), &fresh)` checks
@@ -230,7 +269,7 @@ shipped source and the spawn-site allowlist does not grow.
 - **`home`** is the one captured at context build (SE-016 D-R1′), never read
   from the environment at this point.
 - **The token.** It is neither `Clone` nor `Copy`, so one step cannot reuse
-  another's. `MutationSite::dispatch` itself requires the token **by value**
+  another's. `MutationSite::perform` itself requires the token **by value**
   together with `&RunLock`; the shell helper is not the only place that does. A
   token whose `provider()` is not the step's provider is refused
   (`SafetyBlocked`, not dispatched).
@@ -251,7 +290,9 @@ shipped source and the spawn-site allowlist does not grow.
   `Durability::BestEffort` justification "the marker notices a power loss before
   the sync" stops being relied on. An unconfirmed directory sync counts as "not
   written". A test makes the sync fail after the record is published, and the
-  marker must stay.
+  marker must stay. In that case the record may exist and is not known to be
+  durable: the report says exactly that, never "was not written", and the record
+  is not deleted, because the store is append-only.
 - **Record durably written:** `run_marker::clear`.
   - `NotOurs` and `AlreadyAbsent` both become `HistoryUnusable`. The run is not
     reported as done, and the marker, if present, stays. Under a held lock, the
@@ -263,11 +304,13 @@ shipped source and the spawn-site allowlist does not grow.
   - the marker is stranded;
   - the exit is non-zero, `HistoryUnusable`, which takes precedence over the
     run's own code unless that code is already non-zero;
-  - the report names the run id and the D-M3 remedy;
+  - the report names the run id and the D-M3 remedy, and the `migrate.v1`
+    document gains `markerLeft: <run id>` so a JSON consumer sees it too;
   - no restore is offered.
 - **Record and marker both left behind (L4).** The next run refuses
   `RunInterrupted` for a run that was in fact recorded. That reconciliation is
-  slice 5's, carried explicitly. The §4 test matrix includes it.
+  slice 5's, carried explicitly, and it also covers a record published with an
+  unconfirmed sync. The §4 test matrix includes it.
 - **Record not written:**
   - the marker is kept;
   - the exit is non-zero (a 0 becomes `IO`);
@@ -284,7 +327,8 @@ commitment is amended rather than met.**
 - SE-092's provisional note says the `RECORD_HISTORY` representation is settled
   "before any build writes records … with the write call".
 - This slice lands the write call, but behind a switch no shipped build turns
-  on, so no build writes records. The note is amended: settled before the
+  on, so no **shipped** build writes records. Forced test builds write to a
+  scratch store. The note is amended: settled before the
   constant is `true`, with the representation carried to slice 5. Slice 5 reads
   records back for `history` and `restore`, which judging the step needs.
 - A flip tripwire enforces this (D14).
@@ -303,8 +347,13 @@ commitment is amended rather than met.**
 - **The decision type.** `ConsentDecision { Given(Vec<ConsentGiven>), Refused(ConsentRefusal) }`,
   with `ConsentRefusal { NotATerminal, Declined, NoRequests }`.
 - **`ConsentGiven`** is one token per step:
+  - minted only by `application::consent::confirm(&ElevationRequest, typed: &str) -> Option<ConsentGiven>`,
+    which itself checks the typed phrase against the request, so consent cannot
+    exist without a matching phrase. A word scan limits callers of `confirm` to
+    `crates/cli/src/consent.rs`;
   - neither `Clone` nor `Copy`;
-  - holds the step index and a digest of the re-derived program and argv;
+  - holds the step index and the re-derived program and argv themselves, compared
+    by equality. No hash is defined, and none is needed;
   - is consumed and checked by the (future) elevated dispatch, the way the
     configuration token is.
   - Consent is per operation: never cached, never inherited (INV-06, 04).
@@ -345,12 +394,18 @@ commitment is amended rather than met.**
   `StdoutNamesPackage`) answer `ProviderReportsActive`, and
   `evaluable_in_this_build` reports the check unevaluable. Keeping it would
   certify "installed" as "active", a false verification guarding INV-01.
-- **What stays carried.** Evaluating it honestly. Capture's inventory read does
-  yield an `active` field per row (`run_record` reads `row.active`). Using it
-  would bind a verification check to a fresh inventory read instead of to a
-  `verify` command. The verification path has no such binding today; it judges
-  only the step's own commands. That is a structural addition, sized with the
-  slice that reads state back (slice 5).
+- **What stays carried.** Evaluating it honestly. **No read the plan carries
+  establishes "active" for both providers**, and evaluating it for one provider
+  only would be a direction asymmetry (INV-17). Two alternatives, both recorded
+  in SE-094 with why each was not taken:
+  - **An inventory binding.** Capture's inventory read yields an `active` field
+    per row (`run_record` reads `row.active`). Using it would bind a check to a
+    fresh inventory read rather than to the step's own commands, which the
+    verification path does not do today. It is sized with slice 5's read-back.
+  - **A new success semantic** over MacPorts' existing verify read, whose output
+    is believed to mark the active version. That is unobserved here, so a
+    `provider-researcher` note is owed. Homebrew's verify read shows no
+    linkage, so this would answer for one provider only.
 - **Effect.** The gate adds one `CheckNotEvaluableInThisBuild` refusal per plan
   that carries the check. The shipped binary already refuses every plan, and the
   goldens and checked samples are regenerated.
@@ -372,6 +427,15 @@ is carried, and its DoD box stays unticked.**
     `ElevationNotNone`.
 
   The asymmetry is data, not code, and the test says so.
+- **What the forced runs do and do not cover**, declared:
+  - the →MacPorts consolidation run dispatches nothing mutating, so it stops
+    before the marker and writes no record. It proves the reads, the gate, the
+    lock and the re-plan, and that nothing mutating is reached;
+  - in every direction `VERIFY_RESOLUTION` halts before `REMOVE_SOURCE`, so
+    `REMOVE_SOURCE` **cannot be reached in this build even when forced**;
+  - dispatching twice in one run (the per-step re-check and token across two
+    dispatches) is proved only by the text scan and by unit tests, never by a
+    shell run.
 
 **D13 — the mutating path's entry refusals.**
 - These come before the probe, and the order is tested:
@@ -397,9 +461,18 @@ is carried, and its DoD box stays unticked.**
   - the stranded marker not shown by `doctor`;
   - the window between `VERIFY_DESTINATION` and `REMOVE_SOURCE` (§7, M6a);
   - DP-030, which is already covered.
-- **How each is detected.** By an honest structural fact. For example:
-  - `next_action` still answers `NotPerformedInThisBuild` for the kind;
-  - no caller of `consent::ask` exists outside tests.
+- **How each is detected:**
+  - `SNAPSHOT_BEFORE` and `RECORD_HISTORY`: `next_action` still answers
+    `NotPerformedInThisBuild` for the kind;
+  - consent: no caller of `consent::ask` exists in `crates/*/src` outside
+    `consent.rs` and its tests;
+  - the stranded marker: `doctor`'s check catalogue has no marker check id;
+  - obligation 8, the M6a window and the release-build check: no structural
+    fact exists yet. Each is an **unconditional failure while the constant is
+    `true`**, named after its item, and removable only in the change that
+    delivers the item with its evidence.
+- **Proved to fire.** The mutation proof sets the constant to `true` in a
+  scratch copy and shows each tripwire fails.
 
 **D15 — what is carried, each with its reason.**
 - **A stranded marker shown by `doctor`.** `doctor` reads only the snapshot, and
@@ -424,7 +497,7 @@ Every one of these except the umask test has a flip tripwire (D14).
 |---|---|
 | `MutationAllowance`, `Action::DispatchMutating`, `Disposition::Performed`, the new halt reasons with `ends_before`, `next_action_with`, `plan_still_holds` | `crates/application/src/executor.rs` (+ `executor/tests.rs`) |
 | `execution_refusals_with`, `clear`/`GateClear`, `mutation_allowance`, argv/elevation pins on mutating steps, D11 | `crates/application/src/execution_gate.rs` |
-| `elevation_of_kind` shared `pub(crate)` | `crates/application/src/planner.rs` (no ordering change) |
+| `elevation_for` extracted from `command()` and shared `pub(crate)` | `crates/application/src/planner.rs` (no ordering change) |
 | `halted_after_dispatch` for the new reasons, `Performed` | `crates/application/src/history.rs` |
 | `elevation_requests`, `ConsentDecision`, `ConsentGiven` | `crates/application/src/consent.rs` (new) |
 | `StepResult::Performed`, status rule, read-back | `crates/domain/src/history.rs`, `docs/schemas/history.v1.md` |
@@ -482,7 +555,8 @@ calls alone:
 
 **Assertions,** in both directions (D12):
 1. The exact order, for a run that ends at `VERIFY_RESOLUTION` (`PARTIAL`, exit
-   3).
+   3), toward Homebrew. Toward MacPorts, the order up to the re-plan, then no
+   marker, no dispatch and no record (D12).
 2. Each boundary in turn made to fail: nothing dispatches after it, and the
    ending is the documented one, with its error id.
 3. Endings against the marker (D8):
@@ -510,7 +584,12 @@ report:
 - count `MutationRefused` on command 1 as not dispatched;
 - skip the live-scope refusal;
 - read elevation from the plan field;
-- dispatch with `None`.
+- dispatch with `None`;
+- a witness from a different plan (a compile-time impossibility, argued in the
+  report);
+- the D6 cases of D6's tests (`invariant_04_*`, `invariant_19_*`,
+  `PLAN_DIFFERS`);
+- each flip tripwire, with the constant `true`.
 
 ## 5. Docs in the same changes
 
@@ -586,3 +665,29 @@ SR = `security-reviewer`, SG = `spec-guardian`.
 | SR L5 — D2 is an SE-092 design change | Recorded: D2 |
 | SR L6 — what halt reasons may hold | Fixed: D4; the record's `snapshot_path` home redaction stays owed (spec-evolution "Not closed" (b)) and is named in the report |
 | SR (1) — `migrate` passing a literal `None` | Fixed: D1, `migrate` asks the gate |
+
+## 8. Second review (revision 2 → 3)
+
+SR = `security-reviewer`, SG = `spec-guardian`. Both found no Tier 1 or Tier 2
+problem. Each found every first-round finding resolved in design, apart from the
+items below.
+
+| Finding | Disposition |
+|---|---|
+| SR N1 / SG N4 — `GateClear` not bound to its plan or allowance | Fixed: D2, `clear` takes both by value and the witness owns them |
+| SR N2 — `ConsentGiven` mintable by any `cli` code | Fixed: D10, minted only by `consent::confirm`, which checks the phrase; callers scanned; values, not a digest |
+| SR N3 — D3 pointed at a test helper | Fixed: D3, `elevation_for` extracted from the planner's `command()`, read-only relaxation, an agreement test |
+| SR N4 — constructor gaps | Fixed: D1, the type lives in `execution_gate.rs`; the scan covers `derive(` |
+| SR N5 / SG N5 — tripwire detections | Fixed: D14 names each detection, otherwise an unconditional failure; proved to fire |
+| SR N6 — a record published with an unconfirmed sync | Fixed: D8 wording; never deleted; covered by the L4 reconciliation |
+| SR N7 — restore after a refusal of command 0 | Carried to slice 5's backlog (D4) |
+| SR N8 / SG 7 (low) — the re-read's prefix | Fixed: D7, `reread_configuration` takes the planned program and refuses disagreement |
+| SR N9 — the history view read before the lock | Fixed: D6, re-read under the lock |
+| SR N10 — a stranded marker invisible to `--json` | Fixed: D8, `markerLeft` in `migrate.v1` |
+| SG N1 — no forced mutation toward MacPorts; `REMOVE_SOURCE` unreachable | Declared in D12 and §4; the application-level INV-01 test under an allowance is added (D3); the existing INV-01 test stays unchanged |
+| SG N2 — second-command tests cannot reach the shell | Fixed: D4, application-level; one shell test on a single-command refusal; no new seam |
+| SG N3 — `MutationSite::dispatch` contradicts the inverse tripwire | Fixed: D5 and D7, the method is `perform` |
+| SG N6 — D11's reason incomplete | Fixed: D11 gives the complete reason and both alternatives; a `provider-researcher` note on MacPorts' verify output is owed |
+| SG N7 — which snapshot; the gate needs none | Fixed: D2 and D3 |
+| SG N8 — D6 tests by invariant | Fixed: D6 and §4's mutation list |
+| SG D9 wording | Fixed: "no shipped build" |
