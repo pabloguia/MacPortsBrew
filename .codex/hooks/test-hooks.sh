@@ -137,7 +137,7 @@ assert "/usr/local is denied"                 "$P" deny   "$(edit_input '/usr/lo
 assert "/opt/local is denied"                 "$P" deny   "$(edit_input '/opt/local/etc/x')"
 assert "/opt/homebrew is denied"              "$P" deny   "$(edit_input '/opt/homebrew/x')"
 assert "double-slash prefix is denied"        "$P" deny   "$(edit_input '//opt/local/etc/x')"
-assert "traversal into a prefix is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/../../../../opt/local/etc/x")"
+assert "traversal into a prefix is denied"    "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/../../../../../../../../../../../../opt/local/etc/x")"
 assert "shell rc is denied"                   "$P" deny   "$(edit_input "$HOME/$ZRC")"
 assert "relative shell rc is denied"          "$P" deny   "$(edit_input "$ZRC")"
 assert "fish config is denied"                "$P" deny   "$(edit_input "$HOME/.config/fish/config.fish")"
@@ -293,7 +293,7 @@ rm -rf "$broken"
 # including src/tests/ (Rust compiles any module in), embedded in a longer
 # string, and in build.rs; a comment does not; the top-level tests/ is not
 # scanned.
-gate_case() {  # <label> <expected rc> <grep-needle-or-empty>
+boundary_case() {  # <label> <expected rc> <grep-needle-or-empty>
   local label="$1" want="$2" needle="$3" out rc
   out="$(printf '{}' | CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"
   rc=$?
@@ -306,29 +306,29 @@ gate_case() {  # <label> <expected rc> <grep-needle-or-empty>
 boundary="$(mktemp -d)"
 mkdir -p "$boundary/src/application" "$boundary/src/tests" "$boundary/tests"
 printf 'let step = "%s";\n' "$INST" > "$boundary/src/application/planner.rs"
-gate_case "literal in src/application/planner.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in src/application/planner.rs blocks" 2 'mutating subcommand literal'
 printf '// the plan may say "%s" in a comment\n' "$INST" > "$boundary/src/application/planner.rs"
 printf 'let s = "%s";\n' "$INST" > "$boundary/tests/fixture.rs"
-gate_case "comment and top-level tests/ do not block" 0 ''
+boundary_case "comment and top-level tests/ do not block" 0 ''
 printf 'let s = "%s";\n' "$INST" > "$boundary/src/tests/live.rs"
-gate_case "literal under src/tests/ still blocks" 2 'mutating subcommand literal'
+boundary_case "literal under src/tests/ still blocks" 2 'mutating subcommand literal'
 rm -f "$boundary/src/tests/live.rs"
 printf 'let s = "brew %s jq";\n' "$INST" > "$boundary/src/application/exec.rs"
-gate_case "literal inside a longer string blocks" 2 'mutating subcommand literal'
+boundary_case "literal inside a longer string blocks" 2 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/build.rs"
-gate_case "literal in build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in build.rs blocks" 2 'mutating subcommand literal'
 rm -f "$boundary/build.rs"
 printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/src/application/exec.rs"
-gate_case "elevation token in code blocks" 2 'INV-06'
+boundary_case "elevation token in code blocks" 2 'INV-06'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 # The workspace layout: one crate per layer under crates/<layer>/src.
 mkdir -p "$boundary/crates/domain/src"
 printf 'let s = "%s";\n' "$INST" > "$boundary/crates/domain/src/plan.rs"
-gate_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
+boundary_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
-gate_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
 rm -rf "$boundary"
 
 # --- cases added after the 2026-09-05 security review ------------------------
@@ -385,10 +385,54 @@ assert "editing the pin from Bash is denied"  "$G" deny   "$(bash_input 'sed -i 
 assert "reading the pin is allowed"           "$G" allow  "$(bash_input 'cat rust-toolchain.toml')"
 assert "editing the pin is denied"            "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/rust-toolchain.toml")"
 
-# git push: CLAUDE.md listed it among the boundaries the hooks block "a second
-# time", and no hook matched it. DP-007 makes the first push the decision.
-assert "git $PUSH is denied"                  "$G" deny   "$(bash_input "git $PUSH")"
-assert "git -C dir $PUSH is denied"           "$G" deny   "$(bash_input "git -C . $PUSH origin main")"
+# Publishing (DP-007, owner's ruling of 2026-10-16): an ordinary push of a topic
+# branch to origin is allowed; whatever rewrites or removes what is published,
+# aims at the default branch or names another destination is not. The guard reads
+# the origin remote and the current branch of CLAUDE_PROJECT_DIR, so each case
+# runs in a scratch repository.
+push_repo() {  # push_repo <branch> <origin url>
+  local d; d="$(mktemp -d)"
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i 2>/dev/null
+  git -C "$d" switch -q -c "$1" 2>/dev/null
+  git -C "$d" remote add origin "$2"
+  printf '%s' "$d"
+}
+OK_URL="git@github.com:pabloguia/MacPortsBrew.git"
+d="$(push_repo topic "$OK_URL")"
+push_assert() {  # push_assert <label> <allow|deny> <command>
+  # A prefix assignment on a function call lasts for that call only, so the
+  # guard sees the scratch repository and every later case sees the real one.
+  CLAUDE_PROJECT_DIR="$d" assert "$1" "$G" "$2" "$(bash_input "$3")"
+}
+push_assert "git $PUSH of a topic branch is allowed"          allow "git $PUSH -u origin topic"
+push_assert "git -C dir $PUSH to origin is allowed"           allow "git -C . $PUSH origin topic"
+push_assert "git $PUSH --force is denied"                     deny  "git $PUSH --force origin topic"
+push_assert "git $PUSH -f is denied"                          deny  "git $PUSH -f origin topic"
+push_assert "git $PUSH --force-with-lease is denied"          deny  "git $PUSH --force-with-lease origin topic"
+push_assert "git $PUSH --delete is denied"                    deny  "git $PUSH --delete origin topic"
+push_assert "git $PUSH a deleting refspec is denied"          deny  "git $PUSH origin :topic"
+push_assert "git $PUSH a forcing refspec is denied"           deny  "git $PUSH origin +topic"
+push_assert "git $PUSH --mirror is denied"                    deny  "git $PUSH --mirror origin"
+push_assert "git $PUSH --all is denied"                       deny  "git $PUSH --all origin"
+push_assert "git $PUSH --no-verify is denied"                 deny  "git $PUSH --no-verify origin topic"
+push_assert "git $PUSH to main is denied"                     deny  "git $PUSH origin main"
+push_assert "git $PUSH HEAD:main is denied"                   deny  "git $PUSH origin HEAD:main"
+push_assert "git $PUSH to master is denied"                   deny  "git $PUSH origin master"
+push_assert "git $PUSH to a URL is denied"                    deny  "git $PUSH https://github.com/someone/else.git topic"
+push_assert "git $PUSH to an ssh URL is denied"               deny  "git $PUSH git@github.com:someone/else.git topic"
+push_assert "git $PUSH to a path is denied"                   deny  "git $PUSH /tmp/elsewhere topic"
+rm -rf "$d"
+d="$(push_repo main "$OK_URL")"
+push_assert "git $PUSH from main is denied"                   deny  "git $PUSH origin"
+rm -rf "$d"
+d="$(push_repo topic "git@github.com:someone/else.git")"
+push_assert "git $PUSH with a foreign origin is denied"       deny  "git $PUSH -u origin topic"
+rm -rf "$d"
+d="$(push_repo topic "https://github.com/pabloguia/MacPortsBrew.git")"
+push_assert "git $PUSH with the https origin is allowed"      allow "git $PUSH -u origin topic"
+rm -rf "$d"
+unset d
 assert "git commit naming push is allowed"    "$G" allow  "$(bash_input "git commit -m 'add $PUSH support'")"
 assert "git log is allowed"                   "$G" allow  "$(bash_input 'git log --oneline')"
 

@@ -134,6 +134,12 @@ pub fn read(
 ) -> Result<Option<InterruptedRun>, DomainError> {
     let path = state.root().join(MARKER_FILE);
     match std::fs::symlink_metadata(&path) {
+        // The refusal of a symbolic reference is this look, not only the open's
+        // `O_NOFOLLOW`: `open_flags` carries no flags off Darwin, so on any other
+        // host the open would follow the link and read what it points at.
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(unusable(format!("{MARKER_FILE} is a symbolic reference")))
+        }
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_unusable("could not be inspected", &e)),

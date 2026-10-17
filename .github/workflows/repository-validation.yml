@@ -44,16 +44,19 @@ jobs:
       # which is the defect that commit set out to remove. The install step
       # above stays: the gate needs the binary.
 
-      - name: Hooks decide what the specification says they decide
-        env:
-          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
-        run: .claude/hooks/test-hooks.sh
-
+      # Before the hook tests, not after: the stop-gate case in test-hooks.sh runs
+      # `scripts/validate.sh --quick`, which needs the pinned toolchain, and on a
+      # runner without it that case fails for a reason that is not the hook's.
       - name: Rust toolchain (pinned by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
+
+      - name: Hooks decide what the specification says they decide
+        env:
+          CLAUDE_PROJECT_DIR: ${{ github.workspace }}
+        run: .claude/hooks/test-hooks.sh
 
       - name: Repository gate
         env:
@@ -100,6 +103,13 @@ jobs:
           uname -m
           rustc --print deployment-target --target x86_64-apple-darwin
           rustc --print deployment-target --target aarch64-apple-darwin
+
+      # `validate.sh` has a shellcheck stage (F-45) and the macOS runner image does
+      # not ship the binary: the stage failed with "command not found" on all four
+      # runners while everything else passed. The Linux job installs it the same
+      # way, from apt.
+      - name: Install shellcheck
+        run: brew install shellcheck
 
       - name: Full validation, including the deployment-target assertion on both artifacts
         run: scripts/validate.sh --full

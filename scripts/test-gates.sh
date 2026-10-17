@@ -342,8 +342,10 @@ else
   # deliberately: a misplaced one left this repository's CI first step exiting 1
   # unnoticed for weeks (F-44).
   # shellcheck disable=SC2329
+  # shellcheck disable=SC2317  # invoked by the sourced check, which shellcheck cannot follow
   fail() { LAST="$*"; failures=$((failures + 1)); }
   # shellcheck disable=SC2329
+  # shellcheck disable=SC2317  # invoked by the sourced check, which shellcheck cannot follow
   ok() { :; }
 
   case_is accept "exit 0, plan, no stop"                "$NO_STOP" ""      0

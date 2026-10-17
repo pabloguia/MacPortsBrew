@@ -81,8 +81,10 @@ invented.
   fixtures, never a live install.
 - **Writes into either provider's prefix, into shell configuration, and into
   launch machinery.**
-- `git push` — DP-007 is decided (public GitHub) but the remote does not exist
-  yet.
+- `git push` of anything but a topic branch to `origin` — force and delete
+  forms, `--mirror`/`--all`, a push aimed at `main` or `master`, a URL or path
+  destination, or an `origin` that is not this project's repository (SE-099).
+  An ordinary push of a topic branch is allowed.
 
 If a hook blocks something you believe is legitimate, that is a question for
 the human, not an obstacle to route around. Rewording a command to slip past a

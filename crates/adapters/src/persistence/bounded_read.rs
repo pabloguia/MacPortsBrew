@@ -213,6 +213,14 @@ pub(crate) fn read_bounded(
 /// finds there.
 #[must_use]
 pub fn read_regular_file_for_replacement(path: &Path, cap: u64) -> Option<String> {
+    // The symlink guarantee off Darwin is this pre-check, as `open_flags` says:
+    // there `O_NOFOLLOW` is not set, so without it a symlink to a readable file
+    // was read and the caller was told the file was a document it could replace.
+    // On Darwin it is redundant with the flag, and the dev/ino comparison on the
+    // opened handle still covers a link swapped in after it.
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return None;
+    }
     read_bounded(path, cap, OpenPolicy::RefuseSymlink, any_regular_file).ok()
 }
 
