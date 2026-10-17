@@ -94,6 +94,8 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 | `steps` | array of `StepRecord`, optional | One per plan step, in plan order, when the gate passed the plan; absent when it refused |
 | `gateRefusals` | array of `ExecutionRefusal`, optional | The gate's refusals in its own order (step index, then kind), each tagged by `refusal` with its fields. Every string in them has the home redacted and control and format characters and the line and paragraph separators escaped: a check's fields are plan text. A refusal that could not be serialised — not reachable for the derived types today — is kept as `{ "refusal": "UNSERIALISABLE" }` so the list keeps one entry per refusal |
 | `siteRefusal` | object, optional | `{ "step": integer, "refusal": string, "values"?: object }` when a read site refused a command before it ran. `refusal` is one of `NOT_A_PROVIDER_COMMAND`, `UNSAFE_PREFIX`, `PROGRAM_DISAGREES`, `NOT_A_PERMITTED_READ`; `values` holds the quoted values by name, cleaned like `gateRefusals` |
+| `historyError` | string, optional | Present only when a run under a mutation allowance could not finish its own history (pass 08 slice 4): `IO` when its record is not known to have been written durably — it may exist, and its marker then stays as possibly the only trace — and `HISTORY_UNUSABLE` when its interrupted-run marker could not be confirmed cleared (after a record was written, or when nothing mutating ran and no record was needed). A run whose outcome would exit 0 exits with this error's code instead. As of pass 08 slice 4 (2026-10-17) no shipped build reaches this: no shipped build dispatches a mutating step |
+| `markerLeft` | string, optional | Beside `historyError`: the run id whose interrupted-run marker may still be in place — it was kept, or its clear could not be confirmed. The next command that changes packages refuses until it is dealt with ([`run-marker.v1.md`](run-marker.v1.md)) |
 
 ### `RunOutcome` (tag `outcome`)
 
@@ -110,7 +112,7 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 |---|---|---|
 | `index` | integer | The plan step's `index` |
 | `kind` | string | The plan step's `kind` |
-| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `HALTED` (`reason`, `evidence`), `NOT_REACHED` |
+| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`reason`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED`. `PERFORMED` and `ends` are reached only under a mutation allowance, which no shipped build has; `ends` are as in [`history.v1.md`](history.v1.md) |
 
 `evidence` is an array of `ReadEvidence`, one per command that ran:
 `{ "passed": boolean, "lineCount": integer, "truncated": boolean, "cause"?:
@@ -121,9 +123,16 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 `UNEXECUTED_MUTATION`, `NOT_PERFORMED_IN_THIS_BUILD`, `SITE_UNAVAILABLE`
 (`command`), `SITE_REFUSED` (`command`), `TRANSPORT_FAILED` (`command`, `error`),
 `EXPECTATION` (`command`, `error`), `VERIFICATION_FAILED` (`command`, `cause`),
-`ELEVATION_NOT_NONE` (`command`), `UNEVALUABLE` (`check`?, `why`) and
-`RECORDS_DO_NOT_MATCH_PLAN`. `command` counts from 0 within the step. A
-`check` here is the check's kind only, never its fields.
+`ELEVATION_NOT_NONE` (`command`), `UNEVALUABLE` (`check`?, `why`),
+`RECORDS_DO_NOT_MATCH_PLAN`, and — reached only under a mutation allowance —
+`MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
+`MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
+`NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
+`WRONG_PROVIDER_TOKEN`) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
+`PROVIDER_STATE`, `PROVIDER_LOCATION`, `PROVIDER_CAPABILITY`, `SOURCE_PACKAGE`,
+`DESTINATION_PACKAGE`, `REVERSE_DEPENDENCY`, `CLASSIFICATION`, `PLAN_DIFFERS`).
+`command` counts from 0 within the step. A `check` here is the check's kind
+only, never its fields.
 
 **When history is consulted.** Only by a live `migrate --retain-source` whose
 planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run
@@ -186,7 +195,7 @@ and the gate refuses every mutating step against it.
 {
   "outcome": {
     "outcome": "REFUSED",
-    "refusals": 11
+    "refusals": 12
   },
   "gateRefusals": [
     {
@@ -197,6 +206,13 @@ and the gate refuses every mutating step against it.
       "refusal": "PROVIDER_CONFIGURATION",
       "step": 2,
       "provider": "macports"
+    },
+    {
+      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
+      "step": 3,
+      "check": {
+        "check": "PROVIDER_REPORTS_ACTIVE"
+      }
     },
     {
       "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",

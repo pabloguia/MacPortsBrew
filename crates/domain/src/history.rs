@@ -105,6 +105,37 @@ pub struct RecordedVersions {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvironmentChange {}
 
+/// How a mutating command ended, which is all a record keeps of it: never
+/// what it printed (shell rule 5). An exit status is not a step's success
+/// (`04-migration-and-safety.md`): the verification step after it judges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "end")]
+pub enum CommandEnd {
+    /// It exited with this status.
+    Exited {
+        /// The exit status.
+        code: i32,
+    },
+    /// It was killed, timed out, or never reported a status.
+    DidNotFinish,
+}
+
+impl CommandEnd {
+    /// Whether it exited 0.
+    pub fn exited_zero(self) -> bool {
+        self == Self::Exited { code: 0 }
+    }
+}
+
+impl From<crate::ProcessEnd> for CommandEnd {
+    fn from(end: crate::ProcessEnd) -> Self {
+        match end {
+            crate::ProcessEnd::Exited { code } => Self::Exited { code },
+            crate::ProcessEnd::DidNotFinish => Self::DidNotFinish,
+        }
+    }
+}
+
 /// What became of one step, as history keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "result")]
@@ -118,15 +149,33 @@ pub enum StepResult {
     NotPerformedInThisBuild,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
+    /// A mutating step whose every command exited 0. Carried out, and not
+    /// thereby a success: the verification step after it judges.
+    Performed {
+        /// One per command, in order; every one exited 0.
+        ends: Vec<CommandEnd>,
+    },
     /// The step stopped the run.
     Halted {
         /// The error the halt reports — an identifier, never plan text.
         error: ErrorId,
         /// The reads made before it stopped.
         evidence: Vec<ReadEvidence>,
+        /// How the mutating commands that ran before it stopped ended. Empty
+        /// for a read step, and left out of the stored document when empty.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        ends: Vec<CommandEnd>,
     },
     /// The run stopped before this step.
     NotReached,
+}
+
+impl StepResult {
+    /// Whether the step was carried out: a verification that passed, or a
+    /// mutation every command of which exited 0.
+    pub fn carried_out(&self) -> bool {
+        matches!(self, Self::Verified { .. } | Self::Performed { .. })
+    }
 }
 
 /// One step of the plan the run executed.
@@ -144,7 +193,8 @@ impl RecordedStep {
     /// A step's record. `halted_after_dispatch` says, for a halt, whether the
     /// step had been handed to a runner when it stopped; it is ignored for
     /// every other result, whose dispatch is fixed by the result itself. A halt
-    /// that kept a read was dispatched whatever the caller says.
+    /// that kept a read, or the end of a mutating command, was dispatched
+    /// whatever the caller says.
     pub fn new(
         index: u32,
         kind: StepKind,
@@ -153,8 +203,10 @@ impl RecordedStep {
         halted_after_dispatch: bool,
     ) -> Self {
         let dispatched = match &result {
-            StepResult::Verified { .. } => true,
-            StepResult::Halted { evidence, .. } => halted_after_dispatch || !evidence.is_empty(),
+            StepResult::Verified { .. } | StepResult::Performed { .. } => true,
+            StepResult::Halted { evidence, ends, .. } => {
+                halted_after_dispatch || !evidence.is_empty() || !ends.is_empty()
+            }
             StepResult::NotPerformedInThisBuild
             | StepResult::NotDispatchedMutating
             | StepResult::NotReached => false,
@@ -330,14 +382,12 @@ impl RunRecord {
     ) -> Self {
         let mutation_dispatched = steps.iter().any(|s| s.kind.is_mutating() && s.dispatched);
         // An ending is supplied, so it is checked against the steps: success
-        // also needs every step verified, and a completion the steps do not
-        // bear out is recorded as partial — never success (INV-03).
+        // also needs every step carried out (verified, or a mutation
+        // performed), and a completion the steps do not bear out is recorded
+        // as partial — never success (INV-03).
         let status = match RunStatus::of(&ending, mutation_dispatched) {
             RunStatus::Success
-                if steps.is_empty()
-                    || !steps
-                        .iter()
-                        .all(|s| matches!(s.result, StepResult::Verified { .. })) =>
+                if steps.is_empty() || !steps.iter().all(|s| s.result.carried_out()) =>
             {
                 RunStatus::Partial
             }
@@ -561,6 +611,20 @@ impl RunRecord {
             {
                 return Err(unusable("states a manual review that was carried out"));
             }
+            // A mutation's ends are written only on the two steps this build
+            // ever hands to a mutation site (slice 4 review, security 4).
+            let mutating_ends = match &recorded.result {
+                StepResult::Performed { .. } => true,
+                StepResult::Halted { ends, .. } => !ends.is_empty(),
+                _ => false,
+            };
+            if mutating_ends
+                && !matches!(step.kind, StepKind::AddDestination | StepKind::RemoveSource)
+            {
+                return Err(unusable(
+                    "states a mutation's result on a step no mutation runs on",
+                ));
+            }
             if recorded.dispatched != step.dispatched {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
@@ -747,11 +811,34 @@ enum StoredStepResult {
     },
     NotPerformedInThisBuild {},
     NotDispatchedMutating {},
+    Performed {
+        ends: Vec<StoredCommandEnd>,
+    },
     Halted {
         error: ErrorId,
         evidence: Vec<StoredEvidence>,
+        #[serde(default)]
+        ends: Vec<StoredCommandEnd>,
     },
     NotReached {},
+}
+
+/// [`CommandEnd`] as a record states it; struct variants refuse unknown keys
+/// (see the note above [`StoredEnding`]).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "end", deny_unknown_fields)]
+enum StoredCommandEnd {
+    Exited { code: i32 },
+    DidNotFinish {},
+}
+
+impl StoredCommandEnd {
+    fn into_end(self) -> CommandEnd {
+        match self {
+            Self::Exited { code } => CommandEnd::Exited { code },
+            Self::DidNotFinish {} => CommandEnd::DidNotFinish,
+        }
+    }
 }
 
 impl StoredStepResult {
@@ -774,9 +861,24 @@ impl StoredStepResult {
             }
             Self::NotPerformedInThisBuild {} => StepResult::NotPerformedInThisBuild,
             Self::NotDispatchedMutating {} => StepResult::NotDispatchedMutating,
-            Self::Halted { error, evidence: e } => StepResult::Halted {
+            Self::Performed { ends } => {
+                let ends: Vec<CommandEnd> =
+                    ends.into_iter().map(StoredCommandEnd::into_end).collect();
+                // The writer marks a mutation performed only when it ran at
+                // least one command and every one exited 0.
+                if ends.is_empty() || !ends.iter().all(|e| e.exited_zero()) {
+                    return None;
+                }
+                StepResult::Performed { ends }
+            }
+            Self::Halted {
+                error,
+                evidence: e,
+                ends,
+            } => StepResult::Halted {
                 error,
                 evidence: evidence(e)?,
+                ends: ends.into_iter().map(StoredCommandEnd::into_end).collect(),
             },
             Self::NotReached {} => StepResult::NotReached,
         })

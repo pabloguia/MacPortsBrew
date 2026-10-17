@@ -240,8 +240,12 @@ Detect a concurrently running `brew` or `port` before mutating and refuse
 rather than interleave. Read-only analysis may proceed, flagged as possibly
 inconsistent.
 
-**Status (2026-10-05): the lock and the marker exist; the detector does not;
-nothing in this build takes either.** The lock is an exclusive advisory
+**Status (2026-10-17): the lock and the marker exist and are wired behind a
+mutation allowance no shipped build has; the detector does not.** Pass 08
+slice 4 put them in the run loop in the order below, checked on every build by
+the wiring tripwires and behaviourally against fakes
+(`crates/cli/tests/executor_wiring.rs`); a shipped build takes neither, because
+its gate refuses every plan with a mutating step. The lock is an exclusive advisory
 `flock` on `run.lock` in the state root (`persistence::run_lock`), taken only by
 a run that will dispatch a provider-mutating step — after the execution gate
 and the history probe, before the interrupted-run marker — and held for the
@@ -258,8 +262,11 @@ protects against no other user.
 
 The **interrupted-run marker** (`persistence::run_marker`,
 `docs/schemas/run-marker.v1.md`) names the run, is written durably immediately
-before the first provider change and cleared once the run's record is published
-(at once when it dispatched nothing), by that run only. A marker found by a
+before the first mutating command — read steps may run before it, as they
+change no provider state — and cleared once the run's record is published
+durably (at once when nothing mutating was handed over), by that run only.
+Under the lock it holds, a marker that is gone or another run's when it is
+cleared is an anomaly the run reports (`HISTORY_UNUSABLE`), never a run done. A marker found by a
 mutating command refuses it, exit 4, naming the run; analysis, plan and dry runs
 never read it. Until `history` and `restore` exist the remedy is the user's own
 act, documented in the error text and the schema: look for the run's record,
@@ -270,10 +277,17 @@ DP-030).** No filesystem read can tell that a provider is mutating without
 `fcntl(F_GETLK)` (R-17), which needs `unsafe` or a new dependency, and the
 alternatives disturb a provider or grow the process allowlist. A live run says
 `NOT_CHECKED`; a test fails the build that turns mutations on while it does.
-Owed with the wiring, each a precondition of the flag-flip proposal: re-running
-the state-dependent part of the gate under the lock (SE-092), a stranded marker
-in `doctor`, and the application-level refusal on an observed or unchecked
-provider.
+**Done with the wiring (slice 4):** under the lock the machine is captured
+again and re-planned, and any difference from the validated plan refuses,
+naming the fact that moved (SE-092, D6); the lock is confirmed before every
+mutating command. **Still owed, each a precondition of the flag-flip proposal
+and each behind a tripwire:** a stranded marker in `doctor`; the
+application-level refusal on an observed or unchecked provider; and **a
+residual the re-plan does not close** — nothing re-checks the destination
+between `VERIFY_DESTINATION` and `REMOVE_SOURCE`, so a concurrent `brew` or
+`port` could remove the destination in that window, unseen while the detector
+does not exist (slice 4 review, M6a). It is closed by a check before the
+removal or accepted by the owner beside DP-030.
 
 ## Privilege
 
@@ -314,6 +328,16 @@ conservative set and stays it; `MigrationPlan::steps_requiring_elevation` is the
 narrower one, and exists so a *report* can make the narrower claim truthfully.
 Recorded because the split reads as a relaxation to anyone who meets only half
 of it (SE-059, finding F-10).
+
+**The consent path is built and not wired** (pass 08 slice 4, D10; SE-016).
+Whether to ask is re-derived from the command table — never the plan's
+`elevation` field, and for the package's kind — and `UNKNOWN` asks. Consent is per operation: one token per
+step, minted only when the person types an exact phrase naming that step, never
+cached and never inherited; `--yes` cannot stand for it. The question is asked
+only when both input and the question's own stream are terminals, on standard
+error, with every value escaped and nothing truncated. The execution gate still
+refuses every elevated step, no elevated command is built, and a tripwire fails
+the build that turns mutations on while nothing asks.
 
 ## Process execution
 
@@ -402,8 +426,10 @@ counts as one. Whether a mutation was dispatched is derived from the steps; the
 status from the steps and the run's ending, checked against each other, so a
 supplied ending the steps do not bear out is never success (SE-092).
 
-**Status (2026-10-04): the record type and the store exist; nothing in this
-build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
+**Status (2026-10-17): the record type and the store exist, and the run loop
+writes a record durably on every ending of a run that handed anything mutating
+over — behind a mutation allowance no shipped build has (pass 08 slice 4, D8),
+so no shipped build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
 every field above, built by `application::history::run_record` from the plan
 and the run loop's per-step records, deriving the outcome itself. A
 verification read enters it as `ReadEvidence` only — result, line count,
@@ -430,9 +456,10 @@ only, inside the same state directory: a run is restorable only from the state
 directory it was recorded in, and moving `MACPORTSBREW_STATE_DIR` leaves its
 history behind. Before a mutating step is dispatched, the store's ability to
 publish is proved by a probe; a run never finds out after a change that it
-cannot record it. (The probe exists; its call lands with the write call, and
-a test fails the build that dispatches mutations without both —
-`plan.v1.md` obligation 12.)
+cannot record it. (The probe and the write call are both wired, in that order,
+and the wiring tripwires check it on every build — `plan.v1.md` obligation 12.)
+A record not known to be durable keeps the marker, never exits 0, is never
+deleted and is never offered for restore.
 
 **MUST.** A `--retain-source` re-run is recognised as done only when the latest
 record for the same package, source, destination and destination package is the

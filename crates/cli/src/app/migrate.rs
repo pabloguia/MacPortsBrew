@@ -48,13 +48,15 @@ use super::{human, json, Cli};
 use crate::executor::{self, RunReport, SiteRefusalKind};
 use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
-use macportsbrew_adapters::system::machine::{effective_uid, state_dir_override};
+use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    migration_key, migration_start, AnalysisOptions, HistoryConsultation, MigrationStart,
-    NotRecognised, PlanRequest, RunOutcome, StepRecord,
+    clear, migration_key, migration_start, mutation_allowance, AnalysisOptions,
+    HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanRequest, PlannedRun,
+    RunOutcome, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
+    RunStart,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -174,7 +176,16 @@ fn not_recognised(why: &NotRecognised) -> NotRecognisedDoc<'_> {
 /// The state directory is resolved as `snapshot` resolves it; nothing is
 /// created by reading.
 fn read_history(ctx: &Context, key: &MigrationKey) -> Result<HistoryView, DomainError> {
-    let state = StateDir::resolve(ctx.home.as_deref(), state_dir_override().as_deref())?;
+    let (state, euid) = state_and_user(ctx)?;
+    read_view(&state, key, euid)
+}
+
+/// The state directory and the effective user, from the values the context
+/// read once (slice 4 review, L2). A user this process cannot name refuses:
+/// history cannot be checked, and a run that changes the machine never starts
+/// without knowing who it runs as (S8 item 6; `refuse_if_root`).
+fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainError> {
+    let state = StateDir::resolve(ctx.home.as_deref(), ctx.state_override.as_deref())?;
     let euid = effective_uid().ok_or_else(|| {
         DomainError::new(
             ErrorId::SafetyBlocked,
@@ -182,7 +193,87 @@ fn read_history(ctx: &Context, key: &MigrationKey) -> Result<HistoryView, Domain
              cannot be checked and nothing was changed",
         )
     })?;
-    read_view(&state, key, euid)
+    Ok((state, euid))
+}
+
+/// Executes `planned` under `allowance` — **unreachable while this build grants
+/// none** (`mutation_allowance` answers `None`), and through a mutation site
+/// that refuses every command even if it were reached (pass 08 slice 4).
+///
+/// The live-scope refusal, the state directory resolved once, the machine
+/// captured again and re-planned under the lock — history read again there too
+/// (slice 4 review, N9) — and the configuration re-read through the registry,
+/// whose re-detected prefix must derive each step's planned program (D7).
+fn execute_mutating(
+    ctx: &Context,
+    request: &PlanRequest,
+    options: &AnalysisOptions,
+    planned: PlannedRun,
+    allowance: MutationAllowance,
+    registry: &macportsbrew_adapters::registry::RegistryContext<'_>,
+) -> Result<RunReport, DomainError> {
+    // The live-scope refusal first, before the state directory is resolved
+    // (D13; INV-15): a replay must not fail on a missing home instead.
+    if ctx.history != HistoryScope::ThisMachine {
+        return Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "a run that changes the machine runs only against this machine, never a recording \
+             or a snapshot file; nothing was changed",
+        ));
+    }
+    let cleared = match clear(planned, Some(allowance)) {
+        Ok(cleared) => cleared,
+        // The refusals under the allowance, not a read-only re-run's (slice 4
+        // review, security 5).
+        Err((_, report)) => return Ok(executor::refused_report(&report, &ctx.redaction)),
+    };
+    let (state, euid) = state_and_user(ctx)?;
+    let ids = macportsbrew_adapters::registry::known_provider_ids();
+    let recapture = Box::new(|| {
+        let now = ctx.recapture()?;
+        let replan =
+            |consultation| migration_start(&now, &ctx.policy, options, request, &ids, consultation);
+        let start = if ctx.history == HistoryScope::ThisMachine && request.retain_source {
+            // Under the lock, from the state directory resolved once above.
+            let view = read_view(&state, &migration_key(cleared.run().plan()), euid)?;
+            replan(HistoryConsultation::Consulted {
+                view: &view,
+                run_stamp: &ctx.run_stamp,
+            })?
+        } else {
+            replan(HistoryConsultation::NotConsulted)?
+        };
+        match start {
+            MigrationStart::Run(fresh, _) => Ok((now.clone(), fresh.plan().clone())),
+            _ => Err(DomainError::new(
+                ErrorId::SafetyBlocked,
+                "the machine changed after the plan was made, so there is no longer a plan to \
+                 run; nothing was changed",
+            )),
+        }
+    });
+    let reread = |provider: &ProviderId, program: &str| {
+        macportsbrew_adapters::registry::reread_configuration(registry, provider, program)
+    };
+    executor::run_mutating(
+        &cleared,
+        registry,
+        executor::MutatingRun {
+            live: ctx.history == HistoryScope::ThisMachine,
+            state: &state,
+            euid,
+            start: RunStart {
+                id: macportsbrew_adapters::persistence::history_store::new_run_id(&ctx.run_stamp),
+                started_at: ctx.started_at.clone(),
+                tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            },
+            site: &executor::NotInThisBuild,
+            recapture,
+            reread: &reread,
+            observer: &executor::Unobserved,
+        },
+        &ctx.redaction,
+    )
 }
 
 /// What the run loop returned, as the document carries it: no read output and
@@ -197,6 +288,13 @@ struct Execution<'a> {
     gate_refusals: &'a [serde_json::Value],
     #[serde(skip_serializing_if = "Option::is_none")]
     site_refusal: Option<SiteRefusal<'a>>,
+    /// What went wrong with the run's history, when something did (slice 4, D8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history_error: Option<ErrorId>,
+    /// The run id whose interrupted-run marker was left in place (slice 4
+    /// review, N10): the next run refuses until it is dealt with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    marker_left: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -218,6 +316,8 @@ fn execution(report: &RunReport) -> Execution<'_> {
             refusal: r.refusal,
             values: &r.values,
         }),
+        history_error: report.history_error,
+        marker_left: report.marker_left.as_deref(),
     }
 }
 
@@ -384,7 +484,19 @@ fn migrate_with(
                     "execute mode reached a context with no registry",
                 )
             })?;
-            Some(executor::run(&planned, &registry, &ctx.redaction))
+            // The gate is the one producer of an allowance, and this build's
+            // gives none: the read-only loop, exactly as before.
+            Some(match mutation_allowance() {
+                None => executor::run(&planned, &registry, &ctx.redaction),
+                Some(allowance) => execute_mutating(
+                    ctx,
+                    request,
+                    options,
+                    (*planned).clone(),
+                    allowance,
+                    &registry,
+                )?,
+            })
         }
     };
     let plan = planned.plan();

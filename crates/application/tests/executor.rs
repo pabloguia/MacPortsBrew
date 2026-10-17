@@ -251,12 +251,14 @@ fn dispatched_positions(plan: &MigrationPlan) -> Vec<usize> {
                     evidence: Vec::new(),
                 }
             }
+            Action::DispatchMutating => panic!("no allowance, so never a mutating dispatch"),
             Action::PassOver(d) => d,
             Action::Halt(reason) => {
                 records.push(record(
                     plan,
                     position,
                     Disposition::Halted {
+                        ends: Vec::new(),
                         reason,
                         evidence: Vec::new(),
                     },
@@ -479,6 +481,7 @@ fn records_that_do_not_match_the_plan_halt_the_run() {
         &plan,
         0,
         Disposition::Halted {
+            ends: Vec::new(),
             reason: HaltReason::UnexecutedMutation,
             evidence: Vec::new(),
         },
@@ -537,6 +540,7 @@ fn invariant_03_partial_success_is_its_own_outcome_and_exit_code() {
             }
         } else if p == removal {
             Disposition::Halted {
+                ends: Vec::new(),
                 reason: HaltReason::VerificationFailed {
                     command: 0,
                     cause: FailureCause::NamePresent,
@@ -594,6 +598,7 @@ fn a_halt_is_never_reported_as_completed() {
                         let d = match p.cmp(&at) {
                             std::cmp::Ordering::Less => before.clone(),
                             std::cmp::Ordering::Equal => Disposition::Halted {
+                                ends: Vec::new(),
                                 reason: reason.clone(),
                                 evidence: Vec::new(),
                             },

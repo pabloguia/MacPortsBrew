@@ -59,6 +59,13 @@ pub struct Context {
     /// This run's compact UTC stamp, from the one clock read: what a history
     /// record must not be later than to be trusted for ordering.
     pub(crate) run_stamp: String,
+    /// The same instant, RFC 3339 UTC: a run record's start, whose id must
+    /// name it (`RunRecord::from_stored`).
+    pub(crate) started_at: String,
+    /// `MACPORTSBREW_STATE_DIR`, read once here beside `home`, so every use of
+    /// the state directory in a run resolves it from the same values (slice 4
+    /// review, L2).
+    pub(crate) state_override: Option<String>,
 }
 
 /// Whether a run may read MacPortsBrew's own history.
@@ -100,9 +107,58 @@ struct Registry {
     home: Option<PathBuf>,
     machine: Machine,
     prefix_override: Option<Vec<(ProviderId, PathBuf)>>,
+    /// What the machine reader was built from, kept so a capture under the run
+    /// lock reads exactly as the first did (pass 08 slice 4, D6).
+    path_env: Option<String>,
+    variables: std::collections::BTreeMap<String, String>,
+    redaction: HomeRedaction,
+    replay: bool,
 }
 
 impl Registry {
+    /// The machine reader, built from what the first capture's was.
+    fn machine_reader(&self) -> SystemMachine {
+        SystemMachine::new(
+            Box::new(Rc::clone(&self.runner)),
+            self.path_env.clone(),
+            self.variables.clone(),
+            self.redaction.clone(),
+        )
+    }
+
+    /// A capture through these parts, stamped `captured_at` (never a second
+    /// read of the clock, `invariant_14_the_wall_clock_is_read_in_exactly_one_place`).
+    fn capture(
+        &self,
+        machine: &SystemMachine,
+        policy: &PolicyData,
+        captured_at: String,
+        stderr: Option<&mut dyn Write>,
+    ) -> Result<Snapshot, DomainError> {
+        let providers = registry::build(&self.context(policy));
+        let provider_refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
+            providers.iter().map(AsRef::as_ref).collect();
+        if let Some(stderr) = stderr {
+            let _ = writeln!(
+                stderr,
+                "macportsbrew: capturing {} providers",
+                provider_refs.len()
+            );
+        }
+        capture(&CaptureContext {
+            machine,
+            providers: provider_refs,
+            policy_version: policy.version().to_string(),
+            captured_at,
+            captured_by: format!(
+                "macportsbrew {}",
+                if self.replay { "--replay" } else { "capture" }
+            ),
+            home: self.redaction.clone(),
+            environment_contracts: registry::environment_contracts(),
+        })
+    }
+
     fn context<'a>(&'a self, policy: &'a PolicyData) -> RegistryContext<'a> {
         RegistryContext {
             runner: &*self.runner,
@@ -151,6 +207,8 @@ impl Context {
                 registry: None,
                 history: HistoryScope::of(false, true),
                 run_stamp: time::compact_stamp(now),
+                started_at: time::rfc3339_utc(now),
+                state_override: state_dir_override(),
             });
         }
 
@@ -173,14 +231,16 @@ impl Context {
         } else {
             HomeRedaction::live(home.clone())
         };
+        let path_env = if replay { None } else { path_env };
+        let variables = if replay {
+            std::collections::BTreeMap::default()
+        } else {
+            variables
+        };
         let machine = SystemMachine::new(
             Box::new(Rc::clone(&runner)),
-            if replay { None } else { path_env },
-            if replay {
-                std::collections::BTreeMap::default()
-            } else {
-                variables
-            },
+            path_env.clone(),
+            variables.clone(),
             home_redaction.clone(),
         );
         let parts = Registry {
@@ -196,31 +256,17 @@ impl Context {
             home: if replay { None } else { home.clone() },
             machine: machine.machine()?,
             prefix_override,
+            path_env,
+            variables,
+            redaction: home_redaction.clone(),
+            replay,
         };
-        let snapshot = {
-            let providers = registry::build(&parts.context(&policy));
-            let provider_refs: Vec<&dyn macportsbrew_domain::ProviderRead> =
-                providers.iter().map(AsRef::as_ref).collect();
-            if cli.verbose {
-                let _ = writeln!(
-                    stderr,
-                    "macportsbrew: capturing {} providers",
-                    provider_refs.len()
-                );
-            }
-            capture(&CaptureContext {
-                machine: &machine,
-                providers: provider_refs,
-                policy_version: policy.version().to_string(),
-                captured_at: time::rfc3339_utc(now),
-                captured_by: format!(
-                    "macportsbrew {}",
-                    if replay { "--replay" } else { "capture" }
-                ),
-                home: home_redaction.clone(),
-                environment_contracts: registry::environment_contracts(),
-            })?
-        };
+        let snapshot = parts.capture(
+            &machine,
+            &policy,
+            time::rfc3339_utc(now),
+            cli.verbose.then_some(stderr),
+        )?;
         Ok(Self {
             snapshot,
             policy,
@@ -236,7 +282,28 @@ impl Context {
             registry: Some(parts),
             history: HistoryScope::of(replay, false),
             run_stamp: time::compact_stamp(now),
+            started_at: time::rfc3339_utc(now),
+            state_override: state_dir_override(),
         })
+    }
+
+    /// The machine captured again through the same runner, prefix sources,
+    /// home and environment as the first capture — what a mutating run plans
+    /// against under its lock (pass 08 slice 4, D6). Stamped with the run's
+    /// own start, never a second clock read. `None` for a snapshot file.
+    ///
+    /// # Errors
+    /// The capture's own errors; `INTERNAL` for a context with no registry.
+    pub(crate) fn recapture(&self) -> Result<Snapshot, DomainError> {
+        let parts = self.registry.as_ref().ok_or_else(|| {
+            DomainError::new(ErrorId::Internal, "a capture was asked of a snapshot file")
+        })?;
+        parts.capture(
+            &parts.machine_reader(),
+            &self.policy,
+            self.started_at.clone(),
+            None,
+        )
     }
 
     /// The registry context the capture's adapters were built from, rebuilt

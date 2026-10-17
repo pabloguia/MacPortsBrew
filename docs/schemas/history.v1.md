@@ -18,8 +18,13 @@ this shape. The store landed in pass 08, slice 1.
 - **Read back without being trusted.** `RunRecord::from_stored` derives the
   steps' `dispatched`, `status`, `mutationDispatched` and `restorability` again
   and refuses a file that states anything else (INV-03). The one exception is
-  a `HALTED` step with no evidence, whose `dispatched` is the record's own
-  statement: nothing else in the record can settle it.
+  a `HALTED` step with no evidence and no `ends`, whose `dispatched` is the
+  record's own statement: nothing else in the record can settle it.
+- **Published durably** (pass 08 slice 4, D8): the record's directory entry
+  reaches the medium before the writer reports success, because the run
+  clears its interrupted-run marker only after. A write whose directory could
+  not be synced is reported as not known to be durable — the record may exist,
+  and is never deleted.
 - **Anything this writer would not have left is `HISTORY_UNUSABLE`** (exit 8),
   never "no record": another `schemaVersion`, a field this version does not
   know (at any level), an `id` outside the grammar below or naming another
@@ -73,7 +78,17 @@ this shape. The store landed in pass 08, slice 1.
 | `kind` | string | A `StepKind` from [`plan.v1.md`](plan.v1.md) |
 | `provider` | string \| null | |
 | `dispatched` | boolean | Derived from `result`, except for a halt with no evidence |
-| `result` | object | `result`: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `HALTED` (`error`, `evidence`), `NOT_REACHED` |
+| `result` | object | `result`: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`error`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED` |
+
+`PERFORMED` (pass 08 slice 4, additive) is a mutating step every command of
+which exited 0: carried out, and **not thereby a success** — an exit status is
+never verification, so the verification step after it judges. Its `ends` hold
+one `{"end": "EXITED", "code": 0}` per command; a record whose `PERFORMED` step
+has no end, or an end that is not exit 0, is `HISTORY_UNUSABLE`. A `HALTED`
+step's `ends` (left out when empty) are the ends of the mutating commands handed
+over before it stopped — `EXITED` with its `code`, or `DID_NOT_FINISH` — and a
+halt with any end is dispatched whatever else the record says. `status` is
+`SUCCESS` only when every step is `VERIFIED` or `PERFORMED`.
 
 Evidence keeps a read's result, its line count and its truncation flag —
 `passed`, `lineCount`, `truncated`, and `cause` when it failed — **never its

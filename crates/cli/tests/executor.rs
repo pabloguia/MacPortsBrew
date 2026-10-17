@@ -322,12 +322,17 @@ fn planner_runs() -> Vec<PlannedRun> {
 
 /// The verification part of a planner plan, renumbered: the shape the gate
 /// passes in this build. `VERIFY_DESTINATION` keeps only the checks this build
-/// evaluates; with `brackets` the snapshot and history steps stay. The
-/// snapshot the plan was built from is kept with it.
+/// evaluates, and is dropped when none is left — a consolidation's, since
+/// pass 08 slice 4 made `PROVIDER_REPORTS_ACTIVE` unevaluable (D11), which the
+/// gate would refuse as asserting nothing; with `brackets` the snapshot and
+/// history steps stay. The snapshot the plan was built from is kept with it.
 fn read_only(run: PlannedRun, brackets: bool) -> PlannedRun {
     let run = run.map_plan(|out| {
         out.steps.retain(|s| match s.kind {
-            StepKind::VerifyDestination | StepKind::VerifyRemoval => true,
+            StepKind::VerifyDestination | StepKind::VerifyRemoval => s
+                .verification
+                .iter()
+                .any(|c| evaluable_in_this_build(s.kind, c)),
             StepKind::SnapshotBefore | StepKind::RecordHistory => brackets,
             _ => false,
         });
@@ -1066,4 +1071,220 @@ fn the_plan_editing_test_hook_is_out_of_product_source() {
         }
     }
     assert!(enablings > 0, "the scan saw the test build's enabling");
+}
+
+/// Every `.rs` file under some crate's `src/`, with its path.
+fn product_sources() -> Vec<(PathBuf, String)> {
+    let crates = root().join("crates");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("crates/") {
+        let mut stack = vec![entry.expect("entry").path().join("src")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).expect("utf-8 source");
+                    out.push((path, text));
+                }
+            }
+        }
+    }
+    assert!(out.len() > 50, "the scan read the workspace");
+    out
+}
+
+/// The whole attribute and doc block above `marker`: every line directly
+/// above it that is an attribute or a comment (slice 4 review: a scan of one
+/// line let a derive above `#[must_use]` through).
+fn attributes_above<'a>(text: &'a str, marker: &str) -> Vec<&'a str> {
+    let at = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("{marker} is defined"));
+    text[..at]
+        .lines()
+        .rev()
+        .skip_while(|l| l.trim().is_empty())
+        .take_while(|l| {
+            let t = l.trim();
+            t.starts_with("#[") || t.starts_with("//") || t.is_empty()
+        })
+        .collect()
+}
+
+/// The lines just above `marker` in `text`.
+fn lines_above<'a>(text: &'a str, marker: &str, count: usize) -> Vec<&'a str> {
+    let at = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("{marker} is defined"));
+    text[..at].lines().rev().take(count).collect()
+}
+
+#[test]
+fn the_mutation_allowance_and_the_gate_witness_are_made_only_by_the_gate() {
+    // Pass 08 slice 4, D1 and D2: the power to mutate is a value only the gate
+    // makes, and in product code only when the build constant is true. A test
+    // obtains one through `forced_in_tests`, compiled only for tests and the
+    // dev-only `test-support` feature; nothing else may construct either type,
+    // implement a trait for it, or derive one onto it.
+    let crates = root().join("crates");
+    let gate = crates.join("application/src/execution_gate.rs");
+    // The one product test module allowed to force an allowance, included only
+    // under `#[cfg(test)]` (checked below).
+    let unit_tests = crates.join("application/src/executor/tests.rs");
+    for (path, text) in product_sources() {
+        if path == gate {
+            continue;
+        }
+        let file = path.display();
+        if path != unit_tests {
+            assert!(
+                !text.contains("forced_in_tests"),
+                "{file} forces an allowance"
+            );
+        }
+        for banned in [
+            "MutationAllowance(",
+            "GateClear {",
+            "for MutationAllowance",
+            "for GateClear",
+        ] {
+            assert!(!text.contains(banned), "{file}: {banned}");
+        }
+    }
+    let executor =
+        std::fs::read_to_string(crates.join("application/src/executor.rs")).expect("executor.rs");
+    let tests_mod = lines_above(&executor, "mod tests;", 1);
+    assert_eq!(tests_mod, ["#[cfg(test)]"], "the unit tests are test-only");
+    let text = std::fs::read_to_string(&gate).expect("the gate");
+    assert!(
+        lines_above(&text, "pub fn forced_in_tests", 2)
+            .iter()
+            .any(|l| l.trim() == "#[cfg(any(test, feature = \"test-support\"))]"),
+        "forced_in_tests is compiled only for tests"
+    );
+    for definition in ["pub struct MutationAllowance(", "pub struct GateClear {"] {
+        assert!(
+            attributes_above(&text, definition)
+                .iter()
+                .filter(|l| l.trim().starts_with("#["))
+                .all(|l| !l.contains("derive")),
+            "{definition} derives nothing"
+        );
+    }
+    // Inside the gate's own file, where the compiler allows construction:
+    // one product producer, one test constructor, one witness construction.
+    assert_eq!(
+        text.matches("MutationAllowance(())").count(),
+        2,
+        "the definition and the one producer"
+    );
+    assert_eq!(text.matches("Self(())").count(), 1, "one test constructor");
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("GateClear {"))
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("pub struct") && !t.starts_with("impl")
+            })
+            .count(),
+        1,
+        "one construction: clear()'s construction"
+    );
+    for banned in ["impl Default", "impl Clone", "impl From"] {
+        assert!(!text.contains(banned), "the gate file: {banned}");
+    }
+    // The only product producer reads the constant.
+    assert!(text.contains("THIS_BUILD_DISPATCHES_MUTATIONS.then_some(MutationAllowance(()))"));
+}
+
+#[test]
+fn consent_is_minted_only_by_confirm_and_asked_only_by_the_consent_module() {
+    // Slice 4, D10 (review N2): a `ConsentGiven` exists only through
+    // `consent::confirm`, which checks the typed phrase; nothing constructs
+    // one, implements a trait for it or derives one onto it; and `confirm` is
+    // called only by the command-line crate's consent prompt.
+    let crates = root().join("crates");
+    let home = crates.join("application/src/consent.rs");
+    let prompt = crates.join("cli/src/consent.rs");
+    for (path, text) in product_sources() {
+        let file = path.display();
+        if path != home {
+            for banned in ["ConsentGiven {", "for ConsentGiven"] {
+                assert!(!text.contains(banned), "{file}: {banned}");
+            }
+            if path != prompt {
+                assert!(!text.contains("confirm("), "{file} calls confirm");
+            }
+        }
+    }
+    let text = std::fs::read_to_string(&home).expect("consent.rs");
+    assert!(
+        attributes_above(&text, "pub struct ConsentGiven {")
+            .iter()
+            .filter(|l| l.trim().starts_with("#["))
+            .all(|l| !l.contains("Clone") && !l.contains("Copy") && !l.contains("Deserialize")),
+        "ConsentGiven is neither Clone, Copy nor read from a file"
+    );
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.contains("ConsentGiven {"))
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("pub struct") && !t.starts_with("impl")
+            })
+            .count(),
+        1,
+        "one construction: confirm()'s construction"
+    );
+    assert!(
+        !text.contains("for ConsentGiven"),
+        "no trait implementation"
+    );
+}
+
+#[test]
+fn there_is_exactly_one_mutation_site_and_it_refuses() {
+    // D7: the product mutation site refuses every command, so no mutating
+    // command spec is built anywhere in shipped source. One implementation
+    // under `crates/*/src`, naming no runner, registry or process item.
+    // Any `impl`, generic or not, whose trait is `MutationSite`.
+    let mut impls = Vec::new();
+    for (path, text) in product_sources() {
+        for (at, _) in text.match_indices("impl") {
+            let head = &text[at..];
+            let header = &head[..head.find(['{', ';']).unwrap_or(head.len())];
+            let word_start = text[..at]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+            if word_start && header.contains("MutationSite for") {
+                impls.push((path.clone(), head.to_string()));
+            }
+        }
+    }
+    assert_eq!(
+        impls.len(),
+        1,
+        "{:?}",
+        impls.iter().map(|(p, _)| p).collect::<Vec<_>>()
+    );
+    let (path, from) = &impls[0];
+    assert!(
+        path.ends_with("crates/cli/src/executor/mod.rs"),
+        "{}",
+        path.display()
+    );
+    let body = &from[..from.find("\n}\n").expect("the impl ends")];
+    assert!(body.contains("Err(MutationRefusal::Refused)"), "{body}");
+    for banned in ["runner", "registry", "process::", "CommandSpec", "spawn"] {
+        assert!(
+            !body.contains(banned),
+            "the product site names {banned}: {body}"
+        );
+    }
 }

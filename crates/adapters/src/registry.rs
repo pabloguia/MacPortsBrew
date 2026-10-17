@@ -13,7 +13,9 @@ use crate::macports::MacPortsAdapter;
 use crate::prefixes;
 use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
-use macportsbrew_domain::{DomainError, PlanCommand, ProviderId, ProviderRead};
+use macportsbrew_domain::{
+    DomainError, ErrorId, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -191,6 +193,50 @@ pub fn plan_read_spec(
         (site.derivation.environment)(&site.prefix, site.home.clone()),
         site.replay,
     )
+}
+
+/// `provider`'s configuration, read again immediately before a mutating step
+/// (pass 08 slice 4, D7; SE-016 D-R1′).
+///
+/// The prefix is detected again here, exactly as [`detected_prefix`] detects
+/// it, and the read is **refused** unless the program derived from it is the
+/// step's `planned_program` — the same comparison the read site makes (DP-023)
+/// — so the configuration that is re-checked and the command that would run
+/// share one prefix, and a caller never holds a prefix of its own. The home is
+/// the one `ctx` was built with, captured once at context build, never read
+/// from the environment at this point. Under replay the scope makes the answer
+/// `UNKNOWABLE`, which the re-check refuses.
+///
+/// # Errors
+/// `SAFETY_BLOCKED` when the provider is not detected, or its derived program
+/// is not the planned one. Nothing is read in either case.
+pub fn reread_configuration(
+    ctx: &RegistryContext<'_>,
+    provider: &ProviderId,
+    planned_program: &str,
+) -> Result<ProviderConfiguration, DomainError> {
+    let site = detected_prefix(ctx, provider).ok_or_else(|| {
+        DomainError::new(
+            ErrorId::SafetyBlocked,
+            "the provider was not detected again before the step, so its configuration was \
+             not re-read and nothing was run",
+        )
+    })?;
+    let derived = site.prefix.join(site.derivation.executable);
+    if derived.to_string_lossy() != planned_program {
+        return Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            "the provider detected before the step is not the one the plan was built for, so \
+             nothing was run",
+        ));
+    }
+    let filesystem = effective_scope(site.replay, ctx.filesystem);
+    Ok(crate::configuration::read(
+        provider.as_str(),
+        &site.prefix,
+        site.home.as_deref(),
+        filesystem,
+    ))
 }
 
 /// Every provider's plan read site, each bound to the runner its prefix was

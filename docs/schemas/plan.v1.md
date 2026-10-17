@@ -261,25 +261,29 @@ comments:
    `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather
    than interleaving* — the lock and the
-   interrupted-run marker are built and not wired (pass 08 slice 2; `04`,
-   Concurrency and locking; `run-marker.v1.md`): nothing in this build takes the
-   lock, because nothing dispatches a mutation, and tests fail the build that
-   turns mutations on without wiring both. **Detection before mutating is
+   interrupted-run marker are built (pass 08 slice 2; `04`, Concurrency and
+   locking; `run-marker.v1.md`) and **wired behind a mutation allowance** (pass
+   08 slice 4): the mutating loop probes the store, takes the lock, re-plans
+   under it, reads the marker and writes it before the first mutating command.
+   No shipped build takes the lock, because no shipped build has an allowance;
+   the wiring's order is checked on every build, and its behaviour by
+   `crates/cli/tests/executor_wiring.rs` against fakes. **Detection before mutating is
    unbuilt and inherited whole by the mutating pass**: no detection mechanism
    exists, so nothing can answer `NONE_OBSERVED` or `OBSERVED`, and the run
    loop's verification reads take no lock. Why each candidate mechanism was
    deferred rather than chosen is SE-015 and DP-030.
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
-   read while ignoring the rest. Three have an evaluation today —
-   `PROVIDER_REPORTS_ACTIVE`, `PACKAGE_NEWLY_PRESENT`, `PACKAGE_ABSENT` — and
-   the gate refuses a step carrying any other (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
+   read while ignoring the rest. Two have an evaluation today —
+   `PACKAGE_NEWLY_PRESENT` and `PACKAGE_ABSENT` — and the gate refuses a step
+   carrying any other (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
    `a_recognised_check_is_not_thereby_evaluable`). Evaluability is per step
    kind and check, because a check is answered by its own step's read: the
-   first two only on `VERIFY_DESTINATION`, the third only on
-   `VERIFY_REMOVAL`, so `PROVIDER_REPORTS_ACTIVE` on `SET_PRIMARY`, which reads
-   nothing, is refused too
-   (`a_check_on_a_step_with_no_provider_read_is_not_evaluable`). Each of the rest needs
+   first only on `VERIFY_DESTINATION`, the second only on `VERIFY_REMOVAL`.
+   `PROVIDER_REPORTS_ACTIVE` had one until pass 08 slice 4 (D11; SE-094): it
+   was answered by a read that establishes *installed*, not *active*, and is
+   now refused wherever it appears, so a consolidation's `VERIFY_DESTINATION`,
+   whose other checks are not evaluable either, asserts nothing. Each of the rest needs
    evidence this build does not gather, and `LIVENESS_PROBE` would run the
    package's own executable — a program outside the executor's
    `PERMITTED_PROGRAMS`, so adding it is a security decision, not an
@@ -296,14 +300,28 @@ comments:
    while nothing destructive is dispatched. The mutating pass owes the tie —
    the same in-memory object shown and then confirmed, or under `--yes` a
    digest of a previously rendered plan that must match — before it dispatches
-   a single mutating step.
+   a single mutating step. **Still owed after pass 08 slice 4**, which re-plans
+   under the lock and refuses on any difference from the validated plan (D6) —
+   that ties the run to the machine, not to what the human saw. A flip tripwire
+   fails the build that turns mutations on while this is unbuilt.
 9. **When a consent path lands, the decision to ask comes from the provider
    command table plus the live capability probe, never from the plan's
    `elevation` field.** The field is what the user is *shown*; the question
    whether a step elevates is answered where the planner answers it
    (`provider-commands.toml`, relaxed only by a detected capability for a
    read), re-derived at execution. A plan edited to say `NONE` must not skip
-   the question.
+   the question. **Built, not wired** (pass 08 slice 4, D3 and D10):
+   `planner::elevation_for` is the one derivation, shared by the planner, the
+   gate's pin on mutating steps under an allowance, the run loop (which
+   dispatches a mutating command only when the re-derived elevation is `NONE`)
+   and `consent::elevation_requests` (which lists `REQUIRED` and `UNKNOWN`
+   alike); a plan whose field disagrees is refused under an allowance. The
+   lookup is **for the package's kind**, read from the snapshot the plan was
+   built from (a `GUI_APP`'s mutating cells are `unknown` in every entry), and
+   a package that snapshot does not hold counts as a `GUI_APP`, so an
+   undeterminable kind fails closed. The live probe is the capability capture
+   records; a mutating operation is never relaxed by it. The gate still
+   refuses every elevated step.
 10. **The spawn site re-derives `program` and `environment` from live
     detection. It reads `PlanCommand.program` only to refuse a plan whose
     program disagrees with the derived one (DP-023), and never reads
@@ -328,7 +346,12 @@ comments:
     `registry::PlanReadSites`, bound to the runner detection used, and only
     after the gate has passed the plan. `migrate --yes` calls the loop
     (`executor::run`, SE-092), and the gate refuses every plan this build
-    produces before any read site is built.
+    produces before any read site is built. **For mutating commands** (pass 08
+    slice 4, D7) the same obligation is written on the `MutationSite` trait,
+    whose only product implementation refuses every command, so no mutating
+    command spec is built; the configuration re-read before each one
+    (`registry::reread_configuration`) re-detects the prefix and refuses
+    unless it derives the step's planned program.
 11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
     and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
     migration is restored from and what the run is compared against, and the
@@ -354,7 +377,12 @@ comments:
     `check_ordering` reads only the first snapshot, so a second is a shape no
     rule covers, and a second record would record a run twice. The closing
     bracket is the run's **success path**, not the only place a record is
-    written — obligation 12. Every plan the planner builds meets it, which
+    written — obligation 12. **And, whenever mutations would be dispatched**
+    (pass 08 slice 4), a commanded `ADD_DESTINATION` must have a
+    `VERIFY_DESTINATION` after it and a `REMOVE_SOURCE` a `VERIFY_REMOVAL`
+    (`MUTATION_NOT_VERIFIED_AFTER`), so no change ends a run judged by its exit
+    status alone (INV-03), and each mutating command must be the planner's own
+    (`MUTATION_IS_NOT_THE_PLANNERS_COMMAND`). Every plan the planner builds meets it, which
     `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
     `crates/cli/tests/execution_gate_fixtures.rs` assert over the synthesised
     snapshot and every recording.
@@ -399,7 +427,13 @@ comments:
     a halt after a dispatch, a `MANUAL_REVIEW` after a change and a refusal
     contradicted by dispatched steps; `SNAPSHOT_BEFORE` and `RECORD_HISTORY`
     performed, the latter judged by reading the published record back; and
-    the store's probe before the first mutating step.
+    the store's probe before the first mutating step. **Wired behind a
+    mutation allowance by pass 08 slice 4** (D8): once anything mutating was
+    handed to the mutation site — a refused command included — the loop
+    writes the record **durably** on every ending, then clears the marker; a
+    record not known to be durable keeps the marker and never exits 0. Still
+    owed, each behind a flip tripwire: `SNAPSHOT_BEFORE` and `RECORD_HISTORY`
+    performed (slice 5), so every forced run ends `PARTIAL`.
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,

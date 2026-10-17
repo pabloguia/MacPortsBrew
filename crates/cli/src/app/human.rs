@@ -9,10 +9,11 @@ use crate::render::table::Table;
 use macportsbrew_application::NotRecognised;
 use macportsbrew_application::{
     execution_refusals, Analysis, CheckKind, Disposition, DoctorReport, ExecutionRefusal,
-    Explanation, HaltReason, PackageReport, RunOutcome, Severity, Unevaluable,
+    Explanation, HaltReason, PackageReport, Precondition, RunOutcome, Severity, StateFact,
+    Unevaluable,
 };
 use macportsbrew_domain::{
-    ArtifactAvailability, ConcurrentProviderActivity, ExpectationError, FailureCause,
+    ArtifactAvailability, ConcurrentProviderActivity, ErrorId, ExpectationError, FailureCause,
     MigrationPlan, Outcome, Ownership, PackageClass, ProviderId, ProviderPresence,
     SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, VerificationCheck,
 };
@@ -863,6 +864,34 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     if let Some(refusal) = &report.refusal {
         let _ = writeln!(out, "  {}", site_refusal_line(ctx, refusal));
     }
+    // What went wrong with the run's own history (slice 4, D8). Never an offer
+    // to restore: a run whose record is not known to be durable has none.
+    let remedy = match report.history_error {
+        // Not known to be durable: the marker may be the only trace left, so
+        // nothing here suggests removing it (slice 4 review, security 1).
+        Some(ErrorId::Io) => {
+            let _ = writeln!(out, "  {}", label(ctx, "migrate.history.not_durable"));
+            "migrate.history.marker_is_the_only_trace"
+        }
+        Some(_) => {
+            let key = if report.record_written {
+                "migrate.history.marker_not_cleared"
+            } else {
+                "migrate.history.marker_not_cleared_no_record"
+            };
+            let _ = writeln!(out, "  {}", label(ctx, key));
+            "migrate.history.marker_left"
+        }
+        None => "migrate.history.marker_left",
+    };
+    if let Some(run_id) = &report.marker_left {
+        let _ = writeln!(
+            out,
+            "  {}",
+            ctx.messages
+                .render(remedy, &params(&[("run_id", run_id.clone())]))
+        );
+    }
     out
 }
 
@@ -902,6 +931,10 @@ fn disposition_text(ctx: &Context, disposition: &Disposition) -> String {
         Disposition::NotDispatchedMutating => {
             label(ctx, "migrate.disposition.not_dispatched_mutating")
         }
+        Disposition::Performed { ends } => ctx.messages.render(
+            "migrate.disposition.performed",
+            &params(&[("count", ends.len().to_string())]),
+        ),
         Disposition::Halted { reason, .. } => ctx.messages.render(
             "migrate.disposition.halted",
             &params(&[("reason", halt_text(ctx, reason))]),
@@ -970,6 +1003,45 @@ fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
             &params(&[("why", label(ctx, unevaluable_key(*why)))]),
         ),
         HaltReason::RecordsDoNotMatchPlan => label(ctx, "migrate.halt.records_do_not_match_plan"),
+        HaltReason::MutationFailed { command: n } => command("migrate.halt.mutation_failed", *n),
+        HaltReason::MutationRefused { command: n } => command("migrate.halt.mutation_refused", *n),
+        HaltReason::MutatingStepCarriesVerification => {
+            label(ctx, "migrate.halt.mutating_step_carries_verification")
+        }
+        HaltReason::PreconditionFailed { command: n, why } => ctx.messages.render(
+            "migrate.halt.precondition_failed",
+            &params(&[
+                ("command", command_number(*n)),
+                ("why", label(ctx, precondition_key(*why))),
+            ]),
+        ),
+        HaltReason::StateChanged { fact } => ctx.messages.render(
+            "migrate.halt.state_changed",
+            &params(&[("fact", label(ctx, state_fact_key(*fact)))]),
+        ),
+    }
+}
+
+fn precondition_key(why: Precondition) -> &'static str {
+    match why {
+        Precondition::NoProvider => "migrate.precondition.no_provider",
+        Precondition::LockLost => "migrate.precondition.lock_lost",
+        Precondition::ConfigurationUnreadable => "migrate.precondition.configuration_unreadable",
+        Precondition::ConfigurationDrift => "migrate.precondition.configuration_drift",
+        Precondition::WrongProviderToken => "migrate.precondition.wrong_provider_token",
+    }
+}
+
+fn state_fact_key(fact: StateFact) -> &'static str {
+    match fact {
+        StateFact::ProviderState => "migrate.state_fact.provider_state",
+        StateFact::ProviderLocation => "migrate.state_fact.provider_location",
+        StateFact::ProviderCapability => "migrate.state_fact.provider_capability",
+        StateFact::SourcePackage => "migrate.state_fact.source_package",
+        StateFact::DestinationPackage => "migrate.state_fact.destination_package",
+        StateFact::ReverseDependency => "migrate.state_fact.reverse_dependency",
+        StateFact::Classification => "migrate.state_fact.classification",
+        StateFact::PlanDiffers => "migrate.state_fact.plan_differs",
     }
 }
 
@@ -1125,6 +1197,12 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
             "migrate.refusal.provider_configuration",
             &params(&[("step", s.to_string()), ("provider", provider.to_string())]),
         ),
+        ExecutionRefusal::MutationIsNotThePlannersCommand { step: s } => {
+            step("migrate.refusal.mutation_is_not_the_planners_command", *s)
+        }
+        ExecutionRefusal::MutationNotVerifiedAfter { step: s } => {
+            step("migrate.refusal.mutation_not_verified_after", *s)
+        }
     }
 }
 
@@ -1301,6 +1379,7 @@ mod tests {
                 index,
                 kind: StepKind::VerifyDestination,
                 disposition: Disposition::Halted {
+                    ends: Vec::new(),
                     reason,
                     evidence: Vec::new(),
                 },
@@ -1349,6 +1428,9 @@ mod tests {
                         text: String::new(),
                     }),
                     gate_refusals: Vec::new(),
+                    history_error: None,
+                    marker_left: None,
+                    record_written: false,
                 };
                 text.push_str(&run_report(&ctx, &plan, &report));
             }
