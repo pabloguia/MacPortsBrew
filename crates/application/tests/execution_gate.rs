@@ -227,7 +227,9 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step }
         | ExecutionRefusal::CommandIsNotThePlannersRead { step }
         | ExecutionRefusal::MutationNotInThisBuild { step }
-        | ExecutionRefusal::ProviderConfiguration { step, .. } => *step,
+        | ExecutionRefusal::ProviderConfiguration { step, .. }
+        | ExecutionRefusal::MutationIsNotThePlannersCommand { step }
+        | ExecutionRefusal::MutationNotVerifiedAfter { step } => *step,
         ExecutionRefusal::Placeholder { steps }
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
@@ -336,7 +338,9 @@ fn a_recognised_check_is_not_thereby_evaluable() {
     let dest = StepKind::VerifyDestination;
     let removal = StepKind::VerifyRemoval;
     for (kind, check, evaluable) in [
-        (dest, VerificationCheck::ProviderReportsActive, true),
+        // Pass 08 slice 4, D11: "installed" is not "active", so no read in
+        // this build answers it, on any step.
+        (dest, VerificationCheck::ProviderReportsActive, false),
         (dest, VerificationCheck::PackageNewlyPresent, true),
         (removal, VerificationCheck::PackageAbsent, true),
         // The evaluable checks, each on a step whose read does not answer it.
@@ -375,13 +379,12 @@ fn a_recognised_check_is_not_thereby_evaluable() {
         ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, check }
             if *s == step && *check == liveness
     )));
-    // The evaluable ones on the same step are not refused.
+    // The evaluable one on the same step is not refused.
     assert!(!refused(&report, |r| matches!(
         r,
         ExecutionRefusal::CheckNotEvaluableInThisBuild {
             step: s,
-            check: VerificationCheck::ProviderReportsActive
-                | VerificationCheck::PackageNewlyPresent,
+            check: VerificationCheck::PackageNewlyPresent,
         } if *s == step
     )));
 }
@@ -798,7 +801,7 @@ fn a_repeated_snapshot_or_history_record_is_refused() {
             StepKind::VerifyDestination | StepKind::RecordHistory
         )
     });
-    plan.steps[0].verification = vec![VerificationCheck::ProviderReportsActive];
+    plan.steps[0].verification = vec![VerificationCheck::PackageNewlyPresent];
     let record = plan.steps[1].clone();
     plan.steps.push(record);
     renumber(&mut plan);
@@ -1143,6 +1146,18 @@ fn the_mutation_constant_is_read_only_by_the_planner_and_the_gate() {
     );
 }
 
+/// **The switch, pinned** (pass 08 slice 4; work order §2). Flipping it is
+/// the owner's decision on a proposal slice 6 writes, after every item the flip
+/// tripwires name is delivered; the change that flips it edits this test in
+/// the same commit, in plain sight. It also pins that this build grants no
+/// mutation allowance to product code.
+#[test]
+fn this_build_does_not_dispatch_mutations() {
+    let switch = macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
+    assert!(!switch, "this build does not dispatch mutations");
+    assert!(macportsbrew_application::mutation_allowance().is_none());
+}
+
 /// Step numbers are plan data, so a refusal naming several may list them in
 /// any order; it sorts by the smallest it names, not by whichever came first.
 #[test]
@@ -1218,7 +1233,8 @@ fn step_indices_that_are_not_one_to_n_in_order_are_refused() {
 /// The smallest plan this gate lets through, pinned so that any widening of
 /// what it accepts shows up in a diff: one `VERIFY_DESTINATION`, the
 /// planner's own read toward a detected destination, checked only by
-/// `PROVIDER_REPORTS_ACTIVE`, nothing mutating, nothing elevating. With no
+/// `PACKAGE_NEWLY_PRESENT` (`PROVIDER_REPORTS_ACTIVE` until pass 08 slice 4,
+/// D11), nothing mutating, nothing elevating. With no
 /// mutating step it needs neither bracket of obligation 11, so it carries no
 /// `SNAPSHOT_BEFORE` and does not end with `RECORD_HISTORY`.
 #[test]
@@ -1226,7 +1242,7 @@ fn the_minimal_plan_the_gate_accepts() {
     let base = full_plan();
     let mut step = base.steps[position(&base, StepKind::VerifyDestination)].clone();
     step.index = 1;
-    step.verification = vec![VerificationCheck::ProviderReportsActive];
+    step.verification = vec![VerificationCheck::PackageNewlyPresent];
     let plan = MigrationPlan {
         steps: vec![step],
         risks: Vec::new(),

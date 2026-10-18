@@ -22,6 +22,9 @@
 #   scripts/validate.sh --full    everything, plus the release build for both
 #                                 architectures with the deployment-target
 #                                 assertion (macOS only; needs otool)
+#
+#   Every mode ends with scripts/prune-target.sh, which trims target/ and
+#   never fails the run: housekeeping, not one of the stages above.
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
@@ -79,8 +82,16 @@ if [ "$mode" = "--full" ]; then
   step "deployment target"; run scripts/check-deployment-target.sh
 fi
 
+# Housekeeping, not a check (SE-100): after every build this mode made and
+# after the verdict is printed, never through `run`, so it cannot change the
+# verdict. Without it target/deps grew to 605,518 entries and every test
+# binary stalled in exec (2026-10-17). It never runs `cargo clean`.
+prune() { step "prune target"; scripts/prune-target.sh || true; }
+
 if [ "$fail" != 0 ]; then
   printf '\nvalidate: FAILED\n' >&2
+  prune
   exit 1
 fi
 printf '\nvalidate: ok (%s)\n' "$mode"
+prune

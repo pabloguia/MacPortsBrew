@@ -29,7 +29,7 @@
 //! `--from-snapshot` never consult history, which the CLI's `HistoryScope`
 //! decides once (INV-15).
 
-use super::atomic::{write_new_atomic, PublishError};
+use super::atomic::{write_new_atomic, write_new_durable, PublishError};
 use super::bounded_read::{read_bounded, BoundedReadError, OpenPolicy};
 use super::state_dir::StateDir;
 use macportsbrew_domain::history::{is_run_id, run_id_stamp};
@@ -123,9 +123,23 @@ pub fn probe(state: &StateDir, euid: u32) -> Result<(), DomainError> {
     }
 }
 
-/// Publishes `record`. Never replaces: a record already at its id is refused,
-/// not overwritten. The id is fixed before the run's first step, so it is
-/// not changed here to dodge a collision.
+/// Publishes `record` **durably**: the directory entry reaches the medium
+/// before this returns `Ok` (pass 08 slice 4, D8). The run loop clears the
+/// interrupted-run marker only after this returns `Ok`, and the marker and the
+/// record live in different directories whose entries are not ordered with
+/// each other, so a best-effort record followed by a durable marker removal
+/// could leave neither after a power loss.
+///
+/// Never replaces: a record already at its id is refused, not overwritten.
+/// The id is fixed before the run's first step, so it is not changed here to
+/// dodge a collision.
+///
+/// # Errors
+/// An error when the record is not known to be durable. **The record may
+/// nonetheless exist**: when the directory could not be synced the entry is
+/// published and is not removed, because the store is append-only. The caller
+/// reports it as "not known to be written durably", keeps the marker, and
+/// exits non-zero.
 pub fn write_record(state: &StateDir, record: &RunRecord, euid: u32) -> Result<(), DomainError> {
     refuse_root(euid)?;
     let name = record_file_name(record.id())
@@ -138,7 +152,7 @@ pub fn write_record(state: &StateDir, record: &RunRecord, euid: u32) -> Result<(
         )
     })?;
     text.push('\n');
-    match write_new_atomic(&state.history().join(&name), text.as_bytes()) {
+    match write_new_durable(&state.history().join(&name), text.as_bytes()) {
         Ok(()) => Ok(()),
         Err(PublishError::Exists) => Err(DomainError::new(
             ErrorId::Io,

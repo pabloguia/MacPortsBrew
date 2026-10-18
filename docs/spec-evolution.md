@@ -688,6 +688,25 @@ change is made. Silent deviation remains the one unrecoverable error.
   password prompt, and an elevated MacPorts step may read a different home's
   `macports.conf` — both written into 04 and owed with the consent path
   (slice 4).
+- **Pass 08 slice 4 (2026-10-17): wired, and consent built but not wired.**
+  The run loop now spends one token per mutating command, behind a mutation
+  allowance only tests can force: the lock confirmed, the configuration re-read
+  through `registry::reread_configuration` (which re-detects the prefix and
+  refuses unless it derives the step's planned program, with the `home`
+  captured at context build), then `recheck_provider_configuration` against the
+  validated plan's snapshot, and the token handed **by value** to
+  `MutationSite::perform`. **Consent** (`application::consent`,
+  `cli::consent`): requests are re-derived from the command table and the
+  detected prefix — never the plan's `elevation` field, `UNKNOWN` asks too, a
+  plan whose command differs is refused; consent is one `ConsentGiven` per
+  operation, minted only by `confirm`, which checks an exact ASCII phrase naming
+  the step; the prompt needs both input and its own stream to be terminals,
+  writes to standard error, reads a bounded line, escapes every value, shows
+  the invoking user's home as `~`, and never takes `--yes`. **Not wired:** the
+  gate still refuses every elevated step, no elevated command is built, and a
+  flip tripwire fails the build that turns mutations on while nothing calls the
+  prompt. The two elevated residuals above stay **carried**: no elevated step is
+  dispatched until consent is wired, which is not this slice.
 
 ## SE-035 — The read contract returns installed rows, and ownership names its mechanism
 - Status: accepted
@@ -3390,7 +3409,10 @@ finding ids in each entry.
     --github <formula>` is on it and opens a browser (*long-option half closed
     2026-10-02, pass 06 S2, below; the positional half stays open*) — and only the gate's
     `COMMAND_IS_NOT_THE_PLANNERS_READ` pins a plan's argv to the planner's own
-    read. S5 must assert the gate passed before the first call. The stronger
+    read. S5 must assert the gate passed before the first call (*closed
+    structurally for the mutating loop by pass 08 slice 4, D2: it takes only a
+    `GateClear` witness, which owns the run it cleared; the read-only loop
+    builds its sites only after the gate passed, as before*). The stronger
     fix is a per-subcommand allowlist of long options in
     `PERMITTED_SUBCOMMANDS`; it is not done here because it changes the
     spawn-site list every adapter read passes through, which this slice was
@@ -6927,8 +6949,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   **Provisional**:
   `RECORD_HISTORY` is stored as `VERIFIED` in a successful record, which has
   the record certify its own write, against the plan; the representation is
-  settled before any build writes records (a pending result judged on
-  read-back, or a revised v1), with the write call.
+  settled before any **shipped** build writes records (a pending result judged
+  on read-back, or a revised v1). *Amended by slice 4 (D9):* the write call
+  landed there behind a switch no shipped build turns on, so the representation
+  is settled before the switch is turned on — with slice 5's read-back, which
+  judging the step needs — and a flip tripwire enforces it.
 - **Slice 2 (pass 08, 2026-10-05): the lock and the marker.** Plan, with both
   reviews folded in: `docs/passes/08-slice-2-plan.md`. Decisions (Tier 3):
   **D-L1** exclusive advisory `try_lock` on `<state root>/run.lock`, held for the
@@ -7030,8 +7055,118 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   (spec-guardian, end of slice 3, M3). The CLI half of
   `invariant_17_retained_run_recognition_is_direction_neutral` (whose
   application half is in `crates/application/tests/history_recognition.rs`) is
-  owed with the executor's history wiring (slice 4, in its work order): without
-  a mutating run there is no retained record for the CLI to recognise.
+  owed with `RECORD_HISTORY` performed (slice 5). *Amended by slice 4 (D12):*
+  recognition needs the latest record to be `SUCCESS`, and no wired run can
+  reach it while `SNAPSHOT_BEFORE` and `RECORD_HISTORY` are not performed, so a
+  record a wired run wrote can never be recognised yet; the slice's behavioural
+  test runs both directions instead.
+- **Slice 4 (pass 08, 2026-10-17): the wiring behind the switch, and consent.**
+  Plan, revised twice after `spec-guardian` and `security-reviewer` read it
+  before any code: `docs/passes/08-slice-4-plan.md` (§7 and §8 record each
+  finding). `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`, and with it the
+  shipped binary is unchanged: the gate refuses every plan with a mutating step
+  before any of this is reached. Decisions (Tier 3):
+  **D1** whether a mutating step may be dispatched is a value, a
+  `MutationAllowance` with a private field defined in the gate's own file; the
+  only product producer is `execution_gate::mutation_allowance()`, which makes
+  one only when the constant is `true`. **Declared deviation from the work
+  order's letter:** a test obtains one through `forced_in_tests`, compiled under
+  `cfg(any(test, feature = "test-support"))` rather than `#[cfg(test)]` or under
+  `crates/*/tests/` — the only way across the crate boundary to a private field.
+  Resolver 2 unifies the dev-only feature into the binary `cargo test` builds,
+  where the constructor is dead code with no call site; a word scan keeps it,
+  any other construction, any trait implementation and any derive out of
+  product source. Unlike `map_plan`, which edits a plan the gate still judges,
+  this grants the power to mutate. A release build must not unify the feature in
+  (L1); the check is carried to the release slice behind a flip tripwire.
+  **D2** the gate takes the allowance — a new input, so a design change here
+  (`.claude/rules/executor.md`): it changes the two build-state refusals and
+  adds pins on mutating steps (argv, success semantic and elevation re-derived
+  from the command table, `MUTATION_IS_NOT_THE_PLANNERS_COMMAND`); it removes no
+  other refusal. `execution_gate::clear` hands out a `GateClear` witness that
+  owns the run and the allowance it was cleared under, so a witness cannot
+  accompany another plan; the mutating loop takes only the witness, which closes
+  SE-050 "Not closed" (1) structurally. **D3** only `ADD_DESTINATION` and
+  `REMOVE_SOURCE` commands targeting a provider are dispatched, with elevation
+  re-derived (`planner::elevation_for`, extracted from the planner) and never
+  read from the plan (obligation 9); `SET_PRIMARY` and `CLEANUP_REVIEW` never;
+  a mutating step carrying checks of its own halts. **D4** a performed mutation
+  is `PERFORMED` (carried out, not verified); a halt partway keeps the ends of
+  the commands that ran, and a command handed to the site counts as dispatched
+  even when refused. **D5, the tripwire's rule, changed and declared.** The
+  marker is written before the first dispatched *mutating* command; reads may
+  come before it, since they change no provider state (SE-050 NC6's network
+  side effect noted). The read helper is `read_commands` and the mutating one
+  `mutation_dispatch`; because `calls_of` ignores a match glued to an
+  identifier, the old `dispatch(` token would then name no call at all, so the
+  token moved to `mutation_dispatch(`, with the stub and every mutant. Inverse
+  tripwires hold that `MutationSite::perform` is called only inside
+  `mutation_dispatch`, that `read_commands` never calls it, and that no shell
+  function is named bare `dispatch`; the wiring rules now run on every build.
+  **D6** under the lock the machine is captured again and re-planned, and any
+  difference refuses (`STATE_CHANGED`), naming the first fact that moved.
+  **D7** before each mutating command: the lock confirmed; the configuration
+  re-read through `registry::reread_configuration`, which re-detects the
+  prefix and refuses unless it derives the planned program, so the CLI never
+  holds a prefix; the token handed to `MutationSite::perform` by value. The only
+  product site refuses every command. **D8** the record is written **durably**
+  on every ending once anything mutating was dispatched; the marker is cleared
+  only after; `NotOurs`, `AlreadyAbsent` (which `ClearOutcome`'s doc now says)
+  and a `clear` error leave it and surface `HISTORY_UNUSABLE`; a record not
+  known to be durable keeps it, turns a 0 into `IO`, is never deleted (the store
+  is append-only) and is never offered for restore; nothing dispatched clears it
+  at once. **D9**, **D12** amended above. **D10** consent is built and not wired
+  (SE-016). **D11** `PROVIDER_REPORTS_ACTIVE` is unevaluable (SE-094). **D13**
+  the mutating path refuses a run that is not live before the state directory
+  is touched (INV-15); `refuse_if_root` closes S8 item 6, and a user the process
+  cannot name refuses. **D14** a test pins the constant, and flip tripwires fail
+  the build that turns it on while `SNAPSHOT_BEFORE`/`RECORD_HISTORY` are not
+  performed, consent is not wired, `doctor` does not show a stranded marker,
+  obligation 8 is unbuilt, the window between `VERIFY_DESTINATION` and
+  `REMOVE_SOURCE` is unchecked, or the release build is unchecked — each with a
+  stated detection, the last three unconditional. **Carried (D15), each with
+  its tripwire:** the stranded marker in `doctor`; the refusal on an observed or
+  unchecked provider (DP-030); shim-backed recognition; the umask test (DP-029,
+  no tripwire); `SNAPSHOT_BEFORE` performed; obligation 8; the reconciliation of
+  a recorded run whose marker stayed (L4) and of one published with an
+  unconfirmed sync (N6); `restore` deciding from the ends and the reason, never
+  the dispatched flag (N7); a dedicated error identifier for a failed provider
+  command (it is `SAFETY_BLOCKED` until an exit-code change is proposed).
+  **What the forced runs reach:** toward Homebrew a retain-source install;
+  toward MacPorts, whose writes elevate, the plan's add narrowed away, leaving
+  the removal from Homebrew — a consolidation cannot stand in, because since
+  D11 its `VERIFY_DESTINATION` carries no check this build evaluates. Every
+  forced run ends `PARTIAL_SUCCESS` (record status `PARTIAL`).
+  **As built** (the plan's §9): `SET_PRIMARY` with a command halts
+  (`UNEXECUTED_MUTATION`) rather than being passed over; a check before a
+  mutating command that fails is `PRECONDITION_FAILED { command, why }`; the
+  record write is failed for real in the behavioural test, not injected.
+  **End-of-slice review (2026-10-17)**, `spec-guardian`, `security-reviewer`
+  and `docs-auditor` over the built range; no Tier 1 or Tier 2 finding.
+  **Changed because of them:** elevation is re-derived **for the package's
+  kind** from the run's own snapshot (`execution_refusals_for`,
+  `next_action_with` taking the run), because a kind-blind lookup read a
+  cask's `UNKNOWN` as `NONE` — an undeterminable kind counts as a GUI app and
+  fails closed; whenever mutations would be dispatched the gate pins mutating
+  commands and refuses a commanded add with no `VERIFY_DESTINATION` after it
+  or a removal with no `VERIFY_REMOVAL` after it
+  (`MUTATION_NOT_VERIFIED_AFTER`, INV-03); a refusal under the allowance is
+  reported as such rather than by re-running the read-only loop; a record
+  states `PERFORMED` or a halt's `ends` only on `ADD_DESTINATION` and
+  `REMOVE_SOURCE`, and a record saying otherwise is `HISTORY_UNUSABLE`; the
+  allowance and the witness are proved not `Clone` and not `Default` at compile
+  time, and the scans count constructions in their own files, read whole
+  attribute blocks and catch a generic or fully qualified form; the remedy text
+  never suggests removing a marker that may be the only trace of a run; the
+  live-scope refusal comes before the state directory is resolved; new tests
+  name INV-01 (a destination that is not there stops the removal), INV-02 (the
+  site is handed exactly the plan's command), INV-03, INV-19 under an
+  allowance and a GUI app; a flip tripwire holds the switch off while 04's
+  destination contract is not evaluable. **Carried:** flushing typed-ahead
+  input before each consent question (needs `tcflush`, so `unsafe` or a
+  dependency); a configuration token that records the program it was
+  re-read under (the future site would compare it); the human report naming
+  the snapshot path when a record is not written (no snapshot is taken yet).
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)
@@ -7176,7 +7311,22 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     - `PROVIDER_REPORTS_ACTIVE` is evaluated from an "installed" read; "active"
       is not asserted. Harmless while the gate refuses every plan (the other
       four destination checks are not evaluable), and owed before the mutating
-      pass: slice 4's definition of done carries it.
+      pass: slice 4's definition of done carries it. *Pass 08 slice 4 (D11),
+      2026-10-17:* the check is now **unevaluable** — an "installed" read no
+      longer answers it, and the gate refuses it as
+      `CHECK_NOT_EVALUABLE_IN_THIS_BUILD` — so it stops claiming what it
+      cannot see. Evaluating it honestly is **carried, not done**: no read a
+      plan carries establishes "active" for both providers, and answering it
+      for one only would be a direction asymmetry (INV-17). Two alternatives,
+      neither taken: bind the check to a fresh inventory read (capture's rows
+      carry `active`), which the verification path does not do today and which
+      is sized with slice 5's read-back; or a new success semantic over
+      MacPorts' existing verify read, whose output is believed to mark the
+      active version, and Homebrew's, which is believed to show no linkage —
+      neither observed for this purpose here, so a `provider-researcher` note
+      is owed for both. A consequence: a
+      consolidation's `VERIFY_DESTINATION`, which carried only this check
+      among the evaluable ones, now asserts nothing and the gate refuses it.
     - 04 asks the plan for environment changes, cleanup policy and a rollback
       story; `MigrationPlan` carries cleanup review as a step, records
       environment changes in history (SE-092), and has no rollback field.
@@ -7542,3 +7692,39 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
+
+## SE-100 — Debug info is packed, and validation trims target/ after it
+- Status: accepted
+- Date / Pass: 2026-10-17 / after pass 08 slice 4 (owner's instruction in chat; `scripts/` edits armed
+  with `MPB_ALLOW_GUARD_EDIT=1`)
+- Original assumption: none was written down. The dev profile used macOS's default
+  `split-debuginfo = "unpacked"`, and nothing ever removed build output.
+- Change: `Cargo.toml` sets `[profile.dev] split-debuginfo = "packed"` (the test profile inherits it), and
+  `scripts/validate.sh` ends every mode, after its verdict, with `scripts/prune-target.sh`. In that mode the
+  prune deletes object files older than 30 minutes in every `deps` directory under `./target` and warns
+  when one holds more than `MPB_TARGET_PRUNE_LIMIT` entries (default 20000); `scripts/prune-target.sh
+  --clean`, run by hand, also runs `cargo clean --target-dir target` past the limit.
+- Rationale: under `unpacked` every codegen unit's object file stays in `target/debug/deps` and Cargo never
+  removes one when a crate rebuilds under a new hash. A night of rebuilds left 605,518 of them, 9.8 GB, and
+  launching a test binary from that directory blocked in exec for 20–100 s with no CPU used — the same bytes
+  started in 0.9 s from another directory, because something on the exec path (an Endpoint Security
+  extension, or `syspolicyd`) walks the executable's directory. Validation took 25 minutes, past the commit
+  gate's deadline. Under `packed` a full build leaves 626 entries and no object files; the cold default
+  validation takes 478 s, a warm one 274 s. Stale binaries, `.dSYM` bundles and libraries still accrue,
+  about 180 entries per full rebuild, which the warning catches long before they matter.
+- Why the gate does not clean (security review, 2026-10-17): a gate may share the checkout with another
+  build — a background subagent's, for one — whose in-flight object files a prune would delete and whose
+  binaries a `cargo clean` would remove under it; and a `cargo clean` of a large tree inside a gate with a
+  deadline can push the run past it, refusing a commit that passed, or keep a `Stop` hook from reporting a
+  failure. So the gate deletes only what cannot be in flight and leaves the clean to a person or a session
+  between builds. The 30-minute age is the margin for "cannot be in flight": a packed build removes its
+  object files at link time. The prune is housekeeping, not a check: it never goes through `run`, cannot set
+  the verdict, and says `skipped (...)` rather than failing.
+- Accepted, from the second review: the first run of the default mode on a tree that still holds an
+  unpacked backlog deletes all of it inside the gate, once, after the verdict is printed — minutes on a
+  tree as large as this one was, during which a `Stop` hook's 600 s limit could still cut the run short.
+  It happens once per tree and not on this one (0 object files after the clean); `--clean` before the
+  first gate run avoids it. And the prune's few lines come after the failure output, so they take
+  about three of the 60 (`Stop`) or 40 (commit) lines a gate shows.
+- Compatibility impact: none for users of the tool. Contributors debugging on macOS read debug info from a
+  `.dSYM` next to each binary instead of from the object files; links are slower by the `dsymutil` run.

@@ -543,3 +543,20 @@ fn a_state_root_that_is_a_file_cannot_be_made_a_state_directory() {
     assert_eq!(std::fs::read(state.root()).unwrap(), b"a file");
     std::fs::remove_dir_all(&base).ok();
 }
+
+#[test]
+fn the_record_is_written_durably_not_best_effort() {
+    // A text tripwire, because no test reaches the difference: the durable and
+    // the best-effort write part only when the directory's sync fails after
+    // the link, and that seam is private to `atomic.rs`. The mutation proof
+    // of slice 4 found swapping them survived every behavioural test.
+    let source = include_str!("../src/persistence/history_store.rs");
+    let start = source
+        .find("pub fn write_record(")
+        .expect("write_record is defined");
+    let body = &source[start..];
+    let end = body.find("\n}\n").expect("write_record ends");
+    let body = &body[..end];
+    assert!(body.contains("write_new_durable("), "{body}");
+    assert!(!body.contains("write_new_atomic("), "{body}");
+}

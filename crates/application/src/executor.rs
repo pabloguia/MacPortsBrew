@@ -48,11 +48,13 @@
 //! material a record is built from: `crate::history::run_record` builds it,
 //! and the append-only store is deferred to the mutating pass.
 
-use crate::execution_gate::{evaluable_in_this_build, GateReport};
+use crate::execution_gate::{evaluable_in_this_build, GateReport, MutationAllowance};
+use crate::planner::{elevation_for, package_kind_in};
+use crate::provider_commands;
 use macportsbrew_domain::{
-    evaluate, expectation_for, Capability, CapabilityState, Elevation, ErrorId, ExpectationError,
-    FailureCause, MigrationPlan, ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind,
-    SuccessSemantic, Verdict, VerificationCheck,
+    evaluate, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget, Elevation,
+    ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, ProviderPresence,
+    ReadEvidence, ReadOutput, Snapshot, StepKind, SuccessSemantic, Verdict, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -73,12 +75,24 @@ pub enum Disposition {
     NotPerformedInThisBuild,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
+    /// A mutating step dispatched under a [`MutationAllowance`] whose every
+    /// command exited 0. Carried out, and **not thereby a success**: an exit
+    /// status is never verification (`04-migration-and-safety.md`), so the
+    /// `VERIFY_*` step after it judges.
+    Performed {
+        /// One per command, in order; every one exited 0.
+        ends: Vec<CommandEnd>,
+    },
     /// The step stopped the run.
     Halted {
         /// Why.
         reason: HaltReason,
         /// The reads made before it stopped, one per command that ran.
         evidence: Vec<ReadEvidence>,
+        /// How each mutating command that was handed to the site before it
+        /// stopped ended (D4). Empty for a read step and before any dispatch.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        ends: Vec<CommandEnd>,
     },
     /// The run stopped before this step.
     NotReached,
@@ -149,6 +163,78 @@ pub enum HaltReason {
     /// The records handed back do not match the plan (out of order, missing
     /// or extra). Fails closed.
     RecordsDoNotMatchPlan,
+    /// A mutating command exited non-zero or did not finish. The machine may
+    /// have changed: the step counts as dispatched.
+    MutationFailed {
+        /// The command.
+        command: usize,
+    },
+    /// The mutation site refused the command. Counted as dispatched, failing
+    /// toward a record (D4): the site was handed it.
+    MutationRefused {
+        /// The command.
+        command: usize,
+    },
+    /// A mutating step carrying its own verification checks: this build
+    /// judges a check only on a `VERIFY_*` step, and a check is never
+    /// silently dropped (D3).
+    MutatingStepCarriesVerification,
+    /// A check made immediately before a mutating command did not hold, so
+    /// that command was not handed to the site (D7). Commands before it may
+    /// have run: their ends are on the disposition, and decide the dispatch.
+    PreconditionFailed {
+        /// The command that was not handed over.
+        command: usize,
+        /// Which check.
+        why: Precondition,
+    },
+    /// The fresh capture taken under the lock does not plan to the plan this
+    /// run validated (D6). Nothing was dispatched.
+    StateChanged {
+        /// The first fact that moved.
+        fact: StateFact,
+    },
+}
+
+/// A check made before each mutating command (D7), by name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Precondition {
+    /// The step names no provider.
+    NoProvider,
+    /// The run lock is no longer the one this run took.
+    LockLost,
+    /// The provider's configuration could not be re-read, or the provider
+    /// detected now is not the one the plan was built for.
+    ConfigurationUnreadable,
+    /// The provider's configuration, re-read, can change how it runs, or
+    /// could not be shown not to (DP-027 (b)).
+    ConfigurationDrift,
+    /// The configuration token is for another provider.
+    WrongProviderToken,
+}
+
+/// Which fact moved between the capture a plan was built from and the one
+/// taken under the lock (D6) — an identifier, never plan text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StateFact {
+    /// A provider's presence or health.
+    ProviderState,
+    /// A provider's prefix or executable.
+    ProviderLocation,
+    /// A provider's capabilities, elevation included.
+    ProviderCapability,
+    /// The source package's presence or version.
+    SourcePackage,
+    /// The destination package's presence.
+    DestinationPackage,
+    /// A package that depends on the source package (INV-04).
+    ReverseDependency,
+    /// The package's classification, a service included (INV-19).
+    Classification,
+    /// The plans differ and no fact above explains it.
+    PlanDiffers,
 }
 
 /// A verification check's kind, without the plan text some checks carry
@@ -233,10 +319,27 @@ pub struct StepRecord {
 pub enum Action {
     /// Run the step's commands through its provider's read site.
     Dispatch,
+    /// Hand the step's commands to the mutation site, one at a time, each
+    /// behind the lock check and the configuration re-check (D7). Answered
+    /// only under a [`MutationAllowance`].
+    DispatchMutating,
     /// Record this and go on without running anything.
     PassOver(Disposition),
     /// Record this as the step's halt and stop.
     Halt(HaltReason),
+}
+
+/// One mutating command's end, as the shell obtained it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MutationResult {
+    /// The process ran, to this end.
+    Ended(CommandEnd),
+    /// The mutation site refused the command.
+    Refused,
+    /// No invocation could be recorded.
+    TransportFailed(ErrorId),
+    /// A check before the command did not hold; it was not handed over.
+    PreconditionFailed(Precondition),
 }
 
 /// One command's read, as the shell obtained it.
@@ -316,7 +419,12 @@ impl HaltReason {
             | Self::SiteUnavailable { .. }
             | Self::SiteRefused { .. }
             | Self::ElevationNotNone { .. }
-            | Self::VerificationFailed { .. } => ErrorId::SafetyBlocked,
+            | Self::VerificationFailed { .. }
+            | Self::MutationFailed { .. }
+            | Self::MutationRefused { .. }
+            | Self::MutatingStepCarriesVerification
+            | Self::PreconditionFailed { .. }
+            | Self::StateChanged { .. } => ErrorId::SafetyBlocked,
             Self::Expectation { .. } | Self::Unevaluable { .. } => ErrorId::SafetyUnverifiable,
             Self::TransportFailed { error, .. } => *error,
             Self::RecordsDoNotMatchPlan => ErrorId::Internal,
@@ -393,6 +501,39 @@ impl PlannedRun {
 /// halt the run.
 #[must_use]
 pub fn next_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> Action {
+    next_action_guarded(plan, position, records, None)
+}
+
+/// [`next_action`], and under a [`MutationAllowance`] the one source of
+/// [`Action::DispatchMutating`] (D3). Without one it answers exactly as
+/// [`next_action`] always has.
+///
+/// With one, a mutating step is dispatched only when **all** hold: it is
+/// `ADD_DESTINATION` or `REMOVE_SOURCE`; it carries commands, each targeting a
+/// provider; it carries no verification of its own; every command's
+/// elevation, re-derived from the command table and never read from the
+/// plan's field (obligation 9), is `NONE` and the plan's field agrees; and,
+/// for `REMOVE_SOURCE`, the `VERIFY_DESTINATION` before it was recorded
+/// verified (INV-01). `SET_PRIMARY` is a self-invocation of a layer that does
+/// not exist and `CLEANUP_REVIEW` is a review: neither is ever dispatched.
+#[must_use]
+pub fn next_action_with(
+    run: &PlannedRun,
+    position: usize,
+    records: &[StepRecord],
+    allowance: Option<&MutationAllowance>,
+) -> Action {
+    let kind = package_kind_in(run.plan(), run.before());
+    next_action_guarded(run.plan(), position, records, allowance.map(|a| (a, kind)))
+}
+
+/// The one implementation behind [`next_action`] and [`next_action_with`].
+fn next_action_guarded(
+    plan: &MigrationPlan,
+    position: usize,
+    records: &[StepRecord],
+    allowance: Option<(&MutationAllowance, PackageKind)>,
+) -> Action {
     let in_step = records.len() == position
         && records
             .iter()
@@ -413,7 +554,10 @@ pub fn next_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]
     }
     // The dispatch guard: before every other question about the step.
     if step.kind.is_mutating() {
-        return guard(step.commands.is_empty());
+        return match allowance {
+            None => guard(step.commands.is_empty()),
+            Some((_, kind)) => mutating_action(plan, position, records, kind),
+        };
     }
     match step.kind {
         StepKind::SnapshotBefore | StepKind::RecordHistory => {
@@ -456,6 +600,115 @@ pub fn next_action(plan: &MigrationPlan, position: usize, records: &[StepRecord]
     }
 }
 
+/// What a mutating step gets under an allowance (D3). Every refusal here is a
+/// halt or a pass-over; nothing below answers a dispatch unless every
+/// condition held.
+fn mutating_action(
+    plan: &MigrationPlan,
+    position: usize,
+    records: &[StepRecord],
+    kind: PackageKind,
+) -> Action {
+    let step = &plan.steps[position];
+    let operation = match step.kind {
+        StepKind::AddDestination => "add",
+        StepKind::RemoveSource => "remove",
+        // Never dispatched: a layer that does not exist, and a review.
+        StepKind::SetPrimary | StepKind::CleanupReview => {
+            return guard(step.commands.is_empty());
+        }
+        _ => return Action::Halt(HaltReason::RecordsDoNotMatchPlan),
+    };
+    if step.commands.is_empty() {
+        return Action::PassOver(Disposition::NotDispatchedMutating);
+    }
+    if !step.verification.is_empty() {
+        return Action::Halt(HaltReason::MutatingStepCarriesVerification);
+    }
+    if step.kind == StepKind::RemoveSource && !destination_verified_before(plan, position, records)
+    {
+        return Action::Halt(HaltReason::UnexecutedMutation);
+    }
+    let table = provider_commands::load().unwrap_or_default();
+    let entry = step.provider.as_ref().and_then(|p| table.get(p.as_str()));
+    for (command, c) in step.commands.iter().enumerate() {
+        if c.target != CommandTarget::Provider {
+            return Action::Halt(HaltReason::UnexecutedMutation);
+        }
+        // Re-derived, never read from the plan; a mutating operation is
+        // never relaxed by a capability, so no snapshot is consulted.
+        let derived = elevation_for(entry, operation, kind, None);
+        if derived != Elevation::None || c.elevation != Elevation::None {
+            return Action::Halt(HaltReason::ElevationNotNone { command });
+        }
+    }
+    Action::DispatchMutating
+}
+
+/// Whether the `VERIFY_DESTINATION` that guards the step at `position` was
+/// recorded verified (INV-01): it must come before, and its record must say
+/// `Verified`. A missing, halted or passed-over record is a no.
+fn destination_verified_before(
+    plan: &MigrationPlan,
+    position: usize,
+    records: &[StepRecord],
+) -> bool {
+    plan.steps[..position]
+        .iter()
+        .position(|s| s.kind == StepKind::VerifyDestination)
+        .and_then(|at| records.get(at))
+        .is_some_and(|r| {
+            r.kind == StepKind::VerifyDestination
+                && matches!(r.disposition, Disposition::Verified { .. })
+        })
+}
+
+/// What the ends of a dispatched mutating step's commands amount to (D4).
+///
+/// `results` are in command order, ending early only where a command did not
+/// exit 0. Every command exited 0 → [`Disposition::Performed`]. Anything else
+/// halts, carrying the ends of every command handed to the site — so a step
+/// stopped on its second command still records the first (H3).
+#[must_use]
+pub fn judge_mutation(
+    plan: &MigrationPlan,
+    position: usize,
+    results: &[MutationResult],
+) -> Disposition {
+    let mut ends = Vec::new();
+    let halted = |reason, ends| Disposition::Halted {
+        reason,
+        evidence: Vec::new(),
+        ends,
+    };
+    let Some(step) = plan.steps.get(position) else {
+        return halted(HaltReason::RecordsDoNotMatchPlan, ends);
+    };
+    for (command, result) in results.iter().enumerate() {
+        match *result {
+            MutationResult::Ended(end) => {
+                ends.push(end);
+                if !end.exited_zero() {
+                    return halted(HaltReason::MutationFailed { command }, ends);
+                }
+            }
+            MutationResult::Refused => {
+                return halted(HaltReason::MutationRefused { command }, ends)
+            }
+            MutationResult::TransportFailed(error) => {
+                return halted(HaltReason::TransportFailed { command, error }, ends)
+            }
+            MutationResult::PreconditionFailed(why) => {
+                return halted(HaltReason::PreconditionFailed { command, why }, ends)
+            }
+        }
+    }
+    if results.len() != step.commands.len() || ends.is_empty() {
+        return halted(unevaluable(None, Unevaluable::MissingRead), ends);
+    }
+    Disposition::Performed { ends }
+}
+
 /// The dispatch guard's answer for a mutating step: never a dispatch.
 fn guard(commandless: bool) -> Action {
     if commandless {
@@ -479,7 +732,11 @@ fn unevaluable(check: Option<&VerificationCheck>, why: Unevaluable) -> HaltReaso
 #[must_use]
 pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
     let (plan, before) = (run.plan(), run.before());
-    let halted = |reason, evidence| Disposition::Halted { reason, evidence };
+    let halted = |reason, evidence| Disposition::Halted {
+        reason,
+        evidence,
+        ends: Vec::new(),
+    };
     let Some(step) = plan.steps.get(position) else {
         return halted(HaltReason::RecordsDoNotMatchPlan, Vec::new());
     };
@@ -550,16 +807,16 @@ pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> 
 /// Whether a passed read of `semantic` answers `check`. Presence is answered
 /// by a destination read, absence by an inventory read; nothing else is
 /// answered by any read (`evaluable_in_this_build` has already refused it).
+/// An "installed" read never answers `PROVIDER_REPORTS_ACTIVE` (D11).
 fn answers(check: &VerificationCheck, semantic: SuccessSemantic) -> bool {
     match check {
-        VerificationCheck::ProviderReportsActive | VerificationCheck::PackageNewlyPresent => {
-            matches!(
-                semantic,
-                SuccessSemantic::ExitStatus | SuccessSemantic::StdoutNamesPackage
-            )
-        }
+        VerificationCheck::PackageNewlyPresent => matches!(
+            semantic,
+            SuccessSemantic::ExitStatus | SuccessSemantic::StdoutNamesPackage
+        ),
         VerificationCheck::PackageAbsent => semantic == SuccessSemantic::StdoutOmitsPackage,
-        VerificationCheck::ProviderIntegrityCheck
+        VerificationCheck::ProviderReportsActive
+        | VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
         | VerificationCheck::NoCrossProviderLinkage
@@ -610,6 +867,113 @@ fn destination_before(plan: &MigrationPlan, before: &Snapshot) -> Before {
     }
 }
 
+/// Whether the plan this run validated still holds against a capture taken
+/// **under the lock** (D6, D-L3): it holds only when planning that capture
+/// with the same request, policy and provider ids gave exactly the same plan.
+///
+/// Re-planning, not a hand-picked subset, so every planner input is covered —
+/// a dependent that appeared (INV-04), a service that started (INV-19),
+/// ownership, mapping, configuration, capability. When the plans differ the
+/// answer names the first fact that moved, by comparing the two captures;
+/// that is diagnosis only, after the comparison has already refused.
+///
+/// # Errors
+/// The first fact that moved, when the plans differ.
+pub fn plan_still_holds(
+    validated: &MigrationPlan,
+    fresh: &MigrationPlan,
+    before: &Snapshot,
+    now: &Snapshot,
+) -> Result<(), StateFact> {
+    if validated == fresh {
+        Ok(())
+    } else {
+        Err(first_moved_fact(validated, before, now))
+    }
+}
+
+/// The first fact, in a fixed order, that differs between `before` and `now`
+/// for the providers and the package `plan` is about.
+fn first_moved_fact(plan: &MigrationPlan, before: &Snapshot, now: &Snapshot) -> StateFact {
+    let sides = [&plan.source, &plan.destination];
+    let pair =
+        |id: &macportsbrew_domain::ProviderId| (before.providers.get(id), now.providers.get(id));
+    for id in sides {
+        match pair(id) {
+            (Some(a), Some(b)) => {
+                if a.detection.presence != b.detection.presence {
+                    return StateFact::ProviderState;
+                }
+            }
+            (None, None) => {}
+            _ => return StateFact::ProviderState,
+        }
+    }
+    for id in sides {
+        if let (Some(a), Some(b)) = pair(id) {
+            if a.detection.prefix != b.detection.prefix
+                || a.detection.executable != b.detection.executable
+            {
+                return StateFact::ProviderLocation;
+            }
+        }
+    }
+    for id in sides {
+        if let (Some(a), Some(b)) = pair(id) {
+            if a.capabilities != b.capabilities {
+                return StateFact::ProviderCapability;
+            }
+        }
+    }
+    let rows = |snap: &Snapshot, id: &macportsbrew_domain::ProviderId, name: &str| {
+        snap.providers.get(id).map(|p| {
+            p.inventory
+                .installed
+                .iter()
+                .filter(|r| r.identity.name == name)
+                .map(|r| (r.version.clone(), r.active, r.requested))
+                .collect::<Vec<_>>()
+        })
+    };
+    let name = plan.package.name.as_str();
+    if rows(before, &plan.source, name) != rows(now, &plan.source, name) {
+        return StateFact::SourcePackage;
+    }
+    if let Some(dest) = plan.destination_name() {
+        let presence =
+            |snap: &Snapshot| rows(snap, &plan.destination, dest.as_str()).map(|r| !r.is_empty());
+        if presence(before) != presence(now) {
+            return StateFact::DestinationPackage;
+        }
+    }
+    let dependents = |snap: &Snapshot| {
+        snap.providers.get(&plan.source).map(|p| {
+            let mut from: Vec<String> = p
+                .inventory
+                .dependencies
+                .iter()
+                .filter(|e| e.to == name)
+                .map(|e| e.from.clone())
+                .collect();
+            from.sort_unstable();
+            from
+        })
+    };
+    if dependents(before) != dependents(now) {
+        return StateFact::ReverseDependency;
+    }
+    let metadata = |snap: &Snapshot| {
+        snap.providers
+            .get(&plan.source)
+            .and_then(|p| p.inventory.metadata.get(name))
+            .cloned()
+    };
+    if metadata(before) != metadata(now) {
+        return StateFact::Classification;
+    }
+    StateFact::PlanDiffers
+}
+
 /// How a run whose steps ended as `records` ended.
 ///
 /// Completed only when every step of the plan was carried out: a verification
@@ -629,19 +993,20 @@ pub fn outcome_of(plan: &MigrationPlan, records: &[StepRecord]) -> RunOutcome {
             reason: HaltReason::RecordsDoNotMatchPlan,
         };
     }
-    let Some(first_skipped) = records
-        .iter()
-        .find(|r| !matches!(r.disposition, Disposition::Verified { .. }))
-    else {
+    let carried = |r: &&StepRecord| {
+        matches!(
+            r.disposition,
+            Disposition::Verified { .. } | Disposition::Performed { .. }
+        )
+    };
+    let Some(first_skipped) = records.iter().find(|r| !carried(r)) else {
         return RunOutcome::Completed;
     };
     let halt = records.iter().find_map(|r| match &r.disposition {
         Disposition::Halted { reason, .. } => Some((r.index, reason.clone())),
         _ => None,
     });
-    let carried_out = records
-        .iter()
-        .any(|r| matches!(r.disposition, Disposition::Verified { .. }));
+    let carried_out = records.iter().any(|r| carried(&r));
     if carried_out {
         let (step, reason) =
             halt.unwrap_or((first_skipped.index, HaltReason::NotPerformedInThisBuild));

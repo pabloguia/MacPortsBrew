@@ -698,3 +698,45 @@ fn an_off_list_long_option_is_refused_at_the_spawn_site() {
         assert!(!error.contains("read allowlist"), "{id:?}: {error}");
     }
 }
+
+/// The configuration re-read before a mutating step (pass 08 slice 4, D7):
+/// refused unless the prefix detected now derives the step's planned program,
+/// so the configuration re-checked and the command that would run share one
+/// prefix; and under replay the answer is `UNKNOWABLE`, which the re-check
+/// refuses (INV-15) — no file of this host is read for a recording.
+#[test]
+fn the_configuration_re_read_shares_the_steps_prefix_and_never_reads_for_a_recording() {
+    let runner = ReplayRunner::new(recording());
+    let ctx = context(&runner, Some(PathBuf::from(HOME)), recorded_prefixes());
+    for id in registry::known_provider_ids() {
+        let site = site(&runner, &id, Some(PathBuf::from(HOME)));
+        let planned = site
+            .prefix()
+            .join(executable(&id))
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            registry::reread_configuration(&ctx, &id, &planned).expect("same prefix"),
+            macportsbrew_domain::ProviderConfiguration::Unknowable,
+            "{id:?}"
+        );
+        for other in ["/tmp/evil/bin/tool", "", planned.trim_end_matches('w')] {
+            if other == planned {
+                continue;
+            }
+            assert_eq!(
+                registry::reread_configuration(&ctx, &id, other)
+                    .expect_err("another program")
+                    .id,
+                macportsbrew_domain::ErrorId::SafetyBlocked,
+                "{id:?} {other:?}"
+            );
+        }
+    }
+    assert_eq!(
+        registry::reread_configuration(&ctx, &ProviderId::new("nonesuch"), "/x")
+            .expect_err("not a provider")
+            .id,
+        macportsbrew_domain::ErrorId::SafetyBlocked
+    );
+}

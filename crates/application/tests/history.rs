@@ -194,6 +194,7 @@ fn verified() -> Disposition {
 
 fn halted(reason: HaltReason) -> Disposition {
     Disposition::Halted {
+        ends: Vec::new(),
         reason,
         evidence: Vec::new(),
     }
@@ -362,7 +363,9 @@ fn a_run_the_dispatch_guard_halted_changed_nothing() {
                 match next_action(plan, position, &records) {
                     Action::PassOver(d) => d,
                     Action::Halt(reason) => halted(reason),
-                    Action::Dispatch => panic!("nothing is dispatched before the guard halts"),
+                    Action::Dispatch | Action::DispatchMutating => {
+                        panic!("nothing is dispatched before the guard halts")
+                    }
                 }
             };
             records.push(StepRecord {
