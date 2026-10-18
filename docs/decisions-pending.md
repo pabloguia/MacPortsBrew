@@ -107,34 +107,6 @@ does any of those, so **the detector is not built and the refusal is owed**.
 dependency. **What it blocks:** the flag-flip proposal, by test, not by
 convention. **Reversible default taken:** (a).
 
-### DP-031 — Which GitHub account the public repository lives under
-
-Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-007 decided "public
-repository on GitHub" but not whose. The workspace `repository` field is
-`https://github.com/macportsbrew/macportsbrew`; the release identifier (D-S3,
-DP-035) is derived from it; the staged owner checklist tells you to create
-`macportsbrew/macportsbrew`. Whether a GitHub organisation named `macportsbrew`
-is available, or already yours, was **not checked** (it needs your account).
-
-- **(a) An organisation `macportsbrew`**, if available. The URL matches the
-  workspace field and the identifier needs no change. Cost: an organisation to
-  administer (rulesets, environment, members).
-- **(b) Your personal account**, `<you>/macportsbrew`. Cost: the workspace
-  `repository`, README links and every `--signer-workflow` snippet change, and
-  DP-035's identifier should not then claim `io.github.macportsbrew`.
-- **(c) Another organisation name.** Same cost as (b).
-
-**Recommendation:** (a) if the name is free; decide it before DP-035, because
-the identifier follows it. **What it blocks:** creating the remote and the first
-tag. **Reversible default taken:** the workspace value, unchanged; nothing is
-published before you create the repository.
-
-**Owed once this is ruled** (2026-10-11, `spec-guardian` second review, B-L5):
-the release workflow's `sign` job gains `github.repository == '<owner>/<repo>'`
-in its `if:`, so a fork's copy of the workflow cannot reach the signing
-environment even by misconfiguration. It is a guarded workflow edit, made in
-the same change as the workspace `repository` field if that changes.
-
 ### DP-032 — What "defines a service" means for MacPorts, given that Homebrew's answer is a declaration
 
 Raised 2026-10-10, pass 08 slice 3, by `spec-guardian` (M1). INV-19 forces
@@ -262,8 +234,9 @@ and D-P1.
      `~/Library/Application Support/macportsbrew/bin` — rejected by the plan:
      it is the state directory (08 forbids) and has a space.
 
-**Recommendation:** identifier — follow DP-031 ((a) if the organisation is
-`macportsbrew`); directory — (a). **What it blocks:** the first tag only.
+**Recommendation:** identifier — follow DP-031, which was resolved (b) on
+2026-10-16, so `io.github.pabloguia.macportsbrew` (or a domain you control);
+directory — (a). **What it blocks:** the first tag only.
 **Reversible default taken:** both values as staged; neither is permanent until
 a release is published.
 
@@ -313,32 +286,6 @@ taken:** no change in behaviour; this entry is the record.
 
 ---
 
-### DP-038 — Personal data in the history and in the fixtures, before the first push
-
-Raised 2026-10-11 by `security-reviewer` (pre-release review, M2) and
-`docs-auditor` (M2). HEAD is clean of the maintainer's account name, but:
-
-- **Git history**: about 500 lines across eleven commits carry home-directory
-  paths and the machine's layout (tool directories, a LaunchAgents listing, a
-  download path). No secrets were found in history or at HEAD.
-- **Author identity**: every commit is authored with a personal e-mail address.
-- **Fixtures**: the committed recordings and the live snapshot carry this
-  machine's `PATH` entries (with the home shown as `~`) and its full package
-  list. The fixture README says this is deliberate; it is the owner's call to
-  make knowingly.
-
-Options: **(a)** publish as is; **(b)** before the first push, squash or
-`git filter-repo` the history and rewrite the author e-mail to a GitHub
-`noreply` address; **(c)** (b) plus re-deriving the fixtures with a generic
-`PATH` (a *derived* fixture, its edits listed in the note).
-
-**Recommendation:** (b) at least, because it cannot be undone after
-publication; (c) if the tool list is felt to be personal. **What it blocks:**
-the first push. **Reversible default taken:** nothing rewritten (rewriting
-history is the owner's act).
-
----
-
 ### DP-039 — `claude.yml` can run a pull request's own hooks with secrets
 
 Raised 2026-10-11 by `security-reviewer` (pre-release review, H1).
@@ -375,6 +322,78 @@ conditions that the workflows' own comments describe, and set the secret.
 ---
 
 ## Resolved
+
+### DP-031 — Which GitHub account the public repository lives under — **RESOLVED 2026-10-16: (b) the personal account**
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-007 decided "public
+repository on GitHub" but not whose. The workspace `repository` field is
+`https://github.com/macportsbrew/macportsbrew`; the release identifier (D-S3,
+DP-035) is derived from it; the staged owner checklist tells you to create
+`macportsbrew/macportsbrew`. Whether a GitHub organisation named `macportsbrew`
+is available, or already yours, was **not checked** (it needs your account).
+
+- **(a) An organisation `macportsbrew`**, if available. The URL matches the
+  workspace field and the identifier needs no change. Cost: an organisation to
+  administer (rulesets, environment, members).
+- **(b) Your personal account**, `<you>/macportsbrew`. Cost: the workspace
+  `repository`, README links and every `--signer-workflow` snippet change, and
+  DP-035's identifier should not then claim `io.github.macportsbrew`.
+- **(c) Another organisation name.** Same cost as (b).
+
+**Recommendation:** (a) if the name is free; decide it before DP-035, because
+the identifier follows it. **What it blocks:** creating the remote and the first
+tag. **Reversible default taken:** the workspace value, unchanged; nothing is
+published before you create the repository.
+
+**Owed once this is ruled** (2026-10-11, `spec-guardian` second review, B-L5):
+the release workflow's `sign` job gains `github.repository == '<owner>/<repo>'`
+in its `if:`, so a fork's copy of the workflow cannot reach the signing
+environment even by misconfiguration. It is a guarded workflow edit, made in
+the same change as the workspace `repository` field if that changes.
+
+- **Ruled 2026-10-16 by the owner, in a session:** (b). The repository is
+  `pabloguia/MacPortsBrew`, created public with `gh repo create` the same day.
+- **Propagated 2026-10-17:** the workspace `repository` field (`Cargo.toml`) now
+  names it; the staged release workflow's `sign` job carries
+  `github.repository == 'pabloguia/MacPortsBrew'` (the owed item above), in
+  `docs/passes/09-staged/workflows/release.yml`, which is staged material and not
+  yet a workflow; `docs/passes/09-staged/README.md` says the repository exists.
+  No README link named the old URL. **Not propagated, because it is still yours:**
+  DP-035's identifier, which is staged as `io.github.macportsbrew.macportsbrew`
+  and by this ruling should become `io.github.pabloguia.macportsbrew` or a name
+  under a domain you control.
+
+### DP-038 — Personal data in the history and in the fixtures, before the first push — **RESOLVED 2026-10-16: (a) published as is**
+
+Raised 2026-10-11 by `security-reviewer` (pre-release review, M2) and
+`docs-auditor` (M2). HEAD is clean of the maintainer's account name, but:
+
+- **Git history**: about 500 lines across eleven commits carry home-directory
+  paths and the machine's layout (tool directories, a LaunchAgents listing, a
+  download path). No secrets were found in history or at HEAD.
+- **Author identity**: every commit is authored with a personal e-mail address.
+- **Fixtures**: the committed recordings and the live snapshot carry this
+  machine's `PATH` entries (with the home shown as `~`) and its full package
+  list. The fixture README says this is deliberate; it is the owner's call to
+  make knowingly.
+
+Options: **(a)** publish as is; **(b)** before the first push, squash or
+`git filter-repo` the history and rewrite the author e-mail to a GitHub
+`noreply` address; **(c)** (b) plus re-deriving the fixtures with a generic
+`PATH` (a *derived* fixture, its edits listed in the note).
+
+**Recommendation:** (b) at least, because it cannot be undone after
+publication; (c) if the tool list is felt to be personal. **What it blocks:**
+the first push. **Reversible default taken:** nothing rewritten (rewriting
+history is the owner's act).
+
+- **Ruled 2026-10-16 by the owner, in a session:** (a). Asked before the first
+  push whether to publish the history as it stands or to review it first, the
+  owner chose to publish it as is, accepting what the entry above lists (home
+  paths in about eleven commits, the personal author e-mail, the fixtures'
+  `PATH` entries and package list). The history was pushed to the public
+  repository the same day, so (b) and (c) are no longer available without
+  rewriting a published history. No secret was found at the time of the review.
 
 ### DP-040 — Who reviews the Brazilian Portuguese catalogue, and whether it ships as is — **RESOLVED 2026-10-12: (a) ships as is, native review to follow**
 
