@@ -171,7 +171,6 @@ fn a_run_that_dispatched_no_mutation_is_never_recorded_as_a_partial_migration() 
         let record = RunRecord::new(start(), subject(), guarded_steps(), ending, None);
         assert!(!record.mutation_dispatched());
         assert_eq!(record.status(), RunStatus::NoChange);
-        assert_eq!(record.restorability(), Restorability::NothingToRestore);
     }
 }
 
@@ -246,23 +245,50 @@ fn whether_a_step_was_dispatched_is_fixed_by_its_result_where_the_result_says() 
 }
 
 #[test]
-fn restorability_never_claims_a_restore_this_build_does_not_have() {
-    assert_eq!(
-        Restorability::of(false, None),
-        Restorability::NothingToRestore
+fn a_record_stores_no_restorability_it_is_derived_when_read() {
+    // History schema 2: whether a run can be put back depends on a file that
+    // can disappear after the record was written, so the record cannot state it.
+    let record = RunRecord::new(
+        start(),
+        subject(),
+        mutating_steps(),
+        RunEnding::Halted {
+            step: 2,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
     );
-    assert_eq!(
-        Restorability::of(true, None),
-        Restorability::Not {
-            reason: NotRestorable::NoSnapshotTaken
-        }
-    );
-    assert_eq!(
-        Restorability::of(true, Some("/state/snapshots/a.json")),
-        Restorability::Not {
-            reason: NotRestorable::RestoreNotInThisBuild
-        }
-    );
+    let text = serde_json::to_string(&record).expect("serialises");
+    assert!(!text.contains("restorab"), "{text}");
+    assert_eq!(record.snapshot_path(), None);
+}
+
+#[test]
+fn the_derived_restorability_serialises_in_one_fixed_shape() {
+    for (value, expected) in [
+        (
+            Restorability::NothingToRestore,
+            r#"{"restorable":"NOTHING_TO_RESTORE"}"#,
+        ),
+        (
+            Restorability::FromSnapshot,
+            r#"{"restorable":"FROM_SNAPSHOT"}"#,
+        ),
+        (
+            Restorability::Partially {
+                reason: NotRestorable::OutcomeUncertain,
+            },
+            r#"{"restorable":"PARTIALLY","reason":"OUTCOME_UNCERTAIN"}"#,
+        ),
+        (
+            Restorability::Not {
+                reason: NotRestorable::RecordNotConfirmed,
+            },
+            r#"{"restorable":"NOT","reason":"RECORD_NOT_CONFIRMED"}"#,
+        ),
+    ] {
+        assert_eq!(serde_json::to_string(&value).unwrap(), expected);
+    }
 }
 
 #[test]
@@ -315,7 +341,6 @@ fn a_run_record_serialises_in_one_fixed_order() {
         "\"status\"",
         "\"mutationDispatched\"",
         "\"snapshotPath\"",
-        "\"restorability\"",
     ];
     let mut from = 0;
     for key in keys {
@@ -325,10 +350,6 @@ fn a_run_record_serialises_in_one_fixed_order() {
         from += at + key.len();
     }
     assert!(text.contains("\"status\":\"NO_CHANGE\""), "{text}");
-    assert!(
-        text.contains("\"restorable\":\"NOTHING_TO_RESTORE\""),
-        "{text}"
-    );
     assert!(
         text.contains("\"result\":\"NOT_DISPATCHED_MUTATING\""),
         "{text}"
@@ -366,4 +387,29 @@ fn a_completion_the_steps_do_not_bear_out_is_never_success() {
         None,
     );
     assert_eq!(done.status(), RunStatus::Success);
+}
+
+#[test]
+fn the_marker_gives_a_record_its_standing_and_an_unreadable_one_gives_none() {
+    use macportsbrew_domain::{MarkerState, RecordStanding};
+    let id = "20261004T120000Z-0123456789abcdef";
+    let other = "20261004T130000Z-0123456789abcdef";
+    assert_eq!(
+        MarkerState::Absent.standing_of(id),
+        RecordStanding::Confirmed
+    );
+    assert_eq!(
+        MarkerState::Names(id.into()).standing_of(id),
+        RecordStanding::Unconfirmed
+    );
+    // A marker that names another run says nothing against this record.
+    assert_eq!(
+        MarkerState::Names(other.into()).standing_of(id),
+        RecordStanding::Confirmed
+    );
+    // Fail closed: what cannot be read confirms nothing.
+    assert_eq!(
+        MarkerState::Unreadable.standing_of(id),
+        RecordStanding::Unknown
+    );
 }

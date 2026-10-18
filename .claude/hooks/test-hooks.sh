@@ -220,11 +220,20 @@ gate_in() {  # gate_in <dir> [env assignments...]
   printf '{"stop_hook_active":false}' \
     | env CLAUDE_PROJECT_DIR="$dir" "$@" "$HERE/stop-gate.sh" 2>&1
 }
+gate_rc_matches() {  # <rc> <want: 0|block> <output>
+  if [ "$2" = "block" ]; then
+    [ "$1" -eq 0 ] && printf '%s' "$3" | grep -q '"decision": "block"'
+  else
+    [ "$1" -eq "$2" ] && ! printf '%s' "$3" | grep -q '"decision": "block"'
+  fi
+}
 gate_case() {  # gate_case <label> <expected rc> <needle> <dir> [env...]
   local label="$1" want="$2" needle="$3"; shift 3
   local out rc
   out="$(gate_in "$@")"; rc=$?
-  if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -q "$needle"; then
+  # A block is exit 0 with a decision object on stdout (the documented form);
+  # `want=block` asks for that, `want=0` for a pass or a warning.
+  if gate_rc_matches "$rc" "$want" "$out" && printf '%s' "$out" | grep -q "$needle"; then
     pass=$((pass + 1))
   else
     failures+=("$label: expected rc=$want and \"$needle\", got rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)")
@@ -238,7 +247,7 @@ nohome="$(mktemp -d)"
 # 1. No toolchain, and this turn touched code. The checks did not run, which is
 #    not the same as passing.
 d="$(scratch_repo)"; : > "$d/crates/changed.rs"
-gate_case "stop gate fails when code changed and cargo is absent" 2 \
+gate_case "stop gate fails when code changed and cargo is absent" block \
   "cargo is not on PATH, and this turn" "$d" PATH=/usr/bin:/bin HOME="$nohome"
 rm -rf "$d"
 
@@ -247,7 +256,7 @@ rm -rf "$d"
 d="$(scratch_repo)"; : > "$d/crates/changed.rs"
 git -C "$d" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
 git -C "$d" -c user.email=t@t -c user.name=t commit -qm work >/dev/null 2>&1
-gate_case "stop gate sees a change committed mid-turn" 2 \
+gate_case "stop gate sees a change committed mid-turn" block \
   "cargo is not on PATH, and this turn" "$d" PATH=/usr/bin:/bin HOME="$nohome"
 rm -rf "$d"
 
@@ -258,14 +267,14 @@ gate_case "stop gate warns when nothing changed and cargo is absent" 0 \
   "do not report anything as verified" "$d" PATH=/usr/bin:/bin HOME="$nohome"
 
 # 4. And an explicit request for the tests is not answered with a warning.
-gate_case "stop gate honours MPB_GATE_FULL when cargo is absent" 2 \
+gate_case "stop gate honours MPB_GATE_FULL when cargo is absent" block \
   "cargo is not on PATH" "$d" PATH=/usr/bin:/bin HOME="$nohome" MPB_GATE_FULL=1
 rm -rf "$d"
 rm -rf "$nohome"
 
 # 5. The one implementation of "valid" is not runnable: fail rather than skip.
 d="$(scratch_repo)"; chmod -x "$d/scripts/validate.sh"
-gate_case "stop gate fails when validate.sh is not executable" 2 \
+gate_case "stop gate fails when validate.sh is not executable" block \
   "not executable" "$d"
 rm -rf "$d"
 broken="$(mktemp -d)"
@@ -273,7 +282,7 @@ mkdir -p "$broken/.claude" "$broken/docs"
 printf 'see [missing](nowhere.md)\n' > "$broken/docs/broken.md"
 out="$(printf '{"stop_hook_active":true}' | CLAUDE_PROJECT_DIR="$broken" MPB_SKIP_STOP_GATE=0 "$HERE/stop-gate.sh" 2>&1)"
 rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'Broken link' && printf '%s' "$out" | grep -q 'repeated block'; then
+if gate_rc_matches "$rc" block "$out" && printf '%s' "$out" | grep -q 'Broken link' && printf '%s' "$out" | grep -q 'repeated block'; then
   pass=$((pass + 1))
 else
   failures+=("stop gate blocks a broken tree and names re-entry: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)")
@@ -291,7 +300,7 @@ boundary_case() {  # <label> <expected rc> <grep-needle-or-empty>
   local label="$1" want="$2" needle="$3" out rc
   out="$(printf '{}' | CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"
   rc=$?
-  if [ "$rc" -eq "$want" ] && { [ -z "$needle" ] || printf '%s' "$out" | grep -q "$needle"; }; then
+  if gate_rc_matches "$rc" "$want" "$out" && { [ -z "$needle" ] || printf '%s' "$out" | grep -q "$needle"; }; then
     pass=$((pass + 1))
   else
     failures+=("boundary: $label: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)")
@@ -300,29 +309,29 @@ boundary_case() {  # <label> <expected rc> <grep-needle-or-empty>
 boundary="$(mktemp -d)"
 mkdir -p "$boundary/src/application" "$boundary/src/tests" "$boundary/tests"
 printf 'let step = "%s";\n' "$INST" > "$boundary/src/application/planner.rs"
-boundary_case "literal in src/application/planner.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in src/application/planner.rs blocks" block 'mutating subcommand literal'
 printf '// the plan may say "%s" in a comment\n' "$INST" > "$boundary/src/application/planner.rs"
 printf 'let s = "%s";\n' "$INST" > "$boundary/tests/fixture.rs"
 boundary_case "comment and top-level tests/ do not block" 0 ''
 printf 'let s = "%s";\n' "$INST" > "$boundary/src/tests/live.rs"
-boundary_case "literal under src/tests/ still blocks" 2 'mutating subcommand literal'
+boundary_case "literal under src/tests/ still blocks" block 'mutating subcommand literal'
 rm -f "$boundary/src/tests/live.rs"
 printf 'let s = "brew %s jq";\n' "$INST" > "$boundary/src/application/exec.rs"
-boundary_case "literal inside a longer string blocks" 2 'mutating subcommand literal'
+boundary_case "literal inside a longer string blocks" block 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/build.rs"
-boundary_case "literal in build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in build.rs blocks" block 'mutating subcommand literal'
 rm -f "$boundary/build.rs"
 printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/src/application/exec.rs"
-boundary_case "elevation token in code blocks" 2 'INV-06'
+boundary_case "elevation token in code blocks" block 'INV-06'
 printf 'fn f() {}\n' > "$boundary/src/application/exec.rs"
 # The workspace layout: one crate per layer under crates/<layer>/src.
 mkdir -p "$boundary/crates/domain/src"
 printf 'let s = "%s";\n' "$INST" > "$boundary/crates/domain/src/plan.rs"
-boundary_case "literal under crates/*/src blocks" 2 'mutating subcommand literal'
+boundary_case "literal under crates/*/src blocks" block 'mutating subcommand literal'
 printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
-boundary_case "literal in a crate build.rs blocks" 2 'mutating subcommand literal'
+boundary_case "literal in a crate build.rs blocks" block 'mutating subcommand literal'
 rm -rf "$boundary"
 
 # --- cases added after the 2026-09-05 security review ------------------------

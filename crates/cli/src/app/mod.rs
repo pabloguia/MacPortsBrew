@@ -7,8 +7,11 @@
 //! JSON goes to stdout and nothing else does; notices go to stderr.
 
 mod context;
+mod history;
 mod human;
+mod interrupted;
 mod migrate;
+mod restore;
 pub mod version;
 
 use crate::i18n::Messages;
@@ -145,11 +148,55 @@ pub enum Command {
         #[arg(long)]
         deep: bool,
     },
+    /// The runs this MacPortsBrew has made, newest first; `history show <id>`
+    /// shows one. Reads only, and only this machine's own state directory.
+    History {
+        /// What to show; without one, the list.
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+        /// How many runs to list, at most 200.
+        #[arg(long, default_value_t = history::DEFAULT_LIMIT,
+              value_parser = clap::value_parser!(u16).range(1..=i64::from(history::MAX_LIMIT)))]
+        limit: u16,
+    },
+    /// The plan that puts back what one run changed (`--plan --run <id>`).
+    /// Nothing is executed in this build; without `--plan` the plan is put to
+    /// the execution gate, which refuses it.
+    Restore {
+        /// Show the plan and run nothing.
+        #[arg(long)]
+        plan: bool,
+        /// The run to put back, by the id `history` lists.
+        #[arg(long, value_name = "ID", conflicts_with = "snapshot")]
+        run: Option<String>,
+        /// Reinstall what a snapshot has and the machine lacks (not in this
+        /// build).
+        #[arg(long, value_name = "FILE")]
+        snapshot: Option<PathBuf>,
+    },
     /// Capture both providers' state to a snapshot file.
     Snapshot {
         /// Where to write; defaults to the state directory.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
+    },
+}
+
+/// What `history` can show.
+#[derive(Subcommand, Debug)]
+pub enum HistoryAction {
+    /// One run: its steps, its snapshot, and whether it can be put back.
+    Show {
+        /// The run's id, as `history` lists it.
+        id: String,
+    },
+    /// Deal with the interrupted-run marker a run left. Without `--yes` it
+    /// shows what it knows and what it would do, and changes nothing; with
+    /// `--yes` it makes the run's record durable, checks it reads back, and
+    /// removes the marker.
+    Acknowledge {
+        /// The run the marker names.
+        id: String,
     },
 }
 
@@ -260,6 +307,26 @@ fn run_inner(
         && cli.from_snapshot.is_some()
     {
         return Err(migrate::refuse_execution_from_a_snapshot_file());
+    }
+    // `history` reads this machine's own state directory and asks no provider,
+    // so it takes no capture and builds no `Context`.
+    if let Some(Command::History { action, limit }) = &cli.command {
+        let request = match action {
+            Some(HistoryAction::Show { id }) => history::Request::Show { id },
+            Some(HistoryAction::Acknowledge { id }) => history::Request::Acknowledge {
+                id,
+                execute: cli.yes && !cli.dry_run,
+            },
+            None => history::Request::List {
+                limit: usize::from(*limit),
+            },
+        };
+        return history::run(cli, &request, stdout);
+    }
+    // The scope and the arguments of `restore` are refused before a capture is
+    // taken or a state directory is resolved.
+    if let Some(Command::Restore { run, snapshot, .. }) = &cli.command {
+        restore::refuse_before_context(cli, run.as_deref(), snapshot.as_deref())?;
     }
     let ctx = Context::build(cli, stderr)?;
     if !root_checked {
@@ -413,8 +480,11 @@ fn run_inner(
                     ctx.messages.render_id("doctor.deep_not_in_this_build")
                 );
             }
+            // The state directory is looked at here, by the shell, and handed in:
+            // `doctor` itself stays a pure function of the snapshot and the policy.
             let doc: DoctorReport =
-                macportsbrew_application::doctor(&ctx.snapshot, &ctx.policy, &ctx.today);
+                macportsbrew_application::doctor(&ctx.snapshot, &ctx.policy, &ctx.today)
+                    .with_run_finding(&interrupted::gather(&ctx));
             if let Some(path) = report {
                 let written = context::write_diagnostic_report(&ctx, &doc, path)?;
                 let _ = writeln!(
@@ -449,6 +519,16 @@ fn run_inner(
                 Severity::Warning | Severity::Ok => 0,
             })
         }
+        Command::History { .. } => unreachable!("`history` returns before a context is built"),
+        Command::Restore { plan, run, .. } => restore::restore(
+            &ctx,
+            cli,
+            *plan,
+            run.as_deref()
+                .ok_or_else(|| DomainError::new(ErrorId::Usage, "restore needs --run <id>"))?,
+            &options(BTreeSet::new()),
+            stdout,
+        ),
         Command::Snapshot { out } => {
             let path = context::save_snapshot(&ctx, out.as_deref())?;
             let _ = writeln!(
@@ -509,6 +589,31 @@ mod tests {
         assert!(refuse_if_root(Some(501)).expect("an ordinary user runs"));
         // A user that could not be learned is "not checked", never "passed".
         assert!(!refuse_if_root(None).expect("not a refusal"));
+    }
+
+    #[test]
+    fn invariant_06_history_restore_and_acknowledge_refuse_root() {
+        // `history` skips the capture, so it must not skip the refusal: both
+        // commands read a state directory a root-run process would read as root.
+        let source = include_str!("mod.rs");
+        let source = source.split("#[cfg(test)]").next().unwrap();
+        let body = &source[source.find("fn run_inner(").expect("run_inner")..];
+        let root = body.find("refuse_if_root(").expect("the root refusal");
+        let history = body.find("history::run(").expect("the history command");
+        assert!(
+            root < history,
+            "history would be read before the root check"
+        );
+        // `restore` comes after it too: the refusal precedes the restore
+        // arguments and any context.
+        let restore = body
+            .find("restore::refuse_before_context(")
+            .expect("restore");
+        let context = body.find("Context::build(").expect("the context");
+        assert!(
+            root < restore && root < context,
+            "a command would run before the root check"
+        );
     }
 
     #[test]

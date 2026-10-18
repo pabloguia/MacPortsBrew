@@ -45,7 +45,7 @@
 
 use super::context::{Context, HistoryScope};
 use super::{human, json, Cli};
-use crate::executor::{self, RunReport, SiteRefusalKind};
+use crate::executor::{self, RunReceipt, RunReport, SiteRefusalKind};
 use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
@@ -156,6 +156,7 @@ struct NotRecognisedDoc<'a> {
 /// Exhaustive: a new reason is a compile error here, not a silent gap.
 fn not_recognised(why: &NotRecognised) -> NotRecognisedDoc<'_> {
     let (reason, run_id) = match why {
+        NotRecognised::RecordNotConfirmed { run_id } => ("RECORD_NOT_CONFIRMED", Some(run_id)),
         NotRecognised::LatestRunNotSuccess { run_id } => ("LATEST_RUN_NOT_SUCCESS", Some(run_id)),
         NotRecognised::LatestRunRemovedSource { run_id } => {
             ("LATEST_RUN_REMOVED_SOURCE", Some(run_id))
@@ -184,7 +185,7 @@ fn read_history(ctx: &Context, key: &MigrationKey) -> Result<HistoryView, Domain
 /// read once (slice 4 review, L2). A user this process cannot name refuses:
 /// history cannot be checked, and a run that changes the machine never starts
 /// without knowing who it runs as (S8 item 6; `refuse_if_root`).
-fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainError> {
+pub(super) fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainError> {
     let state = StateDir::resolve(ctx.home.as_deref(), ctx.state_override.as_deref())?;
     let euid = effective_uid().ok_or_else(|| {
         DomainError::new(
@@ -270,6 +271,7 @@ fn execute_mutating(
             site: &executor::NotInThisBuild,
             recapture,
             reread: &reread,
+            read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
         },
         &ctx.redaction,
@@ -280,7 +282,7 @@ fn execute_mutating(
 /// no raw plan text — the gate's and the site's refusals arrive cleaned.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Execution<'a> {
+pub(super) struct Execution<'a> {
     outcome: &'a RunOutcome,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     steps: &'a [StepRecord],
@@ -295,6 +297,11 @@ struct Execution<'a> {
     /// review, N10): the next run refuses until it is dealt with.
     #[serde(skip_serializing_if = "Option::is_none")]
     marker_left: Option<&'a str>,
+    /// The run's id, the snapshot it took first and how its record's read-back
+    /// went (pass 08 slice 5, D16): what a run that handed a mutating step over
+    /// is found by afterwards. Each is left out when there is nothing to say.
+    #[serde(flatten)]
+    receipt: &'a RunReceipt,
 }
 
 #[derive(Serialize)]
@@ -306,7 +313,7 @@ struct SiteRefusal<'a> {
     values: &'a BTreeMap<&'static str, String>,
 }
 
-fn execution(report: &RunReport) -> Execution<'_> {
+pub(super) fn execution(report: &RunReport) -> Execution<'_> {
     Execution {
         outcome: &report.outcome,
         steps: &report.records,
@@ -318,6 +325,7 @@ fn execution(report: &RunReport) -> Execution<'_> {
         }),
         history_error: report.history_error,
         marker_left: report.marker_left.as_deref(),
+        receipt: &report.receipt,
     }
 }
 

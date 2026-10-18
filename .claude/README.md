@@ -8,7 +8,7 @@ two disagree, the specification wins and this file is the bug.
 
 **Tooling facts here were verified against Anthropic's Claude Code
 documentation on 2026-09-02, re-verified at the start of the Foundation Pass
-the same day, and most recently on 2026-10-10, every group** — the pages `/tooling-recheck` names; the notes
+the same day, and most recently on 2026-10-17, every group** — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 

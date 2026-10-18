@@ -5,8 +5,12 @@
 #
 # Anthropic's own guidance for agentic coding is "give Claude a way to check its
 # work". Prose in a prompt is not a way; a hook that refuses to let the turn end
-# is. Exit 2 blocks the stop and hands the reason back to the agent, which then
-# fixes the problem instead of reporting success.
+# is. A block hands the reason back to the agent, which then fixes the problem
+# instead of reporting success. The form is the documented one: exit 0 with
+# {"decision":"block","reason":...} on stdout. (Exit 2 with the reason on stderr
+# was used before 2026-10-18; a stderr text that reads like a missing-file
+# report is treated as a non-blocking error, and compiler output often does.)
+# The reason is also written to stderr, for the log.
 #
 # Rules for what belongs here:
 #   - Only objective, machine-checkable failures block. Judgement calls warn.
@@ -28,6 +32,10 @@
 set -uo pipefail
 # shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+# lib.sh sets -e. This gate collects failures and decides at the end, and an
+# unexpected failing command under -e would exit 1, which is a non-blocking
+# status: the turn would end unchecked (tooling recheck 2026-10-18, item 5).
+set +e
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 # Fail closed. This used to be `|| exit 0`, which meant a bad CLAUDE_PROJECT_DIR
@@ -36,7 +44,8 @@ ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 if ! cd "$ROOT"; then
   echo "MacPortsBrew stop gate: cannot enter '$ROOT', so no check ran. That is not" >&2
   echo "the same as passing. Fix CLAUDE_PROJECT_DIR and try again." >&2
-  exit 2
+  mpb_block "MacPortsBrew stop gate: cannot enter '$ROOT', so no check ran. That is not the same as passing. Fix CLAUDE_PROJECT_DIR and try again."
+  exit 0
 fi
 
 # The escape hatch leaves a trace. It is legitimate - a gate with none gets
@@ -238,7 +247,10 @@ if [ ${#fail[@]} -gt 0 ]; then
   if [ "$REENTRY" = "true" ]; then
     printf 'This is a repeated block. Claude Code ends the turn anyway after %s consecutive blocks; a turn that ends that way has ended with the gate failing, and the report must say so.\n' "${CLAUDE_CODE_STOP_HOOK_BLOCK_CAP:-8}" >&2
   fi
-  exit 2
+  reason="$(printf 'MacPortsBrew stop gate - the turn cannot end with these unresolved:\n'; printf '  %s\n' "${fail[@]}"; printf 'Fix them, or explain in your report why each is acceptable and rerun with MPB_SKIP_STOP_GATE=1.\n')"
+  [ "$REENTRY" = "true" ] && reason="$reason"$'\n'"This is a repeated block; Claude Code ends the turn anyway after ${CLAUDE_CODE_STOP_HOOK_BLOCK_CAP:-8} consecutive blocks, and the report must say so."
+  mpb_block "$reason"
+  exit 0
 fi
 
 # Warnings must not prolong the turn (additionalContext on Stop would), so

@@ -32,7 +32,10 @@ settings group and the subagents and skills group re-read **2026-10-02**
 (`docs/research/tooling/2026-10-02-*.md`), and all three groups re-read
 **2026-10-03** at the start of pass 07 (`docs/research/tooling/2026-10-03-*.md`;
 what they found and what was left is in that pass's report), and all three
-groups re-read **2026-10-10** (`docs/research/tooling/2026-10-10-*.md`). The
+groups re-read **2026-10-10** (`docs/research/tooling/2026-10-10-*.md`), and
+again **2026-10-17** at the start of pass 08 slice 5
+(`docs/research/tooling/2026-10-17-*.md`; its findings sit in guarded paths and
+wait for the owner, SE-027). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

@@ -248,3 +248,19 @@ fn a_state_directory_that_cannot_be_made_whole_is_a_refusal_that_changed_nothing
     );
     std::fs::remove_dir_all(&base).ok();
 }
+
+#[test]
+fn the_probe_never_follows_a_symbolic_reference_in_place_of_the_lock_file() {
+    let (base, state) = scratch("probe-reference");
+    let uid = euid(&base);
+    drop(acquire(&state, uid).unwrap());
+    let target = base.join("elsewhere");
+    std::fs::write(&target, b"").unwrap();
+    std::fs::remove_file(lock_path(&state)).unwrap();
+    std::os::unix::fs::symlink(&target, lock_path(&state)).unwrap();
+    assert_eq!(
+        macportsbrew_adapters::persistence::run_lock::probe(&state, uid),
+        macportsbrew_adapters::persistence::run_lock::LockProbe::Untestable
+    );
+    std::fs::remove_dir_all(&base).ok();
+}

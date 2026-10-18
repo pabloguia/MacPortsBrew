@@ -71,6 +71,16 @@ pub enum ErrorId {
     /// capture. Exit 8, the category "8 stale/unusable input": a record that
     /// cannot be trusted is never read as "no record" (fail closed).
     HistoryUnusable,
+    /// There is no record of the run asked for (`history show <id>`, `restore
+    /// --run <id>`, `history acknowledge <id>`): the id is a run id, and
+    /// nothing in this state directory has that name (pass 08 slice 5).
+    ///
+    /// Separate from [`ErrorId::HistoryUnusable`] so a store that cannot be
+    /// read is never reported as a run that is not there, and from
+    /// [`ErrorId::Usage`] so an id that is not a run id keeps its own answer.
+    /// Exit 8, "stale or unusable input": the id names a record that is gone,
+    /// or was never made on this machine or in this state directory.
+    RunNotFound,
     /// Another MacPortsBrew run holds the single-instance lock
     /// (`04-migration-and-safety.md`, Concurrency and locking). Exit 7, "lock
     /// held by another instance". No process is named: none is recorded, and
@@ -134,7 +144,8 @@ impl ErrorId {
             | ErrorId::RecordingUnusable
             | ErrorId::InputUnusable
             | ErrorId::PolicyDataInvalid
-            | ErrorId::HistoryUnusable => 8,
+            | ErrorId::HistoryUnusable
+            | ErrorId::RunNotFound => 8,
             ErrorId::PackageNotFound
             | ErrorId::NotImplementedInThisPass
             | ErrorId::Io
@@ -157,6 +168,7 @@ impl ErrorId {
             ErrorId::InputUnusable => "error.input_unusable",
             ErrorId::PolicyDataInvalid => "error.policy_data_invalid",
             ErrorId::HistoryUnusable => "error.history_unusable",
+            ErrorId::RunNotFound => "error.run_not_found",
             ErrorId::RunLockHeld => "error.run_lock_held",
             ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
@@ -183,6 +195,7 @@ impl ErrorId {
             ErrorId::InputUnusable,
             ErrorId::PolicyDataInvalid,
             ErrorId::HistoryUnusable,
+            ErrorId::RunNotFound,
             ErrorId::RunLockHeld,
             ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
@@ -253,6 +266,9 @@ mod tests {
         // And the history store's: an untrusted record is unusable input,
         // never "no record" (pass 08).
         assert_eq!(ErrorId::HistoryUnusable.exit_code(), 8);
+        // A run id with no record is unusable input too, and is not the store
+        // being unreadable (pass 08 slice 5).
+        assert_eq!(ErrorId::RunNotFound.exit_code(), 8);
         assert_eq!(ErrorId::RunLockHeld.exit_code(), 7);
         assert_eq!(ErrorId::RunInterrupted.exit_code(), 4);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
@@ -288,7 +304,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 20;
+    const NUMBER_OF_ERROR_IDS: usize = 21;
 
     #[test]
     fn every_id_has_a_distinct_message() {

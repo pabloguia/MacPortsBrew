@@ -1,4 +1,9 @@
-# `interrupted-run` marker schema, version 1
+# `interrupted-run` marker schema, version 1 — superseded, never written
+
+> **Superseded by [version 2](run-marker.v2.md) in pass 08 slice 5, before any
+> build wrote a version 1 marker.** The reader refuses a version 1 file
+> (`HISTORY_UNUSABLE`). Kept beside its successor as the compatibility rule asks
+> ([`README.md`](README.md)).
 
 The file a mutating run leaves in the state root, `interrupted-run.json`, from
 just before its first provider change until its record is published
@@ -56,13 +61,7 @@ authority.
 - **Never as root**, and never under `--replay` or `--from-snapshot` (INV-15):
   the lock refuses euid 0, and every marker function takes the lock.
 
-## Clearing a stranded marker by hand
+## Clearing a stranded marker
 
-Until `history` and `restore` exist (pass 08, item 7), the remedy is the user's
-own act: check whether the history holds a record for the named run; if not,
-look at what that run changed; then, **only when no other MacPortsBrew run is
-active**, remove the single file `interrupted-run.json` from the state directory
-(`MACPORTSBREW_STATE_DIR`, or `Application Support/macportsbrew` under the
-user's Library). The remedy text names the file and the directory separately,
-because the default path contains a space. If you are unsure whether another
-run is active, wait for any other MacPortsBrew window to finish first.
+Superseded: `macportsbrew history acknowledge <id> --yes` is the way, and nothing
+is removed by hand (see [`run-marker.v2.md`](run-marker.v2.md)).

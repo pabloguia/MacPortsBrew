@@ -914,3 +914,114 @@ fn fewer_than_two_present_providers_have_no_pair_to_report() {
         "a broken provider is reported as broken, not as an intruder"
     );
 }
+
+mod interrupted_run {
+    //! The `interrupted_run` finding (pass 08 slice 5, D12, D14): one reason per
+    //! state, and a stranded run is a warning, never an error.
+
+    use macportsbrew_application::{interrupted_run_finding, RunFacts, Severity, StrandedRecord};
+
+    fn stranded(record: StrandedRecord) -> RunFacts {
+        RunFacts::Stranded {
+            run_id: "20261003T120000Z-00000000000000aa".into(),
+            snapshot_file: Some("snapshot-20261003T120000Z.json".into()),
+            record,
+        }
+    }
+
+    fn id_and_severity(facts: &RunFacts) -> (String, Severity) {
+        let finding = interrupted_run_finding(facts);
+        assert_eq!(finding.id, "interrupted_run");
+        (finding.reason.id.as_str().to_owned(), finding.severity)
+    }
+
+    #[test]
+    fn every_state_has_its_own_reason_and_only_the_quiet_ones_are_ok() {
+        for (facts, reason, severity) in [
+            (
+                RunFacts::NotChecked,
+                "doctor.interrupted_run_not_checked",
+                Severity::Ok,
+            ),
+            (
+                RunFacts::NoMarker,
+                "doctor.interrupted_run_none",
+                Severity::Ok,
+            ),
+            (
+                RunFacts::InProgress,
+                "doctor.interrupted_run_in_progress",
+                Severity::Warning,
+            ),
+            (
+                RunFacts::PossiblyInProgress,
+                "doctor.interrupted_run_possibly_in_progress",
+                Severity::Warning,
+            ),
+            (
+                RunFacts::MarkerUnreadable,
+                "doctor.interrupted_run_marker_unreadable",
+                Severity::Warning,
+            ),
+            (
+                stranded(StrandedRecord::None),
+                "doctor.interrupted_run_started_not_recorded",
+                Severity::Warning,
+            ),
+            (
+                stranded(StrandedRecord::Unconfirmed {
+                    changed: vec!["ADD_DESTINATION".into()],
+                }),
+                "doctor.interrupted_run_recorded_not_confirmed",
+                Severity::Warning,
+            ),
+            (
+                stranded(StrandedRecord::Unreadable),
+                "doctor.interrupted_run_recorded_unreadable",
+                Severity::Warning,
+            ),
+        ] {
+            assert_eq!(id_and_severity(&facts), (reason.to_owned(), severity));
+        }
+    }
+
+    #[test]
+    fn a_stranded_run_names_itself_its_snapshot_and_what_it_changed() {
+        let finding = interrupted_run_finding(&stranded(StrandedRecord::Unconfirmed {
+            changed: vec!["ADD_DESTINATION".into(), "REMOVE_SOURCE".into()],
+        }));
+        let params = &finding.reason.params;
+        assert_eq!(params["run_id"], "20261003T120000Z-00000000000000aa");
+        assert_eq!(params["snapshot"], "snapshot-20261003T120000Z.json");
+        assert_eq!(params["changed"], "ADD_DESTINATION, REMOVE_SOURCE");
+        // A marker that names no snapshot says so rather than inventing one.
+        let none = interrupted_run_finding(&RunFacts::Stranded {
+            run_id: "20261003T120000Z-00000000000000aa".into(),
+            snapshot_file: None,
+            record: StrandedRecord::None,
+        });
+        assert_eq!(none.reason.params["snapshot"], "none");
+    }
+
+    #[test]
+    fn the_finding_is_placed_by_severity_and_changes_nothing_else() {
+        use macportsbrew_application::doctor;
+        let policy = macportsbrew_policy::PolicyData::load_embedded().unwrap();
+        let snapshot = super::snapshot(super::Architecture::Arm64, super::installed(), &[], vec![]);
+        let plain = doctor(&snapshot, &policy, "2026-10-04");
+        let with = plain
+            .clone()
+            .with_run_finding(&stranded(StrandedRecord::None));
+        assert_eq!(with.findings.len(), plain.findings.len() + 1);
+        assert_eq!(with.findings[0].id, "interrupted_run");
+        let rest: Vec<_> = with
+            .findings
+            .iter()
+            .filter(|f| f.id != "interrupted_run")
+            .cloned()
+            .collect();
+        let mut original = plain.findings.clone();
+        original.retain(|f| f.id != "interrupted_run");
+        assert_eq!(rest, original);
+    }
+}

@@ -2697,6 +2697,22 @@ change is made. Silent deviation remains the one unrecoverable error.
   wording check of the recipes is owed, in a guarded path), and a skill
   `disallowed-tools` field now exists. Nothing under `.claude/` changed
   (`research/tooling/2026-10-02-subagents-skills.md`).
+- **Refined 2026-10-17 (pass 08 slice 5, `/tooling-recheck`, all three
+  groups).** Contract mismatches found and **not fixed here, because every file
+  involved is a guarded path** (the owner's to arm): `lib.sh`'s `set -e` turns
+  errexit on in `stop-gate.sh` and `post-edit-checks.sh`, so an unexpected
+  failure there exits 1, which the documentation treats as non-blocking (the
+  turn ends unblocked); `stop-gate.sh` blocks with exit 2 and stderr, which the
+  documentation can misread as a non-blocking "file missing" error, where
+  `{"decision":"block"}` on stdout is the documented form; the review workflow
+  lacks `claude.yml`'s `--disallowedTools` and hook-skip flags; the armed
+  guard-edit window ends early on `/clear` or compaction. Wording only: the
+  `git push` row in `11-agentic-sdlc.md` (a hook enforces it, not a rule), the
+  seven bare-command duplicates in `settings.json`, the `Bash(cargo test:*)`
+  spelling in seven skills, and `CLAUDE.md`'s claim that a shell reader loads no
+  path-scoped rule (a single-file Bash read can). Nothing under `.claude/` or
+  `.github/` changed. The ranked list is in the pass report
+  (`research/tooling/2026-10-17-*.md`).
 - Deliberately deferred: the contributor recipes named in
   `08-distribution-and-project.md` are not written. A skill for a procedure
   that does not exist reads as authoritative and is wrong in ways nobody
@@ -6946,14 +6962,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   way out is an owner decision (a reviewed exception in that guard for one
   fixed test helper, or an `unsafe` allowance in a single test crate), recorded
   in `docs/decisions-pending.md` as DP-029.
-  **Provisional**:
-  `RECORD_HISTORY` is stored as `VERIFIED` in a successful record, which has
-  the record certify its own write, against the plan; the representation is
-  settled before any **shipped** build writes records (a pending result judged
-  on read-back, or a revised v1). *Amended by slice 4 (D9):* the write call
-  landed there behind a switch no shipped build turns on, so the representation
-  is settled before the switch is turned on — with slice 5's read-back, which
-  judging the step needs — and a flip tripwire enforces it.
+  **Provisional — settled by slice 5 (D3, D4, 2026-10-18):**
+  `RECORD_HISTORY` was stored as `VERIFIED` in a successful record, which has
+  the record certify its own write, against the plan. It is now stored
+  `RECORD_PENDING_READ_BACK` in history schema 2, and the record is confirmed by
+  a read-back under the run lock and by the marker being cleared (see the
+  slice 5 entry below). *Amended by slice 4 (D9):* the write call landed behind
+  a switch no shipped build turns on; the flip tripwire enforcing the
+  representation became a positive check in slice 5.
 - **Slice 2 (pass 08, 2026-10-05): the lock and the marker.** Plan, with both
   reviews folded in: `docs/passes/08-slice-2-plan.md`. Decisions (Tier 3):
   **D-L1** exclusive advisory `try_lock` on `<state root>/run.lock`, held for the
@@ -7167,6 +7183,159 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   dependency); a configuration token that records the program it was
   re-read under (the future site would compare it); the human report naming
   the snapshot path when a record is not written (no snapshot is taken yet).
+- **Slice 5 (pass 08, 2026-10-18): the brackets performed, `history`, `restore
+  --plan` and the stranded marker.** Plan, with `spec-guardian` and
+  `security-reviewer` read before any code: `docs/passes/08-slice-5-plan.md`
+  (§7 records each finding). **Parts A, B, C and D (this entry grows with each part).**
+  Decisions (Tier 3):
+  - **D1 — the snapshot is the capture taken under the lock.** The work order
+    says "`before()`, the capture taken under the lock"; those are two captures,
+    and the run writes the second (`now`, proved by `plan_still_holds` to plan
+    identically): nearest the instant before the first change, already in hand,
+    so not a third capture. It is published with `write_new_durable` (a link
+    that never replaces; a same-second collision refuses before anything
+    changes), into `<state>/snapshots/snapshot-<stamp>.json` — the existing
+    grammar, because a run id contains `-` and widening a grammar a reader
+    trusts is a trust-boundary change for no gain — and **read back through
+    `state_snapshot` before the marker is written**, so a run never changes
+    the machine behind a snapshot its own reader refuses. Automatic snapshots
+    are never pruned. `capturedAt` is the process start (`Context::recapture`
+    stamps with `started_at`), which is what ties file to run.
+  - **D2 — the brackets are actions.** `next_action_with` answers
+    `TakeSnapshot`/`RecordHistory` only under an allowance (the read-only loop
+    still passes both over); `mutating_action` refuses a dispatch unless the
+    snapshot step was recorded taken. `SnapshotTaken` and `RecordPendingReadBack`
+    both count as carried out in `outcome_of`, the one function that computes
+    the stored ending and the in-memory outcome. A write or read-back that
+    fails does not change the outcome; it turns a 0 into `IO`, as slice 4 D8
+    said. The comparison is `application::history::read_back_matches` over
+    canonical text; the shell performs the I/O through a `ReadBack` seam.
+  - **D3 — a record never certifies its own write; standing.** Stored
+    `RECORD_PENDING_READ_BACK`. The marker is cleared only when `write_record`
+    returned `Ok` (durable) **and** the read-back matches; after an `Err` or
+    `Exists` nothing is read back. A record is `CONFIRMED` (no marker names it),
+    `UNCONFIRMED` (the marker names it) or `UNKNOWN` (the marker is unreadable);
+    `recognise_retained_run` recognises only `CONFIRMED` — a re-run never exits
+    0 on a record not known to be durable (04), found by the security review as
+    its highest finding and closed here. `marker_left` is set only if a marker
+    was written.
+  - **D4 — `history.v2`, `run-marker.v2`.** Version 1 of each was never written
+    by any build. History v2 adds `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK`,
+    drops the stored `restorability` (derived on read), and `from_stored`
+    refuses a `VERIFIED` `RECORD_HISTORY`, a mutating record without a snapshot
+    taken and the reverse. Marker v2 names the snapshot the run took first
+    (`snapshotFile`), the one trace of a run that never records itself. Each
+    reader refuses the other version.
+  - **D6 — the flip tripwire is positive.**
+    `the_switch_needs_snapshot_before_and_record_history_performed` now checks,
+    in the one shell file that takes the lock, that the snapshot step comes
+    before the marker is written and the read-back after the record write and
+    before the clear, and that the application answers the two actions; it
+    fails on a regression, and its self-tests break each part.
+  - **D7 — `history` and `history show <id>` are reads of the state
+    directory and nothing else.** They build no capture (there is no provider to
+    ask), create nothing, and are refused first — before the state directory is
+    resolved — under `--replay` and `--from-snapshot` (INV-15: an exported
+    `MACPORTSBREW_STATE_DIR` must not make a recording read the real store), and
+    as root (INV-06; `run_inner`'s refusal comes before the command, held by a
+    source-order test). An unusable record in the page fails the command naming
+    its file (`HISTORY_UNUSABLE`); a list that skipped it would say a run did
+    not happen. `--limit` is 1 to 200 (a usage error outside it). A run id is
+    checked against the grammar before it becomes a path (usage, exit 2); a
+    well-formed id with no record is the new `RUN_NOT_FOUND` (exit 8, an
+    existing code), so the remedy is `history`, not "the store is damaged".
+    `history-list.v1` and `history-show.v1` are new documents; the second wraps
+    the `history.v2` record unchanged. The list looks at a snapshot by file
+    details alone and says so (`snapshotChecked: METADATA`); `show` reads it
+    (`PARSED`).
+  - **D8 — restorability is derived, in a stated order** (`application::history::
+    restorability`, pure): nothing dispatched; record not confirmed or standing
+    unknown; no snapshot named; snapshot missing, unreadable, or not this run's
+    (its `capturedAt` is not the record's `startedAt`); a dispatched mutating
+    command without a known exit 0 (partly); otherwise `FROM_SNAPSHOT`, never
+    "fully" (04: undo must not read as more reversible than it is). Partly and
+    from-snapshot both still produce a plan (Part C). **Declared against 04:**
+    the MUST that an unavailable restore artifact becomes a `MANUAL_REVIEW` step
+    is unmet for every plan today, because the planner raises none (a source-built
+    destination adds a non-blocking risk only) and `history` cannot know
+    availability; the blocking rule changes what `migrate` does, so it is a
+    planner change and is carried. 04 says so.
+  - **D8a — the snapshot a record names is read with nothing trusted:**
+    `state_snapshot` refuses a symbolic reference, a file that is not the
+    user's or is open to others, one over the size cap, and a root or
+    `snapshots/` that is not private; its messages name the file and the kind of
+    problem, never a path.
+  - **D9 — `restore --plan --run <id>` asks the one planner for the way back.**
+    `application::restore` (pure, names no provider) turns the record and the
+    snapshot the run took into a `PlanRequest`: the package as the run's
+    destination spells it, back to the run's source, keeping the destination
+    **unless it is the run's to remove** — the add was dispatched and ended in a
+    known exit 0 *and* the snapshot (provider present and read) shows the
+    destination did not hold it. Anything less keeps it, with a note: removing
+    a package that predates the run, or that the run never added, is the worst
+    thing an undo could do (the security review's second High). It is planned
+    with `plan_outcome` on the live capture, so a machine already as the run
+    found it is "nothing to restore" (exit 0, INV-16); the plan's package,
+    source and destination are compared with the run's and a mismatch is a
+    refusal naming both, never a substitute. Notes sit beside the plan in
+    `restore.v1`, whose `plan` is exactly `plan.v1`. A record the marker still
+    names is planned for review (the person must see the undo of the stranded
+    run before they deal with the marker) and never offered for execution; an
+    unreadable marker gives no plan. ORDER, reverse dependencies and the
+    stateful/service stop are the planner's; tests show them on restore plans,
+    both directions, asserting the planner's reason ids rather than only that a
+    review step exists.
+  - **D10 — what `restore` refuses.** Before any capture: a recording or a
+    snapshot file (INV-15), `--snapshot` (not built, exit 1, 04 declared), a
+    missing or malformed `--run` (usage). `restore --run <id>` without `--plan`
+    puts the same plan to the same gate `migrate --yes` reaches
+    (`execution_refusals`, rendered by `refused_report`), which refuses it
+    (exit 4); it takes no lock and writes nothing, and a plan the gate passed
+    would be reported as an internal defect, not run. A plan that stops at
+    `MANUAL_REVIEW` exits 4, as `plan` and `migrate` do. A missing, unreadable
+    or foreign snapshot is `SNAPSHOT_UNUSABLE` (exit 8), a missing run
+    `RUN_NOT_FOUND`.
+  - **D12 — `doctor` shows a stranded marker.** `doctor(snapshot, policy,
+    today)` stays pure; the shell looks at the state directory (no lock, nothing
+    created) and adds the `interrupted_run` finding from a `RunFacts` value
+    (`NOT_CHECKED` for a recording or a snapshot file, so `--replay` output stays
+    a function of its input; no marker; in progress; possibly in progress;
+    unreadable; stranded). Stranded versus in progress is a read-only shared
+    `try_lock` on `run.lock` (`run_lock::probe`, creating nothing, never
+    following a symbolic reference, `Untestable` never read as free). A stranded
+    run is a **warning**: doctor's error exit (5) is for unhealthy providers.
+    The tripwire `the_switch_needs_doctor_to_show_a_stranded_marker` now checks
+    that the live command adds the finding from `peek` and `probe`, not that a
+    name appears somewhere.
+  - **D13 — `history acknowledge <id> --yes`, and D-M4 amended.** Slice 2's
+    D-M4 (no path deletes a marker but the run's own `clear`) gains exactly one
+    exception. Without `--yes`, or with `--dry-run`, it shows what it knows and
+    what it would do and changes nothing. With it: no marker is "nothing to
+    acknowledge" (exit 0, nothing created); another run's marker is refused
+    (exit 4, naming both); a held lock is exit 7; under the lock the marker is
+    read again, the record is made durable (`make_durable`: file and directory
+    synced, read again, equal) and only then is the marker cleared. **It never
+    promotes an unproven record** (the spec-guardian's V1): a record that cannot
+    be read keeps the marker (exit 8); with no record the marker is removed and
+    the text says the marker and the snapshot it names were the only trace. It
+    deletes no record and no snapshot, and `restore --plan` for the marker's run
+    does not clear it.
+  - **D14, D15, D16.** One catalogue text per stranded state, used by `doctor`,
+    `history show` and `acknowledge`; D-M3's by-hand remedy (remove the file
+    yourself) is replaced in `error.run_interrupted`, the `migrate.history.*`
+    texts, `run-marker.v2.md` and the wiki; every run that handed a mutating
+    step over prints its snapshot and `restore --run <id> --plan` whatever its
+    outcome.
+  - **Found building it, declared (04):** the reverse mapping needs the same
+    evidence as the forward one. When the run removed its source nothing
+    installed there remains, so without a curated row the plan stops at
+    manual review (`mapping_confidence_below_threshold`). Letting the record
+    attest the mapping would be a planner change (the "dangerous to change"
+    file); carried, with a test that pins today's behaviour.
+  - **Carried, declared:** a real plan always carries `SET_PRIMARY` and
+    `VERIFY_RESOLUTION`, which this build does not perform (SE-036 layer 4 does
+    not exist; no evaluation), so a real run ends `PARTIAL` and only a narrowed
+    plan reaches `COMPLETED`; the flip proposal inherits it.
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)

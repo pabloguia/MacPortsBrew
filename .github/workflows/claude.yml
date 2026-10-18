@@ -3,7 +3,9 @@
 # Dormant until the repository has a GitHub remote (DP-007) and one of the
 # authentication secrets below is set. See .claude/README.md.
 #
-# Interactive mode: no `prompt` input, so Claude waits for the trigger phrase.
+# Manual dispatch passes the task as the `prompt` input (automation mode: the
+# result goes to the run log). It used to be interactive, with no `prompt`,
+# waiting for the trigger phrase.
 # Source: https://code.claude.com/docs/en/github-actions (read 2026-09-02).
 name: Claude Code
 

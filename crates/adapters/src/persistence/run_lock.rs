@@ -277,11 +277,72 @@ impl RunLock {
     }
 }
 
+/// What a read-only look at the run lock found (pass 08 slice 5, D12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockProbe {
+    /// Another process holds it: a run is in progress.
+    Held,
+    /// Nobody holds it.
+    Free,
+    /// It could not be tested: absent, not what the writer leaves, or the
+    /// volume did not answer. Never read as `Free`.
+    Untestable,
+}
+
+/// Tests whether the run lock is held, **creating nothing**: the file is opened
+/// read-only without following a symbolic reference, checked like `acquire`
+/// checks it, and a *shared* lock is tried and dropped at once. A shared try
+/// does not exclude other probes; it can make a `migrate` starting in that
+/// instant exit 7, which is why `doctor` says it looked.
+#[must_use]
+pub fn probe(state: &StateDir, euid: u32) -> LockProbe {
+    let path = state.root().join(LOCK_FILE);
+    let flags = open_flags(OpenPolicy::RefuseSymlink);
+    let Ok(file) = OpenOptions::new()
+        .read(true)
+        .custom_flags(flags)
+        .open(&path)
+    else {
+        return LockProbe::Untestable;
+    };
+    let Ok(meta) = file.metadata() else {
+        return LockProbe::Untestable;
+    };
+    if refuse_entry(&meta, euid).is_err() {
+        return LockProbe::Untestable;
+    }
+    match file.try_lock_shared() {
+        Ok(()) => LockProbe::Free,
+        Err(TryLockError::WouldBlock) => LockProbe::Held,
+        Err(TryLockError::Error(_)) => LockProbe::Untestable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const EUID: u32 = 501;
+
+    #[test]
+    fn the_probe_tells_held_from_free_from_untestable_and_creates_nothing() {
+        let (base, state, uid) = scratch("probe");
+        // No state directory at all: untestable, and still none afterwards.
+        assert_eq!(probe(&state, uid), LockProbe::Untestable);
+        assert!(!state.root().exists());
+        let held = acquire(&state, uid).unwrap();
+        assert_eq!(probe(&state, uid), LockProbe::Held);
+        drop(held);
+        assert_eq!(probe(&state, uid), LockProbe::Free);
+        // Nor a file somebody else could write. (A symbolic reference in its
+        // place is never followed: `tests/run_lock.rs` plants one.)
+        let path = state.root().join(LOCK_FILE);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert_eq!(probe(&state, uid), LockProbe::Untestable);
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn an_entry_that_is_not_what_the_writer_leaves_is_named_for_its_reason() {

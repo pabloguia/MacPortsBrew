@@ -16,7 +16,11 @@
 # 2026-09-17), so every message rewrites the marker: present with the token,
 # deleted without it. The armed window therefore ends at the human's next
 # message, and it ends because the boundary is enforced by the same event that
-# defines it rather than by an expiry timer that could be wrong.
+# defines it rather than by an expiry timer that could be wrong. (session-start.sh
+# also deletes the marker on every SessionStart, which fires on `clear` and
+# `compact` as well as startup and resume: a compaction in the middle of an
+# armed message ends the window early. That fails closed - not armed - and the
+# human re-arms by saying the token again.)
 #
 # Two limits on that sentence, because the flat version of it was false when a
 # reviewer checked. The window ends at the next message **provided this hook

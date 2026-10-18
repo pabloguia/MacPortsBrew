@@ -7,10 +7,10 @@
 
 use macportsbrew_adapters::persistence::run_lock::{acquire, RunLock, LOCK_FILE};
 use macportsbrew_adapters::persistence::run_marker::{
-    clear, read, write, ClearOutcome, MARKER_FILE, MAX_MARKER_BYTES,
+    clear, marker_state, peek, read, write, ClearOutcome, MARKER_FILE, MAX_MARKER_BYTES,
 };
 use macportsbrew_adapters::persistence::StateDir;
-use macportsbrew_domain::{ErrorId, InterruptedRun};
+use macportsbrew_domain::{ErrorId, InterruptedRun, MarkerState};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -102,7 +102,7 @@ impl Drop for Scratch {
 }
 
 fn canonical(id: &str) -> String {
-    format!("{{\"schemaVersion\":1,\"runId\":\"{id}\"}}\n")
+    format!("{{\"schemaVersion\":2,\"runId\":\"{id}\",\"snapshotFile\":null}}\n")
 }
 
 #[test]
@@ -164,7 +164,12 @@ fn anything_that_is_not_exactly_what_the_writer_leaves_is_unusable() {
             "an unknown field",
             good.replace('}', ",\"extra\":1}").into_bytes(),
         ),
-        ("another schema", good.replace(":1,", ":2,").into_bytes()),
+        ("schema 1", good.replace(":2,", ":1,").into_bytes()),
+        ("schema 3", good.replace(":2,", ":3,").into_bytes()),
+        (
+            "a snapshot name that is a path",
+            good.replace("null", "\"../x.json\"").into_bytes(),
+        ),
         (
             "a duplicate key",
             good.replace('{', "{\"schemaVersion\":1,").into_bytes(),
@@ -341,4 +346,92 @@ fn invariant_17_the_lock_and_the_marker_name_no_provider() {
             assert!(!code.contains(word), "{file} names {word}");
         }
     }
+}
+
+// --- Reading without the lock (pass 08 slice 5, D12) --------------------------
+
+#[test]
+fn peek_sees_what_read_sees_without_the_lock_and_creates_nothing() {
+    let s = Scratch::new("peek");
+    let before = s.entries();
+    assert_eq!(peek(&s.state, s.uid).unwrap(), None);
+    assert_eq!(marker_state(&s.state, s.uid), MarkerState::Absent);
+    assert_eq!(s.entries(), before, "reading created nothing");
+
+    s.write(FIRST).unwrap();
+    let seen = peek(&s.state, s.uid).unwrap().unwrap();
+    assert_eq!(seen.run_id(), FIRST);
+    assert_eq!(seen, s.read().unwrap().unwrap());
+    assert_eq!(
+        marker_state(&s.state, s.uid),
+        MarkerState::Names(FIRST.into())
+    );
+}
+
+#[test]
+fn a_marker_names_the_snapshot_the_run_took_first() {
+    let s = Scratch::new("peek-snapshot");
+    let marker = InterruptedRun::new(FIRST)
+        .unwrap()
+        .with_snapshot("snapshot-20261005T120000Z.json")
+        .unwrap();
+    write(s.lock(), &s.state, &marker, s.uid).unwrap();
+    let seen = peek(&s.state, s.uid).unwrap().unwrap();
+    assert_eq!(seen.snapshot_file(), Some("snapshot-20261005T120000Z.json"));
+    // Clearing goes by the run, not by the snapshot the marker was built with.
+    let by_id = InterruptedRun::new(FIRST).unwrap();
+    assert_eq!(
+        clear(s.lock(), &s.state, &by_id, s.uid).unwrap(),
+        ClearOutcome::Cleared
+    );
+}
+
+#[test]
+fn something_that_is_not_a_marker_is_unreadable_and_never_absent() {
+    // Fail closed: reading a marker as absent is how an unfinished run gets a
+    // successor on top of it.
+    for (what, text) in [
+        ("garbage", b"not json".to_vec()),
+        (
+            "an older schema",
+            b"{\"schemaVersion\":1,\"runId\":\"20261005T120000Z-00000000000000aa\"}\n".to_vec(),
+        ),
+        ("an empty file", Vec::new()),
+    ] {
+        let s = Scratch::new("peek-garbage");
+        s.plant(&text);
+        assert_eq!(
+            peek(&s.state, s.uid).unwrap_err().id,
+            ErrorId::HistoryUnusable,
+            "{what}"
+        );
+        assert_eq!(
+            marker_state(&s.state, s.uid),
+            MarkerState::Unreadable,
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn a_state_directory_others_can_write_is_unreadable_not_empty() {
+    let s = Scratch::new("peek-open-root");
+    s.write(FIRST).unwrap();
+    std::fs::set_permissions(s.state.root(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        peek(&s.state, s.uid).unwrap_err().id,
+        ErrorId::HistoryUnusable
+    );
+    assert_eq!(marker_state(&s.state, s.uid), MarkerState::Unreadable);
+    std::fs::set_permissions(s.state.root(), std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[test]
+fn a_state_directory_that_is_not_there_holds_no_marker_and_stays_not_there() {
+    let s = Scratch::new("peek-missing");
+    let missing =
+        StateDir::resolve(None, Some(s.base.join("elsewhere").to_str().unwrap())).unwrap();
+    assert_eq!(peek(&missing, s.uid).unwrap(), None);
+    assert_eq!(marker_state(&missing, s.uid), MarkerState::Absent);
+    assert!(!missing.root().exists(), "reading created nothing");
 }

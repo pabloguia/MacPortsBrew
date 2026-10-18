@@ -12,7 +12,7 @@ use clap::Parser;
 use macportsbrew_adapters::persistence::history_store::write_record;
 use macportsbrew_domain::{
     Direction, ExecutableOwner, Outcome, RecordedStep, RecordedVersions, Resolution, RunEnding,
-    RunRecord, RunStart, RunSubject, StepResult, Version,
+    RunRecord, RunStart, RunSubject, StepKind, StepResult, Version,
 };
 use std::cell::Cell;
 use std::collections::BTreeSet;
@@ -97,16 +97,24 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
     let steps = plan
         .steps
         .iter()
+        // The primary selection is not performed by this build (SE-092), so a
+        // record of a completed run has no such step.
+        .filter(|s| s.kind != StepKind::SetPrimary)
         .map(|s| {
-            RecordedStep::new(
-                s.index,
-                s.kind,
-                s.provider.clone(),
-                StepResult::Verified {
+            // The two brackets state their own results (history schema 2).
+            let result = match s.kind {
+                StepKind::SnapshotBefore => StepResult::SnapshotTaken,
+                StepKind::RecordHistory => StepResult::RecordPendingReadBack,
+                // A mutating step carries its commands' ends, never a
+                // verification; only the two steps a mutation runs on do.
+                StepKind::AddDestination | StepKind::RemoveSource => StepResult::Performed {
+                    ends: vec![macportsbrew_domain::CommandEnd::Exited { code: 0 }],
+                },
+                _ => StepResult::Verified {
                     evidence: Vec::new(),
                 },
-                false,
-            )
+            };
+            RecordedStep::new(s.index, s.kind, s.provider.clone(), result, false)
         })
         .collect();
     RunRecord::new(
@@ -137,7 +145,7 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
         },
         steps,
         ending,
-        None,
+        Some("snapshot-20261004T120000Z.json".to_string()),
     )
 }
 
@@ -371,4 +379,183 @@ fn a_manual_review_plan_never_reads_history() {
     assert_eq!(code.unwrap(), ErrorId::SafetyBlocked.exit_code());
     let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert!(doc.get("plan").is_some());
+}
+
+// --- Pass 08 slice 5: what a wired run writes is recognised, in both directions ---
+//
+// `record_of` has the shape a wired run leaves (`SNAPSHOT_TAKEN`, the pending
+// `RECORD_HISTORY`, the snapshot named; `crates/cli/tests/executor_wiring.rs`
+// reads the record a real wired run writes and checks that shape), written to a
+// scratch store and read by `migrate` as a live run reads it.
+
+const MIRROR: &str = "both-providers-intel-macos26-live.json";
+
+fn cli_from_snapshot(package: &str, to: &str, json: bool) -> Cli {
+    let snapshot = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/snapshots")
+        .join(MIRROR);
+    let mut args = vec![
+        "macportsbrew".to_string(),
+        "--from-snapshot".into(),
+        snapshot.to_string_lossy().into_owned(),
+        "--today".into(),
+        "2026-10-04".into(),
+    ];
+    if json {
+        args.push("--json".into());
+    }
+    args.extend(["migrate", package, "--to", to, "--retain-source"].map(String::from));
+    Cli::try_parse_from(args).expect("the arguments parse")
+}
+
+/// Makes the capture show the destination holding the package, as it does once
+/// a run has installed it: the source row, moved to the destination.
+fn hold_at_destination(ctx: &mut Context, plan: &MigrationPlan) {
+    let name = plan.package.name.clone();
+    let mut row = ctx.snapshot.providers[&plan.source]
+        .inventory
+        .installed
+        .iter()
+        .find(|r| r.identity.name == name)
+        .expect("the source holds the package")
+        .clone();
+    row.identity = macportsbrew_domain::PackageIdentity::new(plan.destination.clone(), name);
+    ctx.snapshot
+        .providers
+        .get_mut(&plan.destination)
+        .expect("the destination is in the capture")
+        .inventory
+        .installed
+        .push(row);
+}
+
+#[test]
+fn invariant_17_a_wired_runs_record_is_recognised_from_the_command_line_in_both_directions() {
+    for (direction, source, to, json) in [
+        (
+            "homebrew to macports",
+            cli("htop", "macports", true),
+            "macports",
+            true,
+        ),
+        (
+            "macports to homebrew",
+            cli_from_snapshot("htop", "homebrew", true),
+            "homebrew",
+            true,
+        ),
+    ] {
+        let mut ctx = live(&source);
+        let request = request("htop", to);
+        let plan = plan_of(&ctx, &request);
+        if direction.starts_with("macports") {
+            hold_at_destination(&mut ctx, &plan);
+        }
+        resolve_to_destination(&mut ctx, &plan);
+        let store = Store::new(&format!("both-{to}"));
+        store.write(&record_of(&plan, RunEnding::Completed));
+        let (code, out) = run(&ctx, &source, &request, &store);
+        assert_eq!(code.unwrap(), 0, "{direction}: {out}");
+        let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            doc["retainedRunDone"]["runId"], RECORD_ID,
+            "{direction}: {out}"
+        );
+        assert_eq!(doc["retainedRunDone"]["provider"], to, "{direction}");
+        assert_eq!(
+            store.entries(),
+            1,
+            "{direction}: a recognised re-run writes nothing"
+        );
+        let _ = json;
+    }
+}
+
+#[test]
+fn invariant_16_a_record_the_marker_names_is_planned_again_from_the_command_line() {
+    use macportsbrew_adapters::persistence::run_lock::acquire;
+    use macportsbrew_adapters::persistence::run_marker::write;
+    use macportsbrew_domain::InterruptedRun;
+    let cli = cli("htop", "macports", true);
+    let mut ctx = live(&cli);
+    let request = request("htop", "macports");
+    let plan = plan_of(&ctx, &request);
+    resolve_to_destination(&mut ctx, &plan);
+    let store = Store::new("marker-names-it");
+    store.write(&record_of(&plan, RunEnding::Completed));
+    // The run's marker was never cleared: the record is published, not confirmed.
+    let lock = acquire(&store.state, store.uid()).unwrap();
+    write(
+        &lock,
+        &store.state,
+        &InterruptedRun::new(RECORD_ID).unwrap(),
+        store.uid(),
+    )
+    .unwrap();
+    drop(lock);
+
+    let (code, out) = run(&ctx, &cli, &request, &store);
+    assert_eq!(code.unwrap(), 0, "{out}");
+    let doc: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(
+        doc.get("retainedRunDone").is_none(),
+        "never done on this record: {out}"
+    );
+    assert_eq!(
+        doc["retainedRunNotRecognised"]["reason"], "RECORD_NOT_CONFIRMED",
+        "{out}"
+    );
+    assert_eq!(doc["retainedRunNotRecognised"]["runId"], RECORD_ID);
+    assert!(doc.get("plan").is_some(), "the migration is planned again");
+}
+
+#[test]
+fn every_run_that_handed_a_mutating_step_over_prints_the_command_to_plan_the_way_back() {
+    // 04, "Undoing a migration": the snapshot it took first and the exact
+    // command for its own id, whatever the outcome.
+    let c = cli("htop", "macports", false);
+    let ctx = live(&c);
+    let plan = plan_of(&ctx, &request("htop", "macports"));
+    let report = |receipt: RunReceipt, outcome: RunOutcome| RunReport {
+        outcome,
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: Vec::new(),
+        history_error: None,
+        marker_left: None,
+        record_written: true,
+        receipt,
+    };
+    for outcome in [
+        RunOutcome::Completed,
+        RunOutcome::Halted {
+            step: 2,
+            reason: macportsbrew_application::HaltReason::UnexecutedMutation,
+        },
+    ] {
+        let text = human::run_report(
+            &ctx,
+            &plan,
+            &report(
+                RunReceipt {
+                    run_id: Some(RECORD_ID.into()),
+                    snapshot_file: Some("snapshot-20261004T120000Z.json".into()),
+                    record_read_back: None,
+                },
+                outcome,
+            ),
+        );
+        assert!(
+            text.contains(&format!("macportsbrew restore --run {RECORD_ID} --plan")),
+            "{text}"
+        );
+        assert!(text.contains("snapshot-20261004T120000Z.json"), "{text}");
+    }
+    // A run that handed nothing over has no run to undo.
+    let none = human::run_report(
+        &ctx,
+        &plan,
+        &report(RunReceipt::default(), RunOutcome::Completed),
+    );
+    assert!(!none.contains("restore --run"), "{none}");
 }

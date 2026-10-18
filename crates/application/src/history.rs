@@ -26,18 +26,25 @@ use crate::executor::{
     outcome_of, Disposition, HaltReason, PlannedRun, RunOutcome, StepRecord, Unevaluable,
 };
 use macportsbrew_domain::{
-    Direction, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan, ProviderId, RecordedStep,
-    RecordedVersions, RunEnding, RunRecord, RunStart, RunStatus, RunSubject, Snapshot, StepResult,
+    Direction, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan, NotRestorable,
+    ProviderId, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
+    RunRecord, RunStart, RunStatus, RunSubject, Snapshot, StepResult,
 };
 
 /// The history record of `run`, whose steps ended as `records`.
 ///
 /// `records` are kept in the order given. A step's provider is taken from the
 /// plan step with the same index and kind; a record matching none carries no
-/// provider. No snapshot path is recorded: this build performs no
-/// `SNAPSHOT_BEFORE`.
+/// provider. `snapshot_file` is the file name the run's `SNAPSHOT_BEFORE`
+/// wrote its snapshot under, or `None` for a run that took none (the record
+/// then cannot say a mutation was dispatched, `RunRecord::from_stored`).
 #[must_use]
-pub fn run_record(run: &PlannedRun, records: &[StepRecord], start: RunStart) -> RunRecord {
+pub fn run_record(
+    run: &PlannedRun,
+    records: &[StepRecord],
+    start: RunStart,
+    snapshot_file: Option<&str>,
+) -> RunRecord {
     let plan = run.plan();
     let steps = records
         .iter()
@@ -81,7 +88,7 @@ pub fn run_record(run: &PlannedRun, records: &[StepRecord], start: RunStart) -> 
         subject,
         steps,
         ending_of(&outcome_of(plan, records)),
-        None,
+        snapshot_file.map(str::to_owned),
     )
 }
 
@@ -114,6 +121,8 @@ fn result_of(disposition: &Disposition) -> (StepResult, bool) {
             true,
         ),
         Disposition::NotPerformedInThisBuild => (StepResult::NotPerformedInThisBuild, false),
+        Disposition::SnapshotTaken => (StepResult::SnapshotTaken, false),
+        Disposition::RecordPendingReadBack => (StepResult::RecordPendingReadBack, false),
         Disposition::NotDispatchedMutating => (StepResult::NotDispatchedMutating, false),
         Disposition::Performed { ends } => (StepResult::Performed { ends: ends.clone() }, true),
         Disposition::Halted {
@@ -147,6 +156,7 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
         | HaltReason::NotPerformedInThisBuild
         | HaltReason::ElevationNotNone { .. }
         | HaltReason::MutatingStepCarriesVerification
+        | HaltReason::SnapshotNotTaken
         | HaltReason::StateChanged { .. } => false,
         // The command it names was not handed over; the ends of any before it
         // make the step dispatched (`RecordedStep::new`).
@@ -182,6 +192,115 @@ pub fn must_record(record: &RunRecord) -> bool {
     record.mutation_dispatched()
 }
 
+/// Whether the record a run published reads back as the record it wrote
+/// (pass 08 slice 5, D2/D3). Both texts are the record's canonical stored
+/// form — `written` as the writer serialised it, `read_back` as the file read
+/// back, parsed through `RunRecord::from_stored` and serialised again — so a
+/// different file at that id, a record that parses to something else and a
+/// truncated one all disagree. The shell performs the I/O and asks here; it
+/// decides nothing (`.claude/rules/executor.md`).
+#[must_use]
+pub fn read_back_matches(written: &str, read_back: &str) -> bool {
+    !written.is_empty() && written == read_back
+}
+
+/// What `history` found of the snapshot a record names, from the state
+/// directory (`persistence::snapshot_store::state_snapshot`). The adapters do
+/// the looking; this is only the answer, so the rule below stays pure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SnapshotLook {
+    /// It is there, is what this tool writes and parses as a snapshot; it was
+    /// captured at `captured_at`.
+    Present {
+        /// The snapshot's own capture stamp (`provenance.capturedAt`).
+        captured_at: String,
+    },
+    /// There is no such file.
+    Missing,
+    /// Something is there that this tool did not write, or that cannot be read
+    /// as a snapshot.
+    Unreadable,
+}
+
+/// Whether what a run changed can be put back, **derived and never stored or
+/// trusted** (history schema 2; pass 08 slice 5, D8; `plan.v1.md` N7).
+///
+/// In order, the first that holds:
+/// 1. no mutating step was dispatched: nothing to restore;
+/// 2. the record is not confirmed (`standing`): never offered for restore (04);
+/// 3. the record names no snapshot;
+/// 4. the snapshot is missing, unreadable, or not this run's (its capture stamp
+///    is not the record's start — the tie between the file and the run);
+/// 5. a dispatched mutating step did not end in a known exit 0 (a halt: the
+///    command may have changed the machine in a way the record cannot say):
+///    partially — a plan can be built, and the plan's review handles it;
+/// 6. otherwise a plan can be built from the snapshot.
+///
+/// It never reads the record's dispatch flag alone (the ends and the halt
+/// decide, rule 5), and says nothing about artifact availability, which a
+/// read-only `history` cannot know (the plan carries it).
+#[must_use]
+pub fn restorability(
+    record: &RunRecord,
+    snapshot: &SnapshotLook,
+    standing: RecordStanding,
+) -> Restorability {
+    if !record.mutation_dispatched() {
+        return Restorability::NothingToRestore;
+    }
+    match standing {
+        RecordStanding::Confirmed => {}
+        RecordStanding::Unconfirmed => {
+            return Restorability::Not {
+                reason: NotRestorable::RecordNotConfirmed,
+            }
+        }
+        RecordStanding::Unknown => {
+            return Restorability::Not {
+                reason: NotRestorable::StandingUnknown,
+            }
+        }
+    }
+    if record.snapshot_path().is_none() {
+        return Restorability::Not {
+            reason: NotRestorable::NoSnapshotTaken,
+        };
+    }
+    match snapshot {
+        SnapshotLook::Missing => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotMissing,
+            }
+        }
+        SnapshotLook::Unreadable => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotUnreadable,
+            }
+        }
+        SnapshotLook::Present { captured_at } if captured_at != record.started_at() => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotNotThisRuns,
+            }
+        }
+        SnapshotLook::Present { .. } => {}
+    }
+    let uncertain = record.steps().iter().any(|step| {
+        step.kind().is_mutating()
+            && step.dispatched()
+            && !matches!(
+                step.result(),
+                StepResult::Performed { .. } | StepResult::Verified { .. }
+            )
+    });
+    if uncertain {
+        Restorability::Partially {
+            reason: NotRestorable::OutcomeUncertain,
+        }
+    } else {
+        Restorability::FromSnapshot
+    }
+}
+
 /// What `migrate` knows of history for this run.
 #[derive(Clone, Copy, Debug)]
 pub enum HistoryConsultation<'a> {
@@ -211,6 +330,13 @@ pub fn migration_key(plan: &MigrationPlan) -> MigrationKey {
 /// say about it. Each is a fail-closed answer: the run is planned again.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotRecognised {
+    /// The key's latest record is not confirmed: the interrupted-run marker
+    /// names it, or could not be read. A re-run never exits 0 on a record not
+    /// known to be durable (04; pass 08 slice 5, H1).
+    RecordNotConfirmed {
+        /// That run.
+        run_id: String,
+    },
     /// The key's latest record is not a success.
     LatestRunNotSuccess {
         /// That run.
@@ -293,6 +419,9 @@ pub fn recognise_retained_run(
         _ => return Recognition::NotRecognised(NotRecognised::Tie),
     };
     let run_id = record.id().to_owned();
+    if view.standing_of(record) != RecordStanding::Confirmed {
+        return Recognition::NotRecognised(NotRecognised::RecordNotConfirmed { run_id });
+    }
     if record.status() != RunStatus::Success {
         return Recognition::NotRecognised(NotRecognised::LatestRunNotSuccess { run_id });
     }

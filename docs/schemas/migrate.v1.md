@@ -35,7 +35,7 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `mode` | string | `RENDER` or `EXECUTE` |
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string, "notDetected": [string] }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16). `notDetected` is always written: the other providers that were not detected, in identifier order; empty when every other provider was detected and read (DP-026) |
 | `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record, and every plan's primary is a shim (`PRIMARY_IS_SHIM`) |
-| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`. Additive (pass 08) |
+| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `RECORD_NOT_CONFIRMED` (pass 08 slice 5, additive: the interrupted-run marker names the record, or could not be read), `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`. Additive (pass 08) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
@@ -95,7 +95,10 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 | `gateRefusals` | array of `ExecutionRefusal`, optional | The gate's refusals in its own order (step index, then kind), each tagged by `refusal` with its fields. Every string in them has the home redacted and control and format characters and the line and paragraph separators escaped: a check's fields are plan text. A refusal that could not be serialised — not reachable for the derived types today — is kept as `{ "refusal": "UNSERIALISABLE" }` so the list keeps one entry per refusal |
 | `siteRefusal` | object, optional | `{ "step": integer, "refusal": string, "values"?: object }` when a read site refused a command before it ran. `refusal` is one of `NOT_A_PROVIDER_COMMAND`, `UNSAFE_PREFIX`, `PROGRAM_DISAGREES`, `NOT_A_PERMITTED_READ`; `values` holds the quoted values by name, cleaned like `gateRefusals` |
 | `historyError` | string, optional | Present only when a run under a mutation allowance could not finish its own history (pass 08 slice 4): `IO` when its record is not known to have been written durably — it may exist, and its marker then stays as possibly the only trace — and `HISTORY_UNUSABLE` when its interrupted-run marker could not be confirmed cleared (after a record was written, or when nothing mutating ran and no record was needed). A run whose outcome would exit 0 exits with this error's code instead. As of pass 08 slice 4 (2026-10-17) no shipped build reaches this: no shipped build dispatches a mutating step |
-| `markerLeft` | string, optional | Beside `historyError`: the run id whose interrupted-run marker may still be in place — it was kept, or its clear could not be confirmed. The next command that changes packages refuses until it is dealt with ([`run-marker.v1.md`](run-marker.v1.md)) |
+| `runId` | string, optional | Pass 08 slice 5 (additive). The run's identifier, present when it handed a mutating step over (and so has a record, or a marker standing for one). `macportsbrew history show <id>` is how to look at it |
+| `snapshotFile` | string, optional | The **file name** (never a path) of the snapshot the run took first, inside the state directory's `snapshots/`; present when one was taken |
+| `recordReadBack` | string, optional | `FAILED` or `DISAGREED`, present when the published record could not be read back or read back as something other than what was written. Beside `historyError: IO`; the marker stays and the exit is non-zero |
+| `markerLeft` | string, optional | Beside `historyError`: the run id whose interrupted-run marker may still be in place — it was kept, or its clear could not be confirmed. The next command that changes packages refuses until it is dealt with ([`run-marker.v2.md`](run-marker.v2.md)) |
 
 ### `RunOutcome` (tag `outcome`)
 
@@ -112,7 +115,7 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 |---|---|---|
 | `index` | integer | The plan step's `index` |
 | `kind` | string | The plan step's `kind` |
-| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`reason`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED`. `PERFORMED` and `ends` are reached only under a mutation allowance, which no shipped build has; `ends` are as in [`history.v1.md`](history.v1.md) |
+| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK` (pass 08 slice 5, additive: `SNAPSHOT_BEFORE` and `RECORD_HISTORY` performed — the latter pending until the published record reads back), `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`reason`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED`. `PERFORMED` and `ends` are reached only under a mutation allowance, which no shipped build has; `ends` are as in [`history.v2.md`](history.v2.md) |
 
 `evidence` is an array of `ReadEvidence`, one per command that ran:
 `{ "passed": boolean, "lineCount": integer, "truncated": boolean, "cause"?:
@@ -125,7 +128,8 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 `EXPECTATION` (`command`, `error`), `VERIFICATION_FAILED` (`command`, `cause`),
 `ELEVATION_NOT_NONE` (`command`), `UNEVALUABLE` (`check`?, `why`),
 `RECORDS_DO_NOT_MATCH_PLAN`, and — reached only under a mutation allowance —
-`MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
+`SNAPSHOT_NOT_TAKEN` (pass 08 slice 5: the snapshot taken first could not be
+written durably and read back; nothing was changed), `MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
 `MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
 `NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
 `WRONG_PROVIDER_TOKEN`) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
@@ -140,10 +144,13 @@ shows what `--yes` would do. `--replay` and `--from-snapshot` never read
 history (INV-15), a run without `--retain-source` never does, and every
 refusal, every manual review and *nothing to move* keeps its precedence. A
 history the store cannot trust is `HISTORY_UNUSABLE` (exit 8) with empty
-stdout, never read as "no record" ([`history.v1.md`](history.v1.md)); a run as
-root is refused as `SAFETY_BLOCKED` (exit 4) before history is read. **In this
-build nothing writes a record**, so a re-run is recognised only from records a
-later build writes; and because every plan sets its primary through
+stdout, never read as "no record" ([`history.v2.md`](history.v2.md)); a run as
+root is refused as `SAFETY_BLOCKED` (exit 4) before history is read. **In a shipped
+build nothing writes a record** (the switch is off), so a re-run is recognised
+only from records a later build writes — and only from a **confirmed** one: a
+record the interrupted-run marker still names, or whose marker cannot be read,
+recognises nothing (`retainedRunNotRecognised.reason` is `RECORD_NOT_CONFIRMED`,
+pass 08 slice 5); and because every plan sets its primary through
 MacPortsBrew's shim, which no capture can yet trace to a provider, such a
 re-run is planned again with `PRIMARY_IS_SHIM` until shims record their target.
 
@@ -287,4 +294,4 @@ and the gate refuses every mutating step against it.
   nothing in this build takes it, because nothing dispatches a mutation.
 - **Writing history** (obligation 12): no run of this build is a mutating run,
   so no record is written. The store and its read-back exist
-  ([`history.v1.md`](history.v1.md)); reading serves the recognition above.
+  ([`history.v2.md`](history.v2.md)); reading serves the recognition above.

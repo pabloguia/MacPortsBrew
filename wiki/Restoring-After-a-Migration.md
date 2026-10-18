@@ -2,8 +2,8 @@
 
 **In this build there is nothing to undo.** Version 0.1.0 executes nothing, so
 no migration has happened. `macportsbrew snapshot` works today and is worth
-using; everything else on this page describes the restore path as designed, and
-says which parts are not yet written.
+using. `history` and `restore --plan --run <id>` also exist and only read; what
+is still design is executing a restore, which this page says as it goes.
 
 ## Snapshots work now
 
@@ -39,9 +39,10 @@ replace a file that is not a MacPortsBrew document; giving each snapshot a new n
 
 ## What the restore path will be
 
-**None of the commands in this section exists in 0.1.0** — `history` and
-`restore` are designed and not yet written, and typing them today prints an
-"unrecognized subcommand" error. What follows is the design.
+**`history`, `history show` and `restore --plan --run <id>` exist in this
+build; executing a restore does not.** A build that executes nothing records no
+runs, so on your machine they report an empty history until a later build
+executes migrations. What follows is what they do, and what is still design.
 
 Every mutating run will begin by taking a snapshot, and record it against the
 run. Then:
@@ -65,15 +66,38 @@ produces ordered steps, every command with its full argv, the risks, the
 elevation, and a human review before anything happens. There is no separate
 "rollback engine" with its own semantics to learn and its own bugs to find.
 
-`restore --plan --snapshot <file>` does the same thing against a snapshot file
-rather than a recorded run.
+`restore --snapshot <file>` would do the same against a snapshot file
+rather than a recorded run. It is not built: it exits with "not implemented"
+(exit 1).
 
-A run that dies mid-flight leaves a recoverable record, and the next mutating
-run refuses to start until you have looked at it — exiting with the
-safety-check code and naming the run. Recovery is the same two commands:
-`history show <id>` to see what completed, then either restore or a fresh plan
-forward. There is no `resume` command, because there is nothing separate to
-resume.
+**What `restore --plan --run <id>` does today.** It reads the run's record and
+the snapshot the run took first, asks the same planner for a plan that puts the
+package back where it came from, and shows it with notes about what the plan
+cannot say (a reinstall plan is not version-exact; why a package stays; that a
+record is not confirmed). It removes the package the run added only if the
+record shows the add finished with exit status 0 **and** the snapshot shows the
+destination did not already hold it; otherwise it keeps it. If the machine is
+already as the run found it, it says there is nothing to restore (exit 0).
+Without `--plan`, `restore --run <id>` puts the plan to the execution gate,
+which refuses it in this build (exit 4); nothing runs either way.
+
+**A plan can stop for a person.** The mapping between the two providers' names
+needs evidence, as it does for any migration. When the run removed the package
+from its source, nothing installed there is left to show the mapping, so
+unless MacPortsBrew's curated table covers the package the plan stops at manual
+review (exit 4) and says so; it never guesses a package by name.
+
+A run that dies mid-flight leaves a marker, and the next mutating run refuses
+to start until you have looked at it — exiting with the safety-check code and
+naming the run. `macportsbrew doctor` says what is known about the run (its
+record may exist but not be confirmed, may be unreadable, or may not exist at
+all, in which case the provider may be half-changed). Recovery is the same
+commands: `history show <id>` to see what completed, then either
+`restore --plan --run <id>` or a fresh plan forward. When you have looked,
+`history acknowledge <id> --yes` makes the run's record durable, checks it, and
+removes the marker; it deletes no record and no snapshot, and you do not remove
+any file by hand. There is no `resume` command, because there is nothing
+separate to resume.
 
 ## What a restore can and cannot promise
 

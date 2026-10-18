@@ -145,8 +145,20 @@ pub enum StepResult {
         /// One per command, in order.
         evidence: Vec<ReadEvidence>,
     },
-    /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY`: not performed by this build.
+    /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY` on a run that did not perform it:
+    /// the read-only loop, or a bracket the run never reached. A record that
+    /// dispatched a mutation never states this for `SNAPSHOT_BEFORE`
+    /// ([`RunRecord::from_stored`]).
     NotPerformedInThisBuild,
+    /// `SNAPSHOT_BEFORE`: the snapshot was written durably and read back before
+    /// the first change. Its file name is the record's `snapshot_path`.
+    SnapshotTaken,
+    /// `RECORD_HISTORY`: this record, written. **A record never certifies its
+    /// own write** (pass 08 slice 5, D3): the step is stored pending, and what
+    /// confirms the record is a read-back under the run lock followed by the
+    /// interrupted-run marker being cleared. A record whose id the marker still
+    /// names is not confirmed.
+    RecordPendingReadBack,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
     /// A mutating step whose every command exited 0. Carried out, and not
@@ -174,7 +186,13 @@ impl StepResult {
     /// Whether the step was carried out: a verification that passed, or a
     /// mutation every command of which exited 0.
     pub fn carried_out(&self) -> bool {
-        matches!(self, Self::Verified { .. } | Self::Performed { .. })
+        matches!(
+            self,
+            Self::Verified { .. }
+                | Self::Performed { .. }
+                | Self::SnapshotTaken
+                | Self::RecordPendingReadBack
+        )
     }
 }
 
@@ -208,6 +226,8 @@ impl RecordedStep {
                 halted_after_dispatch || !evidence.is_empty() || !ends.is_empty()
             }
             StepResult::NotPerformedInThisBuild
+            | StepResult::SnapshotTaken
+            | StepResult::RecordPendingReadBack
             | StepResult::NotDispatchedMutating
             | StepResult::NotReached => false,
         };
@@ -302,20 +322,26 @@ impl RunStatus {
     }
 }
 
-/// Whether what a run changed can be put back.
+/// Whether what a run changed can be put back, **derived on read** from the
+/// record, the snapshot it names and the record's standing
+/// (`application::history::restorability`). Never stored: it depends on a file
+/// that can disappear after the record was written (history schema 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "restorable")]
 pub enum Restorability {
     /// The run changed nothing, so there is nothing to put back.
     NothingToRestore,
-    /// Everything the run changed can be put back.
-    Fully,
-    /// Some of it can.
+    /// A reinstall plan can be built from the snapshot the run took. This is
+    /// not a promise that every artifact is still available or that versions
+    /// match: the plan shows where they differ (04, "Undoing a migration").
+    FromSnapshot,
+    /// A plan can be built, but the machine's state after the run is not known
+    /// well enough to trust it unreviewed.
     Partially {
         /// Why not all of it.
         reason: NotRestorable,
     },
-    /// None of it can.
+    /// No plan is offered.
     Not {
         /// Why.
         reason: NotRestorable,
@@ -323,28 +349,63 @@ pub enum Restorability {
 }
 
 /// Why a run's changes cannot be (fully) put back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum NotRestorable {
     /// No snapshot was taken before the first change.
     NoSnapshotTaken,
-    /// A snapshot exists, but this build has no restore.
-    RestoreNotInThisBuild,
+    /// The snapshot the record names is not in the state directory.
+    SnapshotMissing,
+    /// The snapshot is there but cannot be trusted or read.
+    SnapshotUnreadable,
+    /// The snapshot is readable but is not the one this run took.
+    SnapshotNotThisRuns,
+    /// The record is not confirmed: the interrupted-run marker still names it
+    /// (04: a record not known to be durable is never offered for restore).
+    RecordNotConfirmed,
+    /// Whether the record is confirmed cannot be established: the marker is
+    /// unreadable.
+    StandingUnknown,
+    /// A mutating command did not finish or exited non-zero: the machine's
+    /// state after it is not known.
+    OutcomeUncertain,
 }
 
-impl Restorability {
-    /// What this build can say. `Fully` and `Partially` need a restore this
-    /// build does not have, so it never claims them.
-    pub fn of(mutation_dispatched: bool, snapshot_path: Option<&str>) -> Self {
-        if !mutation_dispatched {
-            return Self::NothingToRestore;
-        }
-        Self::Not {
-            reason: if snapshot_path.is_some() {
-                NotRestorable::RestoreNotInThisBuild
-            } else {
-                NotRestorable::NoSnapshotTaken
-            },
+/// What the interrupted-run marker says, as a reader found it. There is one
+/// marker per state directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MarkerState {
+    /// None is there.
+    Absent,
+    /// It names this run.
+    Names(String),
+    /// Something is there that cannot be read as a marker, or the state
+    /// directory could not be trusted: fail closed.
+    Unreadable,
+}
+
+/// Whether a record is known to have been published and read back
+/// (pass 08 slice 5, D3): the marker is the confirmation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RecordStanding {
+    /// No marker names it, and the marker was readable.
+    Confirmed,
+    /// The marker names it: published, not confirmed.
+    Unconfirmed,
+    /// The marker could not be read, so nothing is known.
+    Unknown,
+}
+
+impl MarkerState {
+    /// The standing the marker gives the record with this id.
+    #[must_use]
+    pub fn standing_of(&self, record_id: &str) -> RecordStanding {
+        match self {
+            Self::Absent => RecordStanding::Confirmed,
+            Self::Names(id) if id == record_id => RecordStanding::Unconfirmed,
+            Self::Names(_) => RecordStanding::Confirmed,
+            Self::Unreadable => RecordStanding::Unknown,
         }
     }
 }
@@ -366,7 +427,6 @@ pub struct RunRecord {
     status: RunStatus,
     mutation_dispatched: bool,
     snapshot_path: Option<String>,
-    restorability: Restorability,
 }
 
 impl RunRecord {
@@ -400,7 +460,6 @@ impl RunRecord {
             subject,
             environment_changes: Vec::new(),
             status,
-            restorability: Restorability::of(mutation_dispatched, snapshot_path.as_deref()),
             steps,
             ending,
             mutation_dispatched,
@@ -416,6 +475,11 @@ impl RunRecord {
     /// When it began.
     pub fn started_at(&self) -> &str {
         &self.started_at
+    }
+
+    /// The version of the tool that ran.
+    pub fn tool_version(&self) -> &str {
+        &self.tool_version
     }
 
     /// What it was about.
@@ -446,16 +510,16 @@ impl RunRecord {
         self.mutation_dispatched
     }
 
-    /// Whether its changes can be put back.
-    pub fn restorability(&self) -> Restorability {
-        self.restorability
+    /// The file name of the snapshot the run took first, when it took one.
+    pub fn snapshot_path(&self) -> Option<&str> {
+        self.snapshot_path.as_deref()
     }
 }
 
 // --- Read-back --------------------------------------------------------------
 
-/// The schema version a stored record carries (`docs/schemas/history.v1.md`).
-pub const HISTORY_SCHEMA_VERSION: u32 = 1;
+/// The schema version a stored record carries (`docs/schemas/history.v2.md`).
+pub const HISTORY_SCHEMA_VERSION: u32 = 2;
 
 /// Characters in a compact UTC stamp, `YYYYMMDDTHHMMSSZ`.
 const STAMP_CHARS: usize = 16;
@@ -625,6 +689,33 @@ impl RunRecord {
                     "states a mutation's result on a step no mutation runs on",
                 ));
             }
+            // The two brackets state their own results, and only on their own
+            // step; a record never certifies its own write (D3), so a
+            // `RECORD_HISTORY` is never stored verified.
+            let on_bracket = |kind: StepKind| step.kind == kind;
+            match &recorded.result {
+                StepResult::SnapshotTaken if !on_bracket(StepKind::SnapshotBefore) => {
+                    return Err(unusable(
+                        "states a snapshot taken by a step that takes none",
+                    ));
+                }
+                StepResult::RecordPendingReadBack if !on_bracket(StepKind::RecordHistory) => {
+                    return Err(unusable(
+                        "states a pending record on a step that writes none",
+                    ));
+                }
+                StepResult::Verified { .. } if on_bracket(StepKind::RecordHistory) => {
+                    return Err(unusable("states its own write verified"));
+                }
+                _ => {}
+            }
+            // A verification is judged from reads, and a mutating step is never
+            // judged: its result carries the exit statuses or it carries none.
+            // A `VERIFIED` there would let a hand-edited file claim a known exit
+            // 0 (slice 5 mutation proof, Bh8d).
+            if step.kind.is_mutating() && matches!(recorded.result, StepResult::Verified { .. }) {
+                return Err(unusable("states a mutating step verified"));
+            }
             if recorded.dispatched != step.dispatched {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
@@ -662,11 +753,23 @@ impl RunRecord {
         if record.mutation_dispatched != stored.mutation_dispatched {
             return Err(unusable("states a mutation dispatch its steps contradict"));
         }
+        // 04: a snapshot is taken before the first change. A record that
+        // dispatched a mutation without one, or that names a snapshot no step
+        // took, contradicts itself.
+        let took_snapshot = record
+            .steps
+            .iter()
+            .any(|s| matches!(s.result, StepResult::SnapshotTaken));
+        if record.mutation_dispatched && !took_snapshot {
+            return Err(unusable(
+                "states a mutation dispatched without a snapshot taken first",
+            ));
+        }
+        if took_snapshot != record.snapshot_path.is_some() {
+            return Err(unusable("states a snapshot its steps contradict"));
+        }
         if record.status != stored.status {
             return Err(unusable("states a status its steps contradict"));
-        }
-        if record.restorability != stored.restorability.into_restorability() {
-            return Err(unusable("states a restorability its steps contradict"));
         }
         Ok(record)
     }
@@ -698,7 +801,6 @@ pub struct StoredRunRecord {
     status: RunStatus,
     mutation_dispatched: bool,
     snapshot_path: Option<String>,
-    restorability: StoredRestorability,
 }
 
 impl StoredRunRecord {
@@ -810,6 +912,8 @@ enum StoredStepResult {
         evidence: Vec<StoredEvidence>,
     },
     NotPerformedInThisBuild {},
+    SnapshotTaken {},
+    RecordPendingReadBack {},
     NotDispatchedMutating {},
     Performed {
         ends: Vec<StoredCommandEnd>,
@@ -860,6 +964,8 @@ impl StoredStepResult {
                 StepResult::Verified { evidence }
             }
             Self::NotPerformedInThisBuild {} => StepResult::NotPerformedInThisBuild,
+            Self::SnapshotTaken {} => StepResult::SnapshotTaken,
+            Self::RecordPendingReadBack {} => StepResult::RecordPendingReadBack,
             Self::NotDispatchedMutating {} => StepResult::NotDispatchedMutating,
             Self::Performed { ends } => {
                 let ends: Vec<CommandEnd> =
@@ -925,30 +1031,6 @@ impl StoredEnding {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(
-    rename_all = "SCREAMING_SNAKE_CASE",
-    tag = "restorable",
-    deny_unknown_fields
-)]
-enum StoredRestorability {
-    NothingToRestore {},
-    Fully {},
-    Partially { reason: NotRestorable },
-    Not { reason: NotRestorable },
-}
-
-impl StoredRestorability {
-    fn into_restorability(self) -> Restorability {
-        match self {
-            Self::NothingToRestore {} => Restorability::NothingToRestore,
-            Self::Fully {} => Restorability::Fully,
-            Self::Partially { reason } => Restorability::Partially { reason },
-            Self::Not { reason } => Restorability::Not { reason },
-        }
-    }
-}
-
 // --- What a consulted history says about one migration ----------------------
 
 /// Which migration a record is about, for recognising a re-run (INV-16):
@@ -982,6 +1064,7 @@ impl MigrationKey {
 pub struct HistoryView {
     newest_stamp: Option<String>,
     latest_for_key: Vec<RunRecord>,
+    marker: MarkerState,
 }
 
 impl HistoryView {
@@ -990,6 +1073,7 @@ impl HistoryView {
         Self {
             newest_stamp: None,
             latest_for_key: Vec::new(),
+            marker: MarkerState::Absent,
         }
     }
 
@@ -997,11 +1081,30 @@ impl HistoryView {
     /// record of any key; `latest_for_key` is every record for the key that
     /// carries the newest stamp among that key's records — more than one is a
     /// tie the reader cannot order, which is never recognised (D1).
-    pub fn new(newest_stamp: Option<String>, latest_for_key: Vec<RunRecord>) -> Self {
+    ///
+    /// `marker` is what the interrupted-run marker said when the view was read:
+    /// a record is recognised as done only when the marker does not name it
+    /// (pass 08 slice 5, H1), and one that cannot be read recognises nothing.
+    pub fn new(
+        newest_stamp: Option<String>,
+        latest_for_key: Vec<RunRecord>,
+        marker: MarkerState,
+    ) -> Self {
         Self {
             newest_stamp,
             latest_for_key,
+            marker,
         }
+    }
+
+    /// What the marker said when the view was read.
+    pub fn marker(&self) -> &MarkerState {
+        &self.marker
+    }
+
+    /// The standing of one of this view's records.
+    pub fn standing_of(&self, record: &RunRecord) -> RecordStanding {
+        self.marker.standing_of(record.id())
     }
 
     /// The compact stamp of the newest record of any key.

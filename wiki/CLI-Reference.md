@@ -110,6 +110,84 @@ support state with its source and read date.
 | `--report <FILE>` | Write a diagnostic file for a bug report, without your user name or home folder path. `PATH` entries a finding mentions appear with your home folder shown as `~`; other environment variables are named but their values are left out. It also lists every installed package. Replaces an existing file only if it is a MacPortsBrew document. Read it before you share it |
 | `--deep` | Inspect binaries for cross-prefix links. **Not in this build** |
 
+### `macportsbrew history`
+
+Lists the runs this MacPortsBrew has made, newest first, and `history show <ID>`
+shows one: when it started, the package and direction, how it ended, its steps,
+the snapshot it took before the first change, and whether it can be put back.
+It reads the state directory and nothing else, and it creates nothing.
+
+| Flag | Effect |
+|---|---|
+| `--limit <N>` | How many runs to list, 1 to 200. Default 20 |
+
+- **Restore** says one of: nothing to restore (the run changed nothing); a plan
+  can be built from the snapshot; partly (a command that changes packages did
+  not finish or did not exit 0, so the machine's state after it is not known);
+  or no, with the reason (no snapshot was taken, it is gone, it cannot be read
+  or it is not this run's, or the record is not confirmed). It never says
+  "fully": a reinstall plan is not version-exact.
+- **A run in the list shows its snapshot as present from the file's details
+  only.** `history show` reads the snapshot and checks that it is the one the
+  run took.
+- A run started in the same second as another is listed after it or before it
+  by an arbitrary but fixed order, not by time.
+- `history` refuses under `--from-snapshot` and under a replay, and when run as
+  root: the history is this machine's own, now.
+- A run id that is not shaped like one is a usage error (exit 2); one that is
+  well formed but has no record is exit 8, as is a store or record that cannot
+  be read. A record that cannot be read is never skipped.
+
+`--json` documents: [`history-list.v1.md`](../docs/schemas/history-list.v1.md),
+[`history-show.v1.md`](../docs/schemas/history-show.v1.md).
+
+#### `macportsbrew history acknowledge <ID>`
+
+Deals with the interrupted-run marker a run left. `doctor` reports an
+interrupted run and says which of three things it is: its record exists but is
+not confirmed; its record cannot be read; or it began and left no record (the
+provider may be half-changed, and the marker with the snapshot it names is the
+only trace).
+
+| Flag | Effect |
+|---|---|
+| `--yes` | Do it. Without it, or with `--dry-run`, the command says what it knows and what it would do and changes nothing |
+
+With `--yes` it takes the run lock (another run holding it: exit 7), refuses a
+marker that names a different run (exit 4), makes the run's record durable and
+checks it reads back, and only then removes the marker. A record it cannot read
+keeps the marker (exit 8). It deletes no record and no snapshot. With no marker
+there is nothing to acknowledge (exit 0). `--json`:
+[`history-acknowledge.v1.md`](../docs/schemas/history-acknowledge.v1.md).
+
+### `macportsbrew restore --plan --run <ID>`
+
+Builds the plan that puts back what one recorded run changed, from the run's
+record and the snapshot it took before its first change. It is an ordinary
+migration plan, built by the same planner in the other direction; nothing is
+executed in this build.
+
+| Flag | Effect |
+|---|---|
+| `--plan` | Show the plan and run nothing. Without it the plan is put to the execution gate, which refuses it (exit 4) |
+| `--run <ID>` | The run, by the id `history` lists |
+| `--snapshot <FILE>` | The additive whole-machine reconcile. **Not in this build** (exit 1) |
+
+- The plan reinstalls the package under the provider the run moved it from,
+  verifies it, and removes the package the run added only if the record shows
+  the add finished with exit status 0 and the snapshot shows the destination
+  did not already hold it.
+- Notes before the plan say what it cannot: it is not version-exact, why a
+  package is kept, and that a record is not confirmed.
+- A record the interrupted-run marker still names is planned for review and is
+  never offered for execution.
+- A snapshot that is missing, unreadable or not the run's is exit 8. A machine
+  already as the run found it is "nothing to restore", exit 0. A plan that
+  stops at manual review exits 4, as `plan` does.
+- Refused under `--from-snapshot` and a replay, and when run as root.
+
+`--json`: [`restore.v1.md`](../docs/schemas/restore.v1.md).
+
 ### `macportsbrew snapshot`
 
 Captures both providers' state to a file.
@@ -186,17 +264,17 @@ execution gate refuses each one.
 
 ## Not in this build
 
-Specified and not yet written — these commands do not exist in 0.1.0, and
-running one prints an "unrecognized subcommand" error:
+Executing a restore (`restore --run <id>` without `--plan`) is built as far as
+the execution gate, which refuses it; nothing runs. These commands are specified
+and not yet written — they do not exist in 0.1.0, and running one prints an
+"unrecognized subcommand" error:
 
 ```
 macportsbrew                          the interactive overview (bare `macportsbrew` runs `status` in this build)
-macportsbrew restore --run <id>       plan, review, confirm, execute
 macportsbrew primary <pkg> <provider> package-level selection
 macportsbrew provider-priority <p>    global priority
 macportsbrew providers                detect or install a provider
 macportsbrew env [--revert]           the managed shell block
-macportsbrew history [show <id>]      runs, outcomes, restorability
 macportsbrew cleanup
 ```
 

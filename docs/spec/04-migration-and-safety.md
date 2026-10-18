@@ -162,6 +162,11 @@ snapshot lacks. Removing those is a separate, advanced-mode confirmation
 (`06-cli-and-ux.md`), because a whole-machine reconcile is a far more
 dangerous plan than a run-scoped one.
 
+*Declared deviation (pass 08 slice 5, Tier 3, SE-092):* `--snapshot <file>` is
+not built; it exits 1 as not implemented. `--run <id>` is built as far as the
+plan: `restore --plan --run <id>` shows it, and `restore --run <id>` puts it to
+the execution gate, which refuses it.
+
 **MUST.** A restore step whose artifact is no longer available on this
 machine — the Homebrew formula an Intel Mac can no longer bottle, or a
 provider that no longer supports this macOS — becomes a `MANUAL_REVIEW` step
@@ -169,6 +174,24 @@ that the plan still shows, with the reason. `history` then reports the run as
 partially restorable, and executing the plan exits with the safety-check code.
 This is the case the project exists for, and it is precisely where "undo"
 must not read as more reversible than it is.
+
+*Declared deviation (pass 08 slice 5, Tier 3, SE-092):* **this MUST is not
+met yet, for any plan.** `history` is read-only and starts no provider, so it
+cannot know whether an artifact is still available, and the planner raises no
+`MANUAL_REVIEW` for an unavailable artifact today (a destination that is not
+prebuilt adds only a non-blocking `destination_source_build` risk), for
+`migrate` as much as for a restore plan. `history` reports what it can know —
+the snapshot, the ends of the commands, whether the record is confirmed — and
+a restore plan shows the planner's risks. The blocking rule is a planner
+change, because it changes what `migrate` does, and is carried.
+
+*A second, found building `restore` (same pass):* a restore is planned by the
+same planner and needs the same mapping evidence as the migration did. When the
+run removed its source, nothing installed there is left to show the mapping in
+the reverse direction, so unless a curated row covers the package the plan
+stops at `MANUAL_REVIEW` (`mapping_confidence_below_threshold`, exit 4). That is
+the planner's rule working, not a restore special case; letting the run's record
+attest the mapping would be a planner change, and is carried.
 
 **MUST.** The command is named `restore`, not `undo`, and the documentation
 says why: what it produces is a reinstall plan, and what it does not promise
@@ -261,16 +284,22 @@ nothing about `brew` or `port`, which take their own locks (R-17), and it
 protects against no other user.
 
 The **interrupted-run marker** (`persistence::run_marker`,
-`docs/schemas/run-marker.v1.md`) names the run, is written durably immediately
+`docs/schemas/run-marker.v2.md`) names the run, is written durably immediately
 before the first mutating command — read steps may run before it, as they
 change no provider state — and cleared once the run's record is published
 durably (at once when nothing mutating was handed over), by that run only.
 Under the lock it holds, a marker that is gone or another run's when it is
 cleared is an anomaly the run reports (`HISTORY_UNUSABLE`), never a run done. A marker found by a
 mutating command refuses it, exit 4, naming the run; analysis, plan and dry runs
-never read it. Until `history` and `restore` exist the remedy is the user's own
-act, documented in the error text and the schema: look for the run's record,
-look at what it changed, then remove that one file when no other run is active.
+never read it. `doctor` shows a stranded marker (`interrupted_run`) and says
+which of three things it is - recorded and not confirmed, recorded and
+unreadable, started and not recorded - in the same words `history show` and
+`history acknowledge` use. The one deliberate way to remove a marker other than
+the run's own `clear` is `macportsbrew history acknowledge <id> --yes`: it takes
+the lock, refuses another run's marker, makes the record durable and reads it
+back before it removes the marker, and keeps the marker for a record it cannot
+read (pass 08 slice 5, SE-092; this changes the earlier rule that no path
+deletes a marker but the run's own).
 
 **The detector is not built, and the refusal it serves is owed (SE-015,
 DP-030).** No filesystem read can tell that a provider is mutating without
@@ -280,8 +309,8 @@ alternatives disturb a provider or grow the process allowlist. A live run says
 **Done with the wiring (slice 4):** under the lock the machine is captured
 again and re-planned, and any difference from the validated plan refuses,
 naming the fact that moved (SE-092, D6); the lock is confirmed before every
-mutating command. **Still owed, each a precondition of the flag-flip proposal
-and each behind a tripwire:** a stranded marker in `doctor`; the
+mutating command. **Done in slice 5:** a stranded marker in `doctor`. **Still owed,
+each a precondition of the flag-flip proposal and each behind a tripwire:** the
 application-level refusal on an observed or unchecked provider; and **a
 residual the re-plan does not close** — nothing re-checks the destination
 between `VERIFY_DESTINATION` and `REMOVE_SOURCE`, so a concurrent `brew` or
@@ -413,8 +442,17 @@ tool version, policy version, package, direction, versions, chosen action,
 whether it overrode a recommendation, retain-source, primary selection,
 environment changes, the plan executed, verification results, outcome
 (success / partial / failure), the snapshot path, and whether the run is
-restorable (fully, partially, or not, with the reason). Never records secrets
-or environment variable values.
+restorable (from its snapshot, partially, or not, with the reason).
+**Restorability is derived when the record is read, not stored in it** (history
+schema 2, pass 08 slice 5): it depends on a snapshot file that can disappear
+after the record was written, so the record cannot state it. `history` derives
+it, in order, from: whether any mutating step was dispatched (none: nothing to
+restore); whether the record is confirmed (the interrupted-run marker does not
+name it); whether the record names a snapshot and that snapshot is present,
+readable and the one this run took; and whether every dispatched mutating
+command ended in a known exit 0 (otherwise partially). The best answer is
+"from the snapshot", never "fully": a reinstall plan is not version-exact. Never records
+secrets or environment variable values.
 
 **MUST.** The record type gives a run that dispatched no mutating step the
 status `NO_CHANGE` (nothing to restore), whatever its verification reads
@@ -426,10 +464,10 @@ counts as one. Whether a mutation was dispatched is derived from the steps; the
 status from the steps and the run's ending, checked against each other, so a
 supplied ending the steps do not bear out is never success (SE-092).
 
-**Status (2026-10-17): the record type and the store exist, and the run loop
-writes a record durably on every ending of a run that handed anything mutating
-over — behind a mutation allowance no shipped build has (pass 08 slice 4, D8),
-so no shipped build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
+**Status (2026-10-18): the record type and the store exist, and the run loop
+takes its snapshot first and writes a record durably on every ending of a run
+that handed anything mutating over — behind a mutation allowance no shipped
+build has (pass 08 slices 4 and 5), so no shipped build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
 every field above, built by `application::history::run_record` from the plan
 and the run loop's per-step records, deriving the outcome itself. A
 verification read enters it as `ReadEvidence` only — result, line count,
@@ -442,8 +480,19 @@ command's environment holds variable values and its program can hold a home
 path. **Environment changes** is a list of a type with no values in this build,
 so it is empty by construction.
 
+**MUST.** *A record never certifies its own write* (pass 08 slice 5, D3). The
+run's `SNAPSHOT_BEFORE` is stored `SNAPSHOT_TAKEN` (the snapshot was written
+durably, from the capture taken under the run lock, and read back, before the
+marker and before the first change) and its `RECORD_HISTORY` is stored
+`RECORD_PENDING_READ_BACK`. The record is **confirmed** only when the write was
+durable and a read-back of the published file under the lock equals what was
+written; only then is the interrupted-run marker cleared. So a record is
+confirmed by the **absence of a marker naming it**, and one the marker still
+names is published but not confirmed — never offered for restore, never taken as
+proof that a re-run is done.
+
 **MUST.** The store (`persistence::history_store`, shape in
-`docs/schemas/history.v1.md`) is one file per mutating run,
+`docs/schemas/history.v2.md`) is one file per mutating run,
 `history/run-<id>.json`, published by a link that can never replace a record.
 Reading creates nothing, and a record is never trusted: `RunRecord::from_stored`
 derives every derived field again and refuses one that disagrees (only a halt
@@ -463,7 +512,8 @@ deleted and is never offered for restore.
 
 **MUST.** A `--retain-source` re-run is recognised as done only when the latest
 record for the same package, source, destination and destination package is the
-only one at its stamp, is a retain-source `SUCCESS`, no record is stamped after
+only one at its stamp, is **confirmed** (the marker, read at planning and again
+under the lock, does not name it and was readable), is a retain-source `SUCCESS`, no record is stamped after
 the current run, and a fresh capture shows the destination holding the package
 active and the executable resolving to that record's primary — a record alone is
 never proof of the machine's present state. Recognition replaces only a plan

@@ -82,11 +82,22 @@ fn record(id: &str, package: &str, ending: RunEnding) -> RunRecord {
     .into_iter()
     .enumerate()
     .map(|(i, kind)| {
+        // The two brackets state their own results (history schema 2).
+        let result = match kind {
+            StepKind::SnapshotBefore => StepResult::SnapshotTaken,
+            StepKind::RecordHistory => StepResult::RecordPendingReadBack,
+            // A mutating step carries the ends of its commands, never a
+            // verification (the reader refuses that).
+            StepKind::AddDestination => StepResult::Performed {
+                ends: vec![macportsbrew_domain::CommandEnd::Exited { code: 0 }],
+            },
+            _ => verified(),
+        };
         RecordedStep::new(
             u32::try_from(i + 1).unwrap(),
             kind,
             Some(destination.clone()),
-            verified(),
+            result,
             false,
         )
     })
@@ -462,7 +473,7 @@ fn a_new_run_id_is_a_run_id_and_a_typed_id_is_checked_before_it_is_a_path() {
 #[test]
 fn the_documented_sample_is_a_record_this_version_reads() {
     let doc = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/schemas/history.v1.md"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/schemas/history.v2.md"),
     )
     .unwrap();
     let marker = "<!-- history-sample -->";
@@ -559,4 +570,135 @@ fn the_record_is_written_durably_not_best_effort() {
     let body = &body[..end];
     assert!(body.contains("write_new_durable("), "{body}");
     assert!(!body.contains("write_new_atomic("), "{body}");
+}
+
+// --- One record by id, the read-back, and the marker in the view (slice 5) ---
+
+#[test]
+fn one_record_by_id_is_returned_or_none_and_nothing_is_created() {
+    use macportsbrew_adapters::persistence::history_store::read_one;
+    let (base, state) = scratch("read-one");
+    let uid = euid(&base);
+    // No state directory at all: no record, and still none afterwards.
+    assert_eq!(read_one(&state, NEW, uid).unwrap(), None);
+    assert!(!state.root().exists());
+
+    let written = record(NEW, "tool", RunEnding::Completed);
+    write_record(&state, &written, uid).unwrap();
+    assert_eq!(read_one(&state, NEW, uid).unwrap(), Some(written));
+    assert_eq!(
+        read_one(&state, OLD, uid).unwrap(),
+        None,
+        "a valid id with no record"
+    );
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn an_id_that_is_not_a_run_id_never_becomes_a_path_and_root_is_refused() {
+    use macportsbrew_adapters::persistence::history_store::read_one;
+    let (base, state) = scratch("read-one-ids");
+    let uid = euid(&base);
+    write_record(&state, &record(NEW, "tool", RunEnding::Completed), uid).unwrap();
+    for bad in [
+        "",
+        "..",
+        "../state/history/run-x",
+        "run-1",
+        "20261004T120000Z-ABC",
+    ] {
+        assert_eq!(
+            read_one(&state, bad, uid).unwrap_err().id,
+            ErrorId::HistoryUnusable,
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        read_one(&state, NEW, 0).unwrap_err().id,
+        ErrorId::SafetyBlocked
+    );
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn a_single_record_read_holds_the_directories_to_the_same_rules_as_the_listing() {
+    use macportsbrew_adapters::persistence::history_store::read_one;
+    let (base, state) = scratch("read-one-dirs");
+    let uid = euid(&base);
+    write_record(&state, &record(NEW, "tool", RunEnding::Completed), uid).unwrap();
+    for (what, directory) in [
+        ("history", state.history()),
+        ("state", state.root().to_path_buf()),
+    ] {
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            read_one(&state, NEW, uid).unwrap_err().id,
+            ErrorId::HistoryUnusable,
+            "{what} open to others"
+        );
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    assert!(read_one(&state, NEW, uid).unwrap().is_some());
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn the_read_back_is_the_text_that_was_written_and_a_different_record_is_not() {
+    use macportsbrew_adapters::persistence::history_store::{read_back, record_text};
+    let (base, state) = scratch("read-back");
+    let uid = euid(&base);
+    let written = record(NEW, "tool", RunEnding::Completed);
+    write_record(&state, &written, uid).unwrap();
+    let text = record_text(&written).unwrap();
+    assert!(text.ends_with("}\n"));
+    assert_eq!(read_back(&state, NEW, uid).unwrap(), text);
+
+    // Another record at the same id (the file replaced behind the run's back):
+    // it reads, it parses, and it is not what was written.
+    let other = record(NEW, "another-package", RunEnding::Completed);
+    let path = file(&state, NEW);
+    std::fs::write(&path, record_text(&other).unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let back = read_back(&state, NEW, uid).unwrap();
+    assert_ne!(back, text);
+    assert_eq!(back, record_text(&other).unwrap());
+
+    // A record that is not there to read back is an error, never an empty text.
+    assert_eq!(
+        read_back(&state, OLD, uid).unwrap_err().id,
+        ErrorId::HistoryUnusable
+    );
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn the_view_carries_what_the_marker_says_and_an_unreadable_marker_is_not_absent() {
+    use macportsbrew_adapters::persistence::run_lock::acquire;
+    use macportsbrew_adapters::persistence::run_marker::{write, MARKER_FILE};
+    use macportsbrew_domain::{InterruptedRun, MarkerState, RecordStanding};
+    let (base, state) = scratch("view-marker");
+    let uid = euid(&base);
+    let written = record(NEW, "tool", RunEnding::Completed);
+    write_record(&state, &written, uid).unwrap();
+
+    let view = read_view(&state, &key("tool"), uid).unwrap();
+    assert_eq!(view.marker(), &MarkerState::Absent);
+    assert_eq!(view.standing_of(&written), RecordStanding::Confirmed);
+
+    let lock = acquire(&state, uid).unwrap();
+    write(&lock, &state, &InterruptedRun::new(NEW).unwrap(), uid).unwrap();
+    let view = read_view(&state, &key("tool"), uid).unwrap();
+    assert_eq!(view.marker(), &MarkerState::Names(NEW.into()));
+    assert_eq!(view.standing_of(&written), RecordStanding::Unconfirmed);
+
+    // Something in the marker's place that is not a marker: nothing is known.
+    let marker = state.root().join(MARKER_FILE);
+    std::fs::remove_file(&marker).unwrap();
+    std::fs::write(&marker, "not a marker").unwrap();
+    std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let view = read_view(&state, &key("tool"), uid).unwrap();
+    assert_eq!(view.marker(), &MarkerState::Unreadable);
+    assert_eq!(view.standing_of(&written), RecordStanding::Unknown);
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
 }

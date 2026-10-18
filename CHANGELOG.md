@@ -34,12 +34,45 @@ These changes come after the 0.1.0 release candidate and are not part of
 
 ### Added after the release candidate
 
+- `macportsbrew history acknowledge <id>`: deals with the interrupted-run
+  marker a run left. Without `--yes` it says what it knows and changes nothing;
+  with it, it makes the run's record durable, checks it reads back, and removes
+  the marker (a record it cannot read keeps the marker). `doctor` now reports an
+  interrupted run (the `interrupted_run` finding, always present; `OK` when
+  there is none or when it was not checked), and every run that handed a
+  mutating step over prints its snapshot and the command that plans the way
+  back. The by-hand "remove interrupted-run.json" remedy is gone from the
+  messages. `--json`: `history-acknowledge.v1`.
+- `macportsbrew restore --plan --run <id>`: the plan that puts back what a
+  recorded run changed, built by the same planner in the other direction from
+  the run's record and the snapshot it took first, shown with notes about what
+  it cannot say. Nothing is executed: `restore --run <id>` without `--plan`
+  puts the plan to the execution gate, which refuses it (exit 4), and
+  `restore --snapshot` is not built (exit 1). `--json`: `restore.v1`.
+- `macportsbrew history` and `history show <id>`: the runs this MacPortsBrew has
+  made, newest first, and one run's steps, snapshot and whether it can be put
+  back (restorability is derived when read, never stored). Read-only, creates
+  nothing, refused under `--from-snapshot`, under a replay and as root. A new
+  error identifier, `RUN_NOT_FOUND` (exit 8), for a well-formed run id with no
+  record. `--json`: `history-list.v1` and `history-show.v1`.
 - `migrate --json`, additive and reachable only under the mutation switch that
   no build turns on: the optional `historyError` and `markerLeft` execution
   fields, the `PERFORMED` step disposition with `ends`, and the halt reasons
   `MUTATION_FAILED`, `MUTATION_REFUSED`, `MUTATING_STEP_CARRIES_VERIFICATION`,
   `PRECONDITION_FAILED` and `STATE_CHANGED`; `history.v1` gains `PERFORMED`.
   Consumers that match these values exhaustively should accept them.
+- `migrate --json`, additive and reachable only under the same switch: the
+  optional `runId`, `snapshotFile` and `recordReadBack` execution fields, the
+  `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK` step dispositions, the
+  `SNAPSHOT_NOT_TAKEN` halt reason, and the `RECORD_NOT_CONFIRMED` reason in
+  `retainedRunNotRecognised`.
+- A run's snapshot and record are now performed by the mutating loop (still
+  behind that switch): the snapshot is written first, from the capture taken
+  under the lock, and read back before anything changes; the run's record is
+  stored pending and is confirmed by a read-back. History schema 2
+  ([`docs/schemas/history.v2.md`](docs/schemas/history.v2.md)) and marker
+  schema 2 ([`docs/schemas/run-marker.v2.md`](docs/schemas/run-marker.v2.md))
+  replace version 1 of each, which no build ever wrote.
 
 ### Under the hood, after the release candidate
 

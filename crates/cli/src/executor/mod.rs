@@ -62,6 +62,7 @@
 
 use macportsbrew_adapters::persistence::run_lock::{self, RunLock};
 use macportsbrew_adapters::persistence::run_marker::{self, ClearOutcome};
+use macportsbrew_adapters::persistence::snapshot_store::{self, StateSnapshot};
 use macportsbrew_adapters::persistence::{history_store, StateDir};
 use macportsbrew_adapters::process::{Invocation, PlanReadRefusal};
 use macportsbrew_adapters::registry::{
@@ -69,9 +70,9 @@ use macportsbrew_adapters::registry::{
 };
 use macportsbrew_application::{
     execution_refusals, judge_mutation, judge_step, must_record, next_action, next_action_with,
-    outcome_of, plan_still_holds, recheck_provider_configuration, refused, run_record, Action,
-    ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
-    Precondition, RunOutcome, StepRead, StepRecord,
+    outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
+    run_record, Action, ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult,
+    PlannedRun, Precondition, RunOutcome, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
@@ -172,6 +173,40 @@ pub struct RunReport {
     /// already says it there.
     #[serde(skip)]
     pub record_written: bool,
+    /// What a run that handed a mutating step over leaves to find it by: its
+    /// id, the snapshot it took and how the record's read-back went. Empty for
+    /// a run that dispatched nothing.
+    #[serde(flatten)]
+    pub receipt: RunReceipt,
+}
+
+/// How the read-back of a published record failed (pass 08 slice 5, D3). The
+/// marker is kept either way and the exit is non-zero; the texts differ,
+/// because a record that reads back as something else is not an I/O problem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReadBackFailure {
+    /// The published record could not be read back.
+    Failed,
+    /// It was read back and is not the record that was written.
+    Disagreed,
+}
+
+/// The facts a mutating run is found by afterwards (04, "Undoing a migration":
+/// every such run prints the command to undo it, whatever its outcome).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunReceipt {
+    /// The run's identifier, when it handed a mutating step over and so has a
+    /// record (or a marker standing for one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    /// The file name of the snapshot taken first, when one was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_file: Option<String>,
+    /// How the read-back of the record failed, when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_read_back: Option<ReadBackFailure>,
 }
 
 impl RunReport {
@@ -218,12 +253,14 @@ pub fn run_with<S: ReadSite>(
                 ends: Vec::new(),
             },
             // Not answered without an allowance, and this loop has none: if it
-            // ever were, nothing is dispatched.
-            Action::DispatchMutating => Disposition::Halted {
-                reason: macportsbrew_application::HaltReason::UnexecutedMutation,
-                evidence: Vec::new(),
-                ends: Vec::new(),
-            },
+            // ever were, nothing is dispatched or written.
+            Action::DispatchMutating | Action::TakeSnapshot | Action::RecordHistory => {
+                Disposition::Halted {
+                    reason: macportsbrew_application::HaltReason::UnexecutedMutation,
+                    evidence: Vec::new(),
+                    ends: Vec::new(),
+                }
+            }
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -258,6 +295,7 @@ pub fn run_with<S: ReadSite>(
         history_error: None,
         marker_left: None,
         record_written: false,
+        receipt: RunReceipt::default(),
     }
 }
 
@@ -326,6 +364,9 @@ pub enum Boundary {
     Replanned,
     /// The interrupted-run marker was looked for and none was there.
     MarkerRead,
+    /// The snapshot was published durably and read back (`SNAPSHOT_BEFORE`),
+    /// before the marker and before the first change.
+    SnapshotWritten,
     /// The marker was written, before the first mutating command.
     MarkerWritten,
     /// The lock was confirmed still this run's, before a mutating command.
@@ -336,6 +377,8 @@ pub enum Boundary {
     Dispatched,
     /// The run's record was written.
     RecordWritten,
+    /// The published record was read back and is the record that was written.
+    RecordReadBack,
     /// The marker was cleared.
     MarkerCleared,
 }
@@ -364,6 +407,12 @@ pub type Recapture<'a> = Box<dyn FnOnce() -> Result<(Snapshot, MigrationPlan), D
 /// second argument (`registry::reread_configuration` in the product).
 pub type Reread<'a> = &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>;
 
+/// How a published record is read back (`history_store::read_back` in the
+/// product): the record's canonical text, or why it could not be read. A seam
+/// like [`Reread`], so a test can make the read-back fail or disagree without
+/// the observer ever injecting a failure.
+pub type ReadBack<'a> = &'a dyn Fn(&StateDir, &str, u32) -> Result<String, DomainError>;
+
 /// What only the caller can supply to a mutating run.
 pub struct MutatingRun<'a, M: MutationSite> {
     /// Whether this run reads the machine it is on (`HistoryScope::ThisMachine`).
@@ -382,6 +431,8 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub recapture: Recapture<'a>,
     /// Re-reads a provider's configuration before a mutating command (D7).
     pub reread: Reread<'a>,
+    /// Reads the published record back, under the lock (D3).
+    pub read_back: ReadBack<'a>,
     /// Told of each boundary.
     pub observer: &'a dyn Observer,
 }
@@ -456,6 +507,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             history_error: None,
             marker_left: None,
             record_written: false,
+            receipt: RunReceipt::default(),
         });
     }
     io.observer.at(Boundary::Replanned, None);
@@ -470,6 +522,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         .map_err(|why| DomainError::new(ErrorId::Internal, why))?;
     let site = sites();
     let mut marker_written = false;
+    let mut snapshot_file: Option<String> = None;
     let mut records: Vec<StepRecord> = Vec::new();
     let mut refusal = None;
     for (position, step) in plan.steps.iter().enumerate() {
@@ -480,6 +533,24 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                 evidence: Vec::new(),
                 ends: Vec::new(),
             },
+            // The capture taken under the lock, written durably and read back
+            // before the marker (D1): a run never changes the machine behind a
+            // snapshot its own reader refuses.
+            Action::TakeSnapshot => match take_snapshot(state, &now, euid) {
+                Some(file) => {
+                    snapshot_file = Some(file);
+                    io.observer.at(Boundary::SnapshotWritten, Some(step.index));
+                    Disposition::SnapshotTaken
+                }
+                None => Disposition::Halted {
+                    reason: HaltReason::SnapshotNotTaken,
+                    evidence: Vec::new(),
+                    ends: Vec::new(),
+                },
+            },
+            // The one write of the record follows the loop; the step is only
+            // recorded pending here (D2, D3).
+            Action::RecordHistory => Disposition::RecordPendingReadBack,
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -490,7 +561,16 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             }
             Action::DispatchMutating => {
                 if !marker_written {
-                    run_marker::write(&lock, state, &marker, euid)?;
+                    // After the snapshot step, so the marker can name the one
+                    // trace a run that never records itself leaves (D1).
+                    let named = match snapshot_file.as_deref() {
+                        Some(file) => marker
+                            .clone()
+                            .with_snapshot(file)
+                            .map_err(|why| DomainError::new(ErrorId::Internal, why))?,
+                        None => marker.clone(),
+                    };
+                    run_marker::write(&lock, state, &named, euid)?;
                     marker_written = true;
                     io.observer.at(Boundary::MarkerWritten, Some(step.index));
                 }
@@ -551,30 +631,62 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             disposition: Disposition::NotReached,
         });
     }
-    let record = run_record(planned, &records, io.start.clone());
+    let record = run_record(
+        planned,
+        &records,
+        io.start.clone(),
+        snapshot_file.as_deref(),
+    );
     let mut history_error = None;
     let mut marker_left = None;
     let mut record_written = false;
+    let mut record_read_back = None;
+    // `marker_written` decides whether a marker was left: a run that never
+    // wrote one cannot leave one (slice 5, D3).
     let mut left = |error: ErrorId| {
         history_error = Some(error);
-        marker_left = Some(marker.run_id().to_string());
+        marker_left = marker_written.then(|| marker.run_id().to_string());
     };
     if must_record(&record) {
         match history_store::write_record(state, &record, euid) {
             Ok(()) => {
                 record_written = true;
                 io.observer.at(Boundary::RecordWritten, None);
-                match run_marker::clear(&lock, state, &marker, euid) {
-                    Ok(ClearOutcome::Cleared) => io.observer.at(Boundary::MarkerCleared, None),
-                    // Under the lock this run holds, the marker it wrote cannot
-                    // have gone or changed hands: either is an anomaly to show.
-                    Ok(ClearOutcome::AlreadyAbsent | ClearOutcome::NotOurs) | Err(_) => {
-                        left(ErrorId::HistoryUnusable);
+                // The record is confirmed only when it reads back as the one
+                // written, under this lock; never after a write that was not
+                // known to be durable (D3). The marker is the confirmation.
+                let confirmed = match (
+                    history_store::record_text(&record),
+                    (io.read_back)(state, record.id(), euid),
+                ) {
+                    (Ok(written), Ok(read)) if read_back_matches(&written, &read) => true,
+                    (Ok(_), Ok(_)) => {
+                        record_read_back = Some(ReadBackFailure::Disagreed);
+                        false
                     }
+                    _ => {
+                        record_read_back = Some(ReadBackFailure::Failed);
+                        false
+                    }
+                };
+                if confirmed {
+                    io.observer.at(Boundary::RecordReadBack, None);
+                    match run_marker::clear(&lock, state, &marker, euid) {
+                        Ok(ClearOutcome::Cleared) => io.observer.at(Boundary::MarkerCleared, None),
+                        // Under the lock this run holds, the marker it wrote
+                        // cannot have gone or changed hands: either is an
+                        // anomaly to show.
+                        Ok(ClearOutcome::AlreadyAbsent | ClearOutcome::NotOurs) | Err(_) => {
+                            left(ErrorId::HistoryUnusable);
+                        }
+                    }
+                } else {
+                    left(ErrorId::Io);
                 }
             }
             // Not known to be durable — it may exist — so the marker stays and
-            // the run says so; nothing offers to restore it.
+            // the run says so; nothing offers to restore it, and nothing reads
+            // it back: whatever stands at that id is not this run's record.
             Err(_) => left(ErrorId::Io),
         }
     } else if marker_written {
@@ -593,7 +705,29 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         history_error,
         marker_left,
         record_written,
+        receipt: RunReceipt {
+            run_id: must_record(&record).then(|| record.id().to_string()),
+            snapshot_file,
+            record_read_back,
+        },
     })
+}
+
+/// Writes `snapshot` (the capture taken under the lock) durably into the state
+/// directory and reads it back through the reader a restore will use; the file
+/// name, or `None` when either failed (D1). Performs I/O and decides nothing:
+/// the application already answered `TakeSnapshot`, and a `None` is the whole
+/// of what it needs back.
+fn take_snapshot(state: &StateDir, snapshot: &Snapshot, euid: u32) -> Option<String> {
+    let name = snapshot_store::save_snapshot_durable(&state.snapshots(), snapshot).ok()?;
+    match snapshot_store::state_snapshot(state, &name, euid) {
+        StateSnapshot::Present(read)
+            if read.provenance.captured_at == snapshot.provenance.captured_at =>
+        {
+            Some(name)
+        }
+        _ => None,
+    }
 }
 
 /// Hands one mutating command to the mutation site with its re-check token —
@@ -636,6 +770,7 @@ pub fn refused_report(
         history_error: None,
         marker_left: None,
         record_written: false,
+        receipt: RunReceipt::default(),
     }
 }
 
@@ -788,6 +923,7 @@ mod tests {
             history_error,
             marker_left: None,
             record_written: false,
+            receipt: RunReceipt::default(),
         };
         assert_eq!(report(RunOutcome::Completed, None).exit_code(), 0);
         for error in [ErrorId::Io, ErrorId::HistoryUnusable] {

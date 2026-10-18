@@ -26,6 +26,7 @@ pub mod mapping;
 pub mod planner;
 pub mod provider_commands;
 pub mod report;
+pub mod restore;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 pub use capture::{capture, CaptureContext};
@@ -36,7 +37,10 @@ pub use consent::{
     confirm, confirmation_phrase, elevation_requests, ConsentDecision, ConsentGiven,
     ConsentRefusal, ElevationRequest,
 };
-pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
+pub use doctor::{
+    doctor, interrupted_run_finding, DoctorFinding, DoctorReport, RunFacts, Severity,
+    StrandedRecord,
+};
 pub use execution_gate::{
     clear, evaluable_in_this_build, execution_refusals, execution_refusals_for, mutation_allowance,
     ExecutionRefusal, GateClear, GateReport, MutationAllowance,
@@ -48,13 +52,17 @@ pub use executor::{
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{
-    migration_key, must_record, recognise_retained_run, run_record, HistoryConsultation,
-    NotRecognised, Recognition,
+    migration_key, must_record, read_back_matches, recognise_retained_run, restorability,
+    run_record, HistoryConsultation, NotRecognised, Recognition, SnapshotLook,
 };
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
 };
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
+pub use restore::{
+    check_same_package, notes as restore_notes, restore_request, KeepReason, Removal,
+    RestoreIntent, RestoreNote, RestoreRefusal,
+};
 
 /// The tool version, from the workspace manifest.
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
