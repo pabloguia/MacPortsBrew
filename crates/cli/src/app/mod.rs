@@ -592,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn invariant_06_the_root_refusal_comes_before_history_is_read() {
+    fn invariant_06_history_restore_and_acknowledge_refuse_root() {
         // `history` skips the capture, so it must not skip the refusal: both
         // commands read a state directory a root-run process would read as root.
         let source = include_str!("mod.rs");
@@ -603,6 +603,16 @@ mod tests {
         assert!(
             root < history,
             "history would be read before the root check"
+        );
+        // `restore` comes after it too: the refusal precedes the restore
+        // arguments and any context.
+        let restore = body
+            .find("restore::refuse_before_context(")
+            .expect("restore");
+        let context = body.find("Context::build(").expect("the context");
+        assert!(
+            root < restore && root < context,
+            "a command would run before the root check"
         );
     }
 

@@ -334,14 +334,9 @@ mod tests {
         assert_eq!(probe(&state, uid), LockProbe::Held);
         drop(held);
         assert_eq!(probe(&state, uid), LockProbe::Free);
-        // A symbolic reference in its place is never followed.
-        let target = base.join("elsewhere");
-        std::fs::write(&target, b"").unwrap();
+        // Nor a file somebody else could write. (A symbolic reference in its
+        // place is never followed: `tests/run_lock.rs` plants one.)
         let path = state.root().join(LOCK_FILE);
-        std::fs::remove_file(&path).unwrap();
-        std::os::unix::fs::symlink(&target, &path).unwrap();
-        assert_eq!(probe(&state, uid), LockProbe::Untestable);
-        // Nor a file somebody else could write.
         std::fs::remove_file(&path).unwrap();
         std::fs::write(&path, b"").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();

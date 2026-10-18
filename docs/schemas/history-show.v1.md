@@ -34,6 +34,14 @@ activity is carried.
 versions match: a plan built from the snapshot shows where they differ
 (`04-migration-and-safety.md`, "Undoing a migration").
 
+## Text in the document
+
+`record` carries package names and versions as the provider spelled them. The
+reader refuses Control-class characters, but Format characters (zero-width,
+bidirectional marks) are legal in a name and are written raw into this JSON. The
+human text escapes them; a consumer that prints this JSON to a terminal must do
+the same.
+
 ## Errors
 
 A value that is not shaped like a run id is a usage error (exit 2) and is never

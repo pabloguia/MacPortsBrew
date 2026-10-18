@@ -18,7 +18,7 @@
 //! data from a file — is scrubbed to an alphanumeric stamp before it is
 //! allowed anywhere near a file name.
 
-use crate::persistence::atomic::{write_atomic, write_new_durable, PublishError};
+use crate::persistence::atomic::{write_new_atomic, write_new_durable, PublishError};
 use crate::persistence::bounded_read::{
     read_bounded as read_bounded_file, BoundedReadError, OpenPolicy,
 };
@@ -91,17 +91,20 @@ pub fn snapshot_to_json(snapshot: &Snapshot) -> Result<String, DomainError> {
 /// something else. The caller re-stamps and retries.
 pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, DomainError> {
     let path = directory.join(snapshot_file_name(&snapshot.provenance.captured_at)?);
-    if path.symlink_metadata().is_ok() {
-        return Err(DomainError::new(
+    // Published by a link that cannot replace: a look first and a rename after
+    // is a window in which a run's own snapshot could land and be overwritten
+    // (slice 5 security review, L-2).
+    match write_new_atomic(&path, snapshot_to_json(snapshot)?.as_bytes()) {
+        Ok(()) => Ok(path),
+        Err(PublishError::Exists) => Err(DomainError::new(
             ErrorId::SafetyBlocked,
             format!(
                 "{} already exists; refusing to replace a snapshot",
                 path.display()
             ),
-        ));
+        )),
+        Err(PublishError::Failed(e)) => Err(e),
     }
-    write_atomic(&path, snapshot_to_json(snapshot)?.as_bytes())?;
-    Ok(path)
 }
 
 /// Publishes `snapshot` in `directory` **durably** and without ever replacing a

@@ -21,6 +21,7 @@ use super::migrate::state_and_user;
 use macportsbrew_adapters::persistence::history_store;
 use macportsbrew_adapters::persistence::run_lock::{self, LockProbe};
 use macportsbrew_adapters::persistence::run_marker::{self, ClearOutcome};
+use macportsbrew_adapters::persistence::snapshot_store::{state_snapshot_file, SnapshotFile};
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_application::{interrupted_run_finding, RunFacts, StrandedRecord};
 use macportsbrew_domain::{DomainError, ErrorId, InterruptedRun, RunRecord};
@@ -190,6 +191,20 @@ pub(super) fn acknowledge(
                 _ => "history.ack_would_not_recorded",
             };
             writeln!(stdout, "{}", text.say(would, &[("run_id", id.to_owned())])).map_err(io)?;
+            // The snapshot the marker names is part of the only trace of a run
+            // that left no record: say whether it is still there.
+            let look = match marker.snapshot_file() {
+                None => text.messages.render_id("history.ack_snapshot_none"),
+                Some(name) => {
+                    let key = match state_snapshot_file(state, name, euid) {
+                        SnapshotFile::Present => "history.ack_snapshot_present",
+                        SnapshotFile::Missing => "history.ack_snapshot_missing",
+                        SnapshotFile::Unreadable(_) => "history.ack_snapshot_unreadable",
+                    };
+                    text.say(key, &[("snapshot", text.plain(name))])
+                }
+            };
+            writeln!(stdout, "{look}").map_err(io)?;
         }
         return Ok(0);
     }
@@ -201,8 +216,18 @@ pub(super) fn acknowledge(
     refuse_other_run(&held, id)?;
     match history_store::read_one(state, id, euid) {
         // A record that cannot be read is not promoted, and the marker that says
-        // so stays (fail closed).
-        Err(e) => return Err(e),
+        // so stays (fail closed). The way out is named: slice 5 review, M2.
+        Err(e) => {
+            return Err(DomainError::new(
+                e.id,
+                format!(
+                    "{}; the marker was left in place. If the record cannot be repaired, move \
+                     that file out of the history directory (this tool deletes nothing) and \
+                     acknowledge again",
+                    e.detail
+                ),
+            ))
+        }
         Ok(Some(_)) => {
             history_store::make_durable(state, id, euid)?;
         }

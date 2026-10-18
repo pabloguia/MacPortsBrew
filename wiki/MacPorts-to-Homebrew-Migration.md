@@ -107,7 +107,7 @@ Steps, in order
        $ /opt/local/bin/port -q installed  [passes when this list does NOT name the package; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the source no longer reports it installed
   8. Review what is left behind - Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically.
-  9. Record the run - Record what was done. This version keeps no history and has no restore command; keep your before-snapshot.
+  9. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
 
 Steps that need administrator rights: 6.
 

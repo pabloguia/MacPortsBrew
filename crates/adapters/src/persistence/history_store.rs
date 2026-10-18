@@ -30,14 +30,14 @@
 //! decides once (INV-15).
 
 use super::atomic::{write_new_atomic, write_new_durable, PublishError};
-use super::bounded_read::{read_bounded, BoundedReadError, OpenPolicy};
+use super::bounded_read::{open_flags, read_bounded, BoundedReadError, OpenPolicy};
 use super::state_dir::StateDir;
 use macportsbrew_domain::history::{is_run_id, run_id_stamp};
 use macportsbrew_domain::{
     DomainError, ErrorId, HistoryView, MigrationKey, RunRecord, StoredRunRecord,
 };
 use std::fs::Metadata;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 /// The largest record read back. A record holds a plan's steps and their
@@ -254,7 +254,12 @@ pub fn make_durable(state: &StateDir, id: &str, euid: u32) -> Result<RunRecord, 
         .ok_or_else(|| unusable("the record asked for is not named by a run id".into()))?;
     let directory = state.history();
     for path in [directory.join(&name), directory] {
-        std::fs::File::open(&path)
+        // The project's own open flags: a record swapped for a FIFO must not
+        // hang this while it holds the run lock (slice 5 security review, L-1).
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(open_flags(OpenPolicy::RefuseSymlink))
+            .open(&path)
             .and_then(|handle| handle.sync_all())
             .map_err(|e| {
                 unusable(format!(

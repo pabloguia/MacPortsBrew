@@ -1214,6 +1214,21 @@ fn the_switch_needs_doctor_to_show_a_stranded_marker() {
 }
 
 /// No structural fact yet: an unconditional failure while the switch is on.
+/// The 04 MUST that a restore step whose artifact is no longer available
+/// becomes a `MANUAL_REVIEW` step is unmet for every plan, `migrate` included
+/// (the planner raises none); declared in 04 and SE-092 (pass 08 slice 5, D8).
+#[test]
+fn the_switch_needs_manual_review_for_an_unavailable_artifact() {
+    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    assert!(
+        !switch,
+        "04 (Undoing a migration) requires a step whose artifact is unavailable to become \
+         MANUAL_REVIEW, and the planner does not raise one; remove this only in the change \
+         that does, with its test (SE-092, slice 5 D8)"
+    );
+}
+
+/// No structural fact yet: an unconditional failure while the switch is on.
 #[test]
 fn the_switch_needs_the_executed_plan_tied_to_the_one_shown() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;

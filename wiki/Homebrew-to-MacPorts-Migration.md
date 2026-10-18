@@ -105,8 +105,9 @@ When both providers are present and the mapping is confident, the plan follows
 this order, and the order is enforced rather than conventional:
 
 1. **Snapshot before** — both providers' state, recorded before anything
-   changes. A restore command that uses it is designed but is not in 0.1.0;
-   today, take your own with `macportsbrew snapshot --out before.json`.
+   changes. `restore --plan --run <id>` reads the snapshot a *recorded run* took;
+   executing a restore is not built, and nothing records a run yet, so today
+   take your own with `macportsbrew snapshot --out before.json`.
 2. **Add destination** — install under MacPorts.
 3. **Verify destination** — the package is installed and active, its
    executables are where MacPorts says they are, and a liveness probe with a

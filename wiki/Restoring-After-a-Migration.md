@@ -66,7 +66,7 @@ produces ordered steps, every command with its full argv, the risks, the
 elevation, and a human review before anything happens. There is no separate
 "rollback engine" with its own semantics to learn and its own bugs to find.
 
-`restore --plan --snapshot <file>` would do the same against a snapshot file
+`restore --snapshot <file>` would do the same against a snapshot file
 rather than a recorded run. It is not built: it exits with "not implemented"
 (exit 1).
 
@@ -93,7 +93,7 @@ naming the run. `macportsbrew doctor` says what is known about the run (its
 record may exist but not be confirmed, may be unreadable, or may not exist at
 all, in which case the provider may be half-changed). Recovery is the same
 commands: `history show <id>` to see what completed, then either
-`restore --plan --run <id>` or a fresh plan forward. When you have looked, 
+`restore --plan --run <id>` or a fresh plan forward. When you have looked,
 `history acknowledge <id> --yes` makes the run's record durable, checks it, and
 removes the marker; it deletes no record and no snapshot, and you do not remove
 any file by hand. There is no `resume` command, because there is nothing

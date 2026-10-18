@@ -363,10 +363,9 @@ fn a_snapshot_that_is_gone_or_replaced_is_exit_eight_and_names_the_run() {
     let ctx = live(&scratch, &cli);
     seed(&scratch, &ctx, performed());
     let file = scratch.state().snapshots().join(SNAPSHOT);
-    // Replaced by a symbolic reference to a real snapshot: not what was taken.
-    let target = scratch.0.join("elsewhere.json");
-    std::fs::rename(&file, &target).unwrap();
-    std::os::unix::fs::symlink(&target, &file).unwrap();
+    // Open to others: not what this tool writes. (A symbolic reference in its
+    // place is planted by `tests/history_commands.rs`.)
+    std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
     let (code, out) = run_restore(&ctx, &cli, true, RUN_ID);
     let error = code.expect_err("refused");
     assert_eq!(error.id, ErrorId::SnapshotUnusable);
