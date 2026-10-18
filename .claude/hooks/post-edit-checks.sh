@@ -12,6 +12,8 @@
 set -uo pipefail
 # shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+# lib.sh sets -e; this hook is advisory and must reach its end (recheck item 5).
+set +e
 
 mpb_have jq || mpb_have python3 || exit 0
 INPUT="$(cat)"

@@ -145,6 +145,22 @@ print(json.dumps({"systemMessage":sys.argv[1]}))
   fi
 }
 
+# Block the stop with the documented form: exit 0 and a decision object on
+# stdout. The exit-2-and-stderr form is read differently when the stderr text
+# looks like a missing-file report, and compiler output often does (tooling
+# recheck 2026-10-17, item 6). The caller exits 0 after calling this.
+mpb_block() {
+  local text="$1"
+  if mpb_have jq; then
+    jq -n --arg r "$text" '{decision:"block",reason:$r}'
+  else
+    python3 -c '
+import json, sys
+print(json.dumps({"decision":"block","reason":sys.argv[1]}))
+' "$text"
+  fi
+}
+
 # mpb_realpath <path>: canonical absolute path with symlinks resolved, so a
 # guard matches the target and not the spelling.
 #

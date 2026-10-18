@@ -117,4 +117,31 @@ inside test modules, so tests that need a symbolic reference live under
 
 ## Guarded-path edits
 
-None. `MPB_ALLOW_GUARD_EDIT` was never used.
+Made after the slice, on the owner's message carrying `MPB_ALLOW_GUARD_EDIT=1`
+(2026-10-18), to apply the 2026-10-17 tooling re-check
+(`docs/research/tooling/2026-10-17-hooks-permissions-ci.md`):
+
+- `.claude/hooks/stop-gate.sh`, `post-edit-checks.sh` (item 5): `set +e` after
+  sourcing `lib.sh`, which sets `-e`; an unexpected failure no longer exits 1
+  (non-blocking) and lets the turn end unchecked.
+- `.claude/hooks/lib.sh`, `stop-gate.sh`, `test-hooks.sh` (item 6): the stop gate
+  blocks with exit 0 and `{"decision":"block","reason":...}` (`mpb_block`), the
+  documented form; its tests expect that. 196/196 hook tests pass.
+- `.claude/hooks/arm-guard-edit.sh` (item 8): the comment now says a compaction
+  or clear mid-message disarms the window (fails closed).
+- `.claude/settings.json` (item 7): seven bare deny entries removed; the docs
+  state that a trailing ` *` also matches the bare command, so each `X *` twin
+  covers them.
+- `.github/workflows/claude-code-review.yml` (items 1, 2, 4): the cargo verbs are
+  denied as in `claude.yml`, the two gate-skip variables are set, and the
+  `pull-requests: write` claim is marked unverified.
+- `.github/workflows/claude.yml` (item 3): the `prompt` comment corrected.
+- `.codex/` regenerated from `.claude/` by `scripts/generate-codex-layer.sh`.
+
+**Not applied:** item 9 (`Edit(./rust-toolchain...)` and
+`Edit(./docs/spec/01-invariants.md)` deny anchors in `settings.json`, to `/`
+anchors). The auto-mode classifier denied the edit because it touches the rules
+that protect the toolchain pin and the invariants; I did not work around it. The
+path guard hook catches both spellings meanwhile. The rest of the note's items
+(mechanisms not used, guidance not followed, ungrounded claims) are
+recommendations, left as recorded.

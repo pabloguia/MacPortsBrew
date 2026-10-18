@@ -8,7 +8,10 @@
 # request or publish a release.
 #
 # Be precise about what it *can* do. `pull-requests: write` is the coarsest
-# thing here and GitHub does not subdivide it: besides commenting it also
+# thing here and GitHub does not subdivide it (UNVERIFIED: the only review
+# workflow the documentation shows uses `read`; this claim that `write` is
+# needed rests on an observation not reproduced here - test it on the first run
+# with `read` before relying on this comment): besides commenting it also
 # permits closing and reopening a pull request, editing its title and body,
 # labelling it and requesting reviewers. It is granted because the inline-
 # comment tool below cannot post without it — at `read` the job ran and
@@ -65,6 +68,12 @@ jobs:
       # See claude.yml. This job holds a secret and reads untrusted
       # pull-request content, so it is an unattended run by any definition.
       MPB_UNATTENDED: "1"
+      # As claude.yml: project hooks run under `-p`, so without these the Stop
+      # gate and the commit gate would build and test the checked-out pull
+      # request with the API key in the environment. repository-validation.yml
+      # runs the same checks with no secret.
+      MPB_SKIP_STOP_GATE: "1"
+      MPB_SKIP_COMMIT_GATE: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -74,8 +83,12 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Parity with claude.yml. Without this, the project's deny rules and
           # hooks do not apply to this job at all. Nothing is exposed today,
-          # because --allowedTools below grants exactly one tool - but the next
-          # tool added here would land with no deny net under it.
+          # because --allowedTools below names one tool and the cargo verbs are
+          # denied (the settings allow rules are a second grant, which this
+          # comment used to overlook) - but the next tool added here would land with no deny net under it.
+          # `settings:` also brings in this file's allow rules (git commit,
+          # cargo, grep, find), which are a second grant beside --allowedTools,
+          # so the cargo verbs are denied explicitly below, as in claude.yml.
           settings: .claude/settings.json
           # KNOWN GAP, left visible rather than papered over. Every `uses:` in
           # this repository is pinned to a commit SHA and
@@ -90,4 +103,6 @@ jobs:
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ inputs.pr_number }}"
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+          claude_args: >-
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            --disallowedTools "Bash(cargo build*),Bash(cargo check*),Bash(cargo clippy*),Bash(cargo test*),Bash(cargo nextest*),Bash(cargo run*),Bash(cargo bench*),Bash(cargo doc*)"
