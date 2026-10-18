@@ -7692,3 +7692,39 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
+
+## SE-100 — Debug info is packed, and validation trims target/ after it
+- Status: accepted
+- Date / Pass: 2026-10-17 / after pass 08 slice 4 (owner's instruction in chat; `scripts/` edits armed
+  with `MPB_ALLOW_GUARD_EDIT=1`)
+- Original assumption: none was written down. The dev profile used macOS's default
+  `split-debuginfo = "unpacked"`, and nothing ever removed build output.
+- Change: `Cargo.toml` sets `[profile.dev] split-debuginfo = "packed"` (the test profile inherits it), and
+  `scripts/validate.sh` ends every mode, after its verdict, with `scripts/prune-target.sh`. In that mode the
+  prune deletes object files older than 30 minutes in every `deps` directory under `./target` and warns
+  when one holds more than `MPB_TARGET_PRUNE_LIMIT` entries (default 20000); `scripts/prune-target.sh
+  --clean`, run by hand, also runs `cargo clean --target-dir target` past the limit.
+- Rationale: under `unpacked` every codegen unit's object file stays in `target/debug/deps` and Cargo never
+  removes one when a crate rebuilds under a new hash. A night of rebuilds left 605,518 of them, 9.8 GB, and
+  launching a test binary from that directory blocked in exec for 20–100 s with no CPU used — the same bytes
+  started in 0.9 s from another directory, because something on the exec path (an Endpoint Security
+  extension, or `syspolicyd`) walks the executable's directory. Validation took 25 minutes, past the commit
+  gate's deadline. Under `packed` a full build leaves 626 entries and no object files; the cold default
+  validation takes 478 s, a warm one 274 s. Stale binaries, `.dSYM` bundles and libraries still accrue,
+  about 180 entries per full rebuild, which the warning catches long before they matter.
+- Why the gate does not clean (security review, 2026-10-17): a gate may share the checkout with another
+  build — a background subagent's, for one — whose in-flight object files a prune would delete and whose
+  binaries a `cargo clean` would remove under it; and a `cargo clean` of a large tree inside a gate with a
+  deadline can push the run past it, refusing a commit that passed, or keep a `Stop` hook from reporting a
+  failure. So the gate deletes only what cannot be in flight and leaves the clean to a person or a session
+  between builds. The 30-minute age is the margin for "cannot be in flight": a packed build removes its
+  object files at link time. The prune is housekeeping, not a check: it never goes through `run`, cannot set
+  the verdict, and says `skipped (...)` rather than failing.
+- Accepted, from the second review: the first run of the default mode on a tree that still holds an
+  unpacked backlog deletes all of it inside the gate, once, after the verdict is printed — minutes on a
+  tree as large as this one was, during which a `Stop` hook's 600 s limit could still cut the run short.
+  It happens once per tree and not on this one (0 object files after the clean); `--clean` before the
+  first gate run avoids it. And the prune's few lines come after the failure output, so they take
+  about three of the 60 (`Stop`) or 40 (commit) lines a gate shows.
+- Compatibility impact: none for users of the tool. Contributors debugging on macOS read debug info from a
+  `.dSYM` next to each binary instead of from the object files; links are slower by the `dsymutil` run.

@@ -107,9 +107,9 @@ agent's leftover, which is never committed.
    after a full build `deps` holds 626 entries and no object files (6,986
    before), the cold default validation takes 478 s and a warm one 274 s.
    Stale binaries, `.dSYM` bundles and libraries still accumulate, about 180
-   entries per full rebuild; a prune after every validation
-   (`scripts/prune-target.sh`, drafted) waits for the owner's guarded-path
-   authorisation, since it lives in `scripts/` and runs from `validate.sh`.
+   entries per full rebuild. `scripts/prune-target.sh` now runs after every
+   validation (SE-100): it deletes stale object files and warns past 20000
+   entries; `scripts/prune-target.sh --clean`, by hand between builds, cleans.
    Separately, an untracked `.claude/worktrees/` made the
    commit gate treat a docs-only commit as touching `.claude` and run the
    full validation; it is now git-ignored.
@@ -129,3 +129,18 @@ neutral word in samples. Commit when nothing else is compiling, or the commit
 gate times out. Open a file with Read before editing it, so the path-scoped
 rule in `.claude/rules/` loads. `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`
 until a work order says otherwise.
+
+## Guarded-path edits (disclosed per `11-agentic-sdlc.md`)
+
+Armed by the owner's own messages on 2026-10-18 ("MPB_ALLOW_GUARD_EDIT=1 pode instalar o
+prune-target.sh", then "MPB_ALLOW_GUARD_EDIT=1 pode aplicar as correções"); each write is in
+`.claude/.guard-edit-log`.
+
+- `scripts/prune-target.sh` (new): the housekeeping SE-100 describes.
+- `scripts/validate.sh`: calls it after the verdict in every mode, and a header note says so.
+
+The first version ran `cargo clean` from the gate past the limit; the security review found that it
+could delete a concurrent build's work in flight (M1) and push a gate past its deadline (M2). The
+second version, the one committed, never cleans from a gate. The review's other findings (the target
+directory `cargo clean` acts on, a newline in a directory name, silent skips, the missing SE entry)
+are fixed in the same change.
