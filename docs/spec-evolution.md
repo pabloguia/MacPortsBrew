@@ -2697,6 +2697,22 @@ change is made. Silent deviation remains the one unrecoverable error.
   wording check of the recipes is owed, in a guarded path), and a skill
   `disallowed-tools` field now exists. Nothing under `.claude/` changed
   (`research/tooling/2026-10-02-subagents-skills.md`).
+- **Refined 2026-10-17 (pass 08 slice 5, `/tooling-recheck`, all three
+  groups).** Contract mismatches found and **not fixed here, because every file
+  involved is a guarded path** (the owner's to arm): `lib.sh`'s `set -e` turns
+  errexit on in `stop-gate.sh` and `post-edit-checks.sh`, so an unexpected
+  failure there exits 1, which the documentation treats as non-blocking (the
+  turn ends unblocked); `stop-gate.sh` blocks with exit 2 and stderr, which the
+  documentation can misread as a non-blocking "file missing" error, where
+  `{"decision":"block"}` on stdout is the documented form; the review workflow
+  lacks `claude.yml`'s `--disallowedTools` and hook-skip flags; the armed
+  guard-edit window ends early on `/clear` or compaction. Wording only: the
+  `git push` row in `11-agentic-sdlc.md` (a hook enforces it, not a rule), the
+  seven bare-command duplicates in `settings.json`, the `Bash(cargo test:*)`
+  spelling in seven skills, and `CLAUDE.md`'s claim that a shell reader loads no
+  path-scoped rule (a single-file Bash read can). Nothing under `.claude/` or
+  `.github/` changed. The ranked list is in the pass report
+  (`research/tooling/2026-10-17-*.md`).
 - Deliberately deferred: the contributor recipes named in
   `08-distribution-and-project.md` are not written. A skill for a procedure
   that does not exist reads as authoritative and is wrong in ways nobody
