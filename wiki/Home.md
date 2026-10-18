@@ -50,8 +50,9 @@ the order.
 - [Primary Provider](Primary-Provider.md) — when both providers have the same
   tool, which one actually runs.
 - [Restoring After a Migration](Restoring-After-a-Migration.md) — how to take
-  your own snapshot before you change anything by hand. History and a restore
-  command are designed but are not in 0.1.0.
+  your own snapshot before you change anything by hand. `history` and
+  `restore --plan` read what a run recorded; nothing executes yet, so there is
+  nothing recorded.
 
 ## What this build does
 

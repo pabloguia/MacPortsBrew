@@ -26,6 +26,7 @@ pub mod mapping;
 pub mod planner;
 pub mod provider_commands;
 pub mod report;
+pub mod restore;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
 pub use capture::{capture, CaptureContext};
@@ -55,6 +56,10 @@ pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
 };
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
+pub use restore::{
+    check_same_package, notes as restore_notes, restore_request, KeepReason, Removal,
+    RestoreIntent, RestoreNote, RestoreRefusal,
+};
 
 /// The tool version, from the workspace manifest.
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");

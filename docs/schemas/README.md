@@ -13,6 +13,7 @@ a compatibility surface.**
 | `macportsbrew doctor --json` | [`doctor.v1.md`](doctor.v1.md) | 1 |
 | `macportsbrew history --json` | [`history-list.v1.md`](history-list.v1.md) | 1 |
 | `macportsbrew history show <id> --json` | [`history-show.v1.md`](history-show.v1.md) | 1 |
+| `macportsbrew restore --plan --run <id> --json` | [`restore.v1.md`](restore.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
 | A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v2.md`](history.v2.md) (version 1, [superseded](history.v1.md), was never written) | 2 |
 | The interrupted-run marker in the state directory, `interrupted-run.json` | [`run-marker.v2.md`](run-marker.v2.md) (version 1, [superseded](run-marker.v1.md), was never written) | 2 |

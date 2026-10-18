@@ -281,13 +281,13 @@ fn show_document<'a>(
 
 /// The text of both commands: every sentence through the catalogue, every value
 /// that came from a file through `escape_controls`, the home as `~`.
-struct Shown<'a> {
-    messages: &'a Messages,
-    redaction: HomeRedaction,
+pub(super) struct Shown<'a> {
+    pub(super) messages: &'a Messages,
+    pub(super) redaction: HomeRedaction,
 }
 
 impl Shown<'_> {
-    fn say(&self, id: &str, pairs: &[(&str, String)]) -> String {
+    pub(super) fn say(&self, id: &str, pairs: &[(&str, String)]) -> String {
         let params: BTreeMap<String, String> = pairs
             .iter()
             .map(|(name, value)| ((*name).to_owned(), value.clone()))
@@ -296,7 +296,7 @@ impl Shown<'_> {
     }
 
     /// A value read from a file or from the command line, made safe to print.
-    fn plain(&self, value: &str) -> String {
+    pub(super) fn plain(&self, value: &str) -> String {
         escape_controls(&redact_home(value, &self.redaction))
     }
 
@@ -418,7 +418,7 @@ impl Shown<'_> {
         self.messages.render_id(id)
     }
 
-    fn restorability(&self, restorability: Restorability) -> String {
+    pub(super) fn restorability(&self, restorability: Restorability) -> String {
         match restorability {
             Restorability::NothingToRestore => {
                 self.messages.render_id("history.restorability.nothing")
@@ -437,7 +437,7 @@ impl Shown<'_> {
         }
     }
 
-    fn reason(&self, reason: NotRestorable) -> String {
+    pub(super) fn reason(&self, reason: NotRestorable) -> String {
         let id = match reason {
             NotRestorable::NoSnapshotTaken => "history.reason.no_snapshot_taken",
             NotRestorable::SnapshotMissing => "history.reason.snapshot_missing",
@@ -450,7 +450,7 @@ impl Shown<'_> {
         self.messages.render_id(id)
     }
 
-    fn standing(&self, standing: RecordStanding) -> String {
+    pub(super) fn standing(&self, standing: RecordStanding) -> String {
         let id = match standing {
             RecordStanding::Confirmed => "history.standing.confirmed",
             RecordStanding::Unconfirmed => "history.standing.unconfirmed",

@@ -141,6 +141,34 @@ It reads the state directory and nothing else, and it creates nothing.
 `--json` documents: [`history-list.v1.md`](../docs/schemas/history-list.v1.md),
 [`history-show.v1.md`](../docs/schemas/history-show.v1.md).
 
+### `macportsbrew restore --plan --run <ID>`
+
+Builds the plan that puts back what one recorded run changed, from the run's
+record and the snapshot it took before its first change. It is an ordinary
+migration plan, built by the same planner in the other direction; nothing is
+executed in this build.
+
+| Flag | Effect |
+|---|---|
+| `--plan` | Show the plan and run nothing. Without it the plan is put to the execution gate, which refuses it (exit 4) |
+| `--run <ID>` | The run, by the id `history` lists |
+| `--snapshot <FILE>` | The additive whole-machine reconcile. **Not in this build** (exit 1) |
+
+- The plan reinstalls the package under the provider the run moved it from,
+  verifies it, and removes the package the run added only if the record shows
+  the add finished with exit status 0 and the snapshot shows the destination
+  did not already hold it.
+- Notes before the plan say what it cannot: it is not version-exact, why a
+  package is kept, and that a record is not confirmed.
+- A record the interrupted-run marker still names is planned for review and is
+  never offered for execution.
+- A snapshot that is missing, unreadable or not the run's is exit 8. A machine
+  already as the run found it is "nothing to restore", exit 0. A plan that
+  stops at manual review exits 4, as `plan` does.
+- Refused under `--from-snapshot` and a replay, and when run as root.
+
+`--json`: [`restore.v1.md`](../docs/schemas/restore.v1.md).
+
 ### `macportsbrew snapshot`
 
 Captures both providers' state to a file.
@@ -217,17 +245,17 @@ execution gate refuses each one.
 
 ## Not in this build
 
-Specified and not yet written — these commands do not exist in 0.1.0, and
-running one prints an "unrecognized subcommand" error:
+Executing a restore (`restore --run <id>` without `--plan`) is built as far as
+the execution gate, which refuses it; nothing runs. These commands are specified
+and not yet written — they do not exist in 0.1.0, and running one prints an
+"unrecognized subcommand" error:
 
 ```
 macportsbrew                          the interactive overview (bare `macportsbrew` runs `status` in this build)
-macportsbrew restore --run <id>       plan, review, confirm, execute
 macportsbrew primary <pkg> <provider> package-level selection
 macportsbrew provider-priority <p>    global priority
 macportsbrew providers                detect or install a provider
 macportsbrew env [--revert]           the managed shell block
-macportsbrew history [show <id>]      runs, outcomes, restorability
 macportsbrew cleanup
 ```
 

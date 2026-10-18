@@ -10,6 +10,7 @@ mod context;
 mod history;
 mod human;
 mod migrate;
+mod restore;
 pub mod version;
 
 use crate::i18n::Messages;
@@ -157,6 +158,21 @@ pub enum Command {
               value_parser = clap::value_parser!(u16).range(1..=i64::from(history::MAX_LIMIT)))]
         limit: u16,
     },
+    /// The plan that puts back what one run changed (`--plan --run <id>`).
+    /// Nothing is executed in this build; without `--plan` the plan is put to
+    /// the execution gate, which refuses it.
+    Restore {
+        /// Show the plan and run nothing.
+        #[arg(long)]
+        plan: bool,
+        /// The run to put back, by the id `history` lists.
+        #[arg(long, value_name = "ID", conflicts_with = "snapshot")]
+        run: Option<String>,
+        /// Reinstall what a snapshot has and the machine lacks (not in this
+        /// build).
+        #[arg(long, value_name = "FILE")]
+        snapshot: Option<PathBuf>,
+    },
     /// Capture both providers' state to a snapshot file.
     Snapshot {
         /// Where to write; defaults to the state directory.
@@ -293,6 +309,11 @@ fn run_inner(
             },
         };
         return history::run(cli, &request, stdout);
+    }
+    // The scope and the arguments of `restore` are refused before a capture is
+    // taken or a state directory is resolved.
+    if let Some(Command::Restore { run, snapshot, .. }) = &cli.command {
+        restore::refuse_before_context(cli, run.as_deref(), snapshot.as_deref())?;
     }
     let ctx = Context::build(cli, stderr)?;
     if !root_checked {
@@ -483,6 +504,15 @@ fn run_inner(
             })
         }
         Command::History { .. } => unreachable!("`history` returns before a context is built"),
+        Command::Restore { plan, run, .. } => restore::restore(
+            &ctx,
+            cli,
+            *plan,
+            run.as_deref()
+                .ok_or_else(|| DomainError::new(ErrorId::Usage, "restore needs --run <id>"))?,
+            &options(BTreeSet::new()),
+            stdout,
+        ),
         Command::Snapshot { out } => {
             let path = context::save_snapshot(&ctx, out.as_deref())?;
             let _ = writeln!(

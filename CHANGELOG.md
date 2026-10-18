@@ -34,6 +34,12 @@ These changes come after the 0.1.0 release candidate and are not part of
 
 ### Added after the release candidate
 
+- `macportsbrew restore --plan --run <id>`: the plan that puts back what a
+  recorded run changed, built by the same planner in the other direction from
+  the run's record and the snapshot it took first, shown with notes about what
+  it cannot say. Nothing is executed: `restore --run <id>` without `--plan`
+  puts the plan to the execution gate, which refuses it (exit 4), and
+  `restore --snapshot` is not built (exit 1). `--json`: `restore.v1`.
 - `macportsbrew history` and `history show <id>`: the runs this MacPortsBrew has
   made, newest first, and one run's steps, snapshot and whether it can be put
   back (restorability is derived when read, never stored). Read-only, creates

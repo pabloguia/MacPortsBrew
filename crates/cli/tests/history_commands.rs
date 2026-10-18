@@ -451,3 +451,50 @@ fn the_human_text_names_the_run_its_steps_and_whether_it_can_be_put_back() {
         );
     }
 }
+
+#[test]
+fn restore_is_refused_before_any_capture_for_every_argument_it_cannot_honour() {
+    // None of these reaches a context, so none of them asks a provider anything.
+    let scratch = Scratch::new("restore-args");
+    let recording = root().join(RECORDING);
+    let id = id_of("20261001T100000Z");
+    let refusals: [(Vec<&str>, i32); 6] = [
+        // A recording is another machine (INV-15).
+        (
+            vec![
+                "--replay",
+                recording.to_str().unwrap(),
+                "restore",
+                "--plan",
+                "--run",
+                id.as_str(),
+            ],
+            ErrorId::SafetyBlocked.exit_code(),
+        ),
+        // The additive reconcile is not built.
+        (
+            vec!["restore", "--plan", "--snapshot", "snapshot.json"],
+            ErrorId::NotImplementedInThisPass.exit_code(),
+        ),
+        (vec!["restore", "--plan"], 2),
+        (vec!["restore", "--plan", "--run", "../x"], 2),
+        (vec!["restore", "--run", "run-1"], 2),
+        (
+            vec![
+                "restore",
+                "--plan",
+                "--run",
+                id.as_str(),
+                "--snapshot",
+                "f.json",
+            ],
+            2,
+        ),
+    ];
+    for (argv, expected) in refusals {
+        let output = run(&scratch, &argv);
+        assert_eq!(code(&output), expected, "{argv:?}");
+        assert!(output.stdout.is_empty(), "{argv:?}");
+    }
+    assert!(!scratch.state_dir().exists(), "nothing is created");
+}

@@ -185,7 +185,7 @@ fn read_history(ctx: &Context, key: &MigrationKey) -> Result<HistoryView, Domain
 /// read once (slice 4 review, L2). A user this process cannot name refuses:
 /// history cannot be checked, and a run that changes the machine never starts
 /// without knowing who it runs as (S8 item 6; `refuse_if_root`).
-fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainError> {
+pub(super) fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainError> {
     let state = StateDir::resolve(ctx.home.as_deref(), ctx.state_override.as_deref())?;
     let euid = effective_uid().ok_or_else(|| {
         DomainError::new(
@@ -282,7 +282,7 @@ fn execute_mutating(
 /// no raw plan text — the gate's and the site's refusals arrive cleaned.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Execution<'a> {
+pub(super) struct Execution<'a> {
     outcome: &'a RunOutcome,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     steps: &'a [StepRecord],
@@ -313,7 +313,7 @@ struct SiteRefusal<'a> {
     values: &'a BTreeMap<&'static str, String>,
 }
 
-fn execution(report: &RunReport) -> Execution<'_> {
+pub(super) fn execution(report: &RunReport) -> Execution<'_> {
     Execution {
         outcome: &report.outcome,
         steps: &report.records,

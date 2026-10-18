@@ -162,6 +162,11 @@ snapshot lacks. Removing those is a separate, advanced-mode confirmation
 (`06-cli-and-ux.md`), because a whole-machine reconcile is a far more
 dangerous plan than a run-scoped one.
 
+*Declared deviation (pass 08 slice 5, Tier 3, SE-092):* `--snapshot <file>` is
+not built; it exits 1 as not implemented. `--run <id>` is built as far as the
+plan: `restore --plan --run <id>` shows it, and `restore --run <id>` puts it to
+the execution gate, which refuses it.
+
 **MUST.** A restore step whose artifact is no longer available on this
 machine — the Homebrew formula an Intel Mac can no longer bottle, or a
 provider that no longer supports this macOS — becomes a `MANUAL_REVIEW` step
@@ -179,6 +184,14 @@ prebuilt adds only a non-blocking `destination_source_build` risk), for
 the snapshot, the ends of the commands, whether the record is confirmed — and
 a restore plan shows the planner's risks. The blocking rule is a planner
 change, because it changes what `migrate` does, and is carried.
+
+*A second, found building `restore` (same pass):* a restore is planned by the
+same planner and needs the same mapping evidence as the migration did. When the
+run removed its source, nothing installed there is left to show the mapping in
+the reverse direction, so unless a curated row covers the package the plan
+stops at `MANUAL_REVIEW` (`mapping_confidence_below_threshold`, exit 4). That is
+the planner's rule working, not a restore special case; letting the run's record
+attest the mapping would be a planner change, and is carried.
 
 **MUST.** The command is named `restore`, not `undo`, and the documentation
 says why: what it produces is a reinstall plan, and what it does not promise

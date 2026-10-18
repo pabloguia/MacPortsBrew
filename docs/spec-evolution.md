@@ -7186,7 +7186,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - **Slice 5 (pass 08, 2026-10-18): the brackets performed, `history`, `restore
   --plan` and the stranded marker.** Plan, with `spec-guardian` and
   `security-reviewer` read before any code: `docs/passes/08-slice-5-plan.md`
-  (§7 records each finding). **Parts A and B (this entry grows with each part).**
+  (§7 records each finding). **Parts A, B and C (this entry grows with each part).**
   Decisions (Tier 3):
   - **D1 — the snapshot is the capture taken under the lock.** The work order
     says "`before()`, the capture taken under the lock"; those are two captures,
@@ -7265,6 +7265,42 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     user's or is open to others, one over the size cap, and a root or
     `snapshots/` that is not private; its messages name the file and the kind of
     problem, never a path.
+  - **D9 — `restore --plan --run <id>` asks the one planner for the way back.**
+    `application::restore` (pure, names no provider) turns the record and the
+    snapshot the run took into a `PlanRequest`: the package as the run's
+    destination spells it, back to the run's source, keeping the destination
+    **unless it is the run's to remove** — the add was dispatched and ended in a
+    known exit 0 *and* the snapshot (provider present and read) shows the
+    destination did not hold it. Anything less keeps it, with a note: removing
+    a package that predates the run, or that the run never added, is the worst
+    thing an undo could do (the security review's second High). It is planned
+    with `plan_outcome` on the live capture, so a machine already as the run
+    found it is "nothing to restore" (exit 0, INV-16); the plan's package,
+    source and destination are compared with the run's and a mismatch is a
+    refusal naming both, never a substitute. Notes sit beside the plan in
+    `restore.v1`, whose `plan` is exactly `plan.v1`. A record the marker still
+    names is planned for review (the person must see the undo of the stranded
+    run before they deal with the marker) and never offered for execution; an
+    unreadable marker gives no plan. ORDER, reverse dependencies and the
+    stateful/service stop are the planner's; tests show them on restore plans,
+    both directions, asserting the planner's reason ids rather than only that a
+    review step exists.
+  - **D10 — what `restore` refuses.** Before any capture: a recording or a
+    snapshot file (INV-15), `--snapshot` (not built, exit 1, 04 declared), a
+    missing or malformed `--run` (usage). `restore --run <id>` without `--plan`
+    puts the same plan to the same gate `migrate --yes` reaches
+    (`execution_refusals`, rendered by `refused_report`), which refuses it
+    (exit 4); it takes no lock and writes nothing, and a plan the gate passed
+    would be reported as an internal defect, not run. A plan that stops at
+    `MANUAL_REVIEW` exits 4, as `plan` and `migrate` do. A missing, unreadable
+    or foreign snapshot is `SNAPSHOT_UNUSABLE` (exit 8), a missing run
+    `RUN_NOT_FOUND`.
+  - **Found building it, declared (04):** the reverse mapping needs the same
+    evidence as the forward one. When the run removed its source nothing
+    installed there remains, so without a curated row the plan stops at
+    manual review (`mapping_confidence_below_threshold`). Letting the record
+    attest the mapping would be a planner change (the "dangerous to change"
+    file); carried, with a test that pins today's behaviour.
   - **Carried, declared:** a real plan always carries `SET_PRIMARY` and
     `VERIFY_RESOLUTION`, which this build does not perform (SE-036 layer 4 does
     not exist; no evaluation), so a real run ends `PARTIAL` and only a narrowed
