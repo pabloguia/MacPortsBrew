@@ -34,6 +34,12 @@ These changes come after the 0.1.0 release candidate and are not part of
 
 ### Added after the release candidate
 
+- `macportsbrew history` and `history show <id>`: the runs this MacPortsBrew has
+  made, newest first, and one run's steps, snapshot and whether it can be put
+  back (restorability is derived when read, never stored). Read-only, creates
+  nothing, refused under `--from-snapshot`, under a replay and as root. A new
+  error identifier, `RUN_NOT_FOUND` (exit 8), for a well-formed run id with no
+  record. `--json`: `history-list.v1` and `history-show.v1`.
 - `migrate --json`, additive and reachable only under the mutation switch that
   no build turns on: the optional `historyError` and `markerLeft` execution
   fields, the `PERFORMED` step disposition with `ends`, and the halt reasons

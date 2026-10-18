@@ -742,6 +742,7 @@ fn every_error_id() -> Vec<ErrorId> {
         ErrorId::InputUnusable,
         ErrorId::PolicyDataInvalid,
         ErrorId::HistoryUnusable,
+        ErrorId::RunNotFound,
         ErrorId::RunLockHeld,
         ErrorId::RunInterrupted,
         ErrorId::SafetyBlocked,
@@ -765,6 +766,7 @@ fn every_error_id() -> Vec<ErrorId> {
             | ErrorId::InputUnusable
             | ErrorId::PolicyDataInvalid
             | ErrorId::HistoryUnusable
+            | ErrorId::RunNotFound
             | ErrorId::RunLockHeld
             | ErrorId::RunInterrupted
             | ErrorId::SafetyBlocked

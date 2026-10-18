@@ -39,7 +39,7 @@ pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use history::{
-    CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,
+    is_run_id, CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,
     NotRestorable, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
     RunRecord, RunStart, RunStatus, RunSubject, StepResult, StoredEnvelope, StoredRunRecord,
     HISTORY_SCHEMA_VERSION,

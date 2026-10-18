@@ -236,6 +236,44 @@ pub fn read_back(state: &StateDir, id: &str, euid: u32) -> Result<String, Domain
     }
 }
 
+/// The newest records, for `history`: what [`list_records`] found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordList {
+    /// At most `limit` records, newest first (by the stamp in the id; two runs in
+    /// one second are ordered by the random suffix of their ids, which is
+    /// deterministic and not chronological).
+    pub records: Vec<RunRecord>,
+    /// How many records the store holds, including those not read.
+    pub total: usize,
+}
+
+/// The newest `limit` records, each read and checked as every record is.
+/// **Creates nothing**; a missing `history/` is an empty list. An unusable
+/// record among those read is `HISTORY_UNUSABLE` naming its file, never a
+/// shorter list: a list that skipped it would say a run did not happen.
+///
+/// # Errors
+/// As [`read_one`]; and `HISTORY_UNUSABLE` for an unusable listing.
+pub fn list_records(state: &StateDir, euid: u32, limit: usize) -> Result<RecordList, DomainError> {
+    refuse_root(euid)?;
+    let Some(ids) = listed_ids(state.root(), &state.history(), euid)? else {
+        return Ok(RecordList {
+            records: Vec::new(),
+            total: 0,
+        });
+    };
+    let directory = state.history();
+    let records = ids
+        .iter()
+        .take(limit)
+        .map(|id| read_record(&directory, id, euid))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RecordList {
+        records,
+        total: ids.len(),
+    })
+}
+
 /// Reads what history says about `key`: newest first, stopping once every
 /// record carrying the key's newest stamp has been read. Every entry met on
 /// the way is read and checked, so an unusable record newer than the key's

@@ -11,6 +11,8 @@ a compatibility surface.**
 | `macportsbrew plan <pkg> --to <provider> --json` | [`plan.v1.md`](plan.v1.md) | 1 |
 | `macportsbrew migrate <pkg> --to <provider> [--yes] [--dry-run] --json` | [`migrate.v1.md`](migrate.v1.md) | 1 |
 | `macportsbrew doctor --json` | [`doctor.v1.md`](doctor.v1.md) | 1 |
+| `macportsbrew history --json` | [`history-list.v1.md`](history-list.v1.md) | 1 |
+| `macportsbrew history show <id> --json` | [`history-show.v1.md`](history-show.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
 | A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v2.md`](history.v2.md) (version 1, [superseded](history.v1.md), was never written) | 2 |
 | The interrupted-run marker in the state directory, `interrupted-run.json` | [`run-marker.v2.md`](run-marker.v2.md) (version 1, [superseded](run-marker.v1.md), was never written) | 2 |
@@ -79,7 +81,7 @@ Documented once, in
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | — (interactive only; not reachable in this build) |
 | 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |
-| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE` |
+| 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE`, `RUN_NOT_FOUND` (a valid run id with no record, `history show`; pass 08 slice 5) |
 
 `plan` exits **4** when the plan it produced contains a `MANUAL_REVIEW` step,
 and prints the plan anyway. That is the normal outcome for anything the policy

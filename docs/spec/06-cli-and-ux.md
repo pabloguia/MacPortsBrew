@@ -34,7 +34,10 @@ macportsbrew restore --plan (--run <id> | --snapshot <file>)
 macportsbrew restore --run <id>   plan, review, confirm, execute   [later pass, with migrate]
 macportsbrew env [--revert]       managed shell block: preview / remove   [later pass]
 macportsbrew doctor [--deep] [--report]
-macportsbrew history [show <id>]  runs: outcome, restorable?, snapshot path; `show` prints one run's record and plan
+macportsbrew history [show <id>] [--limit <n>]
+                                  runs, newest first: outcome, restorable?, snapshot; `show` prints one run's record
+                                  and its steps. Reads only this machine's own state directory; never under
+                                  --replay or --from-snapshot, and never as root
 macportsbrew cleanup              [later pass]
 ```
 

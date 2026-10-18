@@ -26,9 +26,9 @@ use crate::executor::{
     outcome_of, Disposition, HaltReason, PlannedRun, RunOutcome, StepRecord, Unevaluable,
 };
 use macportsbrew_domain::{
-    Direction, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan, ProviderId,
-    RecordStanding, RecordedStep, RecordedVersions, RunEnding, RunRecord, RunStart, RunStatus,
-    RunSubject, Snapshot, StepResult,
+    Direction, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan, NotRestorable,
+    ProviderId, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
+    RunRecord, RunStart, RunStatus, RunSubject, Snapshot, StepResult,
 };
 
 /// The history record of `run`, whose steps ended as `records`.
@@ -202,6 +202,103 @@ pub fn must_record(record: &RunRecord) -> bool {
 #[must_use]
 pub fn read_back_matches(written: &str, read_back: &str) -> bool {
     !written.is_empty() && written == read_back
+}
+
+/// What `history` found of the snapshot a record names, from the state
+/// directory (`persistence::snapshot_store::state_snapshot`). The adapters do
+/// the looking; this is only the answer, so the rule below stays pure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SnapshotLook {
+    /// It is there, is what this tool writes and parses as a snapshot; it was
+    /// captured at `captured_at`.
+    Present {
+        /// The snapshot's own capture stamp (`provenance.capturedAt`).
+        captured_at: String,
+    },
+    /// There is no such file.
+    Missing,
+    /// Something is there that this tool did not write, or that cannot be read
+    /// as a snapshot.
+    Unreadable,
+}
+
+/// Whether what a run changed can be put back, **derived and never stored or
+/// trusted** (history schema 2; pass 08 slice 5, D8; `plan.v1.md` N7).
+///
+/// In order, the first that holds:
+/// 1. no mutating step was dispatched: nothing to restore;
+/// 2. the record is not confirmed (`standing`): never offered for restore (04);
+/// 3. the record names no snapshot;
+/// 4. the snapshot is missing, unreadable, or not this run's (its capture stamp
+///    is not the record's start — the tie between the file and the run);
+/// 5. a dispatched mutating step did not end in a known exit 0 (a halt: the
+///    command may have changed the machine in a way the record cannot say):
+///    partially — a plan can be built, and the plan's review handles it;
+/// 6. otherwise a plan can be built from the snapshot.
+///
+/// It never reads the record's dispatch flag alone (the ends and the halt
+/// decide, rule 5), and says nothing about artifact availability, which a
+/// read-only `history` cannot know (the plan carries it).
+#[must_use]
+pub fn restorability(
+    record: &RunRecord,
+    snapshot: &SnapshotLook,
+    standing: RecordStanding,
+) -> Restorability {
+    if !record.mutation_dispatched() {
+        return Restorability::NothingToRestore;
+    }
+    match standing {
+        RecordStanding::Confirmed => {}
+        RecordStanding::Unconfirmed => {
+            return Restorability::Not {
+                reason: NotRestorable::RecordNotConfirmed,
+            }
+        }
+        RecordStanding::Unknown => {
+            return Restorability::Not {
+                reason: NotRestorable::StandingUnknown,
+            }
+        }
+    }
+    if record.snapshot_path().is_none() {
+        return Restorability::Not {
+            reason: NotRestorable::NoSnapshotTaken,
+        };
+    }
+    match snapshot {
+        SnapshotLook::Missing => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotMissing,
+            }
+        }
+        SnapshotLook::Unreadable => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotUnreadable,
+            }
+        }
+        SnapshotLook::Present { captured_at } if captured_at != record.started_at() => {
+            return Restorability::Not {
+                reason: NotRestorable::SnapshotNotThisRuns,
+            }
+        }
+        SnapshotLook::Present { .. } => {}
+    }
+    let uncertain = record.steps().iter().any(|step| {
+        step.kind().is_mutating()
+            && step.dispatched()
+            && !matches!(
+                step.result(),
+                StepResult::Performed { .. } | StepResult::Verified { .. }
+            )
+    });
+    if uncertain {
+        Restorability::Partially {
+            reason: NotRestorable::OutcomeUncertain,
+        }
+    } else {
+        Restorability::FromSnapshot
+    }
 }
 
 /// What `migrate` knows of history for this run.

@@ -84,8 +84,9 @@ migration and coexistence layer that stays useful afterwards, on any Mac.
 ## What this build does *not* do
 
 This is version 0.1.0. It reads, explains and plans; it does not install,
-remove, switch which copy of a tool runs, keep history or restore. The binary
-says so in its own `--help`:
+remove, switch which copy of a tool runs or restore. `history` reads the runs
+this tool has recorded; since nothing executes yet, a user's machine has none.
+The binary says so in its own `--help`:
 
 - **It executes nothing.** `plan` builds and prints a migration plan, and so
   does `migrate`; `migrate --yes` puts the plan to an execution gate that
@@ -108,7 +109,7 @@ says so in its own `--help`:
 - **It never asks for elevation.** Analysis, inventory, mapping, planning and
   `doctor` are all unprivileged by design.
 - **Not yet implemented:** executing a migration, `restore`, `primary`,
-  `provider-priority`, `providers`, `env`, `history`, `cleanup`, the
+  `provider-priority`, `providers`, `env`, `cleanup`, the
   interactive TUI, `doctor --deep`, caching, and translations beyond Brazilian
   Portuguese (`--language pt-BR`; English is the source, plus the `qps`
   pseudolocale for layout testing; `es`, `ja` and `zh-CN` are not yet written).

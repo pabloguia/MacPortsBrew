@@ -170,6 +170,16 @@ partially restorable, and executing the plan exits with the safety-check code.
 This is the case the project exists for, and it is precisely where "undo"
 must not read as more reversible than it is.
 
+*Declared deviation (pass 08 slice 5, Tier 3, SE-092):* **this MUST is not
+met yet, for any plan.** `history` is read-only and starts no provider, so it
+cannot know whether an artifact is still available, and the planner raises no
+`MANUAL_REVIEW` for an unavailable artifact today (a destination that is not
+prebuilt adds only a non-blocking `destination_source_build` risk), for
+`migrate` as much as for a restore plan. `history` reports what it can know —
+the snapshot, the ends of the commands, whether the record is confirmed — and
+a restore plan shows the planner's risks. The blocking rule is a planner
+change, because it changes what `migrate` does, and is carried.
+
 **MUST.** The command is named `restore`, not `undo`, and the documentation
 says why: what it produces is a reinstall plan, and what it does not promise
 must be as visible as what it does. It does not promise version-exact
@@ -416,7 +426,13 @@ environment changes, the plan executed, verification results, outcome
 restorable (from its snapshot, partially, or not, with the reason).
 **Restorability is derived when the record is read, not stored in it** (history
 schema 2, pass 08 slice 5): it depends on a snapshot file that can disappear
-after the record was written, so the record cannot state it. Never records
+after the record was written, so the record cannot state it. `history` derives
+it, in order, from: whether any mutating step was dispatched (none: nothing to
+restore); whether the record is confirmed (the interrupted-run marker does not
+name it); whether the record names a snapshot and that snapshot is present,
+readable and the one this run took; and whether every dispatched mutating
+command ended in a known exit 0 (otherwise partially). The best answer is
+"from the snapshot", never "fully": a reinstall plan is not version-exact. Never records
 secrets or environment variable values.
 
 **MUST.** The record type gives a run that dispatched no mutating step the

@@ -110,6 +110,37 @@ support state with its source and read date.
 | `--report <FILE>` | Write a diagnostic file for a bug report, without your user name or home folder path. `PATH` entries a finding mentions appear with your home folder shown as `~`; other environment variables are named but their values are left out. It also lists every installed package. Replaces an existing file only if it is a MacPortsBrew document. Read it before you share it |
 | `--deep` | Inspect binaries for cross-prefix links. **Not in this build** |
 
+### `macportsbrew history`
+
+Lists the runs this MacPortsBrew has made, newest first, and `history show <ID>`
+shows one: when it started, the package and direction, how it ended, its steps,
+the snapshot it took before the first change, and whether it can be put back.
+It reads the state directory and nothing else, and it creates nothing.
+
+| Flag | Effect |
+|---|---|
+| `--limit <N>` | How many runs to list, 1 to 200. Default 20 |
+
+- **Restore** says one of: nothing to restore (the run changed nothing); a plan
+  can be built from the snapshot; partly (a command that changes packages did
+  not finish or did not exit 0, so the machine's state after it is not known);
+  or no, with the reason (no snapshot was taken, it is gone, it cannot be read
+  or it is not this run's, or the record is not confirmed). It never says
+  "fully": a reinstall plan is not version-exact.
+- **A run in the list shows its snapshot as present from the file's details
+  only.** `history show` reads the snapshot and checks that it is the one the
+  run took.
+- A run started in the same second as another is listed after it or before it
+  by an arbitrary but fixed order, not by time.
+- `history` refuses under `--from-snapshot` and under a replay, and when run as
+  root: the history is this machine's own, now.
+- A run id that is not shaped like one is a usage error (exit 2); one that is
+  well formed but has no record is exit 8, as is a store or record that cannot
+  be read. A record that cannot be read is never skipped.
+
+`--json` documents: [`history-list.v1.md`](../docs/schemas/history-list.v1.md),
+[`history-show.v1.md`](../docs/schemas/history-show.v1.md).
+
 ### `macportsbrew snapshot`
 
 Captures both providers' state to a file.

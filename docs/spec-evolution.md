@@ -7186,7 +7186,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - **Slice 5 (pass 08, 2026-10-18): the brackets performed, `history`, `restore
   --plan` and the stranded marker.** Plan, with `spec-guardian` and
   `security-reviewer` read before any code: `docs/passes/08-slice-5-plan.md`
-  (§7 records each finding). **Part A (this entry grows with each part).**
+  (§7 records each finding). **Parts A and B (this entry grows with each part).**
   Decisions (Tier 3):
   - **D1 — the snapshot is the capture taken under the lock.** The work order
     says "`before()`, the capture taken under the lock"; those are two captures,
@@ -7232,6 +7232,39 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     before the marker is written and the read-back after the record write and
     before the clear, and that the application answers the two actions; it
     fails on a regression, and its self-tests break each part.
+  - **D7 — `history` and `history show <id>` are reads of the state
+    directory and nothing else.** They build no capture (there is no provider to
+    ask), create nothing, and are refused first — before the state directory is
+    resolved — under `--replay` and `--from-snapshot` (INV-15: an exported
+    `MACPORTSBREW_STATE_DIR` must not make a recording read the real store), and
+    as root (INV-06; `run_inner`'s refusal comes before the command, held by a
+    source-order test). An unusable record in the page fails the command naming
+    its file (`HISTORY_UNUSABLE`); a list that skipped it would say a run did
+    not happen. `--limit` is 1 to 200 (a usage error outside it). A run id is
+    checked against the grammar before it becomes a path (usage, exit 2); a
+    well-formed id with no record is the new `RUN_NOT_FOUND` (exit 8, an
+    existing code), so the remedy is `history`, not "the store is damaged".
+    `history-list.v1` and `history-show.v1` are new documents; the second wraps
+    the `history.v2` record unchanged. The list looks at a snapshot by file
+    details alone and says so (`snapshotChecked: METADATA`); `show` reads it
+    (`PARSED`).
+  - **D8 — restorability is derived, in a stated order** (`application::history::
+    restorability`, pure): nothing dispatched; record not confirmed or standing
+    unknown; no snapshot named; snapshot missing, unreadable, or not this run's
+    (its `capturedAt` is not the record's `startedAt`); a dispatched mutating
+    command without a known exit 0 (partly); otherwise `FROM_SNAPSHOT`, never
+    "fully" (04: undo must not read as more reversible than it is). Partly and
+    from-snapshot both still produce a plan (Part C). **Declared against 04:**
+    the MUST that an unavailable restore artifact becomes a `MANUAL_REVIEW` step
+    is unmet for every plan today, because the planner raises none (a source-built
+    destination adds a non-blocking risk only) and `history` cannot know
+    availability; the blocking rule changes what `migrate` does, so it is a
+    planner change and is carried. 04 says so.
+  - **D8a — the snapshot a record names is read with nothing trusted:**
+    `state_snapshot` refuses a symbolic reference, a file that is not the
+    user's or is open to others, one over the size cap, and a root or
+    `snapshots/` that is not private; its messages name the file and the kind of
+    problem, never a path.
   - **Carried, declared:** a real plan always carries `SET_PRIMARY` and
     `VERIFY_RESOLUTION`, which this build does not perform (SE-036 layer 4 does
     not exist; no evaluation), so a real run ends `PARTIAL` and only a narrowed

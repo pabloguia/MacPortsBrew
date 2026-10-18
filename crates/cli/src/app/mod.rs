@@ -7,6 +7,7 @@
 //! JSON goes to stdout and nothing else does; notices go to stderr.
 
 mod context;
+mod history;
 mod human;
 mod migrate;
 pub mod version;
@@ -145,11 +146,32 @@ pub enum Command {
         #[arg(long)]
         deep: bool,
     },
+    /// The runs this MacPortsBrew has made, newest first; `history show <id>`
+    /// shows one. Reads only, and only this machine's own state directory.
+    History {
+        /// What to show; without one, the list.
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+        /// How many runs to list, at most 200.
+        #[arg(long, default_value_t = history::DEFAULT_LIMIT,
+              value_parser = clap::value_parser!(u16).range(1..=i64::from(history::MAX_LIMIT)))]
+        limit: u16,
+    },
     /// Capture both providers' state to a snapshot file.
     Snapshot {
         /// Where to write; defaults to the state directory.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
+    },
+}
+
+/// What `history` can show.
+#[derive(Subcommand, Debug)]
+pub enum HistoryAction {
+    /// One run: its steps, its snapshot, and whether it can be put back.
+    Show {
+        /// The run's id, as `history` lists it.
+        id: String,
     },
 }
 
@@ -260,6 +282,17 @@ fn run_inner(
         && cli.from_snapshot.is_some()
     {
         return Err(migrate::refuse_execution_from_a_snapshot_file());
+    }
+    // `history` reads this machine's own state directory and asks no provider,
+    // so it takes no capture and builds no `Context`.
+    if let Some(Command::History { action, limit }) = &cli.command {
+        let request = match action {
+            Some(HistoryAction::Show { id }) => history::Request::Show { id },
+            None => history::Request::List {
+                limit: usize::from(*limit),
+            },
+        };
+        return history::run(cli, &request, stdout);
     }
     let ctx = Context::build(cli, stderr)?;
     if !root_checked {
@@ -449,6 +482,7 @@ fn run_inner(
                 Severity::Warning | Severity::Ok => 0,
             })
         }
+        Command::History { .. } => unreachable!("`history` returns before a context is built"),
         Command::Snapshot { out } => {
             let path = context::save_snapshot(&ctx, out.as_deref())?;
             let _ = writeln!(
@@ -509,6 +543,21 @@ mod tests {
         assert!(refuse_if_root(Some(501)).expect("an ordinary user runs"));
         // A user that could not be learned is "not checked", never "passed".
         assert!(!refuse_if_root(None).expect("not a refusal"));
+    }
+
+    #[test]
+    fn invariant_06_the_root_refusal_comes_before_history_is_read() {
+        // `history` skips the capture, so it must not skip the refusal: both
+        // commands read a state directory a root-run process would read as root.
+        let source = include_str!("mod.rs");
+        let source = source.split("#[cfg(test)]").next().unwrap();
+        let body = &source[source.find("fn run_inner(").expect("run_inner")..];
+        let root = body.find("refuse_if_root(").expect("the root refusal");
+        let history = body.find("history::run(").expect("the history command");
+        assert!(
+            root < history,
+            "history would be read before the root check"
+        );
     }
 
     #[test]

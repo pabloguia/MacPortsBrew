@@ -477,6 +477,11 @@ impl RunRecord {
         &self.started_at
     }
 
+    /// The version of the tool that ran.
+    pub fn tool_version(&self) -> &str {
+        &self.tool_version
+    }
+
     /// What it was about.
     pub fn subject(&self) -> &RunSubject {
         &self.subject
