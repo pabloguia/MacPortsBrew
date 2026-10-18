@@ -25,7 +25,7 @@ fixed and tested now so the pass that turns mutations on writes this shape.
 - **`restorability` is no longer stored.** Whether a run can be put back depends
   on a snapshot that can disappear after the record was written, so it is
   derived when the record is read (`history`), from the record, the snapshot and
-  the record's standing. A file that states one is `HISTORY_UNUSABLE`.
+  the record's standing. A file that states one is `HISTORY_UNUSABLE`. So is a file that states a mutating step `VERIFIED` (a mutating step carries the exit statuses of its commands, never a verification, so such a file could claim a known exit 0 it does not have).
 - Why a new version rather than additive values: the reader of one version
   refuses the other (`schemaVersion` is checked first), so neither can accept
   the other's file silently. No shipped build wrote a version 1 record, so

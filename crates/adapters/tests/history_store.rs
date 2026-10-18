@@ -86,6 +86,11 @@ fn record(id: &str, package: &str, ending: RunEnding) -> RunRecord {
         let result = match kind {
             StepKind::SnapshotBefore => StepResult::SnapshotTaken,
             StepKind::RecordHistory => StepResult::RecordPendingReadBack,
+            // A mutating step carries the ends of its commands, never a
+            // verification (the reader refuses that).
+            StepKind::AddDestination => StepResult::Performed {
+                ends: vec![macportsbrew_domain::CommandEnd::Exited { code: 0 }],
+            },
             _ => verified(),
         };
         RecordedStep::new(

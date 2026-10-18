@@ -66,7 +66,8 @@ fn verified() -> StepResult {
     }
 }
 
-/// Every step verified: a run the status rule calls a success.
+/// Every step done: the add performed, the reads verified; a run the status
+/// rule calls a success.
 fn completed_steps() -> Vec<RecordedStep> {
     vec![
         step(
@@ -75,7 +76,7 @@ fn completed_steps() -> Vec<RecordedStep> {
             StepResult::SnapshotTaken,
             false,
         ),
-        step(2, StepKind::AddDestination, verified(), false),
+        step(2, StepKind::AddDestination, performed(), false),
         step(3, StepKind::VerifyDestination, verified(), false),
         step(
             4,
@@ -742,6 +743,17 @@ fn invariant_03_a_record_never_certifies_its_own_write() {
     ] {
         assert_eq!(outcome, Err(ErrorId::HistoryUnusable), "{what}");
     }
+}
+
+#[test]
+fn a_record_stored_verified_is_refused_for_that_reason_even_when_its_dispatch_agrees() {
+    // Mutation proof (slice 5): the tamper above also contradicts the step's
+    // dispatch flag, which would refuse it without the rule that a record never
+    // certifies its own write. Here the flag agrees, so the rule stands alone.
+    let mut value = stored_json(&record(completed_steps(), RunEnding::Completed, None));
+    value["steps"][3]["result"] = serde_json::json!({"result": "VERIFIED", "evidence": []});
+    value["steps"][3]["dispatched"] = serde_json::json!(true);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
 }
 
 #[test]

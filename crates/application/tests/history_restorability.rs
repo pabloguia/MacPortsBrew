@@ -228,3 +228,61 @@ fn a_missing_snapshot_outranks_an_uncertain_outcome() {
         }
     );
 }
+
+#[test]
+fn a_record_that_names_no_snapshot_is_told_so_whatever_the_look_of_the_file_it_does_not_name() {
+    // Mutation proof (slice 5): the shell looks `Missing` for a record that names
+    // none, so the row "names no snapshot" must come before the rows that read the
+    // look, or `history` would report a missing file where there never was one.
+    let r = mutating(performed(), None);
+    for look in [
+        SnapshotLook::Missing,
+        SnapshotLook::Unreadable,
+        SnapshotLook::Present {
+            captured_at: "2000-01-01T00:00:00Z".into(),
+        },
+    ] {
+        assert_eq!(
+            restorability(&r, &look, RecordStanding::Confirmed),
+            Restorability::Not {
+                reason: NotRestorable::NoSnapshotTaken
+            },
+            "{look:?}"
+        );
+    }
+}
+
+#[test]
+fn only_a_dispatched_mutating_step_can_leave_the_outcome_uncertain() {
+    // Mutation proof (slice 5): a read that halted after it was dispatched, and a
+    // mutating step that was never dispatched, say nothing about whether a change
+    // the run made is known.
+    let snapshot = step(StepKind::SnapshotBefore, StepResult::SnapshotTaken);
+    let added = step(StepKind::AddDestination, performed());
+    let halted_read = RecordedStep::new(
+        0,
+        StepKind::VerifyDestination,
+        None,
+        StepResult::Halted {
+            error: ErrorId::Io,
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        },
+        true,
+    );
+    assert!(halted_read.dispatched() && !halted_read.kind().is_mutating());
+    let r = record(vec![snapshot.clone(), added.clone(), halted_read], SNAP);
+    assert_eq!(
+        restorability(&r, &present(), RecordStanding::Confirmed),
+        Restorability::FromSnapshot
+    );
+    for result in [StepResult::NotReached, StepResult::NotDispatchedMutating] {
+        let never = step(StepKind::RemoveSource, result);
+        assert!(!never.dispatched() && never.kind().is_mutating());
+        let r = record(vec![snapshot.clone(), added.clone(), never], SNAP);
+        assert_eq!(
+            restorability(&r, &present(), RecordStanding::Confirmed),
+            Restorability::FromSnapshot
+        );
+    }
+}

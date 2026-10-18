@@ -452,6 +452,34 @@ fn a_plan_for_another_package_than_the_run_moved_is_refused_by_name() {
 }
 
 #[test]
+fn the_request_names_the_package_as_the_runs_destination_spells_it() {
+    // Mutation proof (slice 5): the planner resolves a package through its unit,
+    // which answers to either spelling of a curated pair, so the outcome of a
+    // plan does not show which spelling the request carried. The request does.
+    let (record, before, _) = moved_and_removed(HB, MP);
+    let intent = restore_request(&record, &before).unwrap();
+    assert_eq!(intent.request.package, name_at(MP));
+    assert_eq!(intent.request.to.as_str(), HB);
+    // A run that kept one name on both sides asks for that name.
+    let same = restore_request(&run(HB, MP, "htop", added()), &machine(true, false)).unwrap();
+    assert_eq!(same.request.package, "htop");
+}
+
+#[test]
+fn a_plan_that_puts_the_package_back_somewhere_else_is_refused() {
+    // Mutation proof (slice 5): each of the three comparisons has its own case.
+    let (record, before, live) = moved_and_removed(HB, MP);
+    let (mut intent, outcome) = plan_for(&live, &record, &before);
+    let plan = plan_of(outcome);
+    assert_eq!(check_same_package(&intent, &plan), Ok(()));
+    intent.restore_to = ProviderId::new(MP);
+    assert!(matches!(
+        check_same_package(&intent, &plan),
+        Err(RestoreRefusal::NotTheRunsPackage { .. })
+    ));
+}
+
+#[test]
 fn invariant_04_a_restore_never_removes_what_another_package_of_that_provider_needs() {
     // The package is what the run added; `app`, installed in the same provider,
     // depends on it. The planner stops for a person rather than breaking it.

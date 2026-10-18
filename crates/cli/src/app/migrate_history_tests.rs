@@ -97,11 +97,19 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
     let steps = plan
         .steps
         .iter()
+        // The primary selection is not performed by this build (SE-092), so a
+        // record of a completed run has no such step.
+        .filter(|s| s.kind != StepKind::SetPrimary)
         .map(|s| {
             // The two brackets state their own results (history schema 2).
             let result = match s.kind {
                 StepKind::SnapshotBefore => StepResult::SnapshotTaken,
                 StepKind::RecordHistory => StepResult::RecordPendingReadBack,
+                // A mutating step carries its commands' ends, never a
+                // verification; only the two steps a mutation runs on do.
+                StepKind::AddDestination | StepKind::RemoveSource => StepResult::Performed {
+                    ends: vec![macportsbrew_domain::CommandEnd::Exited { code: 0 }],
+                },
                 _ => StepResult::Verified {
                     evidence: Vec::new(),
                 },

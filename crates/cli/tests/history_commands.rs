@@ -549,6 +549,33 @@ fn a_marker_that_names_another_run_is_refused_naming_both() {
 }
 
 #[test]
+fn a_preview_of_acknowledging_another_runs_marker_is_refused_like_the_real_thing() {
+    // Mutation proof (slice 5): the refusal under the lock covers `--yes`, so only
+    // this case holds the check that comes before it. A preview that described
+    // acknowledging a run the marker does not name would be a promise the command
+    // then refuses to keep.
+    let scratch = Scratch::new("ack-other-preview");
+    let (mine, other) = (id_of("20261003T120000Z"), id_of("20261004T120000Z"));
+    leave_marker(&scratch, &other, None);
+    for flags in [&[][..], &["--yes", "--dry-run"][..]] {
+        let mut argv = vec!["history", "acknowledge", mine.as_str()];
+        argv.extend_from_slice(flags);
+        let output = run(&scratch, &argv);
+        assert_eq!(
+            code(&output),
+            ErrorId::SafetyBlocked.exit_code(),
+            "{flags:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            stderr.contains(&mine) && stderr.contains(&other),
+            "{flags:?}: {stderr}"
+        );
+        assert!(marker_present(&scratch), "{flags:?}");
+    }
+}
+
+#[test]
 fn without_yes_it_shows_what_it_would_do_and_changes_nothing() {
     let scratch = Scratch::new("ack-preview");
     let stamp = "20261003T120000Z";

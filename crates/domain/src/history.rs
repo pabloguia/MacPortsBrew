@@ -709,6 +709,13 @@ impl RunRecord {
                 }
                 _ => {}
             }
+            // A verification is judged from reads, and a mutating step is never
+            // judged: its result carries the exit statuses or it carries none.
+            // A `VERIFIED` there would let a hand-edited file claim a known exit
+            // 0 (slice 5 mutation proof, Bh8d).
+            if step.kind.is_mutating() && matches!(recorded.result, StepResult::Verified { .. }) {
+                return Err(unusable("states a mutating step verified"));
+            }
             if recorded.dispatched != step.dispatched {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
