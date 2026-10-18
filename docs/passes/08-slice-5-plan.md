@@ -526,15 +526,70 @@ SR = `security-reviewer`, SG = `spec-guardian`.
 
 ## 8. Second review (revision 2 → 3)
 
-_Filled in if the revised decisions need another read before code._
+Not needed: the revised decisions went to code after one review round; the end-of-slice review (§10) is the second read.
 
 ## 9. As built
 
-_Written at the end of the slice._
+Four parts, four commits (`3c73cc7` A, `c842ad8` B, `e790948` C, `d72a785` D),
+then `67ff1a4` (review findings) and `7bd6b93` (mutation-proof tests). Each
+commit passed `scripts/validate.sh`.
+
+**As planned.** D1–D6 (Part A) and D7–D8a (B), D9–D11 (C), D12–D16 (D) are built
+as written in §2. `THIS_BUILD_DISPATCHES_MUTATIONS` is `false`; no restore path
+executes; no guarded path, `Cargo.lock` or `01-invariants.md` changed; no
+dependency, spawn site or `unsafe` was added.
+
+**Where the build differs from §2, each recorded in SE-092:**
+- *D9, the reverse mapping.* Building `restore` showed the reverse plan needs the
+  same mapping evidence as the forward one; a run that removed its source stops
+  at `MANUAL_REVIEW` unless a curated row covers the package. Declared in 04 and
+  SE-092, pinned by a test; the fix (letting the record attest the mapping) is a
+  planner change and is carried.
+- *D12, severity.* A stranded run is a `WARNING`, not an `ERROR`, because
+  `doctor`'s error exit (5) is for unhealthy providers.
+- *D13.* `acknowledge` uses the global `--yes`/`--dry-run`; it also refuses with
+  exit 7 when the lock is held even for the preview, and names the way out of an
+  unreadable record (move the file aside, acknowledge again).
+- *D8.* `from_stored` now also refuses a mutating step stored `VERIFIED`
+  (mutation proof, Bh8d).
+- *D16.* The end-of-run line is `restore --run <id> --plan`, as 04 words it.
+- Tests that need a symbolic reference live under `crates/*/tests/`, because the
+  Stop gate forbids the token in `crates/*/src`.
+
+**Carried, unchanged (D18):** consent wiring, the executed plan tied to the one
+shown, the window before removal, `PROVIDER_REPORTS_ACTIVE`, release builds free
+of test-support, DP-030, shim-backed recognition, DP-029, a dedicated
+provider-command-failed identifier, typed-ahead consent input. **Newly carried:**
+the planner's blocking rule for an unavailable artifact (tripwire
+`the_switch_needs_manual_review_for_an_unavailable_artifact`); the reverse-mapping
+evidence; `SET_PRIMARY`/`VERIFY_RESOLUTION` are not performed, so a real run ends
+`PARTIAL` and only a narrowed plan reaches `COMPLETED`.
+
 
 ## 10. End-of-slice review
 
-_Written at the end of the slice._
+Three read-only reviewers over `main...HEAD` and a mutation proof, all after the
+four parts. None found an invariant violation or a path by which a restore
+executes.
+
+| Finding | Disposition |
+|---|---|
+| spec M1 — D18 said every carried item has a tripwire; the unavailable-artifact gap had none | Fixed: `the_switch_needs_manual_review_for_an_unavailable_artifact` |
+| spec M2 — an unreadable record has no documented exit once the by-hand remedy is gone | Fixed: the preview and the exit-8 error name it (move the file aside, acknowledge again) |
+| spec L1 — no named root-refusal test for restore | Fixed: `invariant_06_history_restore_and_acknowledge_refuse_root` covers history and restore |
+| spec L2 — "deletes nothing" beside a command that removes the marker | Fixed: "deletes no record and no snapshot" |
+| spec L3 — acknowledge does not say whether the snapshot still exists | Fixed: the preview says present, missing, unreadable or none |
+| security L-1 — `make_durable` opened without the no-follow, non-blocking flags | Fixed |
+| security L-2 — `snapshot` could overwrite a run's snapshot in a race | Fixed: published with a link that cannot replace |
+| security L-3 — acknowledge cannot tell a read-back that disagreed | Mitigated in text only (`ack_would_recorded` says it cannot tell and points to `history show`); a `readBack` marker field would be `run-marker.v3` and is carried |
+| security L-4 — orphan snapshot when a run stops before any change | Accepted: nothing trusts them, nothing prunes them (04); disk growth only |
+| security L-5 — the removal decision rests on a snapshot of unbounded age | Carried to the slice that executes (re-check ownership and reverse dependencies at execution; show the run's age) |
+| security I-2 — raw Format characters in `--json` | Documented in `history-show.v1.md` |
+| docs 1–3, 5–7, 10 — stale "no history, no restore" strings and samples, the v1 marker's by-hand section, pt-BR terms, a trailing space, an unreadable-marker hint | Fixed |
+| docs 4, 8, 9 — one spelling of `restore --snapshot`; an undated "nothing executes yet"; two schema samples are Homebrew-to-MacPorts | Spelling fixed; the other two accepted (both sentences are tied to 0.1.0 elsewhere; samples are illustrations and `history.v2` uses the other direction) |
+| mutation proof — 126 mutants; 7 real gaps | Each killed by a new test (patch applied); one new hardening (a mutating step stored `VERIFIED` is refused) |
+| mutation proof — survivors left | Equivalent or untestable without a fault-injection seam: the `captured_at` equality in the snapshot read-back, the second read and fsyncs in `make_durable`, "clear before `make_durable`", `flock` error arms, the under-lock repeats of the marker checks. Accepted, listed in the report |
+
 
 ## Verification
 
