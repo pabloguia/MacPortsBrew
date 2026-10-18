@@ -9,6 +9,7 @@
 mod context;
 mod history;
 mod human;
+mod interrupted;
 mod migrate;
 mod restore;
 pub mod version;
@@ -189,6 +190,14 @@ pub enum HistoryAction {
         /// The run's id, as `history` lists it.
         id: String,
     },
+    /// Deal with the interrupted-run marker a run left. Without `--yes` it
+    /// shows what it knows and what it would do, and changes nothing; with
+    /// `--yes` it makes the run's record durable, checks it reads back, and
+    /// removes the marker.
+    Acknowledge {
+        /// The run the marker names.
+        id: String,
+    },
 }
 
 /// Runs the program and returns the exit code (`06-cli-and-ux.md`).
@@ -304,6 +313,10 @@ fn run_inner(
     if let Some(Command::History { action, limit }) = &cli.command {
         let request = match action {
             Some(HistoryAction::Show { id }) => history::Request::Show { id },
+            Some(HistoryAction::Acknowledge { id }) => history::Request::Acknowledge {
+                id,
+                execute: cli.yes && !cli.dry_run,
+            },
             None => history::Request::List {
                 limit: usize::from(*limit),
             },
@@ -467,8 +480,11 @@ fn run_inner(
                     ctx.messages.render_id("doctor.deep_not_in_this_build")
                 );
             }
+            // The state directory is looked at here, by the shell, and handed in:
+            // `doctor` itself stays a pure function of the snapshot and the policy.
             let doc: DoctorReport =
-                macportsbrew_application::doctor(&ctx.snapshot, &ctx.policy, &ctx.today);
+                macportsbrew_application::doctor(&ctx.snapshot, &ctx.policy, &ctx.today)
+                    .with_run_finding(&interrupted::gather(&ctx));
             if let Some(path) = report {
                 let written = context::write_diagnostic_report(&ctx, &doc, path)?;
                 let _ = writeln!(

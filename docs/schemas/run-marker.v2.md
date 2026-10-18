@@ -65,13 +65,26 @@ could be read back as authority.
   root to be private to the user); because it takes none, what it finds is a
   fact about a moment, and may be the marker of a run still in progress.
 
-## Clearing a stranded marker by hand
+## Dealing with a stranded marker
 
-Until `history` and `restore` exist (pass 08, item 7), the remedy is the user's
-own act: check whether the history holds a record for the named run; if not,
-look at what that run changed; then, **only when no other MacPortsBrew run is
-active**, remove the single file `interrupted-run.json` from the state directory
-(`MACPORTSBREW_STATE_DIR`, or `Application Support/macportsbrew` under the
-user's Library). The remedy text names the file and the directory separately,
-because the default path contains a space. If you are unsure whether another
-run is active, wait for any other MacPortsBrew window to finish first.
+`macportsbrew doctor` reports a marker nobody holds the lock for (the
+`interrupted_run` finding, [`doctor.v1`](doctor.v1.md)), and says which of three
+things it found; `history show <id>` and `history acknowledge <id>` say the same
+words:
+
+- **Recorded, not confirmed.** The run's record exists and reads, and the marker
+  still names it: whether the record reached the disk is not confirmed. Nothing
+  is deleted.
+- **Recorded, unreadable.** Something is at the record's id that cannot be read
+  as a record. The marker stays and `acknowledge` refuses.
+- **Started, not recorded.** The run began and left no record. The provider may
+  be half-changed; the marker and the snapshot it names are the only trace.
+
+`macportsbrew history acknowledge <id> --yes` is the one deliberate way to
+remove a marker other than the run's own `clear`
+([`history-acknowledge.v1`](history-acknowledge.v1.md)). It takes the run lock
+(held: exit 7), refuses a marker that names another run (exit 4), makes the
+run's record durable and reads it back **before** it removes the marker, and
+leaves the marker in place for a record it cannot read. It deletes no record and
+no snapshot. Until it is run, every command that changes packages refuses with
+exit 4 naming the run.

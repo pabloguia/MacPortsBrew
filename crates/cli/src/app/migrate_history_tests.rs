@@ -500,3 +500,54 @@ fn invariant_16_a_record_the_marker_names_is_planned_again_from_the_command_line
     assert_eq!(doc["retainedRunNotRecognised"]["runId"], RECORD_ID);
     assert!(doc.get("plan").is_some(), "the migration is planned again");
 }
+
+#[test]
+fn every_run_that_handed_a_mutating_step_over_prints_the_command_to_plan_the_way_back() {
+    // 04, "Undoing a migration": the snapshot it took first and the exact
+    // command for its own id, whatever the outcome.
+    let c = cli("htop", "macports", false);
+    let ctx = live(&c);
+    let plan = plan_of(&ctx, &request("htop", "macports"));
+    let report = |receipt: RunReceipt, outcome: RunOutcome| RunReport {
+        outcome,
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: Vec::new(),
+        history_error: None,
+        marker_left: None,
+        record_written: true,
+        receipt,
+    };
+    for outcome in [
+        RunOutcome::Completed,
+        RunOutcome::Halted {
+            step: 2,
+            reason: macportsbrew_application::HaltReason::UnexecutedMutation,
+        },
+    ] {
+        let text = human::run_report(
+            &ctx,
+            &plan,
+            &report(
+                RunReceipt {
+                    run_id: Some(RECORD_ID.into()),
+                    snapshot_file: Some("snapshot-20261004T120000Z.json".into()),
+                    record_read_back: None,
+                },
+                outcome,
+            ),
+        );
+        assert!(
+            text.contains(&format!("macportsbrew restore --run {RECORD_ID} --plan")),
+            "{text}"
+        );
+        assert!(text.contains("snapshot-20261004T120000Z.json"), "{text}");
+    }
+    // A run that handed nothing over has no run to undo.
+    let none = human::run_report(
+        &ctx,
+        &plan,
+        &report(RunReceipt::default(), RunOutcome::Completed),
+    );
+    assert!(!none.contains("restore --run"), "{none}");
+}

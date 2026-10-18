@@ -236,6 +236,44 @@ pub fn read_back(state: &StateDir, id: &str, euid: u32) -> Result<String, Domain
     }
 }
 
+/// Makes the record at `id` durable and reads it back: the file and then
+/// `history/` are synced (`F_FULLFSYNC` on Apple targets), and the record is
+/// read again and must be the record that was read first. **This is what
+/// `history acknowledge` does before it clears a marker** (pass 08 slice 5,
+/// D13): a marker that names a record is how the record is known not to be
+/// confirmed, so it is removed only once the record is known to have reached the
+/// disk, and never for one that cannot be read.
+///
+/// # Errors
+/// `HISTORY_UNUSABLE` when the record is not there, cannot be read, cannot be
+/// synced, or changed while being synced; `SAFETY_BLOCKED` as root.
+pub fn make_durable(state: &StateDir, id: &str, euid: u32) -> Result<RunRecord, DomainError> {
+    let first = read_one(state, id, euid)?
+        .ok_or_else(|| unusable("the record to make durable is not there".into()))?;
+    let name = record_file_name(id)
+        .ok_or_else(|| unusable("the record asked for is not named by a run id".into()))?;
+    let directory = state.history();
+    for path in [directory.join(&name), directory] {
+        std::fs::File::open(&path)
+            .and_then(|handle| handle.sync_all())
+            .map_err(|e| {
+                unusable(format!(
+                    "the record could not be made durable ({:?}); it is still there and was not \
+                     changed",
+                    e.kind()
+                ))
+            })?;
+    }
+    let second = read_one(state, id, euid)?
+        .ok_or_else(|| unusable("the record vanished while it was made durable".into()))?;
+    if record_text(&first)? != record_text(&second)? {
+        return Err(unusable(
+            "the record changed while it was made durable".into(),
+        ));
+    }
+    Ok(second)
+}
+
 /// The newest records, for `history`: what [`list_records`] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordList {

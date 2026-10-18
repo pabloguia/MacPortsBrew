@@ -43,6 +43,9 @@ pub(super) enum Request<'a> {
     List { limit: usize },
     /// One run, by id.
     Show { id: &'a str },
+    /// Deal with the interrupted-run marker of one run; with `execute`, remove
+    /// it (`history acknowledge <id> --yes`).
+    Acknowledge { id: &'a str, execute: bool },
 }
 
 /// The one entry point for both commands.
@@ -60,11 +63,11 @@ pub(super) fn run(
         ));
     }
     // A run id that is not one never becomes a path.
-    if let Request::Show { id } = request {
+    if let Request::Show { id } | Request::Acknowledge { id, .. } = request {
         if !is_run_id(id) {
             return Err(DomainError::new(
                 ErrorId::Usage,
-                "that is not a run id: they look like run-20260101T000000Z-ab12cd34, and \
+                "that is not a run id: they look like 20260101T000000Z-0123456789abcdef, and \
                  `macportsbrew history` lists them",
             ));
         }
@@ -97,6 +100,11 @@ pub(super) fn run(
             } else {
                 write!(stdout, "{}", shown.list(&state, &document)).map_err(io)?;
             }
+        }
+        Request::Acknowledge { id, execute } => {
+            return super::interrupted::acknowledge(
+                &state, euid, id, *execute, cli.json, &shown, stdout,
+            );
         }
         Request::Show { id } => {
             let record = history_store::read_one(&state, id, euid)?.ok_or_else(|| {
@@ -392,6 +400,19 @@ impl Shown<'_> {
             "history.show_standing",
             &[("standing", self.standing(document.standing))],
         ));
+        if document.standing == RecordStanding::Unconfirmed {
+            // The same description `doctor` and `acknowledge` give of this state.
+            line(super::interrupted::describe(
+                self,
+                &macportsbrew_application::RunFacts::Stranded {
+                    run_id: record.id().to_owned(),
+                    snapshot_file: record.snapshot_path().map(str::to_owned),
+                    record: macportsbrew_application::StrandedRecord::Unconfirmed {
+                        changed: super::interrupted::changed_steps(record),
+                    },
+                },
+            ));
+        }
         line(self.messages.render_id("history.show_steps"));
         for step in record.steps() {
             // The step kind and its result are protocol identifiers, the same
@@ -483,7 +504,7 @@ impl Shown<'_> {
 
 /// The SCREAMING_SNAKE spelling a value serialises to, for the identifiers the
 /// text shows as they are.
-fn identifier<T: Serialize>(value: &T) -> String {
+pub(super) fn identifier<T: Serialize>(value: &T) -> String {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::String(text)) => text,
         Ok(serde_json::Value::Object(map)) => map

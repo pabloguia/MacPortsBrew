@@ -7186,7 +7186,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - **Slice 5 (pass 08, 2026-10-18): the brackets performed, `history`, `restore
   --plan` and the stranded marker.** Plan, with `spec-guardian` and
   `security-reviewer` read before any code: `docs/passes/08-slice-5-plan.md`
-  (§7 records each finding). **Parts A, B and C (this entry grows with each part).**
+  (§7 records each finding). **Parts A, B, C and D (this entry grows with each part).**
   Decisions (Tier 3):
   - **D1 — the snapshot is the capture taken under the lock.** The work order
     says "`before()`, the capture taken under the lock"; those are two captures,
@@ -7295,6 +7295,37 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     `MANUAL_REVIEW` exits 4, as `plan` and `migrate` do. A missing, unreadable
     or foreign snapshot is `SNAPSHOT_UNUSABLE` (exit 8), a missing run
     `RUN_NOT_FOUND`.
+  - **D12 — `doctor` shows a stranded marker.** `doctor(snapshot, policy,
+    today)` stays pure; the shell looks at the state directory (no lock, nothing
+    created) and adds the `interrupted_run` finding from a `RunFacts` value
+    (`NOT_CHECKED` for a recording or a snapshot file, so `--replay` output stays
+    a function of its input; no marker; in progress; possibly in progress;
+    unreadable; stranded). Stranded versus in progress is a read-only shared
+    `try_lock` on `run.lock` (`run_lock::probe`, creating nothing, never
+    following a symbolic reference, `Untestable` never read as free). A stranded
+    run is a **warning**: doctor's error exit (5) is for unhealthy providers.
+    The tripwire `the_switch_needs_doctor_to_show_a_stranded_marker` now checks
+    that the live command adds the finding from `peek` and `probe`, not that a
+    name appears somewhere.
+  - **D13 — `history acknowledge <id> --yes`, and D-M4 amended.** Slice 2's
+    D-M4 (no path deletes a marker but the run's own `clear`) gains exactly one
+    exception. Without `--yes`, or with `--dry-run`, it shows what it knows and
+    what it would do and changes nothing. With it: no marker is "nothing to
+    acknowledge" (exit 0, nothing created); another run's marker is refused
+    (exit 4, naming both); a held lock is exit 7; under the lock the marker is
+    read again, the record is made durable (`make_durable`: file and directory
+    synced, read again, equal) and only then is the marker cleared. **It never
+    promotes an unproven record** (the spec-guardian's V1): a record that cannot
+    be read keeps the marker (exit 8); with no record the marker is removed and
+    the text says the marker and the snapshot it names were the only trace. It
+    deletes no record and no snapshot, and `restore --plan` for the marker's run
+    does not clear it.
+  - **D14, D15, D16.** One catalogue text per stranded state, used by `doctor`,
+    `history show` and `acknowledge`; D-M3's by-hand remedy (remove the file
+    yourself) is replaced in `error.run_interrupted`, the `migrate.history.*`
+    texts, `run-marker.v2.md` and the wiki; every run that handed a mutating
+    step over prints its snapshot and `restore --run <id> --plan` whatever its
+    outcome.
   - **Found building it, declared (04):** the reverse mapping needs the same
     evidence as the forward one. When the run removed its source nothing
     installed there remains, so without a curated row the plan stops at

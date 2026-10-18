@@ -34,6 +34,15 @@ These changes come after the 0.1.0 release candidate and are not part of
 
 ### Added after the release candidate
 
+- `macportsbrew history acknowledge <id>`: deals with the interrupted-run
+  marker a run left. Without `--yes` it says what it knows and changes nothing;
+  with it, it makes the run's record durable, checks it reads back, and removes
+  the marker (a record it cannot read keeps the marker). `doctor` now reports an
+  interrupted run (the `interrupted_run` finding, always present; `OK` when
+  there is none or when it was not checked), and every run that handed a
+  mutating step over prints its snapshot and the command that plans the way
+  back. The by-hand "remove interrupted-run.json" remedy is gone from the
+  messages. `--json`: `history-acknowledge.v1`.
 - `macportsbrew restore --plan --run <id>`: the plan that puts back what a
   recorded run changed, built by the same planner in the other direction from
   the run's record and the snapshot it took first, shown with notes about what

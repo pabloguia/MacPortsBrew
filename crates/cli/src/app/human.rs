@@ -868,6 +868,30 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     if let Some(refusal) = &report.refusal {
         let _ = writeln!(out, "  {}", site_refusal_line(ctx, refusal));
     }
+    // What every run that handed a mutating step over prints, whatever its
+    // outcome (04, "Undoing a migration"; slice 5, D16): the snapshot it took
+    // first and the command that plans the way back - a partial success is
+    // precisely when it is needed.
+    if let Some(run_id) = &report.receipt.run_id {
+        if let Some(snapshot) = &report.receipt.snapshot_file {
+            let _ = writeln!(
+                out,
+                "  {}",
+                ctx.messages.render(
+                    "migrate.undo.snapshot",
+                    &params(&[("snapshot", snapshot.clone())])
+                )
+            );
+        }
+        let _ = writeln!(
+            out,
+            "  {}",
+            ctx.messages.render(
+                "migrate.undo.command",
+                &params(&[("run_id", run_id.clone())])
+            )
+        );
+    }
     // What went wrong with the run's own history (slice 4, D8). Never an offer
     // to restore: a run whose record is not known to be durable has none.
     let remedy = match report.history_error {

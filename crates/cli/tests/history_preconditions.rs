@@ -1185,13 +1185,31 @@ fn the_switch_needs_consent_wired() {
     );
 }
 
-/// Detection: `doctor` has no check that names an interrupted-run marker.
+/// `doctor` shows a stranded marker (pass 08 slice 5, D12). A positive check,
+/// held whatever the switch is: the finding exists, the live `doctor` path asks
+/// for the facts, and the facts come from looking at the marker and the lock. A
+/// `doctor` that always passed `NOT_CHECKED` would contain the finding's name and
+/// satisfy a search for it, so the calls are what is looked for.
 #[test]
 fn the_switch_needs_doctor_to_show_a_stranded_marker() {
-    let doctor = code_of(&workspace_file("application/src/doctor.rs"));
+    // Raw text: `code_of` blanks string literals, and the id is one.
+    let finding = workspace_file("application/src/doctor.rs");
+    let command = code_of(&workspace_file("cli/src/app/mod.rs"));
+    let facts = code_of(&workspace_file("cli/src/app/interrupted.rs"));
+    let squeeze = |text: &str| text.split_whitespace().collect::<String>();
+    let (finding, command, facts) = (squeeze(&finding), squeeze(&command), squeeze(&facts));
     assert!(
-        !THIS_BUILD_DISPATCHES_MUTATIONS || doctor.contains("interrupted_run"),
-        "mutations dispatch and doctor does not show an interrupted-run marker (SE-092, slice 4 D15)"
+        finding.contains("id:\"interrupted_run\".into()"),
+        "doctor.rs has no `interrupted_run` finding"
+    );
+    assert!(
+        command.contains(".with_run_finding(&interrupted::gather(&ctx))"),
+        "the live doctor command does not add the interrupted-run finding from a look at the state directory"
+    );
+    assert!(
+        facts.contains("run_marker::peek(state,euid)")
+            && facts.contains("run_lock::probe(state,euid)"),
+        "the facts handed to doctor do not come from the marker and the run lock"
     );
 }
 

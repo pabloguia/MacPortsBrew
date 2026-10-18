@@ -63,6 +63,113 @@ impl DoctorReport {
     }
 }
 
+/// What the shell found when it looked for an interrupted run (pass 08
+/// slice 5, D12, D14). `doctor` itself stays a pure function of a snapshot and
+/// policy data; the state directory is read by the shell and handed in, and the
+/// check is added with [`DoctorReport::with_run_finding`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunFacts {
+    /// Not looked at: a recording, a snapshot file, or a user that could not be
+    /// established. Said, never read as "none".
+    NotChecked,
+    /// No marker is there.
+    NoMarker,
+    /// A marker is there and the run lock is held: a run is in progress.
+    InProgress,
+    /// A marker is there and the lock could not be tested.
+    PossiblyInProgress,
+    /// The marker could not be read.
+    MarkerUnreadable,
+    /// A marker is there and nobody holds the lock: a run was interrupted.
+    Stranded {
+        /// The run the marker names.
+        run_id: String,
+        /// The snapshot file the marker names, when it names one.
+        snapshot_file: Option<String>,
+        /// What is known of the run's record.
+        record: StrandedRecord,
+    },
+}
+
+/// What is known of the record of a stranded run (three states, one text for
+/// each in `doctor`, `history`, `history show` and `history acknowledge`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrandedRecord {
+    /// There is none: the run began and left no record.
+    None,
+    /// It exists and reads, and the marker still names it.
+    Unconfirmed {
+        /// The mutating steps the run dispatched, by identifier.
+        changed: Vec<String>,
+    },
+    /// Something is at that id that cannot be read as a record.
+    Unreadable,
+}
+
+/// The `interrupted_run` finding. A stranded run is a **warning**, not an error:
+/// it blocks the next command that changes packages (exit 4), but nothing about
+/// the machine's providers is unhealthy, and `doctor`'s error exit is for those.
+#[must_use]
+pub fn interrupted_run_finding(facts: &RunFacts) -> DoctorFinding {
+    let (severity, reason) = match facts {
+        RunFacts::NotChecked => (
+            Severity::Ok,
+            Reason::new("doctor.interrupted_run_not_checked"),
+        ),
+        RunFacts::NoMarker => (Severity::Ok, Reason::new("doctor.interrupted_run_none")),
+        RunFacts::InProgress => (
+            Severity::Warning,
+            Reason::new("doctor.interrupted_run_in_progress"),
+        ),
+        RunFacts::PossiblyInProgress => (
+            Severity::Warning,
+            Reason::new("doctor.interrupted_run_possibly_in_progress"),
+        ),
+        RunFacts::MarkerUnreadable => (
+            Severity::Warning,
+            Reason::new("doctor.interrupted_run_marker_unreadable"),
+        ),
+        RunFacts::Stranded {
+            run_id,
+            snapshot_file,
+            record,
+        } => {
+            let id = match record {
+                StrandedRecord::None => "doctor.interrupted_run_started_not_recorded",
+                StrandedRecord::Unconfirmed { .. } => {
+                    "doctor.interrupted_run_recorded_not_confirmed"
+                }
+                StrandedRecord::Unreadable => "doctor.interrupted_run_recorded_unreadable",
+            };
+            let mut reason = Reason::new(id)
+                .with("run_id", run_id)
+                .with("snapshot", &snapshot_file.as_deref().unwrap_or("none"));
+            if let StrandedRecord::Unconfirmed { changed } = record {
+                reason = reason.with("changed", &changed.join(", "));
+            }
+            (Severity::Warning, reason)
+        }
+    };
+    DoctorFinding {
+        id: "interrupted_run".into(),
+        severity,
+        reason,
+        provider: None,
+    }
+}
+
+impl DoctorReport {
+    /// This report with the interrupted-run finding added, in its place in the
+    /// order (severity descending, then id).
+    #[must_use]
+    pub fn with_run_finding(mut self, facts: &RunFacts) -> Self {
+        self.findings.push(interrupted_run_finding(facts));
+        self.findings
+            .sort_by(|a, b| b.severity.cmp(&a.severity).then_with(|| a.id.cmp(&b.id)));
+        self
+    }
+}
+
 /// Runs the checks.
 pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorReport {
     let mut findings = Vec::new();

@@ -498,3 +498,203 @@ fn restore_is_refused_before_any_capture_for_every_argument_it_cannot_honour() {
     }
     assert!(!scratch.state_dir().exists(), "nothing is created");
 }
+
+// --- history acknowledge (pass 08 slice 5, Part D) --------------------------
+
+/// Leaves the interrupted-run marker of `id` (naming `snapshot`), as a run that
+/// died would, and no lock held.
+fn leave_marker(scratch: &Scratch, id: &str, snapshot: Option<&str>) {
+    let state = scratch.state();
+    let lock = acquire(&state, euid()).expect("the run lock");
+    let mut marker = InterruptedRun::new(id).expect("a marker");
+    if let Some(file) = snapshot {
+        marker = marker.with_snapshot(file).expect("a snapshot name");
+    }
+    run_marker::write(&lock, &state, &marker, euid()).expect("the marker");
+}
+
+fn marker_present(scratch: &Scratch) -> bool {
+    scratch.state_dir().join("interrupted-run.json").exists()
+}
+
+#[test]
+fn with_no_marker_there_is_nothing_to_acknowledge_and_nothing_is_created() {
+    let scratch = Scratch::new("ack-nothing");
+    let id = id_of("20261003T120000Z");
+    for flags in [&["--yes"][..], &[][..]] {
+        let mut argv = vec!["--json", "history", "acknowledge", id.as_str()];
+        argv.extend_from_slice(flags);
+        let document = json_of(&run(&scratch, &argv));
+        assert_eq!(document["outcome"], "NOTHING_TO_ACKNOWLEDGE");
+        assert!(!scratch.state_dir().exists(), "{flags:?}");
+    }
+}
+
+#[test]
+fn a_marker_that_names_another_run_is_refused_naming_both() {
+    let scratch = Scratch::new("ack-other");
+    let (mine, other) = (id_of("20261003T120000Z"), id_of("20261004T120000Z"));
+    leave_marker(&scratch, &other, None);
+    let output = run(&scratch, &["history", "acknowledge", &mine, "--yes"]);
+    assert_eq!(code(&output), ErrorId::SafetyBlocked.exit_code());
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        stderr.contains(&mine) && stderr.contains(&other),
+        "{stderr}"
+    );
+    assert!(
+        marker_present(&scratch),
+        "another run's marker is left alone"
+    );
+}
+
+#[test]
+fn without_yes_it_shows_what_it_would_do_and_changes_nothing() {
+    let scratch = Scratch::new("ack-preview");
+    let stamp = "20261003T120000Z";
+    let snapshot = seed_snapshot(&scratch, stamp);
+    seed_record(&scratch, &mutating_run(stamp, &snapshot));
+    let id = id_of(stamp);
+    leave_marker(&scratch, &id, Some(&snapshot));
+    for flags in [&[][..], &["--yes", "--dry-run"][..]] {
+        let mut argv = vec!["--json", "history", "acknowledge", id.as_str()];
+        argv.extend_from_slice(flags);
+        let document = json_of(&run(&scratch, &argv));
+        assert_eq!(document["outcome"], "WOULD_ACKNOWLEDGE", "{flags:?}");
+        assert_eq!(document["record"], "UNCONFIRMED");
+        assert_eq!(document["snapshotFile"], snapshot.as_str());
+        assert!(marker_present(&scratch), "{flags:?}");
+    }
+    let text = run(&scratch, &["history", "acknowledge", &id]);
+    let text = String::from_utf8_lossy(&text.stdout).into_owned();
+    assert!(text.contains("Nothing was changed"), "{text}");
+    assert!(
+        text.contains("whether it reached the disk is not confirmed"),
+        "{text}"
+    );
+}
+
+#[test]
+fn yes_makes_the_record_durable_and_then_removes_the_marker_and_nothing_else() {
+    let scratch = Scratch::new("ack-yes");
+    let stamp = "20261003T120000Z";
+    let snapshot = seed_snapshot(&scratch, stamp);
+    let record = mutating_run(stamp, &snapshot);
+    seed_record(&scratch, &record);
+    let id = id_of(stamp);
+    leave_marker(&scratch, &id, Some(&snapshot));
+    let record_file = scratch
+        .state()
+        .history()
+        .join(record_file_name(&id).unwrap());
+    let before = std::fs::read(&record_file).unwrap();
+    // Until acknowledged, the record is not confirmed and not offered.
+    let shown = json_of(&run(&scratch, &["--json", "history", "show", &id]));
+    assert_eq!(shown["standing"], "UNCONFIRMED");
+
+    let document = json_of(&run(
+        &scratch,
+        &["--json", "history", "acknowledge", &id, "--yes"],
+    ));
+    assert_eq!(document["outcome"], "ACKNOWLEDGED");
+    assert!(!marker_present(&scratch));
+    assert_eq!(
+        std::fs::read(&record_file).unwrap(),
+        before,
+        "the record is untouched"
+    );
+    assert!(scratch.state().snapshots().join(&snapshot).exists());
+    // Now it is confirmed, by the marker's absence.
+    let shown = json_of(&run(&scratch, &["--json", "history", "show", &id]));
+    assert_eq!(shown["standing"], "CONFIRMED");
+    assert_eq!(shown["restorability"]["restorable"], "FROM_SNAPSHOT");
+    // And a second acknowledge has nothing to do.
+    let again = json_of(&run(
+        &scratch,
+        &["--json", "history", "acknowledge", &id, "--yes"],
+    ));
+    assert_eq!(again["outcome"], "NOTHING_TO_ACKNOWLEDGE");
+}
+
+#[test]
+fn a_record_that_cannot_be_read_is_never_promoted_and_the_marker_stays() {
+    let scratch = Scratch::new("ack-unreadable");
+    let stamp = "20261003T120000Z";
+    let id = id_of(stamp);
+    leave_marker(&scratch, &id, None);
+    let file = scratch
+        .state()
+        .history()
+        .join(record_file_name(&id).unwrap());
+    std::fs::write(&file, "{ not a record").unwrap();
+    std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    let preview = json_of(&run(&scratch, &["--json", "history", "acknowledge", &id]));
+    assert_eq!(preview["record"], "UNREADABLE");
+    let output = run(&scratch, &["history", "acknowledge", &id, "--yes"]);
+    assert_eq!(code(&output), ErrorId::HistoryUnusable.exit_code());
+    assert!(marker_present(&scratch), "fail closed: the marker stays");
+    assert!(file.exists(), "nothing is deleted");
+}
+
+#[test]
+fn a_run_that_left_no_record_is_acknowledged_without_deleting_its_snapshot() {
+    let scratch = Scratch::new("ack-no-record");
+    let stamp = "20261003T120000Z";
+    let snapshot = seed_snapshot(&scratch, stamp);
+    let id = id_of(stamp);
+    leave_marker(&scratch, &id, Some(&snapshot));
+    let text = run(&scratch, &["history", "acknowledge", &id]);
+    let text = String::from_utf8_lossy(&text.stdout).into_owned();
+    assert!(text.contains("left no record"), "{text}");
+    let done = json_of(&run(
+        &scratch,
+        &["--json", "history", "acknowledge", &id, "--yes"],
+    ));
+    assert_eq!(done["outcome"], "ACKNOWLEDGED");
+    assert_eq!(done["record"], "NONE");
+    assert!(!marker_present(&scratch));
+    assert!(scratch.state().snapshots().join(&snapshot).exists());
+}
+
+#[test]
+fn a_run_holding_the_lock_is_not_stranded_and_its_marker_is_left_alone() {
+    let scratch = Scratch::new("ack-lock");
+    let id = id_of("20261003T120000Z");
+    let state = scratch.state();
+    let lock = acquire(&state, euid()).expect("the run lock");
+    let marker = InterruptedRun::new(&id).unwrap();
+    run_marker::write(&lock, &state, &marker, euid()).unwrap();
+    for argv in [
+        vec!["history", "acknowledge", id.as_str(), "--yes"],
+        vec!["history", "acknowledge", id.as_str()],
+    ] {
+        let output = run(&scratch, &argv);
+        assert_eq!(code(&output), ErrorId::RunLockHeld.exit_code(), "{argv:?}");
+    }
+    assert!(marker_present(&scratch));
+    drop(lock);
+}
+
+#[test]
+fn invariant_15_acknowledge_refuses_a_recording_and_a_bad_id() {
+    let scratch = Scratch::new("ack-scope");
+    let recording = root().join(RECORDING);
+    let id = id_of("20261003T120000Z");
+    let output = run(
+        &scratch,
+        &[
+            "--replay",
+            recording.to_str().unwrap(),
+            "history",
+            "acknowledge",
+            &id,
+            "--yes",
+        ],
+    );
+    assert_eq!(code(&output), ErrorId::SafetyBlocked.exit_code());
+    assert_eq!(
+        code(&run(&scratch, &["history", "acknowledge", "../x", "--yes"])),
+        2
+    );
+    assert!(!scratch.state_dir().exists());
+}

@@ -87,12 +87,17 @@ from its source, nothing installed there is left to show the mapping, so
 unless MacPortsBrew's curated table covers the package the plan stops at manual
 review (exit 4) and says so; it never guesses a package by name.
 
-A run that dies mid-flight leaves a recoverable record, and the next mutating
-run refuses to start until you have looked at it — exiting with the
-safety-check code and naming the run. Recovery is the same two commands:
-`history show <id>` to see what completed, then either restore or a fresh plan
-forward. There is no `resume` command, because there is nothing separate to
-resume.
+A run that dies mid-flight leaves a marker, and the next mutating run refuses
+to start until you have looked at it — exiting with the safety-check code and
+naming the run. `macportsbrew doctor` says what is known about the run (its
+record may exist but not be confirmed, may be unreadable, or may not exist at
+all, in which case the provider may be half-changed). Recovery is the same
+commands: `history show <id>` to see what completed, then either
+`restore --plan --run <id>` or a fresh plan forward. When you have looked, 
+`history acknowledge <id> --yes` makes the run's record durable, checks it, and
+removes the marker; it deletes no record and no snapshot, and you do not remove
+any file by hand. There is no `resume` command, because there is nothing
+separate to resume.
 
 ## What a restore can and cannot promise
 

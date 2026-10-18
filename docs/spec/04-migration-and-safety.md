@@ -291,9 +291,15 @@ durably (at once when nothing mutating was handed over), by that run only.
 Under the lock it holds, a marker that is gone or another run's when it is
 cleared is an anomaly the run reports (`HISTORY_UNUSABLE`), never a run done. A marker found by a
 mutating command refuses it, exit 4, naming the run; analysis, plan and dry runs
-never read it. Until `history` and `restore` exist the remedy is the user's own
-act, documented in the error text and the schema: look for the run's record,
-look at what it changed, then remove that one file when no other run is active.
+never read it. `doctor` shows a stranded marker (`interrupted_run`) and says
+which of three things it is - recorded and not confirmed, recorded and
+unreadable, started and not recorded - in the same words `history show` and
+`history acknowledge` use. The one deliberate way to remove a marker other than
+the run's own `clear` is `macportsbrew history acknowledge <id> --yes`: it takes
+the lock, refuses another run's marker, makes the record durable and reads it
+back before it removes the marker, and keeps the marker for a record it cannot
+read (pass 08 slice 5, SE-092; this changes the earlier rule that no path
+deletes a marker but the run's own).
 
 **The detector is not built, and the refusal it serves is owed (SE-015,
 DP-030).** No filesystem read can tell that a provider is mutating without
@@ -303,8 +309,8 @@ alternatives disturb a provider or grow the process allowlist. A live run says
 **Done with the wiring (slice 4):** under the lock the machine is captured
 again and re-planned, and any difference from the validated plan refuses,
 naming the fact that moved (SE-092, D6); the lock is confirmed before every
-mutating command. **Still owed, each a precondition of the flag-flip proposal
-and each behind a tripwire:** a stranded marker in `doctor`; the
+mutating command. **Done in slice 5:** a stranded marker in `doctor`. **Still owed,
+each a precondition of the flag-flip proposal and each behind a tripwire:** the
 application-level refusal on an observed or unchecked provider; and **a
 residual the re-plan does not close** — nothing re-checks the destination
 between `VERIFY_DESTINATION` and `REMOVE_SOURCE`, so a concurrent `brew` or

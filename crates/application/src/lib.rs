@@ -37,7 +37,10 @@ pub use consent::{
     confirm, confirmation_phrase, elevation_requests, ConsentDecision, ConsentGiven,
     ConsentRefusal, ElevationRequest,
 };
-pub use doctor::{doctor, DoctorFinding, DoctorReport, Severity};
+pub use doctor::{
+    doctor, interrupted_run_finding, DoctorFinding, DoctorReport, RunFacts, Severity,
+    StrandedRecord,
+};
 pub use execution_gate::{
     clear, evaluable_in_this_build, execution_refusals, execution_refusals_for, mutation_allowance,
     ExecutionRefusal, GateClear, GateReport, MutationAllowance,

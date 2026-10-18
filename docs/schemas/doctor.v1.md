@@ -204,6 +204,31 @@ A recording carries no `PATH`, so both findings below are `OK`:
 }
 ```
 
+## The `interrupted_run` finding
+
+Added in pass 08 slice 5 (additive; no version bump). One finding with the id
+`interrupted_run`, always present, built by the shell from a look at the state
+directory that creates nothing and takes no lock (`doctor` itself stays a pure
+function of the snapshot and the policy). Its `reason.id` says which of these it
+found; `WARNING` is used for everything that needs a person's attention, never
+`ERROR`, because the exit-5 code is for unhealthy providers and a stranded run
+is not one (it blocks the next command that changes packages with exit 4).
+
+| `reason.id` | Severity | Meaning |
+|---|---|---|
+| `doctor.interrupted_run_not_checked` | `OK` | A recording or a snapshot file, or the user could not be established. Under `--replay` and `--from-snapshot` this is always the answer, so the output stays a function of the input |
+| `doctor.interrupted_run_none` | `OK` | No marker |
+| `doctor.interrupted_run_in_progress` | `WARNING` | A marker and the run lock is held: a run is in progress. The look takes a shared lock for an instant, which can make a command starting at that instant exit 7 |
+| `doctor.interrupted_run_possibly_in_progress` | `WARNING` | A marker, and the lock could not be tested |
+| `doctor.interrupted_run_marker_unreadable` | `WARNING` | The marker cannot be read; nothing is known |
+| `doctor.interrupted_run_recorded_not_confirmed` | `WARNING` | A marker nobody holds the lock for, and the run has a record that reads; `changed` lists the mutating steps it dispatched |
+| `doctor.interrupted_run_recorded_unreadable` | `WARNING` | A marker, and a record at its id that cannot be read as one |
+| `doctor.interrupted_run_started_not_recorded` | `WARNING` | A marker and no record: the marker and the snapshot it names are the only trace |
+
+The parameters (`run_id`, `snapshot`, `changed`) are identifiers and file names,
+never paths. Nothing is deleted by `doctor`; `history acknowledge` is the one
+deliberate way to deal with a marker.
+
 ## Worked example
 
 `macportsbrew doctor --json` on an Intel Mac with Homebrew and no MacPorts:
@@ -266,6 +291,13 @@ A recording carries no `PATH`, so both findings below are `OK`:
       "severity": "OK",
       "reason": {
         "id": "doctor.command_line_tools_present"
+      }
+    },
+    {
+      "id": "interrupted_run",
+      "severity": "OK",
+      "reason": {
+        "id": "doctor.interrupted_run_not_checked"
       }
     },
     {

@@ -141,6 +141,25 @@ It reads the state directory and nothing else, and it creates nothing.
 `--json` documents: [`history-list.v1.md`](../docs/schemas/history-list.v1.md),
 [`history-show.v1.md`](../docs/schemas/history-show.v1.md).
 
+#### `macportsbrew history acknowledge <ID>`
+
+Deals with the interrupted-run marker a run left. `doctor` reports an
+interrupted run and says which of three things it is: its record exists but is
+not confirmed; its record cannot be read; or it began and left no record (the
+provider may be half-changed, and the marker with the snapshot it names is the
+only trace).
+
+| Flag | Effect |
+|---|---|
+| `--yes` | Do it. Without it, or with `--dry-run`, the command says what it knows and what it would do and changes nothing |
+
+With `--yes` it takes the run lock (another run holding it: exit 7), refuses a
+marker that names a different run (exit 4), makes the run's record durable and
+checks it reads back, and only then removes the marker. A record it cannot read
+keeps the marker (exit 8). It deletes no record and no snapshot. With no marker
+there is nothing to acknowledge (exit 0). `--json`:
+[`history-acknowledge.v1.md`](../docs/schemas/history-acknowledge.v1.md).
+
 ### `macportsbrew restore --plan --run <ID>`
 
 Builds the plan that puts back what one recorded run changed, from the run's
