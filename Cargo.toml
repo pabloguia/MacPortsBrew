@@ -55,6 +55,16 @@ too_many_lines = "allow"
 # allowed to construct a std::process::Command; scripts/check-layering.sh
 # asserts that textually.
 
+# `packed`, not macOS's default `unpacked`: unpacked keeps every codegen
+# unit's object file in target/debug/deps for the debugger, and Cargo never
+# removes them when a crate rebuilds under a new hash. They reached 605,518
+# files on 2026-10-17, and launching a test binary from that directory then
+# blocked in exec for 20-100 s, which made validation take 25 minutes. Packed
+# runs dsymutil at link time - one .dSYM per binary - and the object files go.
+# `test` inherits from `dev`.
+[profile.dev]
+split-debuginfo = "packed"
+
 [profile.release]
 strip = true
 lto = "thin"

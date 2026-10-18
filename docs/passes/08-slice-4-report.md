@@ -102,10 +102,15 @@ agent's leftover, which is never committed.
    `cargo clean`: the default validation from cold, rebuild included, in
    449 s; a test binary starts in 0.07 s. **When validation turns slow,
    count `target/debug/deps` (`ls target/debug/deps | wc -l`) and
-   `cargo clean` if it is in the hundreds of thousands.** Not done, and
-   worth a decision: setting `split-debuginfo` to `packed` (one `.dSYM` per
-   binary, slower links) in `[profile.dev]` would stop the accumulation for
-   every contributor. Separately, an untracked `.claude/worktrees/` made the
+   `cargo clean` if it is in the hundreds of thousands.** The owner then
+   chose `split-debuginfo = "packed"` in `[profile.dev]` (`Cargo.toml`):
+   after a full build `deps` holds 626 entries and no object files (6,986
+   before), the cold default validation takes 478 s and a warm one 274 s.
+   Stale binaries, `.dSYM` bundles and libraries still accumulate, about 180
+   entries per full rebuild; a prune after every validation
+   (`scripts/prune-target.sh`, drafted) waits for the owner's guarded-path
+   authorisation, since it lives in `scripts/` and runs from `validate.sh`.
+   Separately, an untracked `.claude/worktrees/` made the
    commit gate treat a docs-only commit as touching `.claude` and run the
    full validation; it is now git-ignored.
 3. After #8 merges, slice 5 needs a work order in `prompts/` before code: the
