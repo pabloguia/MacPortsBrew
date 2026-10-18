@@ -1,4 +1,9 @@
-# `interrupted-run` marker schema, version 1
+# `interrupted-run` marker schema, version 1 — superseded, never written
+
+> **Superseded by [version 2](run-marker.v2.md) in pass 08 slice 5, before any
+> build wrote a version 1 marker.** The reader refuses a version 1 file
+> (`HISTORY_UNUSABLE`). Kept beside its successor as the compatibility rule asks
+> ([`README.md`](README.md)).
 
 The file a mutating run leaves in the state root, `interrupted-run.json`, from
 just before its first provider change until its record is published

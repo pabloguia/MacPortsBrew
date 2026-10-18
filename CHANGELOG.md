@@ -40,6 +40,18 @@ These changes come after the 0.1.0 release candidate and are not part of
   `MUTATION_FAILED`, `MUTATION_REFUSED`, `MUTATING_STEP_CARRIES_VERIFICATION`,
   `PRECONDITION_FAILED` and `STATE_CHANGED`; `history.v1` gains `PERFORMED`.
   Consumers that match these values exhaustively should accept them.
+- `migrate --json`, additive and reachable only under the same switch: the
+  optional `runId`, `snapshotFile` and `recordReadBack` execution fields, the
+  `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK` step dispositions, the
+  `SNAPSHOT_NOT_TAKEN` halt reason, and the `RECORD_NOT_CONFIRMED` reason in
+  `retainedRunNotRecognised`.
+- A run's snapshot and record are now performed by the mutating loop (still
+  behind that switch): the snapshot is written first, from the capture taken
+  under the lock, and read back before anything changes; the run's record is
+  stored pending and is confirmed by a read-back. History schema 2
+  ([`docs/schemas/history.v2.md`](docs/schemas/history.v2.md)) and marker
+  schema 2 ([`docs/schemas/run-marker.v2.md`](docs/schemas/run-marker.v2.md))
+  replace version 1 of each, which no build ever wrote.
 
 ### Under the hood, after the release candidate
 

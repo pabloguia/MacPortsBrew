@@ -48,8 +48,8 @@ pub use executor::{
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{
-    migration_key, must_record, recognise_retained_run, run_record, HistoryConsultation,
-    NotRecognised, Recognition,
+    migration_key, must_record, read_back_matches, recognise_retained_run, run_record,
+    HistoryConsultation, NotRecognised, Recognition,
 };
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,

@@ -26,13 +26,14 @@
 //! `RECORD_HISTORY` are not performed in this build (D9).
 
 use macportsbrew::executor::{
-    run_with_mutations, Boundary, MutatingRun, MutationRefusal, MutationSite, Observer, ReadSite,
-    RunReport,
+    run_with_mutations, Boundary, MutatingRun, MutationRefusal, MutationSite, Observer, ReadBack,
+    ReadSite, RunReport,
 };
-use macportsbrew_adapters::persistence::history_store::new_run_id;
+use macportsbrew_adapters::persistence::history_store::{self, new_run_id};
 use macportsbrew_adapters::persistence::run_lock::{self, RunLock, LOCK_FILE};
 use macportsbrew_adapters::persistence::run_marker::MARKER_FILE;
 use macportsbrew_adapters::persistence::StateDir;
+use macportsbrew_adapters::persistence::{snapshot_file_name, snapshot_store};
 use macportsbrew_adapters::process::{ExitStatus, Invocation};
 use macportsbrew_adapters::registry::{self, PlanReadError};
 use macportsbrew_application::{
@@ -58,6 +59,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const HB: &str = "homebrew";
 const MP: &str = "macports";
 const STAMP: &str = "20261017T030000Z";
+/// What the capture under the lock is stamped with in these tests: not the first
+/// capture's stamp, so a snapshot of the first capture cannot pass for the
+/// second (slice 5, D1).
+const RECAPTURED_AT: &str = "2026-10-17T03:00:09Z";
 const STARTED_AT: &str = "2026-10-17T03:00:00Z";
 
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -117,7 +122,17 @@ fn provider(id: &str, prefix: &str, packages: &[&str]) -> ProviderSnapshot {
         capabilities,
         inventory,
         environment: BTreeMap::new(),
-        invocation_environment: BTreeMap::new(),
+        // What the adapters build for this prefix: the run writes this snapshot
+        // and reads it back through the checks any snapshot passes, so it has to
+        // be one the tool could have captured.
+        invocation_environment: if id == HB {
+            macportsbrew_adapters::homebrew::quiet_environment(std::path::Path::new(prefix), None)
+        } else {
+            macportsbrew_adapters::macports::invocation_environment(
+                std::path::Path::new(prefix),
+                None,
+            )
+        },
         resolutions: BTreeMap::new(),
         // Read and empty: no configuration risk, so DP-027 (b) does not stand
         // between the test and the mutating path.
@@ -181,6 +196,11 @@ struct Direction {
     package: &'static str,
     to: &'static str,
     retain: bool,
+    /// Narrowed further so the run can end `COMPLETED`: `SET_PRIMARY` removed
+    /// whole (layer 4 of SE-036 does not exist, and a passed-over step is not a
+    /// carried-out one). A real planned run cannot complete until that layer and
+    /// `VERIFY_RESOLUTION` exist; the slice 5 report carries it.
+    complete: bool,
 }
 
 impl Direction {
@@ -191,6 +211,15 @@ impl Direction {
             package: "gsed",
             to: HB,
             retain: true,
+            complete: false,
+        }
+    }
+
+    /// Toward Homebrew, narrowed so that every step is carried out.
+    fn toward_homebrew_completable() -> Self {
+        Self {
+            complete: true,
+            ..Self::toward_homebrew()
         }
     }
 
@@ -202,6 +231,7 @@ impl Direction {
             package: "gnu-sed",
             to: MP,
             retain: false,
+            complete: false,
         }
     }
 
@@ -222,7 +252,15 @@ impl Direction {
             &registry::known_provider_ids(),
         )
         .expect("the planner builds this plan")
-        .map_plan(mutable)
+        .map_plan(|plan| {
+            mutable(plan);
+            if self.complete {
+                plan.steps.retain(|s| s.kind != StepKind::SetPrimary);
+                for (i, step) in plan.steps.iter_mut().enumerate() {
+                    step.index = u32::try_from(i).expect("small") + 1;
+                }
+            }
+        })
     }
 
     fn cleared(&self) -> GateClear {
@@ -285,6 +323,31 @@ impl Scratch {
         std::fs::read_to_string(self.marker()).is_ok_and(|t| t.contains(&self.id))
     }
 
+    /// The marker names a snapshot file, and that file is there (slice 5, D1).
+    fn marker_names_a_snapshot(&self) -> bool {
+        let Ok(text) = std::fs::read_to_string(self.marker()) else {
+            return false;
+        };
+        let Some(rest) = text.split("\"snapshotFile\":\"").nth(1) else {
+            return false;
+        };
+        let name = rest.split('"').next().unwrap_or("");
+        macportsbrew_domain::history::is_snapshot_file_name(name)
+            && self.state.snapshots().join(name).is_file()
+    }
+
+    fn snapshots(&self) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.state.snapshots())
+            .map(|d| {
+                d.filter_map(Result::ok)
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
     fn start(&self) -> RunStart {
         RunStart {
             id: self.id.clone(),
@@ -339,6 +402,10 @@ impl MutationSite for Site<'_> {
         assert!(
             self.scratch.marker_names_this_run(),
             "the marker names this run before any command"
+        );
+        assert!(
+            self.scratch.marker_names_a_snapshot(),
+            "and the snapshot taken first, which is in the state directory"
         );
         assert!(self.scratch.locked_by_someone(), "the lock is held");
         self.handed
@@ -399,6 +466,7 @@ struct Setup<'a> {
     live: bool,
     recapture: Box<dyn FnOnce() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>,
     reread: &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>,
+    read_back: &'a dyn Fn(&StateDir, &str, u32) -> Result<String, DomainError>,
 }
 
 /// A recapture that finds the machine as it was, and checks it runs under the
@@ -415,8 +483,11 @@ fn unchanged<'a>(direction: &'a Direction, scratch: &'a Scratch) -> Setup<'a> {
                 !scratch.marker().exists(),
                 "and before the marker is written"
             );
-            let snap = direction.snapshot.clone();
+            let mut snap = direction.snapshot.clone();
             let plan = direction.plan_of(&snap).plan().clone();
+            // The capture under the lock is stamped later than the first one,
+            // so the snapshot a run writes says which of the two it is.
+            snap.provenance.captured_at = RECAPTURED_AT.into();
             Ok((snap, plan))
         }),
         reread: Box::leak(Box::new(move |_: &ProviderId, _: &str| {
@@ -426,6 +497,7 @@ fn unchanged<'a>(direction: &'a Direction, scratch: &'a Scratch) -> Setup<'a> {
             );
             Ok(ProviderConfiguration::Read { files: Vec::new() })
         })),
+        read_back: &history_store::read_back,
     }
 }
 
@@ -448,6 +520,7 @@ fn run<M: MutationSite>(
             site,
             recapture: setup.recapture,
             reread: setup.reread,
+            read_back: setup.read_back,
             observer: seen,
         },
         &HomeRedaction::Recorded,
@@ -485,17 +558,20 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
                 Locked,
                 Replanned,
                 MarkerRead,
+                SnapshotWritten,
                 MarkerWritten,
                 StillCurrent,
                 ConfigurationRechecked,
                 Dispatched,
                 RecordWritten,
+                RecordReadBack,
                 MarkerCleared,
             ],
             "{name}: {report:?}"
         );
         assert_eq!(site.handed.borrow().len(), 1, "{name}");
-        // The brackets are not performed in this build: never a completion.
+        // `SET_PRIMARY` is passed over (SE-036 layer 4 does not exist), and a
+        // passed-over step is not a carried-out one: never a completion here.
         assert!(
             matches!(report.outcome, RunOutcome::PartialSuccess { .. }),
             "{name}: {:?}",
@@ -618,6 +694,7 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
             site: &site,
             recapture: unchanged(&direction, &scratch).recapture,
             reread: unchanged(&direction, &scratch).reread,
+            read_back: &history_store::read_back,
             observer: &seen,
         },
         &HomeRedaction::Recorded,
@@ -683,7 +760,7 @@ fn an_earlier_runs_marker_refuses_and_nothing_is_dispatched() {
     let earlier = "20261016T120000Z-00000000000000aa";
     std::fs::write(
         scratch.marker(),
-        format!("{{\"schemaVersion\":1,\"runId\":\"{earlier}\"}}\n"),
+        format!("{{\"schemaVersion\":2,\"runId\":\"{earlier}\",\"snapshotFile\":null}}\n"),
     )
     .expect("marker");
     std::fs::set_permissions(
@@ -857,6 +934,7 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
                 site: &site,
                 recapture: setup.recapture,
                 reread: setup.reread,
+                read_back: setup.read_back,
                 observer: &observer,
             },
             &HomeRedaction::Recorded,
@@ -969,7 +1047,7 @@ fn a_marker_gone_or_another_runs_after_the_record_is_an_error_and_stays() {
             Box::new(|s: &Scratch| {
                 std::fs::write(
                     s.marker(),
-                    "{\"schemaVersion\":1,\"runId\":\"20261016T120000Z-00000000000000bb\"}\n",
+                    "{\"schemaVersion\":2,\"runId\":\"20261016T120000Z-00000000000000bb\",\"snapshotFile\":null}\n",
                 )
                 .expect("swap");
                 Ok(CommandEnd::Exited { code: 0 })
@@ -1020,8 +1098,9 @@ fn a_marker_gone_or_another_runs_after_the_record_is_an_error_and_stays() {
 
 #[test]
 fn a_completed_run_whose_history_went_wrong_never_exits_zero() {
-    // Unreachable through a run in this build (every mutating run is partial,
-    // D9), so the mutation proof found the `(0, Some(_))` branch untested.
+    // Unreachable through a run whose steps are all carried out only on a
+    // narrowed plan, so the mutation proof found the `(0, Some(_))` branch
+    // untested; this builds the report by hand.
     let report = |history_error| RunReport {
         outcome: RunOutcome::Completed,
         records: Vec::new(),
@@ -1030,10 +1109,314 @@ fn a_completed_run_whose_history_went_wrong_never_exits_zero() {
         history_error,
         marker_left: None,
         record_written: false,
+        receipt: macportsbrew::executor::RunReceipt::default(),
     };
     assert_eq!(report(None).exit_code(), 0);
     for error in [ErrorId::Io, ErrorId::HistoryUnusable] {
         assert_eq!(report(Some(error)).exit_code(), error.exit_code());
         assert_ne!(error.exit_code(), 0, "{error:?}");
     }
+}
+
+// --- Pass 08 slice 5: the brackets performed ------------------------------------
+
+/// The run's record, read back from the scratch store.
+fn stored(scratch: &Scratch) -> macportsbrew_domain::RunRecord {
+    history_store::read_one(&scratch.state, &scratch.id, scratch.euid)
+        .expect("the record reads")
+        .expect("the record is there")
+}
+
+#[test]
+fn a_forced_run_toward_homebrew_reaches_success_with_its_snapshot_written_and_named() {
+    use macportsbrew_domain::{RunStatus, StepResult};
+    use Boundary::*;
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("success");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let report = run(
+        &direction.cleared(),
+        &scratch,
+        &site,
+        unchanged(&direction, &scratch),
+        &seen,
+    )
+    .expect("a report");
+    assert_eq!(report.outcome, RunOutcome::Completed, "{report:?}");
+    assert_eq!(report.exit_code(), 0);
+    assert!(report.history_error.is_none() && report.marker_left.is_none());
+    assert!(!scratch.marker().exists(), "the marker is cleared");
+
+    let record = stored(&scratch);
+    assert_eq!(record.status(), RunStatus::Success);
+    let file = record
+        .snapshot_path()
+        .expect("the record names its snapshot");
+    assert_eq!(report.receipt.snapshot_file.as_deref(), Some(file));
+    assert_eq!(report.receipt.run_id.as_deref(), Some(scratch.id.as_str()));
+    assert!(scratch.state.snapshots().join(file).is_file());
+    assert_eq!(
+        scratch.snapshots(),
+        [file.to_string()],
+        "one snapshot, no leftovers"
+    );
+    // The record never certifies its own write: pending on disk.
+    let results: Vec<_> = record
+        .steps()
+        .iter()
+        .map(|s| (s.kind(), s.result()))
+        .collect();
+    assert!(results
+        .iter()
+        .any(|(k, r)| *k == StepKind::RecordHistory
+            && matches!(r, StepResult::RecordPendingReadBack)));
+    assert!(results
+        .iter()
+        .any(|(k, r)| *k == StepKind::SnapshotBefore && matches!(r, StepResult::SnapshotTaken)));
+    // The order of a run that completes.
+    assert_eq!(
+        seen.all(),
+        [
+            Probed,
+            Locked,
+            Replanned,
+            MarkerRead,
+            SnapshotWritten,
+            MarkerWritten,
+            StillCurrent,
+            ConfigurationRechecked,
+            Dispatched,
+            RecordWritten,
+            RecordReadBack,
+            MarkerCleared,
+        ]
+    );
+}
+
+#[test]
+fn the_snapshot_is_the_capture_taken_under_the_lock_not_the_first_one() {
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("which-capture");
+    let site = Site::exits(&scratch, 0);
+    run(
+        &direction.cleared(),
+        &scratch,
+        &site,
+        unchanged(&direction, &scratch),
+        &Seen::default(),
+    )
+    .expect("a report");
+    // The two captures differ in what they are stamped with, so the file says
+    // which one it is (slice 5 review, security L1).
+    let first = snapshot_file_name(STARTED_AT).unwrap();
+    let second = snapshot_file_name(RECAPTURED_AT).unwrap();
+    assert_eq!(scratch.snapshots(), std::slice::from_ref(&second));
+    assert_ne!(first, second);
+    match snapshot_store::state_snapshot(&scratch.state, &second, scratch.euid) {
+        snapshot_store::StateSnapshot::Present(taken) => {
+            assert_eq!(taken.provenance.captured_at, RECAPTURED_AT);
+        }
+        other => panic!("expected the snapshot, got {other:?}"),
+    }
+    assert_eq!(stored(&scratch).snapshot_path(), Some(second.as_str()));
+}
+
+#[test]
+fn a_snapshot_that_cannot_be_written_halts_before_anything_changes() {
+    for (name, direction) in directions() {
+        let scratch = Scratch::new("snapshot-write");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let mut setup = unchanged(&direction, &scratch);
+        // Something already stands at the snapshot's name: it is never replaced.
+        let inner = setup.recapture;
+        let squat = scratch
+            .state
+            .snapshots()
+            .join(snapshot_file_name(RECAPTURED_AT).unwrap());
+        setup.recapture = Box::new(move || {
+            let result = inner();
+            std::fs::write(&squat, "mine").expect("squatter");
+            result
+        });
+        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        assert!(
+            matches!(
+                report.outcome,
+                RunOutcome::Halted {
+                    reason: HaltReason::SnapshotNotTaken,
+                    ..
+                }
+            ),
+            "{name}: {:?}",
+            report.outcome
+        );
+        assert_eq!(
+            report.exit_code(),
+            ErrorId::SafetyBlocked.exit_code(),
+            "{name}"
+        );
+        assert!(
+            site.handed.borrow().is_empty(),
+            "{name}: nothing was dispatched"
+        );
+        assert!(!scratch.marker().exists(), "{name}: no marker was written");
+        assert_eq!(scratch.records(), 0, "{name}: nothing was recorded");
+        assert!(report.receipt.run_id.is_none() && report.receipt.snapshot_file.is_none());
+        let seen = seen.all();
+        assert!(
+            !seen.contains(&Boundary::SnapshotWritten),
+            "{name}: {seen:?}"
+        );
+        assert!(!seen.contains(&Boundary::MarkerWritten), "{name}: {seen:?}");
+        assert_eq!(
+            std::fs::read_to_string(
+                scratch
+                    .state
+                    .snapshots()
+                    .join(snapshot_file_name(RECAPTURED_AT).unwrap())
+            )
+            .unwrap(),
+            "mine",
+            "{name}: the squatter was not replaced"
+        );
+    }
+}
+
+#[test]
+fn a_snapshot_the_reader_refuses_halts_before_the_marker_is_written() {
+    // The file is published, and the run's own reader will not take it back: the
+    // run does not change the machine behind a snapshot it could not restore from.
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("snapshot-read");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let mut setup = unchanged(&direction, &scratch);
+    let inner = setup.recapture;
+    setup.recapture = Box::new(move || {
+        let (mut snap, plan) = inner()?;
+        for provider in snap.providers.values_mut() {
+            provider
+                .invocation_environment
+                .insert("SUDO_ASKPASS".into(), "/tmp/x".into());
+        }
+        Ok((snap, plan))
+    });
+    let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+    assert!(
+        matches!(
+            report.outcome,
+            RunOutcome::Halted {
+                reason: HaltReason::SnapshotNotTaken,
+                ..
+            }
+        ),
+        "{:?}",
+        report.outcome
+    );
+    assert!(site.handed.borrow().is_empty());
+    assert!(!scratch.marker().exists());
+    assert_eq!(scratch.records(), 0);
+    assert!(!seen.all().contains(&Boundary::MarkerWritten));
+}
+
+#[test]
+fn a_record_that_cannot_be_read_back_or_differs_keeps_the_marker_and_never_exits_zero() {
+    use macportsbrew::executor::ReadBackFailure;
+    let failed = |_: &StateDir, _: &str, _: u32| -> Result<String, DomainError> {
+        Err(DomainError::new(ErrorId::HistoryUnusable, "read-back"))
+    };
+    let differs = |_: &StateDir, _: &str, _: u32| -> Result<String, DomainError> {
+        Ok("another record\n".to_string())
+    };
+    let empty =
+        |_: &StateDir, _: &str, _: u32| -> Result<String, DomainError> { Ok(String::new()) };
+    let readers: [(&str, ReadBackFailure, ReadBack<'_>); 3] = [
+        ("cannot be read", ReadBackFailure::Failed, &failed),
+        ("differs", ReadBackFailure::Disagreed, &differs),
+        ("is empty", ReadBackFailure::Disagreed, &empty),
+    ];
+    for (what, expected, reader) in readers {
+        let direction = Direction::toward_homebrew_completable();
+        let scratch = Scratch::new("read-back");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let mut setup = unchanged(&direction, &scratch);
+        setup.read_back = reader;
+        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        // The run did all its steps; its record is what could not be confirmed.
+        assert_eq!(report.outcome, RunOutcome::Completed, "{what}");
+        assert_eq!(report.receipt.record_read_back, Some(expected), "{what}");
+        assert_eq!(report.history_error, Some(ErrorId::Io), "{what}");
+        assert_ne!(
+            report.exit_code(),
+            0,
+            "{what}: a run is not a success on an unconfirmed record"
+        );
+        assert_eq!(
+            report.marker_left.as_deref(),
+            Some(scratch.id.as_str()),
+            "{what}"
+        );
+        assert!(scratch.marker().exists(), "{what}: the marker stays");
+        assert_eq!(
+            scratch.records(),
+            1,
+            "{what}: the record is kept, never deleted"
+        );
+        assert!(report.record_written, "{what}");
+        let seen = seen.all();
+        assert!(seen.contains(&Boundary::RecordWritten), "{what}: {seen:?}");
+        assert!(
+            !seen.contains(&Boundary::RecordReadBack),
+            "{what}: {seen:?}"
+        );
+        assert!(!seen.contains(&Boundary::MarkerCleared), "{what}: {seen:?}");
+        // The run is named so the next command can say what it left.
+        assert_eq!(
+            report.receipt.run_id.as_deref(),
+            Some(scratch.id.as_str()),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn nothing_is_read_back_after_a_write_that_was_not_known_to_be_durable() {
+    // Whatever stands at the record's name is not this run's record, so reading it
+    // back could only confirm somebody else's file (slice 5 review, security M5).
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("no-read-back");
+    let called = std::cell::Cell::new(false);
+    let counting = |_: &StateDir, _: &str, _: u32| -> Result<String, DomainError> {
+        called.set(true);
+        Ok(String::new())
+    };
+    let site = Site::new(
+        &scratch,
+        Box::new(|s| {
+            std::fs::create_dir_all(s.state.history()).expect("history");
+            std::fs::write(s.state.history().join(format!("run-{}.json", s.id)), "{}")
+                .expect("squatter");
+            Ok(CommandEnd::Exited { code: 0 })
+        }),
+    );
+    let mut setup = unchanged(&direction, &scratch);
+    setup.read_back = &counting;
+    let report = run(
+        &direction.cleared(),
+        &scratch,
+        &site,
+        setup,
+        &Seen::default(),
+    )
+    .expect("a report");
+    assert_eq!(report.history_error, Some(ErrorId::Io));
+    assert_eq!(
+        report.receipt.record_read_back, None,
+        "no read-back was attempted"
+    );
+    assert!(!called.get(), "the read-back was not asked for");
+    assert!(scratch.marker().exists());
 }

@@ -24,9 +24,12 @@
 //!    `StepKind::is_mutating` alone and reads neither the build's mutation
 //!    constant nor the plan's own claim about it, so flipping either cannot
 //!    reach a provider (A11).
-//! 4. `SNAPSHOT_BEFORE` and `RECORD_HISTORY` are not performed by this build
+//! 4. `SNAPSHOT_BEFORE` and `RECORD_HISTORY` are performed only under a
+//!    [`MutationAllowance`] ([`Action::TakeSnapshot`], [`Action::RecordHistory`]);
+//!    the read-only loop passes them over
 //!    ([`Disposition::NotPerformedInThisBuild`]), and a run that skipped one is
-//!    never [`RunOutcome::Completed`] (A6).
+//!    never [`RunOutcome::Completed`] (A6). A mutating command is never
+//!    dispatched unless `SNAPSHOT_BEFORE` was recorded taken.
 //! 5. A verification step passes only when every check it carries is evaluable
 //!    on that step kind and backed by a command whose read passed; a
 //!    `PACKAGE_NEWLY_PRESENT` also needs the destination package absent from the
@@ -42,11 +45,13 @@
 //!    cannot carry a machine's inventory (`plan.v1.md`, obligation 3).
 //!
 //! **History (obligation 12).** A mutating run writes a history record on
-//! every way it ends. This build dispatches no mutating step, so no run it can
-//! execute is a mutating run and nothing is persisted: what the loop returns
-//! is the per-step [`StepRecord`] list and the [`RunOutcome`], which is the
-//! material a record is built from: `crate::history::run_record` builds it,
-//! and the append-only store is deferred to the mutating pass.
+//! every way it ends — but only under a [`MutationAllowance`], which no shipped
+//! build has, so what the read-only loop returns is the per-step
+//! [`StepRecord`] list and the [`RunOutcome`], the material a record is built
+//! from (`crate::history::run_record`). Under an allowance the shell writes the
+//! snapshot first ([`Action::TakeSnapshot`]) and the record last
+//! ([`Action::RecordHistory`], stored pending: a record never certifies its own
+//! write, and what confirms it is a read-back, `crate::history::read_back_matches`).
 
 use crate::execution_gate::{evaluable_in_this_build, GateReport, MutationAllowance};
 use crate::planner::{elevation_for, package_kind_in};
@@ -71,8 +76,17 @@ pub enum Disposition {
         /// One per command, in order.
         evidence: Vec<ReadEvidence>,
     },
-    /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY`: not performed by this build.
+    /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY` on the read-only loop, which
+    /// performs neither (only a run under a [`MutationAllowance`] does).
     NotPerformedInThisBuild,
+    /// `SNAPSHOT_BEFORE` performed: the snapshot was written durably and read
+    /// back, before the marker and before the first change (pass 08 slice 5,
+    /// D1).
+    SnapshotTaken,
+    /// `RECORD_HISTORY` performed: the step the record is built with. **Pending
+    /// by design** (D3): a record never certifies its own write, so whether it
+    /// was written and read back is the report's fact, not the step's.
+    RecordPendingReadBack,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
     /// A mutating step dispatched under a [`MutationAllowance`] whose every
@@ -188,6 +202,10 @@ pub enum HaltReason {
         /// Which check.
         why: Precondition,
     },
+    /// `SNAPSHOT_BEFORE` could not be performed: the snapshot could not be
+    /// published durably, or did not read back as the one that was written. The
+    /// run changed nothing and records nothing (pass 08 slice 5, D1).
+    SnapshotNotTaken,
     /// The fresh capture taken under the lock does not plan to the plan this
     /// run validated (D6). Nothing was dispatched.
     StateChanged {
@@ -323,6 +341,13 @@ pub enum Action {
     /// behind the lock check and the configuration re-check (D7). Answered
     /// only under a [`MutationAllowance`].
     DispatchMutating,
+    /// Write the snapshot of the capture taken under the lock (`SNAPSHOT_BEFORE`,
+    /// D1). Answered only under a [`MutationAllowance`].
+    TakeSnapshot,
+    /// Record the run (`RECORD_HISTORY`, D2/D3): the step is recorded pending;
+    /// the one write of the record and its read-back follow the loop. Answered
+    /// only under a [`MutationAllowance`].
+    RecordHistory,
     /// Record this and go on without running anything.
     PassOver(Disposition),
     /// Record this as the step's halt and stop.
@@ -424,6 +449,7 @@ impl HaltReason {
             | Self::MutationRefused { .. }
             | Self::MutatingStepCarriesVerification
             | Self::PreconditionFailed { .. }
+            | Self::SnapshotNotTaken
             | Self::StateChanged { .. } => ErrorId::SafetyBlocked,
             Self::Expectation { .. } | Self::Unevaluable { .. } => ErrorId::SafetyUnverifiable,
             Self::TransportFailed { error, .. } => *error,
@@ -560,6 +586,8 @@ fn next_action_guarded(
         };
     }
     match step.kind {
+        StepKind::SnapshotBefore if allowance.is_some() => Action::TakeSnapshot,
+        StepKind::RecordHistory if allowance.is_some() => Action::RecordHistory,
         StepKind::SnapshotBefore | StepKind::RecordHistory => {
             Action::PassOver(Disposition::NotPerformedInThisBuild)
         }
@@ -625,6 +653,11 @@ fn mutating_action(
     if !step.verification.is_empty() {
         return Action::Halt(HaltReason::MutatingStepCarriesVerification);
     }
+    // 04: a snapshot is taken before the first mutating step. Structural, so
+    // it holds by construction and not only because the loop stops at a halt.
+    if !snapshot_taken_before(plan, position, records) {
+        return Action::Halt(HaltReason::UnexecutedMutation);
+    }
     if step.kind == StepKind::RemoveSource && !destination_verified_before(plan, position, records)
     {
         return Action::Halt(HaltReason::UnexecutedMutation);
@@ -643,6 +676,20 @@ fn mutating_action(
         }
     }
     Action::DispatchMutating
+}
+
+/// Whether the `SNAPSHOT_BEFORE` before the step at `position` was recorded
+/// taken (04, "Rollback and snapshots"). A missing, halted or passed-over
+/// record is a no.
+fn snapshot_taken_before(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> bool {
+    plan.steps[..position]
+        .iter()
+        .position(|s| s.kind == StepKind::SnapshotBefore)
+        .and_then(|at| records.get(at))
+        .is_some_and(|r| {
+            r.kind == StepKind::SnapshotBefore
+                && matches!(r.disposition, Disposition::SnapshotTaken)
+        })
 }
 
 /// Whether the `VERIFY_DESTINATION` that guards the step at `position` was
@@ -996,7 +1043,10 @@ pub fn outcome_of(plan: &MigrationPlan, records: &[StepRecord]) -> RunOutcome {
     let carried = |r: &&StepRecord| {
         matches!(
             r.disposition,
-            Disposition::Verified { .. } | Disposition::Performed { .. }
+            Disposition::Verified { .. }
+                | Disposition::Performed { .. }
+                | Disposition::SnapshotTaken
+                | Disposition::RecordPendingReadBack
         )
     };
     let Some(first_skipped) = records.iter().find(|r| !carried(r)) else {

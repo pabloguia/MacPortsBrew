@@ -251,7 +251,9 @@ fn dispatched_positions(plan: &MigrationPlan) -> Vec<usize> {
                     evidence: Vec::new(),
                 }
             }
-            Action::DispatchMutating => panic!("no allowance, so never a mutating dispatch"),
+            Action::DispatchMutating | Action::TakeSnapshot | Action::RecordHistory => {
+                panic!("no allowance, so never a mutating dispatch or a bracket performed")
+            }
             Action::PassOver(d) => d,
             Action::Halt(reason) => {
                 records.push(record(

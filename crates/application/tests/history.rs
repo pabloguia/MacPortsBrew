@@ -18,9 +18,8 @@ use macportsbrew_domain::{
     CapabilityState, CommandLineTools, EnvironmentSnapshot, FailureCause, InstalledPackage,
     Machine, MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata,
     ProcessEnd, Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderPresence, ProviderSnapshot, ReadOutput, RequestedSet, Restorability, RunEnding,
-    RunRecord, RunStart, RunStatus, Snapshot, StepKind, Translation, Version,
-    SNAPSHOT_SCHEMA_VERSION,
+    ProviderPresence, ProviderSnapshot, ReadOutput, RequestedSet, RunEnding, RunRecord, RunStart,
+    RunStatus, Snapshot, StepKind, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -236,7 +235,7 @@ fn guarded(kind: StepKind) -> Disposition {
 
 fn record_of(run: &PlannedRun, records: &[StepRecord]) -> (RunOutcome, RunRecord) {
     let outcome = outcome_of(run.plan(), records);
-    let record = run_record(run, records, start());
+    let record = run_record(run, records, start(), None);
     (outcome, record)
 }
 
@@ -339,7 +338,6 @@ fn a_partial_success_that_dispatched_no_mutation_is_not_a_partial_migration() {
         assert_eq!(outcome.exit_code(), 3, "{outcome:?}");
         assert!(!record.mutation_dispatched());
         assert_eq!(record.status(), RunStatus::NoChange);
-        assert_eq!(record.restorability(), Restorability::NothingToRestore);
         // The loop's ending is kept beside the status, not lost to it.
         assert!(matches!(record.ending(), RunEnding::PartialSuccess { .. }));
     }
@@ -363,7 +361,10 @@ fn a_run_the_dispatch_guard_halted_changed_nothing() {
                 match next_action(plan, position, &records) {
                     Action::PassOver(d) => d,
                     Action::Halt(reason) => halted(reason),
-                    Action::Dispatch | Action::DispatchMutating => {
+                    Action::Dispatch
+                    | Action::DispatchMutating
+                    | Action::TakeSnapshot
+                    | Action::RecordHistory => {
                         panic!("nothing is dispatched before the guard halts")
                     }
                 }
@@ -453,4 +454,20 @@ fn a_run_record_serialises_deterministically() {
         };
         assert_eq!(bytes(), bytes());
     }
+}
+
+#[test]
+fn a_read_back_matches_only_the_record_that_was_written() {
+    use macportsbrew_application::read_back_matches;
+    let written = "{\n  \"schemaVersion\": 2\n}\n";
+    assert!(read_back_matches(written, written));
+    // Another record, a truncated one, one with a changed byte, and nothing.
+    assert!(!read_back_matches(
+        written,
+        "{\n  \"schemaVersion\": 3\n}\n"
+    ));
+    assert!(!read_back_matches(written, &written[..written.len() - 1]));
+    assert!(!read_back_matches(written, ""));
+    // Two empty texts are not a confirmation: an empty write is no record.
+    assert!(!read_back_matches("", ""));
 }

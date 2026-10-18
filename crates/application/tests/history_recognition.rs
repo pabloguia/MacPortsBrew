@@ -13,8 +13,8 @@ use macportsbrew_application::{
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
     CapabilityState, CommandLineTools, Direction, EnvironmentSnapshot, ErrorId, ExecutableOwner,
-    HistoryView, InstalledPackage, Machine, MacosVersion, Outcome, PackageIdentity, PackageKind,
-    PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
+    HistoryView, InstalledPackage, Machine, MacosVersion, MarkerState, Outcome, PackageIdentity,
+    PackageKind, PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
     ProviderInventory, ProviderPresence, ProviderSnapshot, RecordedStep, RecordedVersions,
     RequestedSet, Resolution, RunEnding, RunRecord, RunStart, RunSubject, Snapshot, StepKind,
     StepResult, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
@@ -313,7 +313,7 @@ fn start(
 
 fn view_of(records: Vec<RunRecord>) -> HistoryView {
     let newest = records.iter().map(|r| r.id()[..16].to_owned()).max();
-    HistoryView::new(newest, records)
+    HistoryView::new(newest, records, MarkerState::Absent)
 }
 
 /// The note a re-run was planned with, or a panic naming what came back.
@@ -416,7 +416,11 @@ fn invariant_16_a_record_from_the_future_is_not_recognised() {
     let snapshot = fresh(MP, &After::done(HB));
     // The key's latest is a success, but some record is stamped after this
     // run began: the clock moved, so no order is trusted.
-    let view = HistoryView::new(Some("20261004T140000Z".into()), vec![success(MP)]);
+    let view = HistoryView::new(
+        Some("20261004T140000Z".into()),
+        vec![success(MP)],
+        MarkerState::Absent,
+    );
     let note = planned_with(start(MP, &snapshot, Some(&view), true));
     assert_eq!(note, Some(NotRecognised::RecordFromTheFuture));
 }
@@ -550,4 +554,39 @@ fn only_a_run_that_dispatched_a_mutation_is_recorded() {
         None,
     );
     assert!(!must_record(&guarded));
+}
+
+#[test]
+fn invariant_16_a_record_the_marker_names_or_cannot_confirm_is_not_recognised() {
+    // Pass 08 slice 5, H1: a run is never reported done on a record not known to
+    // be on disk (04: such a record never exits 0), in either direction.
+    for source in [MP, HB] {
+        let (_, _, dst, _) = pair(source);
+        let snapshot = fresh(source, &After::done(dst));
+        let stamp = Some(RECORD_ID[..16].to_owned());
+        for (what, marker) in [
+            ("the marker names it", MarkerState::Names(RECORD_ID.into())),
+            ("the marker is unreadable", MarkerState::Unreadable),
+        ] {
+            let view = HistoryView::new(stamp.clone(), vec![success(source)], marker);
+            let note = planned_with(start(source, &snapshot, Some(&view), true));
+            assert!(
+                matches!(&note, Some(NotRecognised::RecordNotConfirmed { run_id }) if run_id == RECORD_ID),
+                "{source}, {what}: {note:?}"
+            );
+        }
+        // The control: a marker naming some other run says nothing against it.
+        let view = HistoryView::new(
+            stamp,
+            vec![success(source)],
+            MarkerState::Names("20261004T130000Z-00000000000000ff".into()),
+        );
+        assert!(
+            matches!(
+                start(source, &snapshot, Some(&view), true),
+                MigrationStart::RetainedRunDone { .. }
+            ),
+            "{source}"
+        );
+    }
 }

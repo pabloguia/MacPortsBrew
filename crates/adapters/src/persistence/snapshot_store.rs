@@ -18,9 +18,17 @@
 //! data from a file — is scrubbed to an alphanumeric stamp before it is
 //! allowed anywhere near a file name.
 
-use crate::persistence::atomic::write_atomic;
+use crate::persistence::atomic::{write_atomic, write_new_durable, PublishError};
+use crate::persistence::bounded_read::{
+    read_bounded as read_bounded_file, BoundedReadError, OpenPolicy,
+};
+use crate::persistence::history_store::private_directory;
+use crate::persistence::state_dir::StateDir;
 use crate::process::Recording;
+use macportsbrew_domain::history::is_snapshot_file_name;
 use macportsbrew_domain::{DomainError, ErrorId, Snapshot};
+use std::fs::Metadata;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// The largest snapshot or recording that will be read. A snapshot of a very
@@ -94,6 +102,193 @@ pub fn save_snapshot(directory: &Path, snapshot: &Snapshot) -> Result<PathBuf, D
     }
     write_atomic(&path, snapshot_to_json(snapshot)?.as_bytes())?;
     Ok(path)
+}
+
+/// Publishes `snapshot` in `directory` **durably** and without ever replacing a
+/// file (pass 08 slice 5, D1): the entry reaches the medium before this returns
+/// `Ok`, because a run changes the machine behind this file. Returns the file
+/// name (never a path) the record and the marker name it by.
+///
+/// Not [`save_snapshot`]'s best-effort write, and without its
+/// `symlink_metadata` look first: a look and then a rename is a window, and a
+/// link that cannot replace is not.
+///
+/// # Errors
+/// `SAFETY_BLOCKED` when a file of that name exists — two captures in one
+/// second, or a `snapshot` command in the same second as a run's start — and
+/// the underlying error when it cannot be published durably. Either way the
+/// run changes nothing.
+pub fn save_snapshot_durable(directory: &Path, snapshot: &Snapshot) -> Result<String, DomainError> {
+    let name = snapshot_file_name(&snapshot.provenance.captured_at)?;
+    match write_new_durable(
+        &directory.join(&name),
+        snapshot_to_json(snapshot)?.as_bytes(),
+    ) {
+        Ok(()) => Ok(name),
+        Err(PublishError::Exists) => Err(DomainError::new(
+            ErrorId::SafetyBlocked,
+            format!(
+                "{name} already exists; refusing to replace a snapshot, so nothing was changed"
+            ),
+        )),
+        Err(PublishError::Failed(e)) => Err(e),
+    }
+}
+
+/// What a snapshot file inside the state directory is, looked at without being
+/// trusted (pass 08 slice 5, D8a).
+#[derive(Clone, Debug)]
+pub enum StateSnapshot {
+    /// It is there, is what this tool writes and parses as a snapshot.
+    Present(Box<Snapshot>),
+    /// There is no such file.
+    Missing,
+    /// Something is there that this tool did not write, or that cannot be
+    /// read as a snapshot. The text names the file and the kind of problem,
+    /// never a path or a value from the file.
+    Unreadable(String),
+}
+
+/// Whether a snapshot file is there, from its metadata alone (what `history`'s
+/// list shows without parsing up to 64 MiB per row).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SnapshotFile {
+    /// A regular file this user owns, closed to others, within the size cap.
+    Present,
+    /// There is no such file.
+    Missing,
+    /// Something is there that is not that.
+    Unreadable(String),
+}
+
+/// The path of snapshot `name` in `state`, after the checks both lookups make:
+/// `name` is a snapshot file name (never a path), the state root and
+/// `snapshots/` are private to `euid` and are not symbolic references. `None`
+/// when `snapshots/` or the file does not exist. Creates nothing.
+fn state_snapshot_path(state: &StateDir, name: &str, euid: u32) -> Result<Option<PathBuf>, String> {
+    if !is_snapshot_file_name(name) {
+        return Err("the snapshot named is not a snapshot file name".to_string());
+    }
+    let directory = state.snapshots();
+    let look = |path: &Path, what: &str| -> Result<Option<Metadata>, String> {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) => Ok(Some(meta)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("{what} could not be inspected: {}", e.kind())),
+        }
+    };
+    let Some(root_meta) = look(state.root(), "the state directory")? else {
+        return Ok(None);
+    };
+    private_directory(&root_meta, euid).map_err(|why| format!("the state directory {why}"))?;
+    let Some(dir_meta) = look(&directory, "the snapshots directory")? else {
+        return Ok(None);
+    };
+    private_directory(&dir_meta, euid).map_err(|why| format!("the snapshots directory {why}"))?;
+    let path = directory.join(name);
+    Ok(look(&path, name)?.map(|_| path))
+}
+
+fn owner_only(meta: &Metadata, euid: u32) -> Result<(), &'static str> {
+    if meta.uid() != euid {
+        return Err("is owned by somebody else");
+    }
+    if meta.permissions().mode() & 0o077 != 0 {
+        return Err("is readable or writable by others");
+    }
+    Ok(())
+}
+
+/// [`SnapshotFile`] for snapshot `name` in `state`.
+#[must_use]
+pub fn state_snapshot_file(state: &StateDir, name: &str, euid: u32) -> SnapshotFile {
+    let path = match state_snapshot_path(state, name, euid) {
+        Ok(Some(path)) => path,
+        Ok(None) => return SnapshotFile::Missing,
+        Err(why) => return SnapshotFile::Unreadable(why),
+    };
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            SnapshotFile::Unreadable(format!("{name} is a symbolic reference"))
+        }
+        Ok(meta) if !meta.is_file() => {
+            SnapshotFile::Unreadable(format!("{name} is not a regular file"))
+        }
+        Ok(meta) if meta.len() > MAX_DOCUMENT_BYTES => SnapshotFile::Unreadable(format!(
+            "{name} is {} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit",
+            meta.len()
+        )),
+        Ok(meta) => match owner_only(&meta, euid) {
+            Ok(()) => SnapshotFile::Present,
+            Err(why) => SnapshotFile::Unreadable(format!("{name} {why}")),
+        },
+        Err(e) => SnapshotFile::Unreadable(format!("{name} could not be inspected: {}", e.kind())),
+    }
+}
+
+/// Reads snapshot `name` out of the state directory, **trusting nothing**
+/// (pass 08 slice 5, D8a): the name is a snapshot file name, the state root and
+/// `snapshots/` are private, the file is a regular file opened without
+/// following a symbolic reference, owned by `euid`, closed to group and other,
+/// within [`MAX_DOCUMENT_BYTES`], and parses and passes the same checks as any
+/// snapshot. Every message names the file and the kind of problem, never a path.
+/// [`load_snapshot`] stays for a file the user named.
+#[must_use]
+pub fn state_snapshot(state: &StateDir, name: &str, euid: u32) -> StateSnapshot {
+    let path = match state_snapshot_path(state, name, euid) {
+        Ok(Some(path)) => path,
+        Ok(None) => return StateSnapshot::Missing,
+        Err(why) => return StateSnapshot::Unreadable(why),
+    };
+    let text = match read_bounded_file(
+        &path,
+        MAX_DOCUMENT_BYTES,
+        OpenPolicy::RefuseSymlink,
+        |meta| owner_only(meta, euid),
+    ) {
+        Ok(text) => text,
+        Err(
+            BoundedReadError::Open(e) | BoundedReadError::Inspect(e) | BoundedReadError::Read(e),
+        ) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return StateSnapshot::Missing;
+            }
+            return StateSnapshot::Unreadable(format!("{name} could not be read: {}", e.kind()));
+        }
+        Err(BoundedReadError::NotAFile) => {
+            return StateSnapshot::Unreadable(format!("{name} is not a regular file"))
+        }
+        Err(BoundedReadError::Rejected(why)) => {
+            return StateSnapshot::Unreadable(format!("{name} {why}"))
+        }
+        Err(BoundedReadError::TooLarge { len }) => {
+            return StateSnapshot::Unreadable(format!(
+                "{name} is {len} bytes, above the {MAX_DOCUMENT_BYTES}-byte limit"
+            ))
+        }
+        Err(BoundedReadError::Grew) => {
+            return StateSnapshot::Unreadable(format!("{name} grew while it was read"))
+        }
+    };
+    let mut snapshot: Snapshot = match serde_json::from_str(&text) {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            return StateSnapshot::Unreadable(format!(
+                "{name} is not a snapshot this version reads ({:?} at line {}, column {})",
+                e.classify(),
+                e.line(),
+                e.column()
+            ))
+        }
+    };
+    snapshot.mark_unrecorded_capabilities_unknown();
+    if snapshot
+        .check(&crate::registry::environment_contracts())
+        .is_err()
+    {
+        return StateSnapshot::Unreadable(format!("{name} fails this version's snapshot checks"));
+    }
+    StateSnapshot::Present(Box::new(snapshot))
 }
 
 /// Reads a snapshot, checking its size, its schema version, and the invocation

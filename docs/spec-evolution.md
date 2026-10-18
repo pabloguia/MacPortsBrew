@@ -6962,14 +6962,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   way out is an owner decision (a reviewed exception in that guard for one
   fixed test helper, or an `unsafe` allowance in a single test crate), recorded
   in `docs/decisions-pending.md` as DP-029.
-  **Provisional**:
-  `RECORD_HISTORY` is stored as `VERIFIED` in a successful record, which has
-  the record certify its own write, against the plan; the representation is
-  settled before any **shipped** build writes records (a pending result judged
-  on read-back, or a revised v1). *Amended by slice 4 (D9):* the write call
-  landed there behind a switch no shipped build turns on, so the representation
-  is settled before the switch is turned on — with slice 5's read-back, which
-  judging the step needs — and a flip tripwire enforces it.
+  **Provisional — settled by slice 5 (D3, D4, 2026-10-18):**
+  `RECORD_HISTORY` was stored as `VERIFIED` in a successful record, which has
+  the record certify its own write, against the plan. It is now stored
+  `RECORD_PENDING_READ_BACK` in history schema 2, and the record is confirmed by
+  a read-back under the run lock and by the marker being cleared (see the
+  slice 5 entry below). *Amended by slice 4 (D9):* the write call landed behind
+  a switch no shipped build turns on; the flip tripwire enforcing the
+  representation became a positive check in slice 5.
 - **Slice 2 (pass 08, 2026-10-05): the lock and the marker.** Plan, with both
   reviews folded in: `docs/passes/08-slice-2-plan.md`. Decisions (Tier 3):
   **D-L1** exclusive advisory `try_lock` on `<state root>/run.lock`, held for the
@@ -7183,6 +7183,59 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   dependency); a configuration token that records the program it was
   re-read under (the future site would compare it); the human report naming
   the snapshot path when a record is not written (no snapshot is taken yet).
+- **Slice 5 (pass 08, 2026-10-18): the brackets performed, `history`, `restore
+  --plan` and the stranded marker.** Plan, with `spec-guardian` and
+  `security-reviewer` read before any code: `docs/passes/08-slice-5-plan.md`
+  (§7 records each finding). **Part A (this entry grows with each part).**
+  Decisions (Tier 3):
+  - **D1 — the snapshot is the capture taken under the lock.** The work order
+    says "`before()`, the capture taken under the lock"; those are two captures,
+    and the run writes the second (`now`, proved by `plan_still_holds` to plan
+    identically): nearest the instant before the first change, already in hand,
+    so not a third capture. It is published with `write_new_durable` (a link
+    that never replaces; a same-second collision refuses before anything
+    changes), into `<state>/snapshots/snapshot-<stamp>.json` — the existing
+    grammar, because a run id contains `-` and widening a grammar a reader
+    trusts is a trust-boundary change for no gain — and **read back through
+    `state_snapshot` before the marker is written**, so a run never changes
+    the machine behind a snapshot its own reader refuses. Automatic snapshots
+    are never pruned. `capturedAt` is the process start (`Context::recapture`
+    stamps with `started_at`), which is what ties file to run.
+  - **D2 — the brackets are actions.** `next_action_with` answers
+    `TakeSnapshot`/`RecordHistory` only under an allowance (the read-only loop
+    still passes both over); `mutating_action` refuses a dispatch unless the
+    snapshot step was recorded taken. `SnapshotTaken` and `RecordPendingReadBack`
+    both count as carried out in `outcome_of`, the one function that computes
+    the stored ending and the in-memory outcome. A write or read-back that
+    fails does not change the outcome; it turns a 0 into `IO`, as slice 4 D8
+    said. The comparison is `application::history::read_back_matches` over
+    canonical text; the shell performs the I/O through a `ReadBack` seam.
+  - **D3 — a record never certifies its own write; standing.** Stored
+    `RECORD_PENDING_READ_BACK`. The marker is cleared only when `write_record`
+    returned `Ok` (durable) **and** the read-back matches; after an `Err` or
+    `Exists` nothing is read back. A record is `CONFIRMED` (no marker names it),
+    `UNCONFIRMED` (the marker names it) or `UNKNOWN` (the marker is unreadable);
+    `recognise_retained_run` recognises only `CONFIRMED` — a re-run never exits
+    0 on a record not known to be durable (04), found by the security review as
+    its highest finding and closed here. `marker_left` is set only if a marker
+    was written.
+  - **D4 — `history.v2`, `run-marker.v2`.** Version 1 of each was never written
+    by any build. History v2 adds `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK`,
+    drops the stored `restorability` (derived on read), and `from_stored`
+    refuses a `VERIFIED` `RECORD_HISTORY`, a mutating record without a snapshot
+    taken and the reverse. Marker v2 names the snapshot the run took first
+    (`snapshotFile`), the one trace of a run that never records itself. Each
+    reader refuses the other version.
+  - **D6 — the flip tripwire is positive.**
+    `the_switch_needs_snapshot_before_and_record_history_performed` now checks,
+    in the one shell file that takes the lock, that the snapshot step comes
+    before the marker is written and the read-back after the record write and
+    before the clear, and that the application answers the two actions; it
+    fails on a regression, and its self-tests break each part.
+  - **Carried, declared:** a real plan always carries `SET_PRIMARY` and
+    `VERIFY_RESOLUTION`, which this build does not perform (SE-036 layer 4 does
+    not exist; no evaluation), so a real run ends `PARTIAL` and only a narrowed
+    plan reaches `COMPLETED`; the flip proposal inherits it.
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)

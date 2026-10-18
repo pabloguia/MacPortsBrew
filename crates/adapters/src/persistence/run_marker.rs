@@ -3,11 +3,15 @@
 //! The interrupted-run marker: `interrupted-run.json` in the state root names a
 //! run that began changing packages and has not been accounted for
 //! (`04-migration-and-safety.md`, Concurrency and locking; pass 08 slice 2,
-//! `docs/passes/08-slice-2-plan.md`, `docs/schemas/run-marker.v1.md`).
+//! `docs/passes/08-slice-2-plan.md`, `docs/schemas/run-marker.v2.md`).
 //!
-//! **Every function takes the [`RunLock`]**, so no marker is read for a refusal,
-//! written or cleared by a run that does not hold the lock: code that touches
-//! the marker without having taken it does not compile.
+//! **Every function that writes or deletes takes the [`RunLock`]**, so no
+//! marker is written or cleared by a run that does not hold the lock: code that
+//! touches the marker without having taken it does not compile. Reading for a
+//! refusal does too ([`read`]). [`peek`] is the one lockless read, for
+//! `history` and `doctor` (pass 08 slice 5, D12): it takes no lock and creates
+//! nothing, and because it takes none it can see the marker of a run that is
+//! still in progress, so what it finds is a fact about a moment.
 //!
 //! **Written** immediately before the first provider change, published by a
 //! link that can never replace one, and **durably** — the marker exists to
@@ -36,7 +40,9 @@ use super::atomic::{write_new_durable, PublishError};
 use super::bounded_read::{open_flags, read_bounded, BoundedReadError, OpenPolicy};
 use super::run_lock::RunLock;
 use super::state_dir::StateDir;
-use macportsbrew_domain::{DomainError, ErrorId, InterruptedRun, StoredInterruptedRun};
+use macportsbrew_domain::{
+    DomainError, ErrorId, InterruptedRun, MarkerState, StoredInterruptedRun,
+};
 use std::fs::{Metadata, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -136,6 +142,37 @@ pub fn read(
     state: &StateDir,
     euid: u32,
 ) -> Result<Option<InterruptedRun>, DomainError> {
+    read_marker(state, euid)
+}
+
+/// [`read`] **without the lock**, for a reader that only reports (`history`,
+/// `doctor`). Creates nothing. The state root must be private to the effective
+/// user, as `history/` is: a marker inside a directory somebody else controls
+/// is not this user's marker, and reading it as absent would be the failure
+/// this file exists to prevent, so it is `HISTORY_UNUSABLE` instead. A state
+/// root that does not exist holds no marker.
+pub fn peek(state: &StateDir, euid: u32) -> Result<Option<InterruptedRun>, DomainError> {
+    match std::fs::symlink_metadata(state.root()) {
+        Ok(meta) => super::history_store::private_directory(&meta, euid)
+            .map_err(|why| unusable(format!("the state directory {why}")))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_unusable("could not be looked for", &e)),
+    }
+    read_marker(state, euid)
+}
+
+/// What the marker says, for a reader that treats anything it cannot read as
+/// unknown: [`peek`] folded into the domain's [`MarkerState`]. An unreadable
+/// marker is `Unreadable`, never `Absent` (fail closed).
+pub fn marker_state(state: &StateDir, euid: u32) -> MarkerState {
+    match peek(state, euid) {
+        Ok(None) => MarkerState::Absent,
+        Ok(Some(marker)) => MarkerState::Names(marker.run_id().to_owned()),
+        Err(_) => MarkerState::Unreadable,
+    }
+}
+
+fn read_marker(state: &StateDir, euid: u32) -> Result<Option<InterruptedRun>, DomainError> {
     let path = state.root().join(MARKER_FILE);
     match std::fs::symlink_metadata(&path) {
         // The refusal of a symbolic reference is this look, not only the open's
@@ -352,7 +389,10 @@ mod tests {
             format!("\u{feff}{good}"),
             good.replace('}', ",\"extra\":1}"),
             good.replace(ID, "../etc"),
-            good.replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
+            good.replace("\"schemaVersion\":2", "\"schemaVersion\":1"),
+            good.replace("\"schemaVersion\":2", "\"schemaVersion\":3"),
+            good.replace("null", "\"../etc/passwd\""),
+            good.replace("null", "\"snapshot-1.json/\""),
             format!("{}{}", good.trim_end(), "\n{}"),
             good.replace('{', "{\"runId\":\"20261005T120000Z-00000000000000aa\","),
             good.replace("00aa", "00a\u{0}"),

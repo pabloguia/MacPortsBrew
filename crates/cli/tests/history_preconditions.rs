@@ -970,7 +970,69 @@ fn workspace_file(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-/// Detection: `next_action` still passes the brackets over as not performed.
+/// The two brackets, performed (pass 08 slice 5, D6). Scoped to the shell's
+/// one file that takes the lock and ordered like the other wiring tripwires:
+/// the snapshot step is performed before the marker is written, and the record
+/// is read back after it is written and before the marker is cleared. A call
+/// inside a comment, a string or a test module is not wiring (`code_of`).
+fn bracket_violations(files: &[SourceFile]) -> Vec<String> {
+    let codes: Vec<String> = files.iter().map(|(_, text)| code_of(text)).collect();
+    let locking: Vec<&String> = codes
+        .iter()
+        .filter(|code| !calls_of(code, ACQUIRE).is_empty())
+        .collect();
+    let [code] = locking.as_slice() else {
+        return vec!["[brackets] not exactly one file of the executor shell takes the lock".into()];
+    };
+    // A call, not the definition: `fn take_snapshot(` is not performing it.
+    let calls = |token: &str| -> Vec<usize> {
+        calls_of(code, token)
+            .into_iter()
+            .filter(|at| !code[..*at].ends_with("fn "))
+            .collect()
+    };
+    let mut violations = Vec::new();
+    let snapshot = calls(SNAPSHOT_STEP).first().copied();
+    let marker = calls(MARKER_WRITE).first().copied();
+    let written = calls(WRITE_RECORD).first().copied();
+    let read_back = calls(READ_BACK).first().copied();
+    let clear = written.and_then(|w| calls(MARKER_CLEAR).into_iter().find(|c| *c > w));
+    match (snapshot, marker) {
+        (None, _) => violations.push(format!("[brackets] the shell never calls {SNAPSHOT_STEP}")),
+        (Some(s), Some(m)) if s >= m => violations.push(
+            "[brackets] the snapshot is taken after the marker is written, not before".into(),
+        ),
+        _ => {}
+    }
+    for token in [
+        "snapshot_store::save_snapshot_durable(",
+        "snapshot_store::state_snapshot(",
+    ] {
+        if calls(token).is_empty() {
+            violations.push(format!("[brackets] the shell never calls {token}"));
+        }
+    }
+    match (written, read_back, clear) {
+        (_, None, _) => violations.push(format!("[brackets] the shell never calls {READ_BACK}")),
+        (Some(w), Some(r), _) if r <= w => violations
+            .push("[brackets] the record is read back before it is written, not after".into()),
+        (_, Some(r), Some(c)) if r >= c => violations
+            .push("[brackets] the marker is cleared before the record is read back".into()),
+        (_, Some(_), None) => {
+            violations.push("[brackets] the marker is never cleared after the read-back".into());
+        }
+        _ => {}
+    }
+    violations
+}
+
+const SNAPSHOT_STEP: &str = "take_snapshot(";
+const READ_BACK: &str = "(io.read_back)(";
+
+/// Detection: the shell performs the brackets, in order, and the application
+/// answers them under an allowance. Pass 08 slice 5 delivered both; this stays
+/// as a positive check so a regression is still caught (it was a check that the
+/// brackets were *not* performed until then).
 #[test]
 fn the_switch_needs_snapshot_before_and_record_history_performed() {
     let executor = code_of(&workspace_file("application/src/executor.rs"));
@@ -978,19 +1040,120 @@ fn the_switch_needs_snapshot_before_and_record_history_performed() {
     // detection pass silently (slice 4 review).
     let squeeze = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
     let executor = squeeze(&executor);
-    let not_performed = executor.contains(&squeeze(
-        "StepKind::SnapshotBefore | StepKind::RecordHistory => { Action::PassOver(Disposition::NotPerformedInThisBuild)",
-    ));
+    let application_performs = [
+        "StepKind::SnapshotBeforeifallowance.is_some()=>Action::TakeSnapshot",
+        "StepKind::RecordHistoryifallowance.is_some()=>Action::RecordHistory",
+    ]
+    .iter()
+    .all(|needle| executor.contains(needle));
+    let mut violations = bracket_violations(&executor_files());
+    if !application_performs {
+        violations.push(
+            "[brackets] next_action_guarded no longer answers TakeSnapshot / RecordHistory \
+             under an allowance"
+                .into(),
+        );
+    }
+    // The detection must still match the source: a stale one is as bad as a
+    // missing item, whatever the switch says.
     assert!(
-        not_performed || THIS_BUILD_DISPATCHES_MUTATIONS,
-        "the detection no longer matches the source: update it with the change that performs \
-         the brackets"
+        violations.is_empty(),
+        "the detection no longer matches the source (or a bracket regressed): {violations:#?}"
     );
     assert!(
-        !(THIS_BUILD_DISPATCHES_MUTATIONS && not_performed),
-        "mutations dispatch and SNAPSHOT_BEFORE / RECORD_HISTORY are still not performed \
-         (plan.v1.md obligation 11; SE-092, slice 4 D9)"
+        !THIS_BUILD_DISPATCHES_MUTATIONS || violations.is_empty(),
+        "mutations dispatch and SNAPSHOT_BEFORE / RECORD_HISTORY are not performed in order \
+         (plan.v1.md obligation 11; SE-092, slice 5 D6)"
     );
+}
+
+const BRACKETS_GOOD: &str = r"
+fn run_with_mutations() {
+    let lock = run_lock::acquire(state, euid);
+    let snapshot = take_snapshot(state, &now, euid);
+    run_marker::write(&lock, state, &named, euid);
+    history_store::write_record(state, &record, euid);
+    let read = (io.read_back)(state, id, euid);
+    run_marker::clear(&lock, state, &marker, euid);
+}
+fn take_snapshot() {
+    snapshot_store::save_snapshot_durable(dir, snap);
+    snapshot_store::state_snapshot(state, &name, euid);
+}
+";
+
+fn brackets_of(text: &str) -> Vec<String> {
+    bracket_violations(&[("sample.rs".to_string(), text.to_string())])
+}
+
+#[test]
+fn the_bracket_tripwire_accepts_the_right_order_and_names_each_way_it_is_broken() {
+    assert_eq!(brackets_of(BRACKETS_GOOD), Vec::<String>::new());
+    let swapped = BRACKETS_GOOD
+        .replace("let snapshot = take_snapshot(state, &now, euid);\n", "")
+        .replace(
+            "run_marker::write(&lock, state, &named, euid);",
+            "run_marker::write(&lock, state, &named, euid);\n    let snapshot = take_snapshot(state, &now, euid);",
+        );
+    for (what, text, expect) in [
+        (
+            "no snapshot step",
+            BRACKETS_GOOD.replace("let snapshot = take_snapshot(state, &now, euid);", ""),
+            "never calls take_snapshot(",
+        ),
+        ("snapshot after the marker", swapped, "after the marker"),
+        (
+            "no durable save",
+            BRACKETS_GOOD.replace("save_snapshot_durable(", "save_snapshot("),
+            "save_snapshot_durable(",
+        ),
+        (
+            "no read of the snapshot back",
+            BRACKETS_GOOD.replace("state_snapshot(", "load_state("),
+            "state_snapshot(",
+        ),
+        (
+            "no record read-back",
+            BRACKETS_GOOD.replace("(io.read_back)(", "(io.nothing)("),
+            "never calls (io.read_back)(",
+        ),
+        (
+            "read-back before the write",
+            BRACKETS_GOOD
+                .replace("let read = (io.read_back)(state, id, euid);", "")
+                .replace(
+                    "history_store::write_record(",
+                    "let read = (io.read_back)(state, id, euid);\n    history_store::write_record(",
+                ),
+            "before it is written",
+        ),
+        (
+            "marker cleared before the read-back",
+            BRACKETS_GOOD
+                .replace("let read = (io.read_back)(state, id, euid);", "")
+                .replace(
+                    "run_marker::clear(&lock, state, &marker, euid);",
+                    "run_marker::clear(&lock, state, &marker, euid);\n    let read = (io.read_back)(state, id, euid);",
+                ),
+            "before the record is read back",
+        ),
+        (
+            "a call only in a comment",
+            BRACKETS_GOOD.replace("let snapshot = take_snapshot(state, &now, euid);", "// take_snapshot(state)"),
+            "never calls take_snapshot(",
+        ),
+        (
+            "the definition is not a call",
+            BRACKETS_GOOD.replace("let snapshot = take_snapshot(state, &now, euid);", ""),
+            "never calls take_snapshot(",
+        ),
+    ] {
+        let found = brackets_of(&text);
+        assert!(
+            found.iter().any(|v| v.contains(expect)),
+            "{what}: expected `{expect}` in {found:?}"
+        );
+    }
 }
 
 /// Detection: no product code outside the consent module calls `consent::ask`.

@@ -1,4 +1,13 @@
-# `history` record schema, version 1
+# `history` record schema, version 1 — superseded, never written
+
+> **Superseded by [version 2](history.v2.md) in pass 08 slice 5, before any
+> build wrote a version 1 record.** This document is kept because the schema
+> compatibility rule keeps a retired version beside its successor
+> ([`README.md`](README.md)). The reader of version 2 refuses a version 1 file
+> (`HISTORY_UNUSABLE`), and a version 1 sample no longer parses. The two
+> differences that matter: version 1 stored a `restorability` (version 2 derives
+> it) and stored `RECORD_HISTORY` as `VERIFIED`, which has a record certify its
+> own write (version 2 stores it pending, `SE-092`).
 
 The file a mutating run leaves in the state directory, `history/run-<id>.json`
 (`04-migration-and-safety.md`, History). Derived from `RunRecord` in
@@ -108,7 +117,7 @@ v1 before any build writes records) is owed with the write call (SE-092). Checke
 (`crates/adapters/tests/history_store.rs`), which reads it back and
 re-serialises it byte for byte.
 
-<!-- history-sample -->
+<!-- superseded sample, not checked -->
 ```json
 {
   "schemaVersion": 1,

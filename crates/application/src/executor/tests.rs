@@ -567,6 +567,8 @@ fn records_until(run: &PlannedRun, position: usize) -> Vec<StepRecord> {
             Action::DispatchMutating => Disposition::Performed {
                 ends: vec![CommandEnd::Exited { code: 0 }],
             },
+            Action::TakeSnapshot => Disposition::SnapshotTaken,
+            Action::RecordHistory => Disposition::RecordPendingReadBack,
             Action::PassOver(d) => d,
             Action::Halt(reason) => panic!("step {at} halted: {reason:?}"),
         };
@@ -918,10 +920,13 @@ fn a_performed_mutation_with_a_halted_verification_is_partial_never_success() {
         outcome_of(plan, &records),
         RunOutcome::PartialSuccess { .. }
     ));
-    let record = run_record(&run, &records, start());
+    let record = run_record(&run, &records, start(), Some(SNAPSHOT));
     assert!(record.mutation_dispatched());
     assert_eq!(record.status(), RunStatus::Partial);
 }
+
+/// The snapshot file name the runs in these tests took first.
+const SNAPSHOT: &str = "snapshot-20260930T000000Z.json";
 
 fn start() -> RunStart {
     RunStart {
@@ -952,7 +957,7 @@ fn record_with(
             disposition: Disposition::NotReached,
         });
     }
-    run_record(run, &records, start())
+    run_record(run, &records, start(), Some(SNAPSHOT))
 }
 
 // --- D6: re-plan under the lock ------------------------------------------
@@ -1184,4 +1189,151 @@ fn invariant_03_a_mutation_with_no_verification_after_it_is_refused() {
         .refusals()
         .iter()
         .any(|r| matches!(r, ExecutionRefusal::MutationNotVerifiedAfter { .. })));
+}
+
+// --- Pass 08 slice 5: the two brackets performed (D1, D2, D3) ---------------
+
+/// A run toward Homebrew that **can** end `Completed`: the retain-source shape,
+/// narrowed further. The layers this build does not have are removed whole —
+/// `SET_PRIMARY` (layer 4 of SE-036 does not exist, so the step would be passed
+/// over, and a passed-over step is not a carried-out one) and `VERIFY_RESOLUTION`
+/// (no evaluation) — and so is everything that removes the source. A real
+/// planned run cannot complete until those exist; that is carried, not hidden
+/// here (slice 5 report).
+fn completable_run() -> PlannedRun {
+    forced_run(MP).map_plan(|p| {
+        p.steps.retain(|s| {
+            !matches!(
+                s.kind,
+                StepKind::SetPrimary
+                    | StepKind::RemoveSource
+                    | StepKind::VerifyRemoval
+                    | StepKind::CleanupReview
+            )
+        });
+        for (i, step) in p.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).expect("small") + 1;
+        }
+        p.retain_source = true;
+    })
+}
+
+#[test]
+fn only_an_allowance_performs_the_two_brackets() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = completable_run();
+    let plan = run.plan();
+    let (snapshot, record) = (
+        position(plan, StepKind::SnapshotBefore),
+        position(plan, StepKind::RecordHistory),
+    );
+    assert_eq!(
+        next_action_with(&run, snapshot, &[], Some(&allowance)),
+        Action::TakeSnapshot
+    );
+    assert_eq!(
+        next_action_with(&run, record, &records_until(&run, record), Some(&allowance)),
+        Action::RecordHistory
+    );
+    // The read-only loop still passes both over: the shipped binary is unchanged.
+    for at in [snapshot, record] {
+        assert_eq!(
+            next_action(plan, at, &records_until(&run, at)),
+            Action::PassOver(Disposition::NotPerformedInThisBuild),
+            "step {at}"
+        );
+    }
+}
+
+#[test]
+fn a_mutating_command_is_never_dispatched_before_the_snapshot_was_taken() {
+    // 04: a snapshot is taken before the first mutating step. Every record the
+    // snapshot step could have ended as other than taken keeps the add back.
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = forced_run(MP);
+    let plan = run.plan();
+    let add = position(plan, StepKind::AddDestination);
+    let snapshot = position(plan, StepKind::SnapshotBefore);
+    for instead in [
+        Disposition::NotPerformedInThisBuild,
+        Disposition::NotReached,
+        verified(),
+        Disposition::NotDispatchedMutating,
+    ] {
+        let mut records = records_until(&run, add);
+        records[snapshot].disposition = instead.clone();
+        let answer = next_action_with(&run, add, &records, Some(&allowance));
+        assert!(
+            matches!(answer, Action::Halt(_)),
+            "{instead:?} let the add through: {answer:?}"
+        );
+    }
+    // And the control: with the snapshot taken, the same add is dispatched.
+    assert_eq!(
+        next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
+        Action::DispatchMutating
+    );
+}
+
+#[test]
+fn a_run_with_both_brackets_performed_completes_and_a_skipped_one_never_does() {
+    let run = completable_run();
+    let plan = run.plan();
+    let all = records_until(&run, plan.steps.len());
+    assert_eq!(outcome_of(plan, &all), RunOutcome::Completed);
+    for kind in [StepKind::SnapshotBefore, StepKind::RecordHistory] {
+        let mut skipped = all.clone();
+        let at = position(plan, kind);
+        skipped[at].disposition = Disposition::NotPerformedInThisBuild;
+        assert!(
+            !matches!(outcome_of(plan, &skipped), RunOutcome::Completed),
+            "{kind:?} skipped still completed"
+        );
+    }
+}
+
+#[test]
+fn the_record_of_a_completed_run_names_its_snapshot_and_stores_itself_pending() {
+    use macportsbrew_domain::StepResult;
+    let run = completable_run();
+    let plan = run.plan();
+    let all = records_until(&run, plan.steps.len());
+    let record = run_record(&run, &all, start(), Some(SNAPSHOT));
+    assert_eq!(record.snapshot_path(), Some(SNAPSHOT));
+    assert_eq!(record.status(), RunStatus::Success);
+    let results: Vec<(StepKind, &StepResult)> = record
+        .steps()
+        .iter()
+        .map(|s| (s.kind(), s.result()))
+        .collect();
+    assert!(results
+        .iter()
+        .any(|(k, r)| *k == StepKind::SnapshotBefore && matches!(r, StepResult::SnapshotTaken)));
+    assert!(results
+        .iter()
+        .any(|(k, r)| *k == StepKind::RecordHistory
+            && matches!(r, StepResult::RecordPendingReadBack)));
+    // The record never certifies its own write: nothing marks it verified.
+    assert!(!results
+        .iter()
+        .any(|(k, r)| *k == StepKind::RecordHistory && matches!(r, StepResult::Verified { .. })));
+}
+
+#[test]
+fn a_snapshot_that_could_not_be_taken_halts_the_run_and_records_nothing_was_dispatched() {
+    let run = forced_run(MP);
+    let plan = run.plan();
+    let at = position(plan, StepKind::SnapshotBefore);
+    let halt = Disposition::Halted {
+        reason: HaltReason::SnapshotNotTaken,
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    };
+    let record = record_with(&run, at, halt);
+    assert!(!record.mutation_dispatched());
+    assert_eq!(record.status(), RunStatus::NoChange);
+    assert_eq!(
+        HaltReason::SnapshotNotTaken.error_id(),
+        ErrorId::SafetyBlocked
+    );
 }

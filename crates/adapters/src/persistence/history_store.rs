@@ -145,13 +145,7 @@ pub fn write_record(state: &StateDir, record: &RunRecord, euid: u32) -> Result<(
     let name = record_file_name(record.id())
         .ok_or_else(|| DomainError::new(ErrorId::Internal, "a run record's id is not a run id"))?;
     state.ensure()?;
-    let mut text = serde_json::to_string_pretty(&record.stored()).map_err(|e| {
-        DomainError::new(
-            ErrorId::Internal,
-            format!("a run record could not be serialised: {e}"),
-        )
-    })?;
-    text.push('\n');
+    let text = record_text(record)?;
     match write_new_durable(&state.history().join(&name), text.as_bytes()) {
         Ok(()) => Ok(()),
         Err(PublishError::Exists) => Err(DomainError::new(
@@ -159,6 +153,86 @@ pub fn write_record(state: &StateDir, record: &RunRecord, euid: u32) -> Result<(
             format!("a record named {name} already exists and was not replaced"),
         )),
         Err(PublishError::Failed(e)) => Err(e),
+    }
+}
+
+/// The exact text a record is stored as: pretty-printed, one trailing newline.
+/// The one serialisation, so what a writer wrote and what a read-back parsed
+/// and wrote again can be compared byte for byte (pass 08 slice 5, D2).
+///
+/// # Errors
+/// `INTERNAL` when the record cannot be serialised.
+pub fn record_text(record: &RunRecord) -> Result<String, DomainError> {
+    let mut text = serde_json::to_string_pretty(&record.stored()).map_err(|e| {
+        DomainError::new(
+            ErrorId::Internal,
+            format!("a run record could not be serialised: {e}"),
+        )
+    })?;
+    text.push('\n');
+    Ok(text)
+}
+
+/// The directory `history/`, after the checks every single-record read makes
+/// (the state root and `history/` private to `euid`, neither a symbolic
+/// reference), or `None` when it does not exist. Creates nothing.
+fn checked_history_directory(
+    state: &StateDir,
+    euid: u32,
+) -> Result<Option<std::path::PathBuf>, DomainError> {
+    let directory = state.history();
+    match std::fs::symlink_metadata(&directory) {
+        Ok(meta) => private_directory(&meta, euid)
+            .map_err(|why| unusable(format!("the history directory {why}")))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(unusable(format!(
+                "the history directory could not be inspected: {e}"
+            )))
+        }
+    }
+    let root_meta = std::fs::symlink_metadata(state.root())
+        .map_err(|e| unusable(format!("the state directory could not be inspected: {e}")))?;
+    private_directory(&root_meta, euid)
+        .map_err(|why| unusable(format!("the state directory {why}")))?;
+    Ok(Some(directory))
+}
+
+/// One record by id, checked as every record is; `None` when there is no such
+/// record (a missing `history/` included). **Creates nothing.** An id that is
+/// not a run id is refused, never turned into a path.
+///
+/// # Errors
+/// `HISTORY_UNUSABLE` for anything this writer would not have left;
+/// `SAFETY_BLOCKED` as root.
+pub fn read_one(state: &StateDir, id: &str, euid: u32) -> Result<Option<RunRecord>, DomainError> {
+    refuse_root(euid)?;
+    let name = record_file_name(id)
+        .ok_or_else(|| unusable("the record asked for is not named by a run id".into()))?;
+    let Some(directory) = checked_history_directory(state, euid)? else {
+        return Ok(None);
+    };
+    match std::fs::symlink_metadata(directory.join(&name)) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(unusable(format!("{name} could not be inspected: {e}"))),
+    }
+    read_record(&directory, id, euid).map(Some)
+}
+
+/// The record at `id`, read back and written again as text: what the run
+/// compares with the text it wrote (`application::history::read_back_matches`).
+/// Call it only after [`write_record`] returned `Ok` — after an error, or a
+/// refused name, whatever stands at that id is not this run's record.
+///
+/// # Errors
+/// As [`read_one`]; a record that is not there is `HISTORY_UNUSABLE` too.
+pub fn read_back(state: &StateDir, id: &str, euid: u32) -> Result<String, DomainError> {
+    match read_one(state, id, euid)? {
+        Some(record) => record_text(&record),
+        None => Err(unusable(
+            "the record that was just written is not there to read back".into(),
+        )),
     }
 }
 
@@ -178,6 +252,7 @@ pub fn read_view(
     let Some(ids) = listed_ids(state.root(), &directory, euid)? else {
         return Ok(HistoryView::empty());
     };
+    let marker = super::run_marker::marker_state(state, euid);
     let newest_stamp = ids
         .first()
         .and_then(|id| run_id_stamp(id))
@@ -194,7 +269,7 @@ pub fn read_view(
             latest.push(record);
         }
     }
-    Ok(HistoryView::new(newest_stamp, latest))
+    Ok(HistoryView::new(newest_stamp, latest, marker))
 }
 
 /// The ids in `history/`, newest first, or `None` when it does not exist.
@@ -262,7 +337,7 @@ fn listed_ids(
 }
 
 /// Why a directory is not private to `euid`, if it is not.
-fn private_directory(meta: &Metadata, euid: u32) -> Result<(), &'static str> {
+pub(super) fn private_directory(meta: &Metadata, euid: u32) -> Result<(), &'static str> {
     if meta.file_type().is_symlink() {
         return Err("is a symbolic reference");
     }

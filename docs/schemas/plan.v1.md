@@ -207,7 +207,7 @@ comments:
    `ReadEvidence` and has no field a provider read could occupy
    (`a_run_record_cannot_carry_an_inventory`,
    `crates/application/tests/history.rs`). The store
-   ([`history.v1.md`](history.v1.md)) keeps the same evidence-only shape;
+   ([`history.v2.md`](history.v2.md)) keeps the same evidence-only shape;
    writing a record is owed (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
@@ -262,7 +262,7 @@ comments:
    *A single-instance lock, and detection before mutating, refusing rather
    than interleaving* — the lock and the
    interrupted-run marker are built (pass 08 slice 2; `04`, Concurrency and
-   locking; `run-marker.v1.md`) and **wired behind a mutation allowance** (pass
+   locking; `run-marker.v2.md`) and **wired behind a mutation allowance** (pass
    08 slice 4): the mutating loop probes the store, takes the lock, re-plans
    under it, reads the marker and writes it before the first mutating command.
    No shipped build takes the lock, because no shipped build has an allowance;
@@ -385,7 +385,14 @@ comments:
     (`MUTATION_IS_NOT_THE_PLANNERS_COMMAND`). Every plan the planner builds meets it, which
     `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and
     `crates/cli/tests/execution_gate_fixtures.rs` assert over the synthesised
-    snapshot and every recording.
+    snapshot and every recording. **Performed behind a mutation allowance by
+    pass 08 slice 5** (D1, D2): `next_action_with` answers `TAKE_SNAPSHOT` for
+    `SNAPSHOT_BEFORE` and `RECORD_HISTORY` only under one, the shell writes the
+    capture taken under the run lock durably into the state directory and reads
+    it back **before the marker is written**, and `mutating_action` refuses to
+    dispatch a command unless the snapshot step was recorded taken. The
+    read-only loop still passes both over. A snapshot that cannot be written
+    and read back halts the run before anything changes.
 12. **A mutating run writes a history record on every way it ends.** Success
     is the plan's final `RECORD_HISTORY` step; a step that fails, a run that
     ends in partial success, and a halt at `MANUAL_REVIEW` after a change was
@@ -418,7 +425,7 @@ comments:
     `mutationDispatched` is the one fact a store may key a lock or an
     interrupted-run marker on, and it fails toward true for a halt that cannot
     be placed before or after a dispatch. **The store landed 2026-10-04**
-    (pass 08 slice 1, [`history.v1.md`](history.v1.md)) with the write
+    (pass 08 slice 1, [`history.v2.md`](history.v2.md)) with the write
     predicate `application::history::must_record` (iff `mutationDispatched`)
     and the `--retain-source` re-run recognition `04-migration-and-safety.md`
     (History) states. **Still owed by the pass that dispatches mutations**,
@@ -431,9 +438,16 @@ comments:
     mutation allowance by pass 08 slice 4** (D8): once anything mutating was
     handed to the mutation site — a refused command included — the loop
     writes the record **durably** on every ending, then clears the marker; a
-    record not known to be durable keeps the marker and never exits 0. Still
-    owed, each behind a flip tripwire: `SNAPSHOT_BEFORE` and `RECORD_HISTORY`
-    performed (slice 5), so every forced run ends `PARTIAL`.
+    record not known to be durable keeps the marker and never exits 0. **`SNAPSHOT_BEFORE` and
+    `RECORD_HISTORY` are performed by pass 08 slice 5 (D2, D3)**, and
+    `RECORD_HISTORY` is settled: a record never certifies its own write, so it
+    is stored `RECORD_PENDING_READ_BACK` ([`history.v2.md`](history.v2.md)) and
+    the run reads the published file back under the lock, comparing the
+    canonical text with what it wrote; the marker is cleared only when the
+    write was durable and the read-back matches, so **a record is confirmed by
+    the absence of a marker naming it**. A forced run on a narrowed plan now
+    ends `COMPLETED`; a real plan cannot until `SET_PRIMARY` and
+    `VERIFY_RESOLUTION` are performed (carried).
 
 A plan containing a `MANUAL_REVIEW` step is refused for execution, naming the
 step (`MANUAL_REVIEW`,

@@ -4,7 +4,7 @@
 //! label through the catalogue, every column measured in display width.
 
 use super::context::Context;
-use crate::executor::{RenderedRefusal, RunReport, SiteRefusalKind};
+use crate::executor::{ReadBackFailure, RenderedRefusal, RunReport, SiteRefusalKind};
 use crate::render::table::Table;
 use macportsbrew_application::NotRecognised;
 use macportsbrew_application::{
@@ -756,6 +756,10 @@ pub fn retained_run_done(
 /// reason is a compile error here and every key is seen rendered.
 pub fn retained_run_not_recognised(ctx: &Context, why: &NotRecognised) -> String {
     let (key, run) = match why {
+        NotRecognised::RecordNotConfirmed { run_id } => (
+            "migrate.history_not_recognised.record_not_confirmed",
+            Some(run_id),
+        ),
         NotRecognised::LatestRunNotSuccess { run_id } => (
             "migrate.history_not_recognised.latest_run_not_success",
             Some(run_id),
@@ -870,7 +874,12 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
         // Not known to be durable: the marker may be the only trace left, so
         // nothing here suggests removing it (slice 4 review, security 1).
         Some(ErrorId::Io) => {
-            let _ = writeln!(out, "  {}", label(ctx, "migrate.history.not_durable"));
+            let key = match report.receipt.record_read_back {
+                Some(ReadBackFailure::Failed) => "migrate.history.read_back_failed",
+                Some(ReadBackFailure::Disagreed) => "migrate.history.read_back_disagreed",
+                None => "migrate.history.not_durable",
+            };
+            let _ = writeln!(out, "  {}", label(ctx, key));
             "migrate.history.marker_is_the_only_trace"
         }
         Some(_) => {
@@ -928,6 +937,10 @@ fn disposition_text(ctx: &Context, disposition: &Disposition) -> String {
         Disposition::NotPerformedInThisBuild => {
             label(ctx, "migrate.disposition.not_performed_in_this_build")
         }
+        Disposition::SnapshotTaken => label(ctx, "migrate.disposition.snapshot_taken"),
+        Disposition::RecordPendingReadBack => {
+            label(ctx, "migrate.disposition.record_pending_read_back")
+        }
         Disposition::NotDispatchedMutating => {
             label(ctx, "migrate.disposition.not_dispatched_mutating")
         }
@@ -959,6 +972,7 @@ fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
             &params(&[("step", step.to_string())]),
         ),
         HaltReason::UnexecutedMutation => label(ctx, "migrate.halt.unexecuted_mutation"),
+        HaltReason::SnapshotNotTaken => label(ctx, "migrate.halt.snapshot_not_taken"),
         HaltReason::NotPerformedInThisBuild => {
             label(ctx, "migrate.halt.not_performed_in_this_build")
         }
@@ -1431,6 +1445,7 @@ mod tests {
                     history_error: None,
                     marker_left: None,
                     record_written: false,
+                    receipt: crate::executor::RunReceipt::default(),
                 };
                 text.push_str(&run_report(&ctx, &plan, &report));
             }

@@ -261,7 +261,7 @@ nothing about `brew` or `port`, which take their own locks (R-17), and it
 protects against no other user.
 
 The **interrupted-run marker** (`persistence::run_marker`,
-`docs/schemas/run-marker.v1.md`) names the run, is written durably immediately
+`docs/schemas/run-marker.v2.md`) names the run, is written durably immediately
 before the first mutating command — read steps may run before it, as they
 change no provider state — and cleared once the run's record is published
 durably (at once when nothing mutating was handed over), by that run only.
@@ -413,8 +413,11 @@ tool version, policy version, package, direction, versions, chosen action,
 whether it overrode a recommendation, retain-source, primary selection,
 environment changes, the plan executed, verification results, outcome
 (success / partial / failure), the snapshot path, and whether the run is
-restorable (fully, partially, or not, with the reason). Never records secrets
-or environment variable values.
+restorable (from its snapshot, partially, or not, with the reason).
+**Restorability is derived when the record is read, not stored in it** (history
+schema 2, pass 08 slice 5): it depends on a snapshot file that can disappear
+after the record was written, so the record cannot state it. Never records
+secrets or environment variable values.
 
 **MUST.** The record type gives a run that dispatched no mutating step the
 status `NO_CHANGE` (nothing to restore), whatever its verification reads
@@ -426,10 +429,10 @@ counts as one. Whether a mutation was dispatched is derived from the steps; the
 status from the steps and the run's ending, checked against each other, so a
 supplied ending the steps do not bear out is never success (SE-092).
 
-**Status (2026-10-17): the record type and the store exist, and the run loop
-writes a record durably on every ending of a run that handed anything mutating
-over — behind a mutation allowance no shipped build has (pass 08 slice 4, D8),
-so no shipped build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
+**Status (2026-10-18): the record type and the store exist, and the run loop
+takes its snapshot first and writes a record durably on every ending of a run
+that handed anything mutating over — behind a mutation allowance no shipped
+build has (pass 08 slices 4 and 5), so no shipped build writes a record.** `RunRecord` (`crates/domain/src/history.rs`) holds
 every field above, built by `application::history::run_record` from the plan
 and the run loop's per-step records, deriving the outcome itself. A
 verification read enters it as `ReadEvidence` only — result, line count,
@@ -442,8 +445,19 @@ command's environment holds variable values and its program can hold a home
 path. **Environment changes** is a list of a type with no values in this build,
 so it is empty by construction.
 
+**MUST.** *A record never certifies its own write* (pass 08 slice 5, D3). The
+run's `SNAPSHOT_BEFORE` is stored `SNAPSHOT_TAKEN` (the snapshot was written
+durably, from the capture taken under the run lock, and read back, before the
+marker and before the first change) and its `RECORD_HISTORY` is stored
+`RECORD_PENDING_READ_BACK`. The record is **confirmed** only when the write was
+durable and a read-back of the published file under the lock equals what was
+written; only then is the interrupted-run marker cleared. So a record is
+confirmed by the **absence of a marker naming it**, and one the marker still
+names is published but not confirmed — never offered for restore, never taken as
+proof that a re-run is done.
+
 **MUST.** The store (`persistence::history_store`, shape in
-`docs/schemas/history.v1.md`) is one file per mutating run,
+`docs/schemas/history.v2.md`) is one file per mutating run,
 `history/run-<id>.json`, published by a link that can never replace a record.
 Reading creates nothing, and a record is never trusted: `RunRecord::from_stored`
 derives every derived field again and refuses one that disagrees (only a halt
@@ -463,7 +477,8 @@ deleted and is never offered for restore.
 
 **MUST.** A `--retain-source` re-run is recognised as done only when the latest
 record for the same package, source, destination and destination package is the
-only one at its stamp, is a retain-source `SUCCESS`, no record is stamped after
+only one at its stamp, is **confirmed** (the marker, read at planning and again
+under the lock, does not name it and was readable), is a retain-source `SUCCESS`, no record is stamped after
 the current run, and a fresh capture shows the destination holding the package
 active and the executable resolving to that record's primary — a record alone is
 never proof of the machine's present state. Recognition replaces only a plan

@@ -45,7 +45,7 @@
 
 use super::context::{Context, HistoryScope};
 use super::{human, json, Cli};
-use crate::executor::{self, RunReport, SiteRefusalKind};
+use crate::executor::{self, RunReceipt, RunReport, SiteRefusalKind};
 use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
@@ -156,6 +156,7 @@ struct NotRecognisedDoc<'a> {
 /// Exhaustive: a new reason is a compile error here, not a silent gap.
 fn not_recognised(why: &NotRecognised) -> NotRecognisedDoc<'_> {
     let (reason, run_id) = match why {
+        NotRecognised::RecordNotConfirmed { run_id } => ("RECORD_NOT_CONFIRMED", Some(run_id)),
         NotRecognised::LatestRunNotSuccess { run_id } => ("LATEST_RUN_NOT_SUCCESS", Some(run_id)),
         NotRecognised::LatestRunRemovedSource { run_id } => {
             ("LATEST_RUN_REMOVED_SOURCE", Some(run_id))
@@ -270,6 +271,7 @@ fn execute_mutating(
             site: &executor::NotInThisBuild,
             recapture,
             reread: &reread,
+            read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
         },
         &ctx.redaction,
@@ -295,6 +297,11 @@ struct Execution<'a> {
     /// review, N10): the next run refuses until it is dealt with.
     #[serde(skip_serializing_if = "Option::is_none")]
     marker_left: Option<&'a str>,
+    /// The run's id, the snapshot it took first and how its record's read-back
+    /// went (pass 08 slice 5, D16): what a run that handed a mutating step over
+    /// is found by afterwards. Each is left out when there is nothing to say.
+    #[serde(flatten)]
+    receipt: &'a RunReceipt,
 }
 
 #[derive(Serialize)]
@@ -318,6 +325,7 @@ fn execution(report: &RunReport) -> Execution<'_> {
         }),
         history_error: report.history_error,
         marker_left: report.marker_left.as_deref(),
+        receipt: &report.receipt,
     }
 }
 
