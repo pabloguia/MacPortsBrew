@@ -243,6 +243,12 @@ pub fn state_snapshot(state: &StateDir, name: &str, euid: u32) -> StateSnapshot 
         Ok(None) => return StateSnapshot::Missing,
         Err(why) => return StateSnapshot::Unreadable(why),
     };
+    // The refusal of a symbolic reference is this look as well as the open's
+    // `O_NOFOLLOW`: `open_flags` carries no flags off Darwin, so elsewhere the
+    // open alone would follow the link.
+    if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return StateSnapshot::Unreadable(format!("{name} is a symbolic reference"));
+    }
     let text = match read_bounded_file(
         &path,
         MAX_DOCUMENT_BYTES,
