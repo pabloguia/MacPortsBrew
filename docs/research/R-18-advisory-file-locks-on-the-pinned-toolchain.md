@@ -161,6 +161,34 @@ map on /System/Volumes/Data/home
 `mount | grep -iE "nfs|smb|exfat|afp|webdav|fuse"` printed nothing. No network
 or non-APFS volume was available, so no lock was attempted on one.
 
+### E7 — Observed: descriptors opened by std are not inherited across `exec` (addendum, 2026-10-18)
+
+Same machine (macOS 26.7.1, x86_64), same toolchain (`rustc 1.98.0 (88d9e12ae
+2026-08-18)`), compiled with `rustc --edition 2024 -O` in the session
+scratchpad (`.../scratchpad/cloexec/`), outside the repository; no dependency,
+no `unsafe`, no network. The program opened four files — `File::create`,
+`OpenOptions::new().read(true).write(true).create(true).open`, `File::open`, and
+a fourth `OpenOptions` file on which it then took `try_lock()` — and printed
+their descriptors (`3, 4, 5, 6`). It then spawned `/bin/sh -c` through
+`std::process::Command` with a loop that tests each descriptor by duplicating it
+(`{ : >&$i; } 2>/dev/null`), which opens nothing new:
+
+```
+parent fds: [3, 4, 5, 6]
+child sees: []
+```
+
+A positive control in the same shell (`exec 7>/dev/null`, then the same loop in
+a nested `sh`) printed `control-inherited-7`, so the probe does report an
+inherited descriptor. A first attempt that listed `/dev/fd` in the child was
+discarded: `ls` opens its own descriptors there, so the listing cannot tell an
+inherited descriptor from the reader's own.
+
+The local toolchain has no `rust-src` component
+(`$(rustc --print sysroot)/lib/rustlib/src` is absent), and this addendum used
+no network, so the std source was **not** re-read; the conclusion rests on the
+observation above.
+
 ## Findings
 
 1. **Available, since 1.89.0.** The pinned 1.98.0 has all five methods, and
@@ -183,10 +211,14 @@ or non-APFS volume was available, so no lock was attempted on one.
    reference to the same lock. The lock persists until the **last** reference
    is closed, and a child's explicit `unlock` releases the parent's lock.
    Consequence for a lock held across a spawned subprocess: a child that
-   inherits the descriptor keeps the lock alive after the parent exits. Rust's
-   `File`/`OpenOptions` open with close-on-exec on std's Unix targets, which
-   was **not** verified in this note; it is stated here as a hypothesis, not a
-   finding (see Cannot determine).
+   inherits the descriptor keeps the lock alive after the parent exits.
+   **Observed 2026-10-18 (E7):** on the pinned 1.98.0 on macOS, descriptors
+   opened by `File::create`, `File::open` and `OpenOptions::open` — including
+   one holding a `try_lock` — are not present in a child started through
+   `std::process::Command`, so a spawned provider cannot keep MacPortsBrew's
+   lock alive through an inherited descriptor. This is an observation on one
+   machine and toolchain, not a std guarantee read from its source; re-check it
+   on a toolchain bump.
 6. **Network volumes: UNRESOLVED.** `man flock` is silent (E3) and this
    machine has no such volume (E6). Nothing here says whether `flock` on an
    NFS/SMB/exFAT-backed directory errors (`ENOTSUP` is the only documented
@@ -228,9 +260,11 @@ or non-APFS volume was available, so no lock was attempted on one.
   share is available, the safe design is runtime detection: attempt
   `try_lock`, treat `TryLockError::Error` as "locking unavailable" (not as
   "free"), and never fall back to an unlocked run silently.
-- **Close-on-exec of descriptors opened by `OpenOptions`** (finding 5). Needs
-  the std source for `File::open` at the 1.98.0 tag (`O_CLOEXEC`) or a test
-  that spawns a grandchild and kills the parent.
+- ~~**Close-on-exec of descriptors opened by `OpenOptions`** (finding 5).~~
+  **Answered by observation, 2026-10-18 (E7):** not inherited across `exec`.
+  Still not read: the std source for `File::open` at the 1.98.0 tag
+  (`O_CLOEXEC`), which would turn the observation into a cited fact; it needs
+  the network or the `rust-src` component, neither available to the addendum.
 - **`fcntl` vs `flock` differences** were not cited from Apple documentation;
   `man 2 fcntl` on this machine was grepped but not read for lock semantics.
 - **The 1.89.0 release-notes entry** for these APIs (E1).

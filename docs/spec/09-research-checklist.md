@@ -400,8 +400,10 @@ Answers: yes — `File::lock`, `lock_shared`, `try_lock`, `try_lock_shared` and
 conflict), the lock is released when its holder dies (observed with SIGKILL),
 and a lock file must never be unlinked (a recreated path is a second inode that
 locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
-(`man flock` is silent and this machine has none), and whether std opens with
-close-on-exec, which decides whether a spawned child can keep a lock alive.
+(`man flock` is silent and this machine has none). **Addendum 2026-10-18 (E7):**
+descriptors std opens are not inherited by a child spawned through
+`std::process::Command` (observed, not read from std's source), so a spawned
+provider cannot keep the lock alive.
 
 ### R-19 · What the release workflow can rely on: notarisation, reproducible builds, deployment target, packaging, runners
 *Partially answered 2026-10-10 — `docs/research/R-19-release-toolchain.md`.*
