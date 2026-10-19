@@ -761,6 +761,25 @@ HOMEBREW_BOTTLE_DOMAIN
     778 with no `bottle_checksum` at all (E8). An adapter must handle the
     absent-key case or it will misclassify the 79 best-supported formulae as
     source builds.
+13. **A dated disable takes effect on its date, without an index update**
+    (addendum 2026-10-18, pass 14). Read from Homebrew's own source on this
+    machine, Homebrew 7.0.4, `Library/Homebrew/formula.rb` at Homebrew commit
+    `edb70f031e` (2026-09-17), lines 5308–5324: `disable!(date:)` parses the
+    date and compares it with `Date.today` **each time the formula is loaded**;
+    before the date it only marks the formula deprecated, on or after it sets
+    `@disabled = true`, and `disabled?` returns that. Observed the same day:
+    `brew info --json=v2 node@20` over the local homebrew-core at `e045d7385fd`
+    (last commit 2026-09-02) reports `deprecated: true`, `disabled: false`,
+    `disable_date: "2026-10-28"`. So from 2026-10-28 the **same** local index
+    reports `disabled: true`, and the Homebrew adapter, which reads `disabled`
+    (`crates/adapters/src/homebrew/mod.rs`, `ArtifactAvailability::Disabled`),
+    sees it without anyone running `brew update`. The curated row
+    `node@20` ↔ `nodejs20` (`data/policy/curated-mappings.toml`) already says
+    the availability check must treat a disabled destination as unavailable;
+    detection, not the row, carries the change (INV-20). Not observed: the
+    output after the date (it has not arrived), and whether the internal API
+    payload (E3) computes the flag the same way when the formula is not loaded
+    from a tap checkout.
 
 ## Cannot determine
 
