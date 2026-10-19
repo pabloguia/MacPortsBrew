@@ -7881,6 +7881,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
+- Addendum 2026-10-18 (pass 14, item F): `docs/spec/11-agentic-sdlc.md`'s table of what the tooling denies
+  still said every `git push` was denied because the remote did not exist. The row now states this entry's
+  rule, and keeps the old reason as history.
 
 ## SE-100 — Debug info is packed, and validation trims target/ after it
 - Status: accepted

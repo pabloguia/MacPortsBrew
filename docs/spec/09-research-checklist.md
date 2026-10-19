@@ -193,6 +193,12 @@ Three of the five closed from official documentation; two remain open and need
 something other than reading. Still blocks the implementation pass that writes
 the release workflow, not ADR-0005, which is decided.*
 
+**Superseded by R-19 (2026-10-10), and kept so the history is visible:** R-19
+(`docs/research/R-19-release-toolchain.md`, E12 and its findings) reads GitHub
+Docs as listing `macos-15-intel` as a **standard** runner, free for a public
+repository; it is `macos-15-large` that is the larger, billed runner. The next
+paragraph, written 2026-09-06, conflated the two. SE-037 carries the correction.
+
 **One premise below is wrong and is left in place so the correction is
 visible.** `macos-15-intel` is not a free standard runner: GitHub's
 `runner-images` README lists it as an alias of `macos-15-large`, and GitHub Docs
