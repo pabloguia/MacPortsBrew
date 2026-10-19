@@ -7493,7 +7493,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       MacPorts' existing verify read, whose output is believed to mark the
       active version, and Homebrew's, which is believed to show no linkage —
       neither observed for this purpose here, so a `provider-researcher` note
-      is owed for both. A consequence: a
+      is owed for both. **Answered 2026-10-18 by R-20**
+      (`docs/research/R-20-what-a-read-shows-as-active.md`): both beliefs are
+      now observations — `port -q installed` ends an active row with
+      `(active)` and an inactive one with nothing (no `(inactive)` marker in
+      2.12.6); `brew list --versions` shows no linkage, while `brew info
+      --json=v2 --installed` carries `linked_keg`, Homebrew's own record of the
+      link, which a keg-only formula can also have. Making the check evaluable
+      is pass 08 slice 6's. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
     - 04 asks the plan for environment changes, cleanup policy and a rollback

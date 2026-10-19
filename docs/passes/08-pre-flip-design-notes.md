@@ -121,10 +121,21 @@ goes after the guards exist.
   before a removal. The slice plan must cite SE-016(3), SE-050(6) and R-15, and
   `security-reviewer` rules on them before code. If the ruling is against it,
   the alternatives are an owner decision (a narrower read grows the allowlist).
-- **Prerequisite: R-20**, a `provider-researcher` note observed on this machine
-  (work order 14 writes it): MacPorts' `(active)`/`(inactive)` rendering and
-  whitespace; Homebrew's `linked_keg` after an install of a non-keg-only
-  formula, `null` for keg-only and unlinked, absent for casks.
+- **Prerequisite: R-20** (`docs/research/R-20-what-a-read-shows-as-active.md`,
+  written 2026-10-18 by work order 14). What it observed, and which corrects the
+  first version of this design: MacPorts prints an active row as
+  `␣␣<name>␣@<version>_<revision><variants>␣(active)` with no trailing
+  whitespace, and an **inactive row with nothing after the version** — there is
+  no `(inactive)` marker in 2.12.6, and `-v` (never in our argv) would add text
+  after `(active)`. Homebrew's `linked_keg` is the version
+  `var/homebrew/linked/<name>` points to, or `null`; when a string, it equals
+  one `installed[].version` including the revision suffix; **`keg_only` does not
+  predict it** (`openssl@3` is keg-only and linked, `curl` keg-only and
+  unlinked, `openssl@4` and `pydantic` not keg-only and unlinked); casks carry no
+  such field. Not observed: the state right after a fresh install, and a real
+  inactive MacPorts row (the only one in the fixtures is synthesised, so a
+  replay test of the inactive case tests invented data — say so, or capture
+  one).
 - **Design.** A third read verb `verify_active`, like `verify_absent` naming no
   package, on both providers (INV-17). Two new `SuccessSemantic` values
   (`crates/domain/src/plan.rs` ≈110) evaluated in `verification::evaluate`
@@ -135,10 +146,14 @@ goes after the guards exist.
   - `JsonReportsPackageLinked`: the `formulae[]` entry whose `name` equals the
     destination has a string `linked_keg` equal to one of its
     `installed[].version`.
-  - Anything else is a new `FailureCause::ActiveNotReported` (keg-only, null,
-    cask, missing, unparseable). **A keg-only formula or a cask stays
-    unverifiable and halts** — fail closed; this is a design decision inside the
-    tiers; record it in the slice's SE entry.
+  - Anything else is a new `FailureCause::ActiveNotReported` (`linked_keg`
+    null, a cask, a missing entry, unparseable). **An unlinked formula or a cask
+    stays unverifiable and halts** — fail closed. Whether a keg-only formula
+    that *is* linked (`openssl@3`) passes is the slice's decision: the predicate
+    above certifies it; adding `keg_only == false` would refuse it. Decide,
+    record it in the slice's SE entry, and note that 04's "installed and active"
+    has no Homebrew meaning yet — writing "linked" into 04 is a Tier 3 change
+    with its SE line.
   - The planner adds the command after `verify` on `VERIFY_DESTINATION`
     (≈833–840); `names_no_package` (≈1028), `READ_OPERATIONS` (≈1022), the
     read-verb check (`provider_commands.rs` ≈247), `planned_success`

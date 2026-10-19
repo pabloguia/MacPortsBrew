@@ -436,6 +436,41 @@ Left open:
 - How a home-domain `.pkg` places `--install-location`.
 - Feeding `security` passwords by stdin.
 
+### R-20 · Which read-only provider read proves that a package is the active (linked) installation
+*Answered 2026-10-18 — `docs/research/R-20-what-a-read-shows-as-active.md`.*
+This is the prerequisite of pass 08 slice 6 part B, and the
+`provider-researcher` note SE-094 owed for `PROVIDER_REPORTS_ACTIVE`.
+Observed on macOS 26.7.1 x86_64, Homebrew 7.0.4, MacPorts 2.12.6.
+
+Answers:
+- **MacPorts.** `port -q installed`, bare or named, prints
+  `  <name> @<version>_<revision><variants> (active)\n` for the active image.
+  An inactive image prints the same row with no suffix, because 2.12.6 has
+  no `(inactive)` marker (`port.tcl` `action_installed`).
+- **What `-q` changes.** It drops only the header and the stale-ports
+  warning, and the rows are byte-identical. `-v` would append text after
+  `(active)`.
+- **Named reads.** A named read matches exactly and ignores case
+  (`xz` does not list `xz-bootstrap`; `XZ` prints `xz`). It exits 0 with
+  empty stdout when nothing matches.
+- **Homebrew formulae.** `linked_keg` in `brew info --json=v2 --installed`
+  is the version of the keg `var/homebrew/linked/<name>` points to, or
+  `null`. On 192 formulae every string equals an `installed[].version`.
+- **`keg_only` does not predict `linked_keg`.** `openssl@3` is keg-only and
+  linked; `openssl@4` and `pydantic` are not keg-only and are unlinked.
+- **Casks.** They carry no linked or active field.
+- **The current verify read.** `brew list --versions` shows no linkage.
+- **Writes and `brew.env`.** No `brew.env` exists on this machine. On a warm
+  API cache both Homebrew reads wrote only bootsnap compile-cache files.
+
+Left open:
+- The state right after a fresh install.
+- An observed inactive or variant MacPorts row: the only ones are
+  synthesised fixtures.
+- Whether a configuration can turn on verbose for a `-q` read.
+- Whether `linked_keg` can disagree with the `bin/` symlinks.
+- Network traffic: not captured.
+
 ---
 
 ## Non-blocking research
