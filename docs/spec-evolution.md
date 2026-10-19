@@ -7738,11 +7738,19 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   moves). Several rationales said the heuristics cannot see a homepage match; they
   can (it reaches `PROBABLE` for an installed destination), and the rows now say
   that is not enough to be `EXACT` or to act before the other side is installed.
-- Owed: `status` counts a mapped, not-installed row among those whose ownership is
-  unknown, and its sentence says "the provider kept no record"; every new row makes
-  the count larger (10 to 12 in one golden). Excluding mapped rows from the count,
-  or rewording the line, is not done here; `summary.ownershipUnknown` is also
-  undocumented in `analysis.v1.md`.
+- ~~Owed~~ **Closed 2026-10-18 (pass 14, item D):** `status` counted a mapped,
+  not-installed row among those whose ownership is unknown, while its sentence says
+  "the provider kept no record". The count now takes installed rows only
+  (`summarise` in `crates/application/src/analysis.rs`): a mapping target was never
+  installed, so no provider was asked why, and it is no gap in that evidence. The
+  wording was kept, because it is true of every row still counted. Goldens moved
+  12 → 9, 11 → 9 and 1 → 0 (the remaining nine are replayed casks, F-39's case);
+  the README and wiki samples moved 11 → 9. Test
+  `a_mapped_row_that_is_not_installed_is_not_an_ownership_gap`
+  (`crates/application/tests/summary_evidence.rs`), which fails with the
+  presence filter removed. `summary.ownershipUnknown` is now documented in
+  `analysis.v1.md`. The JSON shape is unchanged; only the value is narrower, so
+  `schemaVersion` stays 1.
 - Compatibility impact: the policy version changes, so in every `--json` payload and
   the documented samples; `policyReadOn` is back at 2026-09-04, its value
   before item D; no shape changes (the new field is optional data, not output).

@@ -116,6 +116,63 @@ fn a_row_with_no_recorded_intent_is_counted_rather_than_folded_into_the_total() 
     );
 }
 
+/// A second provider, present and empty, so a curated mapping can name a
+/// package in it that is not installed: the `MAPPED` row SE-097 is about.
+fn with_an_empty_peer(mut snapshot: Snapshot, peer: &str) -> Snapshot {
+    let mut provider = snapshot
+        .providers
+        .values()
+        .next()
+        .expect("the snapshot has one provider")
+        .clone();
+    let pid = ProviderId::new(peer);
+    provider.detection.provider = pid.clone();
+    provider.detection.prefix = Some(PathBuf::from("/opt/local"));
+    provider.inventory = ProviderInventory::default();
+    provider.inventory.requested = RequestedSet {
+        names: BTreeSet::new(),
+        mechanism: "test".into(),
+    };
+    snapshot.providers.insert(pid, provider);
+    snapshot
+}
+
+#[test]
+fn a_mapped_row_that_is_not_installed_is_not_an_ownership_gap() {
+    // SE-097: `status` said "the provider kept no record" of rows that name a
+    // package nobody installed. A mapping target has no installation to keep a
+    // record of, so it is not missing evidence.
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let mut snapshot = with_an_empty_peer(snapshot_with(Some(true)), "macports");
+    let pid = ProviderId::new("homebrew");
+    let source = snapshot.providers.get_mut(&pid).expect("homebrew");
+    // `node@20` -> `nodejs20` is a curated row, so the mapping exists whatever
+    // the heuristics do; the kind is a formula, not a cask.
+    source.inventory.installed[0].identity = PackageIdentity::new(pid.clone(), "node@20");
+    source.inventory.installed[0].kind = PackageKind::Package;
+    source.inventory.requested.names = ["node@20".to_string()].into_iter().collect();
+    let analysis = analyze(
+        &snapshot,
+        &policy,
+        &AnalysisOptions::default(),
+        AnalysisSource::Snapshot,
+    );
+    let mapped = analysis
+        .packages
+        .iter()
+        .flat_map(|p| p.rows.values())
+        .filter(|r| r.presence == macportsbrew_application::RowPresence::Mapped)
+        .count();
+    assert!(
+        mapped > 0,
+        "precondition: the analysis holds a mapped row, or this test proves nothing"
+    );
+    assert_eq!(
+        analysis.summary.ownership_unknown, 0,
+        "a mapped, not-installed row is not a row whose ownership evidence went missing"
+    );
+}
+
 #[test]
 fn a_row_whose_intent_is_recorded_leaves_no_gap_to_report() {
     // Both controls, because a counter that is always 1 would pass the test
