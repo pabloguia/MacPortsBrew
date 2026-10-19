@@ -7527,6 +7527,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     - `Recommendation`'s fields are public and the type deserialises, so its
       at-least-one-reason rule is checked at construction only; nothing loads a
       recommendation from a file today. Owed with history read-back.
+      **Closed for reading 2026-10-18 (pass 14, item G):** deserialisation goes
+      through a private wire type and `TryFrom`, so a document with an empty
+      `reasons` is refused (`a_recommendation_with_no_reasons_is_refused_when_read`,
+      killed with the check removed). The fields stay public, so a caller can
+      still build one in code without `new`; nothing does outside tests.
     - Owner decisions filed: DP-037 (INV-13 and naming a package), DP-038
       (personal data in history and fixtures), DP-039 (`claude.yml` and pull
       request hooks).

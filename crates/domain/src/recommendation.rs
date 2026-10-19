@@ -47,8 +47,13 @@ impl Outcome {
 }
 
 /// The recommendation for one package, with every reason.
+///
+/// Deserialising goes through [`RecommendationWire`], so a document whose
+/// `reasons` is empty is refused rather than loaded: the rule
+/// [`Recommendation::new`] enforces for a constructed value holds for a read
+/// one too (SE-094).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", try_from = "RecommendationWire")]
 pub struct Recommendation {
     /// The outcome.
     pub outcome: Outcome,
@@ -84,6 +89,36 @@ impl Recommendation {
     }
 }
 
+/// The serialised shape of a [`Recommendation`], read before its rule is
+/// checked. Private to deserialisation: nothing else builds one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecommendationWire {
+    outcome: Outcome,
+    reasons: Vec<Reason>,
+    #[serde(default)]
+    rules_not_fired: Vec<String>,
+    policy_version: String,
+}
+
+impl TryFrom<RecommendationWire> for Recommendation {
+    type Error = &'static str;
+
+    fn try_from(wire: RecommendationWire) -> Result<Self, Self::Error> {
+        if wire.reasons.is_empty() {
+            return Err(
+                "a recommendation with zero reasons is a bug (03-policy-and-recommendations.md)",
+            );
+        }
+        Ok(Self {
+            outcome: wire.outcome,
+            reasons: wire.reasons,
+            rules_not_fired: wire.rules_not_fired,
+            policy_version: wire.policy_version,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +127,31 @@ mod tests {
     #[should_panic(expected = "zero reasons")]
     fn a_recommendation_needs_a_reason() {
         let _ = Recommendation::new(Outcome::NoAction, vec![], vec![], "0");
+    }
+
+    #[test]
+    fn a_recommendation_with_no_reasons_is_refused_when_read() {
+        let empty = r#"{"outcome":{"kind":"NO_ACTION"},"reasons":[],"policyVersion":"0"}"#;
+        let err = serde_json::from_str::<Recommendation>(empty)
+            .expect_err("a document with zero reasons must not load");
+        assert!(err.to_string().contains("zero reasons"), "{err}");
+    }
+
+    #[test]
+    fn a_recommendation_round_trips_through_its_wire_shape() {
+        // The control: the wire type reads back what `Serialize` writes,
+        // including the field it skips when empty.
+        let r = Recommendation::new(
+            Outcome::Keep {
+                provider: ProviderId::new("alpha"),
+            },
+            vec![Reason::new("reason.test")],
+            vec![],
+            "0",
+        );
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(!json.contains("rulesNotFired"), "{json}");
+        assert_eq!(serde_json::from_str::<Recommendation>(&json).unwrap(), r);
     }
 
     #[test]
