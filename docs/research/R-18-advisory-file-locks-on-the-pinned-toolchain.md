@@ -161,7 +161,7 @@ map on /System/Volumes/Data/home
 `mount | grep -iE "nfs|smb|exfat|afp|webdav|fuse"` printed nothing. No network
 or non-APFS volume was available, so no lock was attempted on one.
 
-### E7 — Observed: descriptors opened by std are not inherited across `exec` (addendum, 2026-10-18)
+### E7 — Observed: descriptors opened by std are absent in a child spawned through `std::process::Command` (addendum, 2026-10-18)
 
 Same machine (macOS 26.7.1, x86_64), same toolchain (`rustc 1.98.0 (88d9e12ae
 2026-08-18)`), compiled with `rustc --edition 2024 -O` in the session
@@ -180,7 +180,22 @@ child sees: []
 
 A positive control in the same shell (`exec 7>/dev/null`, then the same loop in
 a nested `sh`) printed `control-inherited-7`, so the probe does report an
-inherited descriptor. A first attempt that listed `/dev/fd` in the child was
+inherited descriptor.
+
+A second program (`t2.rs`, same directory) opened a file the way
+`crates/adapters/src/persistence/run_lock.rs` creates the run lock —
+`OpenOptions::new().read(true).write(true).create_new(true).mode(0o600)
+.custom_flags(0x0100 | 0x0004)`, that is `O_NOFOLLOW | O_NONBLOCK` as the macOS
+SDK's `sys/fcntl.h` defines them and as `open_flags(OpenPolicy::RefuseSymlink)`
+spells them — took `try_lock()`, and ran the same probe for its descriptor:
+
+```
+parent fd: 3
+child: not-inherited
+```
+
+So passing `custom_flags` and `create_new` did not drop close-on-exec either,
+on this machine and toolchain. A first attempt that listed `/dev/fd` in the child was
 discarded: `ls` opens its own descriptors there, so the listing cannot tell an
 inherited descriptor from the reader's own.
 
@@ -214,9 +229,11 @@ observation above.
    inherits the descriptor keeps the lock alive after the parent exits.
    **Observed 2026-10-18 (E7):** on the pinned 1.98.0 on macOS, descriptors
    opened by `File::create`, `File::open` and `OpenOptions::open` — including
-   one holding a `try_lock` — are not present in a child started through
-   `std::process::Command`, so a spawned provider cannot keep MacPortsBrew's
-   lock alive through an inherited descriptor. This is an observation on one
+   one holding a `try_lock`, and one opened exactly as `run_lock` creates its
+   file (`create_new` plus `custom_flags(O_NOFOLLOW | O_NONBLOCK)`) — are not
+   present in a child started through `std::process::Command`, so on this
+   machine and toolchain a spawned provider cannot keep MacPortsBrew's lock
+   alive through an inherited descriptor. This is an observation on one
    machine and toolchain, not a std guarantee read from its source; re-check it
    on a toolchain bump.
 6. **Network volumes: UNRESOLVED.** `man flock` is silent (E3) and this
@@ -264,7 +281,10 @@ observation above.
   **Answered by observation, 2026-10-18 (E7):** not inherited across `exec`.
   Still not read: the std source for `File::open` at the 1.98.0 tag
   (`O_CLOEXEC`), which would turn the observation into a cited fact; it needs
-  the network or the `rust-src` component, neither available to the addendum.
+  the `rust-src` component, which is not installed, or a re-fetch of the file
+  this note's source list already names at the 1.98.0 tag; the addendum chose
+  to use no network, so it was not re-fetched. That is the next step for a
+  cited answer.
 - **`fcntl` vs `flock` differences** were not cited from Apple documentation;
   `man 2 fcntl` on this machine was grepped but not read for lock semantics.
 - **The 1.89.0 release-notes entry** for these APIs (E1).
@@ -288,4 +308,10 @@ observation above.
   tag, since std documents the `flock` mapping as changeable.
 - The lock file's directory is chosen: if it can be a network volume, finding 6
   must be answered first.
-- A lock is held across a spawned provider process (finding 5).
+- On a toolchain bump, also for finding 5: re-run the two E7 programs, and
+  re-read the open flags in `library/std/src/sys/fs/unix.rs` at the new tag (the
+  file this note already cites at 1.98.0, read 2026-10-05 for the `flock`
+  mapping; the close-on-exec flag was not looked for then). The E7 probe cannot
+  tell `O_CLOEXEC` set at open from a spawn that closes descriptors; reading
+  the source is what would.
+

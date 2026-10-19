@@ -523,6 +523,13 @@ change is made. Silent deviation remains the one unrecoverable error.
   `NOT_CHECKED`**, so it is a gate. The owner's options are DP-030. The
   MacPortsBrew-against-MacPortsBrew lock excludes nothing about `brew` or
   `port`; it is not the detector and must not be described as one.
+- **Addendum, 2026-10-18 (pass 14, item H).** R-18 had left open whether a
+  descriptor std opens survives into a spawned child, which would let a
+  provider keep the run lock alive. R-18 E7 observed, on the pinned toolchain
+  on macOS, that it does not — for plain opens and for one opened as
+  `run_lock` creates its file — and `docs/spec/09-research-checklist.md`'s R-18
+  entry says so, qualified to one machine and toolchain; std's source was not
+  read, and a toolchain bump re-checks it.
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted
@@ -1993,6 +2000,9 @@ change is made. Silent deviation remains the one unrecoverable error.
   label, `-intel` is a standard runner free on a public repository, and only
   `-large` / `-xlarge` are billed. R-11 and DP-019 carry the correction; the
   pass-09 release workflow builds and signs on `macos-26-intel` and `macos-26`.
+  *(2026-10-18, pass 14: the R-11 entry of `docs/spec/09-research-checklist.md`
+  now points at R-19's correction too, so the checklist no longer reads as if
+  the billed-runner premise stood.)*
   And 08's requirement that best-effort versions be called that "in those
   words" now reaches the place a user reads it at download time: README's
   Install section, which is also the release notes, says macOS 10.12–10.15
@@ -7494,13 +7504,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       active version, and Homebrew's, which is believed to show no linkage —
       neither observed for this purpose here, so a `provider-researcher` note
       is owed for both. **Answered 2026-10-18 by R-20**
-      (`docs/research/R-20-what-a-read-shows-as-active.md`): both beliefs are
-      now observations — `port -q installed` ends an active row with
-      `(active)` and an inactive one with nothing (no `(inactive)` marker in
-      2.12.6); `brew list --versions` shows no linkage, while `brew info
-      --json=v2 --installed` carries `linked_keg`, Homebrew's own record of the
-      link, which a keg-only formula can also have. Making the check evaluable
-      is pass 08 slice 6's. A consequence: a
+      (`docs/research/R-20-what-a-read-shows-as-active.md`, the one full
+      answer): MacPorts' verify read does mark the active image, and
+      Homebrew's shows no linkage, while a read already permitted carries it.
+      What R-20 observed and what it only read from source are separated
+      there. Making the check evaluable is pass 08 slice 6's. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
     - 04 asks the plan for environment changes, cleanup policy and a rollback
@@ -7754,8 +7762,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `a_mapped_row_that_is_not_installed_is_not_an_ownership_gap`
   (`crates/application/tests/summary_evidence.rs`), which fails with the
   presence filter removed. `summary.ownershipUnknown` is now documented in
-  `analysis.v1.md`. The JSON shape is unchanged; only the value is narrower, so
-  `schemaVersion` stays 1.
+  `analysis.v1.md`. The shape is unchanged but the meaning is narrower, which
+  `docs/schemas/README.md` counts as breaking for a documented field. It stays
+  `schemaVersion` 1 because the field was undocumented until this change and
+  0.1.0 is untagged, so no consumer ever agreed to the old meaning; after a
+  release, the same change would need a version bump.
 - Compatibility impact: the policy version changes, so in every `--json` payload and
   the documented samples; `policyReadOn` is back at 2026-09-04, its value
   before item D; no shape changes (the new field is optional data, not output).

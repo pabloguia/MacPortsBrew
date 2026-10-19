@@ -407,9 +407,11 @@ conflict), the lock is released when its holder dies (observed with SIGKILL),
 and a lock file must never be unlinked (a recreated path is a second inode that
 locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
 (`man flock` is silent and this machine has none). **Addendum 2026-10-18 (E7):**
-descriptors std opens are not inherited by a child spawned through
-`std::process::Command` (observed, not read from std's source), so a spawned
-provider cannot keep the lock alive.
+descriptors std opens — including one opened as `run_lock` opens the lock, with
+`create_new` and `custom_flags` — are not inherited by a child spawned through
+`std::process::Command` (observed on one machine with the pinned toolchain, not
+read from std's source), so a spawned provider cannot keep the lock alive there;
+re-check on a toolchain bump.
 
 ### R-19 · What the release workflow can rely on: notarisation, reproducible builds, deployment target, packaging, runners
 *Partially answered 2026-10-10 — `docs/research/R-19-release-toolchain.md`.*
@@ -445,16 +447,19 @@ Left open:
 - Feeding `security` passwords by stdin.
 
 ### R-20 · Which read-only provider read proves that a package is the active (linked) installation
-*Answered 2026-10-18 — `docs/research/R-20-what-a-read-shows-as-active.md`.*
+*Answered 2026-10-18 for what this machine holds; partially for the states it
+does not hold — `docs/research/R-20-what-a-read-shows-as-active.md`.*
 This is the prerequisite of pass 08 slice 6 part B, and the
 `provider-researcher` note SE-094 owed for `PROVIDER_REPORTS_ACTIVE`.
-Observed on macOS 26.7.1 x86_64, Homebrew 7.0.4, MacPorts 2.12.6.
+Observed on macOS 26.7.1 x86_64, Homebrew 7.0.4, MacPorts 2.12.6. The note is
+the one full answer; this entry is its summary.
 
 Answers:
 - **MacPorts.** `port -q installed`, bare or named, prints
-  `  <name> @<version>_<revision><variants> (active)\n` for the active image.
-  An inactive image prints the same row with no suffix, because 2.12.6 has
-  no `(inactive)` marker (`port.tcl` `action_installed`).
+  `  <name> @<version>_<revision><variants> (active)\n` for the active image
+  (observed). An inactive image prints the same row with nothing after the
+  variants — **read from `action_installed` in the 2.12.6 source, not
+  observed**: this machine has no inactive image.
 - **What `-q` changes.** It drops only the header and the stale-ports
   warning, and the rows are byte-identical. `-v` would append text after
   `(active)`.
@@ -470,6 +475,12 @@ Answers:
 - **The current verify read.** `brew list --versions` shows no linkage.
 - **Writes and `brew.env`.** No `brew.env` exists on this machine. On a warm
   API cache both Homebrew reads wrote only bootsnap compile-cache files.
+- **The security question is not answered.** `info --json=v2 --installed`
+  loads every installed formula's definition, so it runs more Ruby than a read
+  naming one package; the tap-Ruby and `brew.env` concerns (SE-016 item 3,
+  SE-050 item 6, R-15) are unanswered here, because this machine has no
+  third-party tap and no `brew.env`. A `security-reviewer` ruling is owed
+  before pass 08 slice 6 part B writes code.
 
 Left open:
 - The state right after a fresh install.
@@ -478,6 +489,7 @@ Left open:
 - Whether a configuration can turn on verbose for a `-q` read.
 - Whether `linked_keg` can disagree with the `bin/` symlinks.
 - Network traffic: not captured.
+- Third-party taps, and other machines, architectures and provider versions.
 
 ---
 

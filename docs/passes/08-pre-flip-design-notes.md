@@ -122,12 +122,13 @@ goes after the guards exist.
   `security-reviewer` rules on them before code. If the ruling is against it,
   the alternatives are an owner decision (a narrower read grows the allowlist).
 - **Prerequisite: R-20** (`docs/research/R-20-what-a-read-shows-as-active.md`,
-  written 2026-10-18 by work order 14). What it observed, and which corrects the
-  first version of this design: MacPorts prints an active row as
-  `␣␣<name>␣@<version>_<revision><variants>␣(active)` with no trailing
-  whitespace, and an **inactive row with nothing after the version** — there is
-  no `(inactive)` marker in 2.12.6, and `-v` (never in our argv) would add text
-  after `(active)`. Homebrew's `linked_keg` is the version
+  written 2026-10-18 by work order 14; read it, it is the full answer). What
+  corrects the first version of this design — observed: MacPorts prints an
+  active row as `␣␣<name>␣@<version>_<revision><variants>␣(active)` with no
+  trailing whitespace, and `-v` (never in our argv) would add text after
+  `(active)`; read from the 2.12.6 source, not observed: an **inactive row has
+  nothing after the variants** — there is no `(inactive)` output marker.
+  Homebrew (observed): `linked_keg` is the version
   `var/homebrew/linked/<name>` points to, or `null`; when a string, it equals
   one `installed[].version` including the revision suffix; **`keg_only` does not
   predict it** (`openssl@3` is keg-only and linked, `curl` keg-only and

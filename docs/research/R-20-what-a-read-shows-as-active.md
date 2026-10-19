@@ -8,7 +8,10 @@
   (repository `/usr/local/Homebrew`, HEAD `edb70f031e4170c780799633a1226ff73e1077f4`,
   committed 2026-09-17; `homebrew/core` git revision `e045d7385fd`, last commit
   2026-09-02), 192 formulae and 9 casks installed, all from `homebrew/core` and
-  the official cask tap, no third-party tap. MacPorts 2.12.6 @ `/opt/local`,
+  the official cask tap, no third-party tap (`ls /usr/local/Homebrew/Library/Taps`
+  lists only `homebrew`, which holds only `homebrew-core`, 2026-10-18; the
+  listing verb itself was not run, because this repository's guard treats it
+  as mutating). MacPorts 2.12.6 @ `/opt/local`,
   18 ports installed.
 - **Blocking:** pass 08 slice 6 part B (`docs/passes/08-pre-flip-design-notes.md`,
   "Part B — `PROVIDER_REPORTS_ACTIVE` evaluable on `VERIFY_DESTINATION`"), whose
@@ -216,8 +219,14 @@ the same three `ui_notice` lines, and it reported that the literal
 of 210,483; `action_installed` lies inside that range). The `port` script on
 this machine was searched for the literal `(active)`:
 `grep -n "(active)\|currently installed\|None of the specified ports are installed" /opt/local/bin/port`
-matches lines 185, 189, 1115, 2342, 3119, 3143 and 3148. None of them is an
-`(inactive)` rendering.
+matches lines 185, 189, 1115, 2342, 3119, 3143 and 3148. That search could not
+find an `(inactive)` rendering by construction, so it was repeated for that
+literal (2026-10-18, after review): `grep -n -F '(inactive)' /opt/local/bin/port`
+matches only line 1116, `^(inactive)(@.*)?$`, the pseudo-port parser that turns
+the word `inactive` on a command line into a set of ports — input, not output.
+What the output can say is fixed by `action_installed` itself: lines 3141–3145
+set `activestr` to `""` and then to `" (active)"` when the image is active, and
+print `  [$i name] @[$i version]_[$i revision][$i variants]${activestr}${extra}`.
 
 Registry state transitions, `/opt/local/libexec/macports/lib/registry2.0/portimage.tcl`
 (installed copy, lines 892–895, 1068–1070, 1118). The same three matches were
@@ -473,8 +482,10 @@ MacPorts half from that synthesised fixture.
    files, and `imaged` when it deactivates them (E5, `portimage.tcl`). So the
    marker is the provider's own record of activation, not an inference.
 2. **No `(inactive)` marker exists in 2.12.6.** An inactive image prints the
-   same row without a suffix (E5: `activestr` is `""`; the literal
-   `(inactive)` is not in `port.tcl`). The man page's "whether the port is
+   same row without a suffix (E5: `action_installed` sets `activestr` to `""`
+   or `" (active)"` only; the one `(inactive)` in the 2.12.6 script, line 1116,
+   is the pseudo-port parser, not output). This is **read from the source, not
+   observed**: this machine has no inactive image (finding 3). The man page's "whether the port is
    active or inactive" (E6) describes the same output. It does not describe a
    second marker. A reader that expects an `(inactive)` token would never see
    one.
@@ -523,8 +534,9 @@ MacPorts half from that synthesised fixture.
    `installed[].version` exactly, including the `_<revision>` suffix: for
    `argon2` it is `20190702_1`, while `versions.stable` is `20190702` (E7).
    So the comparison must be against `installed[].version`, not
-   `versions.stable`. With two kegs installed, it named the newer keg in all
-   nine linked cases here (E7).
+   `versions.stable`. (An earlier draft added that, with two kegs installed,
+   it named the newer keg in all nine linked cases; E7's output as kept does
+   not show that comparison, so the sentence is withdrawn.)
 10. **`keg_only` does not predict `linked_keg`, in either direction.**
     - **Linked non-keg-only** (171): `gh`, `"2.98.0"`, `keg_only: false`.
       `bin/gh` points into that keg (E7, E8).
@@ -568,8 +580,9 @@ MacPorts half from that synthesised fixture.
 
 16. **There is no `brew.env` in any location R-15 lists** (E1).
 17. **The JSON read wrote to the user's cache.** On its first run in this
-    session, `brew info --json=v2 --installed` (together with a
-    `brew --version` that wrote nothing on its own) wrote 5 bootsnap
+    session, `brew --version` followed by `brew info --json=v2 --installed`
+    (run 1 in E9; the two were not separated, so the files cannot be pinned on
+    the JSON read alone) wrote 5 bootsnap
     compile-cache files, 21,832 bytes (E9). An identical second run wrote
     nothing. The current verify read, `brew list --versions`, also wrote 3
     bootsnap files (34,056 bytes) on its first run (E9). Neither read changed
@@ -643,7 +656,8 @@ MacPorts half from that synthesised fixture.
 
 ## Impact on the specification
 
-Nothing in `docs/spec/` was edited.
+This note edits nothing else; its entry in `docs/spec/09-research-checklist.md`
+was added alongside it.
 
 - **`docs/passes/08-pre-flip-design-notes.md`, part B, prerequisite sentence:**
   "Homebrew's `linked_keg` ... `null` for keg-only and unlinked, absent for

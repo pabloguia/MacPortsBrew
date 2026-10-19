@@ -27,8 +27,9 @@ These changes come after the 0.1.0 release candidate and are not part of
 
 ### Changed after the release candidate
 
-- `status` and `summary.ownershipUnknown` in `--json`: the count of rows whose
-  ownership is unknown now takes installed rows only. A row that names a mapping
+- `status`'s ownership line, and `summary.ownershipUnknown` in the analysis
+  `--json` payloads: the count of rows whose ownership is unknown now takes
+  installed rows only (the value is narrower; `schemaVersion` is unchanged). A row that names a mapping
   target nobody installed is no longer counted as a provider that "kept no
   record". The field is now documented in `docs/schemas/analysis.v1.md`.
 - `migrate --json`: the execution gate now also refuses `PROVIDER_REPORTS_ACTIVE`

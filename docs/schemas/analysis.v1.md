@@ -287,7 +287,7 @@ to end.
     }
   },
   "packages": [],
-  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 15 }
+  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 15, "ownershipUnknown": 9 }
 }
 ```
 

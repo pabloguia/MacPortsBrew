@@ -38,7 +38,10 @@
 //! child; the flags passed here are [`open_flags`]'s and a test pins that, as a
 //! second line. It matters because a provider child that held the descriptor
 //! would keep the lock for as long as it lives and every later mutating run
-//! would exit 7 with nothing this tool could clear. (R-18 did not observe it.)
+//! would exit 7 with nothing this tool could clear. R-18 E7 (2026-10-18)
+//! observed it on the pinned toolchain on macOS, for a file opened as
+//! [`acquire`] opens one (`create_new` plus these `custom_flags`): the
+//! descriptor is absent in a child; std's source was not read.
 //!
 //! **Never as root**, for the reason the history store gives: an elevated
 //! process can keep the invoking user's home.

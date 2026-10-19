@@ -118,7 +118,8 @@ pub struct Summary {
     pub by_outcome: BTreeMap<String, u32>,
     /// Units needing manual review.
     pub manual_review: u32,
-    /// Rows whose ownership could not be established, counted so the
+    /// Installed rows whose ownership could not be established (a `MAPPED`
+    /// row names a package nobody installed and is not counted), so the
     /// top-level figure above is never the only clue that it is smaller than
     /// it would be on the machine itself.
     ///
