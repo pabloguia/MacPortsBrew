@@ -38,7 +38,9 @@ environment changes, cleanup policy, detected risks, and the rollback story.
 fails, it does not improvise.
 
 **MUST.** `--dry-run` produces the plan and every command that *would* run,
-and mutates nothing — including no `sudo` prompt.
+and mutates nothing — including no `sudo` prompt, and no file this tool would
+write (an output file or anything in its state directory); a command that
+would have written says where instead (SE-101).
 
 ## Verification contract
 
@@ -124,7 +126,9 @@ and never promises version-exact reconstruction.
 **MUST.** A snapshot is taken automatically, without asking, before the first
 mutating step of any run, and its path is printed. Automatic snapshots live in
 the tool's state directory and are never pruned automatically; when one is
-gone, `history` shows its run as not restorable and says so.
+gone, `history` shows its run as not restorable and says so. **The state
+directory holds this machine's captures only**: a snapshot built from a
+recording or a snapshot file goes only to a file the user names (SE-101).
 
 ### Undoing a migration
 

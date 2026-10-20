@@ -7931,3 +7931,46 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   about three of the 60 (`Stop`) or 40 (commit) lines a gate shows.
 - Compatibility impact: none for users of the tool. Contributors debugging on macOS read debug info from a
   `.dSYM` next to each binary instead of from the object files; links are slower by the `dsymutil` run.
+
+## SE-101 — `--dry-run` writes no file, and only this machine's capture is filed in the state directory
+- Status: accepted
+- Date / Pass: 2026-10-20 / after pass 14 (its security review, M1; `docs/passes/14-read-only-maintenance-report.md`, finding 1)
+- Original assumption: the global `--dry-run` help said "Show what would be done and run nothing … Every
+  command but `migrate --yes` is a dry run in this build anyway". Two commands write a file and ignored the
+  flag: `snapshot` (to `--out`, or a new file in the state directory) and `doctor --report <file>`. And
+  `snapshot` without `--out` filed whatever the context held in the state directory, including a capture
+  replayed from a recording or loaded from a snapshot file — another machine, or another moment, beside this
+  machine's own captures. Pass 14's session wrote two such files there by accident.
+- Change: with `--dry-run`, `snapshot` and `doctor --report` write nothing — not the named file, not the
+  state directory, not its `snapshots/` directory — and say on stderr where they would have written
+  (`snapshot.would_write`, `doctor.report_would_write`). `snapshot` without `--out` is refused with `USAGE`
+  (exit 2) when the run was built from `--replay` or `--from-snapshot`; the decision is
+  `context::snapshot_target`, keyed on the same `HistoryScope` that keeps such a run out of the history
+  store. The help text, `wiki/CLI-Reference.md` and 06's command list say so. `save_snapshot` now resolves
+  the state directory from the context's `state_override` like every other use in a run.
+- Rationale: a dry run that writes is not a dry run. The governing MUST was already 04's ("`--dry-run` ...
+  mutates nothing"), which the old behaviour broke; 04 now says explicitly that this includes files the
+  tool writes, and that the state directory holds this machine's captures only. 06's MUSTs about dry runs
+  name only mutating and destructive commands. The state directory is
+  this machine's record (INV-15's reasoning for history applies to snapshots too): a replayed capture there
+  can collide with a real run's `SNAPSHOT_BEFORE` name (which fails closed) and can be picked by a person
+  choosing a file for `restore --snapshot`.
+- Tests: `a_snapshot_not_of_this_machine_is_never_filed_in_the_state_directory` and
+  `a_dry_run_writes_no_snapshot_and_no_report` (`crates/cli/tests/end_to_end.rs`), each failing with its
+  fix reverted (three mutants: the refusal removed, the snapshot's dry run ignored, the report's dry run
+  ignored); `only_this_machines_snapshot_is_filed_in_the_state_directory` on the pure decision;
+  `a_dry_run_into_the_state_directory_creates_nothing_and_a_real_one_files_it` (in process, a context
+  from a recording set to this machine's scope and a scratch state directory, killed by an `ensure()`
+  under dry run) and `a_dry_run_refuses_a_file_the_real_run_would_refuse` (a dry run now runs the
+  read-only half of the existing-file check, so it does not promise a write the real run refuses).
+  Not done, from the review: the state directory's ownership and mode are not checked under a dry run;
+  the end-to-end tests redirect `MACPORTSBREW_STATE_DIR` but not `HOME`; and the new notices print the
+  path unredacted, as the existing `snapshot.written` / `doctor.report_written` do.
+- Not done: the checked `snapshot.v1.md` sample pass 14 deferred. `--dry-run snapshot --json` now prints
+  the document and writes nothing, but `crates/cli/tests/documented_samples.rs` refuses `--out` in any
+  marker by design (a path read out of a markdown file must never become a write), and under `--replay`
+  `snapshot` needs `--out`. Loosening that allowlist would weaken a guard for a sample, so the sample
+  stays owed until a command other than `snapshot` prints `environment.installations`.
+- Compatibility impact: a script that ran `--replay <file> snapshot` or `--from-snapshot <file> snapshot`
+  without `--out` now gets exit 2 and must name a file. `--dry-run snapshot` and `--dry-run doctor --report`
+  no longer write; their `--json` stdout is unchanged. No schema changes.
