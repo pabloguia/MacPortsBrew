@@ -29,6 +29,8 @@ macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)
 macportsbrew snapshot [--out <file>]        capture both providers' state
+                                            (--out required under --replay
+                                            and --from-snapshot)
 macportsbrew restore --plan (--run <id> | --snapshot <file>)
                                   reviewable plan back to that state; the undo path
 macportsbrew restore --run <id>   plan, review, confirm, execute   [later pass, with migrate]

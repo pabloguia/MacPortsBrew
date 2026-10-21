@@ -2731,3 +2731,118 @@ fn every_fixture_matches_its_committed_golden_analysis() {
         );
     }
 }
+
+/// Everything under `dir`, so a test can say "nothing was written here".
+fn tree(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        for entry in std::fs::read_dir(&next).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Pass 14 security review, M1: a run built from a recording or a snapshot file
+/// is not of this machine, so `snapshot` will not file it in the state
+/// directory beside this machine's own captures.
+#[test]
+fn a_snapshot_not_of_this_machine_is_never_filed_in_the_state_directory() {
+    let scratch = Scratch::new("m1-target");
+    let recording = fixture(BOTH);
+    let file = scratch.path().join("from-replay.json");
+    let named = run(
+        &scratch,
+        &[
+            "--replay",
+            recording.to_str().expect("path"),
+            "snapshot",
+            "--out",
+            file.to_str().expect("path"),
+        ],
+    );
+    assert_eq!(
+        named.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&named.stderr)
+    );
+    for input in [
+        ["--replay", recording.to_str().expect("path")],
+        ["--from-snapshot", file.to_str().expect("path")],
+    ] {
+        let out = run(&scratch, &[input[0], input[1], "snapshot"]);
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "{input:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("--out"),
+            "{input:?}: the refusal names the way out"
+        );
+        assert_eq!(
+            tree(&scratch.state_dir()),
+            Vec::<PathBuf>::new(),
+            "{input:?}"
+        );
+    }
+}
+
+/// `--dry-run` writes nothing: not the file `snapshot --out` or
+/// `doctor --report` names, and not the state directory either.
+#[test]
+fn a_dry_run_writes_no_snapshot_and_no_report() {
+    let scratch = Scratch::new("m1-dry");
+    let recording = fixture(BOTH);
+    let snapshot = scratch.path().join("snapshot.json");
+    let report = scratch.path().join("report.json");
+    let before = tree(scratch.path());
+    let saved = run(
+        &scratch,
+        &[
+            "--replay",
+            recording.to_str().expect("path"),
+            "--dry-run",
+            "snapshot",
+            "--out",
+            snapshot.to_str().expect("path"),
+        ],
+    );
+    assert_eq!(
+        saved.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&saved.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&saved.stderr).contains("Dry run"),
+        "the run says what it did not do: {}",
+        String::from_utf8_lossy(&saved.stderr)
+    );
+    let doctor = run(
+        &scratch,
+        &[
+            "--replay",
+            recording.to_str().expect("path"),
+            "--dry-run",
+            "doctor",
+            "--report",
+            report.to_str().expect("path"),
+        ],
+    );
+    assert!(
+        matches!(doctor.status.code(), Some(0 | 5)),
+        "{}",
+        String::from_utf8_lossy(&doctor.stderr)
+    );
+    assert!(String::from_utf8_lossy(&doctor.stderr).contains("Dry run"));
+    assert_eq!(tree(scratch.path()), before, "a dry run wrote something");
+}

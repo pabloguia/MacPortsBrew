@@ -12,7 +12,10 @@ exists, they replace it only when it is itself a MacPortsBrew document, and
 refuse anything else. (Every command also creates and removes one empty file
 in your temporary folder, to learn which user it runs as.)
 `snapshot` without `--out` writes into MacPortsBrew's state directory,
-`~/Library/Application Support/macportsbrew`.
+`~/Library/Application Support/macportsbrew` — and only for this machine:
+under `--replay` or `--from-snapshot` it needs `--out` (exit 2 otherwise).
+With `--dry-run`, neither command writes its file or any state; each says
+where it would have written.
 
 ## Commands
 
@@ -194,7 +197,7 @@ Captures both providers' state to a file.
 
 | Flag | Effect |
 |---|---|
-| `--out <FILE>` | Where to write; defaults to the state directory, `~/Library/Application Support/macportsbrew`. Replaces an existing file only if it is a MacPortsBrew document |
+| `--out <FILE>` | Where to write; defaults to the state directory, `~/Library/Application Support/macportsbrew`, for a capture of this machine only (required under `--replay` and `--from-snapshot`). Replaces an existing file only if it is a MacPortsBrew document |
 
 The file leaves out your user name and home folder path, but it carries your
 `PATH` (with your home folder shown as `~`) and the full list of installed
@@ -215,7 +218,7 @@ Read it back with `--from-snapshot`. The format is documented at
 | `--from-snapshot <FILE>` | Analyse a captured snapshot instead of this machine |
 | `--no-network` | Accepted; this build makes no network call of its own, and the flag does not stop a Homebrew read fetching its catalogue on an empty cache |
 | `--refresh` | Accepted; there is no cache in this build |
-| `--dry-run` | Show what would be done and run nothing; wins over `--yes`. Every command but `migrate --yes` is a dry run in this build anyway |
+| `--dry-run` | Show what would be done and change nothing: no file is written either (`snapshot` and `doctor --report` say where they would have written); wins over `--yes`. Nothing in this build changes a provider anyway |
 | `--yes` | Confirm: `migrate` puts its plan to the execution gate instead of only showing it. The gate refuses every plan this build produces, so nothing runs; nothing in this build prompts |
 | `--help`, `-h` | Help. `--help` is the long form, `-h` the summary |
 | `--version`, `-V` | Version. `--version` also prints the policy data version, the target, the commit and, for a build CI numbered, `build <n>`; `-V` prints only the version |
