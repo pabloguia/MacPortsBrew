@@ -523,6 +523,13 @@ change is made. Silent deviation remains the one unrecoverable error.
   `NOT_CHECKED`**, so it is a gate. The owner's options are DP-030. The
   MacPortsBrew-against-MacPortsBrew lock excludes nothing about `brew` or
   `port`; it is not the detector and must not be described as one.
+- **Addendum, 2026-10-18 (pass 14, item H).** R-18 had left open whether a
+  descriptor std opens survives into a spawned child, which would let a
+  provider keep the run lock alive. R-18 E7 observed, on the pinned toolchain
+  on macOS, that it does not — for plain opens and for one opened as
+  `run_lock` creates its file — and `docs/spec/09-research-checklist.md`'s R-18
+  entry says so, qualified to one machine and toolchain; std's source was not
+  read, and a toolchain bump re-checks it.
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted
@@ -1993,6 +2000,9 @@ change is made. Silent deviation remains the one unrecoverable error.
   label, `-intel` is a standard runner free on a public repository, and only
   `-large` / `-xlarge` are billed. R-11 and DP-019 carry the correction; the
   pass-09 release workflow builds and signs on `macos-26-intel` and `macos-26`.
+  *(2026-10-18, pass 14: the R-11 entry of `docs/spec/09-research-checklist.md`
+  now points at R-19's correction too, so the checklist no longer reads as if
+  the billed-runner premise stood.)*
   And 08's requirement that best-effort versions be called that "in those
   words" now reaches the place a user reads it at download time: README's
   Install section, which is also the release notes, says macOS 10.12–10.15
@@ -7493,7 +7503,12 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       MacPorts' existing verify read, whose output is believed to mark the
       active version, and Homebrew's, which is believed to show no linkage —
       neither observed for this purpose here, so a `provider-researcher` note
-      is owed for both. A consequence: a
+      is owed for both. **Answered 2026-10-18 by R-20**
+      (`docs/research/R-20-what-a-read-shows-as-active.md`, the one full
+      answer): MacPorts' verify read does mark the active image, and
+      Homebrew's shows no linkage, while a read already permitted carries it.
+      What R-20 observed and what it only read from source are separated
+      there. Making the check evaluable is pass 08 slice 6's. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
     - 04 asks the plan for environment changes, cleanup policy and a rollback
@@ -7520,6 +7535,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     - `Recommendation`'s fields are public and the type deserialises, so its
       at-least-one-reason rule is checked at construction only; nothing loads a
       recommendation from a file today. Owed with history read-back.
+      **Closed for reading 2026-10-18 (pass 14, item G):** deserialisation goes
+      through a private wire type and `TryFrom`, so a document with an empty
+      `reasons` is refused (`a_recommendation_with_no_reasons_is_refused_when_read`,
+      killed with the check removed). The fields stay public, so a caller can
+      still build one in code without `new`; nothing does outside tests.
     - Owner decisions filed: DP-037 (INV-13 and naming a package), DP-038
       (personal data in history and fixtures), DP-039 (`claude.yml` and pull
       request hooks).
@@ -7731,11 +7751,22 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   moves). Several rationales said the heuristics cannot see a homepage match; they
   can (it reaches `PROBABLE` for an installed destination), and the rows now say
   that is not enough to be `EXACT` or to act before the other side is installed.
-- Owed: `status` counts a mapped, not-installed row among those whose ownership is
-  unknown, and its sentence says "the provider kept no record"; every new row makes
-  the count larger (10 to 12 in one golden). Excluding mapped rows from the count,
-  or rewording the line, is not done here; `summary.ownershipUnknown` is also
-  undocumented in `analysis.v1.md`.
+- ~~Owed~~ **Closed 2026-10-18 (pass 14, item D):** `status` counted a mapped,
+  not-installed row among those whose ownership is unknown, while its sentence says
+  "the provider kept no record". The count now takes installed rows only
+  (`summarise` in `crates/application/src/analysis.rs`): a mapping target was never
+  installed, so no provider was asked why, and it is no gap in that evidence. The
+  wording was kept, because it is true of every row still counted. Goldens moved
+  12 → 9, 11 → 9 and 1 → 0 (the remaining nine are replayed casks, F-39's case);
+  the README and wiki samples moved 11 → 9. Test
+  `a_mapped_row_that_is_not_installed_is_not_an_ownership_gap`
+  (`crates/application/tests/summary_evidence.rs`), which fails with the
+  presence filter removed. `summary.ownershipUnknown` is now documented in
+  `analysis.v1.md`. The shape is unchanged but the meaning is narrower, which
+  `docs/schemas/README.md` counts as breaking for a documented field. It stays
+  `schemaVersion` 1 because the field was undocumented until this change and
+  0.1.0 is untagged, so no consumer ever agreed to the old meaning; after a
+  release, the same change would need a version bump.
 - Compatibility impact: the policy version changes, so in every `--json` payload and
   the documented samples; `policyReadOn` is back at 2026-09-04, its value
   before item D; no shape changes (the new field is optional data, not output).
@@ -7861,6 +7892,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
+- Addendum 2026-10-18 (pass 14, item F): `docs/spec/11-agentic-sdlc.md`'s table of what the tooling denies
+  still said every `git push` was denied because the remote did not exist. The row now states this entry's
+  rule, and keeps the old reason as history.
 
 ## SE-100 — Debug info is packed, and validation trims target/ after it
 - Status: accepted
@@ -7897,3 +7931,46 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   about three of the 60 (`Stop`) or 40 (commit) lines a gate shows.
 - Compatibility impact: none for users of the tool. Contributors debugging on macOS read debug info from a
   `.dSYM` next to each binary instead of from the object files; links are slower by the `dsymutil` run.
+
+## SE-101 — `--dry-run` writes no file, and only this machine's capture is filed in the state directory
+- Status: accepted
+- Date / Pass: 2026-10-20 / after pass 14 (its security review, M1; `docs/passes/14-read-only-maintenance-report.md`, finding 1)
+- Original assumption: the global `--dry-run` help said "Show what would be done and run nothing … Every
+  command but `migrate --yes` is a dry run in this build anyway". Two commands write a file and ignored the
+  flag: `snapshot` (to `--out`, or a new file in the state directory) and `doctor --report <file>`. And
+  `snapshot` without `--out` filed whatever the context held in the state directory, including a capture
+  replayed from a recording or loaded from a snapshot file — another machine, or another moment, beside this
+  machine's own captures. Pass 14's session wrote two such files there by accident.
+- Change: with `--dry-run`, `snapshot` and `doctor --report` write nothing — not the named file, not the
+  state directory, not its `snapshots/` directory — and say on stderr where they would have written
+  (`snapshot.would_write`, `doctor.report_would_write`). `snapshot` without `--out` is refused with `USAGE`
+  (exit 2) when the run was built from `--replay` or `--from-snapshot`; the decision is
+  `context::snapshot_target`, keyed on the same `HistoryScope` that keeps such a run out of the history
+  store. The help text, `wiki/CLI-Reference.md` and 06's command list say so. `save_snapshot` now resolves
+  the state directory from the context's `state_override` like every other use in a run.
+- Rationale: a dry run that writes is not a dry run. The governing MUST was already 04's ("`--dry-run` ...
+  mutates nothing"), which the old behaviour broke; 04 now says explicitly that this includes files the
+  tool writes, and that the state directory holds this machine's captures only. 06's MUSTs about dry runs
+  name only mutating and destructive commands. The state directory is
+  this machine's record (INV-15's reasoning for history applies to snapshots too): a replayed capture there
+  can collide with a real run's `SNAPSHOT_BEFORE` name (which fails closed) and can be picked by a person
+  choosing a file for `restore --snapshot`.
+- Tests: `a_snapshot_not_of_this_machine_is_never_filed_in_the_state_directory` and
+  `a_dry_run_writes_no_snapshot_and_no_report` (`crates/cli/tests/end_to_end.rs`), each failing with its
+  fix reverted (three mutants: the refusal removed, the snapshot's dry run ignored, the report's dry run
+  ignored); `only_this_machines_snapshot_is_filed_in_the_state_directory` on the pure decision;
+  `a_dry_run_into_the_state_directory_creates_nothing_and_a_real_one_files_it` (in process, a context
+  from a recording set to this machine's scope and a scratch state directory, killed by an `ensure()`
+  under dry run) and `a_dry_run_refuses_a_file_the_real_run_would_refuse` (a dry run now runs the
+  read-only half of the existing-file check, so it does not promise a write the real run refuses).
+  Not done, from the review: the state directory's ownership and mode are not checked under a dry run;
+  the end-to-end tests redirect `MACPORTSBREW_STATE_DIR` but not `HOME`; and the new notices print the
+  path unredacted, as the existing `snapshot.written` / `doctor.report_written` do.
+- Not done: the checked `snapshot.v1.md` sample pass 14 deferred. `--dry-run snapshot --json` now prints
+  the document and writes nothing, but `crates/cli/tests/documented_samples.rs` refuses `--out` in any
+  marker by design (a path read out of a markdown file must never become a write), and under `--replay`
+  `snapshot` needs `--out`. Loosening that allowlist would weaken a guard for a sample, so the sample
+  stays owed until a command other than `snapshot` prints `environment.installations`.
+- Compatibility impact: a script that ran `--replay <file> snapshot` or `--from-snapshot <file> snapshot`
+  without `--out` now gets exit 2 and must name a file. `--dry-run snapshot` and `--dry-run doctor --report`
+  no longer write; their `--json` stdout is unchanged. No schema changes.

@@ -240,6 +240,7 @@ doctor.error = "Error"
 # than saying so. This is the string for saying so.
 doctor.no_findings = "No findings. Both providers answered as expected."
 doctor.report_written = "A redacted report was written to {path}. Read it before you share it; nothing is uploaded."
+doctor.report_would_write = "Dry run: no report was written; it would have gone to {path}."
 
 # --- Counts -----------------------------------------------------------------
 
@@ -537,6 +538,7 @@ advanced.warning = "Advanced mode shows dependencies. These packages are managed
 "doctor.command_line_tools_unknown" = "Command Line Tools state could not be determined."
 "doctor.deep_not_in_this_build" = "Deep inspection of binaries for cross-prefix links (--deep) is not part of this build."
 "snapshot.written" = "Snapshot written to {path}."
+"snapshot.would_write" = "Dry run: no snapshot was written; it would have gone to {path}."
 "doctor.provider_support_ending" = "{provider} has announced the end of support for this machine in or after {endDate} (source: {source}, read {readOn}). This is dated data; re-check it before relying on it."
 reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but {provider} no longer updates it. Decide whether to move it or keep it deliberately."
 

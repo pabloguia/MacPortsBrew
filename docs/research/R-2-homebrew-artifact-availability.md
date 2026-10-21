@@ -761,6 +761,41 @@ HOMEBREW_BOTTLE_DOMAIN
     778 with no `bottle_checksum` at all (E8). An adapter must handle the
     absent-key case or it will misclassify the 79 best-supported formulae as
     source builds.
+13. **A dated disable takes effect on its date, without an index update**
+    (addendum 2026-10-18, pass 14). Read from Homebrew's own source on this
+    machine, Homebrew 7.0.4, `Library/Homebrew/formula.rb` at Homebrew commit
+    `edb70f031e` (2026-09-17), lines 5308–5324: `disable!(date:)` parses the
+    date and compares it with `Date.today` **each time the formula is loaded**;
+    before the date it only marks the formula deprecated, on or after it sets
+    `@disabled = true`, and `disabled?` returns that. Observed the same day,
+    with `HOMEBREW_NO_INSTALL_FROM_API=1` (so the formula was loaded from the
+    local homebrew-core checkout at `e045d7385fd`, last commit 2026-09-02, not
+    from the API payload) and `HOMEBREW_NO_AUTO_UPDATE=1`:
+    `brew info --json=v2 node@20` reports `deprecated: true`,
+    `disabled: false`, `disable_date: "2026-10-28"`. So from 2026-10-28 the
+    **same** local checkout reports `disabled: true`, without anyone running
+    `brew update`. **The API path, which this tool's own reads take** (its
+    environment does not set `HOMEBREW_NO_INSTALL_FROM_API`; `formulary.rb`
+    ≈926, ≈1237 and ≈1281 prefer the API loader for the core tap), was **read,
+    not observed**: its loader calls `disable!(**formula_struct.disable_args)`
+    when the payload says the formula has a disable (`formulary.rb` ≈330), so
+    the same comparison runs at load — provided the payload's `disable_args`
+    carries the date, which was not checked. The Homebrew adapter reads
+    `disabled` (`crates/adapters/src/homebrew/mod.rs`,
+    `ArtifactAvailability::Disabled`) — but only for an **installed** formula:
+    the capture reads `info --json=v2 --installed`, and a `MAPPED` row for a
+    destination that is not installed (a MacPorts `nodejs20` whose Homebrew
+    equivalent `node@20` is absent) has availability `UNKNOWN` and
+    `disabled: false`, because the destination's catalogue is not consulted
+    (`crates/application/src/analysis.rs`, `mapped_row`). That stays safe —
+    `UNKNOWN` never acts — but SE-097's owed line, "a future availability
+    check must treat a disabled destination as unavailable", is **not**
+    closed by this finding. The curated row `node@20` ↔ `nodejs20`
+    (`data/policy/curated-mappings.toml`) says the same; for the installed
+    case, detection, not the row, carries the change (INV-20). That row's `source` also says it read
+    "local homebrew-core" without saying whether the API loader was off; that
+    is outside this addendum. Not observed: the output after the date, and the
+    API payload's `disable_args`.
 
 ## Cannot determine
 
@@ -827,6 +862,9 @@ HOMEBREW_BOTTLE_DOMAIN
 
 ## Re-check when
 
+- **On or after 2026-10-28** (finding 13): re-run `brew info --json=v2 node@20`
+  in this tool's own environment (API loader on) and expect `disabled: true`;
+  if it still says `false`, the API path does not apply the date at load.
 - **Homebrew's major or minor version changes.** The internal per-tag API
   (`packages.<tag>.jws.json`) is new relative to the flat `formula.jws.json`
   that the research prompt expected, and it is explicitly internal. Everything

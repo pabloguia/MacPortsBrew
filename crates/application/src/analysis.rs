@@ -596,14 +596,20 @@ fn source_for(
 fn summarise(packages: &[PackageReport]) -> Summary {
     let mut s = Summary::default();
     for p in packages {
-        // Counted across every row, not just the source row: the question is
-        // "how much of this analysis rests on evidence that was not
-        // available", and a dependency row's unknown ownership is as much a
-        // gap as a top-level one (F-39).
+        // Counted across every installed row, not just the source row: the
+        // question is "how much of this analysis rests on evidence that was not
+        // available", and a dependency row's unknown ownership is as much a gap
+        // as a top-level one (F-39). A mapped row names a package that is not
+        // installed, so no provider was ever asked why it was installed; it is
+        // not a gap in that evidence, and the sentence `status` prints ("the
+        // provider kept no record") would be false of it (SE-097).
         s.ownership_unknown += u32::try_from(
             p.rows
                 .values()
-                .filter(|r| r.ownership == macportsbrew_domain::Ownership::Unknown)
+                .filter(|r| {
+                    r.presence == RowPresence::Installed
+                        && r.ownership == macportsbrew_domain::Ownership::Unknown
+                })
                 .count(),
         )
         .unwrap_or(u32::MAX);

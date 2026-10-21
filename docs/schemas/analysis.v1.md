@@ -220,6 +220,7 @@ is a supported end state, not a failure to decide (INV-18).
 | `dependencyUnits` | integer | |
 | `byOutcome` | map of outcome name to integer | Ordered by key |
 | `manualReview` | integer | |
+| `ownershipUnknown` | integer | Installed rows, across every unit and provider, whose ownership is `UNKNOWN`: the provider kept no record of intent, or this analysis could not read one (F-39; a replayed cask, whose receipt is on disk, is the common case). A `MAPPED` row names a package that is not installed and is never counted (SE-097). Always present; `0` when nothing is missing |
 
 ## `Provenance`
 
@@ -286,7 +287,7 @@ to end.
     }
   },
   "packages": [],
-  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 15 }
+  "summary": { "topLevelUnits": 56, "dependencyUnits": 133, "byOutcome": {}, "manualReview": 15, "ownershipUnknown": 9 }
 }
 ```
 

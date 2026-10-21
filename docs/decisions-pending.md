@@ -321,6 +321,236 @@ conditions that the workflows' own comments describe, and set the secret.
 
 ---
 
+### DP-045 — Do pass 08 slices 4 and 5 ship in 0.1.0?
+
+Raised 2026-10-18, handoff after slice 5. `main` now carries `history`,
+`history show`, `history acknowledge`, `restore --plan --run`, `restore --run`
+(refused) and `doctor`'s `interrupted_run` finding. Nothing hides them in
+`--help` (`crates/cli/src/app/mod.rs`). With mutations off, `history` is always
+empty, `restore --plan --run <id>` answers `RUN_NOT_FOUND` (exit 8) and the
+finding is always OK. `CHANGELOG.md` (the 0.1.0 section, around line 108) still
+says 0.1.0 does not keep history or restore, while `README.md` (around line 87)
+documents `history` and `restore --plan`. DP-044 is the precedent for pass 12.
+
+- **(a) Ship them in 0.1.0, described honestly.** The CHANGELOG folds them in,
+  saying what each prints on a machine where no run was ever recorded. Cost: a
+  surface that can only say "nothing yet" until 0.2.0, and the docs-truth work
+  of saying so everywhere.
+- **(b) Tag an earlier commit** (before PR #8). Cost: the tag misses every fix
+  made since, including the security and tooling fixes after slice 5, and the
+  release pipeline is then proven on a commit that is not `main`.
+- **(c) Hide them from `--help` in 0.1.0.** Cost: code that exists but is
+  undocumented, which is how a surface drifts; a hidden command is still
+  reachable.
+
+**Recommendation:** (a). The commands are read-only, already reviewed, and their
+"nothing yet" answer is true. **What it blocks:** the CHANGELOG and README text
+of the first tag (work order 15). **Reversible default taken:** (a) in the text
+staged by work order 15; nothing is tagged before the owner rules.
+
+---
+
+### DP-046 — May the first mutating release refuse every elevated step?
+
+Raised 2026-10-18 (design notes for slice 7, `docs/passes/08-pre-flip-design-notes.md`).
+Elevation consent is built (slice 4) and will be wired (slice 7), but no
+elevated spawn mechanism exists: the gate refuses every elevated step
+(`crates/application/src/execution_gate.rs`) and the guard halts on
+`ElevationNotNone` (`crates/application/src/executor.rs`). The elevation cells
+in `data/policy/provider-commands.toml` mark MacPorts' `add` and `remove` as
+`required` (a static data cell; detection never relaxes it for a mutating
+operation, `executor.rs` ≈671–673, so even a user-owned MacPorts prefix is
+refused), and every cask's `add_gui_app` as `unknown`, which is refused too. So
+a release that keeps that refusal can migrate **MacPorts→Homebrew, formulae
+only**, and never asks for consent in a shipped build.
+
+- **(a) Yes: the first release refuses elevated steps.** v0.2.0 moves
+  MacPorts→Homebrew formulae, retaining the source (removal also elevates —
+  DP-048), further narrowed by slice 6's rule that a keg-only formula cannot be
+  verified active; a Homebrew→MacPorts plan and every cask are refused at the
+  gate with a named reason. Cost: one direction of a peer pair (INV-17) is
+  unavailable in that release. The planner and executor are the same code in
+  both directions; the refusal is a release policy (no elevation yet) applied to
+  stored provider knowledge, not to a detected fact (INV-20 prefers detection
+  where it can). **Owner question:** does that satisfy INV-17, and the charter's
+  statement that MacPortsBrew is not a one-way escape hatch? That is a reading of
+  a Tier 1 invariant and of the charter, the owner's. It also means the audience
+  the project started for — Intel Homebrew users moving to MacPorts — gets
+  nothing it can run from v0.2.0, and the README must say so plainly.
+- **(b) No: an elevated spawn mechanism lands first** (a `sudo` argv and a new
+  permitted program, a security decision under SE-016 and INV-06). Cost: the
+  largest new attack surface in the project, before any mutation has ever run
+  on a real machine.
+- **(c) Postpone the first mutating release** until both directions can run.
+
+**Recommendation:** (a), with (b) as its own later pass after v0.2.0 has run on
+disposable machines. Moving the riskier half second is how the executor gets
+real-world evidence before it elevates. Ruling (a) includes ruling the INV-17
+reading above; `spec-guardian` reviews the argument when the proposal is
+written, but cannot settle it.
+**What it blocks:** the flip proposal (work order 08 slice 9).
+**Reversible default taken:** (a); nothing elevates in this build.
+
+---
+
+### DP-047 — How the first mutating release sets a primary (`SET_PRIMARY`, `VERIFY_RESOLUTION`)
+
+Raised 2026-10-18 (design notes for slice 8). Every planned run today ends
+`PARTIAL`: `SET_PRIMARY` carries `macportsbrew primary <name> <to>`, a command
+that does not exist, and `VERIFY_RESOLUTION` asserts nothing, so the executor
+halts on both (`crates/application/src/planner.rs`, `executor.rs`). Spec 05 has
+four layers; layer 4 (the shim directory and a managed `PATH` block) is the only
+one that writes outside the providers.
+
+- **(a) Build layer 4 now.** Cost: the first write into a user's home outside
+  the state directory, a shell-configuration write with backup, preview and
+  `env --revert`, restore support, and shim recognition with no machine to
+  capture a fixture from.
+- **(b) Report only, and refuse what needs a shim.** The planner reads the
+  captured `PATH` order: when the destination's `bin` already wins,
+  `SET_PRIMARY` has nothing to change and `VERIFY_RESOLUTION` checks a fresh
+  resolution in process (no spawn); when it would need a shim, the gate refuses
+  before anything is installed (`PRIMARY_NEEDS_SHIM`, exit 4), naming layers 1
+  and 2. Cost: on a machine where Homebrew's `bin` precedes MacPorts' (as on
+  the one captured machine with both, `both-providers-intel-macos26`, `PATH`
+  indices 6 and 25; MacPorts' installer prepends `/opt/local/bin` too, so the
+  order varies), Homebrew→MacPorts is refused — the same kind of asymmetry as
+  DP-046, here from a detected machine fact (the captured resolution). With
+  DP-046 (a) and DP-048 (c), v0.2.0 only moves towards Homebrew; the INV-17 and
+  charter question in DP-046 applies here too, and is the owner's.
+- **(c) Report only, and proceed.** Install, then end `PARTIAL` with
+  `PRIMARY_NOT_SET`. Cost: every such run is partial by design; `COMPLETED`
+  never means what the user asked for.
+
+**Recommendation:** (b). It writes nothing outside the providers, makes
+`COMPLETED` mean exactly "the destination now runs", and layer 4 later only
+widens what is accepted. A package whose executable is not its own name (`rg`
+for `ripgrep`) is refused under (b) until provider metadata supplies the
+executable list — the slice's own design decision, recorded in SE.
+**What it blocks:** slice 8 and therefore the flip. **Reversible default taken:**
+(b) is what slice 8 builds unless the owner rules otherwise.
+
+---
+
+### DP-048 — The window between the last destination check and the provider's uninstall
+
+Raised 2026-10-18 (design notes for slice 6). Slice 6 adds a re-verification of
+the destination immediately before `REMOVE_SOURCE` is dispatched, after the lock
+and configuration re-checks. What remains is the gap between that read and the
+provider's own uninstall — milliseconds plus the provider's run time. Only a
+provider lock closes it (R-17, DP-030).
+
+- **(a) Accept the residual**, declared in 04 next to DP-030's.
+- **(b) The first release never removes:** `--retain-source` is forced and
+  `REMOVE_SOURCE` is refused at the gate, so the window cannot open; removal
+  becomes a later release's decision.
+- **(c) Both:** build the re-check now (slice 6), ship v0.2.0 with removal
+  refused, and accept the residual when removal is enabled.
+
+**Recommendation:** (c). The re-check is cheap and must exist before removal is
+ever on; a first release that cannot remove anything cannot break INV-01 in
+practice. **What it blocks:** the flip proposal. **Reversible default taken:**
+(c) — slice 6 builds the re-check, and the proposal's defaults refuse
+`REMOVE_SOURCE`.
+
+---
+
+### DP-049 — Tying the executed plan to the plan shown: a `sha2` dependency and `--plan-digest`
+
+Raised 2026-10-18 (design notes for slice 7). `plan.v1.md` obligation 8 allows
+"under `--yes` a digest of a previously rendered plan that must match". Today
+`migrate --yes` runs without anyone seeing the plan first
+(`crates/cli/src/app/migrate.rs`). The recommended design hashes the canonical
+in-memory `MigrationPlan` with SHA-256, prints it as `planDigest`, and requires
+`migrate --yes --plan-digest <d>`. `Cargo.lock` has no hash crate; `sha2`
+(RustCrypto; licence, maintenance and transitive crates to be verified in the
+ADR with `cargo metadata`) would be a new dependency, which ADR-0004's gate admits
+only through an ADR.
+
+**Why this is the owner's and not an ADR alone:** under ADR-0004 a dependency is
+normally the agent's decision through an ADR. This one also changes the command
+a user types (`--plan-digest`), and its transitive set may include `libc` (an
+unverified lead: `cpufeatures` on aarch64 Apple targets), which accepted
+ADR-0006 rejects — superseding an accepted ADR in the safety path is the owner's.
+
+- **(a) `sha2` plus `--plan-digest`.** Cost: one dependency and whatever it pulls
+  in (possibly reopening ADR-0006); scripts run `migrate` twice (show, then
+  execute with the digest).
+- **(b) No dependency: an interactive confirmation on a terminal only** (the
+  same in-memory object shown, then confirmed). Cost: `--yes` and scripts cannot
+  execute at all until (a) exists.
+- **(c) A hand-written or non-cryptographic hash.** Rejected: cryptography in
+  the safety path, or collisions an attacker controlling an inventory could
+  craft.
+
+**Recommendation:** (a), with (b) added later as a second route for a person at a
+terminal. **What it blocks:** slice 7 part A, and therefore the flip.
+**Reversible default taken:** none for part A — slice 7 writes the ADR and
+builds parts B–D, and stops before adding the dependency until the owner rules.
+
+---
+
+### DP-050 — Does a destination with no bottle for this machine become `MANUAL_REVIEW`?
+
+Raised 2026-10-18 (design notes for slice 6). 04 (Undoing a migration) says a
+step whose artifact is no longer available becomes `MANUAL_REVIEW`. Slice 6
+makes the planner raise one for `Unavailable`, `UnsupportedPlatform` and
+`Disabled`. 04's own example — "an Intel Mac can no longer bottle" — is
+`SourceBuildRequired{NoArtifactForThisPlatform}` in the Homebrew adapter, which
+that rule does not block.
+
+- **(a) Keep source builds non-blocking** (today's behaviour): the plan carries
+  the existing `destination_source_build` risk. Cost: 04's example is met only
+  as a risk, not as a stop.
+- **(b) Block `NoArtifactForThisPlatform` too.** Cost: every migration towards
+  Homebrew on a Tier-3 Intel machine for a formula without an Intel bottle stops
+  at `MANUAL_REVIEW` — the audience this project started for.
+- **(c) Block it only for a restore.** Rejected: 04 says a restore is not a
+  special case (INV-17 in spirit).
+
+**Recommendation:** (a); after the ruling, correct 04's example. A source build
+is a cost the plan names, not an unavailable artifact. **What it blocks:**
+nothing. **Reversible default taken:** (a), with a declared-deviation note in 04
+pointing here (slice 6); 04's MUST text is not rewritten before the ruling.
+
+---
+
+### DP-051 — Four checks of the destination contract no build can evaluate
+
+Raised 2026-10-18 by `spec-guardian`, reviewing the handoff after slice 5. The
+planner puts six checks on `VERIFY_DESTINATION` (`crates/application/src/planner.rs`
+≈861–875), as 04's verification contract requires (≈47–58). The gate can
+evaluate only `PACKAGE_NEWLY_PRESENT` (`execution_gate.rs` ≈509–521), and slice 6
+adds `PROVIDER_REPORTS_ACTIVE`. The other four halt every real run
+(`executor.rs` ≈605–611; `plan.v1.md` obligation 6; SE-094):
+`PROVIDER_INTEGRITY_CHECK`, `EXECUTABLES_OWNED_BY_DESTINATION`, `LIVENESS_PROBE`
+and `NO_CROSS_PROVIDER_LINKAGE`. `LIVENESS_PROBE` runs the installed program,
+which is outside `PERMITTED_PROGRAMS`; an integrity, ownership or linkage read
+probably grows the process allowlist. Both are the owner's.
+
+- **(a) Build all four** in a new slice, each with its research note and the
+  allowlist growth the owner approves per read. Cost: the largest remaining
+  work before the flip, and running an arbitrary installed program (with what
+  arguments, under what timeout) is a new risk class.
+- **(b) A declared deviation for a release that never removes:** with
+  `REMOVE_SOURCE` refused by release policy (DP-048, slice 6 part D), the
+  verification contract guards no removal; `VERIFY_DESTINATION` certifies the
+  install with the two evaluable checks, the four others are reported as not
+  checked in the run's record, and the run ends `COMPLETED_WITH_UNCHECKED` (or
+  stays `PARTIAL`) — never plain `COMPLETED`. The four become required, by test,
+  the moment removal is enabled. Cost: a deviation from a MUST in 04, declared
+  in SE and in the README, and a new outcome to name.
+- **(c) Postpone the flip** until (a).
+
+**Recommendation:** (b) for v0.2.0, (a) before any release that removes. The
+contract exists to protect a removal; a release that cannot remove can say
+honestly what it did not check. **What it blocks:** the flip, and slice 8's
+`COMPLETED`. **Reversible default taken:** none — the planner keeps emitting all
+six checks, the tripwire (widened in slice 6) keeps failing, and no slice may
+make a run complete by dropping a check.
+
+---
+
 ## Resolved
 
 ### DP-031 — Which GitHub account the public repository lives under — **RESOLVED 2026-10-16: (b) the personal account**

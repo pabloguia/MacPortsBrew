@@ -65,8 +65,10 @@ pub struct Cli {
     /// same reason.
     #[arg(long, global = true)]
     pub refresh: bool,
-    /// Show what would be done and run nothing. Wins over --yes. Every
-    /// command but `migrate --yes` is a dry run in this build anyway.
+    /// Show what would be done and change nothing: no output file and no
+    /// state is written (`snapshot` and `doctor --report` say where they would
+    /// have written).
+    /// Wins over --yes. Nothing in this build changes a provider anyway.
     #[arg(long, global = true)]
     pub dry_run: bool,
     /// Confirm: `migrate` puts its plan to the execution gate instead of only
@@ -486,13 +488,23 @@ fn run_inner(
                 macportsbrew_application::doctor(&ctx.snapshot, &ctx.policy, &ctx.today)
                     .with_run_finding(&interrupted::gather(&ctx));
             if let Some(path) = report {
-                let written = context::write_diagnostic_report(&ctx, &doc, path)?;
+                // `--dry-run` writes nothing, a report file included (pass 14
+                // security review, M1).
+                let (key, shown) = if cli.dry_run {
+                    context::refuse_unrelated_file(path)?;
+                    ("doctor.report_would_write", path.clone())
+                } else {
+                    (
+                        "doctor.report_written",
+                        context::write_diagnostic_report(&ctx, &doc, path)?,
+                    )
+                };
                 let _ = writeln!(
                     stderr,
                     "{}",
                     ctx.messages.render(
-                        "doctor.report_written",
-                        &[("path".to_string(), written.display().to_string())]
+                        key,
+                        &[("path".to_string(), shown.display().to_string())]
                             .into_iter()
                             .collect()
                     )
@@ -530,12 +542,15 @@ fn run_inner(
             stdout,
         ),
         Command::Snapshot { out } => {
-            let path = context::save_snapshot(&ctx, out.as_deref())?;
+            let (key, path) = match context::save_snapshot(&ctx, out.as_deref(), cli.dry_run)? {
+                context::Saved::Written(path) => ("snapshot.written", path),
+                context::Saved::WouldWrite(path) => ("snapshot.would_write", path),
+            };
             let _ = writeln!(
                 stderr,
                 "{}",
                 ctx.messages.render(
-                    "snapshot.written",
+                    key,
                     &[("path".to_string(), path.display().to_string())]
                         .into_iter()
                         .collect()

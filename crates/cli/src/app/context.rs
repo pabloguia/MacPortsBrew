@@ -337,6 +337,16 @@ impl Context {
 /// A hard-link publish would close the window but cannot write to exFAT or a
 /// network share.
 fn write_user_named(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
+    refuse_unrelated_file(path)?;
+    write_atomic(path, bytes)
+}
+
+/// The half of [`write_user_named`] that only reads, so a `--dry-run` refuses
+/// what the real run would refuse instead of promising a write that would fail.
+///
+/// # Errors
+/// `USAGE` for a path that exists and is not a MacPortsBrew document.
+pub fn refuse_unrelated_file(path: &Path) -> Result<(), DomainError> {
     if std::fs::symlink_metadata(path).is_ok() && !is_own_document(path) {
         return Err(DomainError::new(
             ErrorId::Usage,
@@ -346,7 +356,7 @@ fn write_user_named(path: &Path, bytes: &[u8]) -> Result<(), DomainError> {
             ),
         ));
     }
-    write_atomic(path, bytes)
+    Ok(())
 }
 
 /// Whether `path` is a regular file holding a document this tool writes.
@@ -360,15 +370,78 @@ fn is_own_document(path: &Path) -> bool {
         .is_some_and(|doc| doc.get("schemaVersion").is_some() && doc.get("toolVersion").is_some())
 }
 
-/// Saves the context's snapshot, to `out` or to the state directory.
-pub fn save_snapshot(ctx: &Context, out: Option<&Path>) -> Result<PathBuf, DomainError> {
-    if let Some(path) = out {
-        write_user_named(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
-        return Ok(path.to_path_buf());
+/// Where `snapshot` writes, decided before anything is written.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SnapshotTarget<'a> {
+    /// The file the user named with `--out`.
+    Named(&'a Path),
+    /// A new file under the state directory's `snapshots/`.
+    StateDirectory,
+}
+
+/// Where a snapshot may go. **The state directory holds this machine's
+/// snapshots only**: a run built from a recording or a snapshot file is not of
+/// this machine, so it must name its own file with `--out` (exit 2 otherwise).
+/// Before this rule, `--replay <recording> snapshot` filed another machine's
+/// capture beside this one's, where `restore --snapshot` and a person browsing
+/// for one would meet it (pass 14 security review, M1).
+///
+/// # Errors
+/// `USAGE` for a recording or a snapshot file without `--out`.
+pub fn snapshot_target(
+    history: HistoryScope,
+    out: Option<&Path>,
+) -> Result<SnapshotTarget<'_>, DomainError> {
+    match (out, history) {
+        (Some(path), _) => Ok(SnapshotTarget::Named(path)),
+        (None, HistoryScope::ThisMachine) => Ok(SnapshotTarget::StateDirectory),
+        (None, HistoryScope::NotConsulted) => Err(DomainError::new(
+            ErrorId::Usage,
+            "a snapshot taken from --replay or --from-snapshot is not of this machine, so it \
+             is not filed in the state directory; name a file with --out",
+        )),
     }
-    let dir = StateDir::resolve(ctx.home.as_deref(), state_dir_override().as_deref())?;
-    dir.ensure()?;
-    persist_snapshot(&dir.snapshots(), &ctx.snapshot)
+}
+
+/// What [`save_snapshot`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Saved {
+    /// Written to this file.
+    Written(PathBuf),
+    /// `--dry-run`: nothing was written; this is where it would have gone (a
+    /// file, or the `snapshots/` directory a new file would be created in).
+    WouldWrite(PathBuf),
+}
+
+/// Saves the context's snapshot, to `out` or to the state directory — or,
+/// under `--dry-run`, says where and writes nothing, not even the state
+/// directory itself.
+///
+/// # Errors
+/// As [`snapshot_target`], and any write error.
+pub fn save_snapshot(
+    ctx: &Context,
+    out: Option<&Path>,
+    dry_run: bool,
+) -> Result<Saved, DomainError> {
+    match snapshot_target(ctx.history, out)? {
+        SnapshotTarget::Named(path) if dry_run => {
+            refuse_unrelated_file(path)?;
+            Ok(Saved::WouldWrite(path.to_path_buf()))
+        }
+        SnapshotTarget::Named(path) => {
+            write_user_named(path, snapshot_to_json(&ctx.snapshot)?.as_bytes())?;
+            Ok(Saved::Written(path.to_path_buf()))
+        }
+        SnapshotTarget::StateDirectory => {
+            let dir = StateDir::resolve(ctx.home.as_deref(), ctx.state_override.as_deref())?;
+            if dry_run {
+                return Ok(Saved::WouldWrite(dir.snapshots()));
+            }
+            dir.ensure()?;
+            persist_snapshot(&dir.snapshots(), &ctx.snapshot).map(Saved::Written)
+        }
+    }
 }
 
 /// Writes the redacted diagnostic file (`06-cli-and-ux.md`, "Privacy and
@@ -463,6 +536,90 @@ mod tests {
         assert_eq!(HistoryScope::of(true, false), HistoryScope::NotConsulted);
         assert_eq!(HistoryScope::of(false, true), HistoryScope::NotConsulted);
         assert_eq!(HistoryScope::of(true, true), HistoryScope::NotConsulted);
+    }
+
+    /// A context built from a recording, made to behave as a live run does,
+    /// with its state directory in `scratch`: what `restore_tests.rs` does, so
+    /// the state-directory branch of `snapshot` is reached without a live
+    /// capture.
+    fn live_context(scratch: &Path) -> Context {
+        use clap::Parser;
+        let recording = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/recordings/both-providers-arm64-macos15.json");
+        let cli = crate::app::Cli::try_parse_from([
+            "macportsbrew",
+            "--replay",
+            recording.to_str().unwrap(),
+            "snapshot",
+        ])
+        .unwrap();
+        let mut ctx = Context::build(&cli, &mut std::io::sink()).unwrap();
+        ctx.history = HistoryScope::ThisMachine;
+        ctx.state_override = Some(scratch.join("state").to_string_lossy().into_owned());
+        ctx
+    }
+
+    fn scratch(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "macportsbrew-snapshot-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_dry_run_into_the_state_directory_creates_nothing_and_a_real_one_files_it() {
+        let dir = scratch("state-dry");
+        let ctx = live_context(&dir);
+        let snapshots = dir.join("state").join("snapshots");
+        assert_eq!(
+            save_snapshot(&ctx, None, true).unwrap(),
+            Saved::WouldWrite(snapshots.clone())
+        );
+        assert!(
+            !dir.join("state").exists(),
+            "a dry run created the state directory"
+        );
+        // The control, and the proof that the context's override is the one used.
+        let Saved::Written(file) = save_snapshot(&ctx, None, false).unwrap() else {
+            panic!("a real run writes");
+        };
+        assert_eq!(file.parent(), Some(snapshots.as_path()));
+        assert!(file.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_dry_run_refuses_a_file_the_real_run_would_refuse() {
+        let dir = scratch("unrelated");
+        let ctx = live_context(&dir);
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, "not ours").unwrap();
+        let refused = save_snapshot(&ctx, Some(&notes), true).unwrap_err();
+        assert_eq!(refused.id, ErrorId::Usage);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "not ours");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_this_machines_snapshot_is_filed_in_the_state_directory() {
+        let named = Path::new("/somewhere/s.json");
+        assert_eq!(
+            snapshot_target(HistoryScope::ThisMachine, None).unwrap(),
+            SnapshotTarget::StateDirectory
+        );
+        for scope in [HistoryScope::ThisMachine, HistoryScope::NotConsulted] {
+            assert_eq!(
+                snapshot_target(scope, Some(named)).unwrap(),
+                SnapshotTarget::Named(named)
+            );
+        }
+        let refused = snapshot_target(HistoryScope::NotConsulted, None).unwrap_err();
+        assert_eq!(refused.id, ErrorId::Usage);
+        assert!(refused.detail.contains("--out"), "{}", refused.detail);
     }
 
     #[test]

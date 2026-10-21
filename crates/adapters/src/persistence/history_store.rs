@@ -248,28 +248,61 @@ pub fn read_back(state: &StateDir, id: &str, euid: u32) -> Result<String, Domain
 /// `HISTORY_UNUSABLE` when the record is not there, cannot be read, cannot be
 /// synced, or changed while being synced; `SAFETY_BLOCKED` as root.
 pub fn make_durable(state: &StateDir, id: &str, euid: u32) -> Result<RunRecord, DomainError> {
-    let first = read_one(state, id, euid)?
+    make_durable_with(
+        state,
+        id,
+        euid,
+        &DurableIo {
+            read: &read_one,
+            sync: &sync_path,
+        },
+    )
+}
+
+/// One sync of `path`, opened with the project's own flags: a record swapped
+/// for a FIFO must not hang this while it holds the run lock (slice 5 security
+/// review, L-1).
+fn sync_path(path: &Path) -> std::io::Result<()> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(open_flags(OpenPolicy::RefuseSymlink))
+        .open(path)
+        .and_then(|handle| handle.sync_all())
+}
+
+/// What [`make_durable`] does to the disk, as functions, so this module's
+/// tests can fail each step in turn: the second read, its comparison and both
+/// syncs had no test that could reach them (slice 5 mutation proof). Private:
+/// product code reaches only [`make_durable`], which passes the real ones.
+struct DurableIo<'a> {
+    read: ReadRecord<'a>,
+    sync: &'a dyn Fn(&Path) -> std::io::Result<()>,
+}
+
+/// [`read_one`]'s shape, for [`DurableIo`].
+type ReadRecord<'a> = &'a dyn Fn(&StateDir, &str, u32) -> Result<Option<RunRecord>, DomainError>;
+
+fn make_durable_with(
+    state: &StateDir,
+    id: &str,
+    euid: u32,
+    io: &DurableIo<'_>,
+) -> Result<RunRecord, DomainError> {
+    let first = (io.read)(state, id, euid)?
         .ok_or_else(|| unusable("the record to make durable is not there".into()))?;
     let name = record_file_name(id)
         .ok_or_else(|| unusable("the record asked for is not named by a run id".into()))?;
     let directory = state.history();
     for path in [directory.join(&name), directory] {
-        // The project's own open flags: a record swapped for a FIFO must not
-        // hang this while it holds the run lock (slice 5 security review, L-1).
-        std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(open_flags(OpenPolicy::RefuseSymlink))
-            .open(&path)
-            .and_then(|handle| handle.sync_all())
-            .map_err(|e| {
-                unusable(format!(
-                    "the record could not be made durable ({:?}); it is still there and was not \
-                     changed",
-                    e.kind()
-                ))
-            })?;
+        (io.sync)(&path).map_err(|e| {
+            unusable(format!(
+                "the record could not be made durable ({:?}); it is still there and was not \
+                 changed",
+                e.kind()
+            ))
+        })?;
     }
-    let second = read_one(state, id, euid)?
+    let second = (io.read)(state, id, euid)?
         .ok_or_else(|| unusable("the record vanished while it was made durable".into()))?;
     if record_text(&first)? != record_text(&second)? {
         return Err(unusable(
@@ -484,4 +517,204 @@ fn read_record(directory: &Path, id: &str, euid: u32) -> Result<RunRecord, Domai
         return Err(unusable(format!("{name} states another run's id")));
     }
     Ok(record)
+}
+
+#[cfg(test)]
+mod durable_tests {
+    //! [`make_durable_with`] with each disk step replaced, so every way the
+    //! promotion can fail is reached: the slice 5 mutation proof left the
+    //! second read, its comparison and both syncs without a test. Nothing here
+    //! touches a disk: the state directory is only a name to join paths to.
+
+    use super::{make_durable_with, record_file_name, DurableIo, StateDir};
+    use macportsbrew_domain::{
+        Direction, DomainError, ErrorId, Outcome, PackageIdentity, ProviderId, RecordedStep,
+        RecordedVersions, RunEnding, RunRecord, RunStart, RunSubject, StepKind, StepResult,
+    };
+    use std::cell::{Cell, RefCell};
+    use std::path::{Path, PathBuf};
+
+    const ID: &str = "20261004T110000Z-0000000000000001";
+
+    fn state() -> StateDir {
+        StateDir::resolve(None, Some("/nonexistent/mpb-durable-tests/state")).unwrap()
+    }
+
+    fn record(package: &str) -> RunRecord {
+        let source = ProviderId::new("alpha");
+        let destination = ProviderId::new("beta");
+        RunRecord::new(
+            RunStart {
+                id: ID.into(),
+                started_at: "2026-10-04T11:00:00Z".into(),
+                tool_version: "0.1.0".into(),
+            },
+            RunSubject {
+                plan_schema_version: 1,
+                policy_version: "0".into(),
+                package: PackageIdentity::new(source.clone(), package),
+                direction: Direction {
+                    source,
+                    destination: destination.clone(),
+                },
+                destination_package: Some(package.into()),
+                versions: RecordedVersions {
+                    source: None,
+                    destination: None,
+                },
+                action: Outcome::MigrateTo {
+                    provider: destination.clone(),
+                },
+                overrode: None,
+                retain_source: true,
+                primary_after: destination.clone(),
+            },
+            vec![
+                RecordedStep::new(
+                    1,
+                    StepKind::SnapshotBefore,
+                    Some(destination.clone()),
+                    StepResult::SnapshotTaken,
+                    false,
+                ),
+                RecordedStep::new(
+                    2,
+                    StepKind::RecordHistory,
+                    Some(destination),
+                    StepResult::RecordPendingReadBack,
+                    false,
+                ),
+            ],
+            RunEnding::Completed,
+            Some("snapshot-20261004T110000Z.json".into()),
+        )
+    }
+
+    /// Reads that answer `answers` in turn, one per call.
+    fn reads(
+        answers: Vec<Option<RunRecord>>,
+    ) -> impl Fn(&StateDir, &str, u32) -> Result<Option<RunRecord>, DomainError> {
+        let answers = RefCell::new(answers.into_iter());
+        move |_, _, _| {
+            Ok(answers
+                .borrow_mut()
+                .next()
+                .expect("no more reads were expected"))
+        }
+    }
+
+    fn unusable(result: Result<RunRecord, DomainError>) -> String {
+        let err = result.expect_err("the promotion must refuse");
+        assert_eq!(err.id, ErrorId::HistoryUnusable, "{err:?}");
+        err.detail
+    }
+
+    #[test]
+    fn both_the_record_and_its_directory_are_synced_before_it_is_read_again() {
+        let state = state();
+        let synced = RefCell::new(Vec::<PathBuf>::new());
+        let read = reads(vec![Some(record("tool")), Some(record("tool"))]);
+        let sync = |p: &Path| {
+            synced.borrow_mut().push(p.to_path_buf());
+            Ok(())
+        };
+        let made = make_durable_with(
+            &state,
+            ID,
+            0,
+            &DurableIo {
+                read: &read,
+                sync: &sync,
+            },
+        )
+        .unwrap();
+        assert_eq!(made, record("tool"));
+        assert_eq!(
+            *synced.borrow(),
+            vec![
+                state.history().join(record_file_name(ID).unwrap()),
+                state.history()
+            ],
+            "the file and then its directory, each exactly once"
+        );
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_synced_is_never_called_durable() {
+        // The file's sync and then the directory's, each failing alone.
+        for failing in [0, 1] {
+            let state = state();
+            let calls = Cell::new(0);
+            let read = reads(vec![Some(record("tool")), Some(record("tool"))]);
+            let sync = |_: &Path| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == failing {
+                    Err(std::io::Error::from(std::io::ErrorKind::Other))
+                } else {
+                    Ok(())
+                }
+            };
+            let detail = unusable(make_durable_with(
+                &state,
+                ID,
+                0,
+                &DurableIo {
+                    read: &read,
+                    sync: &sync,
+                },
+            ));
+            assert!(detail.contains("could not be made durable"), "{detail}");
+        }
+    }
+
+    #[test]
+    fn a_record_that_vanished_while_it_was_synced_is_refused() {
+        let read = reads(vec![Some(record("tool")), None]);
+        let detail = unusable(make_durable_with(
+            &state(),
+            ID,
+            0,
+            &DurableIo {
+                read: &read,
+                sync: &|_| Ok(()),
+            },
+        ));
+        assert!(detail.contains("vanished"), "{detail}");
+    }
+
+    #[test]
+    fn a_record_that_changed_while_it_was_synced_is_refused() {
+        let read = reads(vec![Some(record("tool")), Some(record("other"))]);
+        let detail = unusable(make_durable_with(
+            &state(),
+            ID,
+            0,
+            &DurableIo {
+                read: &read,
+                sync: &|_| Ok(()),
+            },
+        ));
+        assert!(detail.contains("changed"), "{detail}");
+    }
+
+    #[test]
+    fn nothing_is_synced_when_there_is_no_record() {
+        let synced = Cell::new(0);
+        let read = reads(vec![None]);
+        let sync = |_: &Path| {
+            synced.set(synced.get() + 1);
+            Ok(())
+        };
+        unusable(make_durable_with(
+            &state(),
+            ID,
+            0,
+            &DurableIo {
+                read: &read,
+                sync: &sync,
+            },
+        ));
+        assert_eq!(synced.get(), 0);
+    }
 }

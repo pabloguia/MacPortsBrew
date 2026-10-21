@@ -215,7 +215,14 @@ check is a hole in the shadowing check. That is a requirement, not a
 description: `crates/adapters/src/system/path_audit.rs` today emits only
 `Duplicate`, `Relative`, `Missing`, `WorldWritable` and `GroupWritable`, and a
 user-owned `0755` directory matches none of them, so the finding kind this
-paragraph depends on does not exist yet and is a task. And the `.pkg` does **not** create the `mpb` alias,
+paragraph depends on does not exist yet and is a task. *(Update 2026-10-18,
+pass 14: this paragraph was stale — the finding was implemented on 2026-09-04,
+commit `987c57f`. `PathFindingKind::OwnerWritable` (`crates/domain/src/snapshot.rs`)
+is emitted by `path_audit.rs` for a `PATH` entry owned by the running user with
+the owner-write bit set, which a user-owned `0755` `~/.macportsbrew/bin` is, and
+`doctor` reports it as `path_owner_writable` (`crates/application/src/doctor.rs`);
+nothing in the audit special-cases this tool's own directory. The check is
+skipped when the home directory cannot be resolved.)* And the `.pkg` does **not** create the `mpb` alias,
 because ADR-0003 requires installation to detect an existing `mpb` and decline
 to shadow it, and a non-interactive installer cannot make that decision.
 

@@ -193,6 +193,12 @@ Three of the five closed from official documentation; two remain open and need
 something other than reading. Still blocks the implementation pass that writes
 the release workflow, not ADR-0005, which is decided.*
 
+**Superseded by R-19 (2026-10-10), and kept so the history is visible:** R-19
+(`docs/research/R-19-release-toolchain.md`, E12 and its findings) reads GitHub
+Docs as listing `macos-15-intel` as a **standard** runner, free for a public
+repository; it is `macos-15-large` that is the larger, billed runner. The next
+paragraph, written 2026-09-06, conflated the two. SE-037 carries the correction.
+
 **One premise below is wrong and is left in place so the correction is
 visible.** `macos-15-intel` is not a free standard runner: GitHub's
 `runner-images` README lists it as an alias of `macos-15-large`, and GitHub Docs
@@ -400,8 +406,12 @@ Answers: yes — `File::lock`, `lock_shared`, `try_lock`, `try_lock_shared` and
 conflict), the lock is released when its holder dies (observed with SIGKILL),
 and a lock file must never be unlinked (a recreated path is a second inode that
 locks independently). Left open: behaviour on NFS, SMB and exFAT volumes
-(`man flock` is silent and this machine has none), and whether std opens with
-close-on-exec, which decides whether a spawned child can keep a lock alive.
+(`man flock` is silent and this machine has none). **Addendum 2026-10-18 (E7):**
+descriptors std opens — including one opened as `run_lock` opens the lock, with
+`create_new` and `custom_flags` — are not inherited by a child spawned through
+`std::process::Command` (observed on one machine with the pinned toolchain, not
+read from std's source), so a spawned provider cannot keep the lock alive there;
+re-check on a toolchain bump.
 
 ### R-19 · What the release workflow can rely on: notarisation, reproducible builds, deployment target, packaging, runners
 *Partially answered 2026-10-10 — `docs/research/R-19-release-toolchain.md`.*
@@ -435,6 +445,51 @@ Left open:
 - Developer ID CDHash stability.
 - How a home-domain `.pkg` places `--install-location`.
 - Feeding `security` passwords by stdin.
+
+### R-20 · Which read-only provider read proves that a package is the active (linked) installation
+*Answered 2026-10-18 for what this machine holds; partially for the states it
+does not hold — `docs/research/R-20-what-a-read-shows-as-active.md`.*
+This is the prerequisite of pass 08 slice 6 part B, and the
+`provider-researcher` note SE-094 owed for `PROVIDER_REPORTS_ACTIVE`.
+Observed on macOS 26.7.1 x86_64, Homebrew 7.0.4, MacPorts 2.12.6. The note is
+the one full answer; this entry is its summary.
+
+Answers:
+- **MacPorts.** `port -q installed`, bare or named, prints
+  `  <name> @<version>_<revision><variants> (active)\n` for the active image
+  (observed). An inactive image prints the same row with nothing after the
+  variants — **read from `action_installed` in the 2.12.6 source, not
+  observed**: this machine has no inactive image.
+- **What `-q` changes.** It drops only the header and the stale-ports
+  warning, and the rows are byte-identical. `-v` would append text after
+  `(active)`.
+- **Named reads.** A named read matches exactly and ignores case
+  (`xz` does not list `xz-bootstrap`; `XZ` prints `xz`). It exits 0 with
+  empty stdout when nothing matches.
+- **Homebrew formulae.** `linked_keg` in `brew info --json=v2 --installed`
+  is the version of the keg `var/homebrew/linked/<name>` points to, or
+  `null`. On 192 formulae every string equals an `installed[].version`.
+- **`keg_only` does not predict `linked_keg`.** `openssl@3` is keg-only and
+  linked; `openssl@4` and `pydantic` are not keg-only and are unlinked.
+- **Casks.** They carry no linked or active field.
+- **The current verify read.** `brew list --versions` shows no linkage.
+- **Writes and `brew.env`.** No `brew.env` exists on this machine. On a warm
+  API cache both Homebrew reads wrote only bootsnap compile-cache files.
+- **The security question is not answered.** `info --json=v2 --installed`
+  loads every installed formula's definition, so it runs more Ruby than a read
+  naming one package; the tap-Ruby and `brew.env` concerns (SE-016 item 3,
+  SE-050 item 6, R-15) are unanswered here, because this machine has no
+  third-party tap and no `brew.env`. A `security-reviewer` ruling is owed
+  before pass 08 slice 6 part B writes code.
+
+Left open:
+- The state right after a fresh install.
+- An observed inactive or variant MacPorts row: the only ones are
+  synthesised fixtures.
+- Whether a configuration can turn on verbose for a `-q` read.
+- Whether `linked_keg` can disagree with the `bin/` symlinks.
+- Network traffic: not captured.
+- Third-party taps, and other machines, architectures and provider versions.
 
 ---
 

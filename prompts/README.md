@@ -20,12 +20,17 @@ authority you have, what this pass must not do, and how it is accepted.
 | [08-slice-3-config-pin-mirror.md](08-slice-3-config-pin-mirror.md) | Pass 08, slice 3: configuration re-read, the positional spawn-site pin, a MacPorts-to-Homebrew recording that yields a plan. |
 | [08-slice-4-wiring-and-consent.md](08-slice-4-wiring-and-consent.md) | Pass 08, slice 4: the run loop wired behind the switch, proved behaviourally; elevation consent. |
 | [08-slice-5-history-and-restore.md](08-slice-5-history-and-restore.md) | Pass 08, slice 5: `history`, `restore` (plan only), the stranded marker in `doctor`. |
-| [08-slice-6-detector-and-flip-proposal.md](08-slice-6-detector-and-flip-proposal.md) | Pass 08, slice 6: DP-030 as ruled, and the written proposal to turn mutations on. |
+| [08-slice-6-verification-before-removal.md](08-slice-6-verification-before-removal.md) | Pass 08, slice 6: `MANUAL_REVIEW` for an unavailable artifact, `PROVIDER_REPORTS_ACTIVE` evaluable, the destination re-read before removal. Design: `../docs/passes/08-pre-flip-design-notes.md`. |
+| [08-slice-7-plan-tie-and-consent.md](08-slice-7-plan-tie-and-consent.md) | Pass 08, slice 7: the executed plan tied to the one shown (DP-049), consent wired, SR 9 and SR 10. |
+| [08-slice-8-primary-and-resolution.md](08-slice-8-primary-and-resolution.md) | Pass 08, slice 8: `SET_PRIMARY` report-only and `VERIFY_RESOLUTION` evaluated, so a run can complete (DP-047). |
+| [08-slice-9-detector-and-flip-proposal.md](08-slice-9-detector-and-flip-proposal.md) | Pass 08, slice 9 (was slice 6): DP-030 as ruled, and the written proposal to turn mutations on. |
 | [09-release-engineering.md](09-release-engineering.md) | Build, sign, notarise, package and checksum per architecture; the release workflow, proven unsigned. |
 | [10-read-only-release-candidate.md](10-read-only-release-candidate.md) | v0.1.0: the read-only build made honest and worth installing. |
 | [11-first-mutating-release.md](11-first-mutating-release.md) | v0.2.0: acceptance on disposable machines and the owner's go/no-go. |
 | [12-read-only-improvements.md](12-read-only-improvements.md) | After v0.1.0: pt-BR, the dual-Homebrew `doctor` finding, defaulted-ownership evidence, curated mappings, two test fixes. |
 | [13-cross-provider-advice.md](13-cross-provider-advice.md) | After v0.1.0 (DP-041 ruled): `doctor` says which direction of cross-provider contamination is riskier, from dated data selected by a provider-neutral rule. |
+| [14-read-only-maintenance.md](14-read-only-maintenance.md) | After slice 5: R-20 (what a read shows as "active", which slice 6 needs), `node@20` before its disable date, schema truth, the ownership-unknown count, the `make_durable` seam, stale prose. |
+| [15-first-tag-readiness.md](15-first-tag-readiness.md) | Before v0.1.0: install pass 09's staged guarded files (an armed message), reconcile their drift, add the `test-support` release check, make the 0.1.0 text true (DP-045). |
 | [ROADMAP-to-first-release.md](ROADMAP-to-first-release.md) | Not a work order: the owner's run sheet — order, owner prerequisites, and which model to start each session with (SE-017 keeps model names out of work orders). |
 
 `.claude/current-pass` names the active one in a single line. The session-start
