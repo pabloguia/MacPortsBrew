@@ -7974,3 +7974,90 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: a script that ran `--replay <file> snapshot` or `--from-snapshot <file> snapshot`
   without `--out` now gets exit 2 and must name a file. `--dry-run snapshot` and `--dry-run doctor --report`
   no longer write; their `--json` stdout is unchanged. No schema changes.
+
+## SE-102 — The release is to be checked free of `test-support`, and the staged release files are reconciled with `main` before they are installed
+- Status: accepted; lands in part B of pass 15 (the check and the reconciliation are staged, not installed: the files are guarded, SE-093)
+- Date / Pass: 2026-10-22 / pass 15, part A (`prompts/15-first-tag-readiness.md`; slice 4 review L1)
+- Original assumption: the only thing standing between a release and the `test-support` feature (which
+  compiles the test-only mutation allowance in, `execution_gate.rs` and `executor.rs`) was that no command
+  line in the release machinery passes a feature flag — a fact about the text of the script, held by an
+  unconditional failure in `the_switch_needs_release_builds_free_of_the_test_support_feature` while the
+  mutation switch is on. Nothing asked cargo what the release would resolve, and nothing refused a flag in
+  `release.yml`. The staged files (`docs/passes/09-staged/`) were also written before `main` moved: the
+  action pins had changed, DP-031 had been resolved, and a comment in `build-release.sh` still derived the
+  package identifier from a repository URL that is no longer the repository.
+- Change: **(1)** `build-release.sh` asks `cargo tree --locked -p macportsbrew --target <triple> --prefix
+  none -e normal,build -f '{p} {f}'` and refuses when any package lists `test-support` as an enabled
+  feature, and when cargo cannot answer (fail closed). The format string is deliberate: `-e features` does
+  not print a feature set on the root package, so grepping it would pass a build that enables the feature
+  directly. The match is a whole word made with a here-string, not a pipeline (under `pipefail` a
+  `grep -q` can kill a still-writing `printf`, the pipeline returns 141 and an `if` reads "no match"). It
+  also refuses a compiler wrapper in the environment or in cargo's configuration, which can add the cfg
+  without cargo's feature graph showing it. **(2)** `check-release-workflow.sh` gains rule 10: in
+  `release.yml` no code line names `cargo`, none holds `--features` or `--all-features`, and none that calls
+  `build-release.sh` carries `-F` (alone or in a cluster, quoted or not; continuations joined); it reads
+  `release.yml` only, so `validate.sh`'s own `cargo test --all-features` is untouched. **(3)** The
+  unconditional tripwire becomes a structural test that the check exists, matching the whole command line,
+  to land in the same change as the scripts. **(4)** The staged `release.yml` takes `main`'s pins for
+  `actions/checkout` (v7.0.1) and `dtolnay/rust-toolchain` (`master`); the other pins were re-verified
+  against their action's own tag on 2026-10-22. **(5)** The comment above `IDENTIFIER` stops claiming the
+  value is derived from the repository URL.
+- Rationale: whether `test-support` is in a release is a fact about the dependency graph, so the check
+  asks the graph; a flag's absence from a script is a property of that script and is also pinned, twice
+  (the argument loop refuses every option it does not name, and rule 10 refuses it in the workflow).
+  The rule is stricter than needed on purpose: no line that builds a release has a legitimate feature
+  flag. Weakening a gate is invisible until it ships what it would have caught.
+- Tests: 20 cases for `build-release.sh` (a stand-in `cargo` that records its arguments; four flag
+  spellings refused before cargo is asked; the feature refused at either end, in the middle, on the root,
+  on a repeated package and first in a 100 KB graph; a failing `cargo tree` refused; a clean graph reaches
+  the build and the exact `cargo tree` command line is asserted; two near-miss names accepted; four
+  wrapper variables and a wrapper in cargo's configuration refused) and 44 for `check-release-workflow.sh`
+  (constructed workflow trees). Sixteen mutants of the first and twelve of the second were each killed
+  (the refusal removed; the pattern widened or narrowed; a failing `cargo tree` read as clean; the
+  pipeline back; the query narrowed in `-f`, `-e`, `-p`, `--locked` or `--target`; a wrapper check dropped;
+  rule 10 off or weakened in each part; a comment line counted; a rule-7 and a rule-9 term dropped); one
+  first survived and got its own case. The structural tripwire passes against the staged scripts in a
+  scratch copy of the tree and fails when the command line is narrowed, a flag is inserted or the wrapper
+  loop is shortened. The patched script was run end to end, unsigned, for `x86_64-apple-darwin`, exit 0,
+  twice (the unsigned executable hashed the same both times). Text, SHA-256s and the amended "Applying
+  them": `docs/passes/09-staged/README.md`, addendum of 2026-10-22.
+- Not done: nothing is installed (part B needs the owner's armed message and DP-033/034/035/045). Left
+  for part B because the files are guarded: the `taiki-e/install-action` pin in `repository-validation.yml`
+  is the tag v2.87.28 under a comment that says `# v2`; the workflows' `dtolnay/rust-toolchain` comment
+  says `resolved 2026-09-02` for a commit of 2026-10-16; the generated `docs/support-matrix.md` banner
+  still says no CI job has run. Left on purpose, because `CLAUDE.md` and `.claude/` are the harness's
+  own configuration and no one has asked for them to change: the tooling re-check's findings about
+  `settings.json:97-98` (`./` anchors), `CLAUDE.md:57-58` ("a shell reader loads nothing"), the
+  `CLAUDE.md` / `AGENTS.md` reading-order contradiction, `onFailure: "block"`, the sandbox, the hook `if`
+  field, no-space allow rules and the `<pasted_content>` delimiter are recommendations in
+  `docs/research/tooling/2026-10-22-*.md`. The wrapper refusals cover the environment and the two cargo
+  configuration files named above; a `.cargo/config` in a parent directory of the checkout, which cargo
+  also reads, is not checked.
+- Compatibility impact: none for users. A release build that resolves `test-support`, or a workflow that
+  passes a feature flag to a release build, is refused once part B lands.
+
+## SE-103 — `restore` looks the run up before it captures the machine
+- Status: accepted
+- Date / Pass: 2026-10-22 / pass 15, part A (found by the pass's documentation audit)
+- Original assumption: `restore --plan --run <id>` built its context (a capture of both providers) before it
+  read the run's record, so an id nobody recorded — every id, on every machine running 0.1.0 — still asked
+  both providers what is installed, and on an empty Homebrew cache made Homebrew download its catalogue
+  into the user's home (731 files on the machine where it was seen), then answered `RUN_NOT_FOUND`.
+  `history show`, which needs no provider, never did.
+- Change: `run_inner` calls `restore::refuse_unrecorded_run` after the argument refusals and before
+  `Context::build`; it resolves the state directory and the effective user as `history` does, reads the
+  one record, and raises the same `RUN_NOT_FOUND` (exit 8) the command raised before. Read-only; the state
+  directory is not created. A recorded run takes the path it took.
+- Rationale: a command whose answer is in this machine's state directory should not read both providers
+  to give it, and `history show` already answers the same question without them. The lookup is the first
+  thing `restore` did with a context anyway, so no outcome changes, only what is asked and in what order.
+  No MUST of 04 or 06 changes.
+- Tests: `restore_of_a_run_nobody_recorded_asks_no_provider` (`crates/cli/tests/history_commands.rs`: a
+  scratch HOME stays empty, exit 8, no state directory; with the call removed it fails on the machine where
+  the bug was found, `left ["Library"] in HOME`); `invariant_06_history_restore_and_acknowledge_refuse_root`
+  now also requires the lookup to come after the argument refusals and before `Context::build` (fails with
+  the call removed).
+- Not done: where Homebrew is not installed the behavioural test cannot fail; the ordering test covers that
+  case. A recorded run still captures before it plans, as a plan needs the current machine.
+- Compatibility impact: none in output or exit codes; fewer provider reads for an unrecorded id.
+
