@@ -22,8 +22,11 @@ output may change freely.
 
 ## [Unreleased]
 
-These changes come after the 0.1.0 release candidate and are not part of
-0.1.0.
+These changes came after the 0.1.0 release candidate and are on `main`; the
+0.1.0 tag is cut from `main`, so they ship in 0.1.0 and the 0.1.0 section below
+describes the ones a user sees. <!-- DP-045 pending: the owner has not ruled; (a) is the
+reversible default, and ruling otherwise reopens this paragraph and the 0.1.0
+section. -->
 
 ### Changed after the release candidate
 
@@ -41,6 +44,14 @@ These changes come after the 0.1.0 release candidate and are not part of
   shows a package is installed, which is not the same as active. Every plan was
   already refused for execution; the refusal list gains one entry.
 
+- `restore --run <id>`, with or without `--plan`: a run this machine never
+  recorded is now answered `RUN_NOT_FOUND` (exit 8) from the state directory
+  before any provider is asked. It used to capture the machine first: on an empty
+  Homebrew cache that made Homebrew download its catalogue into
+  `$HOME/Library/Caches/Homebrew` (731 files where it was found) only to say there
+  was no such run. Nothing else about the command changes; `history show` never
+  did this.
+
 ### Added after the release candidate
 
 - `macportsbrew history acknowledge <id>`: deals with the interrupted-run
@@ -56,7 +67,8 @@ These changes come after the 0.1.0 release candidate and are not part of
   recorded run changed, built by the same planner in the other direction from
   the run's record and the snapshot it took first, shown with notes about what
   it cannot say. Nothing is executed: `restore --run <id>` without `--plan`
-  puts the plan to the execution gate, which refuses it (exit 4), and
+  puts a recorded run's plan to the execution gate, which refuses it (exit 4)
+  (with no record of that run it answers `RUN_NOT_FOUND`, exit 8, first), and
   `restore --snapshot` is not built (exit 1). `--json`: `restore.v1`.
 - `macportsbrew history` and `history show <id>`: the runs this MacPortsBrew has
   made, newest first, and one run's steps, snapshot and whether it can be put
@@ -106,16 +118,31 @@ the same planner and the same safety rules.
 **What it does:** `status`, `analyze`, `list`, `explain`, `plan`, `migrate`
 (shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
 provider health, a package manager installed in more than one place, which
-provider is exposed to the other, and dated support facts) and `snapshot`. Every command has a
+provider is exposed to the other, an interrupted-run marker, and dated support
+facts), `snapshot`, and `history`, `history show`, `history acknowledge`
+and `restore --plan --run`, which only read, or change nothing, on a machine that
+has recorded no run. Every command has a
 versioned `--json` form. `doctor --report` writes a diagnostic file for issue
 reports, without your user name or home folder path. `PATH` entries a finding
 mentions appear with your home folder shown as `~`; other environment variables
 are named but their values are left out. It also lists every installed package.
 Read it before you share it. `doctor --report` and `snapshot --out` replace an
-existing file only when it is itself a MacPortsBrew document.
+existing file only when it is itself a MacPortsBrew document. `--dry-run` writes
+no file at all: `snapshot` and `doctor --report` say where they would have
+written.
 
 **What it does not do:** it changes nothing in either package manager. It does
-not install, remove, switch which copy of a tool runs, keep history or restore.
+not install, remove or switch which copy of a tool runs, and it neither runs a
+migration nor restores one. The history commands read a record that only an
+executing release writes, so on every machine running 0.1.0 they say there is
+nothing yet: `history` answers "No runs are recorded" (exit 0); `history show`
+and `restore --plan --run` answer `RUN_NOT_FOUND` (exit 8) for any well-formed
+run id; `history acknowledge` says no interrupted run is recorded (exit 0); and
+`doctor`'s `interrupted_run` finding is `OK`. `restore --run` without `--plan`
+answers `RUN_NOT_FOUND` (exit 8) the same way; the execution gate's refusal
+(exit 4) applies only to a recorded run, so no 0.1.0 user meets it. And
+`restore --snapshot` is not built (exit 1).
+<!-- DP-045 pending: the history commands ship in 0.1.0 under the reversible default (a). -->
 `migrate --yes` puts a plan to an execution gate that refuses every plan this
 version produces (exit 4). A plan lists the commands a migration would run, in
 order, with how to check each one, so you can carry it out yourself at your own
@@ -175,8 +202,9 @@ to answer.
   plan commands; usage errors for unknown `--to`/`--provider` and malformed
   `--today`; `snapshot --out`/`doctor --report` replace only their own
   documents; standard output flushed before exit; crates `publish = false`.
-- **Recorded as owed:** `PROVIDER_REPORTS_ACTIVE` asserting "active", a plan's
-  rollback field (see SE-094). The dual-Homebrew `doctor` check it listed is done
+- **Recorded as owed** (the gate half of `PROVIDER_REPORTS_ACTIVE` was done after
+  the release candidate; see [Unreleased]): `PROVIDER_REPORTS_ACTIVE` asserting
+  "active", a plan's rollback field (see SE-094). The dual-Homebrew `doctor` check it listed is done
   in pass 12, below.
 
 #### Pass 12: read-only improvements after the release-candidate review
@@ -227,7 +255,8 @@ what it may run.
   also refuses a path into a provider's adapter module, and the network-isolation
   test is named for what it checks.
 
-**Known, not changed**
+**Known, not changed** (the `status` count below was changed after the release
+candidate; see [Unreleased])
 
 - `status` counts a mapped counterpart that is not installed among the rows whose
   ownership is unknown, and its sentence says the provider kept no record.
@@ -390,7 +419,8 @@ what it may run.
   renderer.
 - **Commands and aliases**: `macportsbrew` and `mpb` from one binary.
 - **Versioned JSON schemas** documented in
-  [`docs/schemas/`](docs/schemas/README.md), all at `schemaVersion` 1.
+  [`docs/schemas/`](docs/schemas/README.md): every `--json` payload at
+  `schemaVersion` 1, the history record and run-marker files at 2.
 - **Fixture replay and the golden matrix**: `--replay <recording>` (a hidden
   testing flag, like `--today`) runs the whole program against a captured
   recording; `scripts/capture-fixture.sh`
@@ -757,8 +787,8 @@ what it may run.
 Named here because a changelog that lists only what exists invites the reader
 to assume the rest does: a published release (the release machinery is staged,
 not applied), executing a migration (`migrate --yes` stops at the
-gate), `restore`, `primary`,
-`provider-priority`, `providers`, `env`, `history`, `cleanup`, the interactive
+gate), executing a restore, `restore --snapshot`, `primary`,
+`provider-priority`, `providers`, `env`, `cleanup`, the interactive
 TUI, `doctor --deep`, the cache and its TTL, and translations for `es`, `ja`
 and `zh-CN` — the i18n architecture, the English catalogue and the `pt-BR`
 translation are in place; the others are not.
@@ -771,8 +801,12 @@ translation are in place; the others are not.
   else the plan stops at *Needs a human decision* with "no equivalent found" —
   nothing was found, which does not mean no equivalent exists. Searching the
   other provider's full catalogue is planned for a later release.
-- **No CI job had run when this version was prepared.** The workflow in
-  `.github/workflows/` had not been executed by a hosted runner. The support
+- **CI has run, and the matrix still states configuration.** When this version was
+  first prepared no hosted runner had executed the workflow in
+  `.github/workflows/`; since then "Repository validation" has passed on `main`
+  (run 39578935218 at `ad5a95d`, 2026-10-21, green on macos-26, macos-26-intel,
+  macos-15 and macos-15-intel). The original reasoning stands for the matrix
+  file: The support
   matrix is generated from that workflow's `runner:` labels and from nothing
   else, so every row in it — including the **tested** ones — states what CI is
   configured to do, not what any run reported. The matrix says so at the top
@@ -810,4 +844,5 @@ translation are in place; the others are not.
   plus notarisation, with a bare binary, a `.pkg` and a `.dmg`
   ([DP-004](docs/decisions-pending.md),
   [ADR-0005](docs/adr/0005-release-signing-and-artifacts.md)), and the
-  repository is to be hosted on GitHub ([DP-007](docs/decisions-pending.md)).
+  repository is `github.com/pabloguia/MacPortsBrew`
+  ([DP-007](docs/decisions-pending.md), DP-031).

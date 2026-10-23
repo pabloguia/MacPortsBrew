@@ -2,8 +2,8 @@
 
 # Roadmap to a first distribution — the owner's run sheet
 
-Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-18**, after
-slice 5 merged. It orders the remaining work so that a user can **install and
+Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-22**, after
+pass 14 merged and part A of pass 15 began. It orders the remaining work so that a user can **install and
 use** a MacPortsBrew release as early as possible, and says, for each work
 order, which model the owner should start the session with.
 
@@ -15,13 +15,13 @@ order, which model the owner should start the session with.
 > Anything that can change a user's machine, weaken a gate or ship a supply-chain
 > artifact is high on both. Re-read this table when a newer model family ships.
 
-## Status on 2026-10-18
+## Status on 2026-10-22
 
 **Done:** passes 00–07, 09 (release machinery, staged), 10 (release candidate),
-12 and 13 (read-only improvements), and pass 08 slices 1–5. The read-only build
+12, 13 and 14 (read-only improvements and maintenance; pass 14 merged as PR #11 on 2026-10-21), and pass 08 slices 1–5. The read-only build
 is complete and reviewed. The mutating loop is wired behind a test-only
 allowance; a run takes its snapshot and records itself; `history`, `restore
---plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") passed on `main` at `e463ca5` (run 39173310737, 2026-10-18).
+--plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") has passed on `main` and on every topic branch of passes 13–14; the latest `main` run is 2026-10-21 (run 39578935218 at `ad5a95d`). On 2026-10-22 the merged topic branches were deleted and only `main` remained.
 
 **Not done:**
 
@@ -54,8 +54,8 @@ allowance; a run takes its snapshot and records itself; `history`, `restore
 
 | # | Work order | Track | Can start | Model | Why that model |
 |---|---|---|---|---|---|
-| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **now** | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
-| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | after 14 merges; part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
+| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **done** (merged 2026-10-21) | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
+| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | **part A in progress** on `pass/15-first-tag-readiness` (2026-10-22); part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
 | — | **Owner: certificates, environment, ruleset, dry run, tag v0.1.0** | R | after 15 | — | Only the owner handles credentials and tags. |
 | 3 | [`08-slice-6-verification-before-removal.md`](08-slice-6-verification-before-removal.md) | M | after 14's R-20 note | **Opus** recommended; Sonnet only under the rules below | Planner, gate, verification and executor (INV-01): by this file's own criterion, the stronger model. The design is written; the risk is a fail-closed rule subtly wrong. |
 | 4 | [`08-slice-7-plan-tie-and-consent.md`](08-slice-7-plan-tie-and-consent.md) | M | after 6 merges; part A after DP-049 | **Opus** recommended; Sonnet only under the rules below | Consent wiring and the plan tie in the executor; INV-02, INV-06. |

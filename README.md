@@ -86,7 +86,13 @@ migration and coexistence layer that stays useful afterwards, on any Mac.
 This is version 0.1.0. It reads, explains and plans; it does not install,
 remove, switch which copy of a tool runs or restore. `history` and
 `restore --plan --run <id>` read the runs this tool has recorded and plan the
-way back; since nothing executes yet, a user's machine has none.
+way back. Since nothing executes yet, a machine has no recorded run: `history`
+says "No runs are recorded" (exit 0), `history show <id>` and
+`restore --plan --run <id>` (and `restore --run <id>`) answer that the run is not
+recorded (exit 8) for a well-formed run id, and `history acknowledge <id>` says
+there is no interrupted run to acknowledge; `doctor`'s `interrupted_run` finding
+reads `OK`.
+<!-- DP-045 pending: these commands ship in 0.1.0 under the reversible default (a). -->
 The binary says so in its own `--help`:
 
 - **It executes nothing.** `plan` builds and prints a migration plan, and so
@@ -155,6 +161,7 @@ macportsbrew snapshot            # capture both providers' state to a file
 Add `--json` to any of them for a versioned, machine-readable payload on stdout
 (see [`docs/schemas/`](docs/schemas/README.md)).
 
+<!-- DP-033 pending: no 0.1.0 artifact installs `mpb`; the text below is unchanged until the owner rules. -->
 **`mpb` is the same program under a shorter name**, installed alongside
 `macportsbrew` rather than wrapping it. Installation refuses to shadow an
 existing `mpb` on your `PATH` silently — MIT Photonic-Bands ships an executable
@@ -310,8 +317,10 @@ should not open by asking you to pipe an unreviewed remote script into a shell.
 The published [support matrix](docs/support-matrix.md) distinguishes what CI is
 configured to exercise from what is merely believed to work, and it is generated
 from the CI configuration rather than written by hand — which also means it
-states configuration and not results. **When 0.1.0 was prepared, no CI job had
-run**, and the matrix says at the top whether any results exist. macOS 15 and 26 are **configured to be tested**
+states configuration and not results. **CI has run** ("Repository validation", run 39578935218, `main` at `ad5a95d`,
+2026-10-21, green on macos-26, macos-26-intel, macos-15 and macos-15-intel), and
+the matrix still states configuration, not results; it says at the top whether
+any results exist. macOS 15 and 26 are **configured to be tested**
 natively on both architectures; macOS 11 through 14 on both architectures, and
 10.12 through 10.15 on Intel, are **best-effort** — the
 deployment floor is met and asserted on every artifact, and nothing executes
