@@ -1,0 +1,253 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# DP-034 research: can the signing step hand `security` its two per-job random
+# passwords on stdin (`security -i`) instead of in argv, and does the password
+# then appear nowhere a bystander on the VM could read it?
+#
+# THIS FILE IS STAGED, not installed. It is written to .github/workflows/ only by
+# an owner-armed message (docs/passes/15-staged/README.md), on a throwaway
+# branch, run once through a pull request, and deleted; the pull request is
+# closed unmerged. Nothing in it may become the release workflow.
+#
+# What it handles: no secret, no environment, no checkout, no third-party
+# action. Everything it signs with it makes itself: a self-signed certificate
+# with a random key, three random passwords, a throwaway keychain, all inside
+# $RUNNER_TEMP on a VM that is destroyed afterwards. The passwords are masked
+# before they exist in a variable. `permissions: {}` leaves the token with no
+# scope at all.
+#
+# The questions, each answered as key=value lines in the job log and in the job
+# summary (see the "Recording" comment at the end of the script):
+#   Q1  do create-keychain, set-keychain-settings, unlock-keychain, import and
+#       set-key-partition-list work when read from `security -i`'s stdin, and
+#       does the same identity then sign (the argv recipe is the control)?
+#   Q2  does `security -i` echo what it reads, or write it to a file (history)?
+#   Q3  is the password in any process's argv while `security -i` runs? The
+#       method is checked first against a process that does carry it.
+#   Q4  does quoting matter (hex, base64 unquoted, base64 quoted, a password
+#       with a space, a quote, a backslash and a dollar sign)?
+#   Q5  does `security -i` report a failing command in its exit status? If it
+#       does not, the signing step must verify the keychain's state instead.
+#   Q6  does `create-keychain` without -p inside `security -i` read the password
+#       from stdin (an alternative route), or hang, or ask a GUI?
+name: DP-034 research (security -i)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/dp034-security-stdin.yml"
+
+permissions: {}
+
+jobs:
+  research:
+    name: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-26-intel, macos-15, macos-15-intel]
+    steps:
+      - name: Observe
+        shell: /bin/bash {0}
+        run: |
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          umask 077
+          sec=/usr/bin/security
+          ossl=/usr/bin/openssl
+          W="$RUNNER_TEMP/dp034"
+          /bin/mkdir -m 700 "$W" || exit 1
+          cd "$W" || exit 1
+          R="$W/results.txt"
+          : >"$R"
+          say() { printf '%s\n' "$*"; printf '%s\n' "$*" >>"$R"; }
+          tmo() { /usr/bin/perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$@"; }
+
+          say "runner.os_version=$(/usr/bin/sw_vers -productVersion) build=$(/usr/bin/sw_vers -buildVersion) arch=$(/usr/bin/uname -m)"
+
+          # Masked before they are assigned anywhere a log could show them.
+          pw_hex="$("$ossl" rand -hex 24)";   echo "::add-mask::$pw_hex"
+          pw_b64="$("$ossl" rand -base64 24)"; echo "::add-mask::$pw_b64"
+          wrap="$("$ossl" rand -hex 24)";     echo "::add-mask::$wrap"
+          srcpw="$("$ossl" rand -hex 24)";    echo "::add-mask::$srcpw"
+          printf '%s\n' "$pw_hex" "$pw_b64" "$wrap" "$srcpw" >"$W/pats"
+          export WRAP_PW="$wrap" SRC_PW="$srcpw"
+
+          # Names of the files that contain any of the secrets; never their text.
+          leaks() { /usr/bin/grep -l -F -f "$W/pats" "$@" 2>/dev/null | /usr/bin/tr '\n' ' '; }
+          leak_flag() { if [ -n "$(leaks "$@")" ]; then echo yes; else echo no; fi; }
+
+          # A self-signed code-signing certificate, a random key, made here.
+          cat >"$W/ext.cnf" <<'EOF'
+          [req]
+          distinguished_name=dn
+          x509_extensions=ext
+          prompt=no
+          [dn]
+          CN=DP034 Research
+          [ext]
+          keyUsage=critical,digitalSignature
+          extendedKeyUsage=critical,codeSigning
+          basicConstraints=critical,CA:false
+          EOF
+          "$ossl" req -x509 -newkey rsa:2048 -nodes -keyout "$W/k.pem" -out "$W/c.pem" -days 2 -config "$W/ext.cnf" >/dev/null 2>&1
+          say "cert.made_rc=$?"
+          "$ossl" pkcs12 -export -inkey "$W/k.pem" -in "$W/c.pem" -out "$W/wrapped.p12" -passout env:WRAP_PW >/dev/null 2>&1
+          say "p12.made_rc=$?"
+
+          # Is the identity usable? Counts it and signs a copy of a system tool with it.
+          verify_kc() { # <keychain> <label>
+            local kc="$1" l="$2" n h
+            n="$("$sec" find-identity -p codesigning "$kc" 2>&1 | /usr/bin/grep -c 'DP034 Research')"
+            say "$l.identity_listed=$n"
+            h="$("$sec" find-identity -p codesigning "$kc" 2>&1 | /usr/bin/awk '/DP034 Research/ {print $2; exit}')"
+            /bin/cp /usr/bin/true "$W/t.$l"
+            tmo 40 /usr/bin/codesign -f -s "$h" --keychain "$kc" "$W/t.$l" >"$W/cs.$l" 2>&1
+            say "$l.codesign_rc=$?"
+          }
+          # Does the password the keychain really has equal the one we meant to set?
+          # (Lock it, then unlock it with the intended value through argv: a test
+          # of the control value, run only after every sampler has stopped.)
+          check_password() { # <keychain> <label> <intended password>
+            "$sec" lock-keychain "$1" >/dev/null 2>&1
+            "$sec" unlock-keychain -p "$3" "$1" >/dev/null 2>&1
+            say "$2.password_is_the_intended_one_rc=$?"
+          }
+          # Samples every process's argv a few times a second until killed.
+          sampler() { # <file>
+            ( while :; do /bin/ps -axww -o args= >>"$1"; /bin/sleep 0.02; done ) &
+            SAMPLER=$!
+          }
+          stop_sampler() { kill "$SAMPLER" 2>/dev/null; wait "$SAMPLER" 2>/dev/null; }
+
+          # ---- Q3 method check: a process that DOES carry the secret in argv ----
+          /usr/bin/perl -e 'sleep 6' "$pw_hex" &
+          cpid=$!
+          /bin/sleep 0.5
+          seen="$(/bin/ps -axww -o args= | /usr/bin/grep -c -F -f "$W/pats")"
+          kill "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null
+          say "Q3.method_sees_a_secret_in_argv_when_present=$seen (must be 1 or more)"
+
+          # ---- Control: the staged recipe, secrets in argv ----------------------
+          kcB="$W/argv.keychain-db"
+          sampler "$W/ps.B"
+          "$sec" create-keychain -p "$pw_hex" "$kcB" >"$W/o.B1" 2>&1; say "B.create_rc=$?"
+          "$sec" set-keychain-settings -lut 3600 "$kcB" >"$W/o.B2" 2>&1; say "B.settings_rc=$?"
+          "$sec" unlock-keychain -p "$pw_hex" "$kcB" >"$W/o.B3" 2>&1; say "B.unlock_rc=$?"
+          "$sec" import "$W/wrapped.p12" -k "$kcB" -f pkcs12 -P "$wrap" -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild >"$W/o.B4" 2>&1; say "B.import_rc=$?"
+          "$sec" set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw_hex" "$kcB" >"$W/o.B5" 2>&1; say "B.partition_rc=$?"
+          stop_sampler
+          verify_kc "$kcB" B
+          say "B.argv_secret_seen_by_sampler=$(leak_flag "$W/ps.B")  (the sampler is not guaranteed to catch a short-lived process)"
+
+          # ---- Q1/Q2/Q3: the same recipe on stdin -------------------------------
+          kcC="$W/stdin.keychain-db"
+          : >"$W/ref"
+          /bin/sleep 1
+          sampler "$W/ps.C"
+          printf '%s\n' \
+            "create-keychain -p $pw_hex $kcC" \
+            "set-keychain-settings -lut 3600 $kcC" \
+            "unlock-keychain -p $pw_hex $kcC" \
+            "import $W/wrapped.p12 -k $kcC -f pkcs12 -P $wrap -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild" \
+            "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $pw_hex $kcC" \
+            | tmo 180 "$sec" -i >"$W/o.C" 2>"$W/e.C"
+          say "C.security_i_rc=${PIPESTATUS[1]}"
+          stop_sampler
+          say "C.stdout_bytes=$(/usr/bin/wc -c <"$W/o.C" | /usr/bin/tr -d ' ') stderr_bytes=$(/usr/bin/wc -c <"$W/e.C" | /usr/bin/tr -d ' ')"
+          say "C.prompt_or_echo_in_stdout=$(/usr/bin/grep -c 'security>' "$W/o.C")"
+          say "C.stdout_contains_a_secret=$(leak_flag "$W/o.C" "$W/e.C")"
+          say "C.stdout_first_line=$(/usr/bin/head -n 1 "$W/o.C" | /usr/bin/cut -c1-120)"
+          say "C.stderr_first_line=$(/usr/bin/head -n 1 "$W/e.C" | /usr/bin/cut -c1-160)"
+          say "C.argv_secret_seen_by_sampler=$(leak_flag "$W/ps.C")"
+          say "C.sampler_saw_security_i=$(/usr/bin/grep -c 'security -i' "$W/ps.C") snapshots-lines"
+          verify_kc "$kcC" C
+          check_password "$kcC" C "$pw_hex"
+
+          # ---- Q2: files written during the stdin run --------------------------
+          {
+            /usr/bin/find "$HOME" -maxdepth 3 \( -path "$HOME/Library/Caches" -o -path "$HOME/Library/Keychains" \
+              -o -path "$HOME/Library/Developer" -o -path "$HOME/actions-runner" -o -path "$HOME/hostedtoolcache" \
+              -o -path "$HOME/runners" \) -prune -o -type f -newer "$W/ref" -print
+            /usr/bin/find /private/tmp /private/var/tmp -maxdepth 2 -type f -newer "$W/ref" -print
+          } 2>/dev/null | /usr/bin/grep -v -e "^$W/" -e "^$RUNNER_TEMP/" | /usr/bin/head -n 300 >"$W/newfiles"
+          say "Q2.files_newer_than_the_run=$(/usr/bin/wc -l <"$W/newfiles" | /usr/bin/tr -d ' ')"
+          say "Q2.of_those_containing_a_secret=$(/usr/bin/tr '\n' '\0' <"$W/newfiles" | /usr/bin/xargs -0 /usr/bin/grep -l -F -f "$W/pats" 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+          say "Q2.history_files_named_like_security=$(/usr/bin/grep -c -i 'security' "$W/newfiles")"
+          say "Q2.keychain_and_runner_logs_with_a_secret=$(leaks "$HOME"/Library/Logs/* 2>/dev/null)"
+
+          # ---- Q3: argv while `security -i` is alive and waiting ----------------
+          kcG="$W/hold.keychain-db"
+          "$sec" create-keychain -p "$pw_hex" "$kcG" >/dev/null 2>&1
+          /usr/bin/mkfifo "$W/fifo"
+          "$sec" -i <"$W/fifo" >"$W/o.G" 2>"$W/e.G" &
+          spid=$!
+          exec 3>"$W/fifo"
+          printf '%s\n' "unlock-keychain -p $pw_hex $kcG" >&3
+          /bin/sleep 2
+          mine="$(/bin/ps -ww -o args= -p "$spid" | /usr/bin/grep -c -F -f "$W/pats")"
+          anyone="$(/bin/ps -axww -o args= | /usr/bin/grep -c -F -f "$W/pats")"
+          say "Q3.security_i_alive_argv_has_a_secret=$mine  any_process_argv_has_a_secret=$anyone"
+          say "Q3.security_i_alive_args=$(/bin/ps -ww -o args= -p "$spid")"
+          exec 3>&-
+          for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$spid" 2>/dev/null || break; /bin/sleep 1; done
+          if kill -0 "$spid" 2>/dev/null; then
+            say "Q3.security_i_exits_on_eof=no (killed after 10 s)"; kill "$spid" 2>/dev/null
+          else
+            wait "$spid"; say "Q3.security_i_exits_on_eof=yes rc=$?"
+          fi
+
+          # ---- Q4: quoting -----------------------------------------------------
+          kcD="$W/q-b64.keychain-db"
+          printf '%s\n' "create-keychain -p $pw_b64 $kcD" "unlock-keychain -p $pw_b64 $kcD" | tmo 60 "$sec" -i >/dev/null 2>"$W/e.D"
+          say "Q4.base64_unquoted_rc=${PIPESTATUS[1]}"
+          check_password "$kcD" Q4a "$pw_b64"
+
+          kcE="$W/q-b64q.keychain-db"
+          printf '%s\n' "create-keychain -p \"$pw_b64\" $kcE" "unlock-keychain -p \"$pw_b64\" $kcE" | tmo 60 "$sec" -i >/dev/null 2>"$W/e.E"
+          say "Q4.base64_double_quoted_rc=${PIPESTATUS[1]}"
+          check_password "$kcE" Q4b "$pw_b64"
+
+          odd='a b"c\d$e'
+          kcF="$W/q-odd.keychain-db"
+          printf '%s\n' "create-keychain -p \"a b\\\"c\\\\d\$e\" $kcF" | tmo 60 "$sec" -i >/dev/null 2>"$W/e.F"
+          say "Q4.odd_double_quoted_rc=${PIPESTATUS[1]}"
+          check_password "$kcF" Q4c "$odd"
+          kcF2="$W/q-odd2.keychain-db"
+          printf '%s\n' "create-keychain -p 'a b\"c\\d\$e' $kcF2" | tmo 60 "$sec" -i >/dev/null 2>"$W/e.F2"
+          say "Q4.odd_single_quoted_rc=${PIPESTATUS[1]}"
+          check_password "$kcF2" Q4d "$odd"
+
+          # ---- Q5: does a failing command change the exit status? ---------------
+          printf '%s\n' "unlock-keychain -p wrong-on-purpose $kcC" | tmo 60 "$sec" -i >"$W/o.H1" 2>"$W/e.H1"
+          say "Q5.wrong_password_rc=${PIPESTATUS[1]}  stderr=$(/usr/bin/head -n 1 "$W/e.H1" | /usr/bin/cut -c1-120)"
+          printf '%s\n' "no-such-command" | tmo 60 "$sec" -i >"$W/o.H2" 2>"$W/e.H2"
+          say "Q5.unknown_command_rc=${PIPESTATUS[1]}  stderr=$(/usr/bin/head -n 1 "$W/e.H2" | /usr/bin/cut -c1-120)"
+          printf '%s\n' "unlock-keychain -p $pw_hex $kcC" "unlock-keychain -p wrong-on-purpose $kcC" | tmo 60 "$sec" -i >/dev/null 2>&1
+          say "Q5.last_of_two_fails_rc=${PIPESTATUS[1]}"
+          printf '%s\n' "unlock-keychain -p wrong-on-purpose $kcC" "unlock-keychain -p $pw_hex $kcC" | tmo 60 "$sec" -i >/dev/null 2>&1
+          say "Q5.first_of_two_fails_rc=${PIPESTATUS[1]}"
+          "$sec" unlock-keychain -p wrong-on-purpose "$kcC" >/dev/null 2>&1
+          say "Q5.argv_wrong_password_rc=$?  (the control: argv reports it)"
+
+          # ---- Q6: no -p inside -i ---------------------------------------------
+          kcI="$W/nopw.keychain-db"
+          printf '%s\n' "create-keychain $kcI" | tmo 25 "$sec" -i >"$W/o.I" 2>"$W/e.I"
+          say "Q6.create_without_p_rc=$?  (142 = timed out)"
+          say "Q6.stderr=$(/usr/bin/head -n 1 "$W/e.I" | /usr/bin/cut -c1-160)"
+
+          # ---- Cleanup, then the table -----------------------------------------
+          for k in "$W"/*.keychain-db; do "$sec" delete-keychain "$k" >/dev/null 2>&1; done
+          say "final.any_secret_in_results_or_outputs=$(leak_flag "$R" "$W"/o.* "$W"/e.*)"
+
+          {
+            echo "### DP-034 research, ${RUNNER_OS:-macOS} $(/usr/bin/uname -m)"
+            echo
+            echo '```'
+            /bin/cat "$R"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          # Recording: the owner (or an agent given the log) copies the lines above
+          # into docs/research/R-19-release-toolchain.md as a dated addendum.
+          exit 0
