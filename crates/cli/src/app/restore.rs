@@ -27,6 +27,10 @@ use crate::executor::refused_report;
 use macportsbrew_adapters::persistence::history_store;
 use macportsbrew_adapters::persistence::run_marker;
 use macportsbrew_adapters::persistence::snapshot_store::{state_snapshot, StateSnapshot};
+use macportsbrew_adapters::persistence::state_dir::StateDir;
+use macportsbrew_adapters::system::machine::{
+    effective_uid, from_process_environment, state_dir_override,
+};
 use macportsbrew_application::{
     check_same_package, execution_refusals, plan_outcome, restorability, restore_notes,
     restore_request, AnalysisOptions, KeepReason, PlanOutcome, RestoreIntent, RestoreNote,
@@ -75,6 +79,31 @@ pub(super) fn refuse_before_context(
              `macportsbrew history` lists them",
         )),
         Some(_) => Ok(()),
+    }
+}
+
+/// A run that is not recorded is refused before a context is built: the record
+/// lives in this machine's state directory and needs no provider, whereas a
+/// capture asks both providers (and on an empty Homebrew cache downloads its
+/// catalogue) only to answer "no such run". `history show` never took a capture
+/// for the same question. Read-only; the state directory is not created. The
+/// error is the one [`restore`] raises for the same case.
+pub(super) fn refuse_unrecorded_run(run_id: &str) -> Result<(), DomainError> {
+    let (_, _, home) = from_process_environment();
+    let euid = effective_uid().ok_or_else(|| {
+        DomainError::new(
+            ErrorId::SafetyBlocked,
+            "who this process runs as could not be established, so its history cannot be \
+             read and nothing was read",
+        )
+    })?;
+    let state = StateDir::resolve(home.as_deref(), state_dir_override().as_deref())?;
+    match history_store::read_one(&state, run_id, euid)? {
+        Some(_) => Ok(()),
+        None => Err(DomainError::new(
+            ErrorId::RunNotFound,
+            format!("run {run_id} is not recorded"),
+        )),
     }
 }
 
