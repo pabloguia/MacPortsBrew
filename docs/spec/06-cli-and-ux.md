@@ -9,12 +9,18 @@ alongside it as an equal short alias, not a wrapper. Both resolve to the same
 binary and behave identically. Help output, documentation and error messages use
 `macportsbrew` as the canonical spelling and mention `mpb` once, near the top.
 
-**MUST.** Installation detects an existing `mpb` on `PATH` — MIT Photonic-Bands
-ships one, installed from source or through other channels (ADR-0003) — and,
-if found, refuses to shadow it silently: it reports the conflict
-and installs only `macportsbrew` unless the user explicitly asks otherwise.
-A tool whose whole purpose is preventing accidental executable shadowing must not
-start by shadowing something (see `05-environment-and-primary-provider.md`).
+**MUST.** Installation never makes `mpb` shadow another `mpb` — MIT
+Photonic-Bands ships one, installed from source or through other channels
+(ADR-0003). The signed `.pkg` has no scripts by design (ADR-0005), so it cannot detect
+one: the release artifacts carry both names and the guard is `PATH` order — the
+documented line **appends** the install directory, never prepends it, so an
+earlier `mpb` wins (DP-033, ruled 2026-10-23). An install route that can run
+code (a future one; a cargo build runs none, and builds both binaries) MUST
+detect an existing `mpb` on `PATH` and, if found, report the conflict and
+install only `macportsbrew` unless the user explicitly asks otherwise. No route
+in this repository performs that detection today. A tool whose whole purpose is preventing
+accidental executable shadowing must not start by shadowing something (see
+`05-environment-and-primary-provider.md`).
 
 ```
 macportsbrew                      interactive overview (default)

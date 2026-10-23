@@ -38,8 +38,7 @@ For the next reader of the repository:
   "No runs are recorded"; exit 8 `RUN_NOT_FOUND` for `history show`,
   `restore --plan --run` and `restore --run`; exit 0 "No interrupted run is
   recorded" for `history acknowledge`; `doctor`'s `interrupted_run` `OK`). The
-  lines that depend on DP-045 carry `<!-- DP-045 pending -->`; the `mpb` lines
-  carry `<!-- DP-033 pending -->` and no changed text. Stale statements were
+  the markers were removed on 2026-10-23 when the owner ruled DP-045 (a) and DP-033 (b) (SE-104). Stale statements were
   corrected: "no CI job has run" (now dated, with the run), the "not yet
   implemented" list, the schema versions, the repository location.
 - **The staged release files are reconciled with `main`** and ready for the armed
@@ -179,3 +178,14 @@ installed.
 3. **Small, unguarded**: reword the `history` catalogue line in `--help` so it
    does not say "Reads only" (an i18n-parity change).
 4. **Pass 08 slice 6** (verification before removal), after the release track.
+
+## Addendum, 2026-10-23 — the owner's rulings
+
+DP-033 (b), DP-034 (b) first with (a) as the fallback, DP-035 as recommended and
+DP-045 (a) were ruled and propagated (SE-104, `docs/decisions-pending.md`, the
+staged README, spec 06, ADR-0003, ADR-0005, README, two wiki pages, the roadmap).
+Propagating DP-033 found that **no install route here ever detected an existing
+`mpb`**, contrary to what spec 06, ADR-0003, the README and the wiki had said; the
+amended texts say so. What is left is the list in `prompts/ROADMAP-to-first-release.md`
+("Remaining work after the rulings").
+

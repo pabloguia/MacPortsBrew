@@ -30,9 +30,12 @@ The binary lands at `target/release/macportsbrew`. Put it somewhere on your
 
 **`mpb` is the same program under a shorter name.** It is installed alongside
 `macportsbrew`, not as a wrapper. If you already have an `mpb` — MIT
-Photonic-Bands ships one — installation will tell you and install only
-`macportsbrew` rather than shadowing it. A tool whose purpose is preventing
-accidental executable shadowing should not start by shadowing something.
+Photonic-Bands ships one — keep it first on your `PATH`: the documented line
+(`export PATH="$PATH:$HOME/.macportsbrew/bin"`) **appends** the install directory, so your existing `mpb` wins and
+MacPortsBrew's is reachable as `macportsbrew`. (The installer cannot ask, and
+nothing here detects a conflict for you; the order of your `PATH` is the guard.)
+A tool whose purpose is preventing accidental
+executable shadowing should not start by shadowing something.
 
 You do **not** need Homebrew or MacPorts installed to run MacPortsBrew. It
 reports what it finds, including "neither".

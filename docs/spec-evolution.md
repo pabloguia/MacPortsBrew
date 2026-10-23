@@ -8061,3 +8061,27 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   case. A recorded run still captures before it plans, as a plan needs the current machine.
 - Compatibility impact: none in output or exit codes; fewer provider reads for an unrecorded id.
 
+## SE-104 — Rulings of 2026-10-23: the release artifacts carry `mpb`, the identifier and directory are fixed, and 0.1.0 ships the history commands
+- Status: accepted
+- Date / Pass: 2026-10-23 / after pass 15 part A (DP-033, DP-034, DP-035, DP-045 in `docs/decisions-pending.md`)
+- Original assumption: spec 06 and ADR-0003 said installation detects an existing `mpb` on `PATH` and declines to
+  shadow it; ADR-0005 said the `.pkg` does not create the alias because a non-interactive installer cannot decide.
+  Nothing in this repository ever performed that detection on any route (a cargo build produces both binaries
+  unconditionally), and no 0.1.0 artifact installed `mpb` at all, which contradicted the charter.
+- Change: **DP-033 (b)** — the `.pkg` and `.dmg` carry `mpb` beside `macportsbrew`; the charter stands. Spec 06's
+  MUST now says what is true: the installer cannot detect, so the guard is `PATH` order (the documented line
+  appends the install directory, so an earlier `mpb` wins), and a route that can run code MUST detect (none does
+  today). ADR-0003 is amended, ADR-0005's "does not create the alias" is reversed; the README and two wiki pages
+  say the same. **DP-035** — identifier `io.github.pabloguia.macportsbrew`, directory `~/.macportsbrew/bin`
+  (staged script and checklist updated). **DP-045 (a)** — the history commands, `restore --plan --run` and the
+  `interrupted_run` finding ship in 0.1.0 (pending markers removed). **DP-034** — (b) `security -i` is researched
+  first on a hosted runner with no secrets, (a) if it fails; still open until the research is written.
+- Rationale: the owner's rulings, on the recommendations except DP-033, where (a) was recommended and (b) chosen.
+  The cost the owner accepted, stated in the entry: the `.pkg` cannot run the conflict guard. The amended texts
+  state that cost instead of the guarantee they used to make.
+- Tests: none needed for text; part B adds the payload assertions and gate cases for the second file.
+- Not done: the `mpb` payload in `build-release.sh` and its tests (part B, guarded); a detection for the routes
+  that can run code; the DP-034 research.
+- Compatibility impact: none for anything published (nothing is). Users who read the old text expecting an
+  install-time check will find none; the new text says so.
+

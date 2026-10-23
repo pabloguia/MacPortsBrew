@@ -24,9 +24,8 @@ output may change freely.
 
 These changes came after the 0.1.0 release candidate and are on `main`; the
 0.1.0 tag is cut from `main`, so they ship in 0.1.0 and the 0.1.0 section below
-describes the ones a user sees. <!-- DP-045 pending: the owner has not ruled; (a) is the
-reversible default, and ruling otherwise reopens this paragraph and the 0.1.0
-section. -->
+describes the ones a user sees. (DP-045, ruled
+2026-10-23: they ship in 0.1.0.)
 
 ### Changed after the release candidate
 
@@ -142,7 +141,6 @@ run id; `history acknowledge` says no interrupted run is recorded (exit 0); and
 answers `RUN_NOT_FOUND` (exit 8) the same way; the execution gate's refusal
 (exit 4) applies only to a recorded run, so no 0.1.0 user meets it. And
 `restore --snapshot` is not built (exit 1).
-<!-- DP-045 pending: the history commands ship in 0.1.0 under the reversible default (a). -->
 `migrate --yes` puts a plan to an execution gate that refuses every plan this
 version produces (exit 4). A plan lists the commands a migration would run, in
 order, with how to check each one, so you can carry it out yourself at your own

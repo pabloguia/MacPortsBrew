@@ -92,7 +92,6 @@ says "No runs are recorded" (exit 0), `history show <id>` and
 recorded (exit 8) for a well-formed run id, and `history acknowledge <id>` says
 there is no interrupted run to acknowledge; `doctor`'s `interrupted_run` finding
 reads `OK`.
-<!-- DP-045 pending: these commands ship in 0.1.0 under the reversible default (a). -->
 The binary says so in its own `--help`:
 
 - **It executes nothing.** `plan` builds and prints a migration plan, and so
@@ -161,12 +160,13 @@ macportsbrew snapshot            # capture both providers' state to a file
 Add `--json` to any of them for a versioned, machine-readable payload on stdout
 (see [`docs/schemas/`](docs/schemas/README.md)).
 
-<!-- DP-033 pending: no 0.1.0 artifact installs `mpb`; the text below is unchanged until the owner rules. -->
 **`mpb` is the same program under a shorter name**, installed alongside
-`macportsbrew` rather than wrapping it. Installation refuses to shadow an
-existing `mpb` on your `PATH` silently — MIT Photonic-Bands ships an executable
-by that name — and installs only `macportsbrew` if it finds one
-([ADR-0003](docs/adr/0003-name-and-cli-alias.md)).
+`macportsbrew` rather than wrapping it. MIT Photonic-Bands ships an executable by
+that name, so the install directory is only ever **appended** to your `PATH`: an
+`mpb` you already have comes first and wins. Nothing here detects a conflict for
+you; the order of your `PATH` is the guard
+([ADR-0003](docs/adr/0003-name-and-cli-alias.md)). <!-- Release artifacts carry
+both names from part B of pass 15 (DP-033 (b)); until then nothing is published. -->
 
 ### What it looks like
 

@@ -62,8 +62,8 @@ macos-15-intel. Part B should change the banner it generates.
 already carries `github.repository == 'pabloguia/MacPortsBrew'` (DP-031 is
 resolved), so the checklist line that asked for it is gone.
 
-**`build-release.sh` changed in three ways**, SHA-256 now `458a259aec2a7ac813baf25621c3a523659912d95938004f118751ee1f3435cb`
-(720 lines, shellcheck 0.11.0 clean, `bash -n` clean):
+**`build-release.sh` changed in three ways**, SHA-256 now `2b5fab09f93157330e44d6f39e30ea276c92747929f26ad5844e37c2a706cd8a`
+(719 lines, shellcheck 0.11.0 clean, `bash -n` clean):
 
 1. **The `test-support` check** (new, before the `cargo build`): it asks
    `cargo tree --locked -p macportsbrew --target "$target" --prefix none -e
@@ -89,11 +89,10 @@ resolved), so the checklist line that asked for it is gone.
    existing `RUSTFLAGS` refusal. The test-only allowance is gated by
    `cfg(any(test, feature = "test-support"))`; a wrapper can pass the cfg
    without cargo's feature graph showing it.
-3. **The comment above `IDENTIFIER`** no longer says the value is "derived from
-   the workspace `repository` URL": it is not (that URL is now
-   `github.com/pabloguia/MacPortsBrew`). The value itself is unchanged, pending
-   DP-035; DP-035's recommendation is `io.github.pabloguia.macportsbrew`. If the
-   owner rules otherwise, the SHA-256 changes again and so does this table.
+3. **`IDENTIFIER` is now `io.github.pabloguia.macportsbrew`** (DP-035, ruled
+   2026-10-23), and the comment above it says so; before, the value was
+   `io.github.macportsbrew.macportsbrew` under a comment claiming it was
+   "derived from the workspace `repository` URL", which it was not.
 
 **`check-release-workflow.sh` gained rule 10**, SHA-256 now `544ec1e6e289176980b29bfc2098e77b73821333b932e8c6155b49c9329b5c23`
 (179 lines, shellcheck clean): in `release.yml` (a) no non-comment line names
@@ -159,6 +158,27 @@ hold single-quoted shell on purpose, then re-run `shellcheck -x`); the
 `build-release.sh` cases print `SKIP` off Darwin, where the packaging tools do
 not exist; and the Rust test replaces the tripwire in the same change.
 
+**Rulings of 2026-10-23, and the work they add to part B** (the scripts below
+are still the ones the earlier sections describe; these items are not staged
+yet):
+
+- **DP-033 (b): the `.pkg` and `.dmg` also carry `mpb`.** `build-release.sh`'s
+  payload for the `.pkg` grows `./bin/mpb` beside `./bin/macportsbrew` (same
+  mode, same bytes), the `.dmg` volume holds both, and the payload assertions
+  (`check_pkg_payload_list`, the dmg listing, the release record, `SHA256SUMS`
+  scope) grow an entry for each. The `mpb` file is a copy of the signed
+  executable, or the build's second `[[bin]]` signed separately; **decide that
+  with the first run**, because `mpb` is the same `main.rs` and a copy is
+  byte-identical, which the payload assertion can then state. A `.pkg` has no
+  scripts and cannot run the conflict guard, so the guard is `PATH` order:
+  the documented line **appends** the directory, so an earlier `mpb` wins.
+  ADR-0005, ADR-0003, spec 06 and the user text were amended on 2026-10-23
+  (SE-104); the payload code, its tests and the gate cases are part B.
+- **DP-034 (b) first:** a throwaway research workflow (no secrets) is prepared
+  and run before the signing step is written; the signing step then takes the
+  `security -i` form if it held, else the argv form of the text above.
+- **DP-035:** applied above.
+
 **Not changed by this pass, and why:** the install directory and identifier
 (DP-035), the `mpb` text (DP-033, default "change no text"), the keychain
 password's route through `security`'s argv (DP-034), and the owner sections of
@@ -171,7 +191,7 @@ commit 3 and commit 4 of the plan. In that message the agent:
 
 1. writes `scripts/build-release.sh` from the block below and checks
    `shasum -a 256 scripts/build-release.sh` against
-   `458a259aec2a7ac813baf25621c3a523659912d95938004f118751ee1f3435cb`;
+   `2b5fab09f93157330e44d6f39e30ea276c92747929f26ad5844e37c2a706cd8a`;
    `chmod 0755`;
 2. edits `scripts/run-fixture-matrix.sh`:
    `BIN="${MPB_FIXTURE_BIN:-target/debug/macportsbrew}"` (one line);
@@ -211,9 +231,8 @@ spends or commits something of yours.
 
 **The repository (DP-007, DP-031).** Done 2026-10-16: the repository is
 `pabloguia/MacPortsBrew`, public (DP-031 resolved (b), a personal account), and
-the workspace `repository` field says so. D-S3's identifier, staged below as
-`io.github.macportsbrew.macportsbrew`, is DP-035 and is still yours: it should
-not claim `io.github.macportsbrew` now. Still to do in Settings → General:
+the workspace `repository` field says so. D-S3's identifier is
+`io.github.pabloguia.macportsbrew` (DP-035, ruled 2026-10-23). Still to do in Settings → General:
 enable **immutable releases** (08 MUST).
 
 **The protected tag.** The workflow that runs is the one at the tagged commit,
@@ -274,17 +293,17 @@ app-specific password). The `.p8` downloads once.
 **Decisions to make before the first tag** (plan, Decisions;
 [`decisions-pending.md`](../../decisions-pending.md)):
 
-- **DP-035** (D-S3, D-P1) — the identifier `io.github.macportsbrew.macportsbrew`
-  and the install directory `~/.macportsbrew/bin` are permanent once a release
-  ships. Confirm them or name others.
-- **DP-034** (D-S1) — per-job random keychain and re-wrap passwords reach
-  `security`'s argv, which ADR-0005's text forbids; accept that on the
-  ephemeral VM, or have `security -i` (stdin) researched first.
-- **DP-033 ruled** (D-B2) — **the first tag is blocked until you rule it.** The
-  charter (Tier 2, `00-charter.md` line 8) says `mpb` is "installed alongside"
-  `macportsbrew`, and no release artifact installs it; shipping without your
-  ruling would contradict the charter. No text has been changed meanwhile
-  [SG2 B-H1].
+- **DP-035 ruled 2026-10-23** (D-S3, D-P1) — the identifier
+  `io.github.pabloguia.macportsbrew` and the install directory
+  `~/.macportsbrew/bin`; both are permanent once a release ships. Nothing left
+  to decide.
+- **DP-034 ruled 2026-10-23: (b) first** (D-S1) — `security -i` (stdin) is
+  researched on a hosted runner with a throwaway keychain and no secrets; if it
+  does not hold, (a): accept the two per-job random values in argv on the
+  ephemeral VM. **Open until that research is written.**
+- **DP-033 ruled 2026-10-23: (b)** (D-B2) — the `.pkg` and `.dmg` also carry
+  `mpb`; the charter stands. The work this adds to part B is under "Rulings of
+  2026-10-23" in the addendum.
 - **DP-036** — whether DP-019's ".app" means the `.dmg`.
 
 **Checks before the first tag.**
@@ -309,7 +328,7 @@ app-specific password). The `.p8` downloads once.
      ~/.macportsbrew/bin/macportsbrew` — required: owned by that user, `0755`
      directories and executable, nothing group- or world-writable (08);
    - where the receipt went (`pkgutil --pkgs` and `pkgutil --pkg-info
-     io.github.macportsbrew.macportsbrew`, run as that user);
+     io.github.pabloguia.macportsbrew`, run as that user);
    - that no `PATH` or shell file changed.
 
    Until this is recorded, README's Install section (and so the notes) states
@@ -388,7 +407,7 @@ What macOS minutes would cost on a private repository was not researched.
 ## The script
 
 `scripts/build-release.sh`, SHA-256
-`458a259aec2a7ac813baf25621c3a523659912d95938004f118751ee1f3435cb`, 720
+`2b5fab09f93157330e44d6f39e30ea276c92747929f26ad5844e37c2a706cd8a`, 719
 lines, shellcheck 0.11.0 clean, `bash -n` clean; revised after two rounds of
 review and dry-run unsigned for `x86_64-apple-darwin` on 2026-10-11 at
 `39b33e5` (exit 0; plan, fact 17). The first version, `dfaf2625…6fd6f8bf0`, is
@@ -543,11 +562,10 @@ esac
 
 # The identifier is forever: codesign's designated requirement and the macOS
 # Installer's upgrade matching both key on it (R-19 finding 10; pkgbuild(1)).
-# Owner decision D-S3 / DP-035, still open: the value staged stands until it is
-# ruled. It is NOT derived from the workspace `repository` URL (that is now
-# github.com/pabloguia/MacPortsBrew); DP-035's recommendation is
-# io.github.pabloguia.macportsbrew.
-readonly IDENTIFIER="io.github.macportsbrew.macportsbrew"
+# Owner decision D-S3, ruled 2026-10-23 (DP-035): io.github.pabloguia.macportsbrew,
+# following the repository's account (github.com/pabloguia/MacPortsBrew, DP-031).
+# Permanent once a release is published.
+readonly IDENTIFIER="io.github.pabloguia.macportsbrew"
 # Interpreted relative to the user's home directory, because the distribution
 # below enables only the current-user-home domain (plan, D-P1). R-19 lists the
 # exact interpretation as UNRESOLVED; the plan carries the check that settles it.

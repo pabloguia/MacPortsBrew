@@ -222,9 +222,14 @@ is emitted by `path_audit.rs` for a `PATH` entry owned by the running user with
 the owner-write bit set, which a user-owned `0755` `~/.macportsbrew/bin` is, and
 `doctor` reports it as `path_owner_writable` (`crates/application/src/doctor.rs`);
 nothing in the audit special-cases this tool's own directory. The check is
-skipped when the home directory cannot be resolved.)* And the `.pkg` does **not** create the `mpb` alias,
+skipped when the home directory cannot be resolved.)* ~~And the `.pkg` does **not** create the `mpb` alias,
 because ADR-0003 requires installation to detect an existing `mpb` and decline
-to shadow it, and a non-interactive installer cannot make that decision.
+to shadow it, and a non-interactive installer cannot make that decision.~~
+*(Reversed 2026-10-23, DP-033 ruled (b): the `.pkg` and the `.dmg` **carry
+`mpb`** beside `macportsbrew`, as the charter says. A non-interactive installer
+still cannot decline at install time, so the guard is `PATH` order — the
+documented line appends the install directory, so an earlier `mpb` wins. The
+payload assertions list both files.)*
 
 **Expensive to change later.** Dropping Developer ID after publishing signed
 releases invalidates trust users have already extended, whereas adding it

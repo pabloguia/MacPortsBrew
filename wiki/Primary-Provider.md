@@ -106,10 +106,12 @@ invasive, which is why it is last.
 - **Never change `PATH` silently.**
 - **Never shadow a macOS system tool without saying so explicitly and asking.**
   Some system binaries are load-bearing for the operating system.
-- **Never shadow an existing `mpb`.** Installation checks for one — MIT
-  Photonic-Bands ships an executable by that name — and installs only
-  `macportsbrew` if it finds one. A tool whose purpose is preventing accidental
-  executable shadowing should not open by shadowing something.
+- **Never shadow an existing `mpb`.** MIT Photonic-Bands ships an executable by
+  that name. The signed installer cannot check for one, and no install route here
+  does today, so the install directory is only ever appended to `PATH`, and an
+  earlier `mpb` wins. A tool
+  whose purpose is preventing accidental executable shadowing should not open by
+  shadowing something.
 
 ## In this build
 

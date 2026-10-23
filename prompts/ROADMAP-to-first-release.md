@@ -92,8 +92,9 @@ wrong; they do not change that slices 6–8 are judgement-heavy.
 
 | Item | Blocks | Notes |
 |---|---|---|
-| Rule **DP-033** (`mpb`), **DP-034** (keychain password in argv), **DP-035** (identifier, install directory), **DP-045** (slices 4–5 in 0.1.0); confirm DP-036 | 15, the tag | Recommendations: (a), (b) researched then (a), `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`, (a), (a). |
+| ~~Rule DP-033, DP-034, DP-035, DP-045~~ **Ruled 2026-10-23**: DP-033 (b) the `.pkg`/`.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails; DP-035 `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`; DP-045 (a). **DP-036**: confirm (default holds) | 15 B, the tag | **DP-034 stays open until the `security -i` research is written** (next row). |
 | Send the armed message for work order 15 part B (`MPB_ALLOW_GUARD_EDIT=1` at the start, in your own words) | 15 B | It covers that one message (SE-093). |
+| **Arm the DP-034 research**: an armed message (`MPB_ALLOW_GUARD_EDIT=1`) to write the throwaway `security -i` workflow into `.github/workflows/`, and permission to run it once on a `pull_request` of a topic branch (no secrets); then close the pull request unmerged | DP-034, the signing step | Prepared first as a short pass (see "Remaining work" below). |
 | Apple Developer Program; **Developer ID Application** and **Installer** certificates; an App Store Connect API key; the `release-signing` environment with its 7 secrets and 3 variables; the `v*` tag ruleset; immutable releases | the tag | Checklist in `docs/passes/09-staged/README.md`; never in a file, never in a session. |
 | The dispatch dry run, the Standard-account `.pkg` check, the Gatekeeper protocol | the tag | `docs/passes/10-read-only-release-candidate-report.md`. |
 | Rule **DP-046** (elevated steps), **DP-047** (primary mechanism), **DP-048** (removal window), **DP-049** (`sha2` and `--plan-digest`), **DP-050** (source builds), **DP-051** (the four unevaluable destination checks) | DP-049: slice 7 part A; DP-047: slice 8; DP-046, DP-048 and DP-051: slice 9 and the flip; DP-050: nothing (slice 6 reads it) | DP-046 and DP-047 contain an INV-17 and charter question that only you can answer. DP-049 has no default for its part A; DP-051 has none at all. |
@@ -118,3 +119,28 @@ session-start hook announces `prompts/<that>.md` as the work order. When a
 session runs on Sonnet, add one more sentence to the prompt above, asking it to
 run `spec-guardian` and `security-reviewer` with `model: opus` on the plan and
 after every part.
+
+## Remaining work after the rulings of 2026-10-23
+
+In order. Nothing here needs another decision, except where it says so.
+
+1. **DP-034 research pass (small, Sonnet, reviewers on Opus).** Prepare the
+   no-secrets workflow (a self-signed `.p12` made with `openssl`, a throwaway
+   keychain, `security -i` fed by a pipe, the same steps through argv as the
+   control, the log checked for the password, `ps` sampled), review it, stage it.
+   *Needs from you:* the armed message to write it, permission to run it once.
+   Result: an R-19 addendum; DP-034 closes either way.
+2. **Pass 15 part B (Opus preferred).** Everything in the staged README, plus the
+   `mpb` payload that DP-033 (b) added: `./bin/mpb` in the `.pkg`, both files in the
+   `.dmg`, the assertions, the gate cases. *Needs from you:* the armed message.
+   Decide in that pass whether `mpb` is a byte-identical copy of the signed
+   `macportsbrew` or the second `[[bin]]` signed on its own.
+3. **Small, unguarded, any time:** reword the top-level `--help` line for
+   `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
+4. **Optional, as one armed message:** the `.claude/` fixes in
+   `docs/research/tooling/2026-10-22-*.md`.
+5. **Owner, after 2:** certificates, the `release-signing` environment, the
+   `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
+   `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
+6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are
+   still open.
