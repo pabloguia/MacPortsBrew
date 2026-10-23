@@ -8085,3 +8085,23 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: none for anything published (nothing is). Users who read the old text expecting an
   install-time check will find none; the new text says so.
 
+## SE-105 — DP-034 closed: the keychain passwords reach `security` on stdin, not in argv
+- Status: accepted
+- Date / Pass: 2026-10-23 / after pass 15 part A (DP-034; R-19 addendum of the same date)
+- Original assumption: the staged signing step passed two per-job random values to `security create-keychain -p`,
+  `unlock-keychain -p`, `set-key-partition-list -k` and `import -P`, a deviation from ADR-0005's "never in argv"
+  that the owner would have had to accept, with `security -i` named as the unverified alternative.
+- Change: `security -i` was observed on macos-26, macos-26-intel, macos-15 and macos-15-intel (one run of a
+  no-secrets workflow, pull request #14 closed unmerged). It accepts all five subcommands on stdin, echoes nothing,
+  writes nothing, and its argv is `/usr/bin/security -i` while it waits. The signing step (part B) takes one
+  `security -i` per command with hex passwords. ADR-0005 stays as written; no exception is recorded.
+- Rationale: the owner's ruling ("b first, a if it fails"); it did not fail. Two observed constraints shape the
+  recipe: `security -i` reports only the last command's exit status (so one invocation per command), and single
+  quotes are not honoured (so hex).
+- Tests: the observation itself; the staged workflow is kept as the record. Not shown: that the stdin-built
+  keychain signs (the argv control did not sign either; the first dry run with the real certificates is where
+  that is shown); the passwords in the process environment.
+- Not done: the signing step is not rewritten (guarded, part B). The sampling loop missed the control's argv
+  secrets on both Intel runners, so the claim rests on the deterministic hold test, which found none on all four.
+- Compatibility impact: none; nothing is published.
+

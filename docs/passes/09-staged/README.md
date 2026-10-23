@@ -174,9 +174,12 @@ yet):
   the documented line **appends** the directory, so an earlier `mpb` wins.
   ADR-0005, ADR-0003, spec 06 and the user text were amended on 2026-10-23
   (SE-104); the payload code, its tests and the gate cases are part B.
-- **DP-034 (b) first:** a throwaway research workflow (no secrets) is prepared
-  and run before the signing step is written; the signing step then takes the
-  `security -i` form if it held, else the argv form of the text above.
+- **DP-034 (b), held (2026-10-23):** the signing step of `release.yml` is
+  rewritten to the recipe at the end of the R-19 addendum of that date: one
+  `security -i` per command, hex passwords, `|| exit 1` on each, and the comment
+  that called the argv route a deviation removed. The staged `release.yml` above
+  still has the argv form, so **its SHA-256 changes in part B**; the research did
+  not show that the keychain signs, so the first dry run is where that is checked.
 - **DP-035:** applied above.
 
 **Not changed by this pass, and why:** the install directory and identifier

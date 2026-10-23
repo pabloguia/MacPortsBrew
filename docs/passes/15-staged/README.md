@@ -17,6 +17,12 @@ certificate, three random passwords (masked before they are assigned) and a
 throwaway keychain inside `$RUNNER_TEMP` on a hosted VM, with `permissions: {}`,
 no checkout, no environment and no third-party action.
 
+### Result (2026-10-23)
+
+Run once, on four runners, through pull request #14 (closed unmerged): **(b) held**.
+The observation is the 2026-10-23 addendum of `docs/research/R-19-release-toolchain.md`;
+DP-034 is resolved. The file below is kept as the record of what was run.
+
 ### Status of the review
 
 - `actionlint` is clean; the staged `check-release-workflow.sh` accepts it beside

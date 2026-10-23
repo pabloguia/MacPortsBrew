@@ -189,3 +189,17 @@ Propagating DP-033 found that **no install route here ever detected an existing
 amended texts say so. What is left is the list in `prompts/ROADMAP-to-first-release.md`
 ("Remaining work after the rulings").
 
+### Addendum, 2026-10-23 — the DP-034 research, and the guarded write it needed
+
+At the owner's armed message (one message, `MPB_ALLOW_GUARD_EDIT=1`) a throwaway
+branch `research/dp034-security-stdin` was cut from `main` carrying one guarded
+file, `.github/workflows/dp034-security-stdin.yml` (SHA-256 `adb1d736…`, verified
+before the commit). It ran once, through pull request #14, on four hosted runners;
+no secret was involved and nothing was posted to the pull request. Result: `security -i`
+holds (R-19 addendum, SE-105, DP-034 resolved). The pull request is closed
+unmerged; the remote branch is the owner's to delete. The repository's own
+"Repository validation" workflow also started by itself on that push, as it does
+on any push; no other workflow was started by this session. The independent
+`security-reviewer` read of the workflow was declined by the permission
+classifier and not repeated; the owner accepted the self-review.
+

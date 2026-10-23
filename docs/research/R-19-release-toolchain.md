@@ -988,3 +988,71 @@ default is to obtain a secure passphrase via GUI."
   re-observed.
 - **`pkgbuild` gains `--compression`/`--min-os-version` in the release job**:
   re-observe the payload format for the `tar` extraction (finding 15).
+
+## Addendum, 2026-10-23 — DP-034: `security -i` keeps the keychain passwords out of argv
+
+Observed on hosted runners **macos-26** (26.6.2, arm64), **macos-26-intel**
+(26.6.1, x86_64), **macos-15** (15.7.9, arm64) and **macos-15-intel** (15.7.9,
+x86_64), by one run (`gh run view 40033361119`) of the throwaway workflow
+`docs/passes/15-staged/dp034-security-stdin.yml` (hash `adb1d736…`), through a
+pull request that was closed unmerged. No secret was involved: a self-signed
+certificate and random passwords made on the VM, all masked. The log was scanned
+for password-shaped values and for masked output before this was written: none.
+
+**Result: (b) holds on all four runners.**
+
+- `create-keychain -p`, `set-keychain-settings`, `unlock-keychain -p`, `import … -P
+  … -T …` and `set-key-partition-list -k` all run when read from `security -i`'s
+  stdin, and the resulting keychain lists the identity (`identity_listed=1`),
+  exactly as the argv recipe's does. `security -i` exits at EOF (`rc=0`).
+- The password is **not in argv**: with `security -i` alive and waiting, its
+  arguments are `/usr/bin/security -i` and no process's argv held a secret (0 of 0,
+  on every runner). A process that does carry a secret in argv was seen by the same
+  method (1). *The sampling loop run during the whole flow found nothing on any
+  runner, but it also missed the control's argv secrets on both Intel runners
+  (it caught them on both arm64 ones), so the deterministic hold test above, not
+  the sampler, is the evidence.*
+- `security -i` prints no prompt (`security>`) and no echo of what it reads (stdout
+  is the keychain's own `keychain: "…"` lines, 1.3 KB, no secret; stderr empty), and
+  wrote no file that holds a secret (0 to 4 files were newer than the run, depending
+  on the runner; none held a secret, none was named for `security`).
+- **Quoting.** Hex needs none. A base64 password works bare or double-quoted. A
+  password with a space, a quote, a backslash and a dollar sign works inside double
+  quotes with backslash escapes, and **fails inside single quotes** (the keychain
+  gets a different password: `unlock-keychain` rc 51 afterwards). So: use
+  `openssl rand -hex`.
+- **Exit status is the last command's only.** `security -i` returned 0 when an
+  earlier command failed and a later one succeeded (`first_of_two_fails_rc=0` on all
+  four), 1 for an unknown command, and 51 for a failing last unlock where the
+  keychain was locked (macos-26 and its Intel twin; on macos-15 an unlock with a
+  wrong password on an *already unlocked* keychain returns 0 even through argv, so
+  that case does not discriminate). Consequence: a single `security -i` fed several
+  commands **cannot be trusted to fail**. The signing step must run **one
+  `security -i` per command** (its exit status is then that command's), or verify
+  state afterwards (`find-identity`, then a test signature).
+- `create-keychain` with no `-p` inside `-i` prints `password for new keychain:` /
+  `retype password…` and exits 0 (it asked for the password rather than reading a
+  flag); not used.
+
+**Not shown.** Signing with the identity: `codesign` returned 1 in the argv control
+and in the stdin flow alike, on all four, and its message was not captured (a
+self-signed, untrusted certificate is the likely cause), so "the keychain signs" is
+**not** established by this run; the first real dry run with the Developer ID
+certificates is where it is. Also untested: the passwords in the process
+*environment* (`WRAP_PW` is exported to `openssl` as in the real step), a password
+beginning with `-`, CRLF input, very long lines.
+
+**Recipe the signing step takes** (part B, one command per `security -i`, hex
+passwords, state verified):
+
+```bash
+kc_pw="$(/usr/bin/openssl rand -hex 24)"; echo "::add-mask::$kc_pw"
+sec_i() { printf '%s\n' "$1" | /usr/bin/security -i; }   # printf is a builtin: not in argv
+sec_i "create-keychain -p $kc_pw $kc"          || exit 1
+sec_i "set-keychain-settings -lut 3600 $kc"    || exit 1
+sec_i "unlock-keychain -p $kc_pw $kc"          || exit 1
+sec_i "import $cred/wrapped.p12 -k $kc -f pkcs12 -P $WRAP_PW -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild" || exit 1
+sec_i "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $kc_pw $kc" || exit 1
+```
+
+Re-check when macOS or the runner image moves, or if `security` is changed.

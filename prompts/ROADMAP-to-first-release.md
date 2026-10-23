@@ -26,8 +26,9 @@ allowance; a run takes its snapshot and records itself; `history`, `restore
 **Not done:**
 
 - **v0.1.0 is not tagged.** Pass 09's guarded files are still staged, not
-  installed; DP-033, DP-034, DP-035 and the new DP-045 block the tag text; the
-  certificates and repository settings are the owner's.
+  installed (DP-033, DP-034, DP-035 and DP-045 were ruled 2026-10-23, so part B
+  of pass 15 can be armed); the certificates and repository settings are the
+  owner's.
 - **Mutations stay off.** Eight tests fail the day the switch is turned on
   (`docs/passes/08-pre-flip-design-notes.md` has the table). Beyond them,
   every real plan halts at `VERIFY_DESTINATION` — four of its six checks
@@ -92,9 +93,8 @@ wrong; they do not change that slices 6–8 are judgement-heavy.
 
 | Item | Blocks | Notes |
 |---|---|---|
-| ~~Rule DP-033, DP-034, DP-035, DP-045~~ **Ruled 2026-10-23**: DP-033 (b) the `.pkg`/`.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails; DP-035 `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`; DP-045 (a). **DP-036**: confirm (default holds) | 15 B, the tag | **DP-034 stays open until the `security -i` research is written** (next row). |
+| ~~Rule DP-033, DP-034, DP-035, DP-045~~ **Ruled 2026-10-23**: DP-033 (b) the `.pkg`/`.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails; DP-035 `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`; DP-045 (a). **DP-036**: confirm (default holds) | 15 B, the tag | **DP-034 closed 2026-10-23: `security -i` held on all four runners** (R-19 addendum); the signing step takes that recipe in part B. |
 | Send the armed message for work order 15 part B (`MPB_ALLOW_GUARD_EDIT=1` at the start, in your own words) | 15 B | It covers that one message (SE-093). |
-| **Arm the DP-034 research**: an armed message (`MPB_ALLOW_GUARD_EDIT=1`) to write the throwaway `security -i` workflow into `.github/workflows/`, and permission to run it once on a `pull_request` of a topic branch (no secrets); then close the pull request unmerged | DP-034, the signing step | Prepared first as a short pass (see "Remaining work" below). |
 | Apple Developer Program; **Developer ID Application** and **Installer** certificates; an App Store Connect API key; the `release-signing` environment with its 7 secrets and 3 variables; the `v*` tag ruleset; immutable releases | the tag | Checklist in `docs/passes/09-staged/README.md`; never in a file, never in a session. |
 | The dispatch dry run, the Standard-account `.pkg` check, the Gatekeeper protocol | the tag | `docs/passes/10-read-only-release-candidate-report.md`. |
 | Rule **DP-046** (elevated steps), **DP-047** (primary mechanism), **DP-048** (removal window), **DP-049** (`sha2` and `--plan-digest`), **DP-050** (source builds), **DP-051** (the four unevaluable destination checks) | DP-049: slice 7 part A; DP-047: slice 8; DP-046, DP-048 and DP-051: slice 9 and the flip; DP-050: nothing (slice 6 reads it) | DP-046 and DP-047 contain an INV-17 and charter question that only you can answer. DP-049 has no default for its part A; DP-051 has none at all. |
@@ -122,18 +122,11 @@ after every part.
 
 ## Remaining work after the rulings of 2026-10-23
 
-In order. Nothing here needs another decision, except where it says so.
+In order. Nothing here needs another decision.
 
-1. **DP-034 research pass (small, Sonnet, reviewers on Opus).** *Prepared
-   2026-10-23: `docs/passes/15-staged/` holds the workflow, its README and how to
-   read the result; actionlint-clean, mechanics dry-run against a fake `security`;
-   the independent security read was declined by the permission classifier and
-   is still owed.* Prepare the
-   no-secrets workflow (a self-signed `.p12` made with `openssl`, a throwaway
-   keychain, `security -i` fed by a pipe, the same steps through argv as the
-   control, the log checked for the password, `ps` sampled), review it, stage it.
-   *Needs from you:* the armed message to write it, permission to run it once.
-   Result: an R-19 addendum; DP-034 closes either way.
+1. ~~DP-034 research~~ **Done 2026-10-23** (R-19 addendum; `security -i` held on four
+   runners; pull request #14 closed unmerged). *Yours:* delete the remote branch
+   `research/dp034-security-stdin`.
 2. **Pass 15 part B (Opus preferred).** Everything in the staged README, plus the
    `mpb` payload that DP-033 (b) added: `./bin/mpb` in the `.pkg`, both files in the
    `.dmg`, the assertions, the gate cases. *Needs from you:* the armed message.

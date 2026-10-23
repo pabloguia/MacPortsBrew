@@ -135,43 +135,6 @@ makes the answer unknown, and the plan is refused). **Reversible default taken:*
 (a), fail-closed.
 
 
-### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids — **RULED 2026-10-23: (b) first, (a) if it fails; open until the research is written**
-
-- **Ruled 2026-10-23 by the owner:** follow the recommendation. First research whether `security -i` (commands on stdin) works for `create-keychain`, `unlock-keychain`, `import` and `set-key-partition-list`, does not echo them and keeps no history, on a hosted macOS runner with a throwaway keychain and **no secrets** (macos-15 and macos-26). If it holds, the signing step uses it and ADR-0005 needs no exception. If not, (a): the two per-job random values in argv on the ephemeral VM, masked, ADR-0005 amended.
-- **Needs from the owner:** an armed message to write the research workflow into `.github/workflows/`, and permission to run it once on a `pull_request` of a topic branch (the pass-15 work order forbids running workflows). The workflow is deleted and the pull request closed unmerged afterwards. **Closes** with an R-19 addendum holding the dated observation.
-- The original entry follows.
-
-Raised 2026-10-10, pass 09, by `spec-guardian` (M1) and `security-reviewer`
-(L3). ADR-0005 lists "the temporary keychain password" among the credentials
-that must never reach a public log, and says: "Every credential reaches its
-tool by file or stdin, never in `argv`". The staged signing step passes a
-per-job random keychain password to `security create-keychain -p`,
-`unlock-keychain -p` and `set-key-partition-list -k`, and a per-job random
-re-wrap password to `security import -P`. Your `.p12` passwords and notary key
-never reach argv. This is a **deviation from the ADR's text**, not a reading of
-it.
-
-- **(a) Accept argv for the two per-job random values on the ephemeral hosted
-  VM**, masked with `::add-mask::`, generated and unset inside the one step,
-  worthless once the VM is destroyed; amend ADR-0005 to say so. Cost: a value
-  visible to `ps` on that VM for the step's life. `security-reviewer` accepts
-  this provided nothing else runs there — which the pass-09 fix (the signing job
-  never executes the built program) now ensures.
-- **(b) `security -i`, reading its commands from stdin**, so neither password
-  appears in any process's argv. **Unverified:** whether interactive mode
-  accepts these subcommands from a pipe, echoes them, or records history needs a
-  dated observation on a throwaway keychain in a disposable account or VM (not
-  this machine, where a keychain write is out of bounds). Cost: one research
-  addendum; a less common recipe.
-- **(c) Another route** found by that research (for example a tool reading the
-  passphrase from a file descriptor). Cost: unknown until looked for.
-
-**Recommendation:** (b) investigated first, as an R-19 addendum; (a) if it does
-not hold. **What it blocks:** the first tag. **Reversible default taken:** (a)
-as staged, with the deviation stated in the workflow; nothing is signed before
-you rule.
-
-
 ### DP-036 — DP-019's ruling names an `.app`; is that the `.dmg`?
 
 Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-019's ruling reads "The
@@ -456,6 +419,57 @@ make a run complete by dropping a check.
 ---
 
 ## Resolved
+
+### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids — **RESOLVED 2026-10-23: (b), `security -i` holds on all four runners**
+
+- **Ruled 2026-10-23 by the owner:** (b) first, (a) if it failed. **It held**: one
+  run of the throwaway research workflow on macos-26, macos-26-intel, macos-15 and
+  macos-15-intel (R-19 addendum of 2026-10-23, run 40033361119, pull request #14
+  closed unmerged). The passwords do not reach argv, nothing is echoed or written,
+  and ADR-0005 needs no exception. **Two things the signing step must do because of
+  it:** one `security -i` per command (a pipe of several reports only the last
+  command's exit status), and hex passwords (single quotes are not honoured).
+  **Owed, part B:** the signing step in `release.yml` takes the recipe in the
+  addendum, and its comment about "a deviation awaiting a ruling" goes. **Not
+  shown:** that the stdin-built keychain signs (the control failed to sign too;
+  the first dry run with the real certificates settles it).
+- The original entry follows.
+
+- **Ruled 2026-10-23 by the owner:** follow the recommendation. First research whether `security -i` (commands on stdin) works for `create-keychain`, `unlock-keychain`, `import` and `set-key-partition-list`, does not echo them and keeps no history, on a hosted macOS runner with a throwaway keychain and **no secrets** (macos-15 and macos-26). If it holds, the signing step uses it and ADR-0005 needs no exception. If not, (a): the two per-job random values in argv on the ephemeral VM, masked, ADR-0005 amended.
+- **Needs from the owner:** an armed message to write the research workflow into `.github/workflows/`, and permission to run it once on a `pull_request` of a topic branch (the pass-15 work order forbids running workflows). The workflow is deleted and the pull request closed unmerged afterwards. **Closes** with an R-19 addendum holding the dated observation.
+- The original entry follows.
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (M1) and `security-reviewer`
+(L3). ADR-0005 lists "the temporary keychain password" among the credentials
+that must never reach a public log, and says: "Every credential reaches its
+tool by file or stdin, never in `argv`". The staged signing step passes a
+per-job random keychain password to `security create-keychain -p`,
+`unlock-keychain -p` and `set-key-partition-list -k`, and a per-job random
+re-wrap password to `security import -P`. Your `.p12` passwords and notary key
+never reach argv. This is a **deviation from the ADR's text**, not a reading of
+it.
+
+- **(a) Accept argv for the two per-job random values on the ephemeral hosted
+  VM**, masked with `::add-mask::`, generated and unset inside the one step,
+  worthless once the VM is destroyed; amend ADR-0005 to say so. Cost: a value
+  visible to `ps` on that VM for the step's life. `security-reviewer` accepts
+  this provided nothing else runs there — which the pass-09 fix (the signing job
+  never executes the built program) now ensures.
+- **(b) `security -i`, reading its commands from stdin**, so neither password
+  appears in any process's argv. **Unverified:** whether interactive mode
+  accepts these subcommands from a pipe, echoes them, or records history needs a
+  dated observation on a throwaway keychain in a disposable account or VM (not
+  this machine, where a keychain write is out of bounds). Cost: one research
+  addendum; a less common recipe.
+- **(c) Another route** found by that research (for example a tool reading the
+  passphrase from a file descriptor). Cost: unknown until looked for.
+
+**Recommendation:** (b) investigated first, as an R-19 addendum; (a) if it does
+not hold. **What it blocks:** the first tag. **Reversible default taken:** (a)
+as staged, with the deviation stated in the workflow; nothing is signed before
+you rule.
+
+
 
 ### DP-045 — Do pass 08 slices 4 and 5 ship in 0.1.0? — **RESOLVED 2026-10-23: (a) they ship in 0.1.0, described honestly**
 
