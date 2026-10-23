@@ -28,7 +28,7 @@ no checkout, no environment and no third-party action.
   holds a secret. Those values are the fake's; they say nothing about the real tool.
 - **An independent `security-reviewer` read was requested and the permission
   classifier declined the call; it has not happened.** Do it before arming (ask it to read
-  the workflow for: leaks and reach, writes outside \`\$RUNNER_TEMP\`, whether Q1–Q6
+  the workflow for: leaks and reach, writes outside `$RUNNER_TEMP`, whether Q1–Q6
   measure what the header claims, gaps, and conflicts with the repository's gates),
   or accept the self-review below.
 - Self-review: (1) `create-keychain` adds each keychain to the user's search
