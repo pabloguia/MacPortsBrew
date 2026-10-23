@@ -124,7 +124,11 @@ after every part.
 
 In order. Nothing here needs another decision, except where it says so.
 
-1. **DP-034 research pass (small, Sonnet, reviewers on Opus).** Prepare the
+1. **DP-034 research pass (small, Sonnet, reviewers on Opus).** *Prepared
+   2026-10-23: `docs/passes/15-staged/` holds the workflow, its README and how to
+   read the result; actionlint-clean, mechanics dry-run against a fake `security`;
+   the independent security read was declined by the permission classifier and
+   is still owed.* Prepare the
    no-secrets workflow (a self-signed `.p12` made with `openssl`, a throwaway
    keychain, `security -i` fed by a pipe, the same steps through argv as the
    control, the log checked for the password, `ps` sampled), review it, stage it.
