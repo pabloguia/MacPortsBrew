@@ -216,6 +216,12 @@ non-ignored files; two EC key forms; the git environment cleared). The plan's
 `build_release_never_executes_the_input_on_the_sign_path` and binding refusals
 now exist in `test-gates.sh`.
 
+**Follow-up 2e, 2026-10-24** (armed message): `build-release.sh` →
+`2d6950a83891140bd09f71cc65d62ead0750e96a46e75a969edd72b5c21dcfde`
+(`readonly sign from_binary` after option parsing; a `finished` sentinel, because
+bash 3.2 exits 0 from a fatal shell error under an EXIT trap). `test-gates.sh` now
+runs the whole signed path under stubs with the input as the canary.
+
 **`mpb`.** `PAYLOAD=(macportsbrew mpb)` drives every list and hash. The `.pkg`
 installs `./bin/macportsbrew` and `./bin/mpb` (`0755`), the `.dmg` holds both,
 and a bare `mpb-<version>-<arch>` is published beside the bare executable, so

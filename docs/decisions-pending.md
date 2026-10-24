@@ -418,8 +418,61 @@ make a run complete by dropping a check.
 
 ---
 
+---
+
 
 ## Resolved
+
+### DP-053 — What edit of `build-release.sh` must the sign-path gate catch: an accident, or a hostile one? — **RESOLVED 2026-10-24: (c)**
+
+**Ruling (owner, 2026-10-24):** (c). The gate's job is the accidental regression now; a structural defence against a hostile edit comes before anyone else can change `build-release.sh`. Follow-up 2f carries the cheap hardening; the structural defence is open work, not yet scheduled.
+
+
+Raised 2026-10-24 by `security-reviewer`, reviewing pass 15 follow-up 2e. The gate
+`build_release_never_executes_the_input_on_the_sign_path` (`scripts/test-gates.sh`)
+now runs the whole signed path under stubs, with the input as the canary, and keeps
+a text scanner as a backstop. The review built three edits that run the input on
+the signing runner and pass both:
+
+- a run conditioned on CI's environment (`if [ -s "$MPB_NOTARY_KEY_PATH" ]`, or
+  `GITHUB_ACTIONS`): the harness's key file is empty, so the branch never runs there;
+- a run delayed and detached (`(sleep 20; "$input") &` through `awk system()`),
+  which happens after the harness has looked;
+- `xcrun "$bin"`, which the real `xcrun` runs, while the stub refused it quietly.
+  The text check catches this one.
+
+A test can make each of these harder: an environment that looks like CI, a
+process-group check, stubs that fail loudly on any form they do not know, taint
+through `$(...)`, and refusing `system(` in awk programs. No test of a shell script
+can be complete against an edit *written to evade it*. The author of that edit can
+read the test.
+
+- **(a) The gate's job is the accidental regression.** That means an honest edit
+  that adds `"$bin" --version` to a diagnostic or a new branch, or moves the run.
+  Hostile edits are held where they can be: by review of every change to
+  `build-release.sh` and `release.yml`, by the `v*` ruleset and the
+  `release-signing` environment (item 5), and by the signing job never running a
+  script from an unreviewed ref. The cheap hardening above goes in as follow-up
+  2f, and the gate's claims say "accidental".
+- **(b) The gate must also resist a hostile edit.** This needs a structural
+  change, not a test. One option is a signing job that cannot execute the input:
+  it holds the bytes only as an opaque file passed to `codesign`/`notarytool`, for
+  example in a sandbox profile that denies `process-exec` on that path, or on a
+  separate runner. Cost: a redesign of the signing job, which needs research
+  (sandbox-exec is deprecated) and the owner's runner budget.
+- **(c) Both:** (a) now, (b) before a second maintainer or an outside contribution
+  can change `build-release.sh`.
+
+**Recommendation:** (c). Today the only author of `build-release.sh` is the owner
+or a session the owner arms and reviews, so (a) is enough to tag. (b) becomes
+necessary the day someone else can land a change there.
+
+**What it blocks:** nothing before the tag under (a). The 2d and 2e work stays
+uncommitted until the owner rules, because its last review found Highs.
+
+**Reversible default taken:** none committed. The 2d and 2e changes sit in the
+working tree of `pass/15-first-tag-readiness`, and their docs say what the gate
+does not catch.
 
 ### DP-052 — Does the release publish a bare `mpb` file beside the bare `macportsbrew`? — **RESOLVED 2026-10-23: (a) keep it**
 

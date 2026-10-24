@@ -431,3 +431,189 @@ routing around the guard. The fixes are written up as ROADMAP item 2d, one armed
 message, and the claim in the docs was narrowed to what the scanner does. The
 `test-gates.sh` comment that says "only listed tools touch the input" was not
 narrowed, for the same reason, and is the first line 2d changes.
+
+## Follow-up 2d, 2026-10-24
+
+A sixth armed message; every guarded write was made before any background task.
+**Guarded files written:** `scripts/test-gates.sh`, `scripts/check-no-secrets.sh`
+and `scripts/validate.sh` (by `python3` and the Edit tool on scratch copies, then
+spliced in by `python3`; not in `.claude/.guard-edit-log`).
+
+- **The sign-path scanner is rewritten** (the 2c review's M1-M4, L1, L4). It reads the
+  whole of `build-release.sh` as one stream, so quoting, `$(`, backticks, `${...}`,
+  `$((...))`, `<(...)`, arrays, continuation lines and here-documents carry across
+  lines as the shell carries them; a here-document is found only in unquoted,
+  uncommented text, `<<<` is not one, `<<-` strips tabs, and a file ending inside one,
+  or inside a quote or a substitution, is a violation. Every command's first word must
+  be on an allowlist of the commands the script uses, or be one of its functions, and
+  no function may be named after a command. A command that names the input - `$bin`,
+  `$built`, `$from_binary`, a copy's path, a positional parameter inside a function, or
+  any name assigned one of those - may start only with a tool that runs nothing it is
+  given (`awk`, `sed`, `sort`, `find` are not among them). `tar` may not take a
+  program option, `xcrun` only `notarytool` or `stapler`, `find` no `-exec`, `command`
+  only `-v`, `trap` only a function; `PATH`, `BASH_ENV`, `ENV`, `DYLD_*` and `LD_*` may
+  not be assigned. The guard's `else` and `fi` are found by `if`/`fi` depth. 53
+  spellings that run the input, the review's 18 among them, were each refused against
+  copies of the script; the unmodified script passes.
+- **The build directories' file names** (L3): `check-no-secrets.sh --build-dirs` walks
+  `target/`, `dist/` and `.token-pilot/` with `find` for the name rules. The walk costs
+  about two seconds here (BSD `find` over ~30 000 files), so `validate.sh` passes the
+  flag in its default and `--full` modes - the commit gate's and CI's - and not in
+  `--quick`, which the `Stop` gate runs on every turn end.
+- **The gate tests' git isolation** (L2): `XDG_CONFIG_HOME=/var/empty`, and
+  `GIT_TEMPLATE_DIR`, `GIT_EXEC_PATH`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` unset.
+
+The gate suite passes. Two full-suite mutants were each caught: a helper in
+`build-release.sh` that hands its local `$f` to `sed`, and `--build-dirs` that does
+not walk.
+
+**The review (security-reviewer, Opus, read-only): five High, one Medium, three
+Low. Nothing from 2d is committed.** Confirmed fixed: M3, M4, L1, L2, L4 and the
+build-directory walk. Not fixed: M1 and M2. The reviewer ran five spellings that
+pass the new scanner and do run the input:
+
+- a prefix assignment, whose text is never checked;
+- taint lost through `$(...)`, `for` or `read`, which lets the name reach `awk`, `git` or `find` (all on the allowlist);
+- a quoted tar option;
+- `$'\''`, which desynchronises the quote state;
+- text bash evaluates a second time (`$((expr))`, `PS4` with `set -x`).
+
+The Medium is that assigning `sign=0; from_binary=""` before the guard passes, so the
+"53 spellings refused" claim above is true only of that set. Following the rule for
+this pass (a High from the review means no commit), the three guarded files stay
+modified and uncommitted in the working tree. The guard closed when the review
+handed back, so they cannot be changed further in this message. The reviewer's
+first recommendation, and the session's, is to make the guarantee dynamic: run the
+whole sign path under stubs with the input as the canary, add `readonly sign
+from_binary`, and keep the text check only as a backstop. That is ROADMAP item 2e.
+
+## Follow-up 2e, 2026-10-24
+
+A seventh armed message. It builds on the uncommitted 2d changes. **Neither is
+committed**: the review of 2e found two Highs (below). Every guarded write was made before any background task.
+
+**Guarded files written:**
+
+- `scripts/build-release.sh` (by the Edit tool and one `printf >>`);
+- `scripts/test-gates.sh` (by `python3` from scratch files, and the Edit tool);
+- `scripts/check-no-secrets.sh` (by `python3`, a comment only).
+
+Where the INV-19 hook matched a tool name in an inline command, the same
+operation was written to a scratch file and run from there, unchanged.
+
+- **The whole signed path runs in the gate tests.** A second stub set lets
+  `build-release.sh --sign --expect-unsigned-sha256 … --from-binary <input>` run
+  from its first line to `finished=1` with exit 0. The stubbed tools are:
+  - codesign, security, pkgbuild, productbuild, pkgutil, lsbom;
+  - hdiutil, xattr, xcrun, plutil, spctl, xcodebuild.
+
+  Each answers what the script asserts and runs nothing it is given. The containers
+  are cpio archives and the "mount" is an extraction; every other tool is the real
+  one. The input writes a marker if run. The `--from-binary` dry path runs to its
+  end the same way. A canary with the guard removed, and a canary with
+  `x="$bin" awk '…system(ENVIRON["x"])…'` added before step 8, each leave the
+  marker, so the harness can see a run anywhere on the path.
+- **The 2d review's seven spellings, each put before step 8 of a copy, are all
+  caught by the run.** The text check, kept as a backstop for the lines the signed
+  path does not take, catches five. It misses the two that pass the name through
+  `$(...)`. Its comment and label no longer claim more. The review's cheap fixes
+  are in: a prefix assignment's text is checked, `for` taints, quoted `tar`/`find`
+  options count, `$'...'` is parsed, `PS4` and xtrace are refused, `[[` is off the
+  list, and `readonly sign from_binary` must come before the guard.
+- **`readonly sign from_binary`** follows the option parsing. A test inserts
+  `sign=0` after it and requires the run to stop there with the readonly error.
+- **A failure that looked like a success.** Testing that, bash 3.2 (macOS's, and
+  the runners') exited **0** from the readonly error. It does the same for an
+  unbound variable or `${x:?}` whenever an EXIT trap is set, and `build-release.sh`
+  sets one. Observed 2026-10-24 with `/bin/bash` 3.2.57. The cleanup trap now ends
+  with `[ "$finished" = 1 ] || exit 1`, and `finished=1` is the script's last line,
+  so any earlier exit is a failure. `die` already exits 1, and nothing after the
+  trap exits with any other code.
+
+The gate suite passes (162 cases). Mutants of `build-release.sh` through the
+sign-path section were each caught:
+- without `readonly sign from_binary`, both by the run and by the text check;
+- without the sentinel's `exit 1`, by the run.
+
+The text check's 53 earlier spellings are still refused.
+
+**The review (security-reviewer, Opus, read-only): two High, two Medium, three
+Low.**
+
+- **Confirmed correct and safe for `release.yml`:** the sentinel and `readonly sign
+  from_binary`. bash 3.2's exit-0 was reproduced. With the sentinel, every fatal
+  error tried exits 1, including inside `$(...)`, `( )` and pipelines. No spelling
+  tried changes a readonly value. `usage`'s exit 2 comes before the trap. A signal
+  now exits 1 instead of 128+n, which the workflow does not read.
+- **Not true as written: "the run is the guarantee."** The reviewer built three
+  edits that run the input on the signed path and pass both checks:
+  - a run conditioned on CI's environment (the harness's key file is empty);
+  - a delayed, detached run (it happens after the harness has looked);
+  - `xcrun "$bin"`, which the stub refused quietly. The text check does catch this one.
+- **Not reached by the run:** the notarisation-failure branch, the
+  `MPB_NOTARY_ISSUER` expansions and the aarch64 target.
+
+The first two are edits written to evade the gate. Whether the gate must resist
+those, or only the accidental regression, is the owner's decision: DP-053, with a
+recommendation. The fixes the review proposes are ROADMAP item 2f. Following the
+rule for this pass, nothing is committed or pushed. The guard closed when the
+review handed back, so the session cannot change the guarded files further.
+
+## Follow-up 2f, 2026-10-24
+
+**DP-053 ruling (owner, 2026-10-24): (c).** The sign-path gate's job is the
+accidental regression. A structural defence against an edit written to evade it
+comes before anyone else can change `build-release.sh`. The first message carrying
+the ruling did not arm the guard: the token was not at the start of a line. The
+ruling was recorded, and 2f waited for the next message, which did arm it.
+
+**Guarded files written:** `scripts/test-gates.sh` only, by `python3` from scratch
+files. Every guarded write was made before any background task; a background
+mutant run's notification came after the last of them.
+
+- **H1, a run only CI's environment would trigger:**
+  - real Mach-O inputs for both targets, built by `cc` at each target's floor;
+  - real `lipo`, `otool`, `vtool` and `strings`;
+  - `GITHUB_ACTIONS`, `CI`, `RUNNER_TEMP` and `MPB_NOTARY_ISSUER` set;
+  - a non-empty key and keychain.
+
+  In the text check, a name assigned from a `$(...)` whose command names the input
+  is the input, and an awk program may not hold `system(`, `getline` or `|`. `git -c`
+  and `cargo --config` are refused.
+- **H2, a run put off and detached:** the script runs in its own process group,
+  `perl -e 'setpgrp(0,0); exec …'`. A member still alive after it exits fails the
+  case and is killed. The marker is checked again a second later. The text check
+  refuses a lone `&`.
+- **M1:** every stub's unknown form records the call and fails the case, so a stub
+  cannot quietly stand in for a real tool that would have run the input.
+- **M2:** a refused notarisation runs its branch (`notarytool log`, then the
+  failure) with no marker. Both targets are run, and the issuer is set.
+- **L1:** a guard-removed canary on the signed path.
+- **L2:** the text check requires `finished=1` as the last line of code.
+- **L3, not done:** the real `codesign` writes into its working directory, and
+  `build-release.sh` requires `$work/certs/codesign0`.
+
+**Results:**
+- The gate suite passes: 166 cases, four whole-path canaries among them.
+- The two reviews' thirteen spellings, each put before step 8 of a copy, are all
+  caught by the run and by the text check.
+- The 53 earlier text-check spellings are still refused.
+
+**The review (security-reviewer, Opus, read-only): no High, one Medium, three
+Low.**
+
+What it confirmed:
+- every 2e finding is fixed except L3, whose reason it accepts;
+- the harness is sound: the process-group check is proven by its canary, and a
+  missing `cc`, `perl` or `ps` fails loudly rather than passing;
+- it found nothing an honest edit could do to run the input on the signed path that
+  neither check catches;
+- `readonly`, the sentinel and `--build-dirs` are correct.
+
+What remains: the Medium is a false-positive risk. The `$(...)` taint marks digests
+of the input as the input, and the failure message then suggests widening INPUT.
+That, the Lows, and one hostile spelling the reviewer placed under DP-053 (b) are
+ROADMAP item 2g.
+
+2d, 2e and 2f are committed together.
+

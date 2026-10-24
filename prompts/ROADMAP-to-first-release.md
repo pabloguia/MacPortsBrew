@@ -151,23 +151,69 @@ In order. Nothing here needs another decision.
    the build directories, so a key inside an ignored directory is refused, and its
    name-rule advice no longer leads to a second refusal; `test-gates.sh` reads no
    developer git configuration.
-2d. **Follow-ups from the 2c review (one armed message, `scripts/test-gates.sh` and
-   `scripts/check-no-secrets.sh`; no High).** The allowlist only sees the input under
-   the names `$bin`, `$built`, `$from_binary` and a few copy paths, so 14 of the
-   reviewer's 18 mutants passed it. M1: check the first word of every simple command in
-   `build-release.sh` against the allowlist, not only commands naming the input; refuse
-   a function named after a listed tool and `$1`..`$9`, `$@`, `$*` in command position.
-   M2: cut the list to the tools actually used with the input, drop `xcrun`, `find`,
-   `awk`, `sed`, `sort`, and refuse `tar --use-compress-program`/`-I`/`--to-command`/
-   `--checkpoint-action`. M3: carry quote state and depth across lines and fail on an
-   unclosed quote at end of file. M4: scan an unquoted here-document body in its own
-   state (only `\`, `$(` and a backtick special). L1: detect `<<` only in unquoted,
-   uncommented text, not `<<<`, strip tabs for `<<-`, fail inside an unfinished
-   here-document. L2: also isolate `XDG_CONFIG_HOME` and unset `GIT_TEMPLATE_DIR`,
-   `GIT_EXEC_PATH`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` for the throwaway trees. L3:
-   run the name rules over `target/`, `dist/`, `.token-pilot/` with a `find -name`
-   filter, or record the accepted risk (`git add -f target/AuthKey_….p8`). L4: track
-   `if`/`fi` depth instead of the first column-0 `else`/`fi` after the guard.
+2d. ~~Follow-ups from the 2c review~~ **Written 2026-10-24, committed with 2e and 2f.** The sign-path scanner reads `build-release.sh` as one stream
+   (quotes, `$(`, backticks, `${...}`, `$((...))`, process substitution and
+   here-documents carried across lines, if/fi depth for the guard's `else`); every
+   command's first word is on an allowlist or is one of the script's functions;
+   commands naming the input, a copy, a positional parameter inside a function, or a
+   name assigned one of those, start only with tools that run nothing; `tar`,
+   `xcrun`, `find`, `command`, `trap` held to safe forms; no `PATH`/`DYLD_` assignment.
+   53 spellings refused, the review's 18 among them. `check-no-secrets.sh
+   --build-dirs` walks `target/`, `dist/`, `.token-pilot/` for the name rules;
+   `validate.sh` passes it outside `--quick` (the commit gate and CI). The gate
+   tests isolate `XDG_CONFIG_HOME` and the git template directory.
+2e. ~~Make the sign-path guarantee dynamic~~ **Written 2026-10-24, committed with 2f**
+   (its review found two Highs, answered by DP-053 (c) and 2f). `test-gates.sh` runs the whole signed path of
+   `build-release.sh`, and the `--from-binary` dry path, to exit 0 under a second
+   set of stubs (the signing, packaging, notarisation and Gatekeeper tools answer
+   what the script asserts and run nothing; containers are cpio archives); the
+   input is the canary. Two canaries show the harness sees a run: the guard
+   removed, and a run added after notarisation. The 2d review's seven spellings,
+   each put at the end of the signed path, are all caught by the run; the text
+   check, now a stated backstop for the lines the signed path does not take,
+   catches five. `build-release.sh` gains `readonly sign from_binary` after option
+   parsing, and a `finished` sentinel: bash 3.2, macOS's, was observed to exit 0
+   from a fatal shell error (an unbound variable, a readonly assignment, `${x:?}`)
+   when an EXIT trap is set, so a run that stopped short looked like a success.
+2f. ~~The 2e review's findings~~ **Written 2026-10-24** (armed message; pull request
+   #13; DP-053 ruled (c): the gate is for the accidental regression). The
+   whole-path run now looks like the signing job:
+   - real Mach-O inputs for both targets, built by `cc`, that leave the marker if run;
+   - real `lipo`/`otool`/`vtool`/`strings`;
+   - `GITHUB_ACTIONS`, `CI`, `RUNNER_TEMP` and `MPB_NOTARY_ISSUER` set;
+   - a non-empty key and keychain.
+
+   The run is in its own process group, and a member that outlives it fails the
+   case. Any stub call in a form the stub does not know fails it too. A refused
+   notarisation has its own case. The canaries cover the guard removed (dry and
+   signed), a late run, and a background run. The text check:
+   - taints through `$(...)`;
+   - refuses awk `system(`/`getline`/`|`, `git -c`, `cargo --config` and a lone `&`;
+   - requires `finished=1` to be the last line of code.
+
+   Both reviews' thirteen spellings are caught by the run and by the text check.
+   Not done: the codesign stub writing `codesign0` elsewhere (L3), since the real
+   tool writes into its working directory and the script requires that file there.
+   Still open (DP-053 (b)): before anyone else can change `build-release.sh`, a
+   signing job that cannot execute the input.
+2g. **Small, one armed message: the 2f review's findings** (no High).
+   - **M1:** the `$(...)` taint makes digests derived from the input (`unsigned_sha`,
+     `signed_sha`) count as the input. So honest edits such as
+     `git tag -m "$signed_sha"` or `sed "s/x/$signed_sha/"` are refused, and the
+     failure message points at widening INPUT, which for `git` would open
+     `core.fsmonitor`. Fix: do not taint from a substitution whose last stage yields
+     a digest or a field (`shasum`, `awk`, `wc`, `lipo -archs`, `otool`, `vtool`,
+     `stat`, `plutil`, `grep -c`). Or report these as "derived from the input",
+     with guidance that never says to widen INPUT.
+   - **L1:** the awk refusal also catches `||` and regex alternation. Refuse a lone
+     `|` only.
+   - **L2:** the `security` stub has no `unknown`; `hdiutil create`/`attach` accept an
+     empty `-srcfolder`/`-mountpoint`.
+   - **L3:** the guard-removed canaries run only on the host's arch. Run both where
+     the host can execute both, and SKIP by name where it cannot.
+
+   Also recorded, outside DP-053 (c): `printf … >>.git/config` setting
+   `core.fsmonitor`, followed by any git call, belongs to the structural defence.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
