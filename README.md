@@ -86,7 +86,12 @@ migration and coexistence layer that stays useful afterwards, on any Mac.
 This is version 0.1.0. It reads, explains and plans; it does not install,
 remove, switch which copy of a tool runs or restore. `history` and
 `restore --plan --run <id>` read the runs this tool has recorded and plan the
-way back; since nothing executes yet, a user's machine has none.
+way back. Since nothing executes yet, a machine has no recorded run: `history`
+says "No runs are recorded" (exit 0), `history show <id>` and
+`restore --plan --run <id>` (and `restore --run <id>`) answer that the run is not
+recorded (exit 8) for a well-formed run id, and `history acknowledge <id>` says
+there is no interrupted run to acknowledge; `doctor`'s `interrupted_run` finding
+reads `OK`.
 The binary says so in its own `--help`:
 
 - **It executes nothing.** `plan` builds and prints a migration plan, and so
@@ -156,10 +161,13 @@ Add `--json` to any of them for a versioned, machine-readable payload on stdout
 (see [`docs/schemas/`](docs/schemas/README.md)).
 
 **`mpb` is the same program under a shorter name**, installed alongside
-`macportsbrew` rather than wrapping it. Installation refuses to shadow an
-existing `mpb` on your `PATH` silently — MIT Photonic-Bands ships an executable
-by that name — and installs only `macportsbrew` if it finds one
-([ADR-0003](docs/adr/0003-name-and-cli-alias.md)).
+`macportsbrew` rather than wrapping it. MIT Photonic-Bands ships an executable by
+that name, so the install directory is only ever **appended** to your `PATH`: an
+`mpb` you already have comes first and wins. Nothing here detects a conflict for
+you; the order of your `PATH` is the guard
+([ADR-0003](docs/adr/0003-name-and-cli-alias.md)). The `.pkg` and the `.dmg` carry
+both names, and the release also publishes a bare `mpb` beside the bare
+`macportsbrew`.
 
 ### What it looks like
 
@@ -212,8 +220,9 @@ Silicon and `x86_64` on Intel — `uname -m` in Terminal tells you which.
 | File | What it is | What happens when you use it |
 |---|---|---|
 | `macportsbrew-X.Y.Z-<arch>` | The bare executable: one signed program file | Nothing happens until you place it. Rename it to `macportsbrew`, make it executable, and put it in a folder on your `PATH` — the Terminal line below does all three. Nothing else on your Mac changes. |
-| `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
-| `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable | Double-click it and a window opens with one file in it. Drag it to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the file into the window that opens. |
+| `mpb-X.Y.Z-<arch>` | The same file, byte for byte, under the short name | The same as the bare executable, renamed to `mpb` instead. Take it if you want the short name. Another program is also called `mpb` (MIT Photonic-Bands): if you put this one in `~/.macportsbrew/bin` and use the `PATH` line below, an `mpb` you already have comes first and wins. |
+| `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` and `mpb` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
+| `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable under both names | Double-click it and a window opens with two files in it, `macportsbrew` and `mpb`: the same program. Drag either or both to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the files into the window that opens. |
 
 **Not sure? Take the `.pkg`.** **Live in a terminal? This one line downloads,
 names, places and marks the program executable:**
@@ -221,6 +230,8 @@ names, places and marks the program executable:**
 ```
 mkdir -p ~/.macportsbrew/bin && curl -fL -o ~/.macportsbrew/bin/macportsbrew "https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/macportsbrew-X.Y.Z-$(uname -m)" && chmod +x ~/.macportsbrew/bin/macportsbrew
 ```
+
+For the short name as well, copy it: `cp ~/.macportsbrew/bin/macportsbrew ~/.macportsbrew/bin/mpb`.
 
 ### Putting it on your `PATH`
 
@@ -237,7 +248,10 @@ It adds the folder at the end, so it never hides a program you already have.
 ### The first time you run it
 
 macOS marks files a browser downloads, so it can check them before they first
-run. These files are signed with a Developer ID and notarised by Apple. The
+run. These files are signed with a Developer ID and notarised by Apple (the
+bare `mpb` is the bare executable's exact bytes and is not submitted
+separately; that Apple's approval of one covers the other is expected, because
+the signature is the same, and is first shown by the first signed release). The
 `.pkg` and the `.dmg` carry Apple's approval inside them. The bare file cannot,
 so the first time a browser-downloaded bare file runs, your Mac asks Apple over
 the network; what happens if there is no network at that moment has not been
@@ -258,7 +272,8 @@ Mac, run the first line on any other computer against the same file. If your
 file's line in `SHA256SUMS`. The attestation and Apple's notarisation establish
 where a file came from; `SHA256SUMS` only shows the download was not damaged.
 `SIGNING-RECORD.txt` records the team identifier, the certificate fingerprint,
-the notarisation submission of every file, and the toolchain that built it.
+the notarisation submission of the bare executable, the `.pkg` and the `.dmg`,
+and the toolchain that built it.
 <!-- release-notes:end -->
 
 The release machinery that produces these files is written and reviewed but
@@ -310,8 +325,10 @@ should not open by asking you to pipe an unreviewed remote script into a shell.
 The published [support matrix](docs/support-matrix.md) distinguishes what CI is
 configured to exercise from what is merely believed to work, and it is generated
 from the CI configuration rather than written by hand — which also means it
-states configuration and not results. **When 0.1.0 was prepared, no CI job had
-run**, and the matrix says at the top whether any results exist. macOS 15 and 26 are **configured to be tested**
+states configuration and not results. **CI has run** ("Repository validation", run 39578935218, `main` at `ad5a95d`,
+2026-10-21, green on macos-26, macos-26-intel, macos-15 and macos-15-intel), and
+the matrix still states configuration, not results; it says at the top whether
+any results exist. macOS 15 and 26 are **configured to be tested**
 natively on both architectures; macOS 11 through 14 on both architectures, and
 10.12 through 10.15 on Intel, are **best-effort** — the
 deployment floor is met and asserted on every artifact, and nothing executes

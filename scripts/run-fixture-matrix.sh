@@ -36,7 +36,14 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
-BIN="target/debug/macportsbrew"
+# The release workflow runs the matrix against the release executable. An
+# override is never silent: a shell that exported it once would otherwise have
+# the matrix pass against some other binary (pass 15 review A1; validate.sh
+# also unsets it).
+BIN="${MPB_FIXTURE_BIN:-target/debug/macportsbrew}"
+if [ -n "${MPB_FIXTURE_BIN:-}" ]; then
+  echo "run-fixture-matrix: testing $BIN (MPB_FIXTURE_BIN), not the debug build" >&2
+fi
 GOLDEN="fixtures/golden"
 TODAY="2026-09-02"
 update=0

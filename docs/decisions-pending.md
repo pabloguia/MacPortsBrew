@@ -134,111 +134,6 @@ nothing in v0.1.0 — the slice-3 scan is fail-closed (any item it cannot attrib
 makes the answer unknown, and the plan is refused). **Reversible default taken:**
 (a), fail-closed.
 
-### DP-033 — No release artifact installs `mpb`, and the charter says it is installed alongside `macportsbrew` — a charter amendment
-
-Raised 2026-10-10, pass 09, by `spec-guardian` (H2); raised to a charter
-question 2026-10-11 by `spec-guardian`'s second review (B-H1).
-
-**This is a Tier 2 question and needs your explicit decision.** The charter,
-`docs/spec/00-charter.md` line 8, states the project's identity: "**CLI
-command:** `macportsbrew`, with the short alias **`mpb`** installed alongside
-it". `06-cli-and-ux.md` (Surface, MUST) says the same — "`mpb` is installed
-alongside it as an equal short alias" — as do ADR-0003 and your DP-005 ruling,
-with a conflict guard because MIT Photonic-Bands ships an `mpb`.
-
-Pass 09's release design (D-B2) installs only `macportsbrew`: the bare file is
-one executable; the `.pkg` carries no scripts, so it cannot run 06's "detect an
-existing `mpb` and decline" guard at install time; and ADR-0005 already says
-the `.pkg` does not create the alias. A **cargo build is different**:
-`crates/cli/Cargo.toml` defines two `[[bin]]` targets, `macportsbrew` and
-`mpb`, from one `main.rs`, so `cargo build` and `cargo install` do produce an
-`mpb` today; the release script builds `--bin macportsbrew` only. Any wording
-you approve must distinguish release artifacts from cargo builds.
-
-- **(a) Release artifacts install `macportsbrew` only; cargo builds keep
-  both.** Amend the charter line (for example: "`macportsbrew`; the short alias
-  `mpb` is built by cargo and documented for release installs"), 06's MUST,
-  ADR-0003, README, `wiki/Getting-Started.md` and the `--help` `long_about`.
-  The install documentation tells a release user to add the alias by hand,
-  after `command -v mpb` prints nothing (ADR-0003's guard, done by the user).
-  Cost: for release users, `mpb` is documented rather than installed.
-- **(b) The `.pkg` and `.dmg` also carry `mpb`.** The charter stands. Cost: the
-  `.pkg` cannot run the conflict guard (no scripts, by design), so the guard
-  rests on `PATH` order alone (an earlier `mpb` wins because the documented
-  line appends); ADR-0005 is amended; the payload assertions grow an entry;
-  the bare-file route still installs one name.
-- **(c) `macportsbrew` installs its own alias on first run**, after the guard.
-  The charter stands. Cost: a write the tool makes outside its state directory,
-  which no current specification permits; a new feature, its own pass.
-
-**Recommendation:** (a). **What it blocks:** the first tag, and every text
-change about `mpb` (README, wiki, `long_about`, 06, ADR-0003, the charter).
-**Reversible default taken:** **change no text, and block the first tag until
-you rule.** The staged release artifacts install `macportsbrew` only, which is
-what all three options produce for the bare file; nothing is published before
-the ruling, so no published claim contradicts the charter meanwhile.
-
-### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids
-
-Raised 2026-10-10, pass 09, by `spec-guardian` (M1) and `security-reviewer`
-(L3). ADR-0005 lists "the temporary keychain password" among the credentials
-that must never reach a public log, and says: "Every credential reaches its
-tool by file or stdin, never in `argv`". The staged signing step passes a
-per-job random keychain password to `security create-keychain -p`,
-`unlock-keychain -p` and `set-key-partition-list -k`, and a per-job random
-re-wrap password to `security import -P`. Your `.p12` passwords and notary key
-never reach argv. This is a **deviation from the ADR's text**, not a reading of
-it.
-
-- **(a) Accept argv for the two per-job random values on the ephemeral hosted
-  VM**, masked with `::add-mask::`, generated and unset inside the one step,
-  worthless once the VM is destroyed; amend ADR-0005 to say so. Cost: a value
-  visible to `ps` on that VM for the step's life. `security-reviewer` accepts
-  this provided nothing else runs there — which the pass-09 fix (the signing job
-  never executes the built program) now ensures.
-- **(b) `security -i`, reading its commands from stdin**, so neither password
-  appears in any process's argv. **Unverified:** whether interactive mode
-  accepts these subcommands from a pipe, echoes them, or records history needs a
-  dated observation on a throwaway keychain in a disposable account or VM (not
-  this machine, where a keychain write is out of bounds). Cost: one research
-  addendum; a less common recipe.
-- **(c) Another route** found by that research (for example a tool reading the
-  passphrase from a file descriptor). Cost: unknown until looked for.
-
-**Recommendation:** (b) investigated first, as an R-19 addendum; (a) if it does
-not hold. **What it blocks:** the first tag. **Reversible default taken:** (a)
-as staged, with the deviation stated in the workflow; nothing is signed before
-you rule.
-
-### DP-035 — Two names that cannot change after the first release: the identifier and the install directory
-
-Raised 2026-10-10, pass 09, by `spec-guardian` (M7, L5); plan decisions D-S3
-and D-P1.
-
-1. **The code-signing and package identifier**, staged as
-   `io.github.macportsbrew.macportsbrew` (derived from the workspace
-   `repository` URL). `codesign`'s designated requirement and the macOS
-   Installer's upgrade matching both key on it, so changing it after a release
-   breaks upgrades and identity continuity.
-   - (a) as staged; (b) `io.github.<account>.macportsbrew`, following DP-031;
-     (c) a reverse-DNS name under a domain you control.
-2. **The install directory**, staged as `~/.macportsbrew/bin` (the `.pkg`'s
-   current-user-home target and the documented `cp` line). Once users have added
-   the `PATH` line and Installer receipts exist, moving it strands them. It is a
-   new top-level dot-directory in your users' homes, beside the existing state
-   directory (`~/Library/Application Support/macportsbrew`) and SE-036's shim
-   directory (`~/.local/share/macportsbrew/bin`).
-   - (a) as staged; (b) `~/.local/share/macportsbrew/tool/bin` — keeps one
-     MacPortsBrew tree under XDG, at the cost of a longer path and sitting
-     beside the shim directory it must not be confused with; (c)
-     `~/Library/Application Support/macportsbrew/bin` — rejected by the plan:
-     it is the state directory (08 forbids) and has a space.
-
-**Recommendation:** identifier — follow DP-031, which was resolved (b) on
-2026-10-16, so `io.github.pabloguia.macportsbrew` (or a domain you control);
-directory — (a). **What it blocks:** the first tag only.
-**Reversible default taken:** both values as staged; neither is permanent until
-a release is published.
 
 ### DP-036 — DP-019's ruling names an `.app`; is that the `.dmg`?
 
@@ -321,34 +216,6 @@ conditions that the workflows' own comments describe, and set the secret.
 
 ---
 
-### DP-045 — Do pass 08 slices 4 and 5 ship in 0.1.0?
-
-Raised 2026-10-18, handoff after slice 5. `main` now carries `history`,
-`history show`, `history acknowledge`, `restore --plan --run`, `restore --run`
-(refused) and `doctor`'s `interrupted_run` finding. Nothing hides them in
-`--help` (`crates/cli/src/app/mod.rs`). With mutations off, `history` is always
-empty, `restore --plan --run <id>` answers `RUN_NOT_FOUND` (exit 8) and the
-finding is always OK. `CHANGELOG.md` (the 0.1.0 section, around line 108) still
-says 0.1.0 does not keep history or restore, while `README.md` (around line 87)
-documents `history` and `restore --plan`. DP-044 is the precedent for pass 12.
-
-- **(a) Ship them in 0.1.0, described honestly.** The CHANGELOG folds them in,
-  saying what each prints on a machine where no run was ever recorded. Cost: a
-  surface that can only say "nothing yet" until 0.2.0, and the docs-truth work
-  of saying so everywhere.
-- **(b) Tag an earlier commit** (before PR #8). Cost: the tag misses every fix
-  made since, including the security and tooling fixes after slice 5, and the
-  release pipeline is then proven on a commit that is not `main`.
-- **(c) Hide them from `--help` in 0.1.0.** Cost: code that exists but is
-  undocumented, which is how a surface drifts; a hidden command is still
-  reachable.
-
-**Recommendation:** (a). The commands are read-only, already reviewed, and their
-"nothing yet" answer is true. **What it blocks:** the CHANGELOG and README text
-of the first tag (work order 15). **Reversible default taken:** (a) in the text
-staged by work order 15; nothing is tagged before the owner rules.
-
----
 
 ### DP-046 — May the first mutating release refuse every elevated step?
 
@@ -551,7 +418,229 @@ make a run complete by dropping a check.
 
 ---
 
+
 ## Resolved
+
+### DP-052 — Does the release publish a bare `mpb` file beside the bare `macportsbrew`? — **RESOLVED 2026-10-23: (a) keep it**
+
+- **Ruled 2026-10-23 by the owner: (a).** Four files per architecture. ADR-0005's
+  Decision is amended to four artifacts; spec 08 and SE-104 say so. Carrying
+  `payload_names`, `mpb_sha256` and `mpb_cdhash` into `SIGNING-RECORD.txt` is a
+  guarded `release.yml` edit and lands with follow-ups 2a
+  (`prompts/ROADMAP-to-first-release.md`), before the tag.
+
+- **Context (2026-10-23, pass 15 part B).** DP-033 (b) says "the bare-file route
+  still installs one name". The owner's armed message for part B asked that the
+  payload assertions, "SHA256SUMS" included, gain the second file; `SHA256SUMS`
+  lists published files, so part B read that as a published bare
+  `mpb-<version>-<arch>` and built it (commit `3ad50fa`: four files per
+  architecture, the bare `mpb` byte-identical, its CDHash asserted equal to the
+  executable's, not notarised separately). `spec-guardian` found that this goes
+  beyond DP-033 (b) and beyond ADR-0005's Decision ("publish three artifacts").
+- **(a) Keep it.** Four files per architecture; ADR-0005's Decision line is amended
+  to four; spec 08 drops "DP-052, open". Cost: a fifth upload per architecture that
+  a user could make with `cp`, an unobserved notarisation inference (that the
+  executable's ticket covers a file with its CDHash), and `SIGNING-RECORD.txt` must
+  carry `mpb_sha256`/`mpb_cdhash` (follow-up 2a).
+- **(b) Drop it.** `build-release.sh` publishes three files again (the `.pkg` and
+  `.dmg` still carry both names); the README row goes, and the documented `cp` line
+  stays the bare route's way to the short name. Cost: one armed message (guarded
+  file) and the gate cases' needles change.
+- **Recommendation: (b)**, the ruling as written: the bare route already gets the
+  short name with one documented `cp`, and every published file is one more thing
+  to notarise, attest and revoke.
+- **Reversible default taken:** the build as it is (a), because it is committed and
+  undoing it needs a guarded write; nothing is published before the owner tags, and
+  the tag is the owner's. **What it blocks:** the tag.
+
+---
+
+### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids — **RESOLVED 2026-10-23: (b), `security -i` holds on all four runners**
+
+- **Ruled 2026-10-23 by the owner:** (b) first, (a) if it failed. **It held**: one
+  run of the throwaway research workflow on macos-26, macos-26-intel, macos-15 and
+  macos-15-intel (R-19 addendum of 2026-10-23, run 40033361119, pull request #14
+  closed unmerged). The passwords do not reach argv, nothing is echoed or written,
+  and ADR-0005 needs no exception. **Two things the signing step must do because of
+  it:** one `security -i` per command (a pipe of several reports only the last
+  command's exit status), and hex passwords (single quotes are not honoured).
+  **Owed, part B:** the signing step in `release.yml` takes the recipe in the
+  addendum, and its comment about "a deviation awaiting a ruling" goes. **Not
+  shown:** that the stdin-built keychain signs (the control failed to sign too;
+  the first dry run with the real certificates settles it).
+- The original entry follows.
+
+- **Ruled 2026-10-23 by the owner:** follow the recommendation. First research whether `security -i` (commands on stdin) works for `create-keychain`, `unlock-keychain`, `import` and `set-key-partition-list`, does not echo them and keeps no history, on a hosted macOS runner with a throwaway keychain and **no secrets** (macos-15 and macos-26). If it holds, the signing step uses it and ADR-0005 needs no exception. If not, (a): the two per-job random values in argv on the ephemeral VM, masked, ADR-0005 amended.
+- **Needs from the owner:** an armed message to write the research workflow into `.github/workflows/`, and permission to run it once on a `pull_request` of a topic branch (the pass-15 work order forbids running workflows). The workflow is deleted and the pull request closed unmerged afterwards. **Closes** with an R-19 addendum holding the dated observation.
+- The original entry follows.
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (M1) and `security-reviewer`
+(L3). ADR-0005 lists "the temporary keychain password" among the credentials
+that must never reach a public log, and says: "Every credential reaches its
+tool by file or stdin, never in `argv`". The staged signing step passes a
+per-job random keychain password to `security create-keychain -p`,
+`unlock-keychain -p` and `set-key-partition-list -k`, and a per-job random
+re-wrap password to `security import -P`. Your `.p12` passwords and notary key
+never reach argv. This is a **deviation from the ADR's text**, not a reading of
+it.
+
+- **(a) Accept argv for the two per-job random values on the ephemeral hosted
+  VM**, masked with `::add-mask::`, generated and unset inside the one step,
+  worthless once the VM is destroyed; amend ADR-0005 to say so. Cost: a value
+  visible to `ps` on that VM for the step's life. `security-reviewer` accepts
+  this provided nothing else runs there — which the pass-09 fix (the signing job
+  never executes the built program) now ensures.
+- **(b) `security -i`, reading its commands from stdin**, so neither password
+  appears in any process's argv. **Unverified:** whether interactive mode
+  accepts these subcommands from a pipe, echoes them, or records history needs a
+  dated observation on a throwaway keychain in a disposable account or VM (not
+  this machine, where a keychain write is out of bounds). Cost: one research
+  addendum; a less common recipe.
+- **(c) Another route** found by that research (for example a tool reading the
+  passphrase from a file descriptor). Cost: unknown until looked for.
+
+**Recommendation:** (b) investigated first, as an R-19 addendum; (a) if it does
+not hold. **What it blocks:** the first tag. **Reversible default taken:** (a)
+as staged, with the deviation stated in the workflow; nothing is signed before
+you rule.
+
+
+
+### DP-045 — Do pass 08 slices 4 and 5 ship in 0.1.0? — **RESOLVED 2026-10-23: (a) they ship in 0.1.0, described honestly**
+
+- **Ruled 2026-10-23 by the owner: (a).** `history`, `history show`,
+  `history acknowledge`, `restore --plan --run` and `doctor`'s `interrupted_run`
+  finding ship in 0.1.0. **Propagated:** the `DP-045 pending` markers are gone from
+  `CHANGELOG.md` and `README.md`; their text stands. **Still owed, small:** the
+  top-level `--help` calls `history` "Reads only" while `history acknowledge --yes`
+  can write (a catalogue string and its pt-BR twin).
+- The original entry follows.
+
+Raised 2026-10-18, handoff after slice 5. `main` now carries `history`,
+`history show`, `history acknowledge`, `restore --plan --run`, `restore --run`
+(refused) and `doctor`'s `interrupted_run` finding. Nothing hides them in
+`--help` (`crates/cli/src/app/mod.rs`). With mutations off, `history` is always
+empty, `restore --plan --run <id>` answers `RUN_NOT_FOUND` (exit 8) and the
+finding is always OK. `CHANGELOG.md` (the 0.1.0 section, around line 108) still
+says 0.1.0 does not keep history or restore, while `README.md` (around line 87)
+documents `history` and `restore --plan`. DP-044 is the precedent for pass 12.
+
+- **(a) Ship them in 0.1.0, described honestly.** The CHANGELOG folds them in,
+  saying what each prints on a machine where no run was ever recorded. Cost: a
+  surface that can only say "nothing yet" until 0.2.0, and the docs-truth work
+  of saying so everywhere.
+- **(b) Tag an earlier commit** (before PR #8). Cost: the tag misses every fix
+  made since, including the security and tooling fixes after slice 5, and the
+  release pipeline is then proven on a commit that is not `main`.
+- **(c) Hide them from `--help` in 0.1.0.** Cost: code that exists but is
+  undocumented, which is how a surface drifts; a hidden command is still
+  reachable.
+
+**Recommendation:** (a). The commands are read-only, already reviewed, and their
+"nothing yet" answer is true. **What it blocks:** the CHANGELOG and README text
+of the first tag (work order 15). **Reversible default taken:** (a) in the text
+staged by work order 15; nothing is tagged before the owner rules.
+
+---
+
+### DP-033 — No release artifact installs `mpb`, and the charter says it is installed alongside `macportsbrew` — a charter amendment — **RESOLVED 2026-10-23: (b) the .pkg and .dmg also carry mpb**
+
+- **Ruled 2026-10-23 by the owner: (b).** The charter stands; the `.pkg` and the
+  `.dmg` carry `mpb` beside `macportsbrew`. Recorded in `docs/spec-evolution.md`
+  SE-104. **Propagated:** spec 06's MUST (the guard for an installer that runs no
+  code is `PATH` order, and the documented line appends), ADR-0003 and ADR-0005
+  (amended, the latter reversed on the alias), the README, `wiki/Getting-Started.md`
+  and `wiki/Primary-Provider.md`; spec 08's installer MUST was missed and amended
+  in pass 15 part B (2026-10-23). The bare `mpb` the build also publishes is not
+  part of this ruling: DP-052. While doing it, one thing was found that the old
+  text hid: **no install route in this repository detects an existing `mpb`**
+  (a cargo build produces both binaries unconditionally); the amended texts say so
+  rather than promise it. **Owed, part B of pass 15:** the payload and its
+  assertions in `build-release.sh`, the gate cases, the release record. **Owed,
+  not scheduled:** a real detection for the routes that can run code (06's MUST
+  now names it for a future route), and the `--help` `long_about` check.
+- The original entry follows.
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (H2); raised to a charter
+question 2026-10-11 by `spec-guardian`'s second review (B-H1).
+
+**This is a Tier 2 question and needs your explicit decision.** The charter,
+`docs/spec/00-charter.md` line 8, states the project's identity: "**CLI
+command:** `macportsbrew`, with the short alias **`mpb`** installed alongside
+it". `06-cli-and-ux.md` (Surface, MUST) says the same — "`mpb` is installed
+alongside it as an equal short alias" — as do ADR-0003 and your DP-005 ruling,
+with a conflict guard because MIT Photonic-Bands ships an `mpb`.
+
+Pass 09's release design (D-B2) installs only `macportsbrew`: the bare file is
+one executable; the `.pkg` carries no scripts, so it cannot run 06's "detect an
+existing `mpb` and decline" guard at install time; and ADR-0005 already says
+the `.pkg` does not create the alias. A **cargo build is different**:
+`crates/cli/Cargo.toml` defines two `[[bin]]` targets, `macportsbrew` and
+`mpb`, from one `main.rs`, so `cargo build` and `cargo install` do produce an
+`mpb` today; the release script builds `--bin macportsbrew` only. Any wording
+you approve must distinguish release artifacts from cargo builds.
+
+- **(a) Release artifacts install `macportsbrew` only; cargo builds keep
+  both.** Amend the charter line (for example: "`macportsbrew`; the short alias
+  `mpb` is built by cargo and documented for release installs"), 06's MUST,
+  ADR-0003, README, `wiki/Getting-Started.md` and the `--help` `long_about`.
+  The install documentation tells a release user to add the alias by hand,
+  after `command -v mpb` prints nothing (ADR-0003's guard, done by the user).
+  Cost: for release users, `mpb` is documented rather than installed.
+- **(b) The `.pkg` and `.dmg` also carry `mpb`.** The charter stands. Cost: the
+  `.pkg` cannot run the conflict guard (no scripts, by design), so the guard
+  rests on `PATH` order alone (an earlier `mpb` wins because the documented
+  line appends); ADR-0005 is amended; the payload assertions grow an entry;
+  the bare-file route still installs one name.
+- **(c) `macportsbrew` installs its own alias on first run**, after the guard.
+  The charter stands. Cost: a write the tool makes outside its state directory,
+  which no current specification permits; a new feature, its own pass.
+
+**Recommendation:** (a). **What it blocks:** the first tag, and every text
+change about `mpb` (README, wiki, `long_about`, 06, ADR-0003, the charter).
+**Reversible default taken:** **change no text, and block the first tag until
+you rule.** The staged release artifacts install `macportsbrew` only, which is
+what all three options produce for the bare file; nothing is published before
+the ruling, so no published claim contradicts the charter meanwhile.
+
+### DP-035 — Two names that cannot change after the first release: the identifier and the install directory — **RESOLVED 2026-10-23: identifier io.github.pabloguia.macportsbrew; directory ~/.macportsbrew/bin**
+
+- **Ruled 2026-10-23 by the owner:** the recommendations. Identifier
+  `io.github.pabloguia.macportsbrew` (option (b), following DP-031); install
+  directory `~/.macportsbrew/bin` (option (a)). **Propagated:** the staged
+  `build-release.sh` (new SHA-256 in the staged README) and the owner checklist;
+  both are permanent once a release is published. The older pass 09 plan and
+  report keep the earlier string as history.
+- The original entry follows.
+
+Raised 2026-10-10, pass 09, by `spec-guardian` (M7, L5); plan decisions D-S3
+and D-P1.
+
+1. **The code-signing and package identifier**, staged as
+   `io.github.macportsbrew.macportsbrew` (derived from the workspace
+   `repository` URL). `codesign`'s designated requirement and the macOS
+   Installer's upgrade matching both key on it, so changing it after a release
+   breaks upgrades and identity continuity.
+   - (a) as staged; (b) `io.github.<account>.macportsbrew`, following DP-031;
+     (c) a reverse-DNS name under a domain you control.
+2. **The install directory**, staged as `~/.macportsbrew/bin` (the `.pkg`'s
+   current-user-home target and the documented `cp` line). Once users have added
+   the `PATH` line and Installer receipts exist, moving it strands them. It is a
+   new top-level dot-directory in your users' homes, beside the existing state
+   directory (`~/Library/Application Support/macportsbrew`) and SE-036's shim
+   directory (`~/.local/share/macportsbrew/bin`).
+   - (a) as staged; (b) `~/.local/share/macportsbrew/tool/bin` — keeps one
+     MacPortsBrew tree under XDG, at the cost of a longer path and sitting
+     beside the shim directory it must not be confused with; (c)
+     `~/Library/Application Support/macportsbrew/bin` — rejected by the plan:
+     it is the state directory (08 forbids) and has a space.
+
+**Recommendation:** identifier — follow DP-031, which was resolved (b) on
+2026-10-16, so `io.github.pabloguia.macportsbrew` (or a domain you control);
+directory — (a). **What it blocks:** the first tag only.
+**Reversible default taken:** both values as staged; neither is permanent until
+a release is published.
+
 
 ### DP-031 — Which GitHub account the public repository lives under — **RESOLVED 2026-10-16: (b) the personal account**
 

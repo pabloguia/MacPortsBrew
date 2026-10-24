@@ -7,7 +7,7 @@
 # in every file, and nothing covered the licence text itself except a step in one
 # CI workflow. `CLAUDE.md` is explicit that `scripts/validate.sh` is "the one
 # implementation of valid" and "do not add a check anywhere else", and that step
-# was somewhere else — on a job that has never run (F-12), carrying its own copy
+# was somewhere else — on a job that had never run then (F-12), carrying its own copy
 # of the digest. Two spellings of a constant is one spelling that will be wrong,
 # which is the argument `check-action-pins.sh` already makes about the toolchain
 # pin (F-45).

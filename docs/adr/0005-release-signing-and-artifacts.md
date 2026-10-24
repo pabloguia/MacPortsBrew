@@ -96,10 +96,18 @@ else on the machine is broken.
 
 ## Decision
 
-**Sign every release artifact with Developer ID, notarise it, and publish three
-artifacts per architecture: the bare binary, a `.pkg` and a `.dmg`. The bare
-binary remains the path the documentation leads with; the containers exist to
-carry a stapled notarisation ticket. Sign with a secure timestamp.**
+**Sign every release artifact with Developer ID, notarise it, and publish four
+artifacts per architecture: the bare binary, the same bare binary under the short
+name `mpb`, a `.pkg` and a `.dmg`. The bare binary remains the path the
+documentation leads with; the containers exist to carry a stapled notarisation
+ticket. Sign with a secure timestamp.**
+
+*(Amended 2026-10-23 by the owner, DP-052 (a): from three artifacts to four. The
+bare `mpb` is a byte-identical copy of the signed bare binary, with the same
+CDHash; it is not submitted for notarisation on its own, the executable's
+submission being expected to cover it — first shown by the first signed release.
+The `.pkg` and the `.dmg` carry both names (DP-033 (b)). DP-008's "all three" below
+counts the ways to install, which are still three.)*
 
 Chosen by the project owner, 2026-09-02.
 
@@ -115,7 +123,9 @@ tension with it.
 
 **Requirement — the three artifacts embed byte-identical executables.** One
 build produces one signed Mach-O per architecture and both containers embed that
-exact file; CI asserts that the payload extracted from each container hashes to
+exact file *(since DP-033 (b), 2026-10-23, under both names, `macportsbrew` and
+`mpb`, with a bare `mpb` published beside the bare binary, same bytes)*; CI asserts
+that the payload extracted from each container hashes to
 the published bare-binary checksum. Without it a user can verify the bare binary
 and install a `.pkg` whose payload that checksum never covered, and a pipeline
 compromise gets somewhere to hide.
@@ -222,9 +232,14 @@ is emitted by `path_audit.rs` for a `PATH` entry owned by the running user with
 the owner-write bit set, which a user-owned `0755` `~/.macportsbrew/bin` is, and
 `doctor` reports it as `path_owner_writable` (`crates/application/src/doctor.rs`);
 nothing in the audit special-cases this tool's own directory. The check is
-skipped when the home directory cannot be resolved.)* And the `.pkg` does **not** create the `mpb` alias,
+skipped when the home directory cannot be resolved.)* ~~And the `.pkg` does **not** create the `mpb` alias,
 because ADR-0003 requires installation to detect an existing `mpb` and decline
-to shadow it, and a non-interactive installer cannot make that decision.
+to shadow it, and a non-interactive installer cannot make that decision.~~
+*(Reversed 2026-10-23, DP-033 ruled (b): the `.pkg` and the `.dmg` **carry
+`mpb`** beside `macportsbrew`, as the charter says. A non-interactive installer
+still cannot decline at install time, so the guard is `PATH` order — the
+documented line appends the install directory, so an earlier `mpb` wins. The
+payload assertions list both files.)*
 
 **Expensive to change later.** Dropping Developer ID after publishing signed
 releases invalidates trust users have already extended, whereas adding it

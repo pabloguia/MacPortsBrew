@@ -76,6 +76,12 @@ whole of it.) Do not add a check anywhere else.
 | `scripts/validate.sh` | the above plus `cargo test --workspace` |
 | `scripts/validate.sh --full` | the above plus the release build for both architectures with the deployment-target assertion (macOS only; needs `otool`) |
 
+**No binary file is tracked, and no credential.** `scripts/check-no-secrets.sh`
+refuses any tracked file git considers binary (an image included), any
+certificate, key or keychain file type, and secret-shaped text (SE-102). There
+is no allow-list: if a binary file belongs here, adding one is a reviewed change
+to that script.
+
 **A second harness is generated from the first.** `.codex/` and
 `.agents/skills/` are produced from `.claude/` by
 `scripts/generate-codex-layer.sh`. Edit `.claude/`; a `validate.sh`

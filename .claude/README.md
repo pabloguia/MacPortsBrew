@@ -8,7 +8,7 @@ two disagree, the specification wins and this file is the bug.
 
 **Tooling facts here were verified against Anthropic's Claude Code
 documentation on 2026-09-02, re-verified at the start of the Foundation Pass
-the same day, and most recently on 2026-10-17, every group** — the pages `/tooling-recheck` names; the notes
+the same day, and most recently on 2026-10-22, every group** — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 
@@ -70,8 +70,11 @@ session with `/context` (the agents appear under Custom Agents and the
 shows the project settings file loaded — start the session from the repository
 root, because the shared settings file is read from the primary working
 directory), `/permissions`, and by asking Claude
-to run `brew install cowsay` — it must be refused. Most of `settings.json`'s `env` and `allow` entries wait
-until you trust the workspace; its `deny` and `ask` rules apply at once.
+to run `brew install cowsay` — it must be refused. Its `allow` entries wait
+until you trust the workspace; its `deny` and `ask` rules apply at once, and
+hooks and the `env` block are used even in the two untrusted cases the
+permissions page lists (a parent folder trusted only; `claude -p`), read
+2026-10-22.
 
 ## Official plugins worth installing
 
@@ -80,7 +83,9 @@ yourself. Turning any of these into a project commitment means adding
 `enabledPlugins` and `extraKnownMarketplaces` to `settings.json`, which is what
 every collaborator's Claude Code would then try to load — that belongs in an
 ADR, not a quiet edit. Names checked 2026-09-02 against the official
-marketplace `claude-plugins-official`. Check it is registered with `/plugin`;
+marketplace `claude-plugins-official`. Claude Code adds it on the first
+interactive session unless a managed policy blocks it (plugins page, read
+2026-10-22); check it is registered with `/plugin`;
 if it reports `Marketplace ... not found`, run
 `/plugin marketplace add anthropics/claude-plugins-official`.
 

@@ -1,0 +1,574 @@
+# Release: build, sign, notarise, staple, assert, checksum, attest, and DRAFT
+# a GitHub release. It never publishes: the owner reviews the draft and
+# publishes it by hand, and immutable releases (08) lock it from then on.
+#
+# Specification: docs/spec/08-distribution-and-project.md (Distribution),
+# ADR-0005, and the plan in docs/passes/09-release-engineering-plan.md. Every
+# packaging assertion lives in scripts/build-release.sh, the one
+# implementation; this file orders jobs and binds their hand-offs by hash.
+# The textual MUSTs below are enforced by scripts/check-release-workflow.sh, a
+# validate.sh --quick stage (plan, D-T2).
+#
+# Triggers:
+#   - push of a tag `v*` in this repository: the real path. Builds both
+#     architectures without secrets, signs in a separate job that holds the
+#     `release-signing` environment, drafts the release.
+#   - workflow_dispatch with dry_run: builds, packages and asserts both
+#     architectures UNSIGNED and drafts nothing. dry_run=false is refused:
+#     signing runs only on a tag push (ADR-0005), never on a dispatch.
+#
+# Structure (least privilege, per job):
+#   guard     contents: read        refuses a non-dry dispatch, a non-semver
+#                                   tag, and a tag whose commit is not on main
+#   build     contents: read        validate.sh, build-release.sh unsigned
+#                                   (--release-input on a tag), the fixture
+#                                   matrix on the release binary; no secret
+#   sign      contents: read        tag push only; the ONLY job naming the
+#                                   release-signing environment; runs no cargo
+#                                   and NEVER executes the built program; binds
+#                                   its input to the build job's record by hash
+#                                   before any credential exists (plan, D-W2)
+#   assemble  contents: read        SHA256SUMS, signing record sidecar (with
+#                                   the build job's toolchain), notes generated
+#                                   from README.md's marked Install section
+#   draft     contents: write,      tag push only; attests every artifact,
+#             id-token: write,      SHA256SUMS and SIGNING-RECORD.txt; creates
+#             attestations: write   a DRAFT release
+#
+# Runners (R-19 finding 17, read 2026-10-10): macos-26-intel and macos-26 are
+# standard runners, free on public repositories. -large / -xlarge labels are
+# billed and forbidden by 07. One Xcode, named once below, builds both
+# architectures, so the unsigned executable can be rebuilt (R-19 finding 8).
+#
+# Forbidden here, by 08 and ADR-0005 (and checked by check-release-workflow.sh):
+# triggers other than the two below; pull_request_target, workflow_run,
+# ACTIONS_STEP_DEBUG; xtrace in any spelling; secrets[...] or toJSON(secrets);
+# a second selection of the release-signing environment; cargo, rustup,
+# validate.sh or the fixture matrix in the signing job; `secrets.` outside it;
+# the environment or a secrets.MPB_* value in any other workflow or action;
+# and any `uses:` not pinned to a full commit SHA (scripts/check-action-pins.sh).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, package and assert both architectures unsigned; publish and sign nothing. Must stay true."
+        type: boolean
+        required: true
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_ENV_HINTS: "1"
+  # The one spelling of the Xcode both macOS images carry, which is also the
+  # Xcode on the machine R-19 observed (R-19 E12, runner-images readmes read
+  # 2026-10-10). The binary records its SDK and linker, so naming it is what
+  # makes a rebuild match. Ignored by the ubuntu jobs.
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Signing runs only on a version tag pushed to this repository
+        env:
+          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::error title=Refused::a dispatch is always a dry run; signing runs only on a tag push (ADR-0005)"
+            exit 1
+          fi
+          if [ "$EVENT" = "push" ]; then
+            if ! printf '%s' "$REF" | grep -Eq '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error title=Refused::$REF is not a semantic-version tag (08: semantic versioning)"
+              exit 1
+            fi
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "::warning title=Dry run::both architectures are built and asserted UNSIGNED; nothing is signed, notarised, attested or drafted"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'push'
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Defence in depth behind the tag ruleset: the code that receives the
+      # signing secrets is the code at the tagged commit, so a tag must name a
+      # commit already on main (plan, owner checklist).
+      - name: The tagged commit is on main
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error title=Refused::$GITHUB_SHA is not an ancestor of origin/main; a release is tagged from main"
+            exit 1
+          fi
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: guard
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+            runner: macos-26-intel
+          - target: aarch64-apple-darwin
+            arch: arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, resolved 2026-10-22
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+
+      - name: Machine facts, and the named Xcode is the one in use
+        run: |
+          set -euo pipefail
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::Xcode is not at $DEVELOPER_DIR on this image; update the pin from the runner-images readme"
+            exit 1
+          fi
+          sw_vers
+          uname -m
+          xcodebuild -version
+          ld -v 2>&1 | head -1
+          rustc -V
+          rustc --print deployment-target --target "$TARGET"
+
+      - name: The tag names the workspace version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name the workspace version $version"
+            exit 1
+          fi
+
+      - name: Validation (tests and the fixture matrix, as ordinary CI runs them)
+        run: scripts/validate.sh
+
+      # On a tag, --release-input: the tree must be clean and --version must
+      # carry the build metadata. This job, which holds no secret, is the only
+      # place the built program is ever executed (plan, D-W2).
+      - name: Build, package and assert (unsigned)
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            scripts/build-release.sh "$TARGET" "$RUNNER_TEMP/unsigned/out" --release-input
+          else
+            scripts/build-release.sh "$TARGET" "$RUNNER_TEMP/unsigned/out"
+          fi
+
+      - name: The fixture matrix against the release executable
+        run: |
+          set -euo pipefail
+          MPB_FIXTURE_BIN="$(find "$RUNNER_TEMP/unsigned/out" -maxdepth 1 -type f -name "macportsbrew-*-$ARCH")"
+          export MPB_FIXTURE_BIN
+          scripts/run-fixture-matrix.sh
+
+      - name: Stage the raw build output for the signing job
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/unsigned/raw"
+          ditto --norsrc --noextattr --noqtn "target/$TARGET/release/macportsbrew" "$RUNNER_TEMP/unsigned/raw/macportsbrew"
+          shasum -a 256 "$RUNNER_TEMP/unsigned/raw/macportsbrew"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-${{ matrix.arch }}
+          path: ${{ runner.temp }}/unsigned
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: sign (${{ matrix.target }})
+    needs: build
+    # DP-031 named the repository (resolved 2026-10-16): a fork's copy of the
+    # workflow can never reach the environment even by misconfiguration (plan,
+    # [SG2 B-L5]).
+    if: >-
+      github.repository == 'pabloguia/MacPortsBrew' &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Three notarisations of at most 30 minutes each (notarytool --timeout in
+    # build-release.sh), plus signing and stapling; never the 6-hour default
+    # with a credential on the VM.
+    timeout-minutes: 120
+    # The only reference to this environment in the repository (08 MUST). Its
+    # deployment rule admits `v*` tags only; its secrets exist nowhere else.
+    environment: release-signing
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+            runner: macos-26-intel
+          - target: aarch64-apple-darwin
+            arch: arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unsigned-${{ matrix.arch }}
+          path: ${{ runner.temp }}/in
+
+      # Before any credential exists: the bytes about to be signed are the bytes
+      # the build job built, executed and asserted. The program itself is never
+      # run here (build-release.sh refuses to with --sign or --from-binary).
+      - name: Bind the input to the build job's record
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          raw="$RUNNER_TEMP/in/raw/macportsbrew"
+          urec="$(find "$RUNNER_TEMP/in/out" -maxdepth 1 -type f -name "*-$ARCH.release-record.txt")"
+          if [ ! -f "$raw" ] || [ -z "$urec" ] || [ ! -f "$urec" ]; then
+            echo "::error::the build job's raw executable or release record is missing"
+            exit 1
+          fi
+          want="$(sed -n 's/^unsigned_build_sha256=//p' "$urec")"
+          got="$(shasum -a 256 "$raw" | awk '{print $1}')"
+          if [ -z "$want" ] || [ "$want" != "$got" ]; then
+            echo "::error::the raw executable ($got) is not the build job's output ($want)"
+            exit 1
+          fi
+          for line in "release_input=yes" "version_check=full" "commit=$COMMIT"; do
+            if ! grep -qxF "$line" "$urec"; then
+              echo "::error::the build job's record lacks '$line'; it is not a release input"
+              exit 1
+            fi
+          done
+          # build-release.sh repeats this comparison itself (--expect-unsigned-
+          # sha256, required with --sign); this earlier copy is the one that runs
+          # before the keychain exists, which the script cannot do because the
+          # next step creates the keychain before calling it.
+          echo "MPB_EXPECT_UNSIGNED=$want" >>"$GITHUB_ENV"
+
+      # The one step that sees a credential. No xtrace. Tools by absolute path
+      # under a reset PATH, so nothing user-writable on the image is resolved
+      # while a secret is in the environment; each secret is unset as soon as
+      # its consumer has run. No credential reaches any argv: the .p12
+      # passwords go through `openssl -passin env:`, the notary key is a 0600
+      # file, and the keychain and re-wrap passwords (random per job, hex,
+      # masked) reach `security` on stdin through `security -i`, one invocation
+      # per command, because `security -i` reports only its last command's exit
+      # status; hex, because it needs no quoting (R-19 addendum of 2026-10-23;
+      # DP-034 (b), SE-105). build-release.sh then checks that both identities
+      # are valid in the keychain before it signs anything.
+      - name: Sign, notarise, staple, assert
+        env:
+          MPB_APP_CERT_B64: ${{ secrets.MPB_APP_CERT_B64 }}
+          MPB_APP_CERT_PASSWORD: ${{ secrets.MPB_APP_CERT_PASSWORD }}
+          MPB_INSTALLER_CERT_B64: ${{ secrets.MPB_INSTALLER_CERT_B64 }}
+          MPB_INSTALLER_CERT_PASSWORD: ${{ secrets.MPB_INSTALLER_CERT_PASSWORD }}
+          MPB_NOTARY_KEY: ${{ secrets.MPB_NOTARY_KEY }}
+          MPB_NOTARY_KEY_ID: ${{ secrets.MPB_NOTARY_KEY_ID }}
+          MPB_NOTARY_ISSUER: ${{ secrets.MPB_NOTARY_ISSUER }}
+          MPB_TEAM_ID: ${{ vars.MPB_TEAM_ID }}
+          MPB_APP_IDENTITY: ${{ vars.MPB_APP_IDENTITY }}
+          MPB_INSTALLER_IDENTITY: ${{ vars.MPB_INSTALLER_IDENTITY }}
+        run: |
+          set -euo pipefail
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          missing=""
+          for v in MPB_APP_CERT_B64 MPB_APP_CERT_PASSWORD MPB_INSTALLER_CERT_B64 \
+                   MPB_INSTALLER_CERT_PASSWORD MPB_NOTARY_KEY MPB_NOTARY_KEY_ID \
+                   MPB_TEAM_ID MPB_APP_IDENTITY MPB_INSTALLER_IDENTITY; do
+            if [ -z "${!v:-}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Signing impossible::the release-signing environment lacks:$missing. A tag push never produces an unsigned release; nothing was signed."
+            exit 1
+          fi
+
+          umask 077
+          ossl=/usr/bin/openssl
+          sec=/usr/bin/security
+          cred="$RUNNER_TEMP/mpb-cred"
+          # `security -i` splits its input line on whitespace, so a path with a
+          # space would name more than one keychain. Hosted runners have none;
+          # that is asserted here, before any keychain exists, not assumed.
+          case "$cred" in
+            *[!A-Za-z0-9/._-]*)
+              echo "::error title=Refused::RUNNER_TEMP holds a character security -i would split on; nothing was signed"
+              exit 1 ;;
+          esac
+          /bin/mkdir -m 700 "$cred"
+          kc="$cred/signing.keychain-db"
+          kc_pw="$("$ossl" rand -hex 24)"
+          echo "::add-mask::$kc_pw"
+          WRAP_PW="$("$ossl" rand -hex 24)"
+          echo "::add-mask::$WRAP_PW"
+          export WRAP_PW
+          # printf is a builtin: the command line, password included, is
+          # written to the pipe and is never any process's argument.
+          sec_i() { printf '%s\n' "$1" | "$sec" -i; }
+          sec_i "create-keychain -p $kc_pw $kc"       || exit 1
+          sec_i "set-keychain-settings -lut 3600 $kc" || exit 1
+          sec_i "unlock-keychain -p $kc_pw $kc"       || exit 1
+
+          import_identity() { # <base64 variable name> <password variable name>
+            printf '%s' "${!1}" | /usr/bin/base64 --decode >"$cred/in.p12"
+            "$ossl" pkcs12 -export -passout env:WRAP_PW -out "$cred/wrapped.p12" \
+              -in <("$ossl" pkcs12 -in "$cred/in.p12" -passin "env:$2" -nokeys) \
+              -inkey <("$ossl" pkcs12 -in "$cred/in.p12" -passin "env:$2" -nocerts -nodes)
+            sec_i "import $cred/wrapped.p12 -k $kc -f pkcs12 -P $WRAP_PW -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild" >/dev/null || exit 1
+            /bin/rm -f "$cred/in.p12" "$cred/wrapped.p12"
+          }
+          import_identity MPB_APP_CERT_B64 MPB_APP_CERT_PASSWORD
+          unset MPB_APP_CERT_B64 MPB_APP_CERT_PASSWORD
+          import_identity MPB_INSTALLER_CERT_B64 MPB_INSTALLER_CERT_PASSWORD
+          unset MPB_INSTALLER_CERT_B64 MPB_INSTALLER_CERT_PASSWORD
+          sec_i "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $kc_pw $kc" >/dev/null || exit 1
+          existing="$("$sec" list-keychains -d user | /usr/bin/tr -d '"' | /usr/bin/xargs)"
+          # shellcheck disable=SC2086
+          "$sec" list-keychains -d user -s "$kc" $existing
+          unset kc_pw WRAP_PW
+
+          printf '%s' "$MPB_NOTARY_KEY" >"$cred/notary-key.p8"
+          unset MPB_NOTARY_KEY
+          /bin/chmod 600 "$cred/notary-key.p8"
+          export MPB_SIGN_KEYCHAIN="$kc" MPB_NOTARY_KEY_PATH="$cred/notary-key.p8"
+
+          scripts/build-release.sh "$TARGET" "$RUNNER_TEMP/signed" --sign \
+            --expect-unsigned-sha256 "$MPB_EXPECT_UNSIGNED" \
+            --from-binary "$RUNNER_TEMP/in/raw/macportsbrew"
+
+      - name: Remove the keychain and the notary key
+        if: always()
+        run: |
+          /usr/bin/security delete-keychain "$RUNNER_TEMP/mpb-cred/signing.keychain-db" 2>/dev/null || true
+          /bin/rm -rf "$RUNNER_TEMP/mpb-cred"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-${{ matrix.arch }}
+          path: ${{ runner.temp }}/signed
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    needs: [build, sign]
+    if: >-
+      ${{ !cancelled() && needs.build.result == 'success' &&
+          (needs.sign.result == 'success' ||
+           (github.event_name == 'workflow_dispatch' && needs.sign.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      EVENT: ${{ github.event_name }}
+      REPO: ${{ github.repository }}
+      COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: unsigned-*
+          path: ${{ runner.temp }}/unsigned
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: github.event_name == 'push'
+        with:
+          pattern: signed-*
+          path: ${{ runner.temp }}/signed
+
+      - name: SHA256SUMS, the hand-off re-check, and the signing record
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/bundle"
+          mkdir -p "$bundle"
+          if [ "$EVENT" = "push" ]; then src="$RUNNER_TEMP/signed"; else src="$RUNNER_TEMP/unsigned"; fi
+          : >"$bundle/SIGNING-RECORD.txt"
+          for arch in x86_64 arm64; do
+            if [ "$EVENT" = "push" ]; then d="$src/signed-$arch"; else d="$src/unsigned-$arch/out"; fi
+            u="$RUNNER_TEMP/unsigned/unsigned-$arch/out"
+            rec="$(find "$d" -maxdepth 1 -name "*-$arch.release-record.txt")"
+            urec="$(find "$u" -maxdepth 1 -name "*-$arch.release-record.txt")"
+            (cd "$d" && sha256sum -c "SHA256SUMS.$arch")
+            # A consistency re-check, not the binding: the build record and the
+            # raw executable travel in one artifact from one producer, so this
+            # catches accidental drift only. The binding check runs in the sign
+            # job before any credential exists.
+            want="$(sed -n 's/^unsigned_build_sha256=//p' "$urec")"
+            got="$(sed -n 's/^unsigned_build_sha256=//p' "$rec")"
+            if [ "$want" != "$got" ]; then
+              echo "::error::$arch: the signing job's input ($got) is not the build job's output ($want)"
+              exit 1
+            fi
+            if [ "$(sed -n 's/^commit=//p' "$rec")" != "$COMMIT" ]; then
+              echo "::error::$arch: the record names a different commit"
+              exit 1
+            fi
+            while read -r _ name; do cp "$d/$name" "$bundle/$name"; done <"$d/SHA256SUMS.$arch"
+            cat "$d/SHA256SUMS.$arch" >>"$bundle/SHA256SUMS"
+            {
+              echo "[$arch]"
+              grep -E '^(tool_version|policy_version|license|target|deployment_floor|commit|signed|identifier|executable_sha256|executable_cdhash|payload_names|mpb_sha256|mpb_cdhash|team_identifier|certificate_sha256|notary_submission_[a-z]+)=' "$rec"
+              # The toolchain that compiled it is the build job's, not the
+              # signing VM's: what a rebuild needs (plan, D-R1).
+              sed -n -E 's/^(unsigned_build_sha256|version_check|host_macos|developer_dir|xcode|linker|rustc)=/build_\1=/p' "$urec"
+              echo
+            } >>"$bundle/SIGNING-RECORD.txt"
+          done
+          (cd "$bundle" && sha256sum -c SHA256SUMS)
+          version="$(sed -n 's/^tool_version=//p' "$bundle/SIGNING-RECORD.txt" | head -1)"
+          policy="$(sed -n 's/^policy_version=//p' "$bundle/SIGNING-RECORD.txt" | head -1)"
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          echo "POLICY=$policy" >>"$GITHUB_ENV"
+          {
+            echo "## Release bundle ($EVENT)"
+            echo '```'
+            cat "$bundle/SHA256SUMS"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # One source: the release notes are README.md's Install section between
+      # the two markers, with `X.Y.Z` replaced by this version. README is where
+      # the three descriptions 08 requires live (plan, commit 6); the wiki
+      # links to it. A dispatch's notes open with a DRY RUN banner, because its
+      # files are not what the text describes.
+      - name: Release notes, from README.md
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/bundle/RELEASE-NOTES.md"
+          begin='<!-- release-notes:begin -->'
+          end='<!-- release-notes:end -->'
+          if [ "$(grep -cxF -- "$begin" README.md)" != 1 ] || [ "$(grep -cxF -- "$end" README.md)" != 1 ]; then
+            echo "::error::README.md must carry exactly one '$begin' and one '$end' line (plan, commit 6)"
+            exit 1
+          fi
+          {
+            if [ "$EVENT" != "push" ]; then
+              echo "> **DRY RUN - NOT A RELEASE.** These files are ad-hoc signed: not signed with a Developer ID, not notarised, not attested. Do not install them. The text below describes what a real release will be."
+              echo
+            fi
+            echo "MacPortsBrew $VERSION (policy data $POLICY). Licence: Apache-2.0."
+            echo
+            awk -v b="$begin" -v e="$end" '$0 == e { f = 0 } f { print } $0 == b { f = 1 }' README.md \
+              | sed -e "s/X\.Y\.Z/$VERSION/g" -e "s#<owner>/<repo>#$REPO#g"
+          } >"$notes"
+          for want in "--repo $REPO" "--signer-workflow $REPO/.github/workflows/release.yml" "--source-ref refs/tags/v$VERSION"; do
+            if ! grep -qF -- "$want" "$notes"; then
+              echo "::error::the README section's verification snippet lacks '$want'"
+              exit 1
+            fi
+          done
+          if [ "$EVENT" = "push" ]; then
+            {
+              echo
+              echo "## Signing record"
+              echo '```'
+              cat "$RUNNER_TEMP/bundle/SIGNING-RECORD.txt"
+              echo '```'
+            } >>"$notes"
+          fi
+          cat "$notes" >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.event_name == 'push' && 'release-bundle' || 'dry-run-unsigned-bundle' }}
+          path: ${{ runner.temp }}/bundle
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    needs: assemble
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/bundle
+
+      - name: Every artifact listed in SHA256SUMS, attested
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/bundle/SHA256SUMS
+
+      - name: SHA256SUMS itself, attested
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/bundle/SHA256SUMS
+
+      # Published beside the artifacts and relied on by the withdrawal runbook,
+      # so it carries its own provenance too.
+      - name: SIGNING-RECORD.txt, attested
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/bundle/SIGNING-RECORD.txt
+
+      - name: Draft the release (never published here)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/bundle"
+          files=()
+          while read -r _ name; do files+=("$name"); done <SHA256SUMS
+          gh release create "$TAG" --draft --verify-tag \
+            --title "MacPortsBrew ${TAG#v}" --notes-file RELEASE-NOTES.md \
+            "${files[@]}" SHA256SUMS SIGNING-RECORD.txt
+          echo "::notice title=Draft created::review it, verify every asset with gh attestation verify --signer-workflow, then publish it by hand; publishing makes it immutable"

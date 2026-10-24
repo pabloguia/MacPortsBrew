@@ -6,7 +6,8 @@ MacPortsBrew builds from source. There is no published release yet, so this
 is currently the only route.
 
 When there is one, each release will publish three downloads per architecture —
-a bare binary, a `.pkg` and a `.dmg` — carrying the same executable and
+a bare binary, a `.pkg` and a `.dmg`, plus the bare binary again under the
+short name `mpb` — carrying the same executable and
 differing only in how you install it. Which one to take, how to put it on your
 `PATH`, what happens the first time it runs and how to check what you
 downloaded are all in the [README's install section](../README.md#install) —
@@ -30,9 +31,12 @@ The binary lands at `target/release/macportsbrew`. Put it somewhere on your
 
 **`mpb` is the same program under a shorter name.** It is installed alongside
 `macportsbrew`, not as a wrapper. If you already have an `mpb` — MIT
-Photonic-Bands ships one — installation will tell you and install only
-`macportsbrew` rather than shadowing it. A tool whose purpose is preventing
-accidental executable shadowing should not start by shadowing something.
+Photonic-Bands ships one — keep it first on your `PATH`: the documented line
+(`export PATH="$PATH:$HOME/.macportsbrew/bin"`) **appends** the install directory, so your existing `mpb` wins and
+MacPortsBrew's is reachable as `macportsbrew`. (The installer cannot ask, and
+nothing here detects a conflict for you; the order of your `PATH` is the guard.)
+A tool whose purpose is preventing accidental
+executable shadowing should not start by shadowing something.
 
 You do **not** need Homebrew or MacPorts installed to run MacPortsBrew. It
 reports what it finds, including "neither".

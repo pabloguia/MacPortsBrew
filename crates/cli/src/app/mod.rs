@@ -329,6 +329,11 @@ fn run_inner(
     // taken or a state directory is resolved.
     if let Some(Command::Restore { run, snapshot, .. }) = &cli.command {
         restore::refuse_before_context(cli, run.as_deref(), snapshot.as_deref())?;
+        // A run this machine never recorded is answered from the state
+        // directory, before a capture asks the providers anything.
+        if let Some(run) = run.as_deref() {
+            restore::refuse_unrecorded_run(run)?;
+        }
     }
     let ctx = Context::build(cli, stderr)?;
     if !root_checked {
@@ -628,6 +633,14 @@ mod tests {
         assert!(
             root < restore && root < context,
             "a command would run before the root check"
+        );
+        // An unrecorded run is answered before the capture, after the arguments.
+        let unrecorded = body
+            .find("restore::refuse_unrecorded_run(")
+            .expect("the unrecorded-run refusal");
+        assert!(
+            restore < unrecorded && unrecorded < context,
+            "restore must look the run up before it builds a context"
         );
     }
 

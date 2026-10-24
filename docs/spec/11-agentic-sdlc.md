@@ -35,7 +35,9 @@ what they found and what was left is in that pass's report), and all three
 groups re-read **2026-10-10** (`docs/research/tooling/2026-10-10-*.md`), and
 again **2026-10-17** at the start of pass 08 slice 5
 (`docs/research/tooling/2026-10-17-*.md`; its findings sit in guarded paths and
-wait for the owner, SE-027). The
+wait for the owner, SE-027), and once more **2026-10-22** at the start of pass 15
+(`docs/research/tooling/2026-10-22-*.md`; no contract break, and the items for
+guarded paths wait for the owner again). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
@@ -104,7 +106,7 @@ paths exist.
 |---|---|
 | All elevation (`sudo`, `doas`) | INV-06. Nothing in this repository's agent workflow needs root. |
 | Every mutating `brew` and `port` subcommand | INV-05 and `07-quality-and-testing.md`: tests never touch the developer's real installation. |
-| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew`, `~/.homebrew` | `04-migration-and-safety.md`, "never rewrite, re-link or patch a binary" — that is the rule this defends. (INV-07 and INV-08 are about one provider satisfying the other's dependency, which is a different claim; citing them here would leave the rule orphaned the day either is reworded.) Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. Enforced for `Bash` too — a deny rule on a path does not reach a subprocess, and `cp target/release/… /opt/homebrew/bin/` was the way in. |
+| Writes into `/usr/local`, `/opt/local`, `/opt/homebrew`, `~/.homebrew` | `04-migration-and-safety.md`, "never rewrite, re-link or patch a binary" — that is the rule this defends. (INV-07 and INV-08 are about one provider satisfying the other's dependency, which is a different claim; citing them here would leave the rule orphaned the day either is reworded.) Written as `Edit(//opt/local/**)`: a single leading slash anchors at the settings file, not the filesystem root. Enforced for `Bash` too — a Read or Edit deny rule now also covers the Bash file commands Claude Code recognises (`cat`, `head`, `tail`, `sed`, `tee`) and `>` / `<` redirections (permissions page, read 2026-10-22), but still not an arbitrary subprocess, and `cp target/release/… /opt/homebrew/bin/` was the way in. |
 | Writes to shell configuration files | `05-environment-and-primary-provider.md`: shell files are written only through the managed-block procedure. |
 | `launchctl`, `chsh`, `csrutil`, `spctl`, `systemsetup` | INV-19 for launch machinery; `05-environment-and-primary-provider.md` for the login shell; the threat model in `04-migration-and-safety.md` for the security tools. Three different rules, not one. |
 | `rustup default|override|toolchain`, `cargo install` | ADR-0002. The pinned toolchain is what holds the macOS floor. |

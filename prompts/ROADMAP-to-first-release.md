@@ -2,8 +2,8 @@
 
 # Roadmap to a first distribution — the owner's run sheet
 
-Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-18**, after
-slice 5 merged. It orders the remaining work so that a user can **install and
+Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-22**, after
+pass 14 merged and part A of pass 15 began. It orders the remaining work so that a user can **install and
 use** a MacPortsBrew release as early as possible, and says, for each work
 order, which model the owner should start the session with.
 
@@ -15,19 +15,20 @@ order, which model the owner should start the session with.
 > Anything that can change a user's machine, weaken a gate or ship a supply-chain
 > artifact is high on both. Re-read this table when a newer model family ships.
 
-## Status on 2026-10-18
+## Status on 2026-10-22
 
 **Done:** passes 00–07, 09 (release machinery, staged), 10 (release candidate),
-12 and 13 (read-only improvements), and pass 08 slices 1–5. The read-only build
+12, 13 and 14 (read-only improvements and maintenance; pass 14 merged as PR #11 on 2026-10-21), and pass 08 slices 1–5. The read-only build
 is complete and reviewed. The mutating loop is wired behind a test-only
 allowance; a run takes its snapshot and records itself; `history`, `restore
---plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") passed on `main` at `e463ca5` (run 39173310737, 2026-10-18).
+--plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") has passed on `main` and on every topic branch of passes 13–14; the latest `main` run is 2026-10-21 (run 39578935218 at `ad5a95d`). On 2026-10-22 the merged topic branches were deleted and only `main` remained.
 
 **Not done:**
 
 - **v0.1.0 is not tagged.** Pass 09's guarded files are still staged, not
-  installed; DP-033, DP-034, DP-035 and the new DP-045 block the tag text; the
-  certificates and repository settings are the owner's.
+  installed (DP-033, DP-034, DP-035 and DP-045 were ruled 2026-10-23, so part B
+  of pass 15 can be armed); the certificates and repository settings are the
+  owner's.
 - **Mutations stay off.** Eight tests fail the day the switch is turned on
   (`docs/passes/08-pre-flip-design-notes.md` has the table). Beyond them,
   every real plan halts at `VERIFY_DESTINATION` — four of its six checks
@@ -54,8 +55,8 @@ allowance; a run takes its snapshot and records itself; `history`, `restore
 
 | # | Work order | Track | Can start | Model | Why that model |
 |---|---|---|---|---|---|
-| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **now** | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
-| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | after 14 merges; part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
+| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **done** (merged 2026-10-21) | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
+| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | **part A in progress** on `pass/15-first-tag-readiness` (2026-10-22); part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
 | — | **Owner: certificates, environment, ruleset, dry run, tag v0.1.0** | R | after 15 | — | Only the owner handles credentials and tags. |
 | 3 | [`08-slice-6-verification-before-removal.md`](08-slice-6-verification-before-removal.md) | M | after 14's R-20 note | **Opus** recommended; Sonnet only under the rules below | Planner, gate, verification and executor (INV-01): by this file's own criterion, the stronger model. The design is written; the risk is a fail-closed rule subtly wrong. |
 | 4 | [`08-slice-7-plan-tie-and-consent.md`](08-slice-7-plan-tie-and-consent.md) | M | after 6 merges; part A after DP-049 | **Opus** recommended; Sonnet only under the rules below | Consent wiring and the plan tie in the executor; INV-02, INV-06. |
@@ -92,7 +93,7 @@ wrong; they do not change that slices 6–8 are judgement-heavy.
 
 | Item | Blocks | Notes |
 |---|---|---|
-| Rule **DP-033** (`mpb`), **DP-034** (keychain password in argv), **DP-035** (identifier, install directory), **DP-045** (slices 4–5 in 0.1.0); confirm DP-036 | 15, the tag | Recommendations: (a), (b) researched then (a), `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`, (a), (a). |
+| ~~Rule DP-033, DP-034, DP-035, DP-045~~ **Ruled 2026-10-23**: DP-033 (b) the `.pkg`/`.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails; DP-035 `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`; DP-045 (a). **DP-036**: confirm (default holds) | 15 B, the tag | **DP-034 closed 2026-10-23: `security -i` held on all four runners** (R-19 addendum); the signing step takes that recipe in part B. |
 | Send the armed message for work order 15 part B (`MPB_ALLOW_GUARD_EDIT=1` at the start, in your own words) | 15 B | It covers that one message (SE-093). |
 | Apple Developer Program; **Developer ID Application** and **Installer** certificates; an App Store Connect API key; the `release-signing` environment with its 7 secrets and 3 variables; the `v*` tag ruleset; immutable releases | the tag | Checklist in `docs/passes/09-staged/README.md`; never in a file, never in a session. |
 | The dispatch dry run, the Standard-account `.pkg` check, the Gatekeeper protocol | the tag | `docs/passes/10-read-only-release-candidate-report.md`. |
@@ -118,3 +119,54 @@ session-start hook announces `prompts/<that>.md` as the work order. When a
 session runs on Sonnet, add one more sentence to the prompt above, asking it to
 run `spec-guardian` and `security-reviewer` with `model: opus` on the plan and
 after every part.
+
+## Remaining work after the rulings of 2026-10-23
+
+In order. Nothing here needs another decision.
+
+1. ~~DP-034 research~~ **Done 2026-10-23** (R-19 addendum; `security -i` held on four
+   runners; pull request #14 closed unmerged). *Yours:* delete the remote branch
+   `research/dp034-security-stdin`.
+2. ~~Pass 15 part B~~ **Written 2026-10-23, pending the merge of #13** (pull request #13, commits `fbc270b^..c40a920`;
+   `docs/passes/15-first-tag-readiness-report.md`). The release machinery is installed,
+   `mpb` is a byte-identical copy in the `.pkg`, the `.dmg` and as a bare file, and the
+   signing step uses `security -i`. *Yours:* review and merge #13.
+2a. ~~Follow-ups from part B's reviews~~ **Written 2026-10-23** (armed message; pull
+   request #13): the sign-path and hash-binding gate tests, `check-no-secrets.sh` over
+   untracked files and two EC key forms with the git environment cleared, the
+   `RUNNER_TEMP` assertion and the `mpb` fields in `SIGNING-RECORD.txt` (DP-052 (a)),
+   the matrix banner and the "never run" comments.
+2b. ~~Follow-ups from the 2a review~~ **Written 2026-10-24** (armed message; pull
+   request #13): the sign-path test stubs `uname` and opens with a canary that must
+   see the input run when the guard is removed, so it is a real test on arm64 too; the
+   text check covers every spelling of running the input and any copy of its bytes;
+   `check-no-secrets.sh` reads ignored names, the P-256/P-384 PKCS#8 and SEC1 key forms,
+   clears `GIT_CONFIG_*`, and labels untracked and ignored hits; `test-gates.sh` clears
+   the git environment and runs no hook on its throwaway commits.
+2c. **Follow-ups from the 2b review, one armed message, before the tag** (none High):
+   - **the text check is a denylist of spellings, and incomplete**: `"$from_binary" -V`,
+     `"$built"`, `( "$bin" )`, `{ "$bin"; }`, `. "$bin"`, backticks, `arch -x86_64 "$bin"`,
+     a single `&`, a copy under another name, and a run moved outside the guard all pass
+     it. Replace it with an allowlist: every line naming `$bin`, `$built`, `$from_binary`
+     or a copy path must start with a known command (`ditto`, `chmod`, `shasum`,
+     `codesign`, `lipo`, `otool`, `vtool`, `assert_*`, `[`, an assignment), except the two
+     `-V`/`--version` lines, which must sit between the guard and its `fi` by line number.
+     With that, reaching the signing half dynamically is not needed;
+   - `check-no-secrets.sh` does not see a key inside an ignored directory (`--directory`
+     lists `docs/research/.scratch/` as one entry): walk ignored files with pathspec
+     exclusions for the build directories (`':!target' ':!dist' ':!.token-pilot'`), and
+     add a case with a key inside an ignored directory;
+   - a name-rule hit in an untracked file advises "or ignore it", which the next run then
+     refuses as ignored: say only "move it out of the tree" for name rules;
+   - `test-gates.sh` reads the developer's global git config (a global `*.p12` ignore
+     flips the untracked-label cases): set `GIT_CONFIG_GLOBAL=/dev/null`,
+     `GIT_CONFIG_NOSYSTEM=1` and clear `GIT_CONFIG_*` at the top.
+3. **Small, unguarded, any time:** reword the top-level `--help` line for
+   `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
+4. **Optional, as one armed message:** the `.claude/` fixes in
+   `docs/research/tooling/2026-10-22-*.md`.
+5. **Owner, after 2 (2 written 2026-10-23), the tag after #13 merges:** certificates, the `release-signing` environment, the
+   `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
+   `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
+6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are
+   still open.
