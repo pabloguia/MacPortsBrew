@@ -366,6 +366,34 @@ else
 fi
 
 echo
+echo "== check-action-pins.sh: the release workflow's three actions (pass 15)"
+# The real script, copied into a constructed tree: it changes to its own parent
+# directory, so the copy scans the constructed .github and nothing else.
+ap="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+mkdir -p "$ap/scripts" "$ap/.github/workflows"
+cp scripts/check-action-pins.sh "$ap/scripts/"
+printf '[toolchain]\nchannel = "1.0.0"\n' >"$ap/rust-toolchain.toml"
+SHA40="0123456789abcdef0123456789abcdef01234567"
+pins_case() { # <want: accept|reject> <label> <uses line...>
+  local want="$1" label="$2" got=reject; shift 2
+  { echo "jobs:"; echo "  j:"; echo "    steps:"; printf '      - uses: %s\n' "$@"; } >"$ap/.github/workflows/w.yml"
+  if "$ap/scripts/check-action-pins.sh" >/dev/null 2>&1; then got=accept; fi
+  if [ "$got" = "$want" ]; then pass; note ok "$label"; else
+    note FAIL "$label" "wanted $want, got $got"; miss
+  fi
+}
+pins_case accept "the three release actions, pinned" \
+  "actions/upload-artifact@$SHA40 # v7.0.1" \
+  "actions/download-artifact@$SHA40 # v8.0.1" \
+  "actions/attest-build-provenance@$SHA40 # v4.2.2"
+pins_case reject "upload-artifact by tag"            "actions/upload-artifact@v7 # v7"
+pins_case reject "download-artifact by branch"       "actions/download-artifact@main # main"
+pins_case reject "attest-build-provenance by tag"    "actions/attest-build-provenance@v4 # v4"
+pins_case reject "a name that only contains one"     "actions/upload-artifact-x@$SHA40 # v1"
+pins_case reject "a fork of one, pinned"             "someone/upload-artifact@$SHA40 # v7.0.1"
+rm -rf "$ap"
+
+echo
 if [ "$failures" -eq 0 ]; then
   echo "test-gates: every constructed case produced the required verdict"
   exit 0
