@@ -6,11 +6,12 @@
 # CI (authoritative), a contributor before pushing, and the agent's Stop
 # gate. Do not add a check anywhere else.
 #
-#   scripts/validate.sh --quick   fifteen stages: cargo fmt, cargo clippy,
+#   scripts/validate.sh --quick   seventeen stages: cargo fmt, cargo clippy,
 #                                 layering, no-shell, links, SPDX, dependency
 #                                 licences, i18n parity, action pins, memory
 #                                 files, licence text, support matrix, codex
-#                                 layer, shellcheck, gate tests
+#                                 layer, no secrets, release workflow,
+#                                 the shellcheck lint, gate tests
 #
 #                                 This list drifted from the code, and so did the
 #                                 copies in CLAUDE.md and CONTRIBUTING.md - four
@@ -30,6 +31,10 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 mode="${1:-default}"
+# The overrides the gates honour for their own tests and for the release
+# workflow never steer this run: it validates this tree and the binary it
+# builds (pass 15 review A1, L3).
+unset MPB_FIXTURE_BIN MPB_SECRETS_ROOT
 fail=0
 step() { printf '\n== %s\n' "$1"; }
 run()  { if ! "$@"; then fail=1; fi; }
@@ -54,6 +59,13 @@ step "support matrix"; run scripts/support-matrix.sh --check
 # Without this stage the generator exists and nothing runs it, which is the
 # shape of the drift it was written to stop (F-42).
 step "codex layer";  run scripts/generate-codex-layer.sh --check
+# No signing credential is tracked (08, ADR-0005; pass 09 plan, "The
+# secret-material check"). Static and about a second, so --quick.
+step "no secrets";   run scripts/check-no-secrets.sh
+# The release workflow's textual MUSTs (08, ADR-0005; pass 09 plan, D-T2),
+# including that a release builds only through build-release.sh, with no
+# feature flag (SE-102).
+step "release workflow"; run scripts/check-release-workflow.sh
 # Shellcheck ran only in CI and in the post-edit hook, which reports rather
 # than fails - so a directive on the wrong line left the workflow's first
 # step exiting 1, unseen, because CI has never run (F-44, F-12). Same

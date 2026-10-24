@@ -399,6 +399,212 @@ pins_case reject "a fork of one, pinned"             "someone/upload-artifact@$S
 rm -rf "$ap"
 
 echo
+echo "== build-release.sh: a release is built free of the test-support feature (pass 15)"
+# The script under test is the real one, run with a stand-in `cargo` that answers
+# `tree` from a file and records every call WITH ITS ARGUMENTS, so each case shows
+# which cargo commands the script reached and what it asked. The tripwire in
+# crates/cli/tests/history_preconditions.rs asks that this check exist; these
+# cases ask that it can say no, and that it asks the question it should.
+BR="${MPB_GATES_BUILD_RELEASE:-scripts/build-release.sh}"
+if [ "$(uname -s)" != Darwin ]; then
+  note SKIP "build-release.sh test-support cases" "needs macOS's packaging tools"
+elif [ ! -x "$BR" ]; then
+  note FAIL "build-release.sh is missing or not executable" "$BR"; miss
+else
+  tg="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  mkdir "$tg/bin" "$tg/home0" "$tg/home1"
+  cat >"$tg/bin/cargo" <<'STUB'
+#!/bin/sh
+case "$1" in
+  tree) echo "$*" >>"$STUB_LOG"
+        if [ -n "${STUB_TREE_FAIL:-}" ]; then echo "error: stub tree failure" >&2; exit 101; fi
+        cat "$STUB_TREE" ;;
+  build) echo "$*" >>"$STUB_LOG"; echo "stub: no build here" >&2; exit 1 ;;
+  *) echo "unexpected: $*" >>"$STUB_LOG"; exit 99 ;;
+esac
+STUB
+  printf '#!/bin/sh\nexit 0\n' >"$tg/bin/rustc"
+  chmod 0755 "$tg/bin/cargo" "$tg/bin/rustc"
+  printf '[build]\nrustc-wrapper = "wrap"\n' >"$tg/home1/config.toml"
+
+  # The exact question the check must ask: this package, locked, for the target,
+  # over the edges a release build uses, listing each package's enabled features.
+  TREE_CALL="tree --locked -p macportsbrew --target x86_64-apple-darwin --prefix none -e normal,build -f {p} {f}"
+  n=0
+  br_case() { # <label> <want> <tree text> <extra args...>   (ENVV, CASE_CARGO_HOME optional)
+    local label="$1" want="$2" tree="$3" out rc log verdict first second pat; shift 3
+    n=$((n + 1))
+    printf '%s\n' "$tree" >"$tg/tree"
+    : >"$tg/log"
+    out="$(env PATH="$tg/bin:$PATH" STUB_LOG="$tg/log" STUB_TREE="$tg/tree" \
+           STUB_TREE_FAIL="$([ "$want" = refused-tree-failed ] && echo 1)" \
+           CARGO_HOME="${CASE_CARGO_HOME:-$tg/home0}" ${ENVV:+"$ENVV"} \
+           "$BR" x86_64-apple-darwin "$tg/out$n" "$@" 2>&1)"
+    rc=$?
+    log="$(cat "$tg/log")"
+    first="$(printf '%s\n' "$log" | sed -n 1p)"
+    second="$(printf '%s\n' "$log" | sed -n 2p)"
+    verdict=1
+    case "$want" in
+      refused-flag|refused-env|refused-config)
+        # Refused before cargo is asked at all.
+        if [ "$rc" -ne 0 ] && [ -z "$log" ]; then
+          case "$want" in
+            refused-flag)   pat='usage:' ;;
+            refused-env)    pat='is set; a release is compiled' ;;
+            refused-config) pat='names a compiler' ;;
+          esac
+          printf '%s' "$out" | grep -q "$pat" && verdict=0
+        fi ;;
+      refused)             [ "$rc" -ne 0 ] && [ "$first" = "$TREE_CALL" ] && [ -z "$second" ] \
+                             && printf '%s' "$out" | grep -q 'test-support feature resolves' && verdict=0 ;;
+      refused-tree-failed) [ "$rc" -ne 0 ] && [ "$first" = "$TREE_CALL" ] && [ -z "$second" ] \
+                             && printf '%s' "$out" | grep -q 'cargo tree failed' && verdict=0 ;;
+      reached-build)       [ "$rc" -ne 0 ] && [ "$first" = "$TREE_CALL" ] \
+                             && case "$second" in "build "*) true ;; *) false ;; esac \
+                             && printf '%s' "$out" | grep -q 'cargo build failed' && verdict=0 ;;
+    esac
+    if [ "$verdict" -eq 0 ]; then pass; note ok "$label"; else
+      note FAIL "$label" "rc=$rc first='$first' second='$second'"; miss
+    fi
+    ENVV=""; CASE_CARGO_HOME=""
+  }
+
+  CLEAN='macportsbrew v0.1.0 (/r/crates/cli) default
+macportsbrew-application v0.1.0 (/r/crates/application)
+macportsbrew-domain v0.1.0 (/r/crates/domain) '
+  br_case "a feature flag is refused before cargo is asked: --features"      refused-flag "$CLEAN" --features test-support
+  br_case "a feature flag is refused before cargo is asked: --features="     refused-flag "$CLEAN" --features=test-support
+  br_case "a feature flag is refused before cargo is asked: --all-features"  refused-flag "$CLEAN" --all-features
+  br_case "a feature flag is refused before cargo is asked: -F"              refused-flag "$CLEAN" -F test-support
+  br_case "a dependency with test-support is refused"        refused "macportsbrew v0.1.0 (/r/crates/cli) default
+macportsbrew-application v0.1.0 (/r/crates/application) test-support"
+  br_case "test-support set on the root package is refused"  refused "macportsbrew v0.1.0 (/r/crates/cli) test-support"
+  br_case "test-support first in a feature list is refused"  refused "macportsbrew-application v0.1.0 (/r/a) test-support,other"
+  br_case "test-support last in a feature list is refused"   refused "macportsbrew-application v0.1.0 (/r/a) default,test-support"
+  br_case "test-support in the middle is refused"            refused "macportsbrew-application v0.1.0 (/r/a) a,test-support,b"
+  br_case "a repeated package (marked (*)) is refused too"   refused "macportsbrew-application v0.1.0 (/r/a) default,test-support (*)"
+  # Under pipefail, a `grep -q` pipeline stops reading at its first match and can
+  # kill a still-writing printf (status 141 reads as "no match"). Above 64 KB of
+  # graph that is what happened; the match is on the FIRST line here.
+  BIG="$({ echo 'macportsbrew-application v0.1.0 (/r/a) test-support'; yes 'macportsbrew-domain v0.1.0 (/r/d) default' | head -4000; })"
+  br_case "a graph over 64 KB with the feature first is refused" refused "$BIG"
+  br_case "a cargo that cannot answer is not a clean answer" refused-tree-failed "$CLEAN"
+  br_case "a clean graph goes on to the build, asking the exact question" reached-build "$CLEAN"
+  # The pattern must not be wider than the feature name.
+  br_case "a package named for it is not the feature"        reached-build "macportsbrew-test-support-helper v0.1.0 (/r/h) default"
+  br_case "a longer feature name is not the feature"         reached-build "macportsbrew-application v0.1.0 (/r/a) test-supported,x-test-support"
+  # The feature is also reachable as a bare cfg through a compiler wrapper, which
+  # cargo tree cannot see: refused in the environment and in cargo configuration.
+  ENVV="RUSTC_WRAPPER=wrap"           br_case "RUSTC_WRAPPER is refused"                refused-env "$CLEAN"
+  ENVV="RUSTC_WORKSPACE_WRAPPER=wrap" br_case "RUSTC_WORKSPACE_WRAPPER is refused"      refused-env "$CLEAN"
+  ENVV="CARGO_BUILD_RUSTC_WRAPPER=w"  br_case "CARGO_BUILD_RUSTC_WRAPPER is refused"    refused-env "$CLEAN"
+  ENVV="RUSTC=other-rustc"            br_case "RUSTC is refused"                        refused-env "$CLEAN"
+  CASE_CARGO_HOME="$tg/home1"         br_case "a rustc-wrapper in cargo's config is refused" refused-config "$CLEAN"
+  rm -rf "$tg"
+fi
+
+echo
+echo "== check-release-workflow.sh: each rule can say no (pass 09 D-T2, pass 15 rule 10)"
+# Constructed workflow trees, each a copy of the repository's own workflows plus
+# the release workflow with ONE change, run through the real script with
+# MPB_WORKFLOW_DIR / MPB_ACTIONS_DIR. The script passes the unchanged tree and
+# must refuse every changed one; a rule that cannot say no is a comment.
+CRW="${MPB_GATES_CHECK_RELEASE_WORKFLOW:-scripts/check-release-workflow.sh}"
+REL="${MPB_GATES_RELEASE_YML:-.github/workflows/release.yml}"
+if [ ! -x "$CRW" ]; then
+  note FAIL "check-release-workflow.sh is missing or not executable" "$CRW"; miss
+elif [ ! -f "$REL" ]; then
+  note FAIL "release.yml is missing" "$REL"; miss
+else
+  wg="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  wf_case() { # <label> <accept|reject> <target: release|other|action> <python: transforms the text `t`>
+    local label="$1" want="$2" target="$3" py="$4" d rc
+    d="$(mktemp -d "$wg/case.XXXXXX")"
+    mkdir "$d/wf" "$d/act"
+    for f in .github/workflows/*.yml; do
+      [ "$(basename "$f")" = release.yml ] || cp "$f" "$d/wf/"
+    done
+    cp "$REL" "$d/wf/release.yml"
+    printf 'name: composite\nruns:\n  using: composite\n  steps: []\n' >"$d/act/action.yml"
+    case "$target" in
+      release) f="$d/wf/release.yml" ;;
+      other)   f=""; for c in "$d"/wf/*.yml; do [ "$(basename "$c")" = release.yml ] || { f="$c"; break; }; done ;;
+      action)  f="$d/act/action.yml" ;;
+    esac
+    PYSRC="$py" python3 - "$f" <<'PYEOF' || { note FAIL "$label" "the construction did not apply"; miss; return; }
+import os, sys
+p = sys.argv[1]
+t = open(p).read()
+before = t
+exec(os.environ["PYSRC"])
+if t == before:
+    sys.exit(1)
+open(p, "w").write(t)
+PYEOF
+    MPB_WORKFLOW_DIR="$d/wf" MPB_ACTIONS_DIR="$d/act" "$CRW" >/dev/null 2>&1
+    rc=$?
+    if { [ "$want" = accept ] && [ "$rc" -eq 0 ]; } || { [ "$want" = reject ] && [ "$rc" -eq 1 ]; }; then
+      pass; note ok "$label"
+    else
+      note FAIL "$label" "wanted $want, exit $rc"; miss
+    fi
+  }
+  # After the signing job's environment line, so the text lands inside that job.
+  in_sign() { printf 't = t.replace("    environment: release-signing\\n", "    environment: release-signing\\n%s\\n", 1)' "$1"; }
+  # After the first `steps:` of the file, which is not the signing job's.
+  in_first() { printf 't = t.replace("    steps:\\n", "    steps:\\n%s\\n", 1)' "$1"; }
+  at_end() { printf 't = t + "\\n%s\\n"' "$1"; }
+
+  wf_case "the workflows as they are"                         accept release 't = t + "\n# a comment may name --all-features and pull_request_target\n"'
+  wf_case "release-signing named in another workflow"         reject other   "$(at_end '    environment: release-signing')"
+  wf_case "a second environment selection line"               reject release "$(in_sign '    environment: release-signing')"
+  wf_case "the environment as a mapping"                      reject release 't = t.replace("environment: release-signing", "environment:\n      name: release-signing", 1)'
+  wf_case "secrets.MPB_* in another workflow"                 reject other   "$(at_end '      - run: echo ${{ secrets.MPB_TEAM_ID }}')"
+  wf_case "secrets.MPB_* in a composite action"               reject action  "$(at_end '      - run: echo ${{ secrets.MPB_TEAM_ID }}')"
+  wf_case "secrets. outside the signing job"                  reject release "$(in_first '      FOO: ${{ secrets.GITHUB_TOKEN }}')"
+  wf_case "secrets[...] in another workflow"                  reject other   "$(at_end "      - run: echo \${{ secrets['X'] }}")"
+  wf_case "toJSON(secrets)"                                   reject other   "$(at_end '      - run: echo ${{ toJSON(secrets) }}')"
+  wf_case "cargo in the signing job"                          reject release "$(in_sign '      - run: cargo build')"
+  wf_case "rustup in the signing job"                         reject release "$(in_sign '      - run: rustup show')"
+  wf_case "a Rust toolchain action in the signing job"        reject release "$(in_sign '      - uses: dtolnay/rust-toolchain@x')"
+  wf_case "validate.sh in the signing job"                    reject release "$(in_sign '      - run: scripts/validate.sh')"
+  wf_case "run-fixture-matrix in the signing job"             reject release "$(in_sign '      - run: scripts/run-fixture-matrix.sh')"
+  wf_case "set -x"                                            reject release "$(in_first '      - run: set -x')"
+  wf_case "set -eux"                                          reject release "$(in_first '      - run: set -eux')"
+  wf_case "set -e -x"                                         reject release "$(in_first '      - run: set -e -x')"
+  wf_case "set -o xtrace"                                     reject release "$(in_first '      - run: set -o xtrace')"
+  wf_case "SHELLOPTS"                                         reject release "$(in_first '      - run: SHELLOPTS=xtrace true')"
+  wf_case "BASH_XTRACEFD"                                     reject release "$(in_first '      - run: BASH_XTRACEFD=3 true')"
+  wf_case "bash -x"                                           reject release "$(in_first '      - run: bash -x script.sh')"
+  wf_case "an extra trigger"                                  reject release 't = t.replace("  workflow_dispatch:", "  pull_request:\n  workflow_dispatch:", 1)'
+  wf_case "a tag filter that is not v*"                       reject release 't = t.replace("tags: [\"v*\"]", "tags: [\"*\"]", 1)'
+  wf_case "a branches filter beside the tags"                 reject release 't = t.replace("tags: [\"v*\"]", "tags: [\"v*\"]\n    branches: [main]", 1)'
+  wf_case "workflow_run in another workflow"                  reject other   "$(at_end '  workflow_run:')"
+  wf_case "pull_request_target in another workflow"           reject other   "$(at_end '  pull_request_target:')"
+  wf_case "ACTIONS_STEP_DEBUG"                                reject release "$(in_first '      ACTIONS_STEP_DEBUG: true')"
+  # Rule 10: nothing in the release workflow builds with a feature (pass 08 slice 4 review L1).
+  wf_case "--features on the release build"                   reject release 't = t.replace("scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\"\n", "scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\" --features test-support\n", 1)'
+  wf_case "-F on the release build"                           reject release 't = t.replace("scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\"\n", "scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\" -F test-support\n", 1)'
+  wf_case "-rF in a short-flag cluster on the release build"  reject release 't = t.replace("scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\"\n", "scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\" -rF test-support\n", 1)'
+  wf_case "a quoted \"-F\" on the release build"             reject release 't = t.replace("scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\"\n", "scripts/build-release.sh \"$TARGET\" \"$RUNNER_TEMP/unsigned/out\" \"-F\" test-support\n", 1)'
+  wf_case "-F on the continuation of build-release.sh"        reject release "$(in_first $'      - run: |\\n          scripts/build-release.sh t o \\\\\\n            -F x')"
+  wf_case "a quoted --features="                              reject release "$(in_first '      - run: echo \"--features=test-support\"')"
+  wf_case "a single-quoted --all-features"                    reject release "$(in_first "      - run: echo '--all-features'")"
+  wf_case "the flag held in a variable"                       reject release "$(in_first '      - run: F=--features=x true')"
+  wf_case "--all-features on a cargo line"                    reject release "$(in_first '      - run: cargo build --release --all-features')"
+  wf_case "cargo named at all"                                reject release "$(in_first '      - run: cargo --version')"
+  wf_case "cargo with a toolchain selector and a short subcommand" reject release "$(in_first '      - run: cargo +stable b')"
+  wf_case "cargo rustc"                                       reject release "$(in_first '      - run: cargo rustc --release')"
+  wf_case "a cargo action"                                    reject release "$(in_first '      - uses: some/cargo@x')"
+  wf_case "a cargo line split across lines"                   reject release "$(in_first $'      - run: |\\n          cargo \\\\\\n            build')"
+  wf_case "a flag of another tool on a line that is not a build" accept release "$(in_first '      - run: grep -F x file')"
+  wf_case "a commented build line with a flag"                accept release 't = t + "\n    # cargo build --all-features\n"'
+  wf_case "a commented call of build-release.sh with -F"      accept release 't = t + "\n    # scripts/build-release.sh t o -F x\n"'
+  rm -rf "$wg"
+fi
+
+echo
 echo "== check-no-secrets.sh: no credential is tracked (pass 15)"
 # Every refused input is built here at run time from pieces, so this repository
 # never contains one - not even in this file. Each case is a fresh git work tree
