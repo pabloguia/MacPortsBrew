@@ -348,3 +348,39 @@ binding tests; `build-release.sh` comments), `59e959d` (`release.yml`), `678bbb8
 default mode then passed. The retry committed only the staged roadmap, because the
 refused command had been blocked whole, before its staging ran; the commit was
 amended, before any push, to hold the two files its message names.
+
+## Follow-up 2b, 2026-10-24
+
+A fourth armed message; every guarded write was made before any background task.
+**Guarded files written:** `scripts/check-no-secrets.sh` and `scripts/test-gates.sh`
+(both by `python3` in place, not in `.claude/.guard-edit-log`). A stray copy,
+`scripts/.tg-arm.sh`, was written by mistake during the arm64 simulation and deleted
+at once; it was never staged.
+
+- **The sign-path test is real on arm64** (the 2a review's Medium). A `uname` stub,
+  and a canary first: over a copy of the script with the guard replaced by `if false`,
+  the harness must see the input run. Observed: with the stub reporting arm64 (what an
+  Apple Silicon host did before), the canary fails loudly; with the committed stub and
+  the guard removed, the input is caught executed.
+- **The text check** works on logical lines and catches the input run as `"$bin"`,
+  `${bin}` or bare after a separator, `exec`, `env`, `!`, `$(`, and the listed copies in
+  command position. Three mutants (a copy run, an extra `exec`, a run inside the guard
+  branch) killed. **It is not complete**, and its own comment says more than it does: the
+  review found spellings it misses (`"$from_binary"`, `"$built"`, subshells, braces,
+  sourcing, backticks, `arch`, a single `&`, a renamed copy) and that it does not check the
+  two runs sit inside the guard branch. Follow-up 2c replaces it with an allowlist.
+- **`check-no-secrets.sh`**: name rules over ignored entries (`--directory`, so
+  `target/` is one entry; the review showed this also hides a key *inside* an ignored
+  directory such as `docs/research/.scratch/`, follow-up 2c), hits labelled untracked or ignored, the PKCS#8 EC form for
+  P-256 and P-384 (prefixes observed with `openssl genpkey`), P-384 SEC1, the
+  `GIT_CONFIG_*` environment cleared. Five mutants killed.
+- **`test-gates.sh`** clears the git environment and runs no hook on its throwaway commits.
+
+213 gate cases pass.
+
+**Review** (`security-reviewer`, after the writes, before the commit): no High; the
+two Mediums above (the incomplete text check, keys inside ignored directories) and two
+Lows (name-rule advice that leads to a second refusal; the gate cases reading the
+developer's global git config) are follow-up 2c. The escape had closed when the review
+returned. What is committed is stronger than what it replaces in every respect, and
+the report and roadmap say where it stops.

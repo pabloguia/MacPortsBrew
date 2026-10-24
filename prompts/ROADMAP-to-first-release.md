@@ -136,16 +136,31 @@ In order. Nothing here needs another decision.
    untracked files and two EC key forms with the git environment cleared, the
    `RUNNER_TEMP` assertion and the `mpb` fields in `SIGNING-RECORD.txt` (DP-052 (a)),
    the matrix banner and the "never run" comments.
-2b. **Follow-ups from the 2a review, one armed message, before the tag** (none High):
-   - **the sign-path test is vacuous on arm64** (two of the four CI runners): a removed
-     guard falls to the "host is not x86_64" branch and nothing runs; add a `uname` stub
-     and a canary case that deletes the guard and must see the input executed;
-   - widen the text check (any variable in command position, other copies of the bytes),
-     and let the `codesign` stub succeed so the run reaches the signing half;
-   - `check-no-secrets.sh`: name rules over ignored files too (`git add -f <key>`), the
-     OpenSSL P-256 (`MIGH…`) and P-384 PKCS#8 forms, `GIT_CONFIG_*` cleared, and untracked
-     hits labelled as such;
-   - `test-gates.sh`: clear the git environment and disable hooks on its throwaway commits.
+2b. ~~Follow-ups from the 2a review~~ **Written 2026-10-24** (armed message; pull
+   request #13): the sign-path test stubs `uname` and opens with a canary that must
+   see the input run when the guard is removed, so it is a real test on arm64 too; the
+   text check covers every spelling of running the input and any copy of its bytes;
+   `check-no-secrets.sh` reads ignored names, the P-256/P-384 PKCS#8 and SEC1 key forms,
+   clears `GIT_CONFIG_*`, and labels untracked and ignored hits; `test-gates.sh` clears
+   the git environment and runs no hook on its throwaway commits.
+2c. **Follow-ups from the 2b review, one armed message, before the tag** (none High):
+   - **the text check is a denylist of spellings, and incomplete**: `"$from_binary" -V`,
+     `"$built"`, `( "$bin" )`, `{ "$bin"; }`, `. "$bin"`, backticks, `arch -x86_64 "$bin"`,
+     a single `&`, a copy under another name, and a run moved outside the guard all pass
+     it. Replace it with an allowlist: every line naming `$bin`, `$built`, `$from_binary`
+     or a copy path must start with a known command (`ditto`, `chmod`, `shasum`,
+     `codesign`, `lipo`, `otool`, `vtool`, `assert_*`, `[`, an assignment), except the two
+     `-V`/`--version` lines, which must sit between the guard and its `fi` by line number.
+     With that, reaching the signing half dynamically is not needed;
+   - `check-no-secrets.sh` does not see a key inside an ignored directory (`--directory`
+     lists `docs/research/.scratch/` as one entry): walk ignored files with pathspec
+     exclusions for the build directories (`':!target' ':!dist' ':!.token-pilot'`), and
+     add a case with a key inside an ignored directory;
+   - a name-rule hit in an untracked file advises "or ignore it", which the next run then
+     refuses as ignored: say only "move it out of the tree" for name rules;
+   - `test-gates.sh` reads the developer's global git config (a global `*.p12` ignore
+     flips the untracked-label cases): set `GIT_CONFIG_GLOBAL=/dev/null`,
+     `GIT_CONFIG_NOSYSTEM=1` and clear `GIT_CONFIG_*` at the top.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
