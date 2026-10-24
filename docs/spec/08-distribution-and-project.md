@@ -15,7 +15,7 @@ notarisation ticket and a bare Mach-O cannot; they are alternatives to the
 leading path, never a replacement for it. Every artifact MUST embed
 byte-identical executables — one build produces one signed Mach-O per
 architecture, and CI asserts that the payload extracted from each container, and
-the bare `mpb` the build publishes beside the bare binary (2026-10-23; DP-052),
+the bare `mpb` published beside the bare binary (DP-052 (a), 2026-10-23),
 hash to the published bare-binary checksum. *(DP-008 below speaks of "all
 three": the bare binary, the `.pkg` and the `.dmg`; the bare `mpb` is a fourth
 file with the same bytes, not a fourth way to install.)*
@@ -89,9 +89,8 @@ only what binds:
   user-owned and `0755`, not group-writable, and is not the state directory. The
   same exclusion binds the `.dmg`'s copy target and the documented `cp` line. The
   `.pkg` and the `.dmg` carry **both** `macportsbrew` and `mpb`, byte-identical
-  copies of the one signed executable (DP-033 (b), SE-104); whether the release
-  also publishes a bare `mpb` beside the bare `macportsbrew`, as the build does
-  today, is DP-052, open. A non-interactive installer cannot decline to shadow an
+  copies of the one signed executable (DP-033 (b), SE-104), and the release
+  publishes a bare `mpb` beside the bare `macportsbrew` (DP-052 (a)). A non-interactive installer cannot decline to shadow an
   existing `mpb`, so for the `.pkg`, and for any copy placed in
   `~/.macportsbrew/bin`, the guard is `PATH` order: the documented line appends
   that directory, so an earlier `mpb` wins. A copy the user places elsewhere from

@@ -418,7 +418,16 @@ make a run complete by dropping a check.
 
 ---
 
-### DP-052 — Does the release publish a bare `mpb` file beside the bare `macportsbrew`?
+
+## Resolved
+
+### DP-052 — Does the release publish a bare `mpb` file beside the bare `macportsbrew`? — **RESOLVED 2026-10-23: (a) keep it**
+
+- **Ruled 2026-10-23 by the owner: (a).** Four files per architecture. ADR-0005's
+  Decision is amended to four artifacts; spec 08 and SE-104 say so. Carrying
+  `payload_names`, `mpb_sha256` and `mpb_cdhash` into `SIGNING-RECORD.txt` is a
+  guarded `release.yml` edit and lands with follow-ups 2a
+  (`prompts/ROADMAP-to-first-release.md`), before the tag.
 
 - **Context (2026-10-23, pass 15 part B).** DP-033 (b) says "the bare-file route
   still installs one name". The owner's armed message for part B asked that the
@@ -444,7 +453,7 @@ make a run complete by dropping a check.
   undoing it needs a guarded write; nothing is published before the owner tags, and
   the tag is the owner's. **What it blocks:** the tag.
 
-## Resolved
+---
 
 ### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids — **RESOLVED 2026-10-23: (b), `security -i` holds on all four runners**
 

@@ -96,10 +96,18 @@ else on the machine is broken.
 
 ## Decision
 
-**Sign every release artifact with Developer ID, notarise it, and publish three
-artifacts per architecture: the bare binary, a `.pkg` and a `.dmg`. The bare
-binary remains the path the documentation leads with; the containers exist to
-carry a stapled notarisation ticket. Sign with a secure timestamp.**
+**Sign every release artifact with Developer ID, notarise it, and publish four
+artifacts per architecture: the bare binary, the same bare binary under the short
+name `mpb`, a `.pkg` and a `.dmg`. The bare binary remains the path the
+documentation leads with; the containers exist to carry a stapled notarisation
+ticket. Sign with a secure timestamp.**
+
+*(Amended 2026-10-23 by the owner, DP-052 (a): from three artifacts to four. The
+bare `mpb` is a byte-identical copy of the signed bare binary, with the same
+CDHash; it is not submitted for notarisation on its own, the executable's
+submission being expected to cover it — first shown by the first signed release.
+The `.pkg` and the `.dmg` carry both names (DP-033 (b)). DP-008's "all three" below
+counts the ways to install, which are still three.)*
 
 Chosen by the project owner, 2026-09-02.
 

@@ -209,7 +209,8 @@ two Mediums are accepted and recorded, not fixed (the pass report).
 installs `./bin/macportsbrew` and `./bin/mpb` (`0755`), the `.dmg` holds both,
 and a bare `mpb-<version>-<arch>` is published beside the bare executable, so
 `SHA256SUMS.<arch>` lists four files (asserted). That bare file goes beyond
-DP-033 (b) as ruled and is **DP-052, open** (recommendation: drop it). `mpb` is a byte-identical copy
+DP-033 (b) as ruled; the owner kept it (**DP-052 (a)**, 2026-10-23), and ADR-0005's
+Decision now says four artifacts. `mpb` is a byte-identical copy
 of the signed executable rather than the second `[[bin]]` signed on its own: a
 copy lets every assertion say "the same bytes", and it carries the same CDHash
 (asserted), so the executable's notarisation ticket is **expected** to cover it

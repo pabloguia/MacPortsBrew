@@ -8109,7 +8109,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   expected to cover it — an inference first shown by the first signed run). `PAYLOAD=(macportsbrew mpb)` drives the `.pkg` list, BOM modes, the `.dmg` volume list and every hash;
   a bare `mpb-<version>-<arch>` is published beside the bare executable and `SHA256SUMS` lists four files —
   which goes beyond DP-033 (b) ("the bare-file route still installs one name") and ADR-0005's "three
-  artifacts": **DP-052, open**, the build as it is being the reversible default. Spec 08's MUST of a
+  artifacts"; **DP-052 ruled (a) by the owner, 2026-10-23: keep it**, ADR-0005's Decision amended to four
+  artifacts per architecture. Spec 08's MUST of a
   notarisation submission per artifact is met for the bare `mpb` only by the executable's submission (the
   same CDHash), and `SIGNING-RECORD.txt` does not yet carry its fields (a before-the-tag follow-up); the release
   record gains `payload_names`, `mpb_sha256`, `mpb_cdhash`. Unsigned x86_64 dry run 2026-10-23: exit 0 (arm64

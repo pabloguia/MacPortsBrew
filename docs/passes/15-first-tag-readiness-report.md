@@ -272,7 +272,9 @@ fixed because the escape had closed; the Lows likewise.
 ("the bare-file route still installs one name") and ADR-0005's "three artifacts" —
 it was built because the owner's message asked for `SHA256SUMS` to gain the second
 file; recorded as **DP-052** (recommendation: drop it), the build as committed being
-the reversible default, and spec 08 no longer credits DP-033 for it; **H2** the
+the reversible default, and spec 08 no longer credits DP-033 for it — **ruled (a),
+keep it, by the owner on 2026-10-23**: ADR-0005's Decision amended to four
+artifacts, and `SIGNING-RECORD.txt` carrying the `mpb` fields joins follow-up 2a; **H2** the
 spec 08 edit had dropped the clause binding the `.dmg` copy target and the `cp`
 line to the prefix exclusion — restored; **M1** the per-artifact notarisation
 record has no entry for the bare `mpb` — recorded in SE-104, and the

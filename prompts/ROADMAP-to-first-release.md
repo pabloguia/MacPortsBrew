@@ -133,7 +133,7 @@ In order. Nothing here needs another decision.
    signing step uses `security -i`. *Yours:* review and merge #13.
 2a. **Follow-ups from part B's reviews, one armed message.** None
    blocks the dispatch dry run; the first two, and `SIGNING-RECORD.txt`'s `mpb` fields, land
-   before the tag. **DP-052** (a bare `mpb` file, yes or no) is yours, before the tag:
+   before the tag (DP-052 ruled (a), 2026-10-23: the bare `mpb` stays):
    - the plan's gate tests `build_release_never_executes_the_input_on_the_sign_path`
      and the `--expect-unsigned-sha256` refusals (`build-release.sh`'s comment already
      names the first; it does not exist);
@@ -151,7 +151,7 @@ In order. Nothing here needs another decision.
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
    `docs/research/tooling/2026-10-22-*.md`.
-5. **Owner, after 2 (2 written 2026-10-23), the tag after 2a and DP-052:** certificates, the `release-signing` environment, the
+5. **Owner, after 2 (2 written 2026-10-23), the tag after 2a:** certificates, the `release-signing` environment, the
    `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
    `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
 6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are
