@@ -40,11 +40,14 @@ cd "$(dirname "$0")/.." || exit 1
 # The throwaway git trees below must never be the caller's repository: a GIT_DIR
 # inherited from a git hook would point their `add` and `commit` at it. Nor may
 # they read the developer's own git configuration: a global excludes file that
-# ignores `*.p12` would turn an "untracked" case into an "ignored" one.
+# ignores `*.p12` would turn an "untracked" case into an "ignored" one. That
+# includes $XDG_CONFIG_HOME/git/ignore and attributes, which git reads with no
+# configuration at all, and a template directory `git init` would copy in.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
-      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_NAMESPACE
+      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
+      GIT_TEMPLATE_DIR GIT_EXEC_PATH GIT_ALTERNATE_OBJECT_DIRECTORIES
 for v in $(env | sed -nE 's/^(GIT_CONFIG_(KEY|VALUE)_[0-9]+)=.*/\1/p'); do unset "$v"; done
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME=/var/empty
 
 failures=0
 checks=0
@@ -799,107 +802,497 @@ else
   sp_case refused-hash "a short hash is refused" --sign --expect-unsigned-sha256 abc123 --from-binary "$sp/input"
   sp_case usage "--expect-unsigned-sha256 without --sign is a usage error" \
     --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  # The whole sign path, to its end (pass 15 follow-ups 2e and 2f). What this
+  # gate is for is the accidental regression - an honest edit that runs the
+  # input on the sign path (DP-053, ruled (c)): a test of a shell script cannot
+  # stand against an edit written to evade it, and the defence against that is
+  # review now and a signing job that cannot execute the input later. The run
+  # is made to look like the signing job: a real Mach-O input for each target,
+  # CI's variables, a key and keychain that are not empty, the notary issuer
+  # set. A second set of stubs lets build-release.sh go all the way: codesign,
+  # security, pkgbuild, productbuild, pkgutil, lsbom, hdiutil, xattr, xcrun,
+  # plutil, spctl and xcodebuild answer what the script asserts and run nothing
+  # they are given, and any call in a form a stub does not know is a failure,
+  # so a stub cannot quietly stand in for a real tool that would have run the
+  # input (the containers are cpio archives, the "mount" an extraction; every
+  # other tool, lipo, otool, vtool and strings included, is the real one). The
+  # input is the canary: if it runs it leaves a marker. The script runs in its
+  # own process group, and a member still alive when it exits is a failure (a
+  # run put in the background), as is a marker that appears a second later.
+  # Four canaries prove the harness sees a run: the guard removed, on the dry
+  # and on the signed path; a run added after notarisation; a run put in the
+  # background.
+  fb="$sp/fbin"; mkdir -p "$fb"
+  case "$(/usr/bin/uname -m)" in
+    arm64) host_arch=arm64;  host_target=aarch64-apple-darwin ;;
+    *)     host_arch=x86_64; host_target=x86_64-apple-darwin ;;
+  esac
+  cp "$sp/bin/security" "$fb/security"
+  # <name>, body on stdin: a stub that logs its call to $sp/calls, then runs
+  # body; a body's catch-all calls `unknown`, which records the call in
+  # $sp/UNEXPECTED and fails.
+  fstub() {
+    { printf '#!/bin/sh\necho "%s $*" >>"%s/calls"\n' "$1" "$sp"
+      printf 'unknown() { echo "%s $*" >>"%s/UNEXPECTED"; exit 1; }\n' "$1" "$sp"
+      cat; } >"$fb/$1"
+    chmod 0755 "$fb/$1"
+  }
+  fstub uname <<'STUB'
+case "$*" in -m) echo "$GATES_ARCH" ;; *) unknown "$@" ;; esac
+STUB
+  fstub codesign <<'STUB'
+case " $* " in
+  " --sign "*|" --verify "*) exit 0 ;;
+  " -d --extract-certificates "*) : >codesign0 ;;
+  " -dvvv "*) printf '%s\n' "Identifier=io.github.pabloguia.macportsbrew" \
+      "CodeDirectory v=20500 size=1 flags=0x10000(runtime) hashes=1+1 location=embedded" \
+      "Signature=adhoc" "CDHash=0123456789abcdef0123456789abcdef01234567" \
+      "Authority=Developer ID Application: Gates" "Timestamp=Oct 24, 2026" \
+      "TeamIdentifier=$MPB_TEAM_ID" >&2 ;;
+  *) unknown "$@" ;;
+esac
+STUB
+  fstub pkgbuild <<'STUB'
+root=""; loc=""; prev=""
+for a in "$@"; do
+  [ "$prev" = --root ] && root="$a"; [ "$prev" = --install-location ] && loc="$a"; prev="$a"
+done
+[ -n "$root" ] && [ -n "$loc" ] || unknown "$@"
+(cd "$root" && find . | sort | cpio -o --format odc 2>/dev/null) >"$a" || exit 1
+printf '<pkg-info install-location="%s"/>\n' "$loc" >"$a.info"
+STUB
+  fstub productbuild <<'STUB'
+dist=""; pp=""; prev=""
+for a in "$@"; do
+  [ "$prev" = --distribution ] && dist="$a"; [ "$prev" = --package-path ] && pp="$a"; prev="$a"
+done
+[ -n "$dist" ] && [ -n "$pp" ] || unknown "$@"
+d="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates-pb.XXXXXX")" || exit 1
+mkdir "$d/macportsbrew.pkg"
+cp "$dist" "$d/Distribution"; cp "$pp/macportsbrew.pkg" "$d/macportsbrew.pkg/Payload"
+cp "$pp/macportsbrew.pkg.info" "$d/macportsbrew.pkg/PackageInfo"; : >"$d/macportsbrew.pkg/Bom"
+(cd "$d" && find . -mindepth 1 | sort | cpio -o --format odc 2>/dev/null) >"$a"; rc=$?
+rm -rf "$d"; exit "$rc"
+STUB
+  fstub pkgutil <<'STUB'
+case "$1" in
+  --expand) mkdir -p "$3" && cd "$3" && cpio -id --quiet <"$2" ;;
+  --check-signature) printf '   1. Developer ID Installer: Gates (%s)\n   Notarization: trusted by the Apple notary service\n' "$MPB_TEAM_ID" ;;
+  *) unknown "$@" ;;
+esac
+STUB
+  fstub lsbom <<'STUB'
+case "$1 $2" in "-p fm") ;; *) unknown "$@" ;; esac
+printf '.\t40755\n./bin\t40755\n./bin/macportsbrew\t100755\n./bin/mpb\t100755\n'
+STUB
+  fstub hdiutil <<'STUB'
+src=""; mp=""; prev=""
+for a in "$@"; do
+  [ "$prev" = -srcfolder ] && src="$a"; [ "$prev" = -mountpoint ] && mp="$a"; prev="$a"
+done
+case "$1" in
+  create) (cd "$src" && find . -mindepth 1 | sort | cpio -o --format odc 2>/dev/null) >"$a" ;;
+  attach) (cd "$mp" && cpio -id --quiet <"$a") && printf '/dev/disk9s1\tApple_HFS\t%s\n' "$mp" ;;
+  detach) exit 0 ;;
+  imageinfo) echo "Format: UDZO" ;;
+  *) unknown "$@" ;;
+esac
+STUB
+  fstub xattr <<'STUB'
+[ "$#" -eq 1 ] || unknown "$@"
+STUB
+  fstub xcrun <<'STUB'
+case "$1 $2" in
+  "notarytool submit") printf '{"status":"%s","id":"gates-1"}\n' "$GATES_NOTARY" ;;
+  "notarytool log"|"stapler staple"|"stapler validate") exit 0 ;;
+  *) unknown "$@" ;;
+esac
+STUB
+  fstub plutil <<'STUB'
+case "$1 $2" in "-extract status") echo "$GATES_NOTARY" ;; "-extract id") echo gates-1 ;; *) unknown "$@" ;; esac
+STUB
+  fstub xcodebuild <<'STUB'
+case "$*" in -version) echo "Xcode (gate stub)" ;; *) unknown "$@" ;; esac
+STUB
+  fstub spctl <<'STUB'
+case "$1 $2" in "-a -vv") echo "source=Notarized Developer ID" ;; *) unknown "$@" ;; esac
+STUB
+  # The inputs: a real program for each target, at the target's floor, that
+  # leaves the marker when run.
+  printf '#include <stdio.h>\nint main(void) { FILE *f = fopen("%s/EXECUTED", "w"); if (f) fclose(f); return 0; }\n' \
+    "$sp" >"$sp/marker.c"
+  inputs_ok=1
+  for a in x86_64 arm64; do
+    case "$a" in x86_64) m=10.12 ;; arm64) m=11.0 ;; esac
+    cc -arch "$a" -mmacosx-version-min="$m" -o "$sp/input-$a" "$sp/marker.c" 2>/dev/null || inputs_ok=0
+  done
+  printf 'not a key\n' >"$sp/fkey.p8"; chmod 0600 "$sp/fkey.p8"; printf 'not a keychain\n' >"$sp/fkeychain"
+  mkdir -p "$sp/runner-temp"
+  # <want: signed|dry|refused-notary|ran> <label> <tree> <arch> <args...>: the
+  # verdicts other than `ran` also require no marker, no process left behind and
+  # no call a stub does not know.
+  full_case() {
+    local want="$1" label="$2" repo="$3" a="$4" t pid rc out ok=1 ran="" notary=Accepted; shift 4
+    [ "$want" = refused-notary ] && notary=Invalid
+    case "$a" in x86_64) t=x86_64-apple-darwin ;; arm64) t=aarch64-apple-darwin ;; esac
+    sp_n=$((sp_n + 1)); rm -f "$sp/EXECUTED" "$sp/calls" "$sp/UNEXPECTED"
+    perl -e 'setpgrp(0, 0); exec @ARGV or die "exec: $!\n"' \
+      env PATH="$fb:$PATH" GITHUB_ACTIONS=true CI=true RUNNER_TEMP="$sp/runner-temp" \
+          MPB_SIGN_KEYCHAIN="$sp/fkeychain" MPB_NOTARY_KEY_PATH="$sp/fkey.p8" \
+          MPB_APP_IDENTITY="Developer ID Application: Gates" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
+          MPB_TEAM_ID="$(printf 'GATES%s' TEAM1)" MPB_NOTARY_KEY_ID=k MPB_NOTARY_ISSUER=gates-issuer \
+          GATES_ARCH="$a" GATES_NOTARY="$notary" \
+          "$repo/scripts/build-release.sh" "$t" "$sp/out$sp_n" "$@" >"$sp/full.out" 2>&1 &
+    pid=$!
+    wait "$pid"; rc=$?
+    out="$(cat "$sp/full.out")"
+    sleep 1
+    if ps -A -o pgid= | awk -v g="$pid" '$1 == g { f = 1 } END { exit !f }'; then
+      ran="a process of the run outlived it"; kill -9 -- "-$pid" 2>/dev/null
+    fi
+    [ -e "$sp/EXECUTED" ] && ran="THE INPUT WAS EXECUTED"
+    if [ "$want" = ran ]; then
+      if [ -n "$ran" ]; then pass; note ok "$label"; else
+        note FAIL "$label" "the harness cannot see a run (rc=$rc)"; miss; fi
+      return
+    fi
+    if [ -n "$ran" ]; then note FAIL "$label" "$ran"; miss; return; fi
+    if [ -s "$sp/UNEXPECTED" ]; then
+      note FAIL "$label" "a stub was called in a form it does not know: $(head -1 "$sp/UNEXPECTED")"; miss; return
+    fi
+    case "$want" in
+      signed) [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'signed, notarised and stapled' \
+                && grep -q '^spctl ' "$sp/calls" && ok=0 ;;
+      dry)    [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'DRY RUN: ad-hoc signed' && ok=0 ;;
+      refused-notary) [ "$rc" -eq 1 ] && grep -q '^xcrun notarytool log ' "$sp/calls" \
+                && printf '%s' "$out" | grep -q 'notarisation of bare: Invalid' && ok=0 ;;
+    esac
+    if [ "$ok" -eq 0 ]; then pass; note ok "$label"; else
+      note FAIL "$label" "rc=$rc: $(printf '%s' "$out" | grep -m1 'FAIL' | cut -c1-120)"; miss
+    fi
+  }
+  if [ "$inputs_ok" != 1 ]; then
+    note FAIL "the marker inputs are built" "cc could not build them for x86_64 and arm64"; miss
+  else
+    sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+    hin="$sp/input-$host_arch"; hsha="$(sha_of "$hin")"
+    if [ -d "$sp/canary" ]; then
+      full_case ran "canary, whole path: without the guard the input runs (dry)" "$sp/canary" "$host_arch" \
+        --from-binary "$hin"
+      full_case ran "canary, whole path: without the guard the input runs (signed)" "$sp/canary" "$host_arch" \
+        --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+    fi
+    # Runs added at the end of the signed path, in spellings the text check
+    # does not have to know: the harness must see each.
+    awk '/^# --- 8\. Checksums/ { print "x=\"$bin\" awk '"'"'BEGIN { system(ENVIRON[\"x\"]) }'"'"' </dev/null" } { print }' \
+      "$BR" >"$sp/late.sh"
+    sp_repo "$sp/late" "$sp/late.sh"
+    full_case ran "canary, whole path: a run added after notarisation is seen" "$sp/late" "$host_arch" \
+      --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+    awk '/^# --- 8\. Checksums/ { print "( sleep 3; \"$from_binary\" ) >/dev/null 2>&1 </dev/null &" } { print }' \
+      "$BR" >"$sp/later.sh"
+    sp_repo "$sp/later" "$sp/later.sh"
+    full_case ran "canary, whole path: a run put in the background is seen" "$sp/later" "$host_arch" \
+      --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+    for a in x86_64 arm64; do
+      full_case signed "--sign --from-binary, the whole path ($a): the input is never executed" "$sp/repo" "$a" \
+        --sign --expect-unsigned-sha256 "$(sha_of "$sp/input-$a")" --from-binary "$sp/input-$a"
+    done
+    full_case dry "--from-binary alone, the whole path: the input is never executed" "$sp/repo" "$host_arch" \
+      --from-binary "$hin"
+    full_case refused-notary "a refused notarisation: its branch runs, and not the input" "$sp/repo" "$host_arch" \
+      --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+    # Nothing may change the two variables that decide: an assignment after the
+    # option parsing is a runtime error, and the run stops there. bash 3.2,
+    # macOS's, exits 0 from that error under an EXIT trap (observed 2026-10-24);
+    # build-release.sh's trap makes any exit before its last line a failure.
+    awk '/^# --- 1\. Build/ { print "sign=0" } { print }' "$BR" >"$sp/flip.sh"
+    sp_repo "$sp/flip" "$sp/flip.sh"
+    rm -f "$sp/EXECUTED"
+    out="$(env PATH="$fb:$PATH" GATES_ARCH="$host_arch" GATES_NOTARY=Accepted \
+             MPB_SIGN_KEYCHAIN="$sp/fkeychain" MPB_NOTARY_KEY_PATH="$sp/fkey.p8" \
+             MPB_APP_IDENTITY="Developer ID Application: Gates" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
+             MPB_TEAM_ID="$(printf 'GATES%s' TEAM1)" MPB_NOTARY_KEY_ID=k \
+             "$sp/flip/scripts/build-release.sh" "$host_target" "$sp/outflip" \
+             --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin" 2>&1)"; rc=$?
+    if [ "$rc" -eq 1 ] && [ ! -e "$sp/EXECUTED" ] && printf '%s' "$out" | tail -1 | grep -q 'sign: readonly variable' \
+       && ! printf '%s' "$out" | grep -q 'input bound to the expected'; then
+      pass; note ok "sign and from_binary are readonly once the options are parsed"
+    else
+      note FAIL "sign and from_binary are readonly once the options are parsed" \
+        "rc=$rc: $(printf '%s' "$out" | tail -2 | tr '\n' ';' | cut -c1-160)"; miss
+    fi
+  fi
   rm -rf "$sp"
-  # And in the text, which reaches the lines past the first codesign that the
-  # stubs above do not. An allowlist, not a list of spellings to refuse (pass 15
-  # follow-up 2c): each logical line is split into its simple commands with
-  # quoting understood (`$(` and backticks open a command even inside double
-  # quotes, a here-document with an unquoted delimiter is read as double-quoted
-  # text); then no command may start with a variable expansion except the two
-  # runs of the input, `"$bin" -V` and `"$bin" --version`, which must be exactly
-  # two and sit in the guard's else branch; and a command naming the input
-  # (`$bin`, `$built`, `$from_binary`) or a copy of it may only start with a
-  # tool on the list below. Twenty-two spellings that ran the input past the old
-  # check (a subshell, braces, a case arm, `.`, `env`, `arch`, backticks, a
-  # renamed copy, a run moved out of the guard, ...) are each refused.
+  # And in the text, a backstop to the run above: it also sees the lines the
+  # signed path does not take (the build job's branch, error paths). It is not
+  # complete - no text check of bash is - and does not claim to be; the run is
+  # the guarantee (pass 15 follow-ups 2c, 2d, 2e). An awk scanner reads the
+  # whole script as the shell would - quotes, `$(`, backticks, `${...}`,
+  # `$((...))`, process substitution, here-documents and continuation lines
+  # carried across lines - and splits it into simple commands. Then:
+  #   - every command's first word is on OK, or is one of the script's own
+  #     functions, and no function is named after a command;
+  #   - no command starts with a variable, except the two runs of the input,
+  #     `"$bin" -V` and `"$bin" --version`, which are exactly two and sit in the
+  #     guard's else branch (found by if/fi depth, not by indentation);
+  #   - a command naming the input - `$bin`, `$built`, `$from_binary`, a copy's
+  #     path, a positional parameter inside a function, or any name assigned
+  #     one of those - starts with a word on INPUT, none of which can run a file
+  #     it is given; and `tar`, `xcrun`, `find`, `command` and `trap` are held
+  #     to the forms that cannot either;
+  #   - nothing assigns PATH, BASH_ENV, ENV, PS4 or a DYLD_ or LD_ variable,
+  #     and nothing turns on xtrace;
+  #   - a name assigned from a `$(...)` whose command names the input is the
+  #     input; an awk program holds no system(, getline or |; git takes no -c,
+  #     cargo no --config; no command is put in the background with &;
+  #   - `readonly sign from_binary` comes before the guard, and `finished=1` is
+  #     the last line of code.
+  # A failure here after an honest edit of build-release.sh means OK or INPUT
+  # needs the new command: add it with a security-reviewer pass, never to quiet
+  # the check.
+  OK=" [ test : true cd pwd set shift return exit continue read trap command printf echo cat grep awk sed tr sort head tail wc od stat ls id dirname mkdir mktemp rm chmod ditto shasum tar find uname sw_vers git cargo rustc ld xcodebuild xcode-select xmllint lipo otool vtool strings codesign security xcrun plutil spctl pkgbuild productbuild pkgutil lsbom hdiutil xattr for case "
+  INPUT=" [ test printf echo grep cd chmod mkdir ditto shasum tar wc lipo otool vtool strings codesign xcrun plutil spctl pkgbuild productbuild pkgutil lsbom hdiutil xattr for "
   allow="$(mktemp "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
   cat >"$allow" <<'ALLOW'
-# Prints one line per violation; nothing means the script holds.
+# Prints one line per violation; nothing means the script holds. OK lists the
+# commands the script may run at all; INPUT the ones that may name the input
+# or a copy of it (none of them can execute a file it is given); the script's
+# own functions may be called, but none may be named after a command.
 #
-# norm(): one logical line -> its simple commands, one per output line. It
-# tracks quoting: single-quoted text is masked (it cannot run anything), and a
-# separator inside double quotes is masked, but `$(` and a backtick open a
-# nested command wherever they appear, inside double quotes too.
-function norm(l,   i, ch, nx, out, st, depth, sp) {
-  out = ""; st = "n"; depth = 0
+# The whole file is read first and scanned as one stream, so quoting, `$(`,
+# backticks, here-documents and line continuations carry across lines exactly as
+# the shell carries them. Each simple command is collected at its own nesting
+# level: a `$(...)` or backtick command is a command of its own, and stands in
+# its outer word as `_`. Quoted text keeps its characters (so `"$bin"` is still
+# seen as the input) but not its meaning (a `;` inside quotes separates
+# nothing); single-quoted and here-document text is masked, except that `$(`
+# and a backtick still open a command inside a here-document whose delimiter is
+# unquoted.
+function emit(lv,   t) {
+  t = buf[lv]; buf[lv] = ""
+  if (mode[lv] == "H") return
+  if (t ~ /[^[:space:]]/) { nseg++; segt[nseg] = t; segl[nseg] = sl[lv]; segv[nseg] = lv; segs[nseg] = sub_[lv] }
+  sl[lv] = 0
+}
+function put(lv, s) { if (buf[lv] == "" || buf[lv] ~ /^[[:space:]]*$/) sl[lv] = ln; buf[lv] = buf[lv] s }
+function marker(lv, m) { emit(lv); nseg++; segt[nseg] = m; segl[nseg] = ln; segv[nseg] = lv }
+function open_(k, m) { subn++; put(d, "\002" subn "\003"); push(k, m); sub_[d] = subn }
+function push(k, m) { d++; buf[d] = ""; q[d] = m; kind[d] = k; par[d] = 0; mode[d] = ""; sub_[d] = 0 }
+function close_() { emit(d); d-- }
+function scanline(l,   i, j, ch, nx, w, dq, rest, strip) {
   for (i = 1; i <= length(l); i++) {
     ch = substr(l, i, 1); nx = substr(l, i + 1, 1)
-    if (st == "s") { if (ch == "'") st = stk[depth--]; else out = out "_"; if (ch == "'") out = out "'"; continue }
-    if (ch == "\\") { out = out ch nx; i++; continue }
-    if (ch == "$" && nx == "(") { stk[++depth] = st; st = "n"; out = out "\n"; i++; continue }
-    if (ch == "`") {
-      if (st == "b") { st = stk[depth--]; out = out "\n" } else { stk[++depth] = st; st = "b"; out = out "\n" }
+    if (q[d] == "s") { if (ch == "'") q[d] = "n"; put(d, (ch ~ /[A-Za-z0-9(|]/) ? ch : "_"); continue }
+    if (ch == "\\") {
+      if (i == length(l) && q[d] != "h") { cont = 1; return }
+      put(d, (q[d] == "h") ? "_" : "__"); i++; continue
+    }
+    if (ch == "$" && nx == "(" && substr(l, i + 2, 1) == "(" && q[d] != "h" && q[d] != "d") {
+      # $(( arithmetic )): no command, but a $( inside it still is one.
+      open_(")", "a"); par[d] = 1; i += 2; continue
+    }
+    if (ch == "$" && nx == "(") { open_(")", "n"); i++; continue }
+    if (pb[d] > 0 && q[d] != "h") {
+      # Inside ${...}: its text is kept (so ${bin} is seen) and separates nothing.
+      if (ch == "\"" ) pq[d] = !pq[d]
+      else if (!pq[d] && ch == "{") pb[d]++
+      else if (!pq[d] && ch == "}") pb[d]--
+      put(d, (ch ~ /[;&|(){}<>#]/ && ch != "}" && ch != "{") ? "_" : ch); continue
+    }
+    if (ch == "$" && nx == "{" && q[d] != "h") { pb[d] = 1; pq[d] = 0; put(d, "${"); i++; continue }
+    if (ch == "`") { if (kind[d] == "`") close_(); else open_("`", "n"); continue }
+    if (q[d] == "h") { put(d, "_"); continue }
+    if (q[d] == "a") {
+      if (ch == "(") par[d]++
+      else if (ch == ")") { par[d]--; if (par[d] == 0) { i++; d--; continue } }
       continue
     }
-    if (st == "d") {
-      if (ch == "\"") st = stk[depth--]
-      out = out ((ch ~ /[;&|(){}<>]/) ? "_" : ch)
-      continue
+    if (q[d] == "d") {
+      if (ch == "\"") q[d] = "n"
+      put(d, (ch ~ /[;&|(){}<>#]/) ? "_" : ch); continue
     }
-    # unquoted (top level, inside $( ), or inside backticks)
-    if (ch == "'") { stk[++depth] = st; st = "s"; out = out ch; continue }
-    if (ch == "\"") { stk[++depth] = st; st = "d"; out = out ch; continue }
-    if (ch == ")" && depth > 0) { st = stk[depth--]; out = out "\n"; continue }
-    if (ch ~ /[;&|({]/) { out = out "\n"; continue }
-    out = out ch
+    # unquoted
+    if (ch == "#" && (buf[d] == "" || buf[d] ~ /[[:space:]]$/)) return
+    # $'...': a backslash escapes the next character, \' included.
+    if (ch == "$" && nx == "'") {
+      for (j = i + 2; j <= length(l); j++) { if (substr(l, j, 1) == "\\") j++; else if (substr(l, j, 1) == "'") break }
+      if (j > length(l)) print ln ": a $'...' string that does not end on its line"
+      put(d, "_"); i = j; continue
+    }
+    if (ch == "'") { q[d] = "s"; put(d, "'"); continue }
+    if (ch == "\"") { q[d] = "d"; put(d, "\""); continue }
+    if (ch == "(" && nx == ")") { put(d, "()"); i++; continue }
+    # <(...) and >(...) run a command; NAME=(...) is an array, not a subshell.
+    if ((ch == "<" || ch == ">") && nx == "(") { put(d, ch); open_(")", "n"); i++; continue }
+    if (ch == "(" && buf[d] ~ /(^|[[:space:]])[A-Za-z_][A-Za-z_0-9]*\+?=$/) { put(d, "("); arr[d] = 1; continue }
+    if (arr[d] && ch == ")") { put(d, ")"); arr[d] = 0; continue }
+    if (ch == ")" && kind[d] == ")" && par[d] == 0) { close_(); continue }
+    if (ch == "(") { par[d]++; emit(d); continue }
+    if (ch == ")") { if (par[d] > 0) { par[d]--; emit(d) } else put(d, ")"); continue }
+    if (ch == ";" && nx == ";") { marker(d, "\001;;"); i++; if (substr(l, i + 1, 1) == "&") i++; continue }
+    if (ch == ";" && nx == "&") { marker(d, "\001;;"); i++; continue }
+    if (ch == "<" && nx == "<") {
+      if (substr(l, i + 2, 1) == "<") { put(d, "<<<"); i += 2; continue }
+      rest = substr(l, i + 2); dq = 0; strip = 0
+      if (substr(rest, 1, 1) == "-") { strip = 1; rest = substr(rest, 2) }
+      sub(/^[[:space:]]*/, "", rest)
+      if (!match(rest, /^(['"]?)[A-Za-z_][A-Za-z_0-9]*(['"]?)/)) { print ln ": a here-document this scanner cannot read"; continue }
+      w = substr(rest, 1, RLENGTH); dq = (w ~ /['"]/); gsub(/['"]/, "", w)
+      nh++; hdel[nh] = w; hq[nh] = dq; hs[nh] = strip
+      i += 1 + strip + (length(substr(l, i + 2 + strip)) - length(rest)) + RLENGTH
+      put(d, "_"); continue
+    }
+    # Redirections that hold & or | name no new command: 2>&1, &>, >|, <&.
+    if ((ch == ">" || ch == "<") && (nx == "&" || nx == "|")) { put(d, ch nx); i++; continue }
+    if (ch == "&" && nx == ">") { put(d, ch nx); i++; continue }
+    # A brace group's { and } at the start of a command are markers, so the
+    # extent of a function body is known.
+    if ((ch == "{" || ch == "}") && buf[d] ~ /^[[:space:]]*$/ && (nx == "" || nx ~ /[[:space:];]/)) { marker(d, "\001" ch); continue }
+    if (ch == "{" && buf[d] ~ /^[[:space:]]*[A-Za-z_][A-Za-z_0-9]*\(\)[[:space:]]*$/) { marker(d, "\001{"); continue }
+    if (ch == "&" && nx == "&") { emit(d); i++; continue }
+    if (ch == "&") { print ln ": a command put in the background"; emit(d); continue }
+    if (ch ~ /[;&|{]/) { emit(d); continue }
+    put(d, ch)
   }
-  return out
 }
-BEGIN {
-  ok = " ditto chmod shasum codesign lipo otool vtool strings assert_binary assert_same_bytes assert_developer_id check_pkg_payload_list [ [[ test mkdir pkgbuild productbuild hdiutil pkgutil xattr notarise xcrun spctl tar lsbom awk grep sed head tail cat printf echo note die case for in esac done fi cd find stat sort tr wc rm "
-  target = "\\$\\{?(bin|built|from_binary)\\}?([^A-Za-z0-9_]|$)|\\$\\{?(out|pkgroot|dmgroot|mnt|p|x)\\}?/|\\$\\{?work\\}?/(macportsbrew|pkgroot|dmgroot)"
-  runs = 0
-}
-# A here-document's body: with a quoted delimiter it cannot run anything; with
-# an unquoted one it is double-quoted text, whose `$(` still runs.
-hd != "" { if ($0 == hd) { hd = ""; next } if (hdq) next; $0 = "\"" $0 "\"" }
-hd == "" && /^[[:space:]]*#/ { next }
-{ if (acc != "") { acc = acc " " $0 } else { acc = $0; start = NR } }
-hd == "" && match($0, /<<-?[[:space:]]*['"]?[A-Za-z_][A-Za-z_0-9]*['"]?/) {
-  d = substr($0, RSTART, RLENGTH); hdq = (d ~ /['"]/); gsub(/^<<-?[[:space:]]*|['"]/, "", d); hd = d
-}
-/\\$/ { sub(/\\$/, "", acc); next }
-{
-  l = acc; acc = ""
-  if (l ~ /^if \[ "\$sign" = 1 \] \|\| \[ -n "\$from_binary" \]; then$/) { guard = start }
-  if (guard && !els && l ~ /^else$/) { els = start }
-  if (els && !fi_ && l ~ /^fi$/) { fi_ = start }
-  n = split(norm(l), seg, "\n")
-  for (i = 1; i <= n; i++) {
-    c = seg[i]; sub(/^[[:space:]]+/, "", c); sub(/[[:space:]]+$/, "", c)
-    # `case WORD in` names no command; what follows it on the line is an arm.
-    if (c ~ /^case[[:space:]].*[[:space:]]in([[:space:]]|$)/) sub(/^case[[:space:]].*[[:space:]]in([[:space:]]+|$)/, "", c)
-    # Leading keywords, negation, `}`/`)` and case patterns name no command.
-    while (c ~ /^(!|if|then|else|elif|do|while|until|time|\}|\))([[:space:]]|$)/) { sub(/^[^[:space:]]*[[:space:]]*/, "", c) }
-    while (c ~ /^[^[:space:]"$]*\)([[:space:]]|$)/) { sub(/^[^[:space:]]*[[:space:]]*/, "", c) }
-    # Leading assignments (NAME=value) name no command either.
-    while (c ~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=/) {
-      if (c ~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=[^[:space:]]*$/) { c = ""; break }
-      if (!sub(/^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=[^[:space:]]*[[:space:]]+/, "", c)) { c = ""; break }
+{ L[NR] = $0; if ($0 == "if [ \"$sign\" = 1 ] || [ -n \"$from_binary\" ]; then" && !G) G = NR
+  if ($0 == "readonly sign from_binary" && !RO) RO = NR
+  if ($0 !~ /^[[:space:]]*(#|$)/) LAST = $0 }
+END {
+  d = 0; q[0] = "n"; kind[0] = ""; mode[0] = ""; par[0] = 0; nseg = 0; nh = 0
+  for (ln = 1; ln <= NR; ln++) {
+    cont = 0
+    scanline(L[ln])
+    if (cont) continue
+    # The end of a line: a separator where the shell would take it as one.
+    if (q[d] == "n" && arr[d]) put(d, " ")
+    else if (q[d] == "n") emit(d)
+    else if (q[d] == "d" || q[d] == "s") put(d, "_")
+    for (h = 1; h <= nh; h++) {
+      if (!hq[h]) { push("H", "h"); mode[d] = "H"; base = d }
+      for (ln++; ln <= NR; ln++) {
+        t = L[ln]; if (hs[h]) sub(/^\t+/, "", t)
+        if (t == hdel[h] && (hq[h] || d == base)) break
+        if (!hq[h]) { scanline(L[ln]); if (q[d] == "n") emit(d) }
+      }
+      if (ln > NR) print "the file ends inside the here-document " hdel[h]
+      if (!hq[h]) { if (d != base) print ln ": a command left open in the here-document " hdel[h]; d = base - 1 }
     }
+    nh = 0
+  }
+  if (d != 0 || q[0] != "n") print "the file ends with a quote or a command substitution still open"
+  check()
+}
+function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
+  # The script's own functions are commands it may call; collect them first.
+  for (s = 1; s <= nseg; s++) { c = segt[s]; sub(/^[[:space:]]+/, "", c); if (c ~ /^[A-Za-z_][A-Za-z_0-9]*\(\)/) { sub(/\(.*/, "", c); fn[c] = 1 } }
+  bd = 0; fb = -1; fpend = 0
+  ok = OK; inp = INPUT
+  posn = "\\$\\{?[1-9@*]\\}?([^A-Za-z0-9_]|$)"
+  target = "\\$\\{?(bin|built|from_binary)\\}?([^A-Za-z0-9_]|$)|\\$\\{?(out|pkgroot|dmgroot|mnt|p|x)\\}?/|\\$\\{?work\\}?/(macportsbrew|pkgroot|dmgroot)"
+  runs = 0; ifd = 0
+  for (s = 1; s <= nseg; s++) {
+    c = segt[s]; lv = segv[s]
+    if (c == "\001;;") { casep[lv] = 1; continue }
+    if (c == "\001{") { bd++; if (fpend) { fb = bd; fpend = 0 } continue }
+    if (c == "\001}") { if (bd == fb) fb = -1; bd--; continue }
+    sub(/^[[:space:]]+/, "", c); sub(/[[:space:]]+$/, "", c)
+    while (match(c, /\002[0-9]+\003/)) {
+      id = substr(c, RSTART + 1, RLENGTH - 2)
+      c = substr(c, 1, RSTART - 1) ((id in subt) ? "\"$bin\"" : "_") substr(c, RSTART + RLENGTH)
+    }
+    if (c ~ /^case[[:space:]].*[[:space:]]in([[:space:]]|$)/) { casep[lv] = 1; sub(/^case[[:space:]].*[[:space:]]in[[:space:]]*/, "", c); if (c == "") continue }
+    if (casep[lv]) {
+      if (c ~ /^esac([[:space:]]|$)/) { casep[lv] = 0; sub(/^esac[[:space:]]*/, "", c) }
+      else if (match(c, /\)/)) { c = substr(c, RSTART + 1); casep[lv] = 0; sub(/^[[:space:]]+/, "", c) }
+      else continue
+    }
+    # Leading keywords, negation and `}` name no command; they open or close
+    # an if, which is tracked to find the guard's own else and fi.
+    while (c ~ /^(!|if|then|else|elif|do|while|until|time|fi|done|\})([[:space:]]|$)/) {
+      w = c; sub(/[[:space:]].*/, "", w)
+      if (w == "if") { ifd++; if (segl[s] == G && !gd) gd = ifd }
+      if (w == "else" && gd && ifd == gd && !els) els = segl[s]
+      if (w == "fi") { if (gd && ifd == gd && !fi_) fi_ = segl[s]; ifd-- }
+      sub(/^[^[:space:]]*[[:space:]]*/, "", c)
+    }
+    # Redirections name no command, wherever they lead it.
+    while (c ~ /^[0-9]*(<<<|<<|>>|<&|>&|&>|>\||<|>)[[:space:]]*[^[:space:]]+/) {
+      sub(/^[0-9]*(<<<|<<|>>|<&|>&|&>|>\||<|>)[[:space:]]*[^[:space:]]+[[:space:]]*/, "", c)
+    }
+    # Leading assignments, and declarations, name no command, but taint: a
+    # name given the input, a copy or a positional parameter is the input from
+    # then on.
+    full = c
+    if (segs[s] && (full ~ target || (fb > 0 && full ~ posn))) subt[segs[s]] = 1
+    nw = words(c, W); k = 1; decl = (W[1] ~ /^(local|readonly|declare|export|typeset)$/)
+    if (decl) k = 2
+    for (; k <= nw; k++) {
+      if (decl && W[k] ~ /^-/) continue
+      if (W[k] !~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=/) { if (decl) continue; break }
+      m = W[k]; sub(/(\[.*)?\+?=.*/, "", m); a = W[k]; sub(/^[^=]*=/, "", a)
+      if (m ~ /^(PATH|BASH_ENV|ENV|DYLD_.*|LD_.*|PROMPT_COMMAND|PS4|BASH_FUNC.*)$/) print segl[s] ": an assignment to " m ": " c
+      if ((a ~ target || (fb > 0 && a ~ posn)) && !(m in tainted)) { tainted[m] = 1; target = target "|\\$\\{?" m "\\}?([^A-Za-z0-9_]|$)" }
+    }
+    if (decl) continue
+    c = ""; for (j = k; j <= nw; j++) c = c (j > k ? " " : "") W[j]
     if (c == "") continue
     w = c; sub(/[[:space:]].*/, "", w)
-    if (w ~ /^"?\$/) {
-      if (c ~ /^"\$bin" (-V|--version)$/) { runs++; runline[runs] = start; continue }
-      print start ": a variable in command position: " c
+    if (w ~ /^[A-Za-z_][A-Za-z_0-9]*\(\)$/) {
+      sub(/\(\)$/, "", w); fpend = 1
+      if (index(ok, " " w " ") || w ~ /^(command|builtin|exec|eval|source|env|cd|printf|echo|test)$/) print segl[s] ": a function named after a command: " w
       continue
     }
-    if (c ~ target && index(ok, " " w " ") == 0) print start ": `" w "` with the input or a copy of it: " c
+    if (w ~ /^"?\$/) {
+      if (c ~ /^"\$bin" (-V|--version)$/) { runs++; runline[runs] = segl[s]; continue }
+      print segl[s] ": a variable in command position: " c
+      continue
+    }
+    if (w == "for") { words(c, T); if (c ~ target && !(T[2] in tainted)) { tainted[T[2]] = 1; target = target "|\\$\\{?" T[2] "\\}?([^A-Za-z0-9_]|$)" } }
+    if (w == "awk" && c ~ /system\(|getline|\|/) print segl[s] ": an awk program that can run a command: " c
+    if (w == "git" && c ~ /[[:space:]"'](-c|--config-env|--exec-path)([[:space:]"'=]|$)/) print segl[s] ": git given configuration that can run a command: " c
+    if (w == "cargo" && c ~ /[[:space:]"']--config([[:space:]"'=]|$)/) print segl[s] ": cargo given configuration that can run a command: " c
+    if (w == "set" && c ~ /[[:space:]](-[A-Za-z]*x|-o[[:space:]]+xtrace|\+o[[:space:]]+xtrace)/) print segl[s] ": xtrace runs PS4: " c
+    if (index(ok, " " w " ") == 0 && !(w in fn)) { print segl[s] ": `" w "` is not a listed command: " c; continue }
+    if ((full ~ target || (fb > 0 && full ~ posn)) && index(inp, " " w " ") == 0 && !(w in fn)) print segl[s] ": `" w "` with the input or a copy of it: " c
+    if (w == "tar" && c ~ /[[:space:]"'](--use-compress|--to-command|--checkpoint-action|--options|-[A-Za-z]*I)/) print segl[s] ": a tar option that runs a program: " c
+    if (w == "xcrun" && c !~ /^xcrun[[:space:]]+(notarytool|stapler)([[:space:]]|$)/) print segl[s] ": xcrun of anything but notarytool or stapler: " c
+    if (w == "command" && c !~ /^command[[:space:]]+-v[[:space:]]/) print segl[s] ": command other than command -v: " c
+    if (w == "trap") { words(c, T); if (!(T[2] in fn)) print segl[s] ": trap of anything but one of the script's functions: " c }
+    if (w == "find" && c ~ /[[:space:]"']-(exec|execdir|ok|okdir|delete)([[:space:]"']|$)/) print segl[s] ": find running a command: " c
   }
-}
-END {
   if (runs != 2) print "the input is run " runs " times, not 2"
-  if (!guard || !els || !fi_) print "the guard, its else or its fi was not found"
+  if (!gd || !els || !fi_) print "the guard, its else or its fi was not found"
+  if (!RO || RO > G) print "readonly sign from_binary does not come before the guard"
+  if (LAST != "finished=1") print "finished=1 is not the last line of code: what follows it runs outside the sentinel"
   for (r = 1; r <= runs; r++) if (!(runline[r] > els && runline[r] < fi_)) print runline[r] ": a run outside the guard's else branch"
 }
+
+# Splits a command into words; double-quoted text (spaces and all) is one word
+# with its neighbours. Single-quoted text holds no space: it is masked.
+function words(c, W,   n, i, ch, inq, cur, ap) {
+  n = 0; cur = ""; inq = 0; ap = 0
+  for (i = 1; i <= length(c); i++) {
+    ch = substr(c, i, 1)
+    if (ch == "\"") inq = !inq
+    if (!inq && ch == "(" && cur ~ /=$/) ap = 1
+    if (!inq && ch == ")") ap = 0
+    if (!inq && !ap && ch ~ /[[:space:]]/) { if (cur != "") W[++n] = cur; cur = ""; continue }
+    cur = cur ch
+  }
+  if (cur != "") W[++n] = cur
+  for (i = n + 1; i in W; i++) delete W[i]
+  return n
+}
 ALLOW
-  violations="$(awk -f "$allow" "$BR")"
+  violations="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$BR")"
   rm -f "$allow"
+  label="text backstop: listed commands only, the input named only by listed tools, two runs in the guard's else"
   if [ -z "$violations" ]; then
-    pass; note ok "only listed tools touch the input; it runs twice, in the guard's else"
+    pass; note ok "$label"
   else
-    note FAIL "only listed tools touch the input; it runs twice, in the guard's else" \
-      "$(printf '%s' "$violations" | head -3 | tr '\n' ';')"; miss
+    note FAIL "$label" "$(printf '%s' "$violations" | head -3 | tr '\n' ';')"; miss
   fi
 fi
 
@@ -1014,19 +1407,25 @@ else
   ns_untracked "credential file type: new.p12 (ignored, but nothing stops git add -f" "an ignored hit says it is ignored" new.p12 'x' ignore
   ns_untracked accept "an ignored file's content is not scanned" notes.txt "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" ignore
   # Inside an ignored directory too: a key saved into a scratch directory is
-  # still one `git add -f` from a commit. Only the build directories are skipped.
-  for dir in scratch target; do
-    ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir -p "$t/$dir"; git -C "$t" init -q
-    printf 'clean\n' >"$t/README.md"; printf '%s/\n' "$dir" >"$t/.gitignore"
+  # still one `git add -f` from a commit. The build directories are walked only
+  # with --build-dirs (validate.sh outside --quick), and then refused the same.
+  for dir in scratch target target+; do
+    ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir -p "$t/${dir%+}"; git -C "$t" init -q
+    printf 'clean\n' >"$t/README.md"; printf '%s/\n' "${dir%+}" >"$t/.gitignore"
     git -C "$t" add -f README.md .gitignore
-    : >"$t/$dir/AuthKey_$(printf 'KEYID%s' 98765).p8"
-    out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
-    if [ "$dir" = scratch ]; then
-      ns_verdict "$A" "a key inside an ignored directory is refused" "$rc" "$out"
-    else
-      ns_verdict accept "target/ is the one ignored directory not walked" "$rc" "$out"
-    fi
+    : >"$t/${dir%+}/AuthKey_$(printf 'KEYID%s' 98765).p8"
+    case "$dir" in
+      scratch) out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+               ns_verdict "$A" "a key inside an ignored directory is refused" "$rc" "$out" ;;
+      target)  out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+               ns_verdict accept "target/ is not walked without --build-dirs" "$rc" "$out" ;;
+      target+) out="$(MPB_SECRETS_ROOT="$t" "$NS" --build-dirs 2>&1)"; rc=$?
+               ns_verdict "$A" "with --build-dirs a key inside target/ is refused" "$rc" "$out" ;;
+    esac
   done
+  out="$(MPB_SECRETS_ROOT="$ns" "$NS" --no-such-flag 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q '^usage:'; then pass; note ok "an unknown argument is a usage error"
+  else note FAIL "an unknown argument is a usage error" "rc=$rc"; miss; fi
   ns_case "$D" "an unarmoured P-256 PKCS#8 body"             k.txt    "$(printf 'MIGTAgEAMBMG%syqGSM49AgEG' B)\n"
   ns_case "$D" "a SEC1 EC private key body"                  k2.txt   "$(printf 'MHcCAQE%s' E)$(printf 'A%.0s' $(seq 1 44))\n"
   ns_case "$D" "OpenSSL's P-256 PKCS#8 body"                 k3.txt   "$(printf 'MIGHAgEAMBMG%syqGSM49AgEG' B)\n"

@@ -62,7 +62,12 @@ step "support matrix"; run scripts/support-matrix.sh --check
 step "codex layer";  run scripts/generate-codex-layer.sh --check
 # No signing credential is tracked (08, ADR-0005; pass 09 plan, "The
 # secret-material check"). Static and about a second, so --quick.
-step "no secrets";   run scripts/check-no-secrets.sh
+# The build directories' file names too outside --quick (about two seconds).
+if [ "$mode" = "--quick" ]; then
+  step "no secrets"; run scripts/check-no-secrets.sh
+else
+  step "no secrets"; run scripts/check-no-secrets.sh --build-dirs
+fi
 # The release workflow's textual MUSTs (08, ADR-0005; pass 09 plan, D-T2),
 # including that a release builds only through build-release.sh, with no
 # feature flag (SE-102).

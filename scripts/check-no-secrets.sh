@@ -46,9 +46,9 @@
 # working copy is seen. Rules 1 and 2, the name rules, also read every ignored
 # file, inside ignored directories too (a key saved into docs/research/.scratch/
 # is still a key): `git add -f <ignored key> && git commit` is the way an
-# ignored key reaches a commit. Only the build directories are not walked
-# (target/, dist/, .token-pilot/: generated, large, and never a place a
-# credential is put by hand). A hit in a file that is not tracked says so and
+# ignored key reaches a commit. The top-level build directories (target/,
+# dist/, .token-pilot/) are not listed by git, which is slow there; with
+# --build-dirs they are walked with find instead. A hit in a file that is not tracked says so and
 # what to do: for a name rule, move it out of the tree (ignoring it would only
 # be refused next time); for a content rule, move it out or ignore it.
 #
@@ -68,10 +68,16 @@
 # scanned, this one refuses a tree that is not a git work tree: "tracked" has
 # no meaning there, and a gate that cannot scan fails closed.
 #
-#   scripts/check-no-secrets.sh
+#   scripts/check-no-secrets.sh [--build-dirs]
 #   MPB_SECRETS_ROOT=<a git work tree> scripts/check-no-secrets.sh   (gate tests)
 
 set -uo pipefail
+build_dirs=0
+case "${1:-}" in
+  "") ;;
+  --build-dirs) build_dirs=1 ;;
+  *) echo "usage: scripts/check-no-secrets.sh [--build-dirs]" >&2; exit 2 ;;
+esac
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
       GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM \
       GIT_CONFIG_NOSYSTEM GIT_CEILING_DIRECTORIES GIT_NAMESPACE GIT_DISCOVERY_ACROSS_FILESYSTEM
@@ -117,6 +123,21 @@ if ! tracked="$(git ls-files -z | tr '\0' '\n')" \
   echo "no-secrets: git ls-files failed; refusing" >&2
   exit 1
 fi
+# The build directories are left out of that listing for speed (tens of
+# thousands of files). A key in one that is staged with `git add -f` is in the
+# index, so the tracked listing above sees it in every mode; what --build-dirs
+# adds is the warning before it is staged, by walking them with find for the
+# name rules. That walk takes about two seconds here, so validate.sh asks for
+# it outside --quick, which runs on every turn end. find does not follow a
+# symbolic link.
+for dir in target dist .token-pilot; do
+  [ "$build_dirs" = 1 ] && [ -d "$dir" ] || continue
+  if ! walked="$(find "$dir" -type f -print)"; then
+    echo "no-secrets: find failed in $dir; refusing" >&2
+    exit 1
+  fi
+  ignored="$(printf '%s\n%s' "$ignored" "$walked")"
+done
 listing="$(printf '%s\n%s' "$tracked" "$untracked" | grep -v '^$' || true)"
 names="$(printf '%s\n%s\n%s' "$tracked" "$untracked" "$ignored" | grep -v '^$' || true)"
 files="$(printf '%s' "$listing" | grep -c '' || true)"

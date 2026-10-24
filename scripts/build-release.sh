@@ -149,6 +149,9 @@ case "$out_arg" in /*) ;; *) out_arg="$invoked_from/$out_arg" ;; esac
 if [ -n "$from_binary" ]; then
   case "$from_binary" in /*) ;; *) from_binary="$invoked_from/$from_binary" ;; esac
 fi
+# The two decide whether the input is ever executed (step 2). Nothing below may
+# change them; the gate tests hold this line to come before that decision.
+readonly sign from_binary
 
 case "$target" in
   x86_64-apple-darwin)  floor="10.12"; arch="x86_64" ;;
@@ -206,11 +209,17 @@ base="macportsbrew-$version-$arch"
 mpb_base="mpb-$version-$arch"
 work="$(mktemp -d "${TMPDIR:-/tmp}/mpb-release.XXXXXX")"
 mnt=""
+# Set on the script's last line. bash 3.2, macOS's, exits 0 from a fatal shell
+# error (an unbound variable, an assignment to a readonly one) when an EXIT trap
+# is set, so a run that stopped short would look like a success; the trap turns
+# every exit before that line into a failure (observed 2026-10-24, pass 15).
+finished=0
 cleanup() {
   if [ -n "$mnt" ]; then
     hdiutil detach -quiet "$mnt" 2>/dev/null || hdiutil detach -force -quiet "$mnt" 2>/dev/null || true
   fi
   rm -rf "$work"
+  [ "$finished" = 1 ] || exit 1
 }
 trap cleanup EXIT
 
@@ -765,3 +774,4 @@ if [ "$sign" = 1 ]; then
 else
   note "DRY RUN: ad-hoc signed, not notarised; payloads asserted; do not publish"
 fi
+finished=1
