@@ -605,6 +605,91 @@ PYEOF
 fi
 
 echo
+echo "== build-release.sh: the .pkg and .dmg carry mpb beside macportsbrew (DP-033 b)"
+# The payload checks are the script's own functions, lifted by name (a copy
+# would pass while the script drifted). They are fed constructed payloads in
+# the shape pkgbuild writes; the end-to-end proof is an unsigned dry run of the
+# whole script, recorded in the pass report, which a gate cannot afford.
+BR="${MPB_GATES_BUILD_RELEASE:-scripts/build-release.sh}"
+if ! tar --version 2>/dev/null | grep -q bsdtar; then
+  note SKIP "build-release.sh mpb payload cases" "needs bsdtar's cpio format"
+elif [ ! -f "$BR" ]; then
+  note FAIL "build-release.sh is missing" "$BR"; miss
+else
+  lifted=""
+  for fn in expect_list appledouble_provenance_only check_pkg_payload_list assert_same_bytes; do
+    body="$(awk -v f="$fn" '$0 ~ "^"f"\\(\\) \\{" {p=1} p {print} p && /^\}/ {exit}' "$BR")"
+    if [ -z "$body" ]; then note FAIL "lift $fn from build-release.sh" "anchor '$fn() {' not found"; miss; fi
+    lifted="$lifted$body"$'\n'
+  done
+  consts="$(grep -E '^(readonly ZERO32=|PROVENANCE_HEX=|PAYLOAD=)' "$BR")"
+  # The payload list is the one line every list and hash derives from: pin it.
+  if printf '%s\n' "$consts" | grep -qxF 'PAYLOAD=(macportsbrew mpb)'; then pass; note ok "PAYLOAD is exactly macportsbrew and mpb"
+  else note FAIL "PAYLOAD is exactly macportsbrew and mpb" "$(printf '%s' "$consts" | grep PAYLOAD)"; miss; fi
+  mp="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  # <want: accept|refuse> <label> <shell run with the lifted functions>
+  mpb_case() {
+    local want="$1" label="$2" got=refuse
+    # die, note and the three variables are read by the lifted functions, which
+    # reach this subshell through eval, so shellcheck cannot see their use.
+    # shellcheck disable=SC2034,SC2329
+    if ( set -euo pipefail
+         die()  { printf 'DIE: %s\n' "$*" >&2; exit 1; }
+         note() { :; }
+         sign=0; tolerated=""; signed_sha="$(shasum -a 256 "$mp/good" | awk '{print $1}')"
+         eval "$consts"; eval "$lifted"; eval "$3" ) >/dev/null 2>&1; then got=accept; fi
+    if [ "$got" = "$want" ]; then pass; note ok "$label"; else
+      note FAIL "$label" "wanted $want, got $got"; miss
+    fi
+  }
+  printf 'the signed executable\n' >"$mp/good"
+  printf 'something else\n' >"$mp/bad"
+  payload() { # <name> <relative paths under bin/...>: a cpio payload as pkgbuild writes one
+    local name="$1" r="$mp/root-$1" f; shift
+    rm -rf "$r"; mkdir -p "$r/bin"; chmod 0755 "$r" "$r/bin"
+    for f in "$@"; do mkdir -p "$r/$(dirname "$f")"; cp "$mp/good" "$r/$f"; chmod 0755 "$r/$f"; done
+    (cd "$r" && tar --no-mac-metadata --format cpio -cf "$mp/$name" .)
+  }
+  payload both  bin/macportsbrew bin/mpb
+  payload one   bin/macportsbrew
+  payload extra bin/macportsbrew bin/mpb bin/other
+  payload root  bin/macportsbrew mpb
+  payload short bin/mpb
+  mpb_case accept "a pkg payload with both names"           "check_pkg_payload_list t '$mp/both'"
+  mpb_case refuse "a pkg payload without mpb"               "check_pkg_payload_list t '$mp/one'"
+  mpb_case refuse "a pkg payload without macportsbrew"      "check_pkg_payload_list t '$mp/short'"
+  mpb_case refuse "a pkg payload with a third file"         "check_pkg_payload_list t '$mp/extra'"
+  mpb_case refuse "mpb outside bin/"                        "check_pkg_payload_list t '$mp/root'"
+  mkdir "$mp/same" "$mp/diff1" "$mp/diff2" "$mp/miss"
+  cp "$mp/good" "$mp/same/macportsbrew"; cp "$mp/good" "$mp/same/mpb"
+  cp "$mp/good" "$mp/diff1/macportsbrew"; cp "$mp/bad" "$mp/diff1/mpb"
+  cp "$mp/bad" "$mp/diff2/macportsbrew"; cp "$mp/good" "$mp/diff2/mpb"
+  cp "$mp/good" "$mp/miss/macportsbrew"
+  mpb_case accept "both copies are the signed bytes"        "assert_same_bytes '$mp/same' t"
+  mpb_case refuse "an mpb that is other bytes"              "assert_same_bytes '$mp/diff1' t"
+  mpb_case refuse "a macportsbrew that is other bytes"      "assert_same_bytes '$mp/diff2' t"
+  mpb_case refuse "an mpb that is missing"                  "assert_same_bytes '$mp/miss' t"
+  rm -rf "$mp"
+  # Where the lifted functions are used, and what reaches SHA256SUMS: a text
+  # check, like the hooks' fixtures-in-files rule, because these lines need
+  # pkgbuild, hdiutil and a signed build to run. Each needle must START a line
+  # (indentation aside), so a commented-out or `: `-prefixed copy does not count.
+  for needle in \
+      'ditto --norsrc --noextattr --noqtn --noacl "$bin" "$pkgroot/bin/$name"' \
+      'ditto --norsrc --noextattr --noqtn --noacl "$bin" "$dmgroot/$name"' \
+      'ditto --norsrc --noextattr --noqtn --noacl "$bin" "$out/$mpb_base"' \
+      'assert_same_bytes "$p/bin" "pkg ($pass) payload"' \
+      'assert_same_bytes "$mnt" "dmg ($pass) volume"' \
+      'expect_list "dmg ($pass) volume" "$(printf '"'"'./%s\n'"'"' "${PAYLOAD[@]}")" "$list"' \
+      '(cd "$out" && shasum -a 256 "$base" "$mpb_base" "$base.pkg" "$base.dmg")' \
+      '[ "$mpb_cdhash" = "$cdhash" ] ||' \
+      'echo "mpb_sha256='; do
+    if sed 's/^[[:space:]]*//' "$BR" | N="$needle" awk 'index($0, ENVIRON["N"]) == 1 { f = 1 } END { exit !f }'; then pass; note ok "uses: ${needle:0:44}"
+    else note FAIL "build-release.sh no longer has" "$needle"; miss; fi
+  done
+fi
+
+echo
 echo "== check-no-secrets.sh: no credential is tracked (pass 15)"
 # Every refused input is built here at run time from pieces, so this repository
 # never contains one - not even in this file. Each case is a fresh git work tree

@@ -39,11 +39,20 @@
 # What it produces in <out-dir>, for <arch> in x86_64 | arm64:
 #
 #   macportsbrew-<version>-<arch>        the bare executable
-#   macportsbrew-<version>-<arch>.pkg    installs ONLY `macportsbrew`, into
-#                                        ~/.macportsbrew/bin, current-user
-#                                        domain, no PATH edit, no script
-#   macportsbrew-<version>-<arch>.dmg    UDZO, HFS+, holding the executable
-#   SHA256SUMS.<arch>                    the three, in `shasum -a 256` format
+#   mpb-<version>-<arch>                 the same bytes under the short name
+#   macportsbrew-<version>-<arch>.pkg    installs ONLY `macportsbrew` and
+#                                        `mpb`, into ~/.macportsbrew/bin,
+#                                        current-user domain, no PATH edit,
+#                                        no script
+#   macportsbrew-<version>-<arch>.dmg    UDZO, HFS+, holding the same two
+#   SHA256SUMS.<arch>                    the four, in `shasum -a 256` format
+#
+# `mpb` is not a second build: it is a byte-identical copy of the one signed
+# executable (DP-033 (b), ruled 2026-10-23; the same main.rs as a second
+# [[bin]]). A copy is what lets every assertion below say "the same bytes", and
+# it carries the same signature and CDHash, so the executable's notarisation
+# ticket is its ticket too. The .pkg cannot run a conflict guard (it has no
+# scripts, by design); the guard is PATH order (ADR-0003, ADR-0005).
 #   macportsbrew-<version>-<arch>.release-record.txt
 #                                        what was built and, when signed, what
 #                                        signed it (08: team identifier,
@@ -59,7 +68,8 @@
 #     with --sign a Developer ID Application authority, the team, a secure
 #     timestamp;
 #   - the payload extracted from the .pkg (pkgutil --expand, then tar) and from
-#     the .dmg (read-only, unbrowsed attach) hashes to the bare executable AND
+#     the .dmg (read-only, unbrowsed attach) hashes to the bare executable, for
+#     BOTH names, AND the bare `mpb` does too, AND
 #     the payload file list and modes are exactly the expected ones (R-19 found
 #     an AppleDouble `._` entry a hash comparison alone does not see);
 #   - with --sign: notarisation Accepted for the ZIP of the bare executable,
@@ -154,6 +164,11 @@ readonly IDENTIFIER="io.github.pabloguia.macportsbrew"
 # below enables only the current-user-home domain (plan, D-P1). R-19 lists the
 # exact interpretation as UNRESOLVED; the plan carries the check that settles it.
 readonly INSTALL_LOCATION="/.macportsbrew"
+# The names every container carries, in the order a sorted listing shows them.
+# Every list and every hash below is derived from this one line; the gate tests
+# pin it (scripts/test-gates.sh).
+PAYLOAD=(macportsbrew mpb)
+readonly PAYLOAD
 
 need=(otool vtool lipo codesign pkgbuild productbuild pkgutil lsbom hdiutil
       shasum tar xmllint git strings ditto)
@@ -186,6 +201,7 @@ out="$(cd "$out_arg" && pwd)"
 [ -z "$(ls -A "$out")" ] || die "$out is not empty"
 
 base="macportsbrew-$version-$arch"
+mpb_base="mpb-$version-$arch"
 work="$(mktemp -d "${TMPDIR:-/tmp}/mpb-release.XXXXXX")"
 mnt=""
 cleanup() {
@@ -421,14 +437,34 @@ signed_sha="$(shasum -a 256 "$bin" | awk '{print $1}')"
 
 ditto --norsrc --noextattr --noqtn --noacl "$bin" "$out/$base"
 chmod 0755 "$out/$base"
+ditto --norsrc --noextattr --noqtn --noacl "$bin" "$out/$mpb_base"
+chmod 0755 "$out/$mpb_base"
 
-# --- 4. The .pkg: one file, one directory, the current user's home ----------------
+# Every copy of the program in <out-dir> or a container: <dir> <label>, then
+# for each name in PAYLOAD the file <dir>/<name> must exist and hash to the
+# signed executable. A missing name is a failure, not a skipped one.
+assert_same_bytes() {
+  local dir="$1" label="$2" name sha
+  for name in "${PAYLOAD[@]}"; do
+    [ -f "$dir/$name" ] || die "$label: no $name"
+    sha="$(shasum -a 256 "$dir/$name" | awk '{print $1}')"
+    [ "$sha" = "$signed_sha" ] || die "$label: $name hashes to $sha, the bare executable to $signed_sha"
+  done
+}
+# The short name carries the same signature, so the same CDHash, as the bare
+# executable: its notarisation ticket is the executable's (step 7).
+mpb_cdhash="$(codesign -dvvv "$out/$mpb_base" 2>&1 | sed -n 's/^CDHash=//p' | head -1)"
+[ "$mpb_cdhash" = "$cdhash" ] || die "$mpb_base: CDHash $mpb_cdhash, the executable's is $cdhash"
+
+# --- 4. The .pkg: two names, one directory, the current user's home ---------------
 
 pkgroot="$work/pkgroot"
 mkdir -p "$pkgroot/bin" "$work/components"
 chmod 0755 "$pkgroot" "$pkgroot/bin"
-ditto --norsrc --noextattr --noqtn --noacl "$bin" "$pkgroot/bin/macportsbrew"
-chmod 0755 "$pkgroot/bin/macportsbrew"
+for name in "${PAYLOAD[@]}"; do
+  ditto --norsrc --noextattr --noqtn --noacl "$bin" "$pkgroot/bin/$name"
+  chmod 0755 "$pkgroot/bin/$name"
+done
 # The component stays unsigned; the product archive carries the signature
 # (productbuild(1), R-19 finding 14).
 pkgbuild --root "$pkgroot" --identifier "$IDENTIFIER" --version "$version" \
@@ -469,8 +505,10 @@ fi
 dmgroot="$work/dmgroot"
 mkdir "$dmgroot"
 chmod 0755 "$dmgroot"
-ditto --norsrc --noextattr --noqtn --noacl "$bin" "$dmgroot/macportsbrew"
-chmod 0755 "$dmgroot/macportsbrew"
+for name in "${PAYLOAD[@]}"; do
+  ditto --norsrc --noextattr --noqtn --noacl "$bin" "$dmgroot/$name"
+  chmod 0755 "$dmgroot/$name"
+done
 hdiutil create -quiet -volname "MacPortsBrew $version $arch" -srcfolder "$dmgroot" \
   -fs HFS+ -format UDZO -ov "$out/$base.dmg"
 if [ "$sign" = 1 ]; then
@@ -528,7 +566,7 @@ appledouble_provenance_only() { # <payload archive> <member>
 tolerated=""
 check_pkg_payload_list() { # <pass> <payload archive>
   local pass="$1" payload="$2" entry expected actual kept=""
-  expected="$(printf '%s\n' . ./bin ./bin/macportsbrew)"
+  expected="$(printf '%s\n' . ./bin; printf './bin/%s\n' "${PAYLOAD[@]}")"
   actual="$(tar -tf "$payload" | sort)"
   tolerated=""
   while IFS= read -r entry; do
@@ -537,7 +575,7 @@ check_pkg_payload_list() { # <pass> <payload archive>
       continue
     fi
     case "$entry" in
-      ./._bin|./bin/._macportsbrew) ;;
+      ./._bin|./bin/._macportsbrew|./bin/._mpb) ;;
       *) printf 'expected:\n%s\nactual:\n%s\n' "$expected" "$actual" >&2
          die "pkg ($pass): unexpected payload entry $entry" ;;
     esac
@@ -571,15 +609,15 @@ assert_payloads() { # <pass label>
   modes="$(lsbom -p fm "$x/macportsbrew.pkg/Bom" | sort)"
   if [ -n "$tolerated" ]; then
     # Exact path match on the first field, never a substring.
-    modes="$(printf '%s\n' "$modes" | awk -F '\t' '$1 != "./._bin" && $1 != "./bin/._macportsbrew"')"
+    modes="$(printf '%s\n' "$modes" | awk -F '\t' '$1 != "./._bin" && $1 != "./bin/._macportsbrew" && $1 != "./bin/._mpb"')"
   fi
-  expect_list "pkg ($pass) modes" "$(printf '%s\t%s\n' . 40755 ./bin 40755 ./bin/macportsbrew 100755)" "$modes"
+  expect_list "pkg ($pass) modes" \
+    "$(printf '%s\t%s\n' . 40755 ./bin 40755; printf './bin/%s\t100755\n' "${PAYLOAD[@]}")" "$modes"
   p="$work/pkg-$pass-payload"
   mkdir "$p"
   tar -xf "$x/macportsbrew.pkg/Payload" -C "$p"
-  sha="$(shasum -a 256 "$p/bin/macportsbrew" | awk '{print $1}')"
-  [ "$sha" = "$signed_sha" ] || die "pkg ($pass): payload hashes to $sha, the bare executable to $signed_sha"
-  note "pkg ($pass): payload = bare executable ($sha); list and modes exact; current-user domain only; no scripts"
+  assert_same_bytes "$p/bin" "pkg ($pass) payload"
+  note "pkg ($pass): payload = bare executable ($signed_sha) under ${PAYLOAD[*]}; list and modes exact; current-user domain only; no scripts"
 
   # .dmg - read-only, unbrowsed, at a private mount point (R-19 E11).
   mnt="$work/mnt-$pass"
@@ -587,23 +625,24 @@ assert_payloads() { # <pass label>
   attach_out="$(hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$out/$base.dmg")"
   printf '%s\n' "$attach_out" | grep -q 'Apple_HFS' || die "dmg ($pass): not an HFS+ volume"
   list="$(cd "$mnt" && find . -mindepth 1 | sort)"
-  expect_list "dmg ($pass) volume" "./macportsbrew" "$list"
-  sha="$(shasum -a 256 "$mnt/macportsbrew" | awk '{print $1}')"
+  expect_list "dmg ($pass) volume" "$(printf './%s\n' "${PAYLOAD[@]}")" "$list"
   # HFS+ keeps attributes natively, so the AppleDouble question becomes: which
-  # attributes does the copy on the volume carry? Same tolerance as the pkg.
-  attrs="$(xattr "$mnt/macportsbrew" | sort | tr '\n' ' ')"
-  case "$attrs" in
-    "") ;;
-    "com.apple.provenance ")
-      [ "$sign" = 0 ] || die "dmg ($pass): the executable carries com.apple.provenance (plan, D-P3)"
-      note "TOLERATED (dry run only): the dmg's executable carries com.apple.provenance" ;;
-    *) die "dmg ($pass): the executable carries extended attributes: $attrs" ;;
-  esac
+  # attributes does each copy on the volume carry? Same tolerance as the pkg.
+  for name in "${PAYLOAD[@]}"; do
+    attrs="$(xattr "$mnt/$name" | sort | tr '\n' ' ')"
+    case "$attrs" in
+      "") ;;
+      "com.apple.provenance ")
+        [ "$sign" = 0 ] || die "dmg ($pass): $name carries com.apple.provenance (plan, D-P3)"
+        note "TOLERATED (dry run only): the dmg's $name carries com.apple.provenance" ;;
+      *) die "dmg ($pass): $name carries extended attributes: $attrs" ;;
+    esac
+  done
+  assert_same_bytes "$mnt" "dmg ($pass) volume"
   hdiutil detach -quiet "$mnt"
   mnt=""
-  [ "$sha" = "$signed_sha" ] || die "dmg ($pass): payload hashes to $sha, the bare executable to $signed_sha"
   hdiutil imageinfo "$out/$base.dmg" | grep -qx 'Format: UDZO' || die "dmg ($pass): not UDZO"
-  note "dmg ($pass): payload = bare executable ($sha); volume holds only macportsbrew; HFS+, UDZO"
+  note "dmg ($pass): payload = bare executable ($signed_sha); volume holds only ${PAYLOAD[*]}; HFS+, UDZO"
 }
 
 assert_payloads "built"
@@ -636,7 +675,8 @@ if [ "$sign" = 1 ]; then
   }
   # The bare executable cannot be stapled; its ticket is found online. It is
   # submitted as a ZIP until the first release shows the nested ticket covers
-  # it (R-19 finding 6).
+  # it (R-19 finding 6). The bare `mpb` is not submitted: it has this one's
+  # CDHash (asserted above), and a ticket is issued for a CDHash, not a name.
   ditto -c -k --keepParent "$out/$base" "$work/$base.zip"
   notarise "$work/$base.zip" "bare"
   notarise "$out/$base.pkg" "pkg"
@@ -673,9 +713,11 @@ fi
 
 # --- 8. Checksums and the release record ---------------------------------------------
 
-(cd "$out" && shasum -a 256 "$base" "$base.pkg" "$base.dmg") >"$out/SHA256SUMS.$arch"
+(cd "$out" && shasum -a 256 "$base" "$mpb_base" "$base.pkg" "$base.dmg") >"$out/SHA256SUMS.$arch"
 (cd "$out" && shasum -a 256 -c "SHA256SUMS.$arch" >/dev/null) || die "SHA256SUMS.$arch does not verify"
+[ "$(wc -l <"$out/SHA256SUMS.$arch" | tr -d ' ')" = 4 ] || die "SHA256SUMS.$arch does not list exactly four artifacts"
 [ "$(shasum -a 256 "$out/$base" | awk '{print $1}')" = "$signed_sha" ] || die "the bare artifact is not the signed executable"
+[ "$(shasum -a 256 "$out/$mpb_base" | awk '{print $1}')" = "$signed_sha" ] || die "the bare mpb is not the signed executable"
 
 record="$out/$base.release-record.txt"
 {
@@ -697,6 +739,9 @@ record="$out/$base.release-record.txt"
   echo "unsigned_build_sha256=$unsigned_sha"
   echo "executable_sha256=$signed_sha"
   echo "executable_cdhash=$cdhash"
+  echo "payload_names=${PAYLOAD[*]}"
+  echo "mpb_sha256=$(shasum -a 256 "$out/$mpb_base" | awk '{print $1}')"
+  echo "mpb_cdhash=$mpb_cdhash"
   echo "team_identifier=$team"
   echo "certificate_sha256=$cert_sha"
   cat "$notary_record"

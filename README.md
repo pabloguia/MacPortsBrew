@@ -165,8 +165,9 @@ Add `--json` to any of them for a versioned, machine-readable payload on stdout
 that name, so the install directory is only ever **appended** to your `PATH`: an
 `mpb` you already have comes first and wins. Nothing here detects a conflict for
 you; the order of your `PATH` is the guard
-([ADR-0003](docs/adr/0003-name-and-cli-alias.md)). <!-- Release artifacts carry
-both names from part B of pass 15 (DP-033 (b)); until then nothing is published. -->
+([ADR-0003](docs/adr/0003-name-and-cli-alias.md)). The `.pkg` and the `.dmg` carry
+both names, and the release also publishes a bare `mpb` beside the bare
+`macportsbrew`.
 
 ### What it looks like
 
@@ -219,8 +220,9 @@ Silicon and `x86_64` on Intel — `uname -m` in Terminal tells you which.
 | File | What it is | What happens when you use it |
 |---|---|---|
 | `macportsbrew-X.Y.Z-<arch>` | The bare executable: one signed program file | Nothing happens until you place it. Rename it to `macportsbrew`, make it executable, and put it in a folder on your `PATH` — the Terminal line below does all three. Nothing else on your Mac changes. |
-| `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
-| `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable | Double-click it and a window opens with one file in it. Drag it to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the file into the window that opens. |
+| `mpb-X.Y.Z-<arch>` | The same file, byte for byte, under the short name | The same as the bare executable, renamed to `mpb` instead. Take it if you want the short name. Another program is also called `mpb` (MIT Photonic-Bands); with the `PATH` line below, one you already have comes first and wins. |
+| `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` and `mpb` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
+| `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable under both names | Double-click it and a window opens with two files in it, `macportsbrew` and `mpb`: the same program. Drag either or both to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the files into the window that opens. |
 
 **Not sure? Take the `.pkg`.** **Live in a terminal? This one line downloads,
 names, places and marks the program executable:**
