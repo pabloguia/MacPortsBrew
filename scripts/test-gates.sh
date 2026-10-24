@@ -774,6 +774,31 @@ else
   ns_case accept "a lower-case team key"                 r.txt          "team_identifier=${TEAMV}\n"
   ns_case accept "a .p8 that is not the extension"       notary-key.p8.md 'x'
   ns_case accept "a short MII is not DER"                m.txt          'MIIT licence\n'
+  # Untracked and not ignored: in `git add <key> && git commit`, the commit gate
+  # runs before the add, so the key is still untracked when it is checked.
+  ns_untracked() { # <want> <label> <file name> <content> [ignore]
+    local want="$1" label="$2" name="$3" content="$4" t out rc
+    ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir "$t"; git -C "$t" init -q
+    printf 'clean\n' >"$t/README.md"
+    if [ "$#" -ge 5 ]; then printf '%s\n' "$name" >"$t/.gitignore"; fi
+    git -C "$t" add -f README.md
+    printf '%b' "$content" >"$t/$name"
+    out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+    ns_verdict "$want" "$label" "$rc" "$out"
+  }
+  ns_untracked "$P" "an untracked PEM key, not yet added"    new.txt  "${DASH5}BEGIN PRIVATE KEY${DASH5}\n"
+  ns_untracked "$T" "an untracked .p12, not yet added"       new.p12  'x'
+  ns_untracked "binary file" "an untracked binary file"      new.bin  '\0000\0001'
+  ns_untracked accept "an ignored .p12 is not this check's"  new.p12  'x' ignore
+  ns_case "$D" "an unarmoured P-256 PKCS#8 body"             k.txt    "$(printf 'MIGTAgEAMBMG%syqGSM49AgEG' B)\n"
+  ns_case "$D" "a SEC1 EC private key body"                  k2.txt   "$(printf 'MHcCAQE%s' E)$(printf 'A%.0s' $(seq 1 44))\n"
+  # An inherited GIT_DIR must not move the scan: the tree has a key, GIT_DIR
+  # points at a clean repository.
+  mkdir "$ns/clean" && git -C "$ns/clean" init -q && printf 'ok\n' >"$ns/clean/a" && git -C "$ns/clean" add a
+  ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir "$t"; git -C "$t" init -q
+  printf '%b' "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" >"$t/k.txt"; git -C "$t" add -f k.txt
+  out="$(GIT_DIR="$ns/clean/.git" GIT_WORK_TREE="$ns/clean" MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+  ns_verdict "$P" "an inherited GIT_DIR does not move the scan" "$rc" "$out"
   # Fail closed: nothing to scan, and a git that cannot answer, are not clean.
   mkdir "$ns/empty" && git -C "$ns/empty" init -q
   out="$(MPB_SECRETS_ROOT="$ns/empty" "$NS" 2>&1)"; rc=$?

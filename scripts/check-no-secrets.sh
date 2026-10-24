@@ -23,7 +23,11 @@
 #   5. base64 of DER: `MII` and sixty or more base64 characters, which is how
 #      every DER SEQUENCE with a two-byte length - a PKCS#12, a PKCS#8 key, a
 #      certificate - starts once encoded. The release secrets are such values
-#      (`MPB_*_CERT_B64`), and pasting one into a file is the likely accident;
+#      (`MPB_*_CERT_B64`), and pasting one into a file is the likely accident.
+#      Two shorter EC keys are named too: the start of an unarmoured P-256
+#      PKCS#8 body (an App Store Connect key without its armour) and of a SEC1
+#      EC private key. A letter of each is in a group, `(B)` and `(E)`, so
+#      that this file does not match itself;
 #   6. a team-identifier-shaped value given to a team key: TEAM_ID,
 #      TeamIdentifier or DEVELOPMENT_TEAM, then = or : (spaces and a quote of
 #      either kind allowed), then ten capitals or digits; or `--team-id` and
@@ -32,11 +36,16 @@
 #      exactly that form.
 #
 # The plan named rules 1 (its first five types), 2, 4 and the first spelling of
-# 6; the rest were added on review (pass 15). Rules 4-6 read both the working
-# tree's copy and the index's copy of every tracked file, so a credential
-# staged for the commit the commit gate is checking is seen even when the
-# working copy was changed or deleted afterwards. A file git does not track is
-# not this check's business (.gitignore is).
+# 6; the rest were added on review (pass 15). Every rule covers the files git
+# tracks AND the untracked files it does not ignore: the commit gate runs
+# before the command it guards, so in `git add <key> && git commit` the key is
+# still untracked when it is checked. Rules 4-6 also read the index's copy of
+# every tracked file, so a credential staged and then changed or deleted in the
+# working copy is seen. An ignored file is not this check's business
+# (.gitignore is).
+#
+# The git environment is cleared first: GIT_DIR, GIT_WORK_TREE or
+# GIT_INDEX_FILE inherited from a caller would point the scan somewhere else.
 #
 # The patterns spell five dashes as `-{5}` so that this file does not match
 # itself, and the gate tests (scripts/test-gates.sh) build every refused input
@@ -53,6 +62,7 @@
 #   MPB_SECRETS_ROOT=<a git work tree> scripts/check-no-secrets.sh   (gate tests)
 
 set -uo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 if [ -n "${MPB_SECRETS_ROOT:-}" ]; then
   root="$MPB_SECRETS_ROOT"
   echo "no-secrets: scanning $root (MPB_SECRETS_ROOT)" >&2
@@ -70,13 +80,13 @@ fi
 bad=0
 refuse() { echo "no-secrets: $1: $2" >&2; bad=1; }
 
-if ! listing="$(git ls-files -z | tr '\0' '\n')"; then
+if ! listing="$({ git ls-files -z && git ls-files -o --exclude-standard -z; } | tr '\0' '\n')"; then
   echo "no-secrets: git ls-files failed; refusing" >&2
   exit 1
 fi
 files="$(printf '%s' "$listing" | grep -c '' || true)"
 if [ "$files" -eq 0 ]; then
-  echo "no-secrets: git tracks no file here; refusing to pass on a scan of nothing" >&2
+  echo "no-secrets: git tracks no file here and sees none untracked; refusing to pass on a scan of nothing" >&2
   exit 1
 fi
 
@@ -92,7 +102,7 @@ done < <(printf '%s\n' "$listing" | grep -Ei 'AuthKey_[A-Z0-9]{10}\.p8' || true)
 
 # `--eol` gives the index's (i/) and the working tree's (w/) view; `-text` is
 # git's own verdict that the content is binary.
-if ! eol="$(git ls-files --eol -z | tr '\0' '\n')"; then
+if ! eol="$({ git ls-files --eol -z && git ls-files -o --exclude-standard --eol -z; } | tr '\0' '\n')"; then
   echo "no-secrets: git ls-files --eol failed; refusing" >&2
   exit 1
 fi
@@ -100,7 +110,8 @@ while IFS= read -r path; do
   [ -n "$path" ] && refuse "binary file" "$path"
 done < <(printf '%s\n' "$eol" | awk -F '\t' '{ split($1, f, " +") } f[1] == "i/-text" || f[2] == "w/-text" { print $2 }')
 
-# <rule> <extended regular expression>, over the working tree and the index.
+# <rule> <extended regular expression>, over the working tree (tracked and
+# untracked-not-ignored) and the index.
 # `git grep` exits 1 for "no match" and above 1 for an error; an error refuses,
 # it is not a clean answer. Only the path and the line number leave this
 # function (a binary file is reported by name).
@@ -110,7 +121,7 @@ content_rule() {
     if [ "$where" = index ]; then
       out="$(git grep --cached -n -E --no-color -e "$pattern" 2>&1)"
     else
-      out="$(git grep -n -E --no-color -e "$pattern" 2>&1)"
+      out="$(git grep --untracked -n -E --no-color -e "$pattern" 2>&1)"
     fi
     rc=$?
     case "$rc" in
@@ -127,11 +138,11 @@ content_rule() {
   done
 }
 content_rule "PEM private key or certificate" '-{5}BEGIN ([A-Z0-9]+ )?(PRIVATE KEY|CERTIFICATE)'
-content_rule "base64 of DER" 'MII[A-Za-z0-9+/]{60,}'
+content_rule "base64 of DER" 'MII[A-Za-z0-9+/]{60,}|MIGTAgEAMBMG(B)yqGSM49|MHcCAQE(E)[A-Za-z0-9+/]{40,}'
 content_rule "team identifier value" \
   "(TEAM_ID|TeamIdentifier|DEVELOPMENT_TEAM)[[:space:]]*[=:][[:space:]]*[\"']?[A-Z0-9]{10}|--team-id[= ]+[\"']?[A-Z0-9]{10}"
 
 if [ "$bad" -eq 0 ]; then
-  echo "no-secrets: ok ($files tracked files)"
+  echo "no-secrets: ok ($files files, tracked or untracked and not ignored)"
 fi
 exit "$bad"
