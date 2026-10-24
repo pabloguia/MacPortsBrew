@@ -37,6 +37,9 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# The throwaway git trees below must never be the caller's repository: a GIT_DIR
+# inherited from a git hook would point their `add` and `commit` at it.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 failures=0
 checks=0
@@ -708,17 +711,29 @@ elif [ ! -f "$BR" ]; then
   note FAIL "build-release.sh is missing" "$BR"; miss
 else
   sp="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
-  mkdir -p "$sp/repo/scripts" "$sp/repo/data/policy" "$sp/bin"
-  cp "$BR" "$sp/repo/scripts/build-release.sh"; chmod 0755 "$sp/repo/scripts/build-release.sh"
-  printf '[workspace.package]\nversion = "0.0.1"\n' >"$sp/repo/Cargo.toml"
-  printf 'version = "1"\n' >"$sp/repo/data/policy/policy.toml"
-  git -C "$sp/repo" init -q
-  git -C "$sp/repo" add -A
-  git -C "$sp/repo" -c user.name=gates -c user.email=gates@invalid -c commit.gpgsign=false commit -q -m t
+  mkdir -p "$sp/bin"
+  # A committed throwaway tree holding <script> as scripts/build-release.sh. No
+  # hook of the caller's runs on its commit, and it is never the caller's repo
+  # (the git environment is cleared at the top of this file).
+  sp_repo() { # <dir> <script>
+    mkdir -p "$1/scripts" "$1/data/policy"
+    cp "$2" "$1/scripts/build-release.sh"; chmod 0755 "$1/scripts/build-release.sh"
+    printf '[workspace.package]\nversion = "0.0.1"\n' >"$1/Cargo.toml"
+    printf 'version = "1"\n' >"$1/data/policy/policy.toml"
+    git -C "$1" init -q
+    git -C "$1" add -A
+    git -C "$1" -c core.hooksPath=/dev/null -c user.name=gates -c user.email=gates@invalid \
+      -c commit.gpgsign=false commit -q --no-verify -m t
+  }
+  sp_repo "$sp/repo" "$BR"
   # The input: running it is the failure this section exists for.
   printf '#!/bin/sh\n: >"%s/EXECUTED"\n' "$sp" >"$sp/input"; chmod 0755 "$sp/input"
   in_sha="$(shasum -a 256 "$sp/input" | awk '{print $1}')"
   stub() { printf '#!/bin/sh\necho "%s $*" >>"%s/calls"\n%s\n' "$1" "$sp" "$2" >"$sp/bin/$1"; chmod 0755 "$sp/bin/$1"; }
+  # uname too: on an arm64 host a removed guard would fall to the "host is not
+  # x86_64" branch, the input would never run, and every case would pass
+  # vacuously (pass 15 follow-up review). The canary below proves it cannot.
+  stub uname    'echo x86_64'
   stub lipo     'echo x86_64'
   stub otool    'case "$1" in -l) printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n" ;; -L) printf "%s:\n\t/usr/lib/libSystem.B.dylib (compatibility)\n" "$2" ;; esac'
   stub vtool    'printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n"'
@@ -727,14 +742,21 @@ else
   stub codesign 'echo "stub codesign refuses" >&2; exit 1'
   : >"$sp/keychain"; : >"$sp/key.p8"; chmod 0600 "$sp/key.p8"
   sp_n=0
-  # <want: ran-to-codesign|bound-mismatch|usage|refused-hash> <label> <args...>
+  # <want: ran-to-codesign|executed|bound-mismatch|usage|refused-hash> <label> <args...>
+  # SP_REPO picks the tree (default: the real script's).
   sp_case() {
-    local want="$1" label="$2" out rc verdict=1; shift 2
+    local want="$1" label="$2" out rc verdict=1 repo="${SP_REPO:-$sp/repo}"; shift 2
     sp_n=$((sp_n + 1)); rm -f "$sp/EXECUTED" "$sp/calls"
     out="$(env PATH="$sp/bin:$PATH" MPB_SIGN_KEYCHAIN="$sp/keychain" MPB_NOTARY_KEY_PATH="$sp/key.p8" \
              MPB_APP_IDENTITY="Developer ID Application: Gates" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
              MPB_TEAM_ID="$(printf 'GATES%s' TEAM1)" MPB_NOTARY_KEY_ID=k \
-             "$sp/repo/scripts/build-release.sh" x86_64-apple-darwin "$sp/out$sp_n" "$@" 2>&1)"; rc=$?
+             "$repo/scripts/build-release.sh" x86_64-apple-darwin "$sp/out$sp_n" "$@" 2>&1)"; rc=$?
+    SP_REPO=""
+    if [ "$want" = executed ]; then
+      if [ -e "$sp/EXECUTED" ]; then pass; note ok "$label"; else
+        note FAIL "$label" "the harness cannot see an execution (rc=$rc)"; miss; fi
+      return
+    fi
     if [ -e "$sp/EXECUTED" ]; then
       note FAIL "$label" "THE INPUT WAS EXECUTED"; miss; return
     fi
@@ -750,6 +772,17 @@ else
       note FAIL "$label" "rc=$rc calls=$(tr '\n' ';' <"$sp/calls" 2>/dev/null | cut -c1-80)"; miss
     fi
   }
+  # The canary first: the same harness over a copy of the script with the guard
+  # removed MUST see the input run. If it does not, the cases below prove nothing.
+  GUARD='if [ "$sign" = 1 ] || [ -n "$from_binary" ]; then'
+  if [ "$(grep -cxF -- "$GUARD" "$BR")" != 1 ]; then
+    note FAIL "the canary can find the guard to remove" "'$GUARD' is not one line of $BR"; miss
+  else
+    N="$GUARD" awk '$0 == ENVIRON["N"] { print "if false; then"; next } { print }' "$BR" >"$sp/unguarded.sh"
+    sp_repo "$sp/canary" "$sp/unguarded.sh"
+    SP_REPO="$sp/canary" sp_case executed "canary: without the guard the harness sees the input run" \
+      --from-binary "$sp/input"
+  fi
   sp_case ran-to-codesign "--sign --from-binary: the input is never executed" \
     --sign --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
   sp_case ran-to-codesign "--from-binary alone: the input is never executed" --from-binary "$sp/input"
@@ -762,15 +795,30 @@ else
   sp_case usage "--expect-unsigned-sha256 without --sign is a usage error" \
     --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
   rm -rf "$sp"
-  # And in the text: the program is run in exactly two places, both after the
-  # one guard that sends --sign and --from-binary away (the stubs above prove
-  # the guard is taken; this proves nothing else runs it).
-  runs="$(grep -cE '(^|[(;&|]|\$\()[[:space:]]*"\$bin"( |"|$)' "$BR")"
+  # And in the text, which reaches the lines past the first codesign that the
+  # stubs above do not: over logical lines (continuations joined, comments
+  # dropped), the input "$bin" - quoted, braced or bare, after any command
+  # separator, `$(`, `!`, or a word that runs its argument (exec, env, command,
+  # if, then...) - is in command position exactly twice, after the guard; and
+  # no other copy of its bytes ($out, $pkgroot, $dmgroot, $mnt, $p, $work, $x)
+  # is ever in command position.
+  CMDPOS='function emit(l,   pre, v) {
+    pre = "(^|;|&&|[|][|]|[|]|\\$\\(|[!]|(^|[[:space:]])(then|do|else|exec|command|env|if|while|until|nohup|time))[[:space:]]*"
+    if (copies) v = "\"?\\$\\{?(out|pkgroot|dmgroot|mnt|p|work|x)\\}?/"
+    else        v = "(\"\\$\\{?bin\\}?\"|\\$\\{?bin\\}?)([[:space:]]|\"|$|[;&|)<>])"
+    if (l ~ (pre v)) print l
+  }
+  /^[[:space:]]*#/ { next }
+  { if (acc != "") { acc = acc " " $0 } else { acc = $0 } }
+  /\\$/ { sub(/\\$/, "", acc); next }
+  { emit(acc); acc = "" }'
+  runs="$(awk "$CMDPOS" "$BR" | grep -c '' || true)"
+  copies="$(awk -v copies=1 "$CMDPOS" "$BR" | grep -c '' || true)"
   guard="$(awk '/^version_check="not-executed"$/ {p=1; next} p && /^(if|elif) / {print; exit}' "$BR")"
-  if [ "$runs" = 2 ] && [ "$guard" = 'if [ "$sign" = 1 ] || [ -n "$from_binary" ]; then' ]; then
-    pass; note ok "the input is run twice, only behind the sign/from-binary guard"
+  if [ "$runs" = 2 ] && [ "$copies" = 0 ] && [ "$guard" = "$GUARD" ]; then
+    pass; note ok "the input runs twice, behind the guard; no copy ever runs"
   else
-    note FAIL "the input is run twice, only behind the sign/from-binary guard" "runs=$runs guard='$guard'"; miss
+    note FAIL "the input runs twice, behind the guard; no copy ever runs" "runs=$runs copies=$copies guard='$guard'"; miss
   fi
 fi
 
@@ -873,10 +921,26 @@ else
   }
   ns_untracked "$P" "an untracked PEM key, not yet added"    new.txt  "${DASH5}BEGIN PRIVATE KEY${DASH5}\n"
   ns_untracked "$T" "an untracked .p12, not yet added"       new.p12  'x'
+  ns_untracked "credential file type: new.p12 (untracked: move it" "an untracked hit says it is untracked" new.p12 'x'
   ns_untracked "binary file" "an untracked binary file"      new.bin  '\0000\0001'
-  ns_untracked accept "an ignored .p12 is not this check's"  new.p12  'x' ignore
+  # `git add -f` takes an ignored key into a commit, so the name rules read
+  # ignored entries too, and say why the hit is there.
+  ns_untracked "$T" "an ignored .p12 is still refused by name" new.p12 'x' ignore
+  ns_untracked "credential file type: new.p12 (ignored, but nothing stops git add -f" "an ignored hit says it is ignored" new.p12 'x' ignore
+  ns_untracked accept "an ignored file's content is not scanned" notes.txt "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" ignore
   ns_case "$D" "an unarmoured P-256 PKCS#8 body"             k.txt    "$(printf 'MIGTAgEAMBMG%syqGSM49AgEG' B)\n"
   ns_case "$D" "a SEC1 EC private key body"                  k2.txt   "$(printf 'MHcCAQE%s' E)$(printf 'A%.0s' $(seq 1 44))\n"
+  ns_case "$D" "OpenSSL's P-256 PKCS#8 body"                 k3.txt   "$(printf 'MIGHAgEAMBMG%syqGSM49AgEG' B)\n"
+  ns_case "$D" "a P-384 PKCS#8 body"                         k4.txt   "$(printf 'MIG2AgEAMBAG%syqGSM49AgEG' B)\n"
+  ns_case "$D" "a P-384 SEC1 key body"                       k5.txt   "$(printf 'MIGkAgEBBD%s' C)$(printf 'A%.0s' $(seq 1 44))\n"
+  # An injected configuration that ignores everything must not empty the
+  # untracked scan.
+  ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir "$t"; git -C "$t" init -q
+  printf 'clean\n' >"$t/README.md"; git -C "$t" add -f README.md
+  printf '%b' "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" >"$t/new.txt"; printf '*\n' >"$ns/ignore-all"
+  out="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.excludesFile GIT_CONFIG_VALUE_0="$ns/ignore-all" \
+         GIT_CONFIG_PARAMETERS="'core.excludesfile=$ns/ignore-all'" MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+  ns_verdict "$P" "an injected git configuration does not empty the scan" "$rc" "$out"
   # An inherited GIT_DIR must not move the scan: the tree has a key, GIT_DIR
   # points at a clean repository.
   mkdir "$ns/clean" && git -C "$ns/clean" init -q && printf 'ok\n' >"$ns/clean/a" && git -C "$ns/clean" add a

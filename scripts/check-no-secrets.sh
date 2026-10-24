@@ -24,10 +24,12 @@
 #      every DER SEQUENCE with a two-byte length - a PKCS#12, a PKCS#8 key, a
 #      certificate - starts once encoded. The release secrets are such values
 #      (`MPB_*_CERT_B64`), and pasting one into a file is the likely accident.
-#      Two shorter EC keys are named too: the start of an unarmoured P-256
-#      PKCS#8 body (an App Store Connect key without its armour) and of a SEC1
-#      EC private key. A letter of each is in a group, `(B)` and `(E)`, so
-#      that this file does not match itself;
+#      Shorter EC keys are named too: the start of an unarmoured PKCS#8 EC
+#      body, P-256 or P-384 (`MIG?AgEAMB?GByqGSM49`: an App Store Connect key
+#      without its armour is `MIGT`, OpenSSL's P-256 is `MIGH`, P-384 `MIG2`,
+#      observed 2026-10-24 with `openssl genpkey`), and of a SEC1 EC private
+#      key, P-256 (`MHcCAQEE`) or P-384 (`MIGkAgEBBDC`). One letter of each is
+#      in a group, `(B)`, `(E)`, `(C)`, so that this file does not match itself;
 #   6. a team-identifier-shaped value given to a team key: TEAM_ID,
 #      TeamIdentifier or DEVELOPMENT_TEAM, then = or : (spaces and a quote of
 #      either kind allowed), then ten capitals or digits; or `--team-id` and
@@ -41,11 +43,16 @@
 # before the command it guards, so in `git add <key> && git commit` the key is
 # still untracked when it is checked. Rules 4-6 also read the index's copy of
 # every tracked file, so a credential staged and then changed or deleted in the
-# working copy is seen. An ignored file is not this check's business
-# (.gitignore is).
+# working copy is seen. Rules 1 and 2, the name rules, also read the ignored
+# entries git reports (`--directory`, so an ignored directory such as target/
+# is one entry and is not walked): `git add -f <ignored key> && git commit` is
+# the way an ignored key reaches a commit. A hit in a file that is not tracked
+# says so, because the fix is then to move or ignore it, not to unstage it.
 #
 # The git environment is cleared first: GIT_DIR, GIT_WORK_TREE or
-# GIT_INDEX_FILE inherited from a caller would point the scan somewhere else.
+# GIT_INDEX_FILE inherited from a caller would point the scan somewhere else,
+# and an injected configuration (GIT_CONFIG_*) could set core.excludesFile to
+# ignore everything and empty the untracked scan.
 #
 # The patterns spell five dashes as `-{5}` so that this file does not match
 # itself, and the gate tests (scripts/test-gates.sh) build every refused input
@@ -62,7 +69,10 @@
 #   MPB_SECRETS_ROOT=<a git work tree> scripts/check-no-secrets.sh   (gate tests)
 
 set -uo pipefail
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM \
+      GIT_CONFIG_NOSYSTEM GIT_CEILING_DIRECTORIES GIT_NAMESPACE GIT_DISCOVERY_ACROSS_FILESYSTEM
+for v in $(env | sed -nE 's/^(GIT_CONFIG_(KEY|VALUE)_[0-9]+)=.*/\1/p'); do unset "$v"; done
 if [ -n "${MPB_SECRETS_ROOT:-}" ]; then
   root="$MPB_SECRETS_ROOT"
   echo "no-secrets: scanning $root (MPB_SECRETS_ROOT)" >&2
@@ -78,12 +88,28 @@ if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" != "true" ]; then
 fi
 
 bad=0
-refuse() { echo "no-secrets: $1: $2" >&2; bad=1; }
+untracked=""
+ignored=""
+# <rule> <path, or path:line>. A hit outside the index says what kind of file it is.
+refuse() {
+  local where="" p="${2%%:*}"
+  if printf '%s\n' "$untracked" | grep -qxF -- "$p"; then
+    where=" (untracked: move it out of the tree or ignore it)"
+  elif printf '%s\n' "$ignored" | grep -qxF -- "$p"; then
+    where=" (ignored, but nothing stops git add -f: move it out of the tree)"
+  fi
+  echo "no-secrets: $1: $2$where" >&2
+  bad=1
+}
 
-if ! listing="$({ git ls-files -z && git ls-files -o --exclude-standard -z; } | tr '\0' '\n')"; then
+if ! tracked="$(git ls-files -z | tr '\0' '\n')" \
+   || ! untracked="$(git ls-files -o --exclude-standard -z | tr '\0' '\n')" \
+   || ! ignored="$(git ls-files -o -i --exclude-standard --directory -z | tr '\0' '\n')"; then
   echo "no-secrets: git ls-files failed; refusing" >&2
   exit 1
 fi
+listing="$(printf '%s\n%s' "$tracked" "$untracked" | grep -v '^$' || true)"
+names="$(printf '%s\n%s\n%s' "$tracked" "$untracked" "$ignored" | grep -v '^$' || true)"
 files="$(printf '%s' "$listing" | grep -c '' || true)"
 if [ "$files" -eq 0 ]; then
   echo "no-secrets: git tracks no file here and sees none untracked; refusing to pass on a scan of nothing" >&2
@@ -94,11 +120,11 @@ fi
 # --quick stage, and it runs on every turn end.
 while IFS= read -r path; do
   [ -n "$path" ] && refuse "credential file type" "$path"
-done < <(printf '%s\n' "$listing" \
+done < <(printf '%s\n' "$names" \
            | grep -Ei '\.(p12|pfx|p8|cer|mobileprovision|provisionprofile|pem|key|ppk|jks|keystore)$|\.keychain' || true)
 while IFS= read -r path; do
   [ -n "$path" ] && refuse "App Store Connect key file name" "$path"
-done < <(printf '%s\n' "$listing" | grep -Ei 'AuthKey_[A-Z0-9]{10}\.p8' || true)
+done < <(printf '%s\n' "$names" | grep -Ei 'AuthKey_[A-Z0-9]{10}\.p8' || true)
 
 # `--eol` gives the index's (i/) and the working tree's (w/) view; `-text` is
 # git's own verdict that the content is binary.
@@ -138,7 +164,8 @@ content_rule() {
   done
 }
 content_rule "PEM private key or certificate" '-{5}BEGIN ([A-Z0-9]+ )?(PRIVATE KEY|CERTIFICATE)'
-content_rule "base64 of DER" 'MII[A-Za-z0-9+/]{60,}|MIGTAgEAMBMG(B)yqGSM49|MHcCAQE(E)[A-Za-z0-9+/]{40,}'
+content_rule "base64 of DER" \
+  'MII[A-Za-z0-9+/]{60,}|MIG[A-Za-z0-9+/]AgEAMB[A-Za-z0-9+/]G(B)yqGSM49|MHcCAQE(E)[A-Za-z0-9+/]{40,}|MIGkAgEBBD(C)[A-Za-z0-9+/]{40,}'
 content_rule "team identifier value" \
   "(TEAM_ID|TeamIdentifier|DEVELOPMENT_TEAM)[[:space:]]*[=:][[:space:]]*[\"']?[A-Z0-9]{10}|--team-id[= ]+[\"']?[A-Z0-9]{10}"
 
