@@ -29,6 +29,11 @@
 # What it still does not cover: the rest of that loop - the existence check and
 # the fragment lookup against the real corpus - and `run-fixture-matrix.sh`'s
 # golden comparison, which needs a built binary.
+#
+# The release-machinery cases below hold single-quoted shell on purpose (a
+# needle is the literal text of a line, `$` included), so SC2016 is off for
+# the whole file.
+# shellcheck disable=SC2016
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -392,6 +397,108 @@ pins_case reject "attest-build-provenance by tag"    "actions/attest-build-prove
 pins_case reject "a name that only contains one"     "actions/upload-artifact-x@$SHA40 # v1"
 pins_case reject "a fork of one, pinned"             "someone/upload-artifact@$SHA40 # v7.0.1"
 rm -rf "$ap"
+
+echo
+echo "== check-no-secrets.sh: no credential is tracked (pass 15)"
+# Every refused input is built here at run time from pieces, so this repository
+# never contains one - not even in this file. Each case is a fresh git work tree
+# with one clean file and one case file added to the index (tracked, never
+# committed: no git identity is needed); the check runs over it through
+# MPB_SECRETS_ROOT. A refusal must name the rule that is meant to fire and exit
+# 1, so an unrelated failure (a cd, a git error) cannot pass as the verdict.
+NS="${MPB_GATES_NO_SECRETS:-scripts/check-no-secrets.sh}"
+if [ ! -x "$NS" ]; then
+  note FAIL "check-no-secrets.sh is missing or not executable" "$NS"; miss
+else
+  ns="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  DASH5="$(printf -- '-%.0s' 1 2 3 4 5)"
+  TEAMV="$(printf 'ABCDE%s' 12345)"
+  B64="$(printf 'MII%s' "$(printf 'Q%.0s' $(seq 1 64))")"
+  ns_n=0
+  ns_verdict() { # <want: accept|<rule text>> <label> <rc> <output>
+    local want="$1" label="$2" rc="$3" out="$4"
+    if [ "$want" = accept ]; then
+      [ "$rc" -eq 0 ] || { note FAIL "$label" "refused: $(printf '%s' "$out" | grep -m1 'no-secrets:')"; miss; return; }
+    elif [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -qF "no-secrets: $want"; then
+      note FAIL "$label" "wanted '$want' and exit 1, got exit $rc: $(printf '%s' "$out" | grep -m1 'no-secrets:')"; miss; return
+    fi
+    if printf '%s' "$out" | grep -qF -e "$TEAMV" -e "${DASH5}BEGIN" -e "$B64"; then
+      note FAIL "$label" "the output repeats the matched text"; miss; return
+    fi
+    pass; note ok "$label"
+  }
+  # <want> <label> <file name> <content, via printf %b> [<content left in the working tree>]
+  ns_case() {
+    local want="$1" label="$2" name="$3" content="$4" t out rc
+    ns_n=$((ns_n + 1))
+    t="$ns/t$ns_n"
+    mkdir -p "$t/$(dirname "$name")"
+    git -C "$t" init -q
+    printf 'clean\n' >"$t/README.md"
+    printf '%b' "$content" >"$t/$name"
+    # -f: a global excludes file must not keep the case out of the index.
+    if ! git -C "$t" add -f README.md "$name" || ! git -C "$t" ls-files --error-unmatch "$name" >/dev/null 2>&1; then
+      note FAIL "$label" "the case file could not be tracked"; miss; return
+    fi
+    if [ "$#" -ge 5 ]; then printf '%b' "$5" >"$t/$name"; fi
+    out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+    ns_verdict "$want" "$label" "$rc" "$out"
+  }
+  T=credential; A="App Store Connect"; P="PEM private key"; D="base64 of DER"; I="team identifier"
+  ns_case accept "a tree with no credential"             notes.txt      'nothing here\n'
+  ns_case "$T" "a .p12 file"                             a/id.p12       'x'
+  ns_case "$T" "a .pfx file"                             id.pfx         'x'
+  ns_case "$T" "a .p8 file"                              key.p8         'x'
+  ns_case "$T" "a .cer file"                             dev.cer        'x'
+  ns_case "$T" "a .mobileprovision file"                 a.mobileprovision 'x'
+  ns_case "$T" "a .provisionprofile file"                a.provisionprofile 'x'
+  ns_case "$T" "a .pem file"                             s.pem          'x'
+  ns_case "$T" "a .key file"                             s.key          'x'
+  ns_case "$T" "a .ppk file"                             s.ppk          'x'
+  ns_case "$T" "a .jks file"                             s.jks          'x'
+  ns_case "$T" "a .keystore file"                        s.keystore     'x'
+  ns_case "$T" "a keychain database"                     signing.keychain-db 'x'
+  ns_case "$T" "an upper-case .P12"                      ID.P12         'x'
+  ns_case "$A" "an App Store Connect key, renamed"       "AuthKey_$(printf 'KEYID%s' 98765).p8.txt" 'x'
+  ns_case "$A" "a lower-case App Store Connect key name" "authkey_$(printf 'keyid%s' 98765).p8.txt" 'x'
+  ns_case "binary file" "a binary file under a plain name"  a.bin       '\0060\0202\0001\0000\0002'
+  ns_case "$P" "a PEM private key"                       k.txt          "${DASH5}BEGIN PRIVATE KEY${DASH5}\n"
+  ns_case "$P" "a PEM RSA private key"                   k.md           "text\n${DASH5}BEGIN RSA PRIVATE KEY${DASH5}\n"
+  ns_case "$P" "a PEM encrypted private key"             k.yml          "  ${DASH5}BEGIN ENCRYPTED PRIVATE KEY${DASH5}\n"
+  ns_case "$P" "a PEM OpenSSH private key"               id             "${DASH5}BEGIN OPENSSH PRIVATE KEY${DASH5}\n"
+  ns_case "$P" "a PEM certificate"                       c.txt          "${DASH5}BEGIN CERTIFICATE${DASH5}\n"
+  ns_case "$P" "a key staged, then removed from the working copy" w.txt "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" 'clean now\n'
+  ns_case "$D" "a base64 DER blob in YAML"               s.yml          "  MPB_APP_CERT_B64: ${B64}\n"
+  ns_case "$I" "a team identifier assigned with ="       env.sh         "TEAM_ID=${TEAMV}\n"
+  ns_case "$I" "a team identifier assigned with :"       ci.yml         "  MPB_TEAM_ID: \"${TEAMV}\"\n"
+  ns_case "$I" "a team identifier in single quotes"      e.sh           "TEAM_ID='${TEAMV}'\n"
+  ns_case "$I" "a team identifier after a spaced ="      e.cfg          "TEAM_ID = \"${TEAMV}\"\n"
+  ns_case "$I" "a TeamIdentifier value"                  log.txt        "TeamIdentifier=${TEAMV}\n"
+  ns_case "$I" "a DEVELOPMENT_TEAM value"                p.xcconfig     "DEVELOPMENT_TEAM = ${TEAMV}\n"
+  ns_case "$I" "a --team-id argument"                    n.sh           "xcrun notarytool history --team-id ${TEAMV}\n"
+  # Near misses: what the release machinery itself writes must pass.
+  ns_case accept "a public key armour is not a secret"   pub.txt        "${DASH5}BEGIN PUBLIC KEY${DASH5}\n"
+  ns_case accept "the team read from a variable"         wf.yml         '  MPB_TEAM_ID: ${{ vars.MPB_TEAM_ID }}\n'
+  ns_case accept "TeamIdentifier compared to a variable" s.sh           'grep -qxF "TeamIdentifier=$MPB_TEAM_ID"\n'
+  ns_case accept "a lower-case team key"                 r.txt          "team_identifier=${TEAMV}\n"
+  ns_case accept "a .p8 that is not the extension"       notary-key.p8.md 'x'
+  ns_case accept "a short MII is not DER"                m.txt          'MIIT licence\n'
+  # Fail closed: nothing to scan, and a git that cannot answer, are not clean.
+  mkdir "$ns/empty" && git -C "$ns/empty" init -q
+  out="$(MPB_SECRETS_ROOT="$ns/empty" "$NS" 2>&1)"; rc=$?
+  ns_verdict "git tracks no file" "a work tree with no tracked file is refused" "$rc" "$out"
+  mkdir "$ns/nogit"
+  out="$(MPB_SECRETS_ROOT="$ns/nogit" "$NS" 2>&1)"; rc=$?
+  ns_verdict "$(cd "$ns/nogit" && pwd) is not a git work tree" "a directory that is not a work tree is refused" "$rc" "$out"
+  mkdir "$ns/stub"
+  printf '#!/bin/sh\n[ "$1" = grep ] && exit 2\nexec "%s" "$@"\n' "$(command -v git)" >"$ns/stub/git"
+  chmod 0755 "$ns/stub/git"
+  ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir "$t"; git -C "$t" init -q
+  printf 'clean\n' >"$t/README.md"; git -C "$t" add -f README.md
+  out="$(PATH="$ns/stub:$PATH" MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+  ns_verdict "git grep failed" "a git grep that fails is not a clean answer" "$rc" "$out"
+  rm -rf "$ns"
+fi
 
 echo
 if [ "$failures" -eq 0 ]; then
