@@ -297,12 +297,14 @@ jobs:
       # The one step that sees a credential. No xtrace. Tools by absolute path
       # under a reset PATH, so nothing user-writable on the image is resolved
       # while a secret is in the environment; each secret is unset as soon as
-      # its consumer has run. The owner's credentials never reach argv: the
-      # .p12 passwords through `openssl -passin env:`, the notary key as a 0600
-      # file. The keychain password and the re-wrap password DO reach
-      # `security`'s argv; they are random per job, masked, and worth nothing
-      # after the VM is destroyed. That is a deviation from ADR-0005's text,
-      # awaiting the owner's ruling (plan, D-S1; decisions-pending DP-034).
+      # its consumer has run. No credential reaches any argv: the .p12
+      # passwords go through `openssl -passin env:`, the notary key is a 0600
+      # file, and the keychain and re-wrap passwords (random per job, hex,
+      # masked) reach `security` on stdin through `security -i`, one invocation
+      # per command, because `security -i` reports only its last command's exit
+      # status; hex, because it needs no quoting (R-19 addendum of 2026-10-23;
+      # DP-034 (b), SE-105). build-release.sh then checks that both identities
+      # are valid in the keychain before it signs anything.
       - name: Sign, notarise, staple, assert
         env:
           MPB_APP_CERT_B64: ${{ secrets.MPB_APP_CERT_B64 }}
@@ -335,29 +337,31 @@ jobs:
           cred="$RUNNER_TEMP/mpb-cred"
           /bin/mkdir -m 700 "$cred"
           kc="$cred/signing.keychain-db"
-          kc_pw="$("$ossl" rand -base64 32)"
+          kc_pw="$("$ossl" rand -hex 24)"
           echo "::add-mask::$kc_pw"
-          WRAP_PW="$("$ossl" rand -base64 32)"
+          WRAP_PW="$("$ossl" rand -hex 24)"
           echo "::add-mask::$WRAP_PW"
           export WRAP_PW
-          "$sec" create-keychain -p "$kc_pw" "$kc"
-          "$sec" set-keychain-settings -lut 3600 "$kc"
-          "$sec" unlock-keychain -p "$kc_pw" "$kc"
+          # printf is a builtin: the command line, password included, is
+          # written to the pipe and is never any process's argument.
+          sec_i() { printf '%s\n' "$1" | "$sec" -i; }
+          sec_i "create-keychain -p $kc_pw $kc"       || exit 1
+          sec_i "set-keychain-settings -lut 3600 $kc" || exit 1
+          sec_i "unlock-keychain -p $kc_pw $kc"       || exit 1
 
           import_identity() { # <base64 variable name> <password variable name>
             printf '%s' "${!1}" | /usr/bin/base64 --decode >"$cred/in.p12"
             "$ossl" pkcs12 -export -passout env:WRAP_PW -out "$cred/wrapped.p12" \
               -in <("$ossl" pkcs12 -in "$cred/in.p12" -passin "env:$2" -nokeys) \
               -inkey <("$ossl" pkcs12 -in "$cred/in.p12" -passin "env:$2" -nocerts -nodes)
-            "$sec" import "$cred/wrapped.p12" -k "$kc" -f pkcs12 -P "$WRAP_PW" \
-              -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild >/dev/null
+            sec_i "import $cred/wrapped.p12 -k $kc -f pkcs12 -P $WRAP_PW -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/pkgbuild" >/dev/null || exit 1
             /bin/rm -f "$cred/in.p12" "$cred/wrapped.p12"
           }
           import_identity MPB_APP_CERT_B64 MPB_APP_CERT_PASSWORD
           unset MPB_APP_CERT_B64 MPB_APP_CERT_PASSWORD
           import_identity MPB_INSTALLER_CERT_B64 MPB_INSTALLER_CERT_PASSWORD
           unset MPB_INSTALLER_CERT_B64 MPB_INSTALLER_CERT_PASSWORD
-          "$sec" set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kc_pw" "$kc" >/dev/null
+          sec_i "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $kc_pw $kc" >/dev/null || exit 1
           existing="$("$sec" list-keychains -d user | /usr/bin/tr -d '"' | /usr/bin/xargs)"
           # shellcheck disable=SC2086
           "$sec" list-keychains -d user -s "$kc" $existing
