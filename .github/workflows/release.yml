@@ -335,6 +335,14 @@ jobs:
           ossl=/usr/bin/openssl
           sec=/usr/bin/security
           cred="$RUNNER_TEMP/mpb-cred"
+          # `security -i` splits its input line on whitespace, so a path with a
+          # space would name more than one keychain. Hosted runners have none;
+          # that is asserted here, before any keychain exists, not assumed.
+          case "$cred" in
+            *[!A-Za-z0-9/._-]*)
+              echo "::error title=Refused::RUNNER_TEMP holds a character security -i would split on; nothing was signed"
+              exit 1 ;;
+          esac
           /bin/mkdir -m 700 "$cred"
           kc="$cred/signing.keychain-db"
           kc_pw="$("$ossl" rand -hex 24)"
@@ -450,7 +458,7 @@ jobs:
             cat "$d/SHA256SUMS.$arch" >>"$bundle/SHA256SUMS"
             {
               echo "[$arch]"
-              grep -E '^(tool_version|policy_version|license|target|deployment_floor|commit|signed|identifier|executable_sha256|executable_cdhash|team_identifier|certificate_sha256|notary_submission_[a-z]+)=' "$rec"
+              grep -E '^(tool_version|policy_version|license|target|deployment_floor|commit|signed|identifier|executable_sha256|executable_cdhash|payload_names|mpb_sha256|mpb_cdhash|team_identifier|certificate_sha256|notary_submission_[a-z]+)=' "$rec"
               # The toolchain that compiled it is the build job's, not the
               # signing VM's: what a rebuild needs (plan, D-R1).
               sed -n -E 's/^(unsigned_build_sha256|version_check|host_macos|developer_dir|xcode|linker|rustc)=/build_\1=/p' "$urec"
