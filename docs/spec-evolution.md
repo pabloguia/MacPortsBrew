@@ -8047,7 +8047,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the first (review M1); the commit gate validates before a `git add` in the same command runs, so a
   credential added and committed in one command is not seen until CI (review M2); unarmoured EC keys,
   `GIT_DIR`-style overrides, a `RUNNER_TEMP` with a space, and the `mpb` fields missing from
-  `SIGNING-RECORD.txt` (Lows).
+  `SIGNING-RECORD.txt` (Lows). **All of these were done on 2026-10-23 in a further armed message**
+  (follow-ups 2a): the sign-path test runs the real script from a throwaway committed tree with PATH
+  stubs and an input that writes a marker if executed, with `--sign` and with `--from-binary` alone, and
+  requires codesign to have been reached; a hash mismatch is refused before `security` is called; three
+  argv refusals; a text check that the input runs in exactly two places behind the guard.
+  `check-no-secrets.sh` covers untracked, non-ignored files (so `git add <key> && git commit` is seen by
+  the commit gate), the unarmoured P-256 PKCS#8 and SEC1 EC key forms, and clears `GIT_DIR`-style
+  variables. `release.yml` refuses a `RUNNER_TEMP` with any character outside `[A-Za-z0-9/._-]`.
 - Not done: left on purpose, because `CLAUDE.md` and `.claude/` are the harness's
   own configuration and no one has asked for them to change: the tooling re-check's findings about
   `settings.json:97-98` (`./` anchors), `CLAUDE.md:57-58` ("a shell reader loads nothing"), the
@@ -8112,7 +8119,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   artifacts"; **DP-052 ruled (a) by the owner, 2026-10-23: keep it**, ADR-0005's Decision amended to four
   artifacts per architecture. Spec 08's MUST of a
   notarisation submission per artifact is met for the bare `mpb` only by the executable's submission (the
-  same CDHash), and `SIGNING-RECORD.txt` does not yet carry its fields (a before-the-tag follow-up); the release
+  same CDHash), and `SIGNING-RECORD.txt` carries its fields since follow-ups 2a (2026-10-23); the release
   record gains `payload_names`, `mpb_sha256`, `mpb_cdhash`. Unsigned x86_64 dry run 2026-10-23: exit 0 (arm64
   and the signed path not exercised). 19 gate
   cases. Spec 08's MUST that "the installer does not create the `mpb` alias" was missed on 2026-10-23 and is

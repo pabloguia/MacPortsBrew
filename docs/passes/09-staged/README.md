@@ -205,6 +205,17 @@ two Mediums are accepted and recorded, not fixed (the pass report).
 | structural test | `c22d4bea…` | replaces the tripwire verbatim | — |
 | `scripts/check-no-secrets.sh` | (not staged) | `8e6c7394ca7bdf6de883cc2b0f5689e1c200ef2ba83198b58f0f6371bb44e322` | written from the plan and the review (SE-102) |
 
+**Follow-ups 2a, later on 2026-10-23** (one more armed message): `build-release.sh`
+→ `5fcd3480a06d570bbfb6af1254acaed8f78f3e14555d7da2fdeab2c4097f3131` (comments only:
+the notarisation of the bare `mpb` is "expected", not stated); `release.yml` →
+`b528f9d1576d490189c86f7bd596c428865ebf78e2f02ffdf33f18c0f991296c` (`RUNNER_TEMP` must
+hold no character `security -i` splits on; `SIGNING-RECORD.txt` carries
+`payload_names`, `mpb_sha256`, `mpb_cdhash`); `check-no-secrets.sh` →
+`663a207d722cf5b26988ff3c1b3ae3a22d8b021bb9a32cbc88ca612f2023c586` (untracked,
+non-ignored files; two EC key forms; the git environment cleared). The plan's
+`build_release_never_executes_the_input_on_the_sign_path` and binding refusals
+now exist in `test-gates.sh`.
+
 **`mpb`.** `PAYLOAD=(macportsbrew mpb)` drives every list and hash. The `.pkg`
 installs `./bin/macportsbrew` and `./bin/mpb` (`0755`), the `.dmg` holds both,
 and a bare `mpb-<version>-<arch>` is published beside the bare executable, so

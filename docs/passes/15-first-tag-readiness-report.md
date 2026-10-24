@@ -294,3 +294,57 @@ a `cp` line added for the short name on the terminal route; the roadmap's undate
 once that this file names" reads as "once") and the comments in `validate.sh` and
 `check-licence-text.sh` that still say CI never ran (follow-up 2a). Not taken:
 a non-affiliation line in the release notes (L8, optional; the owner's call).
+
+## Follow-ups 2a and DP-052, 2026-10-23
+
+The owner ruled DP-052 (a), keep the bare `mpb`: ADR-0005's Decision now says
+four artifacts (commit `d68b4d8`, docs only). A third armed message then did
+follow-ups 2a. Every guarded write was made before any background task was
+started, so no hand-back could close the escape mid-way.
+
+**Guarded files written under that escape (disclosed-escape rule):**
+`scripts/check-no-secrets.sh`, `scripts/test-gates.sh`, `scripts/build-release.sh`
+(comments only), `scripts/validate.sh` (comments only), `scripts/check-licence-text.sh`
+(a comment), `scripts/support-matrix.sh` (the banner's opening),
+`.github/workflows/release.yml`. All by `python3` in place, so none is in
+`.claude/.guard-edit-log`, except one later Edit of `scripts/test-gates.sh`: the new
+`check-no-secrets.sh` refused that file's own sign-path stub environment, which
+spelled a team-identifier-shaped literal; it is now built at run time.
+
+- **The sign-path test and the binding refusals** (the review's M1): 8 cases. The
+  real script runs from a throwaway committed tree with PATH stubs; the input
+  writes a marker if it is ever executed; each case also requires `codesign` to
+  have been reached, so a run that died early cannot pass. Five mutants of
+  `build-release.sh` (the guard removed, `--from-binary` dropped from it, the
+  binding check removed, the hex check made case-insensitive, a hash without
+  `--sign` accepted) each killed.
+- **`check-no-secrets.sh`** (M2 and Lows): untracked, non-ignored files are scanned
+  by every rule, so `git add <key> && git commit` is refused by the commit gate;
+  the unarmoured P-256 PKCS#8 and SEC1 EC key forms; `GIT_DIR` and its kin cleared.
+  Seven new cases.
+- **`release.yml`**: `RUNNER_TEMP` asserted free of characters `security -i` splits
+  on, before any keychain exists; `SIGNING-RECORD.txt` carries `payload_names`,
+  `mpb_sha256`, `mpb_cdhash` (DP-052 (a)).
+- **Text**: `build-release.sh` now says the bare `mpb`'s notarisation is expected,
+  not shown; the support-matrix banner opens "The CI run on `main` this file
+  names"; `validate.sh` and `check-licence-text.sh` say CI *had* never run.
+
+**Review** (`security-reviewer`, after every guarded write and before the commits): no
+High. **Medium**: on an arm64 host the sign-path test cannot see a removed guard (the
+script then takes its "host is not x86_64" branch), so on two of the four CI runners
+only the text check holds it, and that check knows one spelling; the dynamic run stops
+at the first `codesign`. **Lows**: `git add -f` of an ignored key, untracked scratch files
+blocking the gates (fails safe), the OpenSSL P-256 and P-384 key forms, `GIT_CONFIG_*`,
+and the test trees trusting the caller's git environment. The escape had closed when
+the review returned, so none is fixed here; all are follow-up 2b in
+`prompts/ROADMAP-to-first-release.md`, before the tag. On this x86_64 host the
+sign-path test is a real test (five mutants killed).
+
+Commits: `3e836ec` (`check-no-secrets.sh` and its cases; the roadmap rides along
+because its old text quoted one of the new prefixes), `ef24a85` (the sign-path and
+binding tests; `build-release.sh` comments), `59e959d` (`release.yml`), `678bbb8`
+(banner and comments). One commit attempt was refused by the commit gate with a
+`validate.sh` failure that did not reproduce: `--quick`, `cargo test` and the full
+default mode then passed. The retry committed only the staged roadmap, because the
+refused command had been blocked whole, before its staging ran; the commit was
+amended, before any push, to hold the two files its message names.
