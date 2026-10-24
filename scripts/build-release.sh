@@ -51,8 +51,10 @@
 # executable (DP-033 (b), ruled 2026-10-23; the same main.rs as a second
 # [[bin]]). A copy is what lets every assertion below say "the same bytes", and
 # it carries the same signature and CDHash, so the executable's notarisation
-# ticket is its ticket too. The .pkg cannot run a conflict guard (it has no
-# scripts, by design); the guard is PATH order (ADR-0003, ADR-0005).
+# ticket is expected to be its ticket too - first shown by the first signed
+# release, as the ZIP question in step 7 is. The .pkg cannot run a conflict
+# guard (it has no scripts, by design); the guard is PATH order (ADR-0003,
+# ADR-0005).
 #   macportsbrew-<version>-<arch>.release-record.txt
 #                                        what was built and, when signed, what
 #                                        signed it (08: team identifier,
@@ -452,7 +454,7 @@ assert_same_bytes() {
   done
 }
 # The short name carries the same signature, so the same CDHash, as the bare
-# executable: its notarisation ticket is the executable's (step 7).
+# executable: its notarisation ticket is expected to be the executable's (step 7).
 mpb_cdhash="$(codesign -dvvv "$out/$mpb_base" 2>&1 | sed -n 's/^CDHash=//p' | head -1)"
 [ "$mpb_cdhash" = "$cdhash" ] || die "$mpb_base: CDHash $mpb_cdhash, the executable's is $cdhash"
 
@@ -676,7 +678,8 @@ if [ "$sign" = 1 ]; then
   # The bare executable cannot be stapled; its ticket is found online. It is
   # submitted as a ZIP until the first release shows the nested ticket covers
   # it (R-19 finding 6). The bare `mpb` is not submitted: it has this one's
-  # CDHash (asserted above), and a ticket is issued for a CDHash, not a name.
+  # CDHash (asserted above), and a ticket is issued for a CDHash, not a name -
+  # expected, not yet observed: the first signed release is where it is shown.
   ditto -c -k --keepParent "$out/$base" "$work/$base.zip"
   notarise "$work/$base.zip" "bare"
   notarise "$out/$base.pkg" "pkg"

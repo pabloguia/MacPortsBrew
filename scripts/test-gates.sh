@@ -690,6 +690,91 @@ else
 fi
 
 echo
+echo "== build-release.sh: the sign path never executes its input; the hash binding (plan, Named tests)"
+# build_release_never_executes_the_input_on_the_sign_path, and the
+# --expect-unsigned-sha256 refusals. The real script runs from a copy inside a
+# throwaway, committed git tree (a signed run refuses a modified tree, and the
+# script finds its repository from its own location). The input is a shell
+# script that writes a marker when executed. PATH stubs make it a valid thin
+# x86_64 binary at the 10.12 floor to lipo, otool, vtool and strings, so the run
+# gets past assert_binary to the execution block; `security` lists both
+# identities and logs every call; `codesign` logs and fails, which ends the run
+# just after the block. Without the stubs the run would die at lipo first and
+# prove nothing, so each case also requires codesign to have been reached.
+BR="${MPB_GATES_BUILD_RELEASE:-scripts/build-release.sh}"
+if [ "$(uname -s)" != Darwin ]; then
+  note SKIP "build-release.sh sign-path cases" "needs macOS's packaging tools"
+elif [ ! -f "$BR" ]; then
+  note FAIL "build-release.sh is missing" "$BR"; miss
+else
+  sp="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  mkdir -p "$sp/repo/scripts" "$sp/repo/data/policy" "$sp/bin"
+  cp "$BR" "$sp/repo/scripts/build-release.sh"; chmod 0755 "$sp/repo/scripts/build-release.sh"
+  printf '[workspace.package]\nversion = "0.0.1"\n' >"$sp/repo/Cargo.toml"
+  printf 'version = "1"\n' >"$sp/repo/data/policy/policy.toml"
+  git -C "$sp/repo" init -q
+  git -C "$sp/repo" add -A
+  git -C "$sp/repo" -c user.name=gates -c user.email=gates@invalid -c commit.gpgsign=false commit -q -m t
+  # The input: running it is the failure this section exists for.
+  printf '#!/bin/sh\n: >"%s/EXECUTED"\n' "$sp" >"$sp/input"; chmod 0755 "$sp/input"
+  in_sha="$(shasum -a 256 "$sp/input" | awk '{print $1}')"
+  stub() { printf '#!/bin/sh\necho "%s $*" >>"%s/calls"\n%s\n' "$1" "$sp" "$2" >"$sp/bin/$1"; chmod 0755 "$sp/bin/$1"; }
+  stub lipo     'echo x86_64'
+  stub otool    'case "$1" in -l) printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n" ;; -L) printf "%s:\n\t/usr/lib/libSystem.B.dylib (compatibility)\n" "$2" ;; esac'
+  stub vtool    'printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n"'
+  stub strings  ':'
+  stub security 'printf "  1) AAAA \"%s\"\n  2) BBBB \"%s\"\n" "$MPB_APP_IDENTITY" "$MPB_INSTALLER_IDENTITY"'
+  stub codesign 'echo "stub codesign refuses" >&2; exit 1'
+  : >"$sp/keychain"; : >"$sp/key.p8"; chmod 0600 "$sp/key.p8"
+  sp_n=0
+  # <want: ran-to-codesign|bound-mismatch|usage|refused-hash> <label> <args...>
+  sp_case() {
+    local want="$1" label="$2" out rc verdict=1; shift 2
+    sp_n=$((sp_n + 1)); rm -f "$sp/EXECUTED" "$sp/calls"
+    out="$(env PATH="$sp/bin:$PATH" MPB_SIGN_KEYCHAIN="$sp/keychain" MPB_NOTARY_KEY_PATH="$sp/key.p8" \
+             MPB_APP_IDENTITY="Developer ID Application: Gates" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
+             MPB_TEAM_ID="$(printf 'GATES%s' TEAM1)" MPB_NOTARY_KEY_ID=k \
+             "$sp/repo/scripts/build-release.sh" x86_64-apple-darwin "$sp/out$sp_n" "$@" 2>&1)"; rc=$?
+    if [ -e "$sp/EXECUTED" ]; then
+      note FAIL "$label" "THE INPUT WAS EXECUTED"; miss; return
+    fi
+    case "$want" in
+      ran-to-codesign) [ "$rc" -ne 0 ] && grep -q '^codesign ' "$sp/calls" 2>/dev/null && verdict=0 ;;
+      bound-mismatch)  [ "$rc" -eq 1 ] && ! grep -q '^security ' "$sp/calls" 2>/dev/null \
+                         && printf '%s' "$out" | grep -q 'not the expected unsigned build' && verdict=0 ;;
+      refused-hash)    [ "$rc" -eq 1 ] && [ ! -e "$sp/calls" ] \
+                         && printf '%s' "$out" | grep -q 'needs --expect-unsigned-sha256' && verdict=0 ;;
+      usage)           [ "$rc" -eq 2 ] && [ ! -e "$sp/calls" ] && printf '%s' "$out" | grep -q '^usage:' && verdict=0 ;;
+    esac
+    if [ "$verdict" -eq 0 ]; then pass; note ok "$label"; else
+      note FAIL "$label" "rc=$rc calls=$(tr '\n' ';' <"$sp/calls" 2>/dev/null | cut -c1-80)"; miss
+    fi
+  }
+  sp_case ran-to-codesign "--sign --from-binary: the input is never executed" \
+    --sign --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  sp_case ran-to-codesign "--from-binary alone: the input is never executed" --from-binary "$sp/input"
+  sp_case bound-mismatch "an input that is not the expected bytes: refused before security" \
+    --sign --expect-unsigned-sha256 "$(printf '0%.0s' $(seq 1 64))" --from-binary "$sp/input"
+  sp_case refused-hash "--sign without --expect-unsigned-sha256 is refused" --sign --from-binary "$sp/input"
+  sp_case refused-hash "an upper-case hash is refused" \
+    --sign --expect-unsigned-sha256 "$(printf '%s' "$in_sha" | tr a-f A-F)" --from-binary "$sp/input"
+  sp_case refused-hash "a short hash is refused" --sign --expect-unsigned-sha256 abc123 --from-binary "$sp/input"
+  sp_case usage "--expect-unsigned-sha256 without --sign is a usage error" \
+    --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  rm -rf "$sp"
+  # And in the text: the program is run in exactly two places, both after the
+  # one guard that sends --sign and --from-binary away (the stubs above prove
+  # the guard is taken; this proves nothing else runs it).
+  runs="$(grep -cE '(^|[(;&|]|\$\()[[:space:]]*"\$bin"( |"|$)' "$BR")"
+  guard="$(awk '/^version_check="not-executed"$/ {p=1; next} p && /^(if|elif) / {print; exit}' "$BR")"
+  if [ "$runs" = 2 ] && [ "$guard" = 'if [ "$sign" = 1 ] || [ -n "$from_binary" ]; then' ]; then
+    pass; note ok "the input is run twice, only behind the sign/from-binary guard"
+  else
+    note FAIL "the input is run twice, only behind the sign/from-binary guard" "runs=$runs guard='$guard'"; miss
+  fi
+fi
+
+echo
 echo "== check-no-secrets.sh: no credential is tracked (pass 15)"
 # Every refused input is built here at run time from pieces, so this repository
 # never contains one - not even in this file. Each case is a fresh git work tree
