@@ -6,8 +6,8 @@ What CI is configured to exercise versus what is merely believed to work
 The floor is macOS 10.12 on Intel and 11.0 on Apple Silicon (ADR-0002); it
 is asserted on every built artifact by `scripts/check-deployment-target.sh`.
 
-> **CI has run once that this file names.** "Repository validation" passed
-> on `main` at commit `ad5a95d` on 2026-10-21 (run 39578935218) on
+> **The CI run on `main` this file names:** "Repository validation" passed
+> at commit `ad5a95d` on 2026-10-21 (run 39578935218) on
 > macos-26, macos-26-intel, macos-15 and macos-15-intel. That is one run of
 > one commit; this table is not generated from runs. Every row describes
 > configuration. Claiming tested support for an untested OS is the kind of

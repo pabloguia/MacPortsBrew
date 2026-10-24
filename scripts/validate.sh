@@ -49,7 +49,8 @@ step "licences";     run scripts/check-licences.sh
 step "i18n";         run scripts/check-i18n-parity.sh
 step "action pins";  run scripts/check-action-pins.sh
 step "memory files"; run scripts/check-memory-files.sh
-# These two ran only in the workflow, which has never run (F-12). CLAUDE.md
+# These two ran only in the workflow, which had never run then (F-12; CI first
+# ran on 2026-10-21). CLAUDE.md
 # says this file is "the one implementation of valid" and to "not add a check
 # anywhere else"; they were somewhere else, and the licence one carried its
 # own copy of the digest (F-45).
@@ -68,7 +69,7 @@ step "no secrets";   run scripts/check-no-secrets.sh
 step "release workflow"; run scripts/check-release-workflow.sh
 # Shellcheck ran only in CI and in the post-edit hook, which reports rather
 # than fails - so a directive on the wrong line left the workflow's first
-# step exiting 1, unseen, because CI has never run (F-44, F-12). Same
+# step exiting 1, unseen, because CI had never run (F-44, F-12). Same
 # invocation as the workflow, so the two cannot disagree.
 step "shellcheck";   run shellcheck -x -P SCRIPTDIR .claude/hooks/*.sh scripts/*.sh
 

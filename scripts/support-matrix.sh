@@ -47,8 +47,8 @@ out.append("")
 # printed only when `git remote` was empty, which made the generated file
 # depend on where it was generated (SE-052), and after the first push it was
 # simply false. Re-date it, by hand, when a later run is worth naming.
-out.append("> **CI has run once that this file names.** \"Repository validation\" passed")
-out.append("> on `main` at commit `ad5a95d` on 2026-10-21 (run 39578935218) on")
+out.append("> **The CI run on `main` this file names:** \"Repository validation\" passed")
+out.append("> at commit `ad5a95d` on 2026-10-21 (run 39578935218) on")
 out.append("> macos-26, macos-26-intel, macos-15 and macos-15-intel. That is one run of")
 out.append("> one commit; this table is not generated from runs. Every row describes")
 out.append("> configuration. Claiming tested support for an untested OS is the kind of")
