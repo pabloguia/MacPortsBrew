@@ -43,11 +43,14 @@
 # before the command it guards, so in `git add <key> && git commit` the key is
 # still untracked when it is checked. Rules 4-6 also read the index's copy of
 # every tracked file, so a credential staged and then changed or deleted in the
-# working copy is seen. Rules 1 and 2, the name rules, also read the ignored
-# entries git reports (`--directory`, so an ignored directory such as target/
-# is one entry and is not walked): `git add -f <ignored key> && git commit` is
-# the way an ignored key reaches a commit. A hit in a file that is not tracked
-# says so, because the fix is then to move or ignore it, not to unstage it.
+# working copy is seen. Rules 1 and 2, the name rules, also read every ignored
+# file, inside ignored directories too (a key saved into docs/research/.scratch/
+# is still a key): `git add -f <ignored key> && git commit` is the way an
+# ignored key reaches a commit. Only the build directories are not walked
+# (target/, dist/, .token-pilot/: generated, large, and never a place a
+# credential is put by hand). A hit in a file that is not tracked says so and
+# what to do: for a name rule, move it out of the tree (ignoring it would only
+# be refused next time); for a content rule, move it out or ignore it.
 #
 # The git environment is cleared first: GIT_DIR, GIT_WORK_TREE or
 # GIT_INDEX_FILE inherited from a caller would point the scan somewhere else,
@@ -90,11 +93,16 @@ fi
 bad=0
 untracked=""
 ignored=""
-# <rule> <path, or path:line>. A hit outside the index says what kind of file it is.
+# <rule> <path, or path:line> [name]. A hit outside the index says what kind of
+# file it is; a name-rule hit (third argument) cannot be fixed by ignoring it.
 refuse() {
   local where="" p="${2%%:*}"
   if printf '%s\n' "$untracked" | grep -qxF -- "$p"; then
-    where=" (untracked: move it out of the tree or ignore it)"
+    if [ "${3:-}" = name ]; then
+      where=" (untracked: move it out of the tree)"
+    else
+      where=" (untracked: move it out of the tree or ignore it)"
+    fi
   elif printf '%s\n' "$ignored" | grep -qxF -- "$p"; then
     where=" (ignored, but nothing stops git add -f: move it out of the tree)"
   fi
@@ -104,7 +112,8 @@ refuse() {
 
 if ! tracked="$(git ls-files -z | tr '\0' '\n')" \
    || ! untracked="$(git ls-files -o --exclude-standard -z | tr '\0' '\n')" \
-   || ! ignored="$(git ls-files -o -i --exclude-standard --directory -z | tr '\0' '\n')"; then
+   || ! ignored="$(git ls-files -o -i --exclude-standard -z -- . ':!target' ':!dist' ':!.token-pilot' \
+                   | tr '\0' '\n')"; then
   echo "no-secrets: git ls-files failed; refusing" >&2
   exit 1
 fi
@@ -119,11 +128,11 @@ fi
 # One grep per rule over the whole list, not two processes per file: this is a
 # --quick stage, and it runs on every turn end.
 while IFS= read -r path; do
-  [ -n "$path" ] && refuse "credential file type" "$path"
+  [ -n "$path" ] && refuse "credential file type" "$path" name
 done < <(printf '%s\n' "$names" \
            | grep -Ei '\.(p12|pfx|p8|cer|mobileprovision|provisionprofile|pem|key|ppk|jks|keystore)$|\.keychain' || true)
 while IFS= read -r path; do
-  [ -n "$path" ] && refuse "App Store Connect key file name" "$path"
+  [ -n "$path" ] && refuse "App Store Connect key file name" "$path" name
 done < <(printf '%s\n' "$names" | grep -Ei 'AuthKey_[A-Z0-9]{10}\.p8' || true)
 
 # `--eol` gives the index's (i/) and the working tree's (w/) view; `-text` is

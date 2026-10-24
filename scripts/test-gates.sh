@@ -38,8 +38,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 # The throwaway git trees below must never be the caller's repository: a GIT_DIR
-# inherited from a git hook would point their `add` and `commit` at it.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+# inherited from a git hook would point their `add` and `commit` at it. Nor may
+# they read the developer's own git configuration: a global excludes file that
+# ignores `*.p12` would turn an "untracked" case into an "ignored" one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES GIT_NAMESPACE
+for v in $(env | sed -nE 's/^(GIT_CONFIG_(KEY|VALUE)_[0-9]+)=.*/\1/p'); do unset "$v"; done
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
 failures=0
 checks=0
@@ -796,29 +801,105 @@ else
     --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
   rm -rf "$sp"
   # And in the text, which reaches the lines past the first codesign that the
-  # stubs above do not: over logical lines (continuations joined, comments
-  # dropped), the input "$bin" - quoted, braced or bare, after any command
-  # separator, `$(`, `!`, or a word that runs its argument (exec, env, command,
-  # if, then...) - is in command position exactly twice, after the guard; and
-  # no other copy of its bytes ($out, $pkgroot, $dmgroot, $mnt, $p, $work, $x)
-  # is ever in command position.
-  CMDPOS='function emit(l,   pre, v) {
-    pre = "(^|;|&&|[|][|]|[|]|\\$\\(|[!]|(^|[[:space:]])(then|do|else|exec|command|env|if|while|until|nohup|time))[[:space:]]*"
-    if (copies) v = "\"?\\$\\{?(out|pkgroot|dmgroot|mnt|p|work|x)\\}?/"
-    else        v = "(\"\\$\\{?bin\\}?\"|\\$\\{?bin\\}?)([[:space:]]|\"|$|[;&|)<>])"
-    if (l ~ (pre v)) print l
+  # stubs above do not. An allowlist, not a list of spellings to refuse (pass 15
+  # follow-up 2c): each logical line is split into its simple commands with
+  # quoting understood (`$(` and backticks open a command even inside double
+  # quotes, a here-document with an unquoted delimiter is read as double-quoted
+  # text); then no command may start with a variable expansion except the two
+  # runs of the input, `"$bin" -V` and `"$bin" --version`, which must be exactly
+  # two and sit in the guard's else branch; and a command naming the input
+  # (`$bin`, `$built`, `$from_binary`) or a copy of it may only start with a
+  # tool on the list below. Twenty-two spellings that ran the input past the old
+  # check (a subshell, braces, a case arm, `.`, `env`, `arch`, backticks, a
+  # renamed copy, a run moved out of the guard, ...) are each refused.
+  allow="$(mktemp "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  cat >"$allow" <<'ALLOW'
+# Prints one line per violation; nothing means the script holds.
+#
+# norm(): one logical line -> its simple commands, one per output line. It
+# tracks quoting: single-quoted text is masked (it cannot run anything), and a
+# separator inside double quotes is masked, but `$(` and a backtick open a
+# nested command wherever they appear, inside double quotes too.
+function norm(l,   i, ch, nx, out, st, depth, sp) {
+  out = ""; st = "n"; depth = 0
+  for (i = 1; i <= length(l); i++) {
+    ch = substr(l, i, 1); nx = substr(l, i + 1, 1)
+    if (st == "s") { if (ch == "'") st = stk[depth--]; else out = out "_"; if (ch == "'") out = out "'"; continue }
+    if (ch == "\\") { out = out ch nx; i++; continue }
+    if (ch == "$" && nx == "(") { stk[++depth] = st; st = "n"; out = out "\n"; i++; continue }
+    if (ch == "`") {
+      if (st == "b") { st = stk[depth--]; out = out "\n" } else { stk[++depth] = st; st = "b"; out = out "\n" }
+      continue
+    }
+    if (st == "d") {
+      if (ch == "\"") st = stk[depth--]
+      out = out ((ch ~ /[;&|(){}<>]/) ? "_" : ch)
+      continue
+    }
+    # unquoted (top level, inside $( ), or inside backticks)
+    if (ch == "'") { stk[++depth] = st; st = "s"; out = out ch; continue }
+    if (ch == "\"") { stk[++depth] = st; st = "d"; out = out ch; continue }
+    if (ch == ")" && depth > 0) { st = stk[depth--]; out = out "\n"; continue }
+    if (ch ~ /[;&|({]/) { out = out "\n"; continue }
+    out = out ch
   }
-  /^[[:space:]]*#/ { next }
-  { if (acc != "") { acc = acc " " $0 } else { acc = $0 } }
-  /\\$/ { sub(/\\$/, "", acc); next }
-  { emit(acc); acc = "" }'
-  runs="$(awk "$CMDPOS" "$BR" | grep -c '' || true)"
-  copies="$(awk -v copies=1 "$CMDPOS" "$BR" | grep -c '' || true)"
-  guard="$(awk '/^version_check="not-executed"$/ {p=1; next} p && /^(if|elif) / {print; exit}' "$BR")"
-  if [ "$runs" = 2 ] && [ "$copies" = 0 ] && [ "$guard" = "$GUARD" ]; then
-    pass; note ok "the input runs twice, behind the guard; no copy ever runs"
+  return out
+}
+BEGIN {
+  ok = " ditto chmod shasum codesign lipo otool vtool strings assert_binary assert_same_bytes assert_developer_id check_pkg_payload_list [ [[ test mkdir pkgbuild productbuild hdiutil pkgutil xattr notarise xcrun spctl tar lsbom awk grep sed head tail cat printf echo note die case for in esac done fi cd find stat sort tr wc rm "
+  target = "\\$\\{?(bin|built|from_binary)\\}?([^A-Za-z0-9_]|$)|\\$\\{?(out|pkgroot|dmgroot|mnt|p|x)\\}?/|\\$\\{?work\\}?/(macportsbrew|pkgroot|dmgroot)"
+  runs = 0
+}
+# A here-document's body: with a quoted delimiter it cannot run anything; with
+# an unquoted one it is double-quoted text, whose `$(` still runs.
+hd != "" { if ($0 == hd) { hd = ""; next } if (hdq) next; $0 = "\"" $0 "\"" }
+hd == "" && /^[[:space:]]*#/ { next }
+{ if (acc != "") { acc = acc " " $0 } else { acc = $0; start = NR } }
+hd == "" && match($0, /<<-?[[:space:]]*['"]?[A-Za-z_][A-Za-z_0-9]*['"]?/) {
+  d = substr($0, RSTART, RLENGTH); hdq = (d ~ /['"]/); gsub(/^<<-?[[:space:]]*|['"]/, "", d); hd = d
+}
+/\\$/ { sub(/\\$/, "", acc); next }
+{
+  l = acc; acc = ""
+  if (l ~ /^if \[ "\$sign" = 1 \] \|\| \[ -n "\$from_binary" \]; then$/) { guard = start }
+  if (guard && !els && l ~ /^else$/) { els = start }
+  if (els && !fi_ && l ~ /^fi$/) { fi_ = start }
+  n = split(norm(l), seg, "\n")
+  for (i = 1; i <= n; i++) {
+    c = seg[i]; sub(/^[[:space:]]+/, "", c); sub(/[[:space:]]+$/, "", c)
+    # `case WORD in` names no command; what follows it on the line is an arm.
+    if (c ~ /^case[[:space:]].*[[:space:]]in([[:space:]]|$)/) sub(/^case[[:space:]].*[[:space:]]in([[:space:]]+|$)/, "", c)
+    # Leading keywords, negation, `}`/`)` and case patterns name no command.
+    while (c ~ /^(!|if|then|else|elif|do|while|until|time|\}|\))([[:space:]]|$)/) { sub(/^[^[:space:]]*[[:space:]]*/, "", c) }
+    while (c ~ /^[^[:space:]"$]*\)([[:space:]]|$)/) { sub(/^[^[:space:]]*[[:space:]]*/, "", c) }
+    # Leading assignments (NAME=value) name no command either.
+    while (c ~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=/) {
+      if (c ~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=[^[:space:]]*$/) { c = ""; break }
+      if (!sub(/^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=[^[:space:]]*[[:space:]]+/, "", c)) { c = ""; break }
+    }
+    if (c == "") continue
+    w = c; sub(/[[:space:]].*/, "", w)
+    if (w ~ /^"?\$/) {
+      if (c ~ /^"\$bin" (-V|--version)$/) { runs++; runline[runs] = start; continue }
+      print start ": a variable in command position: " c
+      continue
+    }
+    if (c ~ target && index(ok, " " w " ") == 0) print start ": `" w "` with the input or a copy of it: " c
+  }
+}
+END {
+  if (runs != 2) print "the input is run " runs " times, not 2"
+  if (!guard || !els || !fi_) print "the guard, its else or its fi was not found"
+  for (r = 1; r <= runs; r++) if (!(runline[r] > els && runline[r] < fi_)) print runline[r] ": a run outside the guard's else branch"
+}
+ALLOW
+  violations="$(awk -f "$allow" "$BR")"
+  rm -f "$allow"
+  if [ -z "$violations" ]; then
+    pass; note ok "only listed tools touch the input; it runs twice, in the guard's else"
   else
-    note FAIL "the input runs twice, behind the guard; no copy ever runs" "runs=$runs copies=$copies guard='$guard'"; miss
+    note FAIL "only listed tools touch the input; it runs twice, in the guard's else" \
+      "$(printf '%s' "$violations" | head -3 | tr '\n' ';')"; miss
   fi
 fi
 
@@ -921,13 +1002,31 @@ else
   }
   ns_untracked "$P" "an untracked PEM key, not yet added"    new.txt  "${DASH5}BEGIN PRIVATE KEY${DASH5}\n"
   ns_untracked "$T" "an untracked .p12, not yet added"       new.p12  'x'
-  ns_untracked "credential file type: new.p12 (untracked: move it" "an untracked hit says it is untracked" new.p12 'x'
+  # A name hit cannot be fixed by ignoring the file (it would be refused as
+  # ignored next time), so the advice for it is only to move it.
+  ns_untracked "credential file type: new.p12 (untracked: move it out of the tree)" "an untracked name hit says to move it" new.p12 'x'
+  ns_untracked "PEM private key or certificate (worktree): new.txt:1 (untracked: move it out of the tree or ignore it)" \
+    "an untracked content hit says to move or ignore it" new.txt "${DASH5}BEGIN PRIVATE KEY${DASH5}\n"
   ns_untracked "binary file" "an untracked binary file"      new.bin  '\0000\0001'
   # `git add -f` takes an ignored key into a commit, so the name rules read
   # ignored entries too, and say why the hit is there.
   ns_untracked "$T" "an ignored .p12 is still refused by name" new.p12 'x' ignore
   ns_untracked "credential file type: new.p12 (ignored, but nothing stops git add -f" "an ignored hit says it is ignored" new.p12 'x' ignore
   ns_untracked accept "an ignored file's content is not scanned" notes.txt "${DASH5}BEGIN PRIVATE KEY${DASH5}\n" ignore
+  # Inside an ignored directory too: a key saved into a scratch directory is
+  # still one `git add -f` from a commit. Only the build directories are skipped.
+  for dir in scratch target; do
+    ns_n=$((ns_n + 1)); t="$ns/t$ns_n"; mkdir -p "$t/$dir"; git -C "$t" init -q
+    printf 'clean\n' >"$t/README.md"; printf '%s/\n' "$dir" >"$t/.gitignore"
+    git -C "$t" add -f README.md .gitignore
+    : >"$t/$dir/AuthKey_$(printf 'KEYID%s' 98765).p8"
+    out="$(MPB_SECRETS_ROOT="$t" "$NS" 2>&1)"; rc=$?
+    if [ "$dir" = scratch ]; then
+      ns_verdict "$A" "a key inside an ignored directory is refused" "$rc" "$out"
+    else
+      ns_verdict accept "target/ is the one ignored directory not walked" "$rc" "$out"
+    fi
+  done
   ns_case "$D" "an unarmoured P-256 PKCS#8 body"             k.txt    "$(printf 'MIGTAgEAMBMG%syqGSM49AgEG' B)\n"
   ns_case "$D" "a SEC1 EC private key body"                  k2.txt   "$(printf 'MHcCAQE%s' E)$(printf 'A%.0s' $(seq 1 44))\n"
   ns_case "$D" "OpenSSL's P-256 PKCS#8 body"                 k3.txt   "$(printf 'MIGHAgEAMBMG%syqGSM49AgEG' B)\n"
