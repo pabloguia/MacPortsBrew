@@ -418,6 +418,32 @@ make a run complete by dropping a check.
 
 ---
 
+### DP-052 — Does the release publish a bare `mpb` file beside the bare `macportsbrew`?
+
+- **Context (2026-10-23, pass 15 part B).** DP-033 (b) says "the bare-file route
+  still installs one name". The owner's armed message for part B asked that the
+  payload assertions, "SHA256SUMS" included, gain the second file; `SHA256SUMS`
+  lists published files, so part B read that as a published bare
+  `mpb-<version>-<arch>` and built it (commit `3ad50fa`: four files per
+  architecture, the bare `mpb` byte-identical, its CDHash asserted equal to the
+  executable's, not notarised separately). `spec-guardian` found that this goes
+  beyond DP-033 (b) and beyond ADR-0005's Decision ("publish three artifacts").
+- **(a) Keep it.** Four files per architecture; ADR-0005's Decision line is amended
+  to four; spec 08 drops "DP-052, open". Cost: a fifth upload per architecture that
+  a user could make with `cp`, an unobserved notarisation inference (that the
+  executable's ticket covers a file with its CDHash), and `SIGNING-RECORD.txt` must
+  carry `mpb_sha256`/`mpb_cdhash` (follow-up 2a).
+- **(b) Drop it.** `build-release.sh` publishes three files again (the `.pkg` and
+  `.dmg` still carry both names); the README row goes, and the documented `cp` line
+  stays the bare route's way to the short name. Cost: one armed message (guarded
+  file) and the gate cases' needles change.
+- **Recommendation: (b)**, the ruling as written: the bare route already gets the
+  short name with one documented `cp`, and every published file is one more thing
+  to notarise, attest and revoke.
+- **Reversible default taken:** the build as it is (a), because it is committed and
+  undoing it needs a guarded write; nothing is published before the owner tags, and
+  the tag is the owner's. **What it blocks:** the tag.
+
 ## Resolved
 
 ### DP-034 — The temporary keychain password reaches `security`'s argv, which ADR-0005's text forbids — **RESOLVED 2026-10-23: (b), `security -i` holds on all four runners**
@@ -515,7 +541,9 @@ staged by work order 15; nothing is tagged before the owner rules.
   SE-104. **Propagated:** spec 06's MUST (the guard for an installer that runs no
   code is `PATH` order, and the documented line appends), ADR-0003 and ADR-0005
   (amended, the latter reversed on the alias), the README, `wiki/Getting-Started.md`
-  and `wiki/Primary-Provider.md`. While doing it, one thing was found that the old
+  and `wiki/Primary-Provider.md`; spec 08's installer MUST was missed and amended
+  in pass 15 part B (2026-10-23). The bare `mpb` the build also publishes is not
+  part of this ruling: DP-052. While doing it, one thing was found that the old
   text hid: **no install route in this repository detects an existing `mpb`**
   (a cargo build produces both binaries unconditionally); the amended texts say so
   rather than promise it. **Owed, part B of pass 15:** the payload and its

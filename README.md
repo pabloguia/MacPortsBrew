@@ -220,7 +220,7 @@ Silicon and `x86_64` on Intel — `uname -m` in Terminal tells you which.
 | File | What it is | What happens when you use it |
 |---|---|---|
 | `macportsbrew-X.Y.Z-<arch>` | The bare executable: one signed program file | Nothing happens until you place it. Rename it to `macportsbrew`, make it executable, and put it in a folder on your `PATH` — the Terminal line below does all three. Nothing else on your Mac changes. |
-| `mpb-X.Y.Z-<arch>` | The same file, byte for byte, under the short name | The same as the bare executable, renamed to `mpb` instead. Take it if you want the short name. Another program is also called `mpb` (MIT Photonic-Bands); with the `PATH` line below, one you already have comes first and wins. |
+| `mpb-X.Y.Z-<arch>` | The same file, byte for byte, under the short name | The same as the bare executable, renamed to `mpb` instead. Take it if you want the short name. Another program is also called `mpb` (MIT Photonic-Bands): if you put this one in `~/.macportsbrew/bin` and use the `PATH` line below, an `mpb` you already have comes first and wins. |
 | `macportsbrew-X.Y.Z-<arch>.pkg` | A macOS installer package, for your user account only | Double-click it. It is designed to put `macportsbrew` and `mpb` in the hidden folder `.macportsbrew/bin` inside your home folder, without asking for an administrator password (being confirmed on real installs before the first release). It does not change your `PATH` or any shell file; see "Putting it on your `PATH`". |
 | `macportsbrew-X.Y.Z-<arch>.dmg` | A macOS disk image holding the executable under both names | Double-click it and a window opens with two files in it, `macportsbrew` and `mpb`: the same program. Drag either or both to a folder you choose. Finder hides folders whose names start with a dot, so to use `~/.macportsbrew/bin`, first run `mkdir -p ~/.macportsbrew/bin` in Terminal, then in Finder press Shift-Command-G, type `~/.macportsbrew/bin`, and drag the files into the window that opens. |
 
@@ -230,6 +230,8 @@ names, places and marks the program executable:**
 ```
 mkdir -p ~/.macportsbrew/bin && curl -fL -o ~/.macportsbrew/bin/macportsbrew "https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/macportsbrew-X.Y.Z-$(uname -m)" && chmod +x ~/.macportsbrew/bin/macportsbrew
 ```
+
+For the short name as well, copy it: `cp ~/.macportsbrew/bin/macportsbrew ~/.macportsbrew/bin/mpb`.
 
 ### Putting it on your `PATH`
 
@@ -246,7 +248,10 @@ It adds the folder at the end, so it never hides a program you already have.
 ### The first time you run it
 
 macOS marks files a browser downloads, so it can check them before they first
-run. These files are signed with a Developer ID and notarised by Apple. The
+run. These files are signed with a Developer ID and notarised by Apple (the
+bare `mpb` is the bare executable's exact bytes and is not submitted
+separately; that Apple's approval of one covers the other is expected, because
+the signature is the same, and is first shown by the first signed release). The
 `.pkg` and the `.dmg` carry Apple's approval inside them. The bare file cannot,
 so the first time a browser-downloaded bare file runs, your Mac asks Apple over
 the network; what happens if there is no network at that moment has not been
@@ -267,7 +272,8 @@ Mac, run the first line on any other computer against the same file. If your
 file's line in `SHA256SUMS`. The attestation and Apple's notarisation establish
 where a file came from; `SHA256SUMS` only shows the download was not damaged.
 `SIGNING-RECORD.txt` records the team identifier, the certificate fingerprint,
-the notarisation submission of every file, and the toolchain that built it.
+the notarisation submission of the bare executable, the `.pkg` and the `.dmg`,
+and the toolchain that built it.
 <!-- release-notes:end -->
 
 The release machinery that produces these files is written and reviewed but

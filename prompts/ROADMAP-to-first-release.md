@@ -127,16 +127,31 @@ In order. Nothing here needs another decision.
 1. ~~DP-034 research~~ **Done 2026-10-23** (R-19 addendum; `security -i` held on four
    runners; pull request #14 closed unmerged). *Yours:* delete the remote branch
    `research/dp034-security-stdin`.
-2. **Pass 15 part B (Opus preferred).** Everything in the staged README, plus the
-   `mpb` payload that DP-033 (b) added: `./bin/mpb` in the `.pkg`, both files in the
-   `.dmg`, the assertions, the gate cases. *Needs from you:* the armed message.
-   Decide in that pass whether `mpb` is a byte-identical copy of the signed
-   `macportsbrew` or the second `[[bin]]` signed on its own.
+2. ~~Pass 15 part B~~ **Written 2026-10-23, pending the merge of #13** (pull request #13, commits `fbc270b^..c40a920`;
+   `docs/passes/15-first-tag-readiness-report.md`). The release machinery is installed,
+   `mpb` is a byte-identical copy in the `.pkg`, the `.dmg` and as a bare file, and the
+   signing step uses `security -i`. *Yours:* review and merge #13.
+2a. **Follow-ups from part B's reviews, one armed message.** None
+   blocks the dispatch dry run; the first two, and `SIGNING-RECORD.txt`'s `mpb` fields, land
+   before the tag. **DP-052** (a bare `mpb` file, yes or no) is yours, before the tag:
+   - the plan's gate tests `build_release_never_executes_the_input_on_the_sign_path`
+     and the `--expect-unsigned-sha256` refusals (`build-release.sh`'s comment already
+     names the first; it does not exist);
+   - the commit gate validates before a `git add` in the same command runs, so
+     `git add <key> && git commit` is not seen until CI: have `check-no-secrets.sh`
+     also read untracked, non-ignored files, or have `commit-gate.sh` refuse the pair;
+   - `check-no-secrets.sh`: unarmoured EC keys (`MIGTAgEAMBMGByqGSM49`, `MHcCAQEE…`) and
+     unsetting `GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE`;
+   - `release.yml`: refuse a `RUNNER_TEMP` with whitespace before the keychain is made,
+     and carry `payload_names`, `mpb_sha256`, `mpb_cdhash` into `SIGNING-RECORD.txt`;
+   - `support-matrix.sh`'s banner opens "CI has run once that this file names", which
+     reads as "once"; and `validate.sh:52,71` and `check-licence-text.sh:10` still say
+     CI "has never run" (docs audit; guarded, so not fixed in part B).
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
    `docs/research/tooling/2026-10-22-*.md`.
-5. **Owner, after 2:** certificates, the `release-signing` environment, the
+5. **Owner, after 2 (2 written 2026-10-23), the tag after 2a and DP-052:** certificates, the `release-signing` environment, the
    `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
    `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
 6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are

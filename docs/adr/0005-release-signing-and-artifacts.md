@@ -115,7 +115,9 @@ tension with it.
 
 **Requirement — the three artifacts embed byte-identical executables.** One
 build produces one signed Mach-O per architecture and both containers embed that
-exact file; CI asserts that the payload extracted from each container hashes to
+exact file *(since DP-033 (b), 2026-10-23, under both names, `macportsbrew` and
+`mpb`, with a bare `mpb` published beside the bare binary, same bytes)*; CI asserts
+that the payload extracted from each container hashes to
 the published bare-binary checksum. Without it a user can verify the bare binary
 and install a `.pkg` whose payload that checksum never covered, and a pipeline
 compromise gets somewhere to hide.

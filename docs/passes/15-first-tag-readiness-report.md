@@ -203,3 +203,92 @@ on any push; no other workflow was started by this session. The independent
 `security-reviewer` read of the workflow was declined by the permission
 classifier and not repeated; the owner accepted the self-review.
 
+
+## Part B, 2026-10-23 — the guarded writes
+
+Two armed messages from the owner (`MPB_ALLOW_GUARD_EDIT=1`). The first closed
+part-way: a background review's hand-back arrives as a message and ends the
+escape, so a write was refused and the session stopped and said so; the second
+re-armed it, and every guarded file was written to its final text before the
+second review's hand-back arrived. No hook was bypassed. Each commit was built
+from the index (the working tree already held the final text, which the commit
+gate validated) and then validated `--quick` on its own in a detached worktree.
+
+| Commit | Change |
+|---|---|
+| `fbc270b` | three release actions allow-listed; `MPB_FIXTURE_BIN`, announced when set |
+| `2823259` | `check-no-secrets.sh` and 40 gate cases |
+| `f4fc487` | the staged machinery as staged; two `validate.sh` stages; the structural test |
+| `3ad50fa` | `mpb` in the payload (DP-033 b); README's release-notes table |
+| `33eb543` | the `security -i` signing step (DP-034 b) |
+| `c40a920` | the dated CI note in the support matrix; two pin comments |
+
+**Every guarded file written under the escape (the disclosed-escape rule).**
+`.claude/.guard-edit-log` records only Edit and Write tool writes; the files
+below marked *cp* were written by `cp` or `python3` from verified scratch copies
+and appear in no log, so this list is the record:
+
+- `scripts/check-action-pins.sh` (Edit) — `ALLOWED_REPOS`.
+- `scripts/run-fixture-matrix.sh` (Edit, twice) — the `BIN` line and the announcement.
+- `scripts/test-gates.sh` (Edit, twice; then *cp*/python) — the pins cases, the
+  SC2016 directive, the two staged blocks, the `mpb` cases, the `check-no-secrets` cases.
+- `scripts/check-no-secrets.sh` (*cp*) — new.
+- `scripts/check-release-workflow.sh` (*cp*) — new, as staged.
+- `scripts/build-release.sh` (*cp*) — new, the `mpb` revision (the staged text went
+  into `f4fc487` from the index).
+- `scripts/validate.sh` (*cp*) — two stages, the header, the `unset`.
+- `scripts/support-matrix.sh` (*cp*) — the banner and the exact `--check`.
+- `.github/workflows/release.yml` (*cp*) — new, the DP-034 revision (the staged text
+  went into `f4fc487` from the index).
+- `.github/workflows/repository-validation.yml` (*cp*) — two comments.
+
+Not touched: `.claude/settings.json`, any hook, `CLAUDE.md`, `AGENTS.md`, the
+executor, gate, planner, verification and process code; `THIS_BUILD_DISPATCHES_MUTATIONS`
+is still `false`; `Cargo.lock` unchanged; no dependency added. No workflow was
+dispatched, no tag, release, secret or setting touched.
+
+**Verification.** All six staged blocks matched their SHA-256s. shellcheck clean
+over `.claude/hooks/*.sh` and `scripts/*.sh`; actionlint clean on both workflows;
+`test-gates.sh` 190 cases; `.claude/hooks/test-hooks.sh` 196/196; `scripts/validate.sh`
+default mode passed on the final tree (5 min 8 s), the fixture matrix included.
+Unsigned dry run of `build-release.sh` for `x86_64-apple-darwin`: exit 0, both
+names in the `.pkg` and the `.dmg`, four verified `SHA256SUMS` entries; the
+containers were also opened by hand (`pkgutil --expand`, `hdiutil attach`).
+arm64 and the signed path were not exercised; whether the stdin-built keychain
+signs, and whether the executable's notarisation ticket covers the bare `mpb`, are
+first shown by the owner's dry run and the first signed release.
+
+**Reviews.** `security-reviewer` (Opus), twice. First (commits A and B): High H1,
+`check-no-secrets.sh` scanned only the working tree — fixed (it reads the index
+too); Medium A1, a silent `MPB_FIXTURE_BIN` — fixed (announced; `validate.sh`
+unsets it); the Mediums on encodings, base64 and team spellings — fixed; the Lows
+— fixed except `Developer ID …: Name (TEAM)` (false positives on R-9's quotations).
+Second (everything else): no High; **M1** the named sign-path test does not exist
+and **M2** the commit gate cannot see a credential added in the same command —
+accepted, recorded as follow-ups (`prompts/ROADMAP-to-first-release.md`, 2a), not
+fixed because the escape had closed; the Lows likewise.
+
+`spec-guardian` on the docs: **H1** the bare `mpb` file goes beyond DP-033 (b)
+("the bare-file route still installs one name") and ADR-0005's "three artifacts" —
+it was built because the owner's message asked for `SHA256SUMS` to gain the second
+file; recorded as **DP-052** (recommendation: drop it), the build as committed being
+the reversible default, and spec 08 no longer credits DP-033 for it; **H2** the
+spec 08 edit had dropped the clause binding the `.dmg` copy target and the `cp`
+line to the prefix exclusion — restored; **M1** the per-artifact notarisation
+record has no entry for the bare `mpb` — recorded in SE-104, and the
+`SIGNING-RECORD.txt` follow-up moved before the tag; **M2** SE-052 amended in place
+for the dated CI note; **M3** spec 08 now scopes the `PATH`-order guard to the
+`.pkg` and `~/.macportsbrew/bin`; Lows fixed (DP-033's propagation list, the
+roadmap's ordering and commit range, CONTRIBUTING on the no-binary rule) except
+`build-release.sh`'s comment naming the missing test (guarded; follow-up 2a).
+
+`docs-auditor`: the "see below" pointer (fixed here); spec 08, ADR-0005 and
+`wiki/Getting-Started.md` still counted three artifacts (amended); the notarisation
+of the bare `mpb` stated as fact (hedged everywhere it appears: README, staged
+README, SE-104; `build-release.sh`'s comment is guarded, follow-up 2a); README's
+`SIGNING-RECORD.txt` sentence (corrected); the `mpb` row's `PATH` claim scoped, and
+a `cp` line added for the short name on the terminal route; the roadmap's undated
+"now" and "Done" (fixed). Left, guarded: the matrix banner's opening ("CI has run
+once that this file names" reads as "once") and the comments in `validate.sh` and
+`check-licence-text.sh` that still say CI never ran (follow-up 2a). Not taken:
+a non-affiliation line in the release notes (L8, optional; the owner's call).

@@ -4490,8 +4490,15 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `08-distribution-and-project.md:236-237` names this failure mode in the project's
   own words. The best-effort rows are already handled correctly; it is the tested
   rows that claim an event that has not happened.
-- **The "until" is detected, not remembered.** A hand-flipped constant would go
-  stale the moment it mattered, so the generator asks `git remote`. That is a
+- *(Superseded 2026-10-23, pass 15 part B: CI ran, run 39578935218 on `main` at
+  `ad5a95d`, 2026-10-21, all four macOS jobs green, confirmed with `gh run view`.
+  "No remote" stopped being the signal - this checkout has one and the notice
+  vanished - so `support-matrix.sh` now prints that dated run unconditionally,
+  re-dated by hand, and `--check` compares the file exactly. The cost is the one
+  this entry warned of: a hand-maintained date. It is accepted because what it
+  says is a fact about one named run, not a claim that stays true by itself; the
+  "generated from labels" qualifier stays.)* **The "until" is detected, not
+  remembered.** A hand-flipped constant would go stale the moment it mattered, so the generator asks `git remote`. That is a
   one-way inference and it is the honest one: with no remote, nothing can have
   run; with a remote, whether a run happened is not knowable from here, so the
   notice disappears while the "this is generated from labels" qualifier stays.
@@ -7976,7 +7983,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   no longer write; their `--json` stdout is unchanged. No schema changes.
 
 ## SE-102 — The release is to be checked free of `test-support`, and the staged release files are reconciled with `main` before they are installed
-- Status: accepted; lands in part B of pass 15 (the check and the reconciliation are staged, not installed: the files are guarded, SE-093)
+- Status: accepted; **installed 2026-10-23** in pass 15 part B (commits `fbc270b`, `2823259`, `f4fc487`, `c40a920`), each staged block checked against its SHA-256 before it was written
 - Date / Pass: 2026-10-22 / pass 15, part A (`prompts/15-first-tag-readiness.md`; slice 4 review L1)
 - Original assumption: the only thing standing between a release and the `test-support` feature (which
   compiles the test-only mutation allowance in, `execution_gate.rs` and `executor.rs`) was that no command
@@ -8021,11 +8028,27 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   loop is shortened. The patched script was run end to end, unsigned, for `x86_64-apple-darwin`, exit 0,
   twice (the unsigned executable hashed the same both times). Text, SHA-256s and the amended "Applying
   them": `docs/passes/09-staged/README.md`, addendum of 2026-10-22.
-- Not done: nothing is installed (part B needs the owner's armed message and DP-033/034/035/045). Left
-  for part B because the files are guarded: the `taiki-e/install-action` pin in `repository-validation.yml`
-  is the tag v2.87.28 under a comment that says `# v2`; the workflows' `dtolnay/rust-toolchain` comment
-  says `resolved 2026-09-02` for a commit of 2026-10-16; the generated `docs/support-matrix.md` banner
-  still says no CI job has run. Left on purpose, because `CLAUDE.md` and `.claude/` are the harness's
+- Part B (2026-10-23): installed as staged — `build-release.sh` (`2b5fab09…`, then revised for `mpb`, SE-104),
+  `check-release-workflow.sh` (`544ec1e6…`), `release.yml` (`4801f886…`, then revised, SE-105), the two staged
+  gate blocks and the structural test (`c22d4bea…`), in one commit. `validate.sh` gains two `--quick` stages
+  (seventeen) and now unsets `MPB_FIXTURE_BIN` and `MPB_SECRETS_ROOT`; `run-fixture-matrix.sh` honours and
+  announces `MPB_FIXTURE_BIN`; `check-action-pins.sh` allow-lists the three release actions. **`check-no-secrets.sh`**
+  has no staged text; it implements the plan's rules and, from the security review, more: it scans the index
+  as well as the working tree (a staged key whose working copy changed was otherwise invisible), refuses any
+  tracked binary file (a DER `.p12` under another name), six more extensions, base64 of DER (`MII` + 60), and
+  wider team-identifier spellings including `--team-id`; it never prints the match. Not adopted: the
+  `Developer ID …: Name (TEAMID)` form, which matches public third-party signatures quoted in R-9. Comments
+  fixed: `taiki-e/install-action` `1168f681…` is v2.87.28 and the `dtolnay/rust-toolchain` commit is dated
+  2026-10-16 (both checked with `gh api`, 2026-10-23); `support-matrix.sh` prints the dated CI run
+  unconditionally and its `--check` compares exactly (SE-052, amended). `check-no-secrets.sh` refusing
+  every tracked binary file is a repository policy: `CONTRIBUTING.md` says so. Accepted findings, recorded as remaining work in
+  `prompts/ROADMAP-to-first-release.md`: the plan's `build_release_never_executes_the_input_on_the_sign_path`
+  and `--expect-unsigned-sha256` refusal tests are not written, though `build-release.sh`'s comment names
+  the first (review M1); the commit gate validates before a `git add` in the same command runs, so a
+  credential added and committed in one command is not seen until CI (review M2); unarmoured EC keys,
+  `GIT_DIR`-style overrides, a `RUNNER_TEMP` with a space, and the `mpb` fields missing from
+  `SIGNING-RECORD.txt` (Lows).
+- Not done: left on purpose, because `CLAUDE.md` and `.claude/` are the harness's
   own configuration and no one has asked for them to change: the tooling re-check's findings about
   `settings.json:97-98` (`./` anchors), `CLAUDE.md:57-58` ("a shell reader loads nothing"), the
   `CLAUDE.md` / `AGENTS.md` reading-order contradiction, `onFailure: "block"`, the sandbox, the hook `if`
@@ -8080,8 +8103,20 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   The cost the owner accepted, stated in the entry: the `.pkg` cannot run the conflict guard. The amended texts
   state that cost instead of the guarantee they used to make.
 - Tests: none needed for text; part B adds the payload assertions and gate cases for the second file.
-- Not done: the `mpb` payload in `build-release.sh` and its tests (part B, guarded); a detection for the routes
-  that can run code; the DP-034 research.
+- Part B (2026-10-23, commit `3ad50fa`): `build-release.sh` carries `mpb` (`2b5fab09…` → `0f1b3f02…`). It is a
+  **byte-identical copy** of the one signed executable (decided as the staged README asked: a copy lets every
+  assertion say "the same bytes", and it shares the CDHash, so the executable's notarisation ticket is
+  expected to cover it — an inference first shown by the first signed run). `PAYLOAD=(macportsbrew mpb)` drives the `.pkg` list, BOM modes, the `.dmg` volume list and every hash;
+  a bare `mpb-<version>-<arch>` is published beside the bare executable and `SHA256SUMS` lists four files —
+  which goes beyond DP-033 (b) ("the bare-file route still installs one name") and ADR-0005's "three
+  artifacts": **DP-052, open**, the build as it is being the reversible default. Spec 08's MUST of a
+  notarisation submission per artifact is met for the bare `mpb` only by the executable's submission (the
+  same CDHash), and `SIGNING-RECORD.txt` does not yet carry its fields (a before-the-tag follow-up); the release
+  record gains `payload_names`, `mpb_sha256`, `mpb_cdhash`. Unsigned x86_64 dry run 2026-10-23: exit 0 (arm64
+  and the signed path not exercised). 19 gate
+  cases. Spec 08's MUST that "the installer does not create the `mpb` alias" was missed on 2026-10-23 and is
+  amended now to say the containers carry both names; the README's release-notes table likewise.
+- Not done: a detection for the routes that can run code.
 - Compatibility impact: none for anything published (nothing is). Users who read the old text expecting an
   install-time check will find none; the new text says so.
 
@@ -8101,7 +8136,10 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Tests: the observation itself; the staged workflow is kept as the record. Not shown: that the stdin-built
   keychain signs (the argv control did not sign either; the first dry run with the real certificates is where
   that is shown); the passwords in the process environment.
-- Not done: the signing step is not rewritten (guarded, part B). The sampling loop missed the control's argv
+- Part B (2026-10-23, commit `33eb543`): the signing step is rewritten (`release.yml` `4801f886…` →
+  `75476bef…`): hex passwords, `printf '%s\n' "$1" | security -i` per command with `|| exit 1`, the deviation
+  comment removed.
+- Not done: the sampling loop missed the control's argv
   secrets on both Intel runners, so the claim rests on the deterministic hold test, which found none on all four.
 - Compatibility impact: none; nothing is published.
 

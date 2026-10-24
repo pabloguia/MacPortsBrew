@@ -187,6 +187,55 @@ yet):
 password's route through `security`'s argv (DP-034), and the owner sections of
 the checklist below.
 
+## Installed, 2026-10-23 (pass 15, part B) — final SHA-256s and what changed
+
+Every block above was extracted and checked against its SHA-256 before it was
+written; all six matched. Installed **as staged** in commit `f4fc487`; the files
+whose text then changed by a reviewed decision are marked. `security-reviewer`
+(Opus) read every guarded file before it was committed; the second review's
+two Mediums are accepted and recorded, not fixed (the pass report).
+
+| File | Staged SHA-256 | Installed (final) SHA-256 | Why it differs |
+|---|---|---|---|
+| `scripts/build-release.sh` | `2b5fab09…` | `0f1b3f023c22ef729b6de8e9d7a27374a8ccf1ffc01c8b8f15c0b289a4b234b2` | DP-033 (b): `mpb` in the payload (commit `3ad50fa`) |
+| `scripts/check-release-workflow.sh` | `544ec1e6…` | `544ec1e6e289176980b29bfc2098e77b73821333b932e8c6155b49c9329b5c23` | — |
+| `.github/workflows/release.yml` | `4801f886…` | `75476befc9858fe5ec3bf53dffead8a39e1ddf6f3b5f83921b0fe6c0b328a9c3` | DP-034 (b): the `security -i` signing step (commit `33eb543`) |
+| gate cases, `build-release.sh` block | `275fe4f5…` | appended verbatim to `scripts/test-gates.sh` | — |
+| gate cases, workflow-check block | `e1871acc…` | appended verbatim to `scripts/test-gates.sh` | — |
+| structural test | `c22d4bea…` | replaces the tripwire verbatim | — |
+| `scripts/check-no-secrets.sh` | (not staged) | `8e6c7394ca7bdf6de883cc2b0f5689e1c200ef2ba83198b58f0f6371bb44e322` | written from the plan and the review (SE-102) |
+
+**`mpb`.** `PAYLOAD=(macportsbrew mpb)` drives every list and hash. The `.pkg`
+installs `./bin/macportsbrew` and `./bin/mpb` (`0755`), the `.dmg` holds both,
+and a bare `mpb-<version>-<arch>` is published beside the bare executable, so
+`SHA256SUMS.<arch>` lists four files (asserted). That bare file goes beyond
+DP-033 (b) as ruled and is **DP-052, open** (recommendation: drop it). `mpb` is a byte-identical copy
+of the signed executable rather than the second `[[bin]]` signed on its own: a
+copy lets every assertion say "the same bytes", and it carries the same CDHash
+(asserted), so the executable's notarisation ticket is **expected** to cover it
+and it is not submitted separately. That is an inference, not an observation:
+the bare executable itself is still submitted as a ZIP until the first release
+shows how tickets are found (R-19 finding 6), and the first signed run is where
+`mpb`'s coverage is first shown. The `._mpb` AppleDouble entry is tolerated in a dry run
+only, exactly as `._macportsbrew` is. The release record gains `payload_names`,
+`mpb_sha256` and `mpb_cdhash`. Unsigned dry run for `x86_64-apple-darwin`,
+2026-10-23, from the revised copy: exit 0; the `.pkg` payload listed `.`,
+`./bin`, `./bin/macportsbrew`, `./bin/mpb`; the `.dmg` held both; all four
+`SHA256SUMS` entries verified (`607af296…` for both executables). arm64 and the
+signed path are not exercised.
+
+**Signing step.** As the R-19 addendum's recipe: `openssl rand -hex 24`, masked;
+`sec_i() { printf '%s\n' "$1" | "$sec" -i; }`; one `sec_i … || exit 1` per
+`create-keychain`, `set-keychain-settings`, `unlock-keychain`, `import`,
+`set-key-partition-list`; the "deviation" comment removed. Whether the
+stdin-built keychain signs is still first shown by the owner's dry run with the
+real certificates.
+
+**Not done here, accepted in writing** (SE-102, the pass report): the plan's
+`build_release_never_executes_the_input_on_the_sign_path` and
+`--expect-unsigned-sha256` refusal tests (the script's comment names the first;
+it does not exist yet), and the review's Lows.
+
 ## Applying them — one armed message, guarded writes first, hook tests last
 
 The owner sends one message containing `MPB_ALLOW_GUARD_EDIT=1` and asking for

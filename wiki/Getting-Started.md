@@ -6,7 +6,8 @@ MacPortsBrew builds from source. There is no published release yet, so this
 is currently the only route.
 
 When there is one, each release will publish three downloads per architecture —
-a bare binary, a `.pkg` and a `.dmg` — carrying the same executable and
+a bare binary, a `.pkg` and a `.dmg`, plus the bare binary again under the
+short name `mpb` — carrying the same executable and
 differing only in how you install it. Which one to take, how to put it on your
 `PATH`, what happens the first time it runs and how to check what you
 downloaded are all in the [README's install section](../README.md#install) —
