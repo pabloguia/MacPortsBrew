@@ -143,24 +143,31 @@ In order. Nothing here needs another decision.
    `check-no-secrets.sh` reads ignored names, the P-256/P-384 PKCS#8 and SEC1 key forms,
    clears `GIT_CONFIG_*`, and labels untracked and ignored hits; `test-gates.sh` clears
    the git environment and runs no hook on its throwaway commits.
-2c. **Follow-ups from the 2b review, one armed message, before the tag** (none High):
-   - **the text check is a denylist of spellings, and incomplete**: `"$from_binary" -V`,
-     `"$built"`, `( "$bin" )`, `{ "$bin"; }`, `. "$bin"`, backticks, `arch -x86_64 "$bin"`,
-     a single `&`, a copy under another name, and a run moved outside the guard all pass
-     it. Replace it with an allowlist: every line naming `$bin`, `$built`, `$from_binary`
-     or a copy path must start with a known command (`ditto`, `chmod`, `shasum`,
-     `codesign`, `lipo`, `otool`, `vtool`, `assert_*`, `[`, an assignment), except the two
-     `-V`/`--version` lines, which must sit between the guard and its `fi` by line number.
-     With that, reaching the signing half dynamically is not needed;
-   - `check-no-secrets.sh` does not see a key inside an ignored directory (`--directory`
-     lists `docs/research/.scratch/` as one entry): walk ignored files with pathspec
-     exclusions for the build directories (`':!target' ':!dist' ':!.token-pilot'`), and
-     add a case with a key inside an ignored directory;
-   - a name-rule hit in an untracked file advises "or ignore it", which the next run then
-     refuses as ignored: say only "move it out of the tree" for name rules;
-   - `test-gates.sh` reads the developer's global git config (a global `*.p12` ignore
-     flips the untracked-label cases): set `GIT_CONFIG_GLOBAL=/dev/null`,
-     `GIT_CONFIG_NOSYSTEM=1` and clear `GIT_CONFIG_*` at the top.
+2c. ~~Follow-ups from the 2b review~~ **Written 2026-10-24** (armed message; pull
+   request #13): the sign-path text check is an allowlist (a quoting-aware scanner;
+   a command naming the input under its known names may start only with a listed
+   tool; exactly two runs, in the guard's `else`), 22 escaping spellings each
+   refused; `check-no-secrets.sh` walks ignored files except
+   the build directories, so a key inside an ignored directory is refused, and its
+   name-rule advice no longer leads to a second refusal; `test-gates.sh` reads no
+   developer git configuration.
+2d. **Follow-ups from the 2c review (one armed message, `scripts/test-gates.sh` and
+   `scripts/check-no-secrets.sh`; no High).** The allowlist only sees the input under
+   the names `$bin`, `$built`, `$from_binary` and a few copy paths, so 14 of the
+   reviewer's 18 mutants passed it. M1: check the first word of every simple command in
+   `build-release.sh` against the allowlist, not only commands naming the input; refuse
+   a function named after a listed tool and `$1`..`$9`, `$@`, `$*` in command position.
+   M2: cut the list to the tools actually used with the input, drop `xcrun`, `find`,
+   `awk`, `sed`, `sort`, and refuse `tar --use-compress-program`/`-I`/`--to-command`/
+   `--checkpoint-action`. M3: carry quote state and depth across lines and fail on an
+   unclosed quote at end of file. M4: scan an unquoted here-document body in its own
+   state (only `\`, `$(` and a backtick special). L1: detect `<<` only in unquoted,
+   uncommented text, not `<<<`, strip tabs for `<<-`, fail inside an unfinished
+   here-document. L2: also isolate `XDG_CONFIG_HOME` and unset `GIT_TEMPLATE_DIR`,
+   `GIT_EXEC_PATH`, `GIT_ALTERNATE_OBJECT_DIRECTORIES` for the throwaway trees. L3:
+   run the name rules over `target/`, `dist/`, `.token-pilot/` with a `find -name`
+   filter, or record the accepted risk (`git add -f target/AuthKey_….p8`). L4: track
+   `if`/`fi` depth instead of the first column-0 `else`/`fi` after the guard.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in

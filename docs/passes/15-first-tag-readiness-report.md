@@ -384,3 +384,50 @@ Lows (name-rule advice that leads to a second refusal; the gate cases reading th
 developer's global git config) are follow-up 2c. The escape had closed when the review
 returned. What is committed is stronger than what it replaces in every respect, and
 the report and roadmap say where it stops.
+
+## Follow-up 2c, 2026-10-24
+
+A fifth armed message; every guarded write was made before any background task.
+**Guarded files written:** `scripts/test-gates.sh` and `scripts/check-no-secrets.sh`
+(by `python3`, not in `.claude/.guard-edit-log`).
+
+- **The sign-path text check is an allowlist** (the 2b review's M1). An awk scanner
+  splits each logical line of `build-release.sh` into simple commands, knowing single
+  and double quotes, `$(`, backticks and here-document bodies (an unquoted delimiter's
+  body is read as double-quoted text, whose `$(` runs). No command may start with a
+  variable expansion except the two runs of the input, which must be exactly two and
+  lie in the guard's `else` branch; a command naming the input or a copy (under the
+  names the scanner knows) may start only with a listed tool. 22 spellings that ran the input past the old check, among them a
+  subshell, braces, a `case` arm, `.`, `env`, `arch`, `exec`, `eval`, backticks, a
+  renamed copy and a run moved after signing, were each refused against copies of the
+  script; two of them also through the full gate suite.
+- **A key inside an ignored directory is refused** (M2): the name rules walk every
+  ignored file except `target/`, `dist/` and `.token-pilot/` (about one second here).
+- **Advice that does not loop** (L1) and **gate cases independent of the developer's git
+  configuration** (L2).
+
+216 gate cases; five mutants through the full suite, each caught. The first request
+for the `security-reviewer` was refused by the session's permission classifier; the
+owner then asked the session to continue on its own recommendations, and the review
+was requested again with a narrower brief.
+
+**The review (security-reviewer, Opus, read-only, on the uncommitted diff): no High,
+four Medium, four Low.** The `check-no-secrets.sh` change was found correct as written.
+The findings are all in the new sign-path scanner and the test environment, and the
+first is that the test's own claim was too strong: the scanner recognises the input
+only under `$bin`, `$built`, `$from_binary` and a few copy paths, so in the reviewer's
+copy of the program 14 of 18 mutants passed — a helper that runs `$1`, a shadowed
+`ditto`, an alias variable, a copy at a literal path, `find -exec`, `awk system()`,
+`xcrun`, `tar --use-compress-program`, a double-quoted string spanning two lines
+(M3) and a `$(` inside a quoted here-document line (M4). None reaches the signing
+job today: `build-release.sh` is unchanged and the scanner finds no violation in it;
+the gap is in how much a future edit the test would catch. The reviewer rated the
+gate's threat as an accidental edit that review would also see, hence no High.
+
+The commits were made without the fixes. The guard was not armed in the message that
+received the review (the owner asked the session to continue on its own overnight),
+so the session cannot edit the two guarded files; editing them another way would be
+routing around the guard. The fixes are written up as ROADMAP item 2d, one armed
+message, and the claim in the docs was narrowed to what the scanner does. The
+`test-gates.sh` comment that says "only listed tools touch the input" was not
+narrowed, for the same reason, and is the first line 2d changes.
