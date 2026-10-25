@@ -222,6 +222,13 @@ now exist in `test-gates.sh`.
 bash 3.2 exits 0 from a fatal shell error under an EXIT trap). `test-gates.sh` now
 runs the whole signed path under stubs with the input as the canary.
 
+**First dispatch dry run, 2026-10-25** (armed message): `release.yml` →
+`729c4cb6e6f78f8be997df4d86b3bfed4d67dd788b7d9b4e35d405602f760f9b`. The `build`
+job gained `brew install shellcheck` before `scripts/validate.sh`, the way
+`repository-validation.yml` installs it on its macOS runners: run 40242713201
+failed the shellcheck stage on both runners ("command not found") with every
+other stage passing. The `sign` job is unchanged.
+
 **`mpb`.** `PAYLOAD=(macportsbrew mpb)` drives every list and hash. The `.pkg`
 installs `./bin/macportsbrew` and `./bin/mpb` (`0755`), the `.dmg` holds both,
 and a bare `mpb-<version>-<arch>` is published beside the bare executable, so
