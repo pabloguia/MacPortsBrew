@@ -827,7 +827,6 @@ else
     arm64) host_arch=arm64;  host_target=aarch64-apple-darwin ;;
     *)     host_arch=x86_64; host_target=x86_64-apple-darwin ;;
   esac
-  cp "$sp/bin/security" "$fb/security"
   # <name>, body on stdin: a stub that logs its call to $sp/calls, then runs
   # body; a body's catch-all calls `unknown`, which records the call in
   # $sp/UNEXPECTED and fails.
@@ -839,6 +838,12 @@ else
   }
   fstub uname <<'STUB'
 case "$*" in -m) echo "$GATES_ARCH" ;; *) unknown "$@" ;; esac
+STUB
+  fstub security <<'STUB'
+case "$1 $2" in
+  "find-identity -v") printf '  1) AAAA "%s"\n  2) BBBB "%s"\n' "$MPB_APP_IDENTITY" "$MPB_INSTALLER_IDENTITY" ;;
+  *) unknown "$@" ;;
+esac
 STUB
   fstub codesign <<'STUB'
 case " $* " in
@@ -891,8 +896,10 @@ for a in "$@"; do
   [ "$prev" = -srcfolder ] && src="$a"; [ "$prev" = -mountpoint ] && mp="$a"; prev="$a"
 done
 case "$1" in
-  create) (cd "$src" && find . -mindepth 1 | sort | cpio -o --format odc 2>/dev/null) >"$a" ;;
-  attach) (cd "$mp" && cpio -id --quiet <"$a") && printf '/dev/disk9s1\tApple_HFS\t%s\n' "$mp" ;;
+  create) [ -n "$src" ] || unknown "$@"
+          (cd "$src" && find . -mindepth 1 | sort | cpio -o --format odc 2>/dev/null) >"$a" ;;
+  attach) [ -n "$mp" ] || unknown "$@"
+          (cd "$mp" && cpio -id --quiet <"$a") && printf '/dev/disk9s1\tApple_HFS\t%s\n' "$mp" ;;
   detach) exit 0 ;;
   imageinfo) echo "Format: UDZO" ;;
   *) unknown "$@" ;;
@@ -976,11 +983,20 @@ STUB
   else
     sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
     hin="$sp/input-$host_arch"; hsha="$(sha_of "$hin")"
+    # The guard-removed canaries need to execute the input, so they run for
+    # every target this host can execute (an arm64 host without Rosetta cannot
+    # run x86_64), and say by name which one they could not cover.
     if [ -d "$sp/canary" ]; then
-      full_case ran "canary, whole path: without the guard the input runs (dry)" "$sp/canary" "$host_arch" \
-        --from-binary "$hin"
-      full_case ran "canary, whole path: without the guard the input runs (signed)" "$sp/canary" "$host_arch" \
-        --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+      for a in x86_64 arm64; do
+        if ! arch "-$a" /usr/bin/true 2>/dev/null; then
+          note SKIP "canary, whole path ($a)" "this host cannot execute $a; the text check alone covers it"
+          continue
+        fi
+        full_case ran "canary, whole path ($a): without the guard the input runs (dry)" "$sp/canary" "$a" \
+          --from-binary "$sp/input-$a"
+        full_case ran "canary, whole path ($a): without the guard the input runs (signed)" "$sp/canary" "$a" \
+          --sign --expect-unsigned-sha256 "$(sha_of "$sp/input-$a")" --from-binary "$sp/input-$a"
+      done
     fi
     # Runs added at the end of the signed path, in spellings the text check
     # does not have to know: the harness must see each.
@@ -1050,7 +1066,10 @@ STUB
   #     the last line of code.
   # A failure here after an honest edit of build-release.sh means OK or INPUT
   # needs the new command: add it with a security-reviewer pass, never to quiet
-  # the check.
+  # the check. A value only derived from the input (a hash, a field) is not the
+  # input; if the check takes one for it, fix how the value is derived, never
+  # INPUT. A substitution whose last stage prints a digest or a field yields
+  # such a value.
   OK=" [ test : true cd pwd set shift return exit continue read trap command printf echo cat grep awk sed tr sort head tail wc od stat ls id dirname mkdir mktemp rm chmod ditto shasum tar find uname sw_vers git cargo rustc ld xcodebuild xcode-select xmllint lipo otool vtool strings codesign security xcrun plutil spctl pkgbuild productbuild pkgutil lsbom hdiutil xattr for case "
   INPUT=" [ test printf echo grep cd chmod mkdir ditto shasum tar wc lipo otool vtool strings codesign xcrun plutil spctl pkgbuild productbuild pkgutil lsbom hdiutil xattr for "
   allow="$(mktemp "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
@@ -1190,6 +1209,9 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
   bd = 0; fb = -1; fpend = 0
   ok = OK; inp = INPUT
   posn = "\\$\\{?[1-9@*]\\}?([^A-Za-z0-9_]|$)"
+  # The last stage of a substitution that prints a digest or a field of what it
+  # read, not the name it was given: what it yields is derived from the input.
+  DIGEST = "^(shasum|awk|wc|lipo|otool|vtool|stat|plutil|grep-c)$"
   target = "\\$\\{?(bin|built|from_binary)\\}?([^A-Za-z0-9_]|$)|\\$\\{?(out|pkgroot|dmgroot|mnt|p|x)\\}?/|\\$\\{?work\\}?/(macportsbrew|pkgroot|dmgroot)"
   runs = 0; ifd = 0
   for (s = 1; s <= nseg; s++) {
@@ -1200,7 +1222,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
     sub(/^[[:space:]]+/, "", c); sub(/[[:space:]]+$/, "", c)
     while (match(c, /\002[0-9]+\003/)) {
       id = substr(c, RSTART + 1, RLENGTH - 2)
-      c = substr(c, 1, RSTART - 1) ((id in subt) ? "\"$bin\"" : "_") substr(c, RSTART + RLENGTH)
+      c = substr(c, 1, RSTART - 1) (((id in subt) && lastw[id] !~ DIGEST) ? "\"$bin\"" : "_") substr(c, RSTART + RLENGTH)
     }
     if (c ~ /^case[[:space:]].*[[:space:]]in([[:space:]]|$)/) { casep[lv] = 1; sub(/^case[[:space:]].*[[:space:]]in[[:space:]]*/, "", c); if (c == "") continue }
     if (casep[lv]) {
@@ -1239,6 +1261,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
     c = ""; for (j = k; j <= nw; j++) c = c (j > k ? " " : "") W[j]
     if (c == "") continue
     w = c; sub(/[[:space:]].*/, "", w)
+    if (segs[s]) lastw[segs[s]] = (w == "grep" && c ~ /[[:space:]]-[A-Za-z]*c/) ? "grep-c" : w
     if (w ~ /^[A-Za-z_][A-Za-z_0-9]*\(\)$/) {
       sub(/\(\)$/, "", w); fpend = 1
       if (index(ok, " " w " ") || w ~ /^(command|builtin|exec|eval|source|env|cd|printf|echo|test)$/) print segl[s] ": a function named after a command: " w
@@ -1250,7 +1273,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
       continue
     }
     if (w == "for") { words(c, T); if (c ~ target && !(T[2] in tainted)) { tainted[T[2]] = 1; target = target "|\\$\\{?" T[2] "\\}?([^A-Za-z0-9_]|$)" } }
-    if (w == "awk" && c ~ /system\(|getline|\|/) print segl[s] ": an awk program that can run a command: " c
+    if (w == "awk" && c ~ /system\(|getline|(^|[^|])\|([^|]|$)/) print segl[s] ": an awk program that can run a command (system(, getline or a lone |; a regex alternation also trips this - write it as two patterns): " c
     if (w == "git" && c ~ /[[:space:]"'](-c|--config-env|--exec-path)([[:space:]"'=]|$)/) print segl[s] ": git given configuration that can run a command: " c
     if (w == "cargo" && c ~ /[[:space:]"']--config([[:space:]"'=]|$)/) print segl[s] ": cargo given configuration that can run a command: " c
     if (w == "set" && c ~ /[[:space:]](-[A-Za-z]*x|-o[[:space:]]+xtrace|\+o[[:space:]]+xtrace)/) print segl[s] ": xtrace runs PS4: " c
