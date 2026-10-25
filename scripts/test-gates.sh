@@ -1267,7 +1267,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
       # Variables a tool reads as a program to run (2h): git's, rustc's and
       # cargo's wrappers and runners, the compilers and linkers, pagers,
       # editors, askpass helpers, tar's, Xcode's.
-      if (m ~ /^(GIT_.*|RUSTC.*|RUSTDOC.*|CARGO_[A-Z0-9_]*(RUNNER|WRAPPER|RUSTC|LINKER|RUSTDOC)|CC|CXX|LD|AR|CPP|PAGER|MANPAGER|EDITOR|VISUAL|SHELL|.*_ASKPASS|TAR_.*|XCODE.*|DEVELOPER_DIR|SUDO_.*)$/) print segl[s] ": an assignment to " m ", which a tool may run: " c
+      if (m ~ /^(GIT_.*|RUSTC.*|RUSTDOC.*|CARGO_[A-Z0-9_]*(RUNNER|WRAPPER|RUSTC|LINKER|RUSTDOC)|CC|CXX|LD|AR|CPP|PAGER|MANPAGER|EDITOR|VISUAL|SHELL|.*_ASKPASS|TAR_.*|XCODE.*|DEVELOPER_DIR|SUDO_.*|CODESIGN_ALLOCATE|SDKROOT|TOOLCHAINS)$/) print segl[s] ": an assignment to " m ", which git, cargo, a compiler or another tool reads as configuration or a program to run: " c
       if ((a ~ target || (fb > 0 && a ~ posn)) && !(m in tainted)) { tainted[m] = 1; target = target "|\\$\\{?" m "\\}?([^A-Za-z0-9_]|$)" }
     }
     if (decl) continue
@@ -1280,7 +1280,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
       seen[id] = 1; lastpipe[id] = segp[s]
       kd = "other"
       if (w == "shasum" || (w == "lipo" && c ~ /[[:space:]]-archs([[:space:]]|$)/)) kd = "digest"
-      if (w == "wc" && c ~ /^wc([[:space:]]+-[A-Za-z]+)*([[:space:]]*<[^[:space:]]+)?$/) kd = "digest"
+      if (w == "wc" && c ~ /^wc([[:space:]]+-[A-Za-z]+)*([[:space:]]*<[[:space:]]*[^[:space:]]+)?$/) kd = "digest"
       if (w == "grep") {
         nw2 = words(c, T)
         for (j = 2; j <= nw2 && T[j] ~ /^-/ && T[j] != "--"; j++) if (T[j] ~ /^-[A-Za-z]*c/) kd = "digest"
@@ -1346,10 +1346,18 @@ function words(c, W,   n, i, ch, inq, cur, ap) {
   return n
 }
 ALLOW
-  violations="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$BR")"
-  rm -f "$allow"
+  violations="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$BR")"; arc=$?
+  # The check must be able to refuse: a copy with one extra run of the input
+  # must fail it, or the check proves nothing (pass 15 follow-up 2i).
+  awk '/^# --- 8\. Checksums/ { print "\"$bin\" -V" } { print }' "$BR" >"$allow.bad"
+  selftest="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$allow.bad")"; src=$?
+  rm -f "$allow" "$allow.bad"
   label="text backstop: listed commands only, the input named only by listed tools, two runs in the guard's else"
-  if [ -z "$violations" ]; then
+  if [ "$arc" -ne 0 ] || [ "$src" -ne 0 ]; then
+    note FAIL "$label" "the check itself failed (awk exit $arc, self-test $src)"; miss
+  elif [ -z "$selftest" ]; then
+    note FAIL "$label" "the check accepts a copy with an extra run of the input"; miss
+  elif [ -z "$violations" ]; then
     pass; note ok "$label"
   else
     note FAIL "$label" "$(printf '%s' "$violations" | head -3 | tr '\n' ';')"; miss
