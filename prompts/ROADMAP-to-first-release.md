@@ -267,8 +267,16 @@ In order. Nothing here needs another decision.
    - print the last lines of `build-release.sh`'s output when a canary does not see
      a run (it failed intermittently once, cause unknown), and, if the cause is
      first-execution assessment, run each input once before the cases.
-3. **Small, unguarded, any time:** reword the top-level `--help` line for
-   `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
+3. ~~**Small, unguarded, any time:** reword the top-level `--help` line for
+   `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.~~
+   **Done 2026-10-25** (pull request PR_PENDING). The line now says `history` reads
+   MacPortsBrew's own state directory and only `history acknowledge <id> --yes`
+   writes it. There was no pt-BR twin: `--help` is clap's compile-time English and
+   does not go through the catalogue (the help-text exemption in
+   `docs/spec-evolution.md`), so the parity is enforced as "one text whatever the
+   language" by `help_is_one_text_whatever_the_language`, with the wording pinned by
+   `the_history_help_line_names_the_one_subcommand_that_writes`
+   (`crates/cli/tests/locale_pt_br.rs`). No `validate.sh` stage was added.
 4. **Optional, as one armed message:** the `.claude/` fixes in
    `docs/research/tooling/2026-10-22-*.md`.
 5. **Owner, after 2 (2 written 2026-10-23), the tag after #13 merges:** certificates, the `release-signing` environment, the

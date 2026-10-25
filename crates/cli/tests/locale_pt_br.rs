@@ -160,3 +160,69 @@ fn any_portuguese_tag_resolves_to_the_brazilian_catalogue() {
     let european = doctor(None, &[("LANG", "pt_PT.UTF-8")], false);
     assert_eq!(european, doctor(Some("pt-BR"), &[], false));
 }
+
+/// `--help` with exactly the language selectors given, every subcommand path
+/// named in `args`.
+fn help(args: &[&str], flag: Option<&str>, env: &[(&str, &str)]) -> String {
+    let mut cmd = Command::new(BIN);
+    if let Some(tag) = flag {
+        cmd.args(["--language", tag]);
+    }
+    cmd.args(args)
+        .arg("--help")
+        .env_remove("MACPORTSBREW_LANG")
+        .env_remove("LC_ALL")
+        .env_remove("LANG");
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
+    let out = cmd
+        .output()
+        .unwrap_or_else(|e| panic!("spawning {BIN}: {e}"));
+    assert!(out.status.success(), "--help failed: {:?}", out.status);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(!text.trim().is_empty(), "--help printed nothing");
+    text
+}
+
+/// `--help` is compile-time English that does not go through the catalogue,
+/// a stated exemption (`docs/spec-evolution.md`, the help-text addendum). So
+/// there is no Portuguese help to drift from the English: every selector gives
+/// the same bytes. A change that localises part of the help fails here, and has
+/// to bring the help into the catalogue, where `check-i18n-parity.sh` keeps the
+/// two languages in step, rather than leave a second copy beside it.
+#[test]
+fn help_is_one_text_whatever_the_language() {
+    for path in [&[][..], &["history"][..], &["history", "acknowledge"][..]] {
+        let english = help(path, None, &[]);
+        assert_eq!(english, help(path, Some("pt-BR"), &[]), "{path:?}");
+        assert_eq!(
+            english,
+            help(path, None, &[("MACPORTSBREW_LANG", "pt-BR")]),
+            "{path:?}"
+        );
+        assert_eq!(
+            english,
+            help(path, None, &[("LANG", "pt_BR.UTF-8")]),
+            "{path:?}"
+        );
+    }
+}
+
+/// The top-level line for `history` once said it "Reads only", while
+/// `history acknowledge <id> --yes` writes MacPortsBrew's own state directory
+/// (it makes the record durable and removes the interrupted-run marker).
+#[test]
+fn the_history_help_line_names_the_one_subcommand_that_writes() {
+    let top = help(&[], None, &[]);
+    let line = top
+        .lines()
+        .find(|l| l.trim_start().starts_with("history "))
+        .unwrap_or_else(|| panic!("no `history` line in --help:\n{top}"));
+    assert!(!line.contains("Reads only"), "{line}");
+    assert!(
+        line.contains("`history acknowledge <id> --yes` writes"),
+        "{line}"
+    );
+    assert!(line.contains("own state directory"), "{line}");
+}

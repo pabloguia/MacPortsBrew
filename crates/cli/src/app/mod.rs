@@ -151,7 +151,8 @@ pub enum Command {
         deep: bool,
     },
     /// The runs this MacPortsBrew has made, newest first; `history show <id>`
-    /// shows one. Reads only, and only this machine's own state directory.
+    /// shows one. Reads this machine's own state directory; only `history
+    /// acknowledge <id> --yes` writes, there and nowhere else.
     History {
         /// What to show; without one, the list.
         #[command(subcommand)]
