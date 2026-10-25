@@ -269,7 +269,7 @@ In order. Nothing here needs another decision.
      first-execution assessment, run each input once before the cases.
 3. ~~**Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.~~
-   **Done 2026-10-25** (pull request PR_PENDING). The line now says `history` reads
+   **Done 2026-10-25** (pull request #16). The line now says `history` reads
    MacPortsBrew's own state directory and only `history acknowledge <id> --yes`
    writes it. There was no pt-BR twin: `--help` is clap's compile-time English and
    does not go through the catalogue (the help-text exemption in
