@@ -719,3 +719,45 @@ Low.**
 
 2h is committed as reviewed; the findings are ROADMAP item 2i.
 
+## Follow-up 2i, 2026-10-24
+
+Twice, a safety classifier stopped the session's own attempt at the change, once
+while it was drafting a table of evasion spellings and once while it was writing
+the patch. The session then prepared a short `python3` command, and **the owner
+applied it** to `scripts/test-gates.sh` in their own terminal. The edit is a
+guarded file written outside the session's guard log.
+
+- **M1:** the text check's awk exit status is checked, and a non-zero status fails
+  the case. Verified by putting a syntax error in the awk program: the case fails
+  with "the check itself failed (awk exit 2 …)".
+- **M2, in part:** every run of the check also runs over a copy of
+  `build-release.sh` with one extra `"$bin" -V` line before step 8, and requires
+  a violation. Verified by replacing that copy with an unmodified one: the case
+  fails with "the check accepts a copy with an extra run of the input".
+- **L4:** `CODESIGN_ALLOCATE`, `SDKROOT` and `TOOLCHAINS` are refused assignments.
+- **L5, in part:** the refusal message for those variables now says what they are,
+  and `wc -c < f` with a space counts as a digest.
+- **Accepted, not done:**
+  - L3 (`shasum` and `grep -H` output carries the file name): exploiting it takes
+    several steps, and narrowing it reopens the 2f false positive;
+  - the rest of L5: each item fails closed;
+  - a committed table of evasion spellings: under DP-053 (c) that belongs to the
+    structural defence.
+
+The gate suite passes. The `security-reviewer` call was refused three times by the
+auto-mode permission classifier. The session then switched itself to the stricter
+default mode, and the fourth call ran.
+
+**The review (security-reviewer, Opus, read-only): no High, no Medium, three Low.**
+It found the change correct, and found that the self-test cannot pass vacuously: a
+missing marker fails closed. The Lows are ROADMAP item 2j:
+- `$allow.bad` is a name derived from a `mktemp` file, not one made by `mktemp`;
+- the self-test accepts any output, not the expected refusal;
+- a missing marker is reported as "accepts a copy with an extra run".
+
+**Intermittent, not from 2i:** the x86_64 signed guard-removed canary (2g) once
+failed to see the input run, both in the Stop gate and in 1 of 4 full suites. It
+did not recur in 19 further runs. It fails closed, and the cause is unknown;
+first-execution assessment of a fresh unsigned binary is suspected. Item 2j adds
+a diagnostic.
+

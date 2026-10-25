@@ -229,8 +229,11 @@ In order. Nothing here needs another decision.
    - **L-C:** the x86_64-on-arm64 canary has never run; the first arm64 CI run
      (`macos-26`, `macos-15`) is its first test.
    - **L-D:** `>|` on an awk command reads as a lone `|`.
-2i. **Before the tag, one armed message: the 2h review's findings** (no High; all in
-   `scripts/test-gates.sh`).
+2i. ~~The 2h review's findings~~ **Written 2026-10-24** (applied by the owner from a
+   command the session prepared; all in `scripts/test-gates.sh`). Done: M1, M2 in
+   part (a self-test over a copy with one extra run), L4, L5 in part. Accepted, not
+   done: L3, the rest of L5 (fail-closed friction), and a committed table of
+   evasion spellings (DP-053 (c): that belongs to the structural defence).
    - **M1:** the text check passes when awk itself fails. A syntax error exits 2 with
      empty output, which reads as "holds", and this was true before 2h too. Fix:
      fail on a non-zero awk status, and run the check once over a known-bad copy,
@@ -252,6 +255,13 @@ In order. Nothing here needs another decision.
      - the message for `GIT_*` hardening variables;
      - `awk -- '…'`;
      - `grep -e x -c`.
+2j. **Small, one armed message (`scripts/test-gates.sh`), the 2i review and a flake:**
+   - make the self-test copy with `mktemp`;
+   - require the self-test's expected refusal text;
+   - fail with "marker not found" when no line was inserted;
+   - print the last lines of `build-release.sh`'s output when a canary does not see
+     a run (it failed intermittently once, cause unknown), and, if the cause is
+     first-execution assessment, run each input once before the cases.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
