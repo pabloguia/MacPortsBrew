@@ -7906,14 +7906,15 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 ## SE-100 — Debug info is packed, and validation trims target/ after it
 - Status: accepted
 - Date / Pass: 2026-10-17 / after pass 08 slice 4 (owner's instruction in chat; `scripts/` edits armed
-  with `MPB_ALLOW_GUARD_EDIT=1`)
+  with `MPB_ALLOW_GUARD_EDIT=1`); extended 2026-10-25 (owner's instruction in chat, armed the same way)
 - Original assumption: none was written down. The dev profile used macOS's default
   `split-debuginfo = "unpacked"`, and nothing ever removed build output.
 - Change: `Cargo.toml` sets `[profile.dev] split-debuginfo = "packed"` (the test profile inherits it), and
   `scripts/validate.sh` ends every mode, after its verdict, with `scripts/prune-target.sh`. In that mode the
   prune deletes object files older than 30 minutes in every `deps` directory under `./target` and warns
-  when one holds more than `MPB_TARGET_PRUNE_LIMIT` entries (default 20000); `scripts/prune-target.sh
-  --clean`, run by hand, also runs `cargo clean --target-dir target` past the limit.
+  when one holds more than `MPB_TARGET_PRUNE_LIMIT` entries (default 1000), or when `target/` as a whole is
+  larger than `MPB_TARGET_SIZE_LIMIT_MB` (default 5120 MiB, 5 GiB; the script reports MiB and refuses a limit of ten or more digits); `scripts/prune-target.sh --clean`, run by
+  hand, also runs `cargo clean --target-dir target` past either limit.
 - Rationale: under `unpacked` every codegen unit's object file stays in `target/debug/deps` and Cargo never
   removes one when a crate rebuilds under a new hash. A night of rebuilds left 605,518 of them, 9.8 GB, and
   launching a test binary from that directory blocked in exec for 20–100 s with no CPU used — the same bytes
@@ -7921,7 +7922,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   extension, or `syspolicyd`) walks the executable's directory. Validation took 25 minutes, past the commit
   gate's deadline. Under `packed` a full build leaves 626 entries and no object files; the cold default
   validation takes 478 s, a warm one 274 s. Stale binaries, `.dSYM` bundles and libraries still accrue,
-  about 180 entries per full rebuild, which the warning catches long before they matter.
+  about 180 entries per full rebuild, which the entry limit catches; what they and `incremental/` cost in
+  disk, it does not, and the size limit of the addendum below does.
 - Why the gate does not clean (security review, 2026-10-17): a gate may share the checkout with another
   build — a background subagent's, for one — whose in-flight object files a prune would delete and whose
   binaries a `cargo clean` would remove under it; and a `cargo clean` of a large tree inside a gate with a
@@ -7934,10 +7936,24 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   unpacked backlog deletes all of it inside the gate, once, after the verdict is printed — minutes on a
   tree as large as this one was, during which a `Stop` hook's 600 s limit could still cut the run short.
   It happens once per tree and not on this one (0 object files after the clean); `--clean` before the
-  first gate run avoids it. And the prune's few lines come after the failure output, so they take
-  about three of the 60 (`Stop`) or 40 (commit) lines a gate shows.
+  first gate run avoids it. And the prune's lines come after the failure output: one per `deps`
+  directory, one for the size of `target/`, and two more when over a limit, so about four to six of the
+  60 (`Stop`) or 40 (commit) lines a gate shows.
 - Compatibility impact: none for users of the tool. Contributors debugging on macOS read debug info from a
   `.dSYM` next to each binary instead of from the object files; links are slower by the `dsymutil` run.
+- Addendum 2026-10-25 (owner's instruction in chat; `scripts/prune-target.sh` armed with
+  `MPB_ALLOW_GUARD_EDIT=1`): counting `deps` entries caught the exec slowdown and nothing else. On this date
+  `target/` held 7.6 GiB (`du -h`) — 3.3 GiB in `incremental/`, which the prune never measured, and
+  3.9 GiB in `debug/deps` at 932 entries, under the 20000 limit — and a merged session worktree held
+  1.3 GiB more, most of it its own `target/`. A `cargo clean` of this checkout's `target/` removed
+  8.1 GiB by its own count. So the prune also measures `target/` with `du -skx` against a size limit,
+  and the entry limit drops to 1000, about two full rebuilds past a clean build's 626. Both still only warn
+  inside a gate, for the reasons above; the measurement adds one `du` over `target/` to every
+  `validate.sh` run, a walk of all of `target/`, including `incremental/`, which the entry count does not
+  visit (0.07 s on a 282 MiB tree of 1,232 files; its time on a 5 GiB tree was not measured).
+- Accepted, from the review of the addendum: at 1000 entries the warning appears after about the third full
+  rebuild and then on every gate run until someone cleans by hand. That is the owner's chosen limit; the
+  hint still says to clean only when no build is running, which is the M2 condition.
 
 ## SE-101 — `--dry-run` writes no file, and only this machine's capture is filed in the state directory
 - Status: accepted
