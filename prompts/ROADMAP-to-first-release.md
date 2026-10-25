@@ -191,29 +191,43 @@ In order. Nothing here needs another decision.
    - refuses awk `system(`/`getline`/`|`, `git -c`, `cargo --config` and a lone `&`;
    - requires `finished=1` to be the last line of code.
 
-   Both reviews' thirteen spellings are caught by the run and by the text check.
+   Both reviews' twelve spellings are caught by the run and by the text check.
    Not done: the codesign stub writing `codesign0` elsewhere (L3), since the real
    tool writes into its working directory and the script requires that file there.
    Still open (DP-053 (b)): before anyone else can change `build-release.sh`, a
    signing job that cannot execute the input.
-2g. **Small, one armed message: the 2f review's findings** (no High).
-   - **M1:** the `$(...)` taint makes digests derived from the input (`unsigned_sha`,
-     `signed_sha`) count as the input. So honest edits such as
-     `git tag -m "$signed_sha"` or `sed "s/x/$signed_sha/"` are refused, and the
-     failure message points at widening INPUT, which for `git` would open
-     `core.fsmonitor`. Fix: do not taint from a substitution whose last stage yields
-     a digest or a field (`shasum`, `awk`, `wc`, `lipo -archs`, `otool`, `vtool`,
-     `stat`, `plutil`, `grep -c`). Or report these as "derived from the input",
-     with guidance that never says to widen INPUT.
-   - **L1:** the awk refusal also catches `||` and regex alternation. Refuse a lone
-     `|` only.
-   - **L2:** the `security` stub has no `unknown`; `hdiutil create`/`attach` accept an
-     empty `-srcfolder`/`-mountpoint`.
-   - **L3:** the guard-removed canaries run only on the host's arch. Run both where
-     the host can execute both, and SKIP by name where it cannot.
-
+2g. ~~The 2f review's findings~~ **Written 2026-10-24** (armed message; pull request #13).
+   - **M1:** a substitution whose last stage prints a digest or a field (`shasum`,
+     `awk`, `wc`, `lipo`, `otool`, `vtool`, `stat`, `plutil`, `grep -c`) yields a
+     value derived from the input, not the input. The guidance says such a value is
+     fixed by how it is derived, never by widening INPUT.
+   - **L1:** the awk rule refuses a lone `|`, not `||`.
+   - **L2:** `security` is a strict stub, and `hdiutil create`/`attach` refuse a
+     missing folder or mount point.
+   - **L3:** the guard-removed canaries run for each target the host can execute,
+     and are skipped by name otherwise.
    Also recorded, outside DP-053 (c): `printf … >>.git/config` setting
    `core.fsmonitor`, followed by any git call, belongs to the structural defence.
+2h. **Small, one armed message: the 2g review's findings** (no High; all in the text
+   check, `scripts/test-gates.sh`).
+   - **M-A:** variables a tool reads as a program to run are not refused. Examples
+     are `export GIT_PAGER="$bin"; git log` and `export RUSTC_WRAPPER="$bin"`. This
+     was already at HEAD, and the stubbed `git`/`cargo` do not honour them. The
+     DIGEST exemption widens it: `awk`, `stat`, `otool` and `wc` can print a name,
+     not a digest. Fix:
+     - extend the refused assignments to `GIT_.*`, `RUSTC.*`, `CARGO_.*`, `CC`,
+       `CXX`, `LD`, `AR`, `PAGER`, `EDITOR`, `VISUAL`, `SHELL`, `.*_ASKPASS`,
+       `TAR_.*`, `XCODE.*`;
+     - narrow DIGEST to `shasum`, `lipo -archs`, `wc <`, and `awk` after one of those.
+   - **M-B:** a double-quoted awk program hides `system(` and `|`. Refuse any
+     double-quoted awk program; values go in with `-v`.
+   - **L-A:** `lastw` is the substitution's last segment, not its last pipeline
+     stage, and the `grep -c` test matches inside a pattern.
+   - **L-B:** if `arch` fails for the host's own architecture, the canaries skip
+     vacuously. Make that a FAIL.
+   - **L-C:** the x86_64-on-arm64 canary has never run; the first arm64 CI run
+     (`macos-26`, `macos-15`) is its first test.
+   - **L-D:** `>|` on an awk command reads as a lone `|`.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in

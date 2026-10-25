@@ -595,7 +595,7 @@ mutant run's notification came after the last of them.
 
 **Results:**
 - The gate suite passes: 166 cases, four whole-path canaries among them.
-- The two reviews' thirteen spellings, each put before step 8 of a copy, are all
+- The two reviews' twelve spellings (an earlier count of thirteen was wrong), each put before step 8 of a copy, are all
   caught by the run and by the text check.
 - The 53 earlier text-check spellings are still refused.
 
@@ -616,4 +616,52 @@ That, the Lows, and one hostile spelling the reviewer placed under DP-053 (b) ar
 ROADMAP item 2g.
 
 2d, 2e and 2f are committed together.
+
+## Follow-up 2g, 2026-10-24
+
+An eighth armed message. **Guarded file written:** `scripts/test-gates.sh`, by
+`python3` from a scratch file, before any background task.
+
+- **M1:** a `$(...)` whose last stage prints a digest or a field of what it read
+  (`shasum`, `awk`, `wc`, `lipo`, `otool`, `vtool`, `stat`, `plutil`, `grep -c`) no
+  longer passes the input's taint to the name it is assigned. These honest edits
+  now pass the text check:
+  - `git tag -m "$signed_sha" x`;
+  - `sed "s/x/$signed_sha/" "$work/notes"`;
+  - `cat … >"$work/$unsigned_sha.txt"`.
+
+  The run-capable uses of such a value are still refused separately: `system(`,
+  `xcrun` of a path, a variable in command position, `find -exec`, `git -c`. The
+  guidance comment says a derived value is fixed by how it is derived, never by
+  widening INPUT. One honest edit is still refused: `sed` over a file in `$out/`,
+  which the check treats as a copy's directory.
+- **L1:** the awk rule refuses `system(`, `getline` or a lone `|`, so
+  `awk '$1=="a" || $1=="b"'` passes. Its message says a regex alternation also
+  trips it.
+- **L2:** the `security` stub accepts only `find-identity -v`, and `hdiutil create`
+  and `attach` fail without a source folder or a mount point.
+- **L3:** the guard-removed canaries run for each target the host can execute
+  (`arch -<arch> /usr/bin/true`). On this Intel host arm64 is skipped, by name.
+
+The gate suite passes (166 cases). The 53 text-check spellings, and the two
+earlier reviews' twelve run-the-input spellings, are still caught by both checks.
+
+**The review (security-reviewer, Opus, read-only): no High, two Medium, four Low,
+all in the text check.**
+
+- **Confirmed:** M1, L1, L2 and L3 are fixed as described.
+- **M-A:** a variable a tool reads as a program to run (`GIT_PAGER`,
+  `RUSTC_WRAPPER`, …) is not refused when given the input. This was already true
+  before 2g. The stubbed tools do not honour those variables, so the run does not
+  see it either. The DIGEST exemption widens the gap, because `awk` and `stat` can
+  pass a name through.
+- **M-B:** a double-quoted awk program hides `system(`.
+- **Lows:**
+  - the exemption looks at the last segment, not the last pipeline stage;
+  - a failing `arch` probe for the host's own architecture would skip the canaries
+    vacuously;
+  - the x86_64-on-arm64 canary has not yet run in CI;
+  - `>|` reads as a lone `|`.
+
+None is a High, so 2g is committed as reviewed. The findings are ROADMAP item 2h.
 
