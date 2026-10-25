@@ -989,7 +989,11 @@ STUB
     if [ -d "$sp/canary" ]; then
       for a in x86_64 arm64; do
         if ! arch "-$a" /usr/bin/true 2>/dev/null; then
-          note SKIP "canary, whole path ($a)" "this host cannot execute $a; the text check alone covers it"
+          if [ "$a" = "$host_arch" ]; then
+            note FAIL "canary, whole path ($a)" "arch cannot execute the host's own architecture"; miss
+          else
+            note SKIP "canary, whole path ($a)" "this host cannot execute $a; the text check alone covers it"
+          fi
           continue
         fi
         full_case ran "canary, whole path ($a): without the guard the input runs (dry)" "$sp/canary" "$a" \
@@ -1099,7 +1103,7 @@ function marker(lv, m) { emit(lv); nseg++; segt[nseg] = m; segl[nseg] = ln; segv
 function open_(k, m) { subn++; put(d, "\002" subn "\003"); push(k, m); sub_[d] = subn }
 function push(k, m) { d++; buf[d] = ""; q[d] = m; kind[d] = k; par[d] = 0; mode[d] = ""; sub_[d] = 0 }
 function close_() { emit(d); d-- }
-function scanline(l,   i, j, ch, nx, w, dq, rest, strip) {
+function scanline(l,   i, j, ch, nx, w, dq, rest, strip, n0) {
   for (i = 1; i <= length(l); i++) {
     ch = substr(l, i, 1); nx = substr(l, i + 1, 1)
     if (q[d] == "s") { if (ch == "'") q[d] = "n"; put(d, (ch ~ /[A-Za-z0-9(|]/) ? ch : "_"); continue }
@@ -1171,6 +1175,8 @@ function scanline(l,   i, j, ch, nx, w, dq, rest, strip) {
     if (ch == "{" && buf[d] ~ /^[[:space:]]*[A-Za-z_][A-Za-z_0-9]*\(\)[[:space:]]*$/) { marker(d, "\001{"); continue }
     if (ch == "&" && nx == "&") { emit(d); i++; continue }
     if (ch == "&") { print ln ": a command put in the background"; emit(d); continue }
+    if (ch == "|" && nx == "|") { emit(d); i++; continue }
+    if (ch == "|") { n0 = nseg; emit(d); if (nseg > n0) segp[nseg] = 1; if (nx == "&") i++; continue }
     if (ch ~ /[;&|{]/) { emit(d); continue }
     put(d, ch)
   }
@@ -1211,7 +1217,10 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
   posn = "\\$\\{?[1-9@*]\\}?([^A-Za-z0-9_]|$)"
   # The last stage of a substitution that prints a digest or a field of what it
   # read, not the name it was given: what it yields is derived from the input.
-  DIGEST = "^(shasum|awk|wc|lipo|otool|vtool|stat|plutil|grep-c)$"
+  # Narrowly (pass 15 follow-up 2h): shasum; lipo -archs; wc reading only its
+  # standard input; grep -c; and awk only right after one of those in the same
+  # pipeline - awk, stat or otool given a name can print the name. Only a
+  # substitution that is one pipeline qualifies, judged by its last stage.
   target = "\\$\\{?(bin|built|from_binary)\\}?([^A-Za-z0-9_]|$)|\\$\\{?(out|pkgroot|dmgroot|mnt|p|x)\\}?/|\\$\\{?work\\}?/(macportsbrew|pkgroot|dmgroot)"
   runs = 0; ifd = 0
   for (s = 1; s <= nseg; s++) {
@@ -1222,7 +1231,7 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
     sub(/^[[:space:]]+/, "", c); sub(/[[:space:]]+$/, "", c)
     while (match(c, /\002[0-9]+\003/)) {
       id = substr(c, RSTART + 1, RLENGTH - 2)
-      c = substr(c, 1, RSTART - 1) (((id in subt) && lastw[id] !~ DIGEST) ? "\"$bin\"" : "_") substr(c, RSTART + RLENGTH)
+      c = substr(c, 1, RSTART - 1) (((id in subt) && !(dig[id] && !multi[id])) ? "\"$bin\"" : "_") substr(c, RSTART + RLENGTH)
     }
     if (c ~ /^case[[:space:]].*[[:space:]]in([[:space:]]|$)/) { casep[lv] = 1; sub(/^case[[:space:]].*[[:space:]]in[[:space:]]*/, "", c); if (c == "") continue }
     if (casep[lv]) {
@@ -1255,13 +1264,30 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
       if (W[k] !~ /^[A-Za-z_][A-Za-z_0-9]*(\[[^]]*\])?\+?=/) { if (decl) continue; break }
       m = W[k]; sub(/(\[.*)?\+?=.*/, "", m); a = W[k]; sub(/^[^=]*=/, "", a)
       if (m ~ /^(PATH|BASH_ENV|ENV|DYLD_.*|LD_.*|PROMPT_COMMAND|PS4|BASH_FUNC.*)$/) print segl[s] ": an assignment to " m ": " c
+      # Variables a tool reads as a program to run (2h): git's, rustc's and
+      # cargo's wrappers and runners, the compilers and linkers, pagers,
+      # editors, askpass helpers, tar's, Xcode's.
+      if (m ~ /^(GIT_.*|RUSTC.*|RUSTDOC.*|CARGO_[A-Z0-9_]*(RUNNER|WRAPPER|RUSTC|LINKER|RUSTDOC)|CC|CXX|LD|AR|CPP|PAGER|MANPAGER|EDITOR|VISUAL|SHELL|.*_ASKPASS|TAR_.*|XCODE.*|DEVELOPER_DIR|SUDO_.*)$/) print segl[s] ": an assignment to " m ", which a tool may run: " c
       if ((a ~ target || (fb > 0 && a ~ posn)) && !(m in tainted)) { tainted[m] = 1; target = target "|\\$\\{?" m "\\}?([^A-Za-z0-9_]|$)" }
     }
     if (decl) continue
     c = ""; for (j = k; j <= nw; j++) c = c (j > k ? " " : "") W[j]
     if (c == "") continue
     w = c; sub(/[[:space:]].*/, "", w)
-    if (segs[s]) lastw[segs[s]] = (w == "grep" && c ~ /[[:space:]]-[A-Za-z]*c/) ? "grep-c" : w
+    if (segs[s]) {
+      id = segs[s]
+      if ((id in seen) && !lastpipe[id]) multi[id] = 1
+      seen[id] = 1; lastpipe[id] = segp[s]
+      kd = "other"
+      if (w == "shasum" || (w == "lipo" && c ~ /[[:space:]]-archs([[:space:]]|$)/)) kd = "digest"
+      if (w == "wc" && c ~ /^wc([[:space:]]+-[A-Za-z]+)*([[:space:]]*<[^[:space:]]+)?$/) kd = "digest"
+      if (w == "grep") {
+        nw2 = words(c, T)
+        for (j = 2; j <= nw2 && T[j] ~ /^-/ && T[j] != "--"; j++) if (T[j] ~ /^-[A-Za-z]*c/) kd = "digest"
+      }
+      if (w == "awk" && prevk[id] == "digest") kd = "digest"
+      dig[id] = (kd == "digest"); prevk[id] = kd
+    }
     if (w ~ /^[A-Za-z_][A-Za-z_0-9]*\(\)$/) {
       sub(/\(\)$/, "", w); fpend = 1
       if (index(ok, " " w " ") || w ~ /^(command|builtin|exec|eval|source|env|cd|printf|echo|test)$/) print segl[s] ": a function named after a command: " w
@@ -1273,7 +1299,18 @@ function check(   s, c, w, lv, i, v, m, bd, fb, fpend) {
       continue
     }
     if (w == "for") { words(c, T); if (c ~ target && !(T[2] in tainted)) { tainted[T[2]] = 1; target = target "|\\$\\{?" T[2] "\\}?([^A-Za-z0-9_]|$)" } }
-    if (w == "awk" && c ~ /system\(|getline|(^|[^|])\|([^|]|$)/) print segl[s] ": an awk program that can run a command (system(, getline or a lone |; a regex alternation also trips this - write it as two patterns): " c
+    if (w == "awk") {
+      nw2 = words(c, T); prog = ""
+      for (j = 2; j <= nw2; j++) {
+        if (T[j] ~ /^-[vF]$/) { j++; continue }
+        if (T[j] ~ /^-[vF]./) continue
+        if (T[j] == "-f" || T[j] ~ /^-f./) { prog = "-f"; break }
+        prog = T[j]; break
+      }
+      if (prog != "" && prog !~ /^'/) print segl[s] ": an awk program that is not single-quoted (pass values with -v): " c
+    }
+    c2 = c; gsub(/[0-9]*>\|/, ">", c2)
+    if (w == "awk" && c2 ~ /system\(|getline|(^|[^|])\|([^|]|$)/) print segl[s] ": an awk program that can run a command (system(, getline or a lone |; a regex alternation also trips this - write it as two patterns): " c
     if (w == "git" && c ~ /[[:space:]"'](-c|--config-env|--exec-path)([[:space:]"'=]|$)/) print segl[s] ": git given configuration that can run a command: " c
     if (w == "cargo" && c ~ /[[:space:]"']--config([[:space:]"'=]|$)/) print segl[s] ": cargo given configuration that can run a command: " c
     if (w == "set" && c ~ /[[:space:]](-[A-Za-z]*x|-o[[:space:]]+xtrace|\+o[[:space:]]+xtrace)/) print segl[s] ": xtrace runs PS4: " c
