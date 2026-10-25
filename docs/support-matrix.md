@@ -6,10 +6,12 @@ What CI is configured to exercise versus what is merely believed to work
 The floor is macOS 10.12 on Intel and 11.0 on Apple Silicon (ADR-0002); it
 is asserted on every built artifact by `scripts/check-deployment-target.sh`.
 
-> **No CI job has ever run.** This repository has no git remote, so the
-> workflow below has never been executed by a hosted runner. Every row in
-> this table describes configuration. Claiming tested support for an
-> untested OS is the kind of dishonesty this project cannot afford
+> **The CI run on `main` this file names:** "Repository validation" passed
+> at commit `ad5a95d` on 2026-10-21 (run 39578935218) on
+> macos-26, macos-26-intel, macos-15 and macos-15-intel. That is one run of
+> one commit; this table is not generated from runs. Every row describes
+> configuration. Claiming tested support for an untested OS is the kind of
+> dishonesty this project cannot afford
 > (`docs/spec/08-distribution-and-project.md`), and a table that reads as
 > evidence while being generated from labels is how that claim gets made
 > without anyone deciding to make it.

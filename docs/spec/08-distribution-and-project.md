@@ -12,10 +12,13 @@ GitHub Releases for `x86_64` and `arm64`, with checksums. Installation
 documentation leads with this path. A `.pkg` and a `.dmg` are published
 alongside it per architecture (ADR-0005) because they can carry a stapled
 notarisation ticket and a bare Mach-O cannot; they are alternatives to the
-leading path, never a replacement for it. All three MUST embed byte-identical
-executables — one build produces one signed Mach-O per architecture, and CI
-asserts that the payload extracted from each container hashes to the published
-bare-binary checksum.
+leading path, never a replacement for it. Every artifact MUST embed
+byte-identical executables — one build produces one signed Mach-O per
+architecture, and CI asserts that the payload extracted from each container, and
+the bare `mpb` published beside the bare binary (DP-052 (a), 2026-10-23),
+hash to the published bare-binary checksum. *(DP-008 below speaks of "all
+three": the bare binary, the `.pkg` and the `.dmg`; the bare `mpb` is a fourth
+file with the same bytes, not a fourth way to install.)*
 
 **Decided (DP-008, 2026-09-04): all three are published unconditionally, and
 which one to take is the user's choice.** The `.dmg` was previously provisional
@@ -84,10 +87,15 @@ only what binds:
   for MacPorts. It is a user-domain install requiring no administrator password,
   with no `PATH` edit and no shell-configuration write. The directory is
   user-owned and `0755`, not group-writable, and is not the state directory. The
-  installer does **not** create the `mpb` alias, because ADR-0003 requires
-  installation to decline to shadow an existing `mpb` and a non-interactive
-  installer cannot make that call. The same exclusion binds the `.dmg`'s copy
-  target and the documented `cp` line.
+  same exclusion binds the `.dmg`'s copy target and the documented `cp` line. The
+  `.pkg` and the `.dmg` carry **both** `macportsbrew` and `mpb`, byte-identical
+  copies of the one signed executable (DP-033 (b), SE-104), and the release
+  publishes a bare `mpb` beside the bare `macportsbrew` (DP-052 (a)). A non-interactive installer cannot decline to shadow an
+  existing `mpb`, so for the `.pkg`, and for any copy placed in
+  `~/.macportsbrew/bin`, the guard is `PATH` order: the documented line appends
+  that directory, so an earlier `mpb` wins. A copy the user places elsewhere from
+  the `.dmg` or the bare file is guarded only by where they put it (ADR-0003,
+  ADR-0005).
 
 **MUST.** Record, per release, what CI observed of the identity that signed it:
 the team identifier, the certificate fingerprint, and the notarisation

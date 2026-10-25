@@ -2,8 +2,8 @@
 
 # Roadmap to a first distribution — the owner's run sheet
 
-Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-18**, after
-slice 5 merged. It orders the remaining work so that a user can **install and
+Written 2026-10-10, at the end of pass 08 slice 2; **revised 2026-10-22**, after
+pass 14 merged and part A of pass 15 began. It orders the remaining work so that a user can **install and
 use** a MacPortsBrew release as early as possible, and says, for each work
 order, which model the owner should start the session with.
 
@@ -15,19 +15,20 @@ order, which model the owner should start the session with.
 > Anything that can change a user's machine, weaken a gate or ship a supply-chain
 > artifact is high on both. Re-read this table when a newer model family ships.
 
-## Status on 2026-10-18
+## Status on 2026-10-22
 
 **Done:** passes 00–07, 09 (release machinery, staged), 10 (release candidate),
-12 and 13 (read-only improvements), and pass 08 slices 1–5. The read-only build
+12, 13 and 14 (read-only improvements and maintenance; pass 14 merged as PR #11 on 2026-10-21), and pass 08 slices 1–5. The read-only build
 is complete and reviewed. The mutating loop is wired behind a test-only
 allowance; a run takes its snapshot and records itself; `history`, `restore
---plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") passed on `main` at `e463ca5` (run 39173310737, 2026-10-18).
+--plan` and the stranded-run `doctor` finding exist. CI ("Repository validation") has passed on `main` and on every topic branch of passes 13–14; the latest `main` run is 2026-10-21 (run 39578935218 at `ad5a95d`). On 2026-10-22 the merged topic branches were deleted and only `main` remained.
 
 **Not done:**
 
 - **v0.1.0 is not tagged.** Pass 09's guarded files are still staged, not
-  installed; DP-033, DP-034, DP-035 and the new DP-045 block the tag text; the
-  certificates and repository settings are the owner's.
+  installed (DP-033, DP-034, DP-035 and DP-045 were ruled 2026-10-23, so part B
+  of pass 15 can be armed); the certificates and repository settings are the
+  owner's.
 - **Mutations stay off.** Eight tests fail the day the switch is turned on
   (`docs/passes/08-pre-flip-design-notes.md` has the table). Beyond them,
   every real plan halts at `VERIFY_DESTINATION` — four of its six checks
@@ -54,8 +55,8 @@ allowance; a run takes its snapshot and records itself; `history`, `restore
 
 | # | Work order | Track | Can start | Model | Why that model |
 |---|---|---|---|---|---|
-| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **now** | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
-| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | after 14 merges; part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
+| 1 | [`14-read-only-maintenance.md`](14-read-only-maintenance.md) | R | **done** (merged 2026-10-21) | **Sonnet**, reviewers on **Opus** | Research, data, docs, additive reads and tests; the executor, planner and allowlist are out of bounds. Item B (`node@20`, whose disable date the 2026-10-12 read gives as 2026-10-28) is time-sensitive. |
+| 2 | [`15-first-tag-readiness.md`](15-first-tag-readiness.md) | R | **part A in progress** on `pass/15-first-tag-readiness` (2026-10-22); part B after DP-033/034/035/045 | **Sonnet** for part A; **Opus** preferred for part B, or Sonnet with `security-reviewer` on Opus over every guarded file | Part A is reconciliation and docs truth. Part B writes the release gates and workflow in one armed message: a weakened gate ships to every user. |
 | — | **Owner: certificates, environment, ruleset, dry run, tag v0.1.0** | R | after 15 | — | Only the owner handles credentials and tags. |
 | 3 | [`08-slice-6-verification-before-removal.md`](08-slice-6-verification-before-removal.md) | M | after 14's R-20 note | **Opus** recommended; Sonnet only under the rules below | Planner, gate, verification and executor (INV-01): by this file's own criterion, the stronger model. The design is written; the risk is a fail-closed rule subtly wrong. |
 | 4 | [`08-slice-7-plan-tie-and-consent.md`](08-slice-7-plan-tie-and-consent.md) | M | after 6 merges; part A after DP-049 | **Opus** recommended; Sonnet only under the rules below | Consent wiring and the plan tie in the executor; INV-02, INV-06. |
@@ -92,7 +93,7 @@ wrong; they do not change that slices 6–8 are judgement-heavy.
 
 | Item | Blocks | Notes |
 |---|---|---|
-| Rule **DP-033** (`mpb`), **DP-034** (keychain password in argv), **DP-035** (identifier, install directory), **DP-045** (slices 4–5 in 0.1.0); confirm DP-036 | 15, the tag | Recommendations: (a), (b) researched then (a), `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`, (a), (a). |
+| ~~Rule DP-033, DP-034, DP-035, DP-045~~ **Ruled 2026-10-23**: DP-033 (b) the `.pkg`/`.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails; DP-035 `io.github.pabloguia.macportsbrew` + `~/.macportsbrew/bin`; DP-045 (a). **DP-036**: confirm (default holds) | 15 B, the tag | **DP-034 closed 2026-10-23: `security -i` held on all four runners** (R-19 addendum); the signing step takes that recipe in part B. |
 | Send the armed message for work order 15 part B (`MPB_ALLOW_GUARD_EDIT=1` at the start, in your own words) | 15 B | It covers that one message (SE-093). |
 | Apple Developer Program; **Developer ID Application** and **Installer** certificates; an App Store Connect API key; the `release-signing` environment with its 7 secrets and 3 variables; the `v*` tag ruleset; immutable releases | the tag | Checklist in `docs/passes/09-staged/README.md`; never in a file, never in a session. |
 | The dispatch dry run, the Standard-account `.pkg` check, the Gatekeeper protocol | the tag | `docs/passes/10-read-only-release-candidate-report.md`. |
@@ -118,3 +119,160 @@ session-start hook announces `prompts/<that>.md` as the work order. When a
 session runs on Sonnet, add one more sentence to the prompt above, asking it to
 run `spec-guardian` and `security-reviewer` with `model: opus` on the plan and
 after every part.
+
+## Remaining work after the rulings of 2026-10-23
+
+In order. Nothing here needs another decision.
+
+1. ~~DP-034 research~~ **Done 2026-10-23** (R-19 addendum; `security -i` held on four
+   runners; pull request #14 closed unmerged). *Yours:* delete the remote branch
+   `research/dp034-security-stdin`.
+2. ~~Pass 15 part B~~ **Written 2026-10-23, pending the merge of #13** (pull request #13, commits `fbc270b^..c40a920`;
+   `docs/passes/15-first-tag-readiness-report.md`). The release machinery is installed,
+   `mpb` is a byte-identical copy in the `.pkg`, the `.dmg` and as a bare file, and the
+   signing step uses `security -i`. *Yours:* review and merge #13.
+2a. ~~Follow-ups from part B's reviews~~ **Written 2026-10-23** (armed message; pull
+   request #13): the sign-path and hash-binding gate tests, `check-no-secrets.sh` over
+   untracked files and two EC key forms with the git environment cleared, the
+   `RUNNER_TEMP` assertion and the `mpb` fields in `SIGNING-RECORD.txt` (DP-052 (a)),
+   the matrix banner and the "never run" comments.
+2b. ~~Follow-ups from the 2a review~~ **Written 2026-10-24** (armed message; pull
+   request #13): the sign-path test stubs `uname` and opens with a canary that must
+   see the input run when the guard is removed, so it is a real test on arm64 too; the
+   text check covers every spelling of running the input and any copy of its bytes;
+   `check-no-secrets.sh` reads ignored names, the P-256/P-384 PKCS#8 and SEC1 key forms,
+   clears `GIT_CONFIG_*`, and labels untracked and ignored hits; `test-gates.sh` clears
+   the git environment and runs no hook on its throwaway commits.
+2c. ~~Follow-ups from the 2b review~~ **Written 2026-10-24** (armed message; pull
+   request #13): the sign-path text check is an allowlist (a quoting-aware scanner;
+   a command naming the input under its known names may start only with a listed
+   tool; exactly two runs, in the guard's `else`), 22 escaping spellings each
+   refused; `check-no-secrets.sh` walks ignored files except
+   the build directories, so a key inside an ignored directory is refused, and its
+   name-rule advice no longer leads to a second refusal; `test-gates.sh` reads no
+   developer git configuration.
+2d. ~~Follow-ups from the 2c review~~ **Written 2026-10-24, committed with 2e and 2f.** The sign-path scanner reads `build-release.sh` as one stream
+   (quotes, `$(`, backticks, `${...}`, `$((...))`, process substitution and
+   here-documents carried across lines, if/fi depth for the guard's `else`); every
+   command's first word is on an allowlist or is one of the script's functions;
+   commands naming the input, a copy, a positional parameter inside a function, or a
+   name assigned one of those, start only with tools that run nothing; `tar`,
+   `xcrun`, `find`, `command`, `trap` held to safe forms; no `PATH`/`DYLD_` assignment.
+   53 spellings refused, the review's 18 among them. `check-no-secrets.sh
+   --build-dirs` walks `target/`, `dist/`, `.token-pilot/` for the name rules;
+   `validate.sh` passes it outside `--quick` (the commit gate and CI). The gate
+   tests isolate `XDG_CONFIG_HOME` and the git template directory.
+2e. ~~Make the sign-path guarantee dynamic~~ **Written 2026-10-24, committed with 2f**
+   (its review found two Highs, answered by DP-053 (c) and 2f). `test-gates.sh` runs the whole signed path of
+   `build-release.sh`, and the `--from-binary` dry path, to exit 0 under a second
+   set of stubs (the signing, packaging, notarisation and Gatekeeper tools answer
+   what the script asserts and run nothing; containers are cpio archives); the
+   input is the canary. Two canaries show the harness sees a run: the guard
+   removed, and a run added after notarisation. The 2d review's seven spellings,
+   each put at the end of the signed path, are all caught by the run; the text
+   check, now a stated backstop for the lines the signed path does not take,
+   catches five. `build-release.sh` gains `readonly sign from_binary` after option
+   parsing, and a `finished` sentinel: bash 3.2, macOS's, was observed to exit 0
+   from a fatal shell error (an unbound variable, a readonly assignment, `${x:?}`)
+   when an EXIT trap is set, so a run that stopped short looked like a success.
+2f. ~~The 2e review's findings~~ **Written 2026-10-24** (armed message; pull request
+   #13; DP-053 ruled (c): the gate is for the accidental regression). The
+   whole-path run now looks like the signing job:
+   - real Mach-O inputs for both targets, built by `cc`, that leave the marker if run;
+   - real `lipo`/`otool`/`vtool`/`strings`;
+   - `GITHUB_ACTIONS`, `CI`, `RUNNER_TEMP` and `MPB_NOTARY_ISSUER` set;
+   - a non-empty key and keychain.
+
+   The run is in its own process group, and a member that outlives it fails the
+   case. Any stub call in a form the stub does not know fails it too. A refused
+   notarisation has its own case. The canaries cover the guard removed (dry and
+   signed), a late run, and a background run. The text check:
+   - taints through `$(...)`;
+   - refuses awk `system(`/`getline`/`|`, `git -c`, `cargo --config` and a lone `&`;
+   - requires `finished=1` to be the last line of code.
+
+   Both reviews' twelve spellings are caught by the run and by the text check.
+   Not done: the codesign stub writing `codesign0` elsewhere (L3), since the real
+   tool writes into its working directory and the script requires that file there.
+   Still open (DP-053 (b)): before anyone else can change `build-release.sh`, a
+   signing job that cannot execute the input.
+2g. ~~The 2f review's findings~~ **Written 2026-10-24** (armed message; pull request #13).
+   - **M1:** a substitution whose last stage prints a digest or a field (`shasum`,
+     `awk`, `wc`, `lipo`, `otool`, `vtool`, `stat`, `plutil`, `grep -c`) yields a
+     value derived from the input, not the input. The guidance says such a value is
+     fixed by how it is derived, never by widening INPUT.
+   - **L1:** the awk rule refuses a lone `|`, not `||`.
+   - **L2:** `security` is a strict stub, and `hdiutil create`/`attach` refuse a
+     missing folder or mount point.
+   - **L3:** the guard-removed canaries run for each target the host can execute,
+     and are skipped by name otherwise.
+   Also recorded, outside DP-053 (c): `printf … >>.git/config` setting
+   `core.fsmonitor`, followed by any git call, belongs to the structural defence.
+2h. ~~The 2g review's findings~~ **Written 2026-10-24** (armed message; pull request #13;
+   all in the text check, `scripts/test-gates.sh`). L-C stays open: the x86_64-on-arm64
+   canary is first exercised by the arm64 CI runners.
+   - **M-A:** variables a tool reads as a program to run are not refused. Examples
+     are `export GIT_PAGER="$bin"; git log` and `export RUSTC_WRAPPER="$bin"`. This
+     was already at HEAD, and the stubbed `git`/`cargo` do not honour them. The
+     DIGEST exemption widens it: `awk`, `stat`, `otool` and `wc` can print a name,
+     not a digest. Fix:
+     - extend the refused assignments to `GIT_.*`, `RUSTC.*`, `CARGO_.*`, `CC`,
+       `CXX`, `LD`, `AR`, `PAGER`, `EDITOR`, `VISUAL`, `SHELL`, `.*_ASKPASS`,
+       `TAR_.*`, `XCODE.*`;
+     - narrow DIGEST to `shasum`, `lipo -archs`, `wc <`, and `awk` after one of those.
+   - **M-B:** a double-quoted awk program hides `system(` and `|`. Refuse any
+     double-quoted awk program; values go in with `-v`.
+   - **L-A:** `lastw` is the substitution's last segment, not its last pipeline
+     stage, and the `grep -c` test matches inside a pattern.
+   - **L-B:** if `arch` fails for the host's own architecture, the canaries skip
+     vacuously. Make that a FAIL.
+   - **L-C:** the x86_64-on-arm64 canary has never run; the first arm64 CI run
+     (`macos-26`, `macos-15`) is its first test.
+   - **L-D:** `>|` on an awk command reads as a lone `|`.
+2i. ~~The 2h review's findings~~ **Written 2026-10-24** (applied by the owner from a
+   command the session prepared; all in `scripts/test-gates.sh`). Done: M1, M2 in
+   part (a self-test over a copy with one extra run), L4, L5 in part. Accepted, not
+   done: L3, the rest of L5 (fail-closed friction), and a committed table of
+   evasion spellings (DP-053 (c): that belongs to the structural defence).
+   - **M1:** the text check passes when awk itself fails. A syntax error exits 2 with
+     empty output, which reads as "holds", and this was true before 2h too. Fix:
+     fail on a non-zero awk status, and run the check once over a known-bad copy,
+     requiring at least one violation.
+   - **M2:** none of the text check's rules is tested in the suite; the 53 mutants
+     and 17 probes lived in the session's scratchpad. Fix: commit a probe table
+     (R/A plus a line) run through the same insertion loop, with a sink in OK but
+     not in INPUT (`git tag -m "$q" x`) for every accepted line. `printf` sinks pass
+     whatever the exemption does.
+   - **L3:** `shasum` output carries the file name, and so does `grep -H` or a
+     multi-file `grep -c`. Count `shasum` as a digest only on standard input, or
+     allow only `awk '{print $1}'` after it; for `grep -c`, refuse `-H` and more than
+     one file.
+   - **L4:** add `CODESIGN_ALLOCATE`, `SDKROOT` and `TOOLCHAINS` to the refused
+     assignments.
+   - **L5:** fix these honest-edit false positives:
+     - `wc -c < f` with a space;
+     - `wc … | tr -d ' '` not exempt;
+     - the message for `GIT_*` hardening variables;
+     - `awk -- '…'`;
+     - `grep -e x -c`.
+2j. ~~**Small, one armed message (`scripts/test-gates.sh`), the 2i review and a flake**~~
+   **Written 2026-10-25** (SE-106; the report's follow-up 2j). The three Lows are done
+   with a probe each; the flake's cause is **not proved**: a canary that sees no run
+   now prints the script's output and runs the input directly, and a preflight runs
+   each input once before the canaries. The next occurrence will say what happened.
+   As planned:
+   - make the self-test copy with `mktemp`;
+   - require the self-test's expected refusal text;
+   - fail with "marker not found" when no line was inserted;
+   - print the last lines of `build-release.sh`'s output when a canary does not see
+     a run (it failed intermittently once, cause unknown), and, if the cause is
+     first-execution assessment, run each input once before the cases.
+3. **Small, unguarded, any time:** reword the top-level `--help` line for
+   `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
+4. **Optional, as one armed message:** the `.claude/` fixes in
+   `docs/research/tooling/2026-10-22-*.md`.
+5. **Owner, after 2 (2 written 2026-10-23), the tag after #13 merges:** certificates, the `release-signing` environment, the
+   `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
+   `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
+6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are
+   still open.

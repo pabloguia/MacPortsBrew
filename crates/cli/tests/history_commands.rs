@@ -499,6 +499,43 @@ fn restore_is_refused_before_any_capture_for_every_argument_it_cannot_honour() {
     assert!(!scratch.state_dir().exists(), "nothing is created");
 }
 
+#[test]
+fn restore_of_a_run_nobody_recorded_asks_no_provider() {
+    // The record is in this machine's state directory and needs no provider, so
+    // "no such run" is answered before a capture. Before this was so, a
+    // `restore --plan --run` on an empty Homebrew cache made Homebrew download
+    // its catalogue into `$HOME/Library/Caches/Homebrew` (731 files on the
+    // machine where it was found) only to say exit 8. A scratch HOME that stays
+    // empty is what Homebrew, where it is installed, would have filled.
+    let scratch = Scratch::new("restore-unrecorded");
+    let home = scratch.0.join("home");
+    std::fs::create_dir_all(&home).expect("an empty home");
+    let id = id_of("20261001T100000Z");
+    for argv in [
+        vec!["restore", "--plan", "--run", id.as_str()],
+        vec!["restore", "--run", id.as_str()],
+    ] {
+        let output = Command::new(BIN)
+            .args(&argv)
+            .current_dir(root())
+            .env("HOME", &home)
+            .env("MACPORTSBREW_STATE_DIR", scratch.state_dir())
+            .env_remove("MACPORTSBREW_LANG")
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .output()
+            .expect("spawning the binary");
+        assert_eq!(code(&output), ErrorId::RunNotFound.exit_code(), "{argv:?}");
+        assert!(output.stdout.is_empty(), "{argv:?}");
+        let left: Vec<_> = std::fs::read_dir(&home)
+            .expect("the home")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        assert!(left.is_empty(), "{argv:?} left {left:?} in HOME");
+    }
+    assert!(!scratch.state_dir().exists(), "nothing is created");
+}
+
 // --- history acknowledge (pass 08 slice 5, Part D) --------------------------
 
 /// Leaves the interrupted-run marker of `id` (naming `snapshot`), as a run that

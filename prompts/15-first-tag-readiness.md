@@ -37,6 +37,12 @@ As `TEMPLATE-PASS.md` §2.
 
 ## 3. Prerequisites and hard boundary
 
+**Rulings of 2026-10-23** (recorded in `docs/decisions-pending.md`, SE-104): DP-033
+(b), the `.pkg` and `.dmg` carry `mpb`; DP-034 (b) first, (a) if it fails, open
+until the research is written; DP-035 `io.github.pabloguia.macportsbrew` and
+`~/.macportsbrew/bin`; DP-045 (a). Part B's list grows by the `mpb` payload
+(staged README, "Rulings of 2026-10-23").
+
 **Part B starts only when** the owner has ruled DP-033, DP-034, DP-035 and
 DP-045 (DP-036 may keep its default). Part A may run before that, under each
 open decision's reversible default, with every line that depends on one marked

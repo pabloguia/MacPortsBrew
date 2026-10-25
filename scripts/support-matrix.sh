@@ -16,7 +16,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 python3 - "${1:-}" <<'PY'
 import re
-import subprocess, sys
+import sys
 wf = open(".github/workflows/repository-validation.yml", encoding="utf-8").read()
 m = re.search(r"runner:\s*\[([^\]]*)\]", wf)
 labels = [l.strip() for l in m.group(1).split(",")] if m else []
@@ -43,18 +43,20 @@ out.append("(`docs/spec/08-distribution-and-project.md`, \"Compatibility posture
 out.append("The floor is macOS 10.12 on Intel and 11.0 on Apple Silicon (ADR-0002); it")
 out.append("is asserted on every built artifact by `scripts/check-deployment-target.sh`.")
 out.append("")
-remotes = subprocess.run(
-    ["git", "remote"], capture_output=True, text=True, check=False
-).stdout.strip()
-if not remotes:
-    out.append("> **No CI job has ever run.** This repository has no git remote, so the")
-    out.append("> workflow below has never been executed by a hosted runner. Every row in")
-    out.append("> this table describes configuration. Claiming tested support for an")
-    out.append("> untested OS is the kind of dishonesty this project cannot afford")
-    out.append("> (`docs/spec/08-distribution-and-project.md`), and a table that reads as")
-    out.append("> evidence while being generated from labels is how that claim gets made")
-    out.append("> without anyone deciding to make it.")
-    out.append("")
+# A dated fact about one run, not a property of this checkout: it used to be
+# printed only when `git remote` was empty, which made the generated file
+# depend on where it was generated (SE-052), and after the first push it was
+# simply false. Re-date it, by hand, when a later run is worth naming.
+out.append("> **The CI run on `main` this file names:** \"Repository validation\" passed")
+out.append("> at commit `ad5a95d` on 2026-10-21 (run 39578935218) on")
+out.append("> macos-26, macos-26-intel, macos-15 and macos-15-intel. That is one run of")
+out.append("> one commit; this table is not generated from runs. Every row describes")
+out.append("> configuration. Claiming tested support for an untested OS is the kind of")
+out.append("> dishonesty this project cannot afford")
+out.append("> (`docs/spec/08-distribution-and-project.md`), and a table that reads as")
+out.append("> evidence while being generated from labels is how that claim gets made")
+out.append("> without anyone deciding to make it.")
+out.append("")
 out.append("| macOS | Intel x86_64 | Apple Silicon arm64 |")
 out.append("|---|---|---|")
 for v in versions:
@@ -72,45 +74,14 @@ out.append("  read 2026-09-02); verification on real hardware is welcome.")
 out.append("- **unsupported**: below the floor.")
 out.append("")
 text = "\n".join(out) + "\n"
-def without_the_remote_notice(s):
-    """Drop the "No CI job has ever run" block before comparing.
-
-    That block is emitted only when `git remote` is empty, and emptiness is a
-    property of *this checkout*, not of the repository. `actions/checkout`
-    always configures `origin`, so the committed file - generated here, where
-    there is no remote - can never equal what CI generates. Harmless while this
-    was one workflow step; the moment F-45 made it a `validate.sh` stage it
-    would have failed the gate in all five jobs on the first push, and locally
-    the moment anyone ran `git remote add`.
-
-    What this check exists for is the sentence above the table: the matrix is
-    generated from the workflow's `runner:` labels and from nothing else. That
-    is what is compared. Whether the notice belongs at all - CI not having run
-    is a fact about the project, and a clone having a remote does not change it
-    - is SE-052's question, and this does not answer it.
-    """
-    kept, blank = [], False
-    for line in s.splitlines():
-        if line.startswith(">"):
-            continue
-        # The notice block is followed by its own blank line, so dropping only
-        # the quoted lines leaves the two versions differing by one newline.
-        if not line.strip():
-            if blank:
-                continue
-            blank = True
-        else:
-            blank = False
-        kept.append(line)
-    return "\n".join(kept).strip() + "\n"
-
-
 if sys.argv[1] == "--check":
     try:
         current = open("docs/support-matrix.md", encoding="utf-8").read()
     except FileNotFoundError:
         current = ""
-    if without_the_remote_notice(current) != without_the_remote_notice(text):
+    # Exact: nothing in the text depends on the checkout any more, so nothing
+    # is normalised away before comparing.
+    if current != text:
         sys.stderr.write("support-matrix: docs/support-matrix.md is out of date; run scripts/support-matrix.sh > docs/support-matrix.md\n")
         sys.exit(1)
     print("support-matrix: ok")

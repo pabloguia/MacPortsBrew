@@ -39,9 +39,15 @@ built to detect and prevent accidental executable shadowing would begin by
 shadowing a scientific package. The guard is a `PATH` check, not a provider
 lookup, so it holds whichever way `mpb` arrived.
 
-Therefore, per `06-cli-and-ux.md`: installation detects an existing `mpb` on
-`PATH`, and when it finds one it installs only `macportsbrew`, reports the
-conflict, and lets the user decide. `doctor` reports the situation too.
+Therefore, per `06-cli-and-ux.md`: where installation can run code it detects an
+existing `mpb` on `PATH`, and when it finds one it installs only `macportsbrew`,
+reports the conflict, and lets the user decide. `doctor` reports the situation
+too. *(Amended 2026-10-23, DP-033 ruled (b): the signed `.pkg` runs no code, so
+it cannot make that decision at install time. The release artifacts carry both
+names; the guard there is that the documented `PATH` line appends the directory,
+so an earlier `mpb` wins. No install route in this repository runs the detection
+described above today: a cargo build produces both binaries unconditionally, and
+the bare file is copied by the user.)*
 
 Note also that MacPorts' own build automation tool is named `mpbb` — close
 enough to be worth knowing about when writing documentation, though not a

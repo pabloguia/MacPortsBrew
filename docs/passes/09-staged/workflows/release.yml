@@ -105,7 +105,7 @@ jobs:
             echo "::warning title=Dry run::both architectures are built and asserted UNSIGNED; nothing is signed, notarised, attested or drafted"
           fi
 
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'push'
         with:
           persist-credentials: false
@@ -144,12 +144,12 @@ jobs:
       TARGET: ${{ matrix.target }}
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Rust toolchain (pinned by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, resolved 2026-09-02
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, resolved 2026-10-22
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
@@ -252,7 +252,7 @@ jobs:
       TARGET: ${{ matrix.target }}
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -400,7 +400,7 @@ jobs:
       REPO: ${{ github.repository }}
       COMMIT: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

@@ -34,7 +34,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # larger piece of work and is recorded as such — but it does stop an unfamiliar
 # repository arriving unremarked.
 ALLOWED_REPOS='
+actions/attest-build-provenance
 actions/checkout
+actions/download-artifact
+actions/upload-artifact
 anthropics/claude-code-action
 dtolnay/rust-toolchain
 EmbarkStudios/cargo-deny-action

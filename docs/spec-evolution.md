@@ -4490,8 +4490,15 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `08-distribution-and-project.md:236-237` names this failure mode in the project's
   own words. The best-effort rows are already handled correctly; it is the tested
   rows that claim an event that has not happened.
-- **The "until" is detected, not remembered.** A hand-flipped constant would go
-  stale the moment it mattered, so the generator asks `git remote`. That is a
+- *(Superseded 2026-10-23, pass 15 part B: CI ran, run 39578935218 on `main` at
+  `ad5a95d`, 2026-10-21, all four macOS jobs green, confirmed with `gh run view`.
+  "No remote" stopped being the signal - this checkout has one and the notice
+  vanished - so `support-matrix.sh` now prints that dated run unconditionally,
+  re-dated by hand, and `--check` compares the file exactly. The cost is the one
+  this entry warned of: a hand-maintained date. It is accepted because what it
+  says is a fact about one named run, not a claim that stays true by itself; the
+  "generated from labels" qualifier stays.)* **The "until" is detected, not
+  remembered.** A hand-flipped constant would go stale the moment it mattered, so the generator asks `git remote`. That is a
   one-way inference and it is the honest one: with no remote, nothing can have
   run; with a remote, whether a run happened is not knowable from here, so the
   notice disappears while the "this is generated from labels" qualifier stays.
@@ -7974,3 +7981,194 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: a script that ran `--replay <file> snapshot` or `--from-snapshot <file> snapshot`
   without `--out` now gets exit 2 and must name a file. `--dry-run snapshot` and `--dry-run doctor --report`
   no longer write; their `--json` stdout is unchanged. No schema changes.
+
+## SE-102 — The release is to be checked free of `test-support`, and the staged release files are reconciled with `main` before they are installed
+- Status: accepted; **installed 2026-10-23** in pass 15 part B (commits `fbc270b`, `2823259`, `f4fc487`, `c40a920`), each staged block checked against its SHA-256 before it was written
+- Date / Pass: 2026-10-22 / pass 15, part A (`prompts/15-first-tag-readiness.md`; slice 4 review L1)
+- Original assumption: the only thing standing between a release and the `test-support` feature (which
+  compiles the test-only mutation allowance in, `execution_gate.rs` and `executor.rs`) was that no command
+  line in the release machinery passes a feature flag — a fact about the text of the script, held by an
+  unconditional failure in `the_switch_needs_release_builds_free_of_the_test_support_feature` while the
+  mutation switch is on. Nothing asked cargo what the release would resolve, and nothing refused a flag in
+  `release.yml`. The staged files (`docs/passes/09-staged/`) were also written before `main` moved: the
+  action pins had changed, DP-031 had been resolved, and a comment in `build-release.sh` still derived the
+  package identifier from a repository URL that is no longer the repository.
+- Change: **(1)** `build-release.sh` asks `cargo tree --locked -p macportsbrew --target <triple> --prefix
+  none -e normal,build -f '{p} {f}'` and refuses when any package lists `test-support` as an enabled
+  feature, and when cargo cannot answer (fail closed). The format string is deliberate: `-e features` does
+  not print a feature set on the root package, so grepping it would pass a build that enables the feature
+  directly. The match is a whole word made with a here-string, not a pipeline (under `pipefail` a
+  `grep -q` can kill a still-writing `printf`, the pipeline returns 141 and an `if` reads "no match"). It
+  also refuses a compiler wrapper in the environment or in cargo's configuration, which can add the cfg
+  without cargo's feature graph showing it. **(2)** `check-release-workflow.sh` gains rule 10: in
+  `release.yml` no code line names `cargo`, none holds `--features` or `--all-features`, and none that calls
+  `build-release.sh` carries `-F` (alone or in a cluster, quoted or not; continuations joined); it reads
+  `release.yml` only, so `validate.sh`'s own `cargo test --all-features` is untouched. **(3)** The
+  unconditional tripwire becomes a structural test that the check exists, matching the whole command line,
+  to land in the same change as the scripts. **(4)** The staged `release.yml` takes `main`'s pins for
+  `actions/checkout` (v7.0.1) and `dtolnay/rust-toolchain` (`master`); the other pins were re-verified
+  against their action's own tag on 2026-10-22. **(5)** The comment above `IDENTIFIER` stops claiming the
+  value is derived from the repository URL.
+- Rationale: whether `test-support` is in a release is a fact about the dependency graph, so the check
+  asks the graph; a flag's absence from a script is a property of that script and is also pinned, twice
+  (the argument loop refuses every option it does not name, and rule 10 refuses it in the workflow).
+  The rule is stricter than needed on purpose: no line that builds a release has a legitimate feature
+  flag. Weakening a gate is invisible until it ships what it would have caught.
+- Tests: 20 cases for `build-release.sh` (a stand-in `cargo` that records its arguments; four flag
+  spellings refused before cargo is asked; the feature refused at either end, in the middle, on the root,
+  on a repeated package and first in a 100 KB graph; a failing `cargo tree` refused; a clean graph reaches
+  the build and the exact `cargo tree` command line is asserted; two near-miss names accepted; four
+  wrapper variables and a wrapper in cargo's configuration refused) and 44 for `check-release-workflow.sh`
+  (constructed workflow trees). Sixteen mutants of the first and twelve of the second were each killed
+  (the refusal removed; the pattern widened or narrowed; a failing `cargo tree` read as clean; the
+  pipeline back; the query narrowed in `-f`, `-e`, `-p`, `--locked` or `--target`; a wrapper check dropped;
+  rule 10 off or weakened in each part; a comment line counted; a rule-7 and a rule-9 term dropped); one
+  first survived and got its own case. The structural tripwire passes against the staged scripts in a
+  scratch copy of the tree and fails when the command line is narrowed, a flag is inserted or the wrapper
+  loop is shortened. The patched script was run end to end, unsigned, for `x86_64-apple-darwin`, exit 0,
+  twice (the unsigned executable hashed the same both times). Text, SHA-256s and the amended "Applying
+  them": `docs/passes/09-staged/README.md`, addendum of 2026-10-22.
+- Part B (2026-10-23): installed as staged — `build-release.sh` (`2b5fab09…`, then revised for `mpb`, SE-104),
+  `check-release-workflow.sh` (`544ec1e6…`), `release.yml` (`4801f886…`, then revised, SE-105), the two staged
+  gate blocks and the structural test (`c22d4bea…`), in one commit. `validate.sh` gains two `--quick` stages
+  (seventeen) and now unsets `MPB_FIXTURE_BIN` and `MPB_SECRETS_ROOT`; `run-fixture-matrix.sh` honours and
+  announces `MPB_FIXTURE_BIN`; `check-action-pins.sh` allow-lists the three release actions. **`check-no-secrets.sh`**
+  has no staged text; it implements the plan's rules and, from the security review, more: it scans the index
+  as well as the working tree (a staged key whose working copy changed was otherwise invisible), refuses any
+  tracked binary file (a DER `.p12` under another name), six more extensions, base64 of DER (`MII` + 60), and
+  wider team-identifier spellings including `--team-id`; it never prints the match. Not adopted: the
+  `Developer ID …: Name (TEAMID)` form, which matches public third-party signatures quoted in R-9. Comments
+  fixed: `taiki-e/install-action` `1168f681…` is v2.87.28 and the `dtolnay/rust-toolchain` commit is dated
+  2026-10-16 (both checked with `gh api`, 2026-10-23); `support-matrix.sh` prints the dated CI run
+  unconditionally and its `--check` compares exactly (SE-052, amended). `check-no-secrets.sh` refusing
+  every tracked binary file is a repository policy: `CONTRIBUTING.md` says so. Accepted findings, recorded as remaining work in
+  `prompts/ROADMAP-to-first-release.md`: the plan's `build_release_never_executes_the_input_on_the_sign_path`
+  and `--expect-unsigned-sha256` refusal tests are not written, though `build-release.sh`'s comment names
+  the first (review M1); the commit gate validates before a `git add` in the same command runs, so a
+  credential added and committed in one command is not seen until CI (review M2); unarmoured EC keys,
+  `GIT_DIR`-style overrides, a `RUNNER_TEMP` with a space, and the `mpb` fields missing from
+  `SIGNING-RECORD.txt` (Lows). **All of these were done on 2026-10-23 in a further armed message**
+  (follow-ups 2a): the sign-path test runs the real script from a throwaway committed tree with PATH
+  stubs and an input that writes a marker if executed, with `--sign` and with `--from-binary` alone, and
+  requires codesign to have been reached; a hash mismatch is refused before `security` is called; three
+  argv refusals; a text check that the input runs in exactly two places behind the guard.
+  `check-no-secrets.sh` covers untracked, non-ignored files (so `git add <key> && git commit` is seen by
+  the commit gate), the unarmoured P-256 PKCS#8 and SEC1 EC key forms, and clears `GIT_DIR`-style
+  variables. `release.yml` refuses a `RUNNER_TEMP` with any character outside `[A-Za-z0-9/._-]`.
+- Not done: left on purpose, because `CLAUDE.md` and `.claude/` are the harness's
+  own configuration and no one has asked for them to change: the tooling re-check's findings about
+  `settings.json:97-98` (`./` anchors), `CLAUDE.md:57-58` ("a shell reader loads nothing"), the
+  `CLAUDE.md` / `AGENTS.md` reading-order contradiction, `onFailure: "block"`, the sandbox, the hook `if`
+  field, no-space allow rules and the `<pasted_content>` delimiter are recommendations in
+  `docs/research/tooling/2026-10-22-*.md`. The wrapper refusals cover the environment and the two cargo
+  configuration files named above; a `.cargo/config` in a parent directory of the checkout, which cargo
+  also reads, is not checked.
+- Compatibility impact: none for users. A release build that resolves `test-support`, or a workflow that
+  passes a feature flag to a release build, is refused once part B lands.
+
+## SE-103 — `restore` looks the run up before it captures the machine
+- Status: accepted
+- Date / Pass: 2026-10-22 / pass 15, part A (found by the pass's documentation audit)
+- Original assumption: `restore --plan --run <id>` built its context (a capture of both providers) before it
+  read the run's record, so an id nobody recorded — every id, on every machine running 0.1.0 — still asked
+  both providers what is installed, and on an empty Homebrew cache made Homebrew download its catalogue
+  into the user's home (731 files on the machine where it was seen), then answered `RUN_NOT_FOUND`.
+  `history show`, which needs no provider, never did.
+- Change: `run_inner` calls `restore::refuse_unrecorded_run` after the argument refusals and before
+  `Context::build`; it resolves the state directory and the effective user as `history` does, reads the
+  one record, and raises the same `RUN_NOT_FOUND` (exit 8) the command raised before. Read-only; the state
+  directory is not created. A recorded run takes the path it took.
+- Rationale: a command whose answer is in this machine's state directory should not read both providers
+  to give it, and `history show` already answers the same question without them. The lookup is the first
+  thing `restore` did with a context anyway, so no outcome changes, only what is asked and in what order.
+  No MUST of 04 or 06 changes.
+- Tests: `restore_of_a_run_nobody_recorded_asks_no_provider` (`crates/cli/tests/history_commands.rs`: a
+  scratch HOME stays empty, exit 8, no state directory; with the call removed it fails on the machine where
+  the bug was found, `left ["Library"] in HOME`); `invariant_06_history_restore_and_acknowledge_refuse_root`
+  now also requires the lookup to come after the argument refusals and before `Context::build` (fails with
+  the call removed).
+- Not done: where Homebrew is not installed the behavioural test cannot fail; the ordering test covers that
+  case. A recorded run still captures before it plans, as a plan needs the current machine.
+- Compatibility impact: none in output or exit codes; fewer provider reads for an unrecorded id.
+
+## SE-104 — Rulings of 2026-10-23: the release artifacts carry `mpb`, the identifier and directory are fixed, and 0.1.0 ships the history commands
+- Status: accepted
+- Date / Pass: 2026-10-23 / after pass 15 part A (DP-033, DP-034, DP-035, DP-045 in `docs/decisions-pending.md`)
+- Original assumption: spec 06 and ADR-0003 said installation detects an existing `mpb` on `PATH` and declines to
+  shadow it; ADR-0005 said the `.pkg` does not create the alias because a non-interactive installer cannot decide.
+  Nothing in this repository ever performed that detection on any route (a cargo build produces both binaries
+  unconditionally), and no 0.1.0 artifact installed `mpb` at all, which contradicted the charter.
+- Change: **DP-033 (b)** — the `.pkg` and `.dmg` carry `mpb` beside `macportsbrew`; the charter stands. Spec 06's
+  MUST now says what is true: the installer cannot detect, so the guard is `PATH` order (the documented line
+  appends the install directory, so an earlier `mpb` wins), and a route that can run code MUST detect (none does
+  today). ADR-0003 is amended, ADR-0005's "does not create the alias" is reversed; the README and two wiki pages
+  say the same. **DP-035** — identifier `io.github.pabloguia.macportsbrew`, directory `~/.macportsbrew/bin`
+  (staged script and checklist updated). **DP-045 (a)** — the history commands, `restore --plan --run` and the
+  `interrupted_run` finding ship in 0.1.0 (pending markers removed). **DP-034** — (b) `security -i` is researched
+  first on a hosted runner with no secrets, (a) if it fails; still open until the research is written.
+- Rationale: the owner's rulings, on the recommendations except DP-033, where (a) was recommended and (b) chosen.
+  The cost the owner accepted, stated in the entry: the `.pkg` cannot run the conflict guard. The amended texts
+  state that cost instead of the guarantee they used to make.
+- Tests: none needed for text; part B adds the payload assertions and gate cases for the second file.
+- Part B (2026-10-23, commit `3ad50fa`): `build-release.sh` carries `mpb` (`2b5fab09…` → `0f1b3f02…`). It is a
+  **byte-identical copy** of the one signed executable (decided as the staged README asked: a copy lets every
+  assertion say "the same bytes", and it shares the CDHash, so the executable's notarisation ticket is
+  expected to cover it — an inference first shown by the first signed run). `PAYLOAD=(macportsbrew mpb)` drives the `.pkg` list, BOM modes, the `.dmg` volume list and every hash;
+  a bare `mpb-<version>-<arch>` is published beside the bare executable and `SHA256SUMS` lists four files —
+  which goes beyond DP-033 (b) ("the bare-file route still installs one name") and ADR-0005's "three
+  artifacts"; **DP-052 ruled (a) by the owner, 2026-10-23: keep it**, ADR-0005's Decision amended to four
+  artifacts per architecture. Spec 08's MUST of a
+  notarisation submission per artifact is met for the bare `mpb` only by the executable's submission (the
+  same CDHash), and `SIGNING-RECORD.txt` carries its fields since follow-ups 2a (2026-10-23); the release
+  record gains `payload_names`, `mpb_sha256`, `mpb_cdhash`. Unsigned x86_64 dry run 2026-10-23: exit 0 (arm64
+  and the signed path not exercised). 19 gate
+  cases. Spec 08's MUST that "the installer does not create the `mpb` alias" was missed on 2026-10-23 and is
+  amended now to say the containers carry both names; the README's release-notes table likewise.
+- Not done: a detection for the routes that can run code.
+- Compatibility impact: none for anything published (nothing is). Users who read the old text expecting an
+  install-time check will find none; the new text says so.
+
+## SE-105 — DP-034 closed: the keychain passwords reach `security` on stdin, not in argv
+- Status: accepted
+- Date / Pass: 2026-10-23 / after pass 15 part A (DP-034; R-19 addendum of the same date)
+- Original assumption: the staged signing step passed two per-job random values to `security create-keychain -p`,
+  `unlock-keychain -p`, `set-key-partition-list -k` and `import -P`, a deviation from ADR-0005's "never in argv"
+  that the owner would have had to accept, with `security -i` named as the unverified alternative.
+- Change: `security -i` was observed on macos-26, macos-26-intel, macos-15 and macos-15-intel (one run of a
+  no-secrets workflow, pull request #14 closed unmerged). It accepts all five subcommands on stdin, echoes nothing,
+  writes nothing, and its argv is `/usr/bin/security -i` while it waits. The signing step (part B) takes one
+  `security -i` per command with hex passwords. ADR-0005 stays as written; no exception is recorded.
+- Rationale: the owner's ruling ("b first, a if it fails"); it did not fail. Two observed constraints shape the
+  recipe: `security -i` reports only the last command's exit status (so one invocation per command), and single
+  quotes are not honoured (so hex).
+- Tests: the observation itself; the staged workflow is kept as the record. Not shown: that the stdin-built
+  keychain signs (the argv control did not sign either; the first dry run with the real certificates is where
+  that is shown); the passwords in the process environment.
+- Part B (2026-10-23, commit `33eb543`): the signing step is rewritten (`release.yml` `4801f886…` →
+  `75476bef…`): hex passwords, `printf '%s\n' "$1" | security -i` per command with `|| exit 1`, the deviation
+  comment removed.
+- Not done: the sampling loop missed the control's argv
+  secrets on both Intel runners, so the claim rests on the deterministic hold test, which found none on all four.
+- Compatibility impact: none; nothing is published.
+
+
+## SE-106 — The self-test says what it found, and a canary that sees no run says why
+- Status: accepted
+- Date / Pass: 2026-10-25 / pass 15 follow-up 2j
+- Original assumption: the text backstop's self-test (2i) was enough as written: a copy with one extra run, any output
+  taken as a refusal; and a canary that failed to see the input run needed no more than "rc=N".
+- Change: `scripts/test-gates.sh` only. The self-test's verdict is a function that makes its copy with `mktemp`,
+  requires the expected refusal text, and reports a marker that is not exactly one line by name. A canary that sees
+  no run prints the script's output tail, the stub calls, any unknown stub call and a direct run of the input; each
+  input is run once directly before its canaries, and a failure is a FAIL naming the host.
+- Rationale: three Lows from the 2i review, and one failure seen twice (and once more on 2026-10-25, `macos-26`)
+  that left nothing to read. A gate test whose failure cannot be explained is a gate the owner learns to rerun.
+- Tests: four probes of the self-test verdict, one of the canary report; four mutants, each killed by its test (the
+  `mktemp` Low has no observable difference to probe).
+- Not shown: the cause of the flake. It is not Rosetta-specific; first execution of the copied unsigned bytes is
+  suspected, and the preflight does not run that copy. No retry, tolerance or removal was added.
+- Guard escape: used once, for `scripts/test-gates.sh` (the guard's log has the writes); no other guarded file was
+  edited. Four temporary mutant copies were placed in `scripts/` by shell for the mutation run (so the log does not
+  show them), never tracked, and deleted. The preflight gives the host a first run of the original input; a lower
+  rate of the flake after it would not be evidence of a fix.
+- Compatibility impact: none; test code only.

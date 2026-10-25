@@ -1251,14 +1251,83 @@ fn the_switch_needs_the_window_before_removal_closed_or_accepted() {
     );
 }
 
-/// No structural fact yet: an unconditional failure while the switch is on.
+/// Detection: a release is built without the `test-support` feature (slice 4
+/// review L1), which compiles the test-only mutation allowance in. A positive
+/// check, held whatever the switch is. It looks for the check's structure, not
+/// its words: `build-release.sh` asks cargo what the release resolves, for the
+/// target, over the edges a release build uses, with the exact command line
+/// below, and refuses when `test-support` is among it, when cargo cannot answer,
+/// and when a compiler wrapper could add the cfg unseen; `check-release-
+/// workflow.sh` refuses cargo and a feature flag in the release workflow; and
+/// the release workflow builds only through `build-release.sh`. The behaviour is
+/// proved by constructed cases in `scripts/test-gates.sh`, which also pin the
+/// arguments cargo is given; this test is that the check cannot be deleted or
+/// narrowed without a test failing here.
 #[test]
 fn the_switch_needs_release_builds_free_of_the_test_support_feature() {
-    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |rel: &str| {
+        std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+    };
+    // Whitespace-free, so a re-wrapped line does not hide the check.
+    let squeeze = |text: &str| text.split_whitespace().collect::<String>();
+    let script = squeeze(&read("scripts/build-release.sh"));
+    let check = squeeze(&read("scripts/check-release-workflow.sh"));
+    let workflow = read(".github/workflows/release.yml");
+
+    for (what, needle) in [
+        (
+            "it asks cargo the whole question, and nothing narrower",
+            r#"graph="$(cargotree--locked-pmacportsbrew--target"$target"\--prefixnone-enormal,build-f'{p}{f}'2>&1)""#,
+        ),
+        (
+            "it matches the feature as a whole word, here-string not pipeline",
+            r#"grep-E'(^|[,])test-support([,]|$)'<<<"$graph"||true"#,
+        ),
+        (
+            "refusing when it resolves",
+            "test-supportfeatureresolvesintothisbuild",
+        ),
+        (
+            "refusing when cargo cannot answer",
+            "cargotreefailed;cannotshowthatthebuildisfree",
+        ),
+        (
+            "refusing a compiler wrapper in the environment",
+            "forvarinRUSTCRUSTC_WRAPPERRUSTC_WORKSPACE_WRAPPER",
+        ),
+        (
+            "refusing a compiler wrapper in cargo's configuration",
+            "rustc-wrapper|rustc-workspace-wrapper",
+        ),
+    ] {
+        assert!(
+            script.contains(needle),
+            "scripts/build-release.sh: {what}: `{needle}` is gone (slice 4 review L1)"
+        );
+    }
+    for (what, needle) in [
+        (
+            "cargo anywhere in the release workflow",
+            "release.ymlnamescargo",
+        ),
+        ("a long feature flag anywhere in it", "--(all-)?features"),
+        ("-F on a call to the release build", "build-release"),
+    ] {
+        assert!(
+            check.contains(needle),
+            "scripts/check-release-workflow.sh no longer refuses {what}"
+        );
+    }
+    let names_cargo = workflow.lines().any(|l| {
+        let l = l.trim_start();
+        !l.starts_with('#')
+            && l.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+                .any(|w| w == "cargo")
+    });
     assert!(
-        !switch,
-        "no check holds a release artifact's build free of --all-features, which would compile \
-         the test-only mutation allowance in (slice 4 review L1); remove this only with that check"
+        !names_cargo && workflow.contains("scripts/build-release.sh"),
+        "release.yml must build only through scripts/build-release.sh, so the check applies"
     );
 }
 

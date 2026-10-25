@@ -86,6 +86,17 @@ place a surface described a build this is not. Fixed:
 
 ## Release-candidate checklist (for the owner)
 
+> **Corrected 2026-10-22 (pass 15).** Four lines below are stale, and the live
+> list is the owner table in `prompts/ROADMAP-to-first-release.md`. DP-031 is
+> resolved (the repository is `pabloguia/MacPortsBrew`, the workspace
+> `repository` field and the staged
+> `docs/passes/09-staged/workflows/release.yml`'s sign job already say so); the tooling note for item 2 is now
+> `docs/research/tooling/2026-10-22-hooks-permissions-ci.md`; the policy version
+> is `2026.10.12-4`; and CI has run, green, on `main` and on topic branches
+> (item 5). At tag time, fold what is under `## [Unreleased]` in `CHANGELOG.md`
+> into the `0.1.0` section as well (DP-045 (a) is the default; the `[Unreleased]`
+> section is no longer empty), then replace `not yet tagged` with the date.
+
 Before tagging `v0.1.0`:
 
 1. **Rule the blockers**: DP-033 (`mpb`, charter line 8), DP-034 (keychain
