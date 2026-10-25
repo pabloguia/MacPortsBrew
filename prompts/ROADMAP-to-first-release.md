@@ -25,10 +25,10 @@ allowance; a run takes its snapshot and records itself; `history`, `restore
 
 **Not done:**
 
-- **v0.1.0 is not tagged.** Pass 09's guarded files are still staged, not
-  installed (DP-033, DP-034, DP-035 and DP-045 were ruled 2026-10-23, so part B
-  of pass 15 can be armed); the certificates and repository settings are the
-  owner's.
+- **v0.1.0 is not tagged.** Pass 15 part B installed the release machinery
+  (pull request #13, merged 2026-10-25); what remains is the owner's: the
+  certificates, the repository settings, the dry run and the tag (item 5 of
+  "Remaining work" below).
 - **Mutations stay off.** Eight tests fail the day the switch is turned on
   (`docs/passes/08-pre-flip-design-notes.md` has the table). Beyond them,
   every real plan halts at `VERIFY_DESTINATION` — four of its six checks
@@ -125,12 +125,14 @@ after every part.
 In order. Nothing here needs another decision.
 
 1. ~~DP-034 research~~ **Done 2026-10-23** (R-19 addendum; `security -i` held on four
-   runners; pull request #14 closed unmerged). *Yours:* delete the remote branch
-   `research/dp034-security-stdin`.
-2. ~~Pass 15 part B~~ **Written 2026-10-23, pending the merge of #13** (pull request #13, commits `fbc270b^..c40a920`;
+   runners; pull request #14 closed unmerged). The branch `research/dp034-security-stdin`
+   was triaged on 2026-10-25 (its one commit, the throwaway workflow, is byte-identical
+   to `docs/passes/15-staged/dp034-security-stdin.yml`; nothing else was on it) and
+   deleted, local and remote, the same day.
+2. ~~Pass 15 part B~~ **Done: merged 2026-10-25** (pull request #13, merge `913fdd7`;
    `docs/passes/15-first-tag-readiness-report.md`). The release machinery is installed,
    `mpb` is a byte-identical copy in the `.pkg`, the `.dmg` and as a bare file, and the
-   signing step uses `security -i`. *Yours:* review and merge #13.
+   signing step uses `security -i`. Follow-ups 2a–2j below shipped in the same merge.
 2a. ~~Follow-ups from part B's reviews~~ **Written 2026-10-23** (armed message; pull
    request #13): the sign-path and hash-binding gate tests, `check-no-secrets.sh` over
    untracked files and two EC key forms with the git environment cleared, the
@@ -271,7 +273,7 @@ In order. Nothing here needs another decision.
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
    `docs/research/tooling/2026-10-22-*.md`.
-5. **Owner, after 2 (2 written 2026-10-23), the tag after #13 merges:** certificates, the `release-signing` environment, the
+5. **Owner, now (2 merged 2026-10-25):** certificates, the `release-signing` environment, the
    `v*` tag ruleset, immutable releases, the dispatch dry run, the Standard-account
    `.pkg` check, the Gatekeeper protocol, DP-036, the tag.
 6. **Release 0.2.0 track (pass 08 slices 6–9):** unchanged; DP-046 to DP-051 are
