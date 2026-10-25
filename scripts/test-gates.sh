@@ -960,7 +960,23 @@ STUB
     [ -e "$sp/EXECUTED" ] && ran="THE INPUT WAS EXECUTED"
     if [ "$want" = ran ]; then
       if [ -n "$ran" ]; then pass; note ok "$label"; else
-        note FAIL "$label" "the harness cannot see a run (rc=$rc)"; miss; fi
+        note FAIL "$label" "the harness cannot see a run (rc=$rc)"; miss
+        # The one failure seen so far (x86_64, signed, macos-26) left nothing to
+        # read. Say what the script printed, which stub calls it made, and whether
+        # the input still runs when run directly now (pass 15 follow-up 2j).
+        printf '        build-release.sh output, last lines:\n'
+        printf '%s\n' "$out" | tail -8 | cut -c1-200 | sed 's/^/          /'
+        printf '        stub calls, last lines:\n'
+        { tail -6 "$sp/calls" 2>/dev/null || :; } | cut -c1-160 | sed 's/^/          /'
+        [ -s "$sp/UNEXPECTED" ] && printf '        a stub was called in a form it does not know: %s\n' "$(head -1 "$sp/UNEXPECTED")"
+        rm -f "$sp/EXECUTED"; arch "-$a" "$sp/input-$a" >/dev/null 2>&1; local drc=$?
+        if [ -e "$sp/EXECUTED" ]; then
+          printf '        run directly now (the original input, not the copy the script ran): it runs (rc=%s), so the script stopped before it\n' "$drc"
+        else
+          printf '        run directly now (the original input, not the copy the script ran): it leaves no marker (rc=%s), so the host cannot run it\n' "$drc"
+        fi
+        rm -f "$sp/EXECUTED"
+      fi
       return
     fi
     if [ -n "$ran" ]; then note FAIL "$label" "$ran"; miss; return; fi
@@ -996,6 +1012,17 @@ STUB
           fi
           continue
         fi
+        # The canaries below prove the harness sees a run, so first prove the
+        # input runs at all on this host, directly, and by name if it does not:
+        # a host that cannot run it must not look like a script that did not
+        # (pass 15 follow-up 2j). A failure here is a FAIL, never a skip. Running
+        # it also gives the host its first execution of these bytes.
+        rm -f "$sp/EXECUTED"; arch "-$a" "$sp/input-$a" >/dev/null 2>&1; prc=$?
+        if [ ! -e "$sp/EXECUTED" ]; then
+          note FAIL "canary preflight ($a)" "the input left no marker when run directly (rc=$prc)"; miss
+          continue
+        fi
+        rm -f "$sp/EXECUTED"; pass; note ok "canary preflight ($a): the input runs on this host"
         full_case ran "canary, whole path ($a): without the guard the input runs (dry)" "$sp/canary" "$a" \
           --from-binary "$sp/input-$a"
         full_case ran "canary, whole path ($a): without the guard the input runs (signed)" "$sp/canary" "$a" \
@@ -1022,6 +1049,23 @@ STUB
       --from-binary "$hin"
     full_case refused-notary "a refused notarisation: its branch runs, and not the input" "$sp/repo" "$host_arch" \
       --sign --expect-unsigned-sha256 "$hsha" --from-binary "$hin"
+    # The diagnostic a canary prints when it cannot see a run, probed: the real
+    # script never runs the input, so asking the harness to expect a run must
+    # fail, and the failure must say what the script printed and whether the
+    # input still runs when run directly (pass 15 follow-up 2j). The probe's own
+    # failure is captured, not counted; the counter it moved is moved here too.
+    diag="$(full_case ran "probe" "$sp/repo" "$host_arch" --from-binary "$hin" 2>&1)"
+    sp_n=$((sp_n + 1))
+    if printf '%s\n' "$diag" | grep -q 'the harness cannot see a run (rc=0)' \
+       && printf '%s\n' "$diag" | grep -q 'build-release.sh output, last lines:' \
+       && printf '%s\n' "$diag" | grep -q 'stub calls, last lines:' \
+       && printf '%s\n' "$diag" | grep -q 'DRY RUN' \
+       && printf '%s\n' "$diag" | grep -q 'run directly now (the original input, not the copy the script ran): it runs (rc=0), so the script stopped before it'; then
+      pass; note ok "a canary that sees no run prints the script's output and runs the input directly"
+    else
+      note FAIL "a canary that sees no run prints the script's output and runs the input directly" \
+        "$(printf '%s' "$diag" | head -4 | tr '\n' ';' | cut -c1-200)"; miss
+    fi
     # Nothing may change the two variables that decide: an assignment after the
     # option parsing is a runtime error, and the run stops there. bash 3.2,
     # macOS's, exits 0 from that error under an EXIT trap (observed 2026-10-24);
@@ -1348,15 +1392,52 @@ function words(c, W,   n, i, ch, inq, cur, ap) {
 ALLOW
   violations="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$BR")"; arc=$?
   # The check must be able to refuse: a copy with one extra run of the input
-  # must fail it, or the check proves nothing (pass 15 follow-up 2i).
-  awk '/^# --- 8\. Checksums/ { print "\"$bin\" -V" } { print }' "$BR" >"$allow.bad"
-  selftest="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$allow.bad")"; src=$?
-  rm -f "$allow" "$allow.bad"
+  # must fail it, or the check proves nothing (pass 15 follow-up 2i). The verdict
+  # is a function so that it can be probed (follow-up 2j): <script> <marker
+  # regex> <line to insert before the marker> <the refusal that is expected>
+  # prints ok | marker-missing | check-failed | accepted | wrong-refusal. The
+  # copy is made by mktemp, the marker must be exactly one line, and the check's
+  # output must be the expected refusal, not any output.
+  selftest_verdict() {
+    local script="$1" marker="$2" line="$3" want="$4" bad out rc
+    [ "$(grep -cE -- "$marker" "$script")" = 1 ] || { echo marker-missing; return; }
+    bad="$(mktemp "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")" || { echo check-failed; return; }
+    M="$marker" L="$line" awk '$0 ~ ENVIRON["M"] { print ENVIRON["L"] } { print }' "$script" >"$bad" \
+      || { rm -f "$bad"; echo check-failed; return; }
+    out="$(awk -v OK="$OK" -v INPUT="$INPUT" -f "$allow" "$bad")"; rc=$?
+    rm -f "$bad"
+    if [ "$rc" -ne 0 ]; then echo check-failed
+    elif [ -z "$out" ]; then echo accepted
+    elif printf '%s\n' "$out" | grep -qxF -- "$want"; then echo ok
+    else echo wrong-refusal; fi
+  }
+  EXTRA_RUN='"$bin" -V'; EXTRA_WANT='the input is run 3 times, not 2'; EXTRA_AT='^# --- 8\. Checksums'
+  selftest="$(selftest_verdict "$BR" "$EXTRA_AT" "$EXTRA_RUN" "$EXTRA_WANT")"
+  # Probes: the verdict must be able to say each thing it says. Each is a copy
+  # the real check would judge differently from the real self-test.
+  probe() { # <label> <expected verdict> <actual>
+    if [ "$3" = "$2" ]; then pass; note ok "$1"; else note FAIL "$1" "verdict '$3', expected '$2'"; miss; fi
+  }
+  probe "self-test verdict: a marker that is not a line is named, not mistaken for an accepted copy" \
+    marker-missing "$(selftest_verdict "$BR" '^# --- no such marker in the script' "$EXTRA_RUN" "$EXTRA_WANT")"
+  probe "self-test verdict: a copy the check accepts is reported as accepted" \
+    accepted "$(selftest_verdict "$BR" "$EXTRA_AT" '# nothing runs here' "$EXTRA_WANT")"
+  probe "self-test verdict: a refusal that is not the expected one is not the expected refusal" \
+    wrong-refusal "$(selftest_verdict "$BR" "$EXTRA_AT" 'curl -s example.invalid' "$EXTRA_WANT")"
+  probe "self-test verdict: the expected refusal is recognised" \
+    ok "$(selftest_verdict "$BR" "$EXTRA_AT" "$EXTRA_RUN" "$EXTRA_WANT")"
+  rm -f "$allow"
   label="text backstop: listed commands only, the input named only by listed tools, two runs in the guard's else"
-  if [ "$arc" -ne 0 ] || [ "$src" -ne 0 ]; then
-    note FAIL "$label" "the check itself failed (awk exit $arc, self-test $src)"; miss
-  elif [ -z "$selftest" ]; then
+  if [ "$arc" -ne 0 ]; then
+    note FAIL "$label" "the check itself failed (awk exit $arc)"; miss
+  elif [ "$selftest" = marker-missing ]; then
+    note FAIL "$label" "the self-test's marker '$EXTRA_AT' is not exactly one line of $BR; the check was not shown able to refuse"; miss
+  elif [ "$selftest" = check-failed ]; then
+    note FAIL "$label" "the self-test itself failed to run (mktemp or awk)"; miss
+  elif [ "$selftest" = accepted ]; then
     note FAIL "$label" "the check accepts a copy with an extra run of the input"; miss
+  elif [ "$selftest" = wrong-refusal ]; then
+    note FAIL "$label" "the check refuses a copy with an extra run, but not with '$EXTRA_WANT'"; miss
   elif [ -z "$violations" ]; then
     pass; note ok "$label"
   else
