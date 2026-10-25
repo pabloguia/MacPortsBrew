@@ -44,11 +44,11 @@ macportsbrew env [--revert]       managed shell block: preview / remove   [later
 macportsbrew doctor [--deep] [--report]
 macportsbrew history [show <id>] [--limit <n>]
                                   runs, newest first: outcome, restorable?, snapshot; `show` prints one run's record
-                                  and its steps. Reads only this machine's own state directory; never under
-                                  --replay or --from-snapshot, and never as root
+                                  and its steps. Reads this machine's own state directory and writes nothing in it;
+                                  never under --replay or --from-snapshot, and never as root
 macportsbrew history acknowledge <id> [--yes]
                                   deal with the interrupted-run marker of that run; without --yes only says
-                                  what it would do
+                                  what it would do; with --yes writes the state directory and nothing else
 macportsbrew cleanup              [later pass]
 ```
 

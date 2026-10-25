@@ -564,9 +564,11 @@ you rule.
 - **Ruled 2026-10-23 by the owner: (a).** `history`, `history show`,
   `history acknowledge`, `restore --plan --run` and `doctor`'s `interrupted_run`
   finding ship in 0.1.0. **Propagated:** the `DP-045 pending` markers are gone from
-  `CHANGELOG.md` and `README.md`; their text stands. **Still owed, small:** the
-  top-level `--help` calls `history` "Reads only" while `history acknowledge --yes`
-  can write (a catalogue string and its pt-BR twin).
+  `CHANGELOG.md` and `README.md`; their text stands. **Done 2026-10-25:** the
+  top-level `--help` called `history` "Reads only" while `history acknowledge --yes`
+  can write; it now names `acknowledge --yes` as the one writer. It was a clap doc
+  comment in `crates/cli/src/app/mod.rs`, not a catalogue string, and had no pt-BR
+  twin (`--help` is English by a stated exemption); roadmap item 3 has the tests.
 - The original entry follows.
 
 Raised 2026-10-18, handoff after slice 5. `main` now carries `history`,

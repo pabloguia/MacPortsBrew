@@ -29,6 +29,10 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `--help`: the top-level line for `history` no longer says it "Reads only". It
+  reads MacPortsBrew's own state directory, and `history acknowledge <id> --yes`
+  writes there (it makes a run's record durable and removes the interrupted-run
+  marker). Behaviour is unchanged; only the help was wrong.
 - `--dry-run` now writes nothing: `snapshot` and `doctor --report` say where
   they would have written instead of writing. Under `--replay` or
   `--from-snapshot`, `snapshot` needs `--out` (exit 2), so another machine's
