@@ -665,3 +665,57 @@ all in the text check.**
 
 None is a High, so 2g is committed as reviewed. The findings are ROADMAP item 2h.
 
+## Follow-up 2h, 2026-10-24
+
+A ninth armed message. **Guarded file written:** `scripts/test-gates.sh`, by
+`python3` from a scratch file, before any background task.
+
+- **M-A:** the text check refuses an assignment, prefix or declared, to a variable
+  a tool reads as a program to run. The names are:
+  - `GIT_*`, `RUSTC*`, `RUSTDOC*`;
+  - cargo's runner, wrapper, rustc and linker variables;
+  - `CC`, `CXX`, `LD`, `AR`, `CPP`;
+  - `PAGER`, `MANPAGER`, `EDITOR`, `VISUAL`, `SHELL`;
+  - `*_ASKPASS`, `TAR_*`, `XCODE*`, `DEVELOPER_DIR`, `SUDO_*`.
+
+  A digest is now narrow: `shasum`, `lipo -archs`, `wc` reading only its standard
+  input, `grep -c`, and `awk` only right after one of those.
+- **L-A:** the exemption is judged on a substitution's last pipeline stage. A
+  substitution with any other break (`;`, `&&`, `||`, a newline) is never exempt.
+  The `grep -c` test reads only the leading options.
+- **M-B:** an awk program must be single-quoted, with values passed in by `-v`;
+  `awk -f` is refused.
+- **L-D:** `>|` is a redirection, not a lone `|`.
+- **L-B:** a failing `arch` probe for the host's own architecture is a failure,
+  not a skip.
+- **L-C:** unchanged. The x86_64-on-arm64 canary first runs on the arm64 CI runners.
+
+The gate suite passes (166 cases), and the 53 text-check spellings are still
+refused. Seventeen probes behave as intended:
+- refused: a `GIT_PAGER`/`RUSTC_WRAPPER`/`GIT_EXTERNAL_DIFF` given the input; an
+  awk or `stat` pass-through; a multi-command substitution; a double-quoted or `-f`
+  awk program;
+- accepted: `shasum | awk`, `wc -c <`, `lipo -archs`, `grep -c`, `>|`, `-F`/`-v`
+  and `||`.
+
+The probes use `q`, because `build-release.sh` already makes `p` name a copy of
+the input.
+
+**The review (security-reviewer, Opus, read-only): no High, two Medium, three
+Low.**
+
+- **Confirmed:** every 2g finding is fixed, and the real `build-release.sh` gives no
+  violation, its `cargo build` prefix assignments included.
+- **The Mediums are about the check's own reliability:**
+  - a failing awk run produces empty output, which the gate reads as a pass. This
+    was already the case before 2h;
+  - none of the rules is tested in the committed suite, because the mutants and
+    probes lived only in the scratchpad. Also, the probes' `printf` sinks would
+    have accepted their lines whatever the exemption did.
+- **The Lows:**
+  - `shasum` and `grep -H` output carries the file name;
+  - `CODESIGN_ALLOCATE`, `SDKROOT` and `TOOLCHAINS` are not refused;
+  - five honest-edit false positives, all of which fail closed.
+
+2h is committed as reviewed; the findings are ROADMAP item 2i.
+

@@ -208,8 +208,9 @@ In order. Nothing here needs another decision.
      and are skipped by name otherwise.
    Also recorded, outside DP-053 (c): `printf … >>.git/config` setting
    `core.fsmonitor`, followed by any git call, belongs to the structural defence.
-2h. **Small, one armed message: the 2g review's findings** (no High; all in the text
-   check, `scripts/test-gates.sh`).
+2h. ~~The 2g review's findings~~ **Written 2026-10-24** (armed message; pull request #13;
+   all in the text check, `scripts/test-gates.sh`). L-C stays open: the x86_64-on-arm64
+   canary is first exercised by the arm64 CI runners.
    - **M-A:** variables a tool reads as a program to run are not refused. Examples
      are `export GIT_PAGER="$bin"; git log` and `export RUSTC_WRAPPER="$bin"`. This
      was already at HEAD, and the stubbed `git`/`cargo` do not honour them. The
@@ -228,6 +229,29 @@ In order. Nothing here needs another decision.
    - **L-C:** the x86_64-on-arm64 canary has never run; the first arm64 CI run
      (`macos-26`, `macos-15`) is its first test.
    - **L-D:** `>|` on an awk command reads as a lone `|`.
+2i. **Before the tag, one armed message: the 2h review's findings** (no High; all in
+   `scripts/test-gates.sh`).
+   - **M1:** the text check passes when awk itself fails. A syntax error exits 2 with
+     empty output, which reads as "holds", and this was true before 2h too. Fix:
+     fail on a non-zero awk status, and run the check once over a known-bad copy,
+     requiring at least one violation.
+   - **M2:** none of the text check's rules is tested in the suite; the 53 mutants
+     and 17 probes lived in the session's scratchpad. Fix: commit a probe table
+     (R/A plus a line) run through the same insertion loop, with a sink in OK but
+     not in INPUT (`git tag -m "$q" x`) for every accepted line. `printf` sinks pass
+     whatever the exemption does.
+   - **L3:** `shasum` output carries the file name, and so does `grep -H` or a
+     multi-file `grep -c`. Count `shasum` as a digest only on standard input, or
+     allow only `awk '{print $1}'` after it; for `grep -c`, refuse `-H` and more than
+     one file.
+   - **L4:** add `CODESIGN_ALLOCATE`, `SDKROOT` and `TOOLCHAINS` to the refused
+     assignments.
+   - **L5:** fix these honest-edit false positives:
+     - `wc -c < f` with a space;
+     - `wc … | tr -d ' '` not exempt;
+     - the message for `GIT_*` hardening variables;
+     - `awk -- '…'`;
+     - `grep -e x -c`.
 3. **Small, unguarded, any time:** reword the top-level `--help` line for
    `history` ("Reads only") and its pt-BR twin; add an i18n-parity check.
 4. **Optional, as one armed message:** the `.claude/` fixes in
