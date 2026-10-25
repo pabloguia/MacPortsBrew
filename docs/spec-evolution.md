@@ -8151,3 +8151,24 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   secrets on both Intel runners, so the claim rests on the deterministic hold test, which found none on all four.
 - Compatibility impact: none; nothing is published.
 
+
+## SE-106 — The self-test says what it found, and a canary that sees no run says why
+- Status: accepted
+- Date / Pass: 2026-10-25 / pass 15 follow-up 2j
+- Original assumption: the text backstop's self-test (2i) was enough as written: a copy with one extra run, any output
+  taken as a refusal; and a canary that failed to see the input run needed no more than "rc=N".
+- Change: `scripts/test-gates.sh` only. The self-test's verdict is a function that makes its copy with `mktemp`,
+  requires the expected refusal text, and reports a marker that is not exactly one line by name. A canary that sees
+  no run prints the script's output tail, the stub calls, any unknown stub call and a direct run of the input; each
+  input is run once directly before its canaries, and a failure is a FAIL naming the host.
+- Rationale: three Lows from the 2i review, and one failure seen twice (and once more on 2026-10-25, `macos-26`)
+  that left nothing to read. A gate test whose failure cannot be explained is a gate the owner learns to rerun.
+- Tests: four probes of the self-test verdict, one of the canary report; four mutants, each killed by its test (the
+  `mktemp` Low has no observable difference to probe).
+- Not shown: the cause of the flake. It is not Rosetta-specific; first execution of the copied unsigned bytes is
+  suspected, and the preflight does not run that copy. No retry, tolerance or removal was added.
+- Guard escape: used once, for `scripts/test-gates.sh` (the guard's log has the writes); no other guarded file was
+  edited. Four temporary mutant copies were placed in `scripts/` by shell for the mutation run (so the log does not
+  show them), never tracked, and deleted. The preflight gives the host a first run of the original input; a lower
+  rate of the flake after it would not be evidence of a fix.
+- Compatibility impact: none; test code only.

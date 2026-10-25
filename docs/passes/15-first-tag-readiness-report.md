@@ -761,3 +761,54 @@ did not recur in 19 further runs. It fails closed, and the cause is unknown;
 first-execution assessment of a fresh unsigned binary is suspected. Item 2j adds
 a diagnostic.
 
+
+## Follow-up 2j (2026-10-25): the 2i Lows, and a diagnostic for the canary flake
+
+Under an armed message (`MPB_ALLOW_GUARD_EDIT=1`, the owner's, for this one task).
+The only guarded file written is `scripts/test-gates.sh`; the guard's log
+(`.claude/.guard-edit-log`) lists the Edit writes; the four mutant copies were
+placed in `scripts/` as untracked files for the mutation run and removed after it. Why: the three Lows and the
+diagnostic are changes to a gate test, which is guarded (SE-093).
+
+**Done, each with a test that fails without it** (four mutants of the suite, run
+against the real tree, each killed by the test named for it):
+- the self-test's verdict is a function (`selftest_verdict`) that makes its copy
+  with `mktemp` (Low 1), requires the check's output to be the expected refusal,
+  `the input is run 3 times, not 2` (Low 2), and says `marker-missing` when the
+  marker is not exactly one line, instead of "accepts a copy with an extra run"
+  (Low 3). Four committed probes drive it: a missing marker, an accepted copy, a
+  refusal that is not the expected one, and the expected refusal. Mutants: the
+  output test replaced by "any output" fails the wrong-refusal probe; the marker
+  count removed fails the marker-missing probe. Low 1 has no probe of its own: the
+  copy's name is the function's `mktemp`, and nothing observable differs.
+- a canary that sees no run prints the last eight lines of `build-release.sh`'s
+  output, the last stub calls, any unknown stub call, and whether the input runs
+  when run directly then. One committed probe makes a canary fail on purpose (the
+  real script never runs the input) and requires all four parts of the report; the
+  mutant that drops the direct run fails it.
+- a preflight runs each input once, directly, before that architecture's canaries,
+  and a FAIL (never a skip) names the host when it cannot run it. The mutant that
+  runs `/usr/bin/true` instead fails it.
+
+**The flake's cause is not proved.** Observed: the x86_64 signed guard-removed
+canary failed to see the input run once on `macos-26` (an arm64 host, so under
+Rosetta; the run of 2026-10-25, job 121077171842, `rc=1`, no output kept), and
+earlier, by the 2i session's account, on this Intel machine, in the Stop gate and in 1 of 4 full suites,
+then not in 19 further runs. So it is not specific to Rosetta. The suspicion
+stays the first execution of fresh unsigned bytes (the signed path runs a copy
+in the output directory, a new file each time). The preflight runs the original
+input, not that copy, so it does not claim to prevent the flake: it separates
+"this host cannot run the input" from "the script stopped before running it", and
+the printed output of the script is what would show the rest. No retry, tolerance
+or removal was added; a failing canary still fails.
+
+**Not shown:** that the flake is gone (it was rare); the new failure report on a
+real occurrence; the arm64 `macos-15` canary (its first CI result is this run).
+
+**Reviews (security-reviewer and spec-guardian, read-only): no High, no Medium, no violation.** Applied: the marker
+count uses `grep -E`, as the insertion's awk does (a regex-dialect Low); the canary probe also requires a line of the
+script's own output (`DRY RUN`), not only the two headings; the direct-run line says it ran the original input, not
+the copy the script ran; SE-106 says the mutant copies were in `scripts/`, untracked, and deleted, and that a lower
+flake rate after the preflight is not evidence of a fix. Accepted, not done: the preflight does not print its
+elapsed time (the cause is open and the printed output is the diagnostic); the shared `$sp/EXECUTED` marker
+(the harness is serial); an interrupted run can leave one 0600 `mktemp` file in `$TMPDIR`.

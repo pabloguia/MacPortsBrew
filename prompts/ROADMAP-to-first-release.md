@@ -255,7 +255,12 @@ In order. Nothing here needs another decision.
      - the message for `GIT_*` hardening variables;
      - `awk -- '…'`;
      - `grep -e x -c`.
-2j. **Small, one armed message (`scripts/test-gates.sh`), the 2i review and a flake:**
+2j. ~~**Small, one armed message (`scripts/test-gates.sh`), the 2i review and a flake**~~
+   **Written 2026-10-25** (SE-106; the report's follow-up 2j). The three Lows are done
+   with a probe each; the flake's cause is **not proved**: a canary that sees no run
+   now prints the script's output and runs the input directly, and a preflight runs
+   each input once before the canaries. The next occurrence will say what happened.
+   As planned:
    - make the self-test copy with `mktemp`;
    - require the self-test's expected refusal text;
    - fail with "marker not found" when no line was inserted;
