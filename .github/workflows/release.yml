@@ -181,6 +181,14 @@ jobs:
             exit 1
           fi
 
+      # `validate.sh` has a shellcheck stage (F-45) and the macOS runner image
+      # does not ship the binary: the first dispatch dry run (run 40242713201,
+      # 2026-10-25) failed that stage on both runners with "command not found"
+      # while every other stage passed. Installed the way repository-validation.yml
+      # installs it on its macOS runners. This job holds no secret.
+      - name: Install shellcheck
+        run: brew install shellcheck
+
       - name: Validation (tests and the fixture matrix, as ordinary CI runs them)
         run: scripts/validate.sh
 
