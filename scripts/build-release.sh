@@ -227,6 +227,9 @@ if [ "$sign" = 1 ]; then
   for var in MPB_SIGN_KEYCHAIN MPB_APP_IDENTITY MPB_INSTALLER_IDENTITY MPB_TEAM_ID \
              MPB_NOTARY_KEY_PATH MPB_NOTARY_KEY_ID; do
     [ -n "${!var:-}" ] || die "--sign needs $var in the environment"
+    # One line each: `grep -F` reads every line of its pattern as a separate
+    # pattern, so an identity with a newline would match on any one of them.
+    case "${!var}" in *$'\n'*|*$'\r'*) die "$var must be a single line" ;; esac
   done
   # Names only here. The keychain, the key file and the identities are not
   # touched until the input has been bound to the expected bytes (step 1).
@@ -661,7 +664,9 @@ assert_payloads() { # <pass label>
   assert_same_bytes "$mnt" "dmg ($pass) volume"
   hdiutil detach -quiet "$mnt"
   mnt=""
-  hdiutil imageinfo "$out/$base.dmg" | grep -qx 'Format: UDZO' || die "dmg ($pass): not UDZO"
+  # Captured, not piped: the same `grep -q` SIGPIPE race as the identity checks.
+  img_info="$(hdiutil imageinfo "$out/$base.dmg")" || die "dmg ($pass): hdiutil imageinfo failed"
+  grep -qx 'Format: UDZO' <<<"$img_info" || die "dmg ($pass): not UDZO"
   note "dmg ($pass): payload = bare executable ($signed_sha); volume holds only ${PAYLOAD[*]}; HFS+, UDZO"
 }
 

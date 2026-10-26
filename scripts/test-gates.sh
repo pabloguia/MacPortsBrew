@@ -746,20 +746,23 @@ else
   stub otool    'case "$1" in -l) printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n" ;; -L) printf "%s:\n\t/usr/lib/libSystem.B.dylib (compatibility)\n" "$2" ;; esac'
   stub vtool    'printf "      cmd LC_BUILD_VERSION\n    minos 10.12\n"'
   stub strings  ':'
-  stub security 'printf "  1) AAAA \"%s\"\n  2) BBBB \"%s\"\n" "$MPB_APP_IDENTITY" "$MPB_INSTALLER_IDENTITY"'
+  # One spelling of the stub, restored after the case that replaces it.
+  sp_security_ok='printf "  1) AAAA \"%s\"\n  2) BBBB \"%s\"\n" "$MPB_APP_IDENTITY" "$MPB_INSTALLER_IDENTITY"'
+  stub security "$sp_security_ok"
   stub codesign 'echo "stub codesign refuses" >&2; exit 1'
   : >"$sp/keychain"; : >"$sp/key.p8"; chmod 0600 "$sp/key.p8"
   sp_n=0
+  SP_REPO=""; SP_APP_ID=""   # never inherited from the caller's environment
   # <want: ran-to-codesign|executed|bound-mismatch|usage|refused-hash> <label> <args...>
   # SP_REPO picks the tree (default: the real script's).
   sp_case() {
     local want="$1" label="$2" out rc verdict=1 repo="${SP_REPO:-$sp/repo}"; shift 2
     sp_n=$((sp_n + 1)); rm -f "$sp/EXECUTED" "$sp/calls"
     out="$(env PATH="$sp/bin:$PATH" MPB_SIGN_KEYCHAIN="$sp/keychain" MPB_NOTARY_KEY_PATH="$sp/key.p8" \
-             MPB_APP_IDENTITY="Developer ID Application: Gates" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
+             MPB_APP_IDENTITY="${SP_APP_ID:-Developer ID Application: Gates}" MPB_INSTALLER_IDENTITY="Developer ID Installer: Gates" \
              MPB_TEAM_ID="$(printf 'GATES%s' TEAM1)" MPB_NOTARY_KEY_ID=k \
              "$repo/scripts/build-release.sh" x86_64-apple-darwin "$sp/out$sp_n" "$@" 2>&1)"; rc=$?
-    SP_REPO=""
+    SP_REPO=""; SP_APP_ID=""
     if [ "$want" = executed ]; then
       if [ -e "$sp/EXECUTED" ]; then pass; note ok "$label"; else
         note FAIL "$label" "the harness cannot see an execution (rc=$rc)"; miss; fi
@@ -775,6 +778,11 @@ else
       refused-hash)    [ "$rc" -eq 1 ] && [ ! -e "$sp/calls" ] \
                          && printf '%s' "$out" | grep -q 'needs --expect-unsigned-sha256' && verdict=0 ;;
       usage)           [ "$rc" -eq 2 ] && [ ! -e "$sp/calls" ] && printf '%s' "$out" | grep -q '^usage:' && verdict=0 ;;
+      no-identities)   [ "$rc" -eq 1 ] && grep -q '^security ' "$sp/calls" 2>/dev/null \
+                         && ! grep -q '^codesign ' "$sp/calls" \
+                         && printf '%s' "$out" | grep -q 'security could not list' && verdict=0 ;;
+      multiline-id)    [ "$rc" -eq 1 ] && [ ! -e "$sp/calls" ] \
+                         && printf '%s' "$out" | grep -q 'MPB_APP_IDENTITY must be a single line' && verdict=0 ;;
     esac
     if [ "$verdict" -eq 0 ]; then pass; note ok "$label"; else
       note FAIL "$label" "rc=$rc calls=$(tr '\n' ';' <"$sp/calls" 2>/dev/null | cut -c1-80)"; miss
@@ -802,6 +810,16 @@ else
   sp_case refused-hash "a short hash is refused" --sign --expect-unsigned-sha256 abc123 --from-binary "$sp/input"
   sp_case usage "--expect-unsigned-sha256 without --sign is a usage error" \
     --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  # An identity of two lines would let `grep -F` match on either; refused
+  # before anything is consulted.
+  SP_APP_ID="$(printf 'junk\nDeveloper ID Installer: Gates')" \
+    sp_case multiline-id "an identity of more than one line is refused before security" \
+    --sign --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  # A security that cannot list the keychain stops the run before codesign.
+  stub security 'exit 1'
+  sp_case no-identities "a security that cannot list identities stops the sign path" \
+    --sign --expect-unsigned-sha256 "$in_sha" --from-binary "$sp/input"
+  stub security "$sp_security_ok"
   # The whole sign path, to its end (pass 15 follow-ups 2e and 2f). What this
   # gate is for is the accidental regression - an honest edit that runs the
   # input on the sign path (DP-053, ruled (c)): a test of a shell script cannot
