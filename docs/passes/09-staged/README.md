@@ -417,12 +417,18 @@ app-specific password). The `.p8` downloads once.
    OpenSSL-3 export through two process substitutions, then imports it with
    `security import` and sets the partition list. On this machine LibreSSL
    decrypted an OpenSSL-3.6 PBES2 `.p12` and the re-wrap round-tripped, but
-   only with a self-signed throwaway key and no keychain; the whole sequence
-   has never run on a hosted runner. Observe it once with a **throwaway**
+   only with a self-signed throwaway key and no keychain; before 2026-10-26 the
+   whole sequence had never run on a hosted runner. Observe it once with a **throwaway**
    self-signed `.p12` (never the Developer ID one) — for example in a private
    scratch repository's workflow running the same step text — before the first
    tag. It fails closed: an unreadable `.p12` or a failed import stops the
    step under `set -euo pipefail` and nothing is signed.
+   **Observed 2026-10-26** on macos-26 and macos-26-intel, both `.p12`
+   formats, with two throwaway identities, on a temporary branch of this
+   (public) repository rather than a scratch repository — no secret, no
+   environment, `permissions: {}`: the sequence holds and the imported
+   application key signs non-interactively (R-19, addendum of 2026-10-26;
+   the probe is [`p12-import-probe.yml`](p12-import-probe.yml)).
 4. **Research the release depends on [SG2 B-L3]**, each recorded with a date
    (an R-19 addendum) before the first tag:
    - GitHub's artifact-attestation documentation for `attest-build-provenance`

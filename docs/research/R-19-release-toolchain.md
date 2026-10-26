@@ -1056,3 +1056,52 @@ sec_i "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $kc_pw $kc" 
 ```
 
 Re-check when macOS or the runner image moves, or if `security` is changed.
+
+## Addendum, 2026-10-26 — the sign step's credential import, observed on hosted runners [SR2 B-L5]
+
+Observed on hosted runners **macos-26** (26.6.2, arm64) and **macos-26-intel**
+(26.6.1, x86_64), by one run (`gh run view 40332886503`) of the throwaway
+workflow `docs/passes/09-staged/p12-import-probe.yml` (sha256 `77121ca3…`; run from
+commit `3dd1221` on 2026-10-26), pushed to the temporary branch
+`probe/p12-import` of `pabloguia/MacPortsBrew` (a public repository) and never
+merged; the workflow is kept in-tree because the run log expires. The
+workflow had `permissions: {}`, read no secret and named no environment; the
+`release-signing` environment admits `v*` tags only, so a branch push could not
+reach it. Two self-signed identities (`MPB throwaway app`, `MPB throwaway
+installer`; `codeSigning`, valid one day) and their passwords were made on the
+VM, passwords masked. The log was scanned for 32- and 48-digit hex values before
+this was written: none.
+
+The import step's body is `release.yml` @ `89d705b`, lines 342–384, **verbatim**
+(checked with `diff` before the push): the `/usr/bin/openssl` (LibreSSL 3.3.6)
+re-wrap through two process substitutions, `create-keychain`,
+`set-keychain-settings`, `unlock-keychain`, `import … -T …` and
+`set-key-partition-list`, each through its own `security -i`, then the
+`list-keychains` search-list change. Each runner ran it on two `.p12` formats:
+
+| Format | Made by | Encryption seen |
+|---|---|---|
+| `openssl3` | Homebrew OpenSSL 3.5.9 (arm64) / 3.6.3 (Intel) `pkcs12 -export` | PBES2, PBKDF2, AES-256-CBC, 2048 iterations, MAC sha256 |
+| `keychain` | the same identity re-exported by `security export -f pkcs12` (expected to be the format Keychain Access writes; inference, see below) | certificate bag `pbeWithSHA1And40BitRC2-CBC`, 2048 iterations; MAC sha1, 1 iteration; key bag not shown — OpenSSL 3 refused RC2-40 without `-legacy`, where LibreSSL read it |
+
+**Result: the sequence holds on all four (runner × format) jobs.** LibreSSL read
+both formats and re-wrapped them, `security` imported both identities into the
+new keychain (`2 identities found`; `0 valid`, as expected of an untrusted
+self-signed certificate), and `codesign --timestamp=none -s "MPB throwaway app"
+--keychain <kc>` signed a copy of `/usr/bin/true` **without interaction**
+(`Authority=MPB throwaway app`), which is the partition list doing its job. This
+closes the 2026-10-23 addendum's "the keychain signs is not established" for a
+self-signed **application** identity (the installer identity was imported and
+listed, never used). The likely difference from that run is `--timestamp=none`
+and an explicit `--keychain`; no control run isolated it, so that is inference.
+
+**Not shown.** The real Developer ID `.p12` files (exported from Keychain Access
+on the owner's macOS 26) were not used and their encryption was not inspected;
+they are expected to be in the `keychain` row's format, since Keychain Access and
+`security export` share the exporter, but that is inference. `productbuild`/
+`productsign` with the installer identity, a trusted chain, a secure timestamp
+and notarisation are not exercised here; the first tagged run is where they are,
+and the step still fails closed under `set -euo pipefail` if they do not hold.
+
+Re-check when macOS or the runner image moves, when `/usr/bin/openssl` stops
+being LibreSSL, or if the import step's text changes.
