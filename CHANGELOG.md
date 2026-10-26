@@ -29,6 +29,12 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `plan`, `migrate` and `restore --plan`: a destination that records the
+  package as not available, not supported on this platform, or disabled now
+  makes the plan a manual review (`destination_artifact_unavailable`, exit 4),
+  in either direction. No provider reports the first two states today, so no
+  real plan changes yet; a package that only builds from source, or whose
+  availability is unknown, is still planned (DP-050). See SE-107.
 - `--help`: the top-level line for `history` no longer says it "Reads only". It
   reads MacPortsBrew's own state directory, and `history acknowledge <id> --yes`
   writes there (it makes a run's record durable and removes the interrupted-run

@@ -1703,3 +1703,223 @@ fn invariant_04_removal_with_dependents_is_blocked_and_explained() {
         mirror.risks
     );
 }
+
+// --- Pass 08 slice 6, part A: an artifact the destination cannot supply ------
+
+/// `install_needed(source)` with the destination's record of its counterpart
+/// set to `availability`, and its withdrawal flags as given. Returns the plan
+/// for the source's package toward the other provider.
+fn with_destination_availability(
+    source: &str,
+    availability: ArtifactAvailability,
+    disabled: bool,
+    deprecated: bool,
+) -> MigrationPlan {
+    let (destination, counterpart, package) = if source == HB {
+        (MP, "gsed", "gnu-sed")
+    } else {
+        (HB, "gnu-sed", "gsed")
+    };
+    let mut snap = install_needed(source);
+    let dest = snap
+        .providers
+        .get_mut(&ProviderId::new(destination))
+        .expect("both providers are in the fixture");
+    dest.inventory.availability.insert(
+        counterpart.to_string(),
+        AvailabilityAssessment {
+            availability,
+            evidence: vec![AvailabilityEvidence {
+                source: "test".into(),
+                detail: "constructed".into(),
+                offline: true,
+            }],
+            cached: false,
+        },
+    );
+    let meta = dest
+        .inventory
+        .metadata
+        .entry(counterpart.to_string())
+        .or_default();
+    meta.disabled = disabled.then(|| "2026-01-01".to_string());
+    meta.deprecated = deprecated.then(|| "2026-01-01".to_string());
+    plan_for(&snap, package, destination, false)
+}
+
+/// The reason ids of a plan's `MANUAL_REVIEW` steps, in plan order.
+fn reviews(plan: &MigrationPlan) -> Vec<String> {
+    plan.steps
+        .iter()
+        .filter(|s| s.kind == StepKind::ManualReview)
+        .map(|s| s.reason.id.as_str().to_string())
+        .collect()
+}
+
+fn kinds(plan: &MigrationPlan) -> Vec<StepKind> {
+    plan.steps.iter().map(|s| s.kind).collect()
+}
+
+/// 04, "Undoing a migration": a destination that records its counterpart as
+/// unavailable, unsupported on this platform, or disabled makes the plan
+/// `MANUAL_REVIEW` with the reason — the same in both directions (INV-17).
+/// `DISABLED` is tested with the withdrawal flag *off*, so the availability arm
+/// is what blocks: with the flag on, the withdrawal reason blocks first.
+#[test]
+fn invariant_17_an_unavailable_destination_blocks_identically_in_both_directions() {
+    for (state, label) in [
+        (ArtifactAvailability::Unavailable, "UNAVAILABLE"),
+        (
+            ArtifactAvailability::UnsupportedPlatform,
+            "UNSUPPORTED_PLATFORM",
+        ),
+        (ArtifactAvailability::Disabled, "DISABLED"),
+    ] {
+        let mut shapes = Vec::new();
+        for source in [HB, MP] {
+            let plan = with_destination_availability(source, state.clone(), false, false);
+            assert!(
+                plan.steps.iter().all(|s| s.kind == StepKind::ManualReview),
+                "{label} from {source}: nothing runs, every step is a review: {:?}",
+                kinds(&plan)
+            );
+            assert_eq!(
+                reviews(&plan),
+                ["reason.destination_artifact_unavailable"],
+                "{label} from {source}: one review, with the reason"
+            );
+            let risk = plan
+                .risks
+                .iter()
+                .find(|r| r.id == "destination_artifact_unavailable")
+                .unwrap_or_else(|| panic!("{label} from {source}: the risk is recorded"));
+            assert!(risk.blocking, "{label} from {source}: and it blocks");
+            assert_eq!(
+                risk.reason.params.get("artifact").map(String::as_str),
+                Some(label),
+                "{label} from {source}: the state is a stable identifier, never Debug"
+            );
+            let destination = if source == HB { MP } else { HB };
+            assert_eq!(
+                risk.reason.params.get("destination").map(String::as_str),
+                Some(destination)
+            );
+            shapes.push(kinds(&plan));
+        }
+        assert_eq!(shapes[0], shapes[1], "{label}: the same shape either way");
+    }
+}
+
+/// A source build and an unknown availability do not block (DP-050's default):
+/// they stay the non-blocking `destination_source_build` risk, and the plan
+/// keeps the step sequence a prebuilt destination gets, pinned literally so the
+/// comparison is not against the code under test.
+#[test]
+fn source_build_and_unknown_are_not_manual_review() {
+    let full = [
+        StepKind::SnapshotBefore,
+        StepKind::AddDestination,
+        StepKind::VerifyDestination,
+        StepKind::SetPrimary,
+        StepKind::VerifyResolution,
+        StepKind::RemoveSource,
+        StepKind::VerifyRemoval,
+        StepKind::CleanupReview,
+        StepKind::RecordHistory,
+    ];
+    for source in [HB, MP] {
+        for state in [
+            ArtifactAvailability::SourceBuildRequired {
+                reason: macportsbrew_domain::SourceBuildReason::NoArtifactForThisPlatform,
+            },
+            ArtifactAvailability::Unknown,
+            ArtifactAvailability::BinaryAvailable,
+        ] {
+            let plan = with_destination_availability(source, state.clone(), false, false);
+            assert_eq!(kinds(&plan), full, "{state:?} from {source}");
+            assert!(
+                !plan
+                    .risks
+                    .iter()
+                    .any(|r| r.id == "destination_artifact_unavailable"),
+                "{state:?} from {source}: not an unavailable artifact"
+            );
+            assert_eq!(
+                plan.risks
+                    .iter()
+                    .any(|r| r.id == "destination_source_build" && !r.blocking),
+                state != ArtifactAvailability::BinaryAvailable,
+                "{state:?} from {source}: a non-prebuilt destination keeps its non-blocking risk"
+            );
+        }
+    }
+}
+
+/// A disabled destination carries both the withdrawal flag and `DISABLED`; it
+/// is reviewed once, for the withdrawal, not twice.
+#[test]
+fn a_disabled_destination_raises_one_manual_review() {
+    for source in [HB, MP] {
+        let plan =
+            with_destination_availability(source, ArtifactAvailability::Disabled, true, false);
+        assert_eq!(
+            reviews(&plan),
+            ["reason.destination_deprecated"],
+            "from {source}: one review, the withdrawal's"
+        );
+    }
+}
+
+/// A deprecated destination that is also unavailable is reviewed for the
+/// withdrawal only. It still blocks; the `else` exists so a withdrawn package is
+/// not reviewed twice for one fact.
+#[test]
+fn a_deprecated_and_unavailable_destination_is_reviewed_for_the_withdrawal() {
+    for source in [HB, MP] {
+        let plan =
+            with_destination_availability(source, ArtifactAvailability::Unavailable, false, true);
+        assert_eq!(
+            reviews(&plan),
+            ["reason.destination_deprecated"],
+            "from {source}"
+        );
+    }
+}
+
+/// The new reason is pushed after every existing blocking reason, so a plan
+/// that was already a review keeps its reasons in the order it had. A
+/// destination provider that is absent plus an unavailable artifact: the
+/// absence first, as before.
+#[test]
+fn existing_blocking_order_is_unchanged() {
+    let mut snap = install_needed(HB);
+    let dest = snap
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("present");
+    dest.detection.presence = ProviderPresence::Absent;
+    dest.inventory.availability.insert(
+        "gsed".into(),
+        AvailabilityAssessment {
+            availability: ArtifactAvailability::Unavailable,
+            evidence: vec![AvailabilityEvidence {
+                source: "test".into(),
+                detail: "constructed".into(),
+                offline: true,
+            }],
+            cached: false,
+        },
+    );
+    let plan = plan_for(&snap, "gnu-sed", MP, false);
+    let ids = reviews(&plan);
+    assert_eq!(
+        ids.first().map(String::as_str),
+        Some("reason.destination_provider_absent"),
+        "{ids:?}"
+    );
+    assert_eq!(
+        ids.last().map(String::as_str),
+        Some("reason.destination_artifact_unavailable"),
+        "{ids:?}"
+    );
+}

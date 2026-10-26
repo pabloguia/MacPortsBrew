@@ -1213,18 +1213,25 @@ fn the_switch_needs_doctor_to_show_a_stranded_marker() {
     );
 }
 
-/// No structural fact yet: an unconditional failure while the switch is on.
-/// The 04 MUST that a restore step whose artifact is no longer available
-/// becomes a `MANUAL_REVIEW` step is unmet for every plan, `migrate` included
-/// (the planner raises none); declared in 04 and SE-092 (pass 08 slice 5, D8).
+/// Still an unconditional failure while the switch is on. Since pass 08 slice 6
+/// the planner raises `MANUAL_REVIEW` for a destination recorded as
+/// unavailable, unsupported or disabled (tested in
+/// `crates/application/tests/invariants.rs`), but the 04 MUST is still unmet in
+/// every case a real snapshot reaches: no adapter reports those states, a
+/// restore's destination row is `UNKNOWN`, a source build is DP-050's, and
+/// `history` reports nothing as partially restorable. Declared in 04, SE-092
+/// and SE-107. Turning this into a positive check while those stand would make
+/// the gap invisible.
 #[test]
 fn the_switch_needs_manual_review_for_an_unavailable_artifact() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
     assert!(
         !switch,
         "04 (Undoing a migration) requires a step whose artifact is unavailable to become \
-         MANUAL_REVIEW, and the planner does not raise one; remove this only in the change \
-         that does, with its test (SE-092, slice 5 D8)"
+         MANUAL_REVIEW; the planner raises it only for a destination recorded as unavailable, \
+         which no adapter reports and a restore's UNKNOWN row is not. Remove this only when \
+         the clauses in 04's declared deviation are met or the owner accepts them \
+         (SE-092 slice 5 D8, SE-107)"
     );
 }
 

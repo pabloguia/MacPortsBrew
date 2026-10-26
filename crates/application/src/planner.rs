@@ -9,10 +9,10 @@ use crate::provider_commands::{self, ProviderCommands};
 use crate::report::ProviderRow;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
-    Capability, CapabilityState, CommandTarget, Confidence, DomainError, Elevation, ErrorId,
-    MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind, PlanCommand, PlanRisk,
-    ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind, SuccessSemantic,
-    VerificationCheck,
+    ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence, DomainError,
+    Elevation, ErrorId, MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind,
+    PlanCommand, PlanRisk, ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot,
+    StepKind, SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -27,6 +27,7 @@ pub const REASON_IDS: &[&str] = &[
     "reason.mapping_confidence_below_threshold",
     "reason.reverse_dependencies_present",
     "reason.destination_deprecated",
+    "reason.destination_artifact_unavailable",
     "reason.availability_unknown",
     "reason.provider_configuration_outranks",
     "reason.provider_configuration_unreadable",
@@ -686,6 +687,32 @@ pub fn plan_outcome(
                         &macportsbrew_policy::labels::withdrawal_state(
                             dest_row.disabled,
                             dest_row.deprecated,
+                        ),
+                    ),
+            );
+        } else if matches!(
+            dest_row.availability.availability,
+            ArtifactAvailability::Unavailable
+                | ArtifactAvailability::UnsupportedPlatform
+                | ArtifactAvailability::Disabled
+        ) {
+            // 04, "Undoing a migration": a step whose artifact this machine
+            // cannot get is MANUAL_REVIEW, with the reason (pass 08 slice 6,
+            // part A). The `else` keeps a withdrawn destination to one review:
+            // a disabled package carries both the flag and this state. Pushed
+            // after every other block, so no existing plan's review order moves.
+            // A source build and `UNKNOWN` stay non-blocking: DP-050's default.
+            push_block(
+                &mut risks,
+                &mut manual,
+                "destination_artifact_unavailable",
+                Reason::new("reason.destination_artifact_unavailable")
+                    .with("destination", &request.to)
+                    .with("package", &dest_row.name)
+                    .with(
+                        "artifact",
+                        &macportsbrew_policy::labels::availability(
+                            &dest_row.availability.availability,
                         ),
                     ),
             );

@@ -179,15 +179,34 @@ partially restorable, and executing the plan exits with the safety-check code.
 This is the case the project exists for, and it is precisely where "undo"
 must not read as more reversible than it is.
 
-*Declared deviation (pass 08 slice 5, Tier 3, SE-092):* **this MUST is not
-met yet, for any plan.** `history` is read-only and starts no provider, so it
-cannot know whether an artifact is still available, and the planner raises no
-`MANUAL_REVIEW` for an unavailable artifact today (a destination that is not
-prebuilt adds only a non-blocking `destination_source_build` risk), for
-`migrate` as much as for a restore plan. `history` reports what it can know —
-the snapshot, the ends of the commands, whether the record is confirmed — and
-a restore plan shows the planner's risks. The blocking rule is a planner
-change, because it changes what `migrate` does, and is carried.
+*Declared deviation (pass 08 slices 5 and 6, Tier 3, SE-092, SE-107):* **this
+MUST is met only where the destination's own record says the artifact cannot
+be had.** Since slice 6 the planner makes a plan `MANUAL_REVIEW`
+(`destination_artifact_unavailable`) when the destination's row is
+`UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED`, for `migrate` and a restore
+plan alike. What stays unmet, clause by clause:
+
+- **No adapter reports `UNAVAILABLE` or `UNSUPPORTED_PLATFORM` yet**, and a
+  disabled package was already refused through its withdrawal flag, so no plan
+  built from a real snapshot reaches the new rule today.
+- **A restore's destination row is normally `UNKNOWN`**: the destination's
+  catalogue is not consulted offline, and an unknown is not raised as
+  unavailable (it would stop every restore). So the restore case this MUST is
+  written about is not caught.
+- **"The Homebrew formula an Intel Mac can no longer bottle"** builds from
+  source, which stays a non-blocking `destination_source_build` risk under
+  DP-050's reversible default. The example is not rewritten before the owner
+  rules.
+- **"A provider that no longer supports this macOS"** is a provider-level
+  support fact, not a package's availability, and the planner does not read it.
+- **`history` does not report a run as partially restorable**: it is read-only
+  and starts no provider, so it cannot know whether an artifact is still
+  available. It reports what it can know — the snapshot, the ends of the
+  commands, whether the record is confirmed — and a restore plan shows the
+  planner's risks.
+
+`the_switch_needs_manual_review_for_an_unavailable_artifact` keeps failing with
+the switch on until these are met or the owner accepts them.
 
 *A second, found building `restore` (same pass):* a restore is planned by the
 same planner and needs the same mapping evidence as the migration did. When the

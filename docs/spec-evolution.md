@@ -8188,3 +8188,43 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   show them), never tracked, and deleted. The preflight gives the host a first run of the original input; a lower
   rate of the flake after it would not be evidence of a fix.
 - Compatibility impact: none; test code only.
+
+## SE-107 — Pass 08 slice 6: an artifact the destination cannot supply is `MANUAL_REVIEW`; the plan review's rulings
+- Status: accepted (part A built; parts B, C and D planned, not built)
+- Date / Pass: 2026-10-26 / pass 08 slice 6 (`docs/passes/08-slice-6-plan.md`)
+- Original assumption: 04's MUST that a step whose artifact is no longer available becomes `MANUAL_REVIEW` was met by
+  no plan (SE-092, slice 5 D8); the planner read a destination's availability only for the non-blocking
+  `destination_source_build` risk.
+- Change (part A): the planner raises a blocking `destination_artifact_unavailable` (reason
+  `reason.destination_artifact_unavailable`, parameters `destination`, `package`, `artifact`) when the destination's
+  row is `UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED` and the destination is not already blocked as withdrawn,
+  pushed after every existing block so no review order moves. `artifact` is a new identifier family in the renderer
+  (`artifact.*`, both locales); `state` was not reused because it is the withdrawal vocabulary. `SOURCE_BUILD_REQUIRED`
+  and `UNKNOWN` stay non-blocking (DP-050's reversible default).
+- What is still unmet, declared in 04 in place of slice 5's note: no adapter reports the two new states; a restore's
+  destination row is `UNKNOWN`; the bottle example is DP-050's; a provider-level loss of support is not read; `history`
+  reports nothing as partially restorable. So `the_switch_needs_manual_review_for_an_unavailable_artifact` stays an
+  unconditional failure with the switch on — turning it into a positive check while those clauses stand would have
+  made the gap invisible (spec-guardian, plan review).
+- Plan review, `security-reviewer`: **part B is ruled for, with conditions.** Moving `brew info --json=v2 --installed`
+  into the run loop adds runs of an invocation capture and the recapture under the lock already make, with the same
+  environment and configuration, and DP-027 (b) refuses any run whose destination's configuration sets a key or could
+  not be read. Conditions: (C1) re-check the provider configuration before the read that certifies
+  `VERIFY_DESTINATION`, not only before a mutation; (C2) parse the JSON with a real parser in the application layer
+  (the domain has no JSON dependency), require exactly one `formulae[]` entry of that name, and test a spoof in
+  `caveats`; (C3) nothing from the output becomes evidence, a path or a flag; (C4) truncation and timeout fail closed
+  before parsing, each tested; (C5) amend SE-050 item 6 to cover this nameless read as an accepted residual.
+- Plan review, both reviewers: **part D as planned would break the shell's removal tests**, which reach dispatch only
+  through `clear()` under `MutationAllowance::forced_in_tests()`, and there is no route below the gate. Part D needs
+  its own test-only waiver of the removal refusal (a field on the allowance, or a second witness) and a tripwire that
+  guards turning removal *on* (`THIS_BUILD_REMOVES_SOURCES` true without part C's re-check, or DP-048 open) rather
+  than the release DP-048's default intends. It also refuses every `restore` that would undo an install; that must be
+  stated in DP-048, 04 and restore's rendering. It is built after C, as the work order orders.
+- Tests: `invariant_17_an_unavailable_destination_blocks_identically_in_both_directions` (each state, both
+  directions, `DISABLED` with the flag off so the availability arm is what blocks);
+  `source_build_and_unknown_are_not_manual_review` (step kinds pinned literally); `a_disabled_destination_raises_one_manual_review`;
+  `a_deprecated_and_unavailable_destination_is_reviewed_for_the_withdrawal`; `existing_blocking_order_is_unchanged`;
+  `an_unavailable_artifact_is_rendered_through_its_label_never_as_an_identifier` (both locales, and `{artifact}` in no
+  other template).
+- Compatibility impact: a plan can now carry a new risk id and stop at a new reason; both are additions to open sets
+  (`plan.v1.md`), so no schema version moves. No fixture or documented sample changes: no recording carries the states.
