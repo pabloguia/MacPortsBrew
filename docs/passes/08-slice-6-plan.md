@@ -177,3 +177,16 @@ SE-107, CHANGELOG, the tripwire's message, the tests listed in SE-107. Parts B
 (ruled for), C and D are the next session's, in that order. Not done here: the
 mutation proof the work order asks for (a subagent in a worktree), the
 end-of-slice review over the branch, and the slice report.
+
+### Review of part A's commit (`0abb043`), 2026-10-26
+
+`security-reviewer`: no security finding; one Low. `spec-guardian`: no violation,
+every §6 resolution confirmed made; four Lows. All five resolved in the follow-up
+commit:
+
+| Finding | Resolution |
+|---|---|
+| Both: a destination that already holds the package was blocked with a sentence about installing | Exempted (`!destination_holds_it`); `a_destination_already_holding_the_package_is_not_blocked_as_unavailable`, both directions, its mutant (the condition removed) killed; 04, SE-107 and `plan.v1.md` say so |
+| `artifact.*` copies `availability.*`, unexplained | SE-107 says why (lower-case for a sentence) and that the two must be translated together |
+| The sentence repeated "on this machine" and was wrong for `DISABLED`; pt-BR used "passo" for a plan step | Both reworded; pt-BR says "etapa", as the catalogue does elsewhere |
+| The order test pinned only first and last | It now pins the full list with a dependent under the source |

@@ -1910,16 +1910,66 @@ fn existing_blocking_order_is_unchanged() {
             cached: false,
         },
     );
+    // And a dependent under the source, so a block that runs between the
+    // existing ones would be visible in the order.
+    snap.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("present")
+        .inventory
+        .dependencies
+        .push(DependencyEdge {
+            from: "other".into(),
+            to: "gnu-sed".into(),
+            build_only: false,
+        });
     let plan = plan_for(&snap, "gnu-sed", MP, false);
-    let ids = reviews(&plan);
     assert_eq!(
-        ids.first().map(String::as_str),
-        Some("reason.destination_provider_absent"),
-        "{ids:?}"
+        reviews(&plan),
+        [
+            "reason.destination_provider_absent",
+            "reason.reverse_dependencies_present",
+            "reason.destination_artifact_unavailable",
+        ],
     );
-    assert_eq!(
-        ids.last().map(String::as_str),
-        Some("reason.destination_artifact_unavailable"),
-        "{ids:?}"
-    );
+}
+
+/// A destination that already holds the package installs nothing, so its
+/// record of what it could still supply does not stop the plan (security and
+/// spec review of part A). A dual-held package, its destination copy marked
+/// unavailable: no such risk, and no review for it.
+#[test]
+fn a_destination_already_holding_the_package_is_not_blocked_as_unavailable() {
+    for dest in [MP, HB] {
+        let mut snap = both_present();
+        snap.providers
+            .get_mut(&ProviderId::new(dest))
+            .expect("present")
+            .inventory
+            .availability
+            .insert(
+                "tool".into(),
+                AvailabilityAssessment {
+                    availability: ArtifactAvailability::Unavailable,
+                    evidence: vec![AvailabilityEvidence {
+                        source: "test".into(),
+                        detail: "constructed".into(),
+                        offline: true,
+                    }],
+                    cached: false,
+                },
+            );
+        let plan = plan_for(&snap, "tool", dest, true);
+        assert!(
+            !plan
+                .risks
+                .iter()
+                .any(|r| r.id == "destination_artifact_unavailable"),
+            "toward {dest}: {:?}",
+            plan.risks
+        );
+        assert!(
+            !reviews(&plan).contains(&"reason.destination_artifact_unavailable".to_string()),
+            "toward {dest}"
+        );
+    }
 }

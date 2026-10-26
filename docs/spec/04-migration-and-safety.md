@@ -183,8 +183,8 @@ must not read as more reversible than it is.
 MUST is met only where the destination's own record says the artifact cannot
 be had.** Since slice 6 the planner makes a plan `MANUAL_REVIEW`
 (`destination_artifact_unavailable`) when the destination's row is
-`UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED`, for `migrate` and a restore
-plan alike. What stays unmet, clause by clause:
+`UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED` and does not already hold
+the package, for `migrate` and a restore plan alike. What stays unmet, clause by clause:
 
 - **No adapter reports `UNAVAILABLE` or `UNSUPPORTED_PLATFORM` yet**, and a
   disabled package was already refused through its withdrawal flag, so no plan

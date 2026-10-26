@@ -690,18 +690,22 @@ pub fn plan_outcome(
                         ),
                     ),
             );
-        } else if matches!(
-            dest_row.availability.availability,
-            ArtifactAvailability::Unavailable
-                | ArtifactAvailability::UnsupportedPlatform
-                | ArtifactAvailability::Disabled
-        ) {
+        } else if !destination_holds_it
+            && matches!(
+                dest_row.availability.availability,
+                ArtifactAvailability::Unavailable
+                    | ArtifactAvailability::UnsupportedPlatform
+                    | ArtifactAvailability::Disabled
+            )
+        {
             // 04, "Undoing a migration": a step whose artifact this machine
             // cannot get is MANUAL_REVIEW, with the reason (pass 08 slice 6,
             // part A). The `else` keeps a withdrawn destination to one review:
             // a disabled package carries both the flag and this state. Pushed
             // after every other block, so no existing plan's review order moves.
             // A source build and `UNKNOWN` stay non-blocking: DP-050's default.
+            // A destination that already holds the package installs nothing,
+            // so what it could still supply does not stop the plan.
             push_block(
                 &mut risks,
                 &mut manual,

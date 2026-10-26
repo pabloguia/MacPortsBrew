@@ -8197,9 +8197,12 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `destination_source_build` risk.
 - Change (part A): the planner raises a blocking `destination_artifact_unavailable` (reason
   `reason.destination_artifact_unavailable`, parameters `destination`, `package`, `artifact`) when the destination's
-  row is `UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED` and the destination is not already blocked as withdrawn,
-  pushed after every existing block so no review order moves. `artifact` is a new identifier family in the renderer
-  (`artifact.*`, both locales); `state` was not reused because it is the withdrawal vocabulary. `SOURCE_BUILD_REQUIRED`
+  row is `UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED`, the destination is not already blocked as withdrawn, and
+  it does not already hold the package (a plan that installs nothing is not stopped by what could no longer be
+  installed); pushed after every existing block so no review order moves. `artifact` is a new identifier family in
+  the renderer (`artifact.*`, both locales): `state` is the withdrawal vocabulary, and `availability.*` labels the
+  same states capitalised for a table cell, where the sentence needs them lower-case. The two families name the same
+  states and must be translated together. `SOURCE_BUILD_REQUIRED`
   and `UNKNOWN` stay non-blocking (DP-050's reversible default).
 - What is still unmet, declared in 04 in place of slice 5's note: no adapter reports the two new states; a restore's
   destination row is `UNKNOWN`; the bottle example is DP-050's; a provider-level loss of support is not read; `history`
@@ -8223,7 +8226,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Tests: `invariant_17_an_unavailable_destination_blocks_identically_in_both_directions` (each state, both
   directions, `DISABLED` with the flag off so the availability arm is what blocks);
   `source_build_and_unknown_are_not_manual_review` (step kinds pinned literally); `a_disabled_destination_raises_one_manual_review`;
-  `a_deprecated_and_unavailable_destination_is_reviewed_for_the_withdrawal`; `existing_blocking_order_is_unchanged`;
+  `a_deprecated_and_unavailable_destination_is_reviewed_for_the_withdrawal`; `existing_blocking_order_is_unchanged`
+  (the full ordered list, with a dependent under the source);
+  `a_destination_already_holding_the_package_is_not_blocked_as_unavailable` (both directions; its mutant killed);
   `an_unavailable_artifact_is_rendered_through_its_label_never_as_an_identifier` (both locales, and `{artifact}` in no
   other template).
 - Compatibility impact: a plan can now carry a new risk id and stop at a new reason; both are additions to open sets
