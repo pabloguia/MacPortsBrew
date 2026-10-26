@@ -318,10 +318,19 @@ if [ "$sign" = 1 ]; then
   [ -f "$MPB_NOTARY_KEY_PATH" ] || die "MPB_NOTARY_KEY_PATH is not a file"
   [ "$(stat -f '%Lp' "$MPB_NOTARY_KEY_PATH")" = "600" ] || die "the notary key file must be mode 0600"
   [ "$(stat -f '%u' "$MPB_NOTARY_KEY_PATH")" = "$(id -u)" ] || die "the notary key file must be owned by the signing user"
-  security find-identity -v -p codesigning "$MPB_SIGN_KEYCHAIN" | grep -qF "\"$MPB_APP_IDENTITY\"" \
+  # Captured, then matched from a here-string, not piped: under pipefail a
+  # `grep -q` that exits at its match can kill a still-writing `security` with
+  # SIGPIPE, and the pipeline then reads as "not valid" (seen on a hosted runner
+  # on 2026-10-26 as "printf: write error: Broken pipe"). Fails closed if
+  # `security` itself fails.
+  app_ids="$(security find-identity -v -p codesigning "$MPB_SIGN_KEYCHAIN")" \
+    || die "security could not list the code-signing identities in MPB_SIGN_KEYCHAIN"
+  grep -qF "\"$MPB_APP_IDENTITY\"" <<<"$app_ids" \
     || die "the identity named in MPB_APP_IDENTITY is not valid in MPB_SIGN_KEYCHAIN"
   # An Installer identity is not a code-signing one, so no -p codesigning here.
-  security find-identity -v "$MPB_SIGN_KEYCHAIN" | grep -qF "\"$MPB_INSTALLER_IDENTITY\"" \
+  all_ids="$(security find-identity -v "$MPB_SIGN_KEYCHAIN")" \
+    || die "security could not list the identities in MPB_SIGN_KEYCHAIN"
+  grep -qF "\"$MPB_INSTALLER_IDENTITY\"" <<<"$all_ids" \
     || die "the identity named in MPB_INSTALLER_IDENTITY is not valid in MPB_SIGN_KEYCHAIN"
 fi
 
