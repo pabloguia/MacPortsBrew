@@ -3,8 +3,8 @@
 # MacPortsBrew — The complete mutating product (16)
 
 On 2026-10-27 all thirteen open decisions were ruled (SE-109). The session made
-the rulings under the owner's delegation, and the owner confirms them on the pull
-request that records them. The rulings are in `docs/decisions-pending.md`
+the rulings under the owner's delegation, and the owner confirmed them in chat
+the same day. The rulings are in `docs/decisions-pending.md`
 (Resolved, DP-028 to DP-051), and they change what the first mutating release
 is.
 
@@ -159,9 +159,9 @@ later check must see the earlier code. The order is deliberate:
 
 ### 0 — The owner confirms the rulings
 
-The owner confirms on the pull request that records the rulings (SE-109). The
-two that matter most are DP-028 (Tier 2 charter text) and DP-046 (the INV-17 and
-charter reading).
+**Done 2026-10-27:** the owner confirmed all thirteen rulings in chat (SE-109),
+including DP-028 (Tier 2 charter text) and DP-046 (the INV-17 and charter
+reading).
 
 ### A — Propagate the documentation rulings (DP-028, DP-036, DP-048, DP-050)
 
@@ -418,7 +418,8 @@ The proposal is the deliverable. The switch stays off.
 
 Demonstrate each item; do not assert it.
 
-- [ ] Part 0 is confirmed. Parts A–D, S, E–H, K, I and J are merged, each with
+- [x] Part 0 is confirmed (2026-10-27).
+- [ ] Parts A–D, S, E–H, K, I and J are merged, each with
       green required checks. Part L's proposal is written. Part M is staged.
       Every stop is a DP, with the parts that continued past it.
 - [ ] `grep -n THIS_BUILD_DISPATCHES_MUTATIONS` shows `false` on `main`.
@@ -438,7 +439,6 @@ Demonstrate each item; do not assert it.
 
 ### Needs the owner (collect here; never routed around)
 
-- **Part 0:** confirming the rulings, DP-028 and DP-046 above all.
 - **The INV-10 paragraph** of DP-028, in `docs/spec/01-invariants.md`.
 - **Applying staged changes:**
   - the allowlist growth from parts H and J;

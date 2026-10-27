@@ -8297,7 +8297,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 
 ## SE-109 — The thirteen open decisions ruled toward a complete, symmetric first mutating release
 
-- Status: accepted by delegation; the owner's confirmation is pending on the pull request (see Provenance).
+- Status: accepted; ruled by delegation and confirmed by the owner in chat on 2026-10-27 ("Confirmo ad decisões.").
   Propagation is open: work order 16 carries it out.
 - Date / Pass: 2026-10-27 / between pass 15 and the mutating track
 - Provenance: the owner's instruction in chat, verbatim: "Quero que revise e sugira a recomendação para garantir o
@@ -8305,10 +8305,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   implementar tudo da forma mais autônoma possível." In English: "review and suggest the recommendation that
   ensures the best and most complete product possible; record it as a decision, and write a prompt (or a spec, if
   that is better) to implement all of it as autonomously as possible." The session chose each option, and nothing
-  shows that the owner saw the specific choices before they were recorded. Work order 16 therefore lets
-  nothing that depends on a ruling merge until the owner has confirmed it on the pull request that records it. Two
-  rulings need that confirmation most: DP-028, a Tier 2 charter edit, and DP-046, a reading of INV-17 and the
-  charter.
+  shows that the owner saw the specific choices before they were recorded. The owner then confirmed all
+  thirteen in chat on 2026-10-27, which is work order 16's part 0; that includes DP-028's Tier 2 charter edit and
+  DP-046's reading of INV-17 and the charter.
 - Original assumption: the roadmap's v0.2.0 rested on the reversible defaults of DP-046..DP-048 and DP-051 (b). That
   release moved MacPorts→Homebrew formulae only: no elevated step, the primary report-only, the source always
   retained, and four destination checks reported unchecked. It shipped nothing runnable to the Intel Homebrew users

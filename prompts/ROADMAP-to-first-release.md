@@ -18,7 +18,7 @@ order, which model the owner should start the session with.
 ## Status on 2026-10-22, updated 2026-10-25
 
 > **2026-10-27 (SE-109):** all thirteen open decisions were ruled under the
-> owner's delegation, pending the owner's confirmation on the pull request.
+> owner's delegation and confirmed by the owner the same day.
 > v0.2.0 is now symmetric (both directions, elevation consented per step,
 > consented shims, opt-in removal), and the mutating track runs as
 > [`16-complete-mutating-product.md`](16-complete-mutating-product.md), which
