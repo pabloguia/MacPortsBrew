@@ -37,7 +37,11 @@ again **2026-10-17** at the start of pass 08 slice 5
 (`docs/research/tooling/2026-10-17-*.md`; its findings sit in guarded paths and
 wait for the owner, SE-027), and once more **2026-10-22** at the start of pass 15
 (`docs/research/tooling/2026-10-22-*.md`; no contract break, and the items for
-guarded paths wait for the owner again). The
+guarded paths wait for the owner again), and **2026-10-26** at the start of pass
+08 slice 6 (`docs/research/tooling/2026-10-26-*.md`; no contract break; new
+findings, all in guarded paths: pasted text can arm the guard-edit escape, the
+guards fail open on exit 1 without `onFailure: "block"`, and hooks read the main
+checkout in a worktree). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

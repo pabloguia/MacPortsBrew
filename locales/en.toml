@@ -110,6 +110,7 @@ reason.mapping_confidence_below_threshold = "No equivalent under {destination} r
 reason.availability_unknown = "Whether {provider} would supply {package} ready-built or compile it here could not be determined. An unknown is not a yes."
 reason.reverse_dependencies_present = "{count, plural, one {# package under {provider} depends} other {# packages under {provider} depend}} on this one, and removing or moving it on its own can break them."
 reason.destination_deprecated = "{destination} marks its equivalent {state}. Moving onto a package its own provider has withdrawn is not a decision this tool makes for you."
+reason.destination_artifact_unavailable = "{destination} reports {package} as {artifact}, so it cannot be installed here. A step that installs it is left for you to decide."
 reason.provider_configuration_outranks = "The configuration of {provider} ({file}) sets {keys}, which {provider} applies over the settings this tool would run it with. A step that changes {provider} is refused while it does."
 reason.provider_configuration_unreadable = "The configuration file {file} of {provider} exists but could not be read, or sets something this tool cannot name, so whether it overrides how this tool runs {provider} is unknown. A step that changes {provider} is refused while it is."
 reason.provider_configuration_unknown = "Whether the configuration of {provider} overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes {provider} is refused while it is unknown."
@@ -577,6 +578,12 @@ state.disabled = "disabled"
 state.deprecated = "deprecated"
 # unreferenced: rendered only through `{state}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
 state.replaced = "replaced"
+# unreferenced: rendered only through `{artifact}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+artifact.unavailable = "not available"
+# unreferenced: rendered only through `{artifact}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+artifact.unsupported_platform = "not supported on this platform"
+# unreferenced: rendered only through `{artifact}` in `Messages::resolve_identifiers`, which this scan cannot see; `reasons_catalogue.rs` renders each one.
+artifact.disabled = "disabled"
 confidence.none = "None"
 confidence.ambiguous = "Ambiguous"
 confidence.probable = "Probable"

@@ -684,6 +684,18 @@ the *next* value added, which is the point of adding the tolerant reader now.
 | `reason` | `Reason` | |
 | `blocking` | boolean | A blocking risk means the plan cannot run unattended |
 
+The set of `id` values is open: a consumer treats an id it does not know by its
+`blocking` field alone.
+
+**`destination_artifact_unavailable`** (since 2026-10-26; pass 08 slice 6, SE-107).
+Blocking. Raised when the destination records its counterpart as `UNAVAILABLE`,
+`UNSUPPORTED_PLATFORM` or `DISABLED`, the destination is not already blocked as
+withdrawn (`destination_deprecated`), and it does not already hold the package. Its reason is
+`reason.destination_artifact_unavailable`, parameters `destination`, `package` and
+`artifact` (one of those three identifiers). A destination that would build from
+source, or whose availability is `UNKNOWN`, raises the non-blocking
+`destination_source_build` instead (DP-050).
+
 **`provider_configuration`** (since 2026-10-04; DP-027, ruled 2026-10-03). Raised for the plan's
 source and its destination — whether or not the plan ends up changing the source
 (`--retain-source`) — once per configuration file that sets a key the provider's

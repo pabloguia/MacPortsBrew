@@ -258,6 +258,7 @@ impl Messages {
             ("confidence", "confidence"),
             ("threshold", "confidence"),
             ("state", "state"),
+            ("artifact", "artifact"),
             ("defence", "defence"),
         ];
         let mut out = params.clone();
