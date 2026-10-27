@@ -8192,6 +8192,52 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   rate of the flake after it would not be evidence of a fix.
 - Compatibility impact: none; test code only.
 
+## SE-107 — Pass 08 slice 6: an artifact the destination cannot supply is `MANUAL_REVIEW`; the plan review's rulings
+- Status: accepted (part A built; parts B, C and D planned, not built)
+- Date / Pass: 2026-10-26 / pass 08 slice 6 (`docs/passes/08-slice-6-plan.md`)
+- Original assumption: 04's MUST that a step whose artifact is no longer available becomes `MANUAL_REVIEW` was met by
+  no plan (SE-092, slice 5 D8); the planner read a destination's availability only for the non-blocking
+  `destination_source_build` risk.
+- Change (part A): the planner raises a blocking `destination_artifact_unavailable` (reason
+  `reason.destination_artifact_unavailable`, parameters `destination`, `package`, `artifact`) when the destination's
+  row is `UNAVAILABLE`, `UNSUPPORTED_PLATFORM` or `DISABLED`, the destination is not already blocked as withdrawn, and
+  it does not already hold the package (a plan that installs nothing is not stopped by what could no longer be
+  installed); pushed after every existing block so no review order moves. `artifact` is a new identifier family in
+  the renderer (`artifact.*`, both locales): `state` is the withdrawal vocabulary, and `availability.*` labels the
+  same states capitalised for a table cell, where the sentence needs them lower-case. The two families name the same
+  states and must be translated together. `SOURCE_BUILD_REQUIRED`
+  and `UNKNOWN` stay non-blocking (DP-050's reversible default).
+- What is still unmet, declared in 04 in place of slice 5's note: no adapter reports the two new states; a restore's
+  destination row is `UNKNOWN`; the bottle example is DP-050's; a provider-level loss of support is not read; `history`
+  reports nothing as partially restorable. So `the_switch_needs_manual_review_for_an_unavailable_artifact` stays an
+  unconditional failure with the switch on — turning it into a positive check while those clauses stand would have
+  made the gap invisible (spec-guardian, plan review).
+- Plan review, `security-reviewer`: **part B is ruled for, with conditions.** Moving `brew info --json=v2 --installed`
+  into the run loop adds runs of an invocation capture and the recapture under the lock already make, with the same
+  environment and configuration, and DP-027 (b) refuses any run whose destination's configuration sets a key or could
+  not be read. Conditions: (C1) re-check the provider configuration before the read that certifies
+  `VERIFY_DESTINATION`, not only before a mutation; (C2) parse the JSON with a real parser in the application layer
+  (the domain has no JSON dependency), require exactly one `formulae[]` entry of that name, and test a spoof in
+  `caveats`; (C3) nothing from the output becomes evidence, a path or a flag; (C4) truncation and timeout fail closed
+  before parsing, each tested; (C5) amend SE-050 item 6 to cover this nameless read as an accepted residual.
+- Plan review, both reviewers: **part D as planned would break the shell's removal tests**, which reach dispatch only
+  through `clear()` under `MutationAllowance::forced_in_tests()`, and there is no route below the gate. Part D needs
+  its own test-only waiver of the removal refusal (a field on the allowance, or a second witness) and a tripwire that
+  guards turning removal *on* (`THIS_BUILD_REMOVES_SOURCES` true without part C's re-check, or DP-048 open) rather
+  than the release DP-048's default intends. It also refuses every `restore` that would undo an install; that must be
+  stated in DP-048, 04 and restore's rendering. It is built after C, as the work order orders.
+- Tests: `invariant_17_an_unavailable_destination_blocks_identically_in_both_directions` (each state, both
+  directions, `DISABLED` with the flag off so the availability arm is what blocks);
+  `source_build_and_unknown_are_not_manual_review` (step kinds pinned literally); `a_disabled_destination_raises_one_manual_review`;
+  `a_deprecated_and_unavailable_destination_is_reviewed_for_the_withdrawal`; `existing_blocking_order_is_unchanged`
+  (the full ordered list, with a dependent under the source);
+  `a_destination_already_holding_the_package_is_not_blocked_as_unavailable` (both directions; its mutant killed);
+  `an_unavailable_artifact_is_rendered_through_its_label_never_as_an_identifier` (both locales, and `{artifact}` in no
+  other template).
+- Compatibility impact: a plan can now carry a new risk id and stop at a new reason; both are additions to open sets
+  (`plan.v1.md`), so no schema version moves. No fixture or documented sample changes: no recording carries the states.
+
+
 
 ## SE-108 — An interactive session merges on green checks and tags a release; the hook, not branch protection, keeps it there
 - Status: accepted
@@ -8205,8 +8251,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
      `CHANGELOG.md` already describe. `docs/passes/09-staged/README.md`'s tag command names `origin/main`, so it
      runs from a topic branch.
   2. `.claude/hooks/guard-provider-mutation.sh` additionally refuses `--tags` and `--follow-tags` on a push,
-     `gh pr merge --admin`, every write-method `gh api` call (`-X`/`--method` other than GET, `-f`/`-F`/`--field`/
-     `--raw-field`/`--input`), and, under `MPB_UNATTENDED=1`, `gh pr merge`, `gh release` and a tag push.
+     `gh pr merge --admin`, a `gh api` call with `-X`/`--method` POST, PUT, PATCH or DELETE or with a spaced
+     `-f`/`-F`/`--field`/`--raw-field`/`--input`, and, under `MPB_UNATTENDED=1`, `gh pr merge`, `gh release` and a
+     tag push.
 - Rejected, in this entry: reading the push checks only on the command's push segment, which was drafted first to
   stop `cd /abs && git push ...` and `git push ...; gh pr create --base main` from being refused. Both reviewers
   found that it let through pushes the whole-line reading refuses: `echo main | xargs git push origin`, a
@@ -8219,7 +8266,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   now carries that barrier. The `release-tags` ruleset no longer separates owner from session (08's MUST and
   ADR-0005 rely on it against non-owners, which it still holds); what stands between a session's tag and a
   published release is the owner's `release-signing` approval and the draft-then-publish step.
-- Evidence: the two refusals seen in this session; `gh api repos/pabloguia/MacPortsBrew/branches/main/protection`
+- Evidence: the two refusals seen in this session (`cd <project> && git push -u origin feat/pass-08-slice-6`,
+  refused as "names a URL or a path", and the same push chained with `gh pr create --base main`, refused as "aimed
+  at main"); `gh api repos/pabloguia/MacPortsBrew/branches/main/protection`
   (read 2026-10-27: six required checks, 0 approving reviews, `enforce_admins` false);
   `gh api repos/pabloguia/MacPortsBrew/rulesets/25839389` (creation, update, deletion of `refs/tags/v*`, admin
   bypass); `gh api repos/pabloguia/MacPortsBrew/environments` (`release-signing`, required reviewer `pabloguia`);
@@ -8231,7 +8280,17 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Unchanged, and stated: the certificates and their passwords, approving `release-signing`, every repository or
   GitHub setting, and any force, delete or rewrite stay the owner's. `11-agentic-sdlc.md`'s MUST NOT for unattended
   runs is untouched, and now has a hook layer beside the CI tool allowlist. SE-099's accepted gaps still apply.
-- Guard escape: armed twice (the first window ended at a background notification before the hook edits landed).
-  Written under it: `.claude/hooks/guard-provider-mutation.sh`, `.claude/hooks/test-hooks.sh`, `CLAUDE.md`, and
-  the regenerated `.codex/hooks/`. The rejected draft was restored with `git checkout` of the committed file,
-  outside an armed window; that restored committed bytes and wrote nothing new. The guard's log has the writes.
+- **Known gaps, open (security review of 00e42e5, 2026-10-27).** "Stays the owner's" is enforced only as far as
+  the list in item 2. Not yet refused: an attached short flag on `gh api` (`-fquery=mutation{...}`, `-Fquery=@f`),
+  which reaches `mergePullRequest` and the protection and ruleset mutations past the checks (High); `gh repo
+  edit|delete|rename|archive`, including `--default-branch`, which would also defeat the push guard's refusal of
+  `main` by name (High); `gh secret|variable set|delete`, which can overwrite the signing material `release.yml`
+  reads (Medium); `gh workflow run|enable|disable` (Low); and `gh alias set` wrapping any of these (the alias gap
+  SE-099 accepts). Closing them needs an armed guard edit; until then a session does not run them, and the hook
+  is the tripwire for the listed forms only. `gh pr merge --auto` waits for the required checks and is allowed.
+- Guard escape: three armed windows in `.claude/.guard-edit-log` (prompts at 09:36:33Z, 09:56:10Z and 10:39:47Z
+  on 2026-10-27). The first logged one edit of `guard-provider-mutation.sh` (09:38:31Z) that the
+  auto-mode permission classifier then refused, so the file did not change; the second wrote the rejected segment
+  draft to it twice and its cases to `test-hooks.sh` once; the third wrote the committed refusals and tests. The draft was restored with `git checkout` of the committed file
+  between windows, which wrote committed bytes only and is not in the log. `CLAUDE.md` is outside the guarded set
+  and `.codex/hooks/` is written by `scripts/generate-codex-layer.sh`; neither appears in the log.

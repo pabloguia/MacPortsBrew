@@ -149,7 +149,7 @@ SE entry for the release-check and the drift decisions; update
 - [ ] CHANGELOG and README say exactly what 0.1.0 does, per DP-045 and DP-033.
 - [ ] The owner's remaining list (certificates, environment, ruleset, immutable
       releases, the dispatch dry run, the `.pkg` and Gatekeeper protocols, the
-      tag) is current in one place.
+      `release-signing` approval) is current in one place.
 - [ ] Reviewers ran; findings resolved or accepted in writing; topic branch
       pushed and a pull request opened; merged only with every required check
       green (SE-108).

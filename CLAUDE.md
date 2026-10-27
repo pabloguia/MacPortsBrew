@@ -86,8 +86,10 @@ invented.
   destination, or an `origin` that is not this project's repository (SE-099).
   An ordinary push of a topic branch is allowed. The guard reads the whole
   command line, so run `git push` on its own: no `cd` prefix, no chaining.
-- `gh pr merge --admin`, every `gh api` call that writes, and `--tags` or
-  `--follow-tags` on a push (SE-108).
+- `gh pr merge --admin`, the `gh api` write forms SE-108 lists, and `--tags` or
+  `--follow-tags` on a push (SE-108). SE-108 also lists what is not yet refused
+  (`gh repo edit`, `gh secret`/`variable`, an attached `-f` on `gh api`): do not
+  run them.
 
 ## Publishing and releases (SE-108)
 

@@ -229,6 +229,52 @@ fn a_withdrawal_state_is_rendered_through_its_label_never_as_an_identifier() {
 }
 
 #[test]
+fn an_unavailable_artifact_is_rendered_through_its_label_never_as_an_identifier() {
+    // `{artifact}` is resolved through `artifact.*` by parameter name, so the
+    // only template that interpolates it is the planner's unavailable-artifact
+    // reason (pass 08 slice 6, part A), and every state the planner raises it
+    // for has a label in both catalogues.
+    use macportsbrew::i18n::Messages;
+    use macportsbrew_domain::{ArtifactAvailability, Reason};
+    let english = Catalogue::english();
+    let using: BTreeSet<&str> = english
+        .keys()
+        .filter(|key| english.get(key).unwrap_or_default().contains("{artifact"))
+        .collect();
+    assert_eq!(
+        using,
+        BTreeSet::from(["reason.destination_artifact_unavailable"]),
+        "a template interpolating {{artifact}} renders it through artifact.*"
+    );
+    for messages in [
+        Messages::english(),
+        Messages::for_locale(&macportsbrew::i18n::Locale::new("pt-BR")),
+    ] {
+        for state in [
+            ArtifactAvailability::Unavailable,
+            ArtifactAvailability::UnsupportedPlatform,
+            ArtifactAvailability::Disabled,
+        ] {
+            let id = macportsbrew_policy::labels::availability(&state);
+            let label = messages
+                .catalogue()
+                .get(&format!("artifact.{}", id.to_ascii_lowercase()))
+                .unwrap_or_else(|| panic!("no artifact label for {id}"))
+                .to_string();
+            let reason = Reason::new("reason.destination_artifact_unavailable")
+                .with("artifact", &id)
+                .with("destination", &"macports")
+                .with("package", &"gsed");
+            let rendered = messages.render_reason(&reason);
+            assert!(
+                rendered.contains(&label) && !rendered.contains(id),
+                "{id}: {rendered}"
+            );
+        }
+    }
+}
+
+#[test]
 fn every_package_class_has_a_label() {
     use macportsbrew_domain::PackageClass;
     let catalogue = Catalogue::english();
