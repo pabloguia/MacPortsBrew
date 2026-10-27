@@ -84,7 +84,24 @@ invented.
 - `git push` of anything but a topic branch to `origin` — force and delete
   forms, `--mirror`/`--all`, a push aimed at `main` or `master`, a URL or path
   destination, or an `origin` that is not this project's repository (SE-099).
-  An ordinary push of a topic branch is allowed.
+  An ordinary push of a topic branch is allowed. The guard reads the whole
+  command line, so run `git push` on its own: no `cd` prefix, no chaining.
+- `gh pr merge --admin`, every `gh api` call that writes, and `--tags` or
+  `--follow-tags` on a push (SE-108).
+
+## Publishing and releases (SE-108)
+
+An interactive session carries a change all the way: push the topic branch,
+open the pull request, and merge it (`gh pr merge <n> --merge`) once
+`gh pr checks <n> --required` shows every required check green. `enforce_admins`
+is off and the session holds the owner's credential, so branch protection does
+not stop it; the hook does. It may also tag a version the specification and
+`CHANGELOG.md` already describe, at a commit on `origin/main`, from its topic
+branch, one tag per push: `git tag -a vX.Y.Z -m "..." origin/main`, then
+`git push origin vX.Y.Z`. What stays the owner's: approving the
+`release-signing` environment, the certificates and their passwords, every
+repository or GitHub setting, and any force, delete or rewrite. An unattended
+run does none of this (`docs/spec/11-agentic-sdlc.md`).
 
 If a hook blocks something you believe is legitimate, that is a question for
 the human, not an obstacle to route around. Rewording a command to slip past a

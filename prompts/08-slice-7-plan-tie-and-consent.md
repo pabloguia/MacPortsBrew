@@ -118,4 +118,4 @@ changes.
 - [ ] Reviewers on the plan, on each part and at the end; findings resolved or
       accepted in writing.
 - [ ] Docs, SE entry and "As built" written; report written; topic branch pushed
-      and a pull request opened (never merged).
+      and a pull request opened; merged only with every required check green (SE-108).

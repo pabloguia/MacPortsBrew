@@ -112,4 +112,4 @@ answering a pass. Name every test that proves an invariant `invariant_NN_*`.
 - [ ] Reviewers on the plan, on each commit and at the end; findings resolved or
       accepted in writing.
 - [ ] 05, 04, schemas, SE entries, CHANGELOG, wiki, both locales; "As built";
-      report; topic branch pushed and a pull request opened (never merged).
+      report; topic branch pushed and a pull request opened; merged only with every required check green (SE-108).

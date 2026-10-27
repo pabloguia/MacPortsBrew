@@ -161,4 +161,4 @@ at `docs/passes/08-slice-6-plan.md` and report at
 - [ ] Reviewers on the plan, on each part and at the end; findings resolved or
       accepted in writing in the plan's §10.
 - [ ] The SE entry, 04, `plan.v1.md`, CHANGELOG updated; "As built" written; report
-      written; topic branch pushed and a pull request opened (never merged).
+      written; topic branch pushed and a pull request opened; merged only with every required check green (SE-108).

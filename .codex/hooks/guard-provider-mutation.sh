@@ -146,7 +146,7 @@ fi
 # repository. The settings.json deny rules for pushing were removed with this
 # change; this hook is now the only layer, so it fails closed.
 if printf '%s' "$NORM" | grep -Eq "${SEP}git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+push([[:space:]]|\$)"; then
-  if printf '%s' "$NORM" | grep -Eq '[[:space:]](-f|--force[a-z-]*|--delete|-d|--mirror|--all|--prune|--no-verify|--receive-pack[a-z-]*|--exec)([[:space:]]|$)' \
+  if printf '%s' "$NORM" | grep -Eq '[[:space:]](-f|--force[a-z-]*|--delete|-d|--mirror|--all|--tags|--follow-tags|--prune|--no-verify|--receive-pack[a-z-]*|--exec)([[:space:]]|$)' \
     || printf '%s' "$NORM" | grep -Eq 'push([[:space:]]+[^[:space:]]+)*[[:space:]]+(\+|:)[^[:space:]]'; then
     deny "Blocked: a force, a delete, a mirror or all-branches push, or a refspec starting with + or :, rewrites or removes what is already published. That stays the owner's act. An ordinary push of a topic branch to origin is allowed."
   fi
@@ -165,6 +165,31 @@ if printf '%s' "$NORM" | grep -Eq "${SEP}git([[:space:]]+-[^[:space:]]+([[:space
     main|master|HEAD|"")
       deny "Blocked: the current branch is '${PUSH_BRANCH:-unknown}'. A push from main, master or a detached HEAD is not made from this session; switch to a topic branch." ;;
   esac
+fi
+
+# --- merging and releasing (SE-108) ----------------------------------------
+# An interactive session merges a pull request once every required check is
+# green, and pushes a `v*` tag at a commit on origin/main. `enforce_admins` is
+# off on `main` and the session holds the owner's credential, so branch
+# protection does not bind it: these refusals are what keep a merge behind the
+# required checks and every GitHub setting with the owner.
+if printf '%s' "$NORM" | grep -Eq "${SEP}gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)" \
+  && printf '%s' "$NORM" | grep -Eq '[[:space:]]--admin([[:space:]]|$)'; then
+  deny "Blocked: gh pr merge --admin merges past the required checks on main. A session merges only once every required check is green (SE-108); bypassing them stays the owner's act."
+fi
+if printf '%s' "$NORM" | grep -Eq "${SEP}gh[[:space:]]+api([[:space:]]|\$)" \
+  && { printf '%s' "$NORM" | grep -Eqi '[[:space:]](-X|--method)[[:space:]]*(POST|PUT|PATCH|DELETE)([[:space:]]|$)|[[:space:]]-X(POST|PUT|PATCH|DELETE)([[:space:]]|$)' \
+    || printf '%s' "$NORM" | grep -Eq '[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]]|$)'; }; then
+  deny "Blocked: a gh api call that writes. Repository settings, protection, rulesets, environments and merges through the API stay the owner's (SE-108); reading with gh api is allowed."
+fi
+# An unattended run does none of this (11-agentic-sdlc.md, MUST NOT); the CI
+# tool allowlist is one layer, this is the second.
+if [ "${MPB_UNATTENDED:-}" = "1" ]; then
+  if printf '%s' "$NORM" | grep -Eq "${SEP}gh[[:space:]]+(pr[[:space:]]+merge|release)([[:space:]]|\$)" \
+    || { printf '%s' "$NORM" | grep -Eq "${SEP}git([[:space:]]+[^[:space:]]+)*[[:space:]]+push([[:space:]]|\$)" \
+      && printf '%s' "$NORM" | grep -Eq '[[:space:]](refs/tags/|v[0-9])'; }; then
+    deny "Blocked: an unattended run does not merge, release or push a tag (docs/spec/11-agentic-sdlc.md). Those are an interactive session's or the owner's."
+  fi
 fi
 
 if printf '%s' "$NORM" | grep -Eq "${SEP}(launchctl|chsh|systemsetup|csrutil|spctl)([[:space:]]|\$)"; then

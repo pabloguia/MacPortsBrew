@@ -7902,6 +7902,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Addendum 2026-10-18 (pass 14, item F): `docs/spec/11-agentic-sdlc.md`'s table of what the tooling denies
   still said every `git push` was denied because the remote did not exist. The row now states this entry's
   rule, and keeps the old reason as history.
+- **Extended by SE-108 (2026-10-27).** A session now merges and tags, so this entry's revisit trigger fired:
+  with `enforce_admins` off the hook, not branch protection, keeps a merge behind the required checks. SE-108
+  holds that rule and the refusals it added; the push deny list here is otherwise unchanged.
 
 ## SE-100 — Debug info is packed, and validation trims target/ after it
 - Status: accepted
@@ -8188,3 +8191,47 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   show them), never tracked, and deleted. The preflight gives the host a first run of the original input; a lower
   rate of the flake after it would not be evidence of a fix.
 - Compatibility impact: none; test code only.
+
+
+## SE-108 — An interactive session merges on green checks and tags a release; the hook, not branch protection, keeps it there
+- Status: accepted
+- Date / Pass: 2026-10-27 / pass 15 follow-up (owner's instruction in chat, armed with `MPB_ALLOW_GUARD_EDIT=1`)
+- Original assumption: SE-099 let a session push a topic branch and open a pull request; the owner merged and
+  tagged. The work orders said "never merged", and `CLAUDE.md` said nothing about merging.
+- Change: the owner asked that a session push, open, merge and release on its own.
+  1. `CLAUDE.md`, `prompts/15-first-tag-readiness.md`, the 08 slice 6–8 work orders, the roadmap and
+     `11-agentic-sdlc.md`'s push row now say an interactive session may merge a pull request once every required
+     check is green, and may push one `v*` tag at a commit on `origin/main` for a version the specification and
+     `CHANGELOG.md` already describe. `docs/passes/09-staged/README.md`'s tag command names `origin/main`, so it
+     runs from a topic branch.
+  2. `.claude/hooks/guard-provider-mutation.sh` additionally refuses `--tags` and `--follow-tags` on a push,
+     `gh pr merge --admin`, every write-method `gh api` call (`-X`/`--method` other than GET, `-f`/`-F`/`--field`/
+     `--raw-field`/`--input`), and, under `MPB_UNATTENDED=1`, `gh pr merge`, `gh release` and a tag push.
+- Rejected, in this entry: reading the push checks only on the command's push segment, which was drafted first to
+  stop `cd /abs && git push ...` and `git push ...; gh pr create --base main` from being refused. Both reviewers
+  found that it let through pushes the whole-line reading refuses: `echo main | xargs git push origin`, a
+  `$( ; )` or backtick substitution carrying a force flag, `U=<url>; git push $U topic`, and
+  `cd /other/clone && git push`, where the origin and branch checks read `CLAUDE_PROJECT_DIR` and not the clone.
+  The friction is the cheaper cost: a session does not prefix a push with `cd`, and does not chain it.
+- Rationale: `enforce_admins` is off on `main` and the session holds the owner's credential, so branch protection
+  does not bind it: `--admin` or a raw `gh api` merge would land past failing checks. SE-099's trigger, "revisit if
+  the hook is ever the only barrier for something that matters more than a topic branch", has fired, and the hook
+  now carries that barrier. The `release-tags` ruleset no longer separates owner from session (08's MUST and
+  ADR-0005 rely on it against non-owners, which it still holds); what stands between a session's tag and a
+  published release is the owner's `release-signing` approval and the draft-then-publish step.
+- Evidence: the two refusals seen in this session; `gh api repos/pabloguia/MacPortsBrew/branches/main/protection`
+  (read 2026-10-27: six required checks, 0 approving reviews, `enforce_admins` false);
+  `gh api repos/pabloguia/MacPortsBrew/rulesets/25839389` (creation, update, deletion of `refs/tags/v*`, admin
+  bypass); `gh api repos/pabloguia/MacPortsBrew/environments` (`release-signing`, required reviewer `pabloguia`);
+  the `security-reviewer` and `spec-guardian` reviews of the first draft, with a side-by-side run of the two
+  guards. Cases in `test-hooks.sh` for every refusal above and for the forms the rejected draft let through.
+- User impact: none; agent workflow only.
+- Architectural impact: none in the product. The hook gains a second subject (`gh`) beside `git push`.
+- Compatibility impact: none.
+- Unchanged, and stated: the certificates and their passwords, approving `release-signing`, every repository or
+  GitHub setting, and any force, delete or rewrite stay the owner's. `11-agentic-sdlc.md`'s MUST NOT for unattended
+  runs is untouched, and now has a hook layer beside the CI tool allowlist. SE-099's accepted gaps still apply.
+- Guard escape: armed twice (the first window ended at a background notification before the hook edits landed).
+  Written under it: `.claude/hooks/guard-provider-mutation.sh`, `.claude/hooks/test-hooks.sh`, `CLAUDE.md`, and
+  the regenerated `.codex/hooks/`. The rejected draft was restored with `git checkout` of the committed file,
+  outside an armed window; that restored committed bytes and wrote nothing new. The guard's log has the writes.
