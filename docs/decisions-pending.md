@@ -11,7 +11,36 @@ are recorded.
 
 ## Open
 
-### DP-028 — Whether INV-10 and the charter's non-goals cover what a provider reads from its own configuration
+None. The thirteen that were open were all ruled on 2026-10-27 (SE-109);
+work order `prompts/16-complete-mutating-product.md` carries them out.
+
+---
+
+## Resolved
+
+### DP-028 — Whether INV-10 and the charter's non-goals cover what a provider reads from its own configuration — **RESOLVED 2026-10-27: (c), with the exact wording below**
+
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (c). Say precisely what holds, so neither tier reads as a promise about a
+provider's own configuration. (b) would refuse users for a configuration they set
+on purpose and adds no safety to a read; (a) leaves the promise to be inferred
+from silence. The INV-10 paragraph was applied **by the owner**, in
+commit `cc844d1` on 2026-10-27 (the invariants file is guarded, and says so); the charter wording is
+applied by work order 16 part A once the owner has confirmed it, and only after
+part A has checked that both behaviours it promises exist:
+
+- **INV-10, a second paragraph:** "This covers the environment MacPortsBrew
+  passes. Configuration a provider reads on its own (`brew.env`, a user
+  `macports.conf`) is not MacPortsBrew's to set: it is detected and disclosed
+  with every read it may affect, and a mutating step refuses while such a key
+  is set (DP-027)."
+- **Charter non-goals:** "require Homebrew, MacPorts, network access, or an LLM
+  in order to run (a provider's own read may reach the network on its own
+  account, and MacPortsBrew says when it can);" and "send telemetry
+  (MacPortsBrew sends nothing; if a provider's own configuration enables its
+  analytics, MacPortsBrew discloses that)."
+
+Propagation: work order 16, part A (charter, Tier 2, ruled here) and the owner's
+INV-10 edit (listed there under "needs the owner").
 
 Raised 2026-10-03 by `spec-guardian`'s review of how the agent recorded
 DP-027's ruling. DP-027 put two questions to the owner that sit above the
@@ -48,9 +77,17 @@ to infer (a) from silence. **What it blocks:** nothing in this build; the
 mutating pass already refuses under DP-027 (b). **Reversible default taken:**
 (a), with the reading stated here rather than written into either tier.
 
----
+### DP-029 — How a test may run code under a different umask — **RESOLVED 2026-10-27: (d), a creation-mode seam, new option**
 
-### DP-029 — How a test may run code under a different umask
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** **(d)**, an option the review added. None of (a)–(c): (a) leaves the one
+line that matters unguarded, and (b) and (c) each weaken a guard the owner put in
+on purpose. Instead the durable-write path takes its creation mode from a
+crate-private parameter (production passes `0o600`, unchanged); a test creates the
+record with a deliberately wide mode (`0o644`) and asserts it ends `0600`. That
+kills the removal of the post-creation permission fix without a umask, `unsafe`
+or a shell. The `0277` read-back half stays owed and held by reading, as
+recorded; revisit only if a second umask-dependent rule appears. Propagation:
+work order 16, part B, with the mutant run that proves the kill.
 
 Raised 2026-10-05, pass 08 slice 2, Part A. SE-092 owes a test that a history
 record lands `0600` and reads back under a `0277` umask. The umask is
@@ -75,9 +112,23 @@ route around either.
 review; take (b) only if a second umask-dependent rule appears. **What it
 blocks:** nothing. **Reversible default taken:** (a).
 
----
+### DP-030 — How, if at all, MacPortsBrew detects a `brew` or `port` that is mutating — **RESOLVED 2026-10-27: (b), built before the flip proposal**
 
-### DP-030 — How, if at all, MacPortsBrew detects a `brew` or `port` that is mutating
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b). A mutating release that cannot see a provider mutating at the
+same moment is not complete; "possibly inconsistent" on every run is not an
+answer a user can act on. Build the `F_GETLK` probe on each provider's locks
+as R-17 locates them (Homebrew: every file under `<prefix>/var/homebrew/locks/`,
+including the suffix-less `update` and `vendor-install` locks; MacPorts: the
+registry lock under the detected `portdbpath`), with the locations held in
+`data/policy/` rather than in code (INV-20). One ADR chooses between
+`libc` with one reviewed `unsafe` call in a single module and a maintained safe
+wrapper whose transitive set is verified with `cargo metadata`; that ADR
+supersedes ADR-0006 **for this purpose only**, and is shared with DP-049's if
+`sha2` reaches `libc` too. The claim is "a provider lock is held right now",
+never "idle"; a held lock refuses the run with a named error. MacPorts' lock
+being taken only by a registry-writing `port` (R-17) is the provider's asymmetry,
+documented and reviewed under INV-17. (c) stays rejected. Propagation: work
+order 16, part G.
 
 Raised 2026-10-05, pass 08 slice 2, from R-17 and R-18. 04's MUST asks for
 detection of a concurrently running `brew` or `port` before mutating, and a
@@ -107,7 +158,17 @@ does any of those, so **the detector is not built and the refusal is owed**.
 dependency. **What it blocks:** the flag-flip proposal, by test, not by
 convention. **Reversible default taken:** (a).
 
-### DP-032 — What "defines a service" means for MacPorts, given that Homebrew's answer is a declaration
+### DP-032 — What "defines a service" means for MacPorts, given that Homebrew's answer is a declaration — **RESOLVED 2026-10-27: (c) then (b); the answer is the union**
+
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (c) as the first step, then (b), and the answer is the **union**, stated
+once in the domain for both providers (each adapter supplies its halves; for
+Homebrew, the formula's `service` block and a materialised `homebrew.mxcl.*`
+plist). For MacPorts: a port defines a service if its installed Portfile declares a startup item
+(directly or through a PortGroup that adds one) **or** MacPorts materialised a
+launchd item that `port -q provides` attributes to it. A Portfile the bounded
+reader cannot interpret makes the answer unknown, and the plan is refused, so
+the fail-closed property of today's scan is kept. Requires an R-8 addendum and a
+captured fixture. Propagation: work order 16, part D.
 
 Raised 2026-10-10, pass 08 slice 3, by `spec-guardian` (M1). INV-19 forces
 `MANUAL_REVIEW` for a package that owns service state ("managed launch agents").
@@ -134,8 +195,10 @@ nothing in v0.1.0 — the slice-3 scan is fail-closed (any item it cannot attrib
 makes the answer unknown, and the plan is refused). **Reversible default taken:**
 (a), fail-closed.
 
+### DP-036 — DP-019's ruling names an `.app`; is that the `.dmg`? — **RESOLVED 2026-10-27: (a), the `.dmg`**
 
-### DP-036 — DP-019's ruling names an `.app`; is that the `.dmg`?
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (a). The `.app` in DP-019's ruling is the `.dmg`; nothing changes.
+No application bundle is planned.
 
 Raised 2026-10-10, pass 09, by `spec-guardian` (L5). DP-019's ruling reads "The
 `.app`, the `.pkg` and the Intel build all ship". No `.app` exists in any
@@ -151,9 +214,17 @@ reinterpreting it.
 **Recommendation:** (a). **What it blocks:** nothing before the first tag's
 artifact list is final. **Reversible default taken:** (a).
 
----
+### DP-037 — Is naming a package the "explicitly entered advanced mode" INV-13 requires? — **RESOLVED 2026-10-27: (b), with the warning and the stronger confirmation**
 
-### DP-037 — Is naming a package the "explicitly entered advanced mode" INV-13 requires?
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b), both halves. Naming a package outside the default view is the
+explicit entry into advanced mode **for that package only**: `advanced.warning`
+is printed (and carried in `--json`), the plan records how the row was entered,
+and any destructive step for it (`REMOVE_SOURCE`) needs the stronger confirmation
+`06-cli-and-ux.md` requires (it does not yet define one: work order 16 part K
+defines both levels, normal and advanced, and how each works under `--yes`). A named package's own transitive dependencies are
+never added implicitly. Test:
+`invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation`.
+Propagation: work order 16, part C.
 
 Raised 2026-10-11 by `spec-guardian` (pre-release review, H1). INV-13 (Tier 1)
 says transitive dependencies are "reachable only through an explicitly entered
@@ -179,9 +250,15 @@ actually asking about; the warning keeps the act informed. **What it blocks:**
 the mutating pass (slice 4), not the read-only 0.1.0. **Reversible default
 taken:** no change in behaviour; this entry is the record.
 
----
+### DP-039 — `claude.yml` can run a pull request's own hooks with secrets — **RESOLVED 2026-10-27: (b), hardened before any automatic trigger returns**
 
-### DP-039 — `claude.yml` can run a pull request's own hooks with secrets
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b). Until the hardening lands, both workflows stay manual-only
+(SE-099) and no key is set. The hardening: refuse when the pull request's head
+repository is not the base; load settings and hooks from a trusted base-branch
+checkout, never from the head; accept a trigger only from `OWNER`/`MEMBER`; no
+`Write`/`Edit` and only an allowlisted `Bash`; the key in an environment with a
+required reviewer. `.github/workflows/` is guarded, so the session stages the
+files and the owner sends the armed message. Propagation: work order 16, part M.
 
 Raised 2026-10-11 by `security-reviewer` (pre-release review, H1).
 `.github/workflows/claude.yml` runs on `issue_comment` with the API key and a
@@ -214,10 +291,28 @@ controls. To re-enable the old triggers, restore `issue_comment` and
 `pull_request_review_comment` (and `pull_request`) and the author-association
 conditions that the workflows' own comments describe, and set the secret.
 
----
+### DP-046 — May the first mutating release refuse every elevated step? — **RESOLVED 2026-10-27: (b): the first mutating release runs both directions**
 
-
-### DP-046 — May the first mutating release refuse every elevated step?
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** **(b), and the first mutating release waits for it.** INV-17 says
+neither direction is a special case, the charter says MacPortsBrew is not a
+one-way escape hatch, and (a) would ship nothing runnable to the Intel Homebrew
+users the project started for. The evidence argument behind (a) is kept another
+way: v0.2.0 is not tagged until the acceptance protocol (work order 11) has
+passed **in both directions** on disposable machines per architecture, and the
+non-elevating path (MacPorts→Homebrew formulae, with the source retained,
+because removing a MacPorts port elevates) is exercised there first, as a
+milestone, not as a release. The elevated spawn mechanism is constrained: an
+absolute `sudo` path and argv only; elevation only where the data cell says
+`required` or detection proves it; every elevated step enumerated in the plan
+with its exact argv and consented to per step; no credential cached across runs
+or left behind; the process itself never runs as root (INV-06); the environment the
+elevated child actually receives checked against INV-10. What `sudo` passes on is
+decided by the user's sudoers policy, so a dated research note comes first, and
+that policy is detected and disclosed, or refused, like DP-028's provider
+configuration. A cask whose elevation stays `unknown` after detection is
+refused with a named reason (INV-20). Design and ADR first, reviewed by
+`security-reviewer` and `spec-guardian` before any code. Propagation: work order
+16, part J.
 
 Raised 2026-10-18 (design notes for slice 7, `docs/passes/08-pre-flip-design-notes.md`).
 Elevation consent is built (slice 4) and will be wired (slice 7), but no
@@ -258,9 +353,18 @@ written, but cannot settle it.
 **What it blocks:** the flip proposal (work order 08 slice 9).
 **Reversible default taken:** (a); nothing elevates in this build.
 
----
+### DP-047 — How the first mutating release sets a primary (`SET_PRIMARY`, `VERIFY_RESOLUTION`) — **RESOLVED 2026-10-27: (b) now, (a) as a consented layer before v0.2.0**
 
-### DP-047 — How the first mutating release sets a primary (`SET_PRIMARY`, `VERIFY_RESOLUTION`)
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b) now (slice 8 as designed), then (a) before v0.2.0, **only with
+consent**. Without layer 4, Homebrew→MacPorts is refused on every machine where
+Homebrew's `bin` comes first, which is DP-046's asymmetry again. A shim is never
+written implicitly: when the destination does not win `PATH`, the plan offers
+layer 4 for that executable (one shim in the MacPortsBrew-owned directory, one
+managed `PATH` block, a backup, a preview, `env --revert`, restore support,
+idempotent per INV-16); without consent the gate refuses with
+`PRIMARY_NEEDS_SHIM` and names layers 1 and 2. The executable list comes from
+provider metadata, so `rg` for `ripgrep` is planned rather than refused.
+INV-11 and INV-12 bind. Propagation: work order 16, parts F and I.
 
 Raised 2026-10-18 (design notes for slice 8). Every planned run today ends
 `PARTIAL`: `SET_PRIMARY` carries `macportsbrew primary <name> <to>`, a command
@@ -297,9 +401,18 @@ executable list — the slice's own design decision, recorded in SE.
 **What it blocks:** slice 8 and therefore the flip. **Reversible default taken:**
 (b) is what slice 8 builds unless the owner rules otherwise.
 
----
+### DP-048 — The window between the last destination check and the provider's uninstall — **RESOLVED 2026-10-27: (c), with removal opt-in in v0.2.0**
 
-### DP-048 — The window between the last destination check and the provider's uninstall
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (c), and removal ships in v0.2.0 **as an opt-in**. Today removal is
+the default (`06-cli-and-ux.md` gives `[--retain-source]` as the opt-out); this
+ruling flips it: the source is retained by default, and `--remove-source` is
+chosen per run with a confirmation stronger than an install's. Removal is
+dispatched only when slice 6's re-read of the destination immediately before
+`REMOVE_SOURCE` exists, DP-030's probe exists, and all six destination checks
+were evaluated for that package. The residual window between
+the last re-check and the provider's uninstall is accepted and declared in 04
+next to DP-030's. The flip changes 06's synopsis, `retainSource` in the
+plan and history schemas, and `restore`; work order 16 part K records it. Propagation: work order 16, part K.
 
 Raised 2026-10-18 (design notes for slice 6). Slice 6 adds a re-verification of
 the destination immediately before `REMOVE_SOURCE` is dispatched, after the lock
@@ -320,9 +433,15 @@ practice. **What it blocks:** the flip proposal. **Reversible default taken:**
 (c) — slice 6 builds the re-check, and the proposal's defaults refuse
 `REMOVE_SOURCE`.
 
----
+### DP-049 — Tying the executed plan to the plan shown: a `sha2` dependency and `--plan-digest` — **RESOLVED 2026-10-27: (a) and (b), both routes in v0.2.0**
 
-### DP-049 — Tying the executed plan to the plan shown: a `sha2` dependency and `--plan-digest`
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (a) **and** (b), both in v0.2.0: `migrate --yes --plan-digest <d>`
+for scripts, and an interactive confirmation of the same in-memory plan for a
+person at a terminal. `sha2` enters through an ADR under ADR-0004
+(`default-features = false`, transitive set verified with `cargo metadata`); if
+it reaches `libc`, the ADR is the one DP-030 writes and supersedes ADR-0006 for
+those two purposes only. (c) stays rejected. Propagation: work order 16, part E
+(slice 7).
 
 Raised 2026-10-18 (design notes for slice 7). `plan.v1.md` obligation 8 allows
 "under `--yes` a digest of a previously rendered plan that must match". Today
@@ -355,9 +474,14 @@ terminal. **What it blocks:** slice 7 part A, and therefore the flip.
 **Reversible default taken:** none for part A — slice 7 writes the ADR and
 builds parts B–D, and stops before adding the dependency until the owner rules.
 
----
+### DP-050 — Does a destination with no bottle for this machine become `MANUAL_REVIEW`? — **RESOLVED 2026-10-27: (a), plus a toolchain check**
 
-### DP-050 — Does a destination with no bottle for this machine become `MANUAL_REVIEW`?
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (a). A source build is a cost the plan names, not an unavailable
+artifact; 04's example is corrected. The plan shows the source-build risk in the
+default view with what the build needs. If research shows the absence of the
+build toolchain (the Command Line Tools; to be confirmed in a dated note) can be detected by a filesystem read,
+with no new spawn, its absence makes that step `MANUAL_REVIEW`; otherwise the
+risk text says so. Propagation: work order 16, parts A and K.
 
 Raised 2026-10-18 (design notes for slice 6). 04 (Undoing a migration) says a
 step whose artifact is no longer available becomes `MANUAL_REVIEW`. Slice 6
@@ -380,9 +504,18 @@ is a cost the plan names, not an unavailable artifact. **What it blocks:**
 nothing. **Reversible default taken:** (a), with a declared-deviation note in 04
 pointing here (slice 6); 04's MUST text is not rewritten before the ruling.
 
----
+### DP-051 — Four checks of the destination contract no build can evaluate — **RESOLVED 2026-10-27: (a) before v0.2.0, with (b)'s honesty per package**
 
-### DP-051 — Four checks of the destination contract no build can evaluate
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (a), all four checks built before v0.2.0, because DP-048 ships
+removal (`PROVIDER_REPORTS_ACTIVE`, the fifth, is slice 6 part B's). Each lands with its research note. A read added to the allowlist must
+be shown read-only by that note and passed by `security-reviewer`; a form that
+can write is refused, whatever it would check. `LIVENESS_PROBE` runs the
+destination's resolved executable only with a curated probe from dated data
+(`source`, `read_on`): argv only, no shell, sanitised environment, no stdin, a
+scratch working directory, and the timeout of ADR-0006; only the exit status
+counts. A package with no curated probe, or any check that cannot be evaluated
+for it, is reported unchecked: its source is never removed, and the run ends with
+a named outcome that is not plain `COMPLETED`. Propagation: work order 16, part H.
 
 Raised 2026-10-18 by `spec-guardian`, reviewing the handoff after slice 5. The
 planner puts six checks on `VERIFY_DESTINATION` (`crates/application/src/planner.rs`
@@ -415,13 +548,6 @@ honestly what it did not check. **What it blocks:** the flip, and slice 8's
 `COMPLETED`. **Reversible default taken:** none — the planner keeps emitting all
 six checks, the tripwire (widened in slice 6) keeps failing, and no slice may
 make a run complete by dropping a check.
-
----
-
----
-
-
-## Resolved
 
 ### DP-053 — What edit of `build-release.sh` must the sign-path gate catch: an accident, or a hostile one? — **RESOLVED 2026-10-24: (c)**
 
@@ -866,7 +992,7 @@ history is the owner's act).
   say) refuses a mutation against Homebrew, with `doctor` naming it. Narrowing
   means naming keys that do not outrank anything. SE-016 holds the detail.
 - **The two questions above the specification are not settled by this
-  ruling.** They are DP-028, open, with the agent's recommendation.
+  ruling.** They are DP-028 (ruled 2026-10-27, SE-109), with the agent's recommendation.
 - **Obligations carried:** the survey of keys that steer a mutating install
   (owed by the mutating pass); R-16 for MacPorts, answered 2026-10-03
   (`research/R-16-macports-user-configuration.md` — the user `macports.conf`

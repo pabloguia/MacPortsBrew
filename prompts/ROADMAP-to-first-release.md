@@ -17,6 +17,14 @@ order, which model the owner should start the session with.
 
 ## Status on 2026-10-22, updated 2026-10-25
 
+> **2026-10-27 (SE-109):** all thirteen open decisions were ruled under the
+> owner's delegation and confirmed by the owner the same day.
+> v0.2.0 is now symmetric (both directions, elevation consented per step,
+> consented shims, opt-in removal), and the mutating track runs as
+> [`16-complete-mutating-product.md`](16-complete-mutating-product.md), which
+> folds in slice 6 parts B–C and slices 7–9 below. Where this sheet still describes the narrow v0.2.0
+> or lists DP-028..DP-051 as open, it is stale; part A of work order 16 rewrites it.
+
 **Done:** passes 00–07, 09 (release machinery, staged then; installed by pass 15 part B), 10 (release candidate),
 12, 13 and 14 (read-only improvements and maintenance; pass 14 merged as PR #11 on 2026-10-21), 15 (parts A and B, merged as PR #13 on 2026-10-25), and pass 08 slices 1–5. The read-only build
 is complete and reviewed. The mutating loop is wired behind a test-only

@@ -31,6 +31,7 @@ authority you have, what this pass must not do, and how it is accepted.
 | [13-cross-provider-advice.md](13-cross-provider-advice.md) | After v0.1.0 (DP-041 ruled): `doctor` says which direction of cross-provider contamination is riskier, from dated data selected by a provider-neutral rule. |
 | [14-read-only-maintenance.md](14-read-only-maintenance.md) | After slice 5: R-20 (what a read shows as "active", which slice 6 needs), `node@20` before its disable date, schema truth, the ownership-unknown count, the `make_durable` seam, stale prose. |
 | [15-first-tag-readiness.md](15-first-tag-readiness.md) | Before v0.1.0: install pass 09's staged guarded files (an armed message), reconcile their drift, add the `test-support` release check, make the 0.1.0 text true (DP-045). |
+| [16-complete-mutating-product.md](16-complete-mutating-product.md) | After the owner's rulings of 2026-10-27 (SE-109): a symmetric v0.2.0 — documentation rulings, the creation-mode seam, advanced-mode entry, the MacPorts service declaration, slices 7–8, the lock probe, the four destination checks, consented shims, elevation, opt-in removal, the flip proposal, the hardened workflows. One pull request per part. |
 | [ROADMAP-to-first-release.md](ROADMAP-to-first-release.md) | Not a work order: the owner's run sheet — order, owner prerequisites, and which model to start each session with (SE-017 keeps model names out of work orders). |
 
 `.claude/current-pass` names the active one in a single line. The session-start
