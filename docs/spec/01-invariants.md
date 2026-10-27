@@ -59,6 +59,11 @@ provider's prefix, and a provider that inherits them behaves differently than it
 does on its own. MacPortsBrew must not be the source of that difference. See F-2
 in `09-research-checklist.md`.)*
 
+This covers the environment MacPortsBrew passes. Configuration a provider reads
+on its own (`brew.env`, a user `macports.conf`) is not MacPortsBrew's to set: it
+is detected and disclosed with every read it may affect, and a mutating step
+refuses while such a key is set (DP-027, DP-028).
+
 ## Ownership and scope
 
 **INV-11 — Primary-provider selection does not transfer ownership.**
