@@ -23,8 +23,8 @@ work order `prompts/16-complete-mutating-product.md` carries them out.
 **Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (c). Say precisely what holds, so neither tier reads as a promise about a
 provider's own configuration. (b) would refuse users for a configuration they set
 on purpose and adds no safety to a read; (a) leaves the promise to be inferred
-from silence. The INV-10 paragraph is applied **by the owner outside a
-session** (the invariants file is guarded, and says so); the charter wording is
+from silence. The INV-10 paragraph was applied **by the owner**, in
+commit `cc844d1` on 2026-10-27 (the invariants file is guarded, and says so); the charter wording is
 applied by work order 16 part A once the owner has confirmed it, and only after
 part A has checked that both behaviours it promises exist:
 

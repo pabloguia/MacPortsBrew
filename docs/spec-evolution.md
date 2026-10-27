@@ -8358,5 +8358,6 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   output shows removal by default, and v0.2.0 reverses that; part K records the change with its own entry.
 - Unchanged, and stated:
   - `THIS_BUILD_DISPATCHES_MUTATIONS` stays false until the owner rules on the flip proposal.
-  - `docs/spec/01-invariants.md` is edited by the owner outside a session (DP-028's INV-10 text).
+  - `docs/spec/01-invariants.md` is edited only by the owner: DP-028's INV-10 paragraph landed in the owner's own
+    commit `cc844d1` (2026-10-27), after the permission rule and the auto-mode classifier refused the session's edit.
   - Guarded files, and the process allowlist frozen by work order 16, change only with the owner's message.

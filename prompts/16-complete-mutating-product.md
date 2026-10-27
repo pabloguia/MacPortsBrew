@@ -87,8 +87,8 @@ the next part that does not depend on it.
    `scripts/*.sh`, `.claude/hooks/`, `.claude/settings.json` and
    `.github/workflows/`, and the hook refuses everything else. A part that needs
    one stages its files in the same way and stops.
-5. **`docs/spec/01-invariants.md` is not edited.** DP-028's INV-10 paragraph is
-   the owner's, applied outside a session.
+5. **`docs/spec/01-invariants.md` is not edited.** DP-028's INV-10 paragraph
+   was applied by the owner (`cc844d1`, 2026-10-27).
 6. **Dependencies.** A new dependency enters only through an ADR under
    ADR-0004. `libc`, or any crate that reaches it, and any `unsafe` enter only
    through the single ADR of part E. That ADR names its purposes, and
@@ -439,7 +439,6 @@ Demonstrate each item; do not assert it.
 
 ### Needs the owner (collect here; never routed around)
 
-- **The INV-10 paragraph** of DP-028, in `docs/spec/01-invariants.md`.
 - **Applying staged changes:**
   - the allowlist growth from parts H and J;
   - part M's workflows and test case;
