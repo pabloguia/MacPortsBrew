@@ -591,7 +591,7 @@ change is made. Silent deviation remains the one unrecoverable error.
      reach: that fetch on a warm cache; Homebrew's analytics — which a user
      who configures it is asking *Homebrew* for, against which
      `06-cli-and-ux.md`'s "no telemetry" MUST and the README promise are
-     about this tool's own reporting, an argument now DP-028's, open — and,
+     about this tool's own reporting, an argument now DP-028's (ruled 2026-10-27, SE-109) — and,
      through the deprecated
      `HOMEBREW_NO_REQUIRE_TAP_TRUST`, untrusted tap Ruby loaded by `info
      --installed`; a browser stays unreachable (`--github` is off every read
@@ -7895,7 +7895,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   skipped every dispatch, so they now test `github.event_name`, and the comments that describe the old
   triggers say so at the top of each file. The ones that name the author-association gate are left in
   place as the record of what to restore. `docs/spec/11-agentic-sdlc.md` ("Continuous integration") said
-  Claude runs in CI for review; that SHOULD now says it is manual. DP-039 stays open, narrower: it applies
+  Claude runs in CI for review; that SHOULD now says it is manual. DP-039 stays open, narrower (ruled (b) 2026-10-27, SE-109): it applies
   to whoever dispatches the workflow, and to any trigger put back later.
 - Compatibility impact: none for users of the tool. `CLAUDE.md`'s line that `git push` is denied is out of
   date; it is updated with this change.
@@ -8206,7 +8206,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   the renderer (`artifact.*`, both locales): `state` is the withdrawal vocabulary, and `availability.*` labels the
   same states capitalised for a table cell, where the sentence needs them lower-case. The two families name the same
   states and must be translated together. `SOURCE_BUILD_REQUIRED`
-  and `UNKNOWN` stay non-blocking (DP-050's reversible default).
+  and `UNKNOWN` stay non-blocking (DP-050's reversible default, ruled (a) 2026-10-27, SE-109).
 - What is still unmet, declared in 04 in place of slice 5's note: no adapter reports the two new states; a restore's
   destination row is `UNKNOWN`; the bottle example is DP-050's; a provider-level loss of support is not read; `history`
   reports nothing as partially restorable. So `the_switch_needs_manual_review_for_an_unavailable_artifact` stays an
@@ -8223,7 +8223,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Plan review, both reviewers: **part D as planned would break the shell's removal tests**, which reach dispatch only
   through `clear()` under `MutationAllowance::forced_in_tests()`, and there is no route below the gate. Part D needs
   its own test-only waiver of the removal refusal (a field on the allowance, or a second witness) and a tripwire that
-  guards turning removal *on* (`THIS_BUILD_REMOVES_SOURCES` true without part C's re-check, or DP-048 open) rather
+  guards turning removal *on* (`THIS_BUILD_REMOVES_SOURCES` true without part C's re-check, or DP-048 open; ruled (c) 2026-10-27, SE-109) rather
   than the release DP-048's default intends. It also refuses every `restore` that would undo an install; that must be
   stated in DP-048, 04 and restore's rendering. It is built after C, as the work order orders.
 - Tests: `invariant_17_an_unavailable_destination_blocks_identically_in_both_directions` (each state, both
@@ -8294,3 +8294,70 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   draft to it twice and its cases to `test-hooks.sh` once; the third wrote the committed refusals and tests. The draft was restored with `git checkout` of the committed file
   between windows, which wrote committed bytes only and is not in the log. `CLAUDE.md` is outside the guarded set
   and `.codex/hooks/` is written by `scripts/generate-codex-layer.sh`; neither appears in the log.
+
+## SE-109 — The thirteen open decisions ruled toward a complete, symmetric first mutating release
+
+- Status: accepted by delegation; the owner's confirmation is pending on the pull request (see Provenance).
+  Propagation is open: work order 16 carries it out.
+- Date / Pass: 2026-10-27 / between pass 15 and the mutating track
+- Provenance: the owner's instruction in chat, verbatim: "Quero que revise e sugira a recomendação para garantir o
+  melhore mais completo produto possível. Registre como decisão e crie um prompt (ou spec se char melhor) para
+  implementar tudo da forma mais autônoma possível." In English: "review and suggest the recommendation that
+  ensures the best and most complete product possible; record it as a decision, and write a prompt (or a spec, if
+  that is better) to implement all of it as autonomously as possible." The session chose each option, and nothing
+  shows that the owner saw the specific choices before they were recorded. Work order 16 therefore lets
+  nothing that depends on a ruling merge until the owner has confirmed it on the pull request that records it. Two
+  rulings need that confirmation most: DP-028, a Tier 2 charter edit, and DP-046, a reading of INV-17 and the
+  charter.
+- Original assumption: the roadmap's v0.2.0 rested on the reversible defaults of DP-046..DP-048 and DP-051 (b). That
+  release moved MacPorts→Homebrew formulae only: no elevated step, the primary report-only, the source always
+  retained, and four destination checks reported unchecked. It shipped nothing runnable to the Intel Homebrew users
+  the project started for. It also left INV-17, and the charter's "not a one-way Intel escape hatch", to a reading
+  nobody had made.
+- Change: all thirteen ruled; each ruling is in `docs/decisions-pending.md` (Resolved).
+  - DP-028 (c), with the exact INV-10 and non-goal wording.
+  - DP-029 (d), a creation-mode seam (a new option).
+  - DP-030 (b), before the flip.
+  - DP-032 (c) then (b): declared ∪ materialised, one domain rule for both providers.
+  - DP-036 (a).
+  - DP-037 (b), with the warning and the stronger confirmation.
+  - DP-039 (b).
+  - **DP-046 (b): the first mutating release runs both directions.**
+  - DP-047 (b) now, then layer 4 with consent.
+  - DP-048 (c), and the removal default flips to opt-in.
+  - DP-049 (a) and (b).
+  - DP-050 (a), plus a toolchain check.
+  - DP-051 (a) before v0.2.0; an unchecked package is never removed.
+- Rejected, in this entry:
+  - Shipping v0.2.0 in one direction first, to gather evidence before elevating (DP-046 (a)). The evidence is still
+    gathered: v0.2.0 is not tagged until work order 11's acceptance passes in both directions on disposable machines.
+    The non-elevating path is exercised there first, as a milestone and not as a release: MacPorts→Homebrew formulae,
+    with the source retained.
+  - A umask test through `unsafe` or through a shell exception (DP-029 (b), (c)).
+  - A MacPorts-only lock probe (DP-030 (c)).
+- Rationale:
+  - INV-17 says neither direction is a special case. The charter says the tool is not a one-way Intel escape hatch.
+  - INV-06 permits elevation per operation, enumerated and shown. That is a design to build carefully, not a reason
+    to leave out a direction.
+  - Removal becomes opt-in, so the default run cannot break INV-01. Every check the verification contract asks for
+    exists before any removal is dispatched.
+- Evidence: the thirteen entries as raised (2026-10-03 to 2026-10-18); `prompts/ROADMAP-to-first-release.md` (status
+  of 2026-10-25); `docs/passes/08-pre-flip-design-notes.md`; the `spec-guardian` and `docs-auditor` reviews of this
+  change's first draft. Those reviews found that slice 6 is merged only as part A; that the process allowlist has no
+  hook guarding it; and that removal is the default today. This entry and work order 16 now say each of the three.
+- User impact: v0.2.0 arrives later and does more: both directions, elevation shown and consented per step, consented
+  shims, opt-in removal, and a plan tied to the one the user saw.
+- Architectural impact: new work, each piece through its own design review:
+  - an elevated spawn path (INV-06, INV-10, SE-016);
+  - a lock probe, and possibly `libc` (one ADR, superseding ADR-0006 narrowly);
+  - a Portfile reader;
+  - layer 4 shims as plan steps;
+  - four destination checks, including a curated liveness probe that needs a design for admitting a program outside
+    the fixed allowlist.
+- Compatibility impact: the removal default flips (work order 16 part K). `06-cli-and-ux.md` lists `--retain-source`
+  as the opt-out, and the plan and history schemas carry `retainSource`. If v0.1.0 ships before part K, its `plan`
+  output shows removal by default, and v0.2.0 reverses that; part K records the change with its own entry.
+- Unchanged, and stated:
+  - `THIS_BUILD_DISPATCHES_MUTATIONS` stays false until the owner rules on the flip proposal.
+  - `docs/spec/01-invariants.md` is edited by the owner outside a session (DP-028's INV-10 text).
+  - Guarded files, and the process allowlist frozen by work order 16, change only with the owner's message.
