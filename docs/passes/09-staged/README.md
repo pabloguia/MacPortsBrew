@@ -446,11 +446,14 @@ app-specific password). The `.p8` downloads once.
    None of these changes a byte of any artifact; each changes what the notes
    may claim.
 
-**The tag command** (from a clean `main` at the commit to release, after the
-version in `Cargo.toml` and the CHANGELOG say `0.1.0`):
+**The tag command** (at the commit to release on `origin/main`, after the
+version in `Cargo.toml` and the CHANGELOG say `0.1.0`). It names the commit, so
+it runs from any checkout; a session runs it from its topic branch, because the
+push guard refuses every push made while `main` is checked out (SE-099, SE-108):
 
 ```
-git tag -a v0.1.0 -m "MacPortsBrew 0.1.0"
+git fetch origin
+git tag -a v0.1.0 -m "MacPortsBrew 0.1.0" origin/main
 git push origin v0.1.0
 ```
 

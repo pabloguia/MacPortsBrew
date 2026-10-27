@@ -431,6 +431,17 @@ push_assert "git $PUSH to master is denied"                   deny  "git $PUSH o
 push_assert "git $PUSH to a URL is denied"                    deny  "git $PUSH https://github.com/someone/else.git topic"
 push_assert "git $PUSH to an ssh URL is denied"               deny  "git $PUSH git@github.com:someone/else.git topic"
 push_assert "git $PUSH to a path is denied"                   deny  "git $PUSH /tmp/elsewhere topic"
+# SE-108: the whole line is read, so none of the forms a push-segment reading
+# let through (both reviewers, 2026-10-27) is allowed; and tags go one by one.
+push_assert "cd /abs && git $PUSH is denied"                  deny  "cd /tmp/other && git $PUSH"
+push_assert "a subshell cd and git $PUSH is denied"           deny  "(cd /tmp/x; git $PUSH origin topic)"
+push_assert "xargs feeding main to git $PUSH is denied"       deny  "echo main | xargs git $PUSH origin"
+push_assert "xargs feeding --force to git $PUSH is denied"    deny  "echo --force | xargs git $PUSH origin topic"
+push_assert "a substituted --force on git $PUSH is denied"    deny  "git $PUSH \$(true; echo --force) origin topic"
+push_assert "a URL set before git $PUSH is denied"            deny  "U=https://github.com/x/y; git $PUSH \$U topic"
+push_assert "git $PUSH --tags is denied"                      deny  "git $PUSH origin --tags"
+push_assert "git $PUSH --follow-tags is denied"               deny  "git $PUSH --follow-tags origin topic"
+push_assert "git $PUSH of one release tag is allowed"         allow "git $PUSH origin v0.2.0"
 rm -rf "$d"
 d="$(push_repo main "$OK_URL")"
 push_assert "git $PUSH from main is denied"                   deny  "git $PUSH origin"
@@ -444,6 +455,23 @@ rm -rf "$d"
 unset d
 assert "git commit naming push is allowed"    "$G" allow  "$(bash_input "git commit -m 'add $PUSH support'")"
 assert "git log is allowed"                   "$G" allow  "$(bash_input 'git log --oneline')"
+
+# Merging and releasing (SE-108): branch protection does not bind the owner's
+# credential, so the hook keeps a merge behind the required checks.
+MRG="pr merge"
+assert "gh $MRG of a green PR is allowed"     "$G" allow  "$(bash_input "gh $MRG 22 --merge")"
+assert "gh $MRG --admin is denied"            "$G" deny   "$(bash_input "gh $MRG 22 --merge --admin")"
+assert "gh api read is allowed"               "$G" allow  "$(bash_input 'gh api repos/o/r/branches/main/protection')"
+assert "gh api -X PUT is denied"              "$G" deny   "$(bash_input 'gh api -X PUT repos/o/r/pulls/1/merge')"
+assert "gh api --method=DELETE is denied"     "$G" deny   "$(bash_input 'gh api --method=DELETE repos/o/r/branches/main/protection')"
+assert "gh api with a field is denied"        "$G" deny   "$(bash_input 'gh api repos/o/r/rulesets -f name=x')"
+assert "gh api with --input is denied"        "$G" deny   "$(bash_input 'gh api repos/o/r/environments/e --input body.json')"
+MPB_UNATTENDED=1 assert "unattended gh $MRG is denied"     "$G" deny "$(bash_input "gh $MRG 22 --merge")"
+MPB_UNATTENDED=1 assert "unattended gh release is denied"  "$G" deny "$(bash_input 'gh release create v0.2.0')"
+d="$(push_repo topic "$OK_URL")"
+MPB_UNATTENDED=1 push_assert "unattended git $PUSH of a tag is denied" deny "git $PUSH origin v0.2.0"
+rm -rf "$d"
+unset d
 
 # Tier 1, and the control protecting itself.
 assert "editing the invariants is denied"     "$P" deny   "$(edit_input "$CLAUDE_PROJECT_DIR/docs/spec/01-invariants.md")"

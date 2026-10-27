@@ -11,7 +11,8 @@ no `release.yml`). Since then, pass 08 slices 4 and 5 merged, the action pins on
 `main` moved, and the policy version changed. This pass installs the machinery,
 corrects what drifted, adds the check that a release build is free of the
 `test-support` feature, and makes the 0.1.0 text true — so that what is left is
-only the owner's: certificates, repository settings, the tag.
+only the owner's: certificates, repository settings, approving `release-signing`
+(a session may push the tag itself, SE-108).
 
 **Nothing here signs, tags, publishes, or handles a credential.**
 
@@ -148,9 +149,10 @@ SE entry for the release-check and the drift decisions; update
 - [ ] CHANGELOG and README say exactly what 0.1.0 does, per DP-045 and DP-033.
 - [ ] The owner's remaining list (certificates, environment, ruleset, immutable
       releases, the dispatch dry run, the `.pkg` and Gatekeeper protocols, the
-      tag) is current in one place.
+      `release-signing` approval) is current in one place.
 - [ ] Reviewers ran; findings resolved or accepted in writing; topic branch
-      pushed and a pull request opened (never merged).
+      pushed and a pull request opened; merged only with every required check
+      green (SE-108).
 
 ## 7. End-of-pass report
 
