@@ -277,9 +277,38 @@ No executor, gate or verification change beyond the planner's refusal;
 `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`. No new process allowlist entry:
 every read is a file read or the existing `port -q provides`. No new crate.
 
+## Implementation notes from the second round (folded in, no re-review needed)
+
+- `source` is searched anywhere in the raw bytes, like `startupitem`; any
+  occurrence blocks `NO` (security-reviewer 1).
+- §4b: an absent `registry/portgroups/` is `UNKNOWN` for ports that use a
+  PortGroup; exceeding the 256-entry bound is `UNKNOWN`, never truncation; group
+  reads count toward the 8 MiB budget (security-reviewer 2).
+- `portdbpath`: a `macports.conf` that cannot be read or parsed is `UNKNOWN`;
+  "default" means exactly `${prefix}/var/macports` or its expansion
+  (security-reviewer 3).
+- Homebrew: any regular top-level `*.service` file is `YES`, like `*.plist`
+  (security-reviewer 4).
+- Compatibility with a newer build: a document whose bool is `true` beside an
+  answer this build reads as `UNKNOWN` is refused on load; that fail-closed break
+  is stated in `snapshot.v1.md` (security-reviewer 5).
+- The re-captured live snapshot's diff is checked for a home path or username
+  before it is committed (security-reviewer 6).
+- `snapshot.v1.md`'s capability-keyed refusal text is rewritten; the tests
+  `invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan`
+  and `invariant_19_a_document_that_does_not_record_the_service_question_refuses_the_plan`
+  are kept and re-keyed on the row (spec-guardian 1).
+- A cask source row is now refused where it reached `MANUAL_REVIEW` through
+  `GUI_APP`; named in SE-109, tests updated (spec-guardian 2).
+- An unindented declaration inside a block reads as top-level; under "YES wins"
+  that only adds a false `YES`, the safe side, and is said in the threat-model
+  paragraph so nobody "fixes" it toward `NO` (spec-guardian 3).
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
 |---|---|---|---|
 | security-reviewer | plan, `41c26c2` | approve with fixes: M1 stored PortGroups found by building a path from Portfile text; M2 an absent keg or `stat` error read as `NO`; M3 a stale custom-label plist missed; M4 check-then-open (F-30); M5 the label and cellar unchecked; L1–L7 | All folded in: §4a–4c, §5, §7; L6's recording constraints in Follow-up |
 | spec-guardian | plan, `41c26c2` | **not approved**: V1 a document without `service` read from its bool; V2 the Portfile rule narrower than F-A2; V3 holding the code on DP-054 when (a)/(b) are already ruled (DP-016 (d), D.5); D1 DP-054 framing; D2 the PortGroup path; D3 the custom label; R1–R6; missing tests and mutants | All folded in: absence is unknown and the live snapshot is re-captured (§1); the decision table and its oracle (§4c); the code proceeds and DP-054 asks only about relaxing (§ruling); the tests and mutants above |
+| security-reviewer | revised plan, `323cb62` | **approve**; six non-blocking notes | Folded into "Implementation notes from the second round" |
+| spec-guardian | revised plan, `323cb62` | **approved**; three low notes | Folded into "Implementation notes from the second round" |
