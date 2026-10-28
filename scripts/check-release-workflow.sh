@@ -9,7 +9,16 @@
 #   1. no `pull_request_target` or `workflow_run` trigger;
 #   2. no ACTIONS_STEP_DEBUG or ACTIONS_RUNNER_DEBUG;
 #   3. no `secrets[...]` and no `toJSON(secrets)` - both expose every secret;
-#   4. `release-signing` and `secrets.MPB_*` appear in release.yml only.
+#   4. `release-signing` and `secrets.MPB_*` appear in release.yml only,
+#      matched case-insensitively: GitHub environment names are not case
+#      sensitive, and a secret name is matched the same way to be safe;
+#  11. every `environment:` key is written plainly, `environment: <name>` -
+#      unquoted, no mapping, no flow mapping, no `${{ }}` - so rules 4, 6 and
+#      11 see every selection; `environment: claude` (any case) and
+#      `secrets.ANTHROPIC_API_KEY` (any case, any spacing) appear in claude.yml
+#      and claude-code-review.yml only; in each of those exactly one line
+#      selects an environment, `environment: claude`, in a job that
+#      `needs: gate`, and the key is read in that job only (DP-039 (b).5).
 #
 # And over release.yml itself:
 #
@@ -72,6 +81,16 @@ if [ -d "$actions" ]; then
 fi
 [ "${#files[@]}" -gt 0 ] || { echo "check-release-workflow: no workflow or action; nothing to check"; exit 0; }
 
+# Rule 11's patterns. A body line is "<file>:<line>:<text>" (uncommented).
+# envkey: anything that could be an environment key, in any spelling;
+# envplain: the one spelling accepted; claudesel: selecting the claude
+# environment (used with -i: environment names are not case sensitive);
+# claudekey: reading the key, in any case or spacing.
+envkey="^[^:]*:[0-9]+:(.*[{,])?[[:space:]]*(-[[:space:]]*)?[\"']?environment[\"']?[[:space:]]*:"
+envplain='^[^:]*:[0-9]+:[[:space:]]*environment:[[:space:]]+[A-Za-z0-9_.-]+[[:space:]]*$'
+claudesel='^[^:]*:[0-9]+:[[:space:]]*environment:[[:space:]]+claude[[:space:]]*$'
+claudekey='secrets[[:space:]]*\.[[:space:]]*anthropic_api_key'
+
 for wf in "${files[@]}"; do
   body="$(uncommented "$wf")"
   if hits="$(hits_of "$body" '(^|[^A-Za-z0-9_])(pull_request_target|workflow_run)([^A-Za-z0-9_]|$)')"; then
@@ -84,13 +103,26 @@ for wf in "${files[@]}"; do
     fail "an expression that exposes every secret:"$'\n'"$hits"
   fi
   if [ "$wf" != "$release" ]; then
-    if hits="$(hits_of "$body" 'release-signing')"; then
+    if hits="$(hits_of "$body" 'release-signing' -i)"; then
       fail "only release.yml may name the release-signing environment (08):"$'\n'"$hits"
     fi
-    if hits="$(hits_of "$body" 'secrets\.MPB_')"; then
+    if hits="$(hits_of "$body" 'secrets[[:space:]]*\.[[:space:]]*MPB_' -i)"; then
       fail "only release.yml may read a secrets.MPB_* value (ADR-0005):"$'\n'"$hits"
     fi
   fi
+  # 11. Every environment key in the one spelling the rules can read.
+  if hits="$(printf '%s\n' "$body" | grep -iE "$envkey" | grep -vE "$envplain")"; then
+    fail "an environment must be written 'environment: <name>' - no quotes, mapping, flow mapping or expression - so rules 4, 6 and 11 see it:"$'\n'"$hits"
+  fi
+  # 11. The Claude environment and key belong to the two Claude workflows.
+  case "$wf" in
+    "$dir/claude.yml"|"$dir/claude-code-review.yml") ;;
+    *)
+      if hits="$(hits_of "$body" "$claudesel|$claudekey" -i)"; then
+        fail "only claude.yml and claude-code-review.yml may select the claude environment or read secrets.ANTHROPIC_API_KEY (DP-039 (b).5):"$'\n'"$hits"
+      fi
+      ;;
+  esac
 done
 
 if [ -f "$release" ]; then
@@ -110,8 +142,8 @@ if [ -f "$release" ]; then
   # 6. One environment line. Any line that could select the environment -
   #    `environment: release-signing`, or `name: release-signing` under an
   #    environment mapping - counts; prose in an error message does not.
-  mentions="$(printf '%s\n' "$body" | grep -cE '(environment|name):.*release-signing' || true)"
-  envline="$(printf '%s\n' "$body" | grep -E '^[^:]*:[0-9]+:[[:space:]]*environment:[[:space:]]*release-signing[[:space:]]*$' || true)"
+  mentions="$(printf '%s\n' "$body" | grep -ciE '(environment|name)[[:space:]]*:.*release-signing' || true)"
+  envline="$(printf '%s\n' "$body" | grep -iE '^[^:]*:[0-9]+:[[:space:]]*environment:[[:space:]]*release-signing[[:space:]]*$' || true)"
   if [ "$mentions" != 1 ] || [ -z "$envline" ]; then
     fail "release.yml must select release-signing exactly once, as 'environment: release-signing' (found $mentions)"
   else
@@ -171,6 +203,38 @@ if [ -f "$release" ]; then
     fail "a -F flag on a line that calls the release build (pass 08 slice 4 review L1):"$'\n'"$hits"
   fi
 fi
+
+# 11, inside each Claude workflow: one environment line, `environment: claude`,
+#     in the job that `needs: gate`, and the key read in that job only.
+#     jobs_of prints "<line>:<job>:<text>" for every uncommented line under
+#     `jobs:`.
+jobs_of() { # <file>
+  awk '/^[[:space:]]*#/ { next }
+    /^jobs:[[:space:]]*$/ { injobs = 1; next }
+    /^[^[:space:]]/ { injobs = 0; next }
+    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; sub(/:$/, "", job); next }
+    injobs && job != "" { print NR ":" job ":" $0 }' "$1"
+}
+for cf in "$dir/claude.yml" "$dir/claude-code-review.yml"; do
+  [ -f "$cf" ] || continue
+  cbody="$(uncommented "$cf")"
+  tagged="$(jobs_of "$cf")"
+  envs="$(printf '%s\n' "$cbody" | grep -ciE "$envkey" || true)"
+  sel="$(printf '%s\n' "$tagged" | grep -iE '^[0-9]+:[A-Za-z0-9_-]+:    environment:[[:space:]]+claude[[:space:]]*$' || true)"
+  if [ "$envs" != 1 ] || [ "$(printf '%s' "$sel" | grep -c . || true)" != 1 ]; then
+    fail "$cf must select an environment exactly once, as a job's 'environment: claude' (found $envs environment lines)"
+    continue
+  fi
+  envjob="$(printf '%s' "$sel" | cut -d: -f2)"
+  if ! printf '%s\n' "$tagged" | grep -qE "^[0-9]+:$envjob:    needs:[[:space:]]*gate[[:space:]]*\$"; then
+    fail "$cf: the job '$envjob' holds the claude environment but does not 'needs: gate' (DP-039 (b).1, (b).3)"
+  fi
+  all_keys="$(printf '%s\n' "$cbody" | grep -ciE "$claudekey" || true)"
+  job_keys="$(printf '%s\n' "$tagged" | awk -F: -v j="$envjob" '$2 == j' | grep -ciE "$claudekey" || true)"
+  if [ "$all_keys" != "$job_keys" ]; then
+    fail "$cf: secrets.ANTHROPIC_API_KEY outside the job '$envjob' that holds the claude environment"
+  fi
+done
 
 if [ "$failures" -gt 0 ]; then
   echo "check-release-workflow: $failures rule(s) broken" >&2
