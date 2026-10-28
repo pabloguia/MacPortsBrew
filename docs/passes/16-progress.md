@@ -20,9 +20,9 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | 0 — owner confirms the rulings | — | merged `fd443ef` | PR #24 | Confirmed in chat 2026-10-27 |
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
-| C — advanced-mode entry (warning, JSON) | 0 | in review PR #28 | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
-| D — what defines a service | 0 | todo | | May merge with the capture owed |
-| P — stage the owner items, once | 0 | in progress `wo16/P-owner-staging` | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Ends `waiting on owner`. Research: R-21, R-22, R-23 |
+| C — advanced-mode entry (warning, JSON) | 0 | merged `0564fc3` | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
+| D — what defines a service | 0 | waiting on owner (P's `04-fixture-matrix-service-rule.patch`) | `wo16/D-service-definition`, PR #29 | Implemented and approved by both reviewers (code, two rounds); 20 of 21 mutants killed, m18 race-only. The code is `docs/passes/16-plans/D-implementation.patch`: the commit gate cannot pass until the matrix patch is applied. **Resume** as `wo16/D-2` from `origin/main` after it is: `git apply docs/passes/16-plans/D-implementation.patch`, fill the `<commit>` placeholder in `fixtures/snapshots/README.md`, split into Conventional commits, delete the patch file, run `scripts/validate.sh`. No port with a startup item is installed here (owner item) |
+| P — stage the owner items, once | 0 | waiting on owner (merged `fef24c0`) | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Owner applies them; see Needs the owner. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | waiting on owner (merged `bc52b3c`) | PR #31 | Staged: `docs/passes/16-staged/M/` (three security reviews, final approve). Owner applies it; see Needs the owner |
 | S — slice 6 parts B and C | 0 | todo | | First of the chain |
 | E — slice 7 + the dependency ADR | S, P | todo | | P's `check-licences.sh` entries must be applied before the dependency lands |
@@ -54,6 +54,15 @@ Remove a line when the owner has done it, citing the commit.
   2026-10-27 ("Auto-Mode Bypass"). Action: run `/tooling-recheck` with scope
   "Hooks, permissions, CI" yourself, or allow that subagent launch, and save the
   note as `docs/research/tooling/2026-10-27-hooks-permissions-ci.md`.
+- **Rule DP-054** (blocks nothing; `docs/decisions-pending.md`). Whether to
+  relax DP-032 and DP-016 for `--replay` so replayed Homebrew plans keep showing.
+  Action: reply (a) to keep the rulings as built, or (c) to relax them; the
+  recommendation is (a).
+- **Capture a MacPorts recording with a startup item** (part D's end-to-end
+  case; D may merge without it). No port here declares or creates one. Action:
+  on a machine with MacPorts `nginx` or `dbus` installed, run
+  `scripts/capture-fixture.sh` and commit the recording under
+  `fixtures/recordings/`.
 
 - **Apply part M's staged workflows** (blocks setting the Claude key; nothing
   in the chain). Staged: `docs/passes/16-staged/M/`. Action: follow its README —
@@ -91,7 +100,7 @@ than buried (work order 16 §4.3; AGENTS.md "never silently").
 
 Append each new DP number with the part that raised it.
 
-- (none yet)
+- DP-054 — part D, 2026-10-28: whether to relax DP-032/DP-016 for replay (narrowed after review)
 
 ## Session log
 
@@ -100,3 +109,4 @@ session stopped and why.
 
 - 2026-10-27: ledger created; part 0 done; no implementation part started.
   The resumability rules came in with the pull request that added this file.
+- 2026-10-28: C merged (PR #28); D implemented and approved, held as a patch on P's matrix patch (PR #29); P and M staged and merged (PRs #30, #31). Next: S, which needs nothing from the owner; D's code, E, F, H and J wait on P's staged items.
