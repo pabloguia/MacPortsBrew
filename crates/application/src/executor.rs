@@ -43,6 +43,18 @@
 //! 7. What is kept of a read is [`ReadEvidence`] — the result, the line count
 //!    and the truncation flag. There is no field for output, so a record
 //!    cannot carry a machine's inventory (`plan.v1.md`, obligation 3).
+//! 8. **A `VERIFY_DESTINATION` is certified only after its provider's
+//!    configuration was re-checked** (SE-107 C1): [`next_action`] answers
+//!    [`Action::Certify`] for it, [`judge_step`] refuses it
+//!    ([`Unevaluable::NotCertifiedHere`]) whatever its reads say, and
+//!    [`certify_destination`] — which takes a [`ConfigurationRechecked`] token
+//!    by value, constructed only by the re-check — is the only path to its
+//!    `Verified`.
+//! 9. **The destination is read again immediately before `REMOVE_SOURCE`**
+//!    (slice 6 part C; work order 16 part S, §6): [`reverify_for`] names the
+//!    `VERIFY_DESTINATION` whose own commands are re-read, carried in
+//!    [`Action::DispatchMutating`], and [`destination_still_verified`] must
+//!    answer `Ok` before each removal command is handed over.
 //!
 //! **History (obligation 12).** A mutating run writes a history record on
 //! every way it ends — but only under a [`MutationAllowance`], which no shipped
@@ -53,13 +65,15 @@
 //! ([`Action::RecordHistory`], stored pending: a record never certifies its own
 //! write, and what confirms it is a read-back, `crate::history::read_back_matches`).
 
-use crate::execution_gate::{evaluable_in_this_build, GateReport, MutationAllowance};
+use crate::configuration_recheck::ConfigurationRechecked;
+use crate::execution_gate::{answers, evaluable_in_this_build, GateReport, MutationAllowance};
 use crate::planner::{elevation_for, package_kind_in};
 use crate::provider_commands;
+use crate::verification_json::linked_report;
 use macportsbrew_domain::{
-    evaluate, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget, Elevation,
-    ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, ProviderPresence,
-    ReadEvidence, ReadOutput, Snapshot, StepKind, SuccessSemantic, Verdict, VerificationCheck,
+    evaluate_with, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget,
+    Elevation, ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, ProviderId,
+    ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, Verdict, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -230,6 +244,12 @@ pub enum Precondition {
     ConfigurationDrift,
     /// The configuration token is for another provider.
     WrongProviderToken,
+    /// The destination, read again with its `VERIFY_DESTINATION`'s own
+    /// commands immediately before a removal command, did not certify: the
+    /// package vanished or is no longer active, a read was truncated, failed
+    /// or could not be judged, or a re-read command's elevation, re-derived
+    /// from the command table, is not `NONE` (work order 16 part S, §6, D5).
+    DestinationNotReverified,
 }
 
 /// Which fact moved between the capture a plan was built from and the one
@@ -318,6 +338,9 @@ pub enum Unevaluable {
     /// `PACKAGE_NEWLY_PRESENT`, but the destination package was already
     /// present before the run: presence now proves nothing happened.
     PresentBeforeTheRun,
+    /// A `VERIFY_DESTINATION` handed to [`judge_step`]: it is certified only by
+    /// [`certify_destination`], after a configuration re-check (SE-107 C1).
+    NotCertifiedHere,
 }
 
 /// One step's record.
@@ -335,12 +358,31 @@ pub struct StepRecord {
 /// What the loop does with a step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Run the step's commands through its provider's read site.
+    /// Run the step's commands through its provider's read site, and judge them
+    /// with [`judge_step`]. Never answered for a `VERIFY_DESTINATION`.
     Dispatch,
+    /// A `VERIFY_DESTINATION`: re-read the destination provider's
+    /// configuration, re-check it (`recheck_provider_configuration`), run the
+    /// step's commands through its read site, and judge them with
+    /// [`certify_destination`] and the re-check's token (SE-107 C1). A re-read
+    /// that fails halts `PRECONDITION_FAILED` / `CONFIGURATION_UNREADABLE`, a
+    /// re-check that fails `CONFIGURATION_DRIFT`, and nothing is read.
+    Certify,
     /// Hand the step's commands to the mutation site, one at a time, each
     /// behind the lock check and the configuration re-check (D7). Answered
     /// only under a [`MutationAllowance`].
-    DispatchMutating,
+    ///
+    /// `reverify` is `Some` for `REMOVE_SOURCE` only ([`reverify_for`]): then
+    /// **before each command**, the destination's configuration is re-read and
+    /// re-checked, the destination is read again with the named
+    /// `VERIFY_DESTINATION`'s own commands, and [`destination_still_verified`]
+    /// must answer `Ok` — before the lock check and the source's configuration
+    /// re-check, so those two cheap confirmations are the freshest facts at
+    /// dispatch (M1).
+    DispatchMutating {
+        /// The destination re-read a removal needs, when it is one.
+        reverify: Option<Reverify>,
+    },
     /// Write the snapshot of the capture taken under the lock (`SNAPSHOT_BEFORE`,
     /// D1). Answered only under a [`MutationAllowance`].
     TakeSnapshot,
@@ -352,6 +394,51 @@ pub enum Action {
     PassOver(Disposition),
     /// Record this as the step's halt and stop.
     Halt(HaltReason),
+}
+
+/// The destination re-read that precedes each `REMOVE_SOURCE` command.
+///
+/// Opaque: [`reverify_for`] is its only constructor, so which step is re-read
+/// and toward which provider is the application's decision, never the shell's
+/// (V4, L5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reverify {
+    verify_position: usize,
+    provider: ProviderId,
+}
+
+impl Reverify {
+    /// The position (from 0) of the `VERIFY_DESTINATION` whose own commands are
+    /// read again.
+    #[must_use]
+    pub fn verify_position(&self) -> usize {
+        self.verify_position
+    }
+
+    /// The provider read: the plan's destination.
+    #[must_use]
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+}
+
+/// The destination re-read the step at `position` needs before each of its
+/// commands is dispatched: `Some` for a `REMOVE_SOURCE` with a
+/// `VERIFY_DESTINATION` before it, naming that step and `plan.destination`;
+/// `None` for every other step, `ADD_DESTINATION` included.
+#[must_use]
+pub fn reverify_for(plan: &MigrationPlan, position: usize) -> Option<Reverify> {
+    let step = plan.steps.get(position)?;
+    if step.kind != StepKind::RemoveSource {
+        return None;
+    }
+    let verify_position = plan.steps[..position]
+        .iter()
+        .position(|s| s.kind == StepKind::VerifyDestination)?;
+    Some(Reverify {
+        verify_position,
+        provider: plan.destination.clone(),
+    })
 }
 
 /// One mutating command's end, as the shell obtained it.
@@ -617,7 +704,11 @@ fn next_action_guarded(
             {
                 return Action::Halt(HaltReason::ElevationNotNone { command });
             }
-            Action::Dispatch
+            if step.kind == StepKind::VerifyDestination {
+                Action::Certify
+            } else {
+                Action::Dispatch
+            }
         }
         // Handled by the guard above; listed so a new kind must be placed.
         StepKind::AddDestination
@@ -675,7 +766,9 @@ fn mutating_action(
             return Action::Halt(HaltReason::ElevationNotNone { command });
         }
     }
-    Action::DispatchMutating
+    Action::DispatchMutating {
+        reverify: reverify_for(plan, position),
+    }
 }
 
 /// Whether the `SNAPSHOT_BEFORE` before the step at `position` was recorded
@@ -776,8 +869,124 @@ fn unevaluable(check: Option<&VerificationCheck>, why: Unevaluable) -> HaltReaso
 /// judged against the snapshot that plan was built from. `reads` are the
 /// step's commands' reads in order, ending early only where a read could not
 /// be obtained.
+///
+/// **Never certifies a `VERIFY_DESTINATION`**: for one it answers
+/// [`Unevaluable::NotCertifiedHere`] before looking at the reads, so reads that
+/// would pass do not change it. [`certify_destination`] is that step's only
+/// path to `Verified` (SE-107 C1).
 #[must_use]
 pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
+    match run.plan().steps.get(position).map(|s| s.kind) {
+        Some(StepKind::VerifyDestination) => Disposition::Halted {
+            reason: unevaluable(None, Unevaluable::NotCertifiedHere),
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        },
+        _ => judge_reads(run, position, reads),
+    }
+}
+
+/// Certifies the `VERIFY_DESTINATION` at `position` from its reads, which the
+/// shell obtained **after** re-reading and re-checking the destination
+/// provider's configuration: `checked` is that re-check's token, taken by value
+/// so one re-check certifies one step (SE-107 C1; L1).
+///
+/// A token for any provider but the plan's destination is refused
+/// (`PRECONDITION_FAILED` / `WRONG_PROVIDER_TOKEN`), as is a position that is
+/// not a `VERIFY_DESTINATION` (`RECORDS_DO_NOT_MATCH_PLAN`).
+#[must_use]
+// By value on purpose: a re-check certifies one step and is spent doing so (L1);
+// the token is neither `Clone` nor `Copy`, so it cannot be kept for another.
+#[allow(clippy::needless_pass_by_value)]
+pub fn certify_destination(
+    run: &PlannedRun,
+    position: usize,
+    checked: ConfigurationRechecked,
+    reads: &[StepRead<'_>],
+) -> Disposition {
+    let plan = run.plan();
+    let halted = |reason| Disposition::Halted {
+        reason,
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    };
+    if plan.steps.get(position).map(|s| s.kind) != Some(StepKind::VerifyDestination) {
+        return halted(HaltReason::RecordsDoNotMatchPlan);
+    }
+    if checked.provider() != &plan.destination {
+        return halted(HaltReason::PreconditionFailed {
+            command: 0,
+            why: Precondition::WrongProviderToken,
+        });
+    }
+    judge_reads(run, position, reads)
+}
+
+/// Whether the destination, read again immediately before a removal command,
+/// still certifies (work order 16 part S, §6): `Ok` only when
+/// [`certify_destination`] over `reads` at `reverify`'s position is exactly
+/// `Verified`.
+///
+/// `checked` is the destination configuration re-check's token, by value, so a
+/// token certifies one removal command and no other (L1). Refused, each as a
+/// precondition the removal command fails: a token for any provider but the
+/// plan's destination ([`Precondition::WrongProviderToken`]); a re-read command
+/// whose elevation, re-derived from the compiled command table and never read
+/// from the plan, is not `NONE`, or whose plan field is not `NONE` (L4); a
+/// re-read step whose commands are not the operations the table derives; and
+/// any disposition but `Verified` ([`Precondition::DestinationNotReverified`]).
+///
+/// # Errors
+/// The precondition that did not hold.
+pub fn destination_still_verified(
+    run: &PlannedRun,
+    reverify: &Reverify,
+    checked: ConfigurationRechecked,
+    reads: &[StepRead<'_>],
+) -> Result<(), Precondition> {
+    let plan = run.plan();
+    if checked.provider() != &plan.destination || reverify.provider() != &plan.destination {
+        return Err(Precondition::WrongProviderToken);
+    }
+    let Some(step) = plan.steps.get(reverify.verify_position()) else {
+        return Err(Precondition::DestinationNotReverified);
+    };
+    let table = provider_commands::load().unwrap_or_default();
+    let entry = table.get(plan.destination.as_str());
+    let operations = provider_commands::verify_destination_operations(entry);
+    let kind = package_kind_in(plan, run.before());
+    if operations.len() != step.commands.len() {
+        return Err(Precondition::DestinationNotReverified);
+    }
+    for (operation, command) in operations.iter().zip(&step.commands) {
+        if elevation_for(entry, operation, kind, None) != Elevation::None
+            || command.elevation != Elevation::None
+        {
+            return Err(Precondition::DestinationNotReverified);
+        }
+    }
+    match certify_destination(run, reverify.verify_position(), checked, reads) {
+        Disposition::Verified { .. } => Ok(()),
+        Disposition::Halted {
+            reason:
+                HaltReason::PreconditionFailed {
+                    why: Precondition::WrongProviderToken,
+                    ..
+                },
+            ..
+        } => Err(Precondition::WrongProviderToken),
+        Disposition::NotPerformedInThisBuild
+        | Disposition::SnapshotTaken
+        | Disposition::RecordPendingReadBack
+        | Disposition::NotDispatchedMutating
+        | Disposition::Performed { .. }
+        | Disposition::Halted { .. }
+        | Disposition::NotReached => Err(Precondition::DestinationNotReverified),
+    }
+}
+
+/// The judgement behind [`judge_step`] and [`certify_destination`].
+fn judge_reads(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
     let (plan, before) = (run.plan(), run.before());
     let halted = |reason, evidence| Disposition::Halted {
         reason,
@@ -804,7 +1013,7 @@ pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> 
             Ok(expectation) => expectation,
             Err(error) => return halted(HaltReason::Expectation { command, error }, evidence),
         };
-        let verdict = evaluate(&expectation, &output);
+        let verdict = evaluate_with(&expectation, &output, &linked_report);
         evidence.push(ReadEvidence::of(&output, verdict));
         if let Verdict::Failed(cause) = verdict {
             return halted(HaltReason::VerificationFailed { command, cause }, evidence);
@@ -849,26 +1058,6 @@ pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> 
         }
     }
     Disposition::Verified { evidence }
-}
-
-/// Whether a passed read of `semantic` answers `check`. Presence is answered
-/// by a destination read, absence by an inventory read; nothing else is
-/// answered by any read (`evaluable_in_this_build` has already refused it).
-/// An "installed" read never answers `PROVIDER_REPORTS_ACTIVE` (D11).
-fn answers(check: &VerificationCheck, semantic: SuccessSemantic) -> bool {
-    match check {
-        VerificationCheck::PackageNewlyPresent => matches!(
-            semantic,
-            SuccessSemantic::ExitStatus | SuccessSemantic::StdoutNamesPackage
-        ),
-        VerificationCheck::PackageAbsent => semantic == SuccessSemantic::StdoutOmitsPackage,
-        VerificationCheck::ProviderReportsActive
-        | VerificationCheck::ProviderIntegrityCheck
-        | VerificationCheck::ExecutablesOwnedByDestination { .. }
-        | VerificationCheck::LivenessProbe { .. }
-        | VerificationCheck::NoCrossProviderLinkage
-        | VerificationCheck::Unknown => false,
-    }
 }
 
 enum Before {
