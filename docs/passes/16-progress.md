@@ -24,7 +24,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | D — what defines a service | 0 | waiting on owner (P's `04-fixture-matrix-service-rule.patch`) | PR #29, docs merged `ca26df6` | Implemented and approved by both reviewers (code, two rounds); 20 of 21 mutants killed, m18 race-only. The code is `docs/passes/16-plans/D-implementation.patch`: the commit gate cannot pass until the matrix patch is applied. **Resume** as `wo16/D-2` from `origin/main` after it is: `git apply docs/passes/16-plans/D-implementation.patch`, fill the `<commit>` placeholder in `fixtures/snapshots/README.md`, split into Conventional commits, delete the patch file, run `scripts/validate.sh`. No port with a startup item is installed here (owner item) |
 | P — stage the owner items, once | 0 | waiting on owner (merged `fef24c0`) | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Owner applies them; see Needs the owner. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | waiting on owner (merged `bc52b3c`) | PR #31 | Staged: `docs/passes/16-staged/M/` (three security reviews, final approve). Owner applies it; see Needs the owner |
-| S — slice 6 parts B and C | 0 | in review `wo16/S-1-code` | S-0 merged `0f64d9d` (PR #32); S-1 on `wo16/S-1-code` | S-1 built (inert): plan `16-plans/S.md` "As built" and "Mutation proof" (40 mutants, 38 killed, 2 argued equivalent); code reviewed by both reviewers and approved on PR #33, low fixes applied. Next: S-1 merges, then **waiting on owner** `docs/passes/16-staged/S/` for S-2. Follow-up: the policy-version invariant does not count `analytics_read_on` (part A's 2026-10-27) |
+| S — slice 6 parts B and C | 0 | waiting on owner (`16-staged/S/`) | S-0 merged `0f64d9d` (PR #32); S-1 merged `8040e1c` (PR #33) | S-1 is inert code, approved by both reviewers; 38 of 40 mutants killed, 2 argued equivalent (`16-plans/S.md`). **Resume** as `wo16/S-2-active` once the owner has applied `docs/passes/16-staged/S/01-verify-active-cells.patch` (its README): the session's policy version bump and regenerated pinned copies, then S.md §10's S-2 steps. Follow-up: the policy-version invariant does not count `analytics_read_on` (part A's 2026-10-27) |
 | E — slice 7 + the dependency ADR | S, P | todo | | P's `check-licences.sh` entries must be applied before the dependency lands |
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
 | G — lock probe | F | todo | | |
@@ -77,6 +77,12 @@ Remove a line when the owner has done it, citing the commit.
   patches, run `.claude/hooks/test-hooks.sh`,
   `scripts/generate-codex-layer.sh --check` and `scripts/validate.sh`, commit.
 
+- **Apply part S's staged table patch** (blocks S-2, and so E and the rest of
+  the chain). Staged: `docs/passes/16-staged/S/`; S-1 is on `main`, so it can
+  be applied now. Action: follow its README — on a branch `wo16/S-2-active`,
+  `git apply` the patch and commit it yourself; a session then adds the policy
+  version bump and the regenerated copies.
+
 ## Disclosures
 
 Things a session or its subagents did that a reader must know, recorded rather
@@ -109,4 +115,4 @@ session stopped and why.
 
 - 2026-10-27: ledger created; part 0 done; no implementation part started.
   The resumability rules came in with the pull request that added this file.
-- 2026-10-28: C merged (PR #28); D implemented and approved, held as a patch on P's matrix patch (PR #29); P and M staged and merged (PRs #30, #31). Next: S, which needs nothing from the owner; D's code, E, F, H and J wait on P's staged items.
+- 2026-10-28: C merged (PR #28); D implemented and approved, held as a patch on P's matrix patch (PR #29); P and M staged and merged (PRs #30, #31). Then S-0 (PR #32) and S-1 (PR #33) merged. Stopped: every remaining part waits on an owner item — D's code on P's `04` patch, S-2 on S's table patch, E on S-2 and P's `01`, and the rest of the chain after them.
