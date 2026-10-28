@@ -432,9 +432,10 @@ pub fn reverify_for(plan: &MigrationPlan, position: usize) -> Option<Reverify> {
     if step.kind != StepKind::RemoveSource {
         return None;
     }
+    // The nearest one before the removal: the one guarding it (INV-01).
     let verify_position = plan.steps[..position]
         .iter()
-        .position(|s| s.kind == StepKind::VerifyDestination)?;
+        .rposition(|s| s.kind == StepKind::VerifyDestination)?;
     Some(Reverify {
         verify_position,
         provider: plan.destination.clone(),

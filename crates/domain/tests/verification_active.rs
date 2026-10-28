@@ -157,6 +157,19 @@ fn a_verbose_row_is_not_active() {
 }
 
 #[test]
+fn a_lone_row_with_another_third_token_is_not_active() {
+    // The marker is the third token exactly: a row of the right length whose
+    // third token is anything else is not marked (mutation proof, mutant 1).
+    for row in [
+        "  xz @5.8.3_0 (inactive)\n",
+        "  xz @5.8.3_0 active\n",
+        "  xz @5.8.3_0 (Active)\n",
+    ] {
+        assert_eq!(active("xz", row), FAILED, "{row:?}");
+    }
+}
+
+#[test]
 fn a_second_token_without_at_is_not_active() {
     assert_eq!(active("xz", "  xz 5.8.3_0 (active)\n"), FAILED);
 }

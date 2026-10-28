@@ -354,7 +354,7 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                 semantic @ ("stdout_marks_package_active" | "json_reports_package_linked"),
             ) = e.success.get(verb).map(String::as_str)
             {
-                if !crate::planner::names_no_package(verb) {
+                if verb != "verify_active" || !crate::planner::names_no_package(verb) {
                     return Err(DomainError::new(
                         ErrorId::PolicyDataInvalid,
                         format!(
@@ -366,6 +366,22 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                         ),
                     ));
                 }
+            }
+            if verb == "verify_active"
+                && !matches!(
+                    e.success.get(verb).map(String::as_str),
+                    Some("stdout_marks_package_active" | "json_reports_package_linked")
+                )
+            {
+                return Err(DomainError::new(
+                    ErrorId::PolicyDataInvalid,
+                    format!(
+                        "provider-commands.toml: entry {} gives verify_active a success semantic \
+                         that is not stdout_marks_package_active or json_reports_package_linked; \
+                         the active read answers PROVIDER_REPORTS_ACTIVE and nothing else does",
+                        e.provider
+                    ),
+                ));
             }
             match e.success.get(verb).map(String::as_str) {
                 Some(
@@ -635,6 +651,25 @@ mod tests {
             assert!(err.detail.contains(semantic), "{}", err.detail);
             assert!(err.detail.contains("appends the package"), "{}", err.detail);
         }
+    }
+
+    #[test]
+    fn verify_active_takes_an_active_semantic_and_only_it_does() {
+        // An installed read on the active verb proves presence, not activation.
+        let text = with_verify_active(
+            "[\"-q\", \"installed\"]",
+            "\"stdout_names_package\"",
+            ACTIVE_ELEVATION,
+        );
+        let err = parse(&text).expect_err("verify_active with an installed semantic");
+        assert!(err.detail.contains("verify_active"), "{}", err.detail);
+        // And an active semantic on the removal inventory is refused too.
+        let text = SOURCE.replacen(
+            "verify_absent = \"stdout_omits_package\"",
+            "verify_absent = \"stdout_marks_package_active\"",
+            1,
+        );
+        assert!(parse(&text).is_err(), "an active semantic on verify_absent");
     }
 
     #[test]

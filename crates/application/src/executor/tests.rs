@@ -1478,6 +1478,14 @@ fn reverify_for_names_the_verify_step_for_remove_source_only() {
                 assert_eq!(answer, None, "{from}: {:?}", step.kind);
             }
         }
+        // Only a removal is re-read, wherever another step sits: an add placed
+        // after the VERIFY_DESTINATION (a doctored plan) is still `None`.
+        let mut late_add = plan.clone();
+        let add = position(&late_add, StepKind::AddDestination);
+        let copy = late_add.steps[add].clone();
+        late_add.steps.push(copy);
+        let last = late_add.steps.len() - 1;
+        assert_eq!(reverify_for(&late_add, last), None, "{from}: an add");
         // A removal with no VERIFY_DESTINATION before it has nothing to re-read.
         let mut bare = plan.clone();
         bare.steps.retain(|s| s.kind != StepKind::VerifyDestination);
@@ -1649,13 +1657,30 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     // And the table's own answer: a GUI app's read toward MacPorts is of
     // unknown elevation, so the re-derived elevation is not `NONE` even with
     // the plan's field left at `NONE`.
-    let mut snap = run.before().clone();
+    let toward_macports = forced_run(HB);
+    let mut snap = toward_macports.before().clone();
     for p in snap.providers.values_mut() {
         for row in &mut p.inventory.installed {
             row.kind = PackageKind::GuiApp;
         }
     }
-    let gui = PlannedRun::new(forced_run(HB).plan().clone(), snap);
+    let gui = PlannedRun::new(toward_macports.plan().clone(), snap);
+    // The control: with the GUI app's reads present, everything but the
+    // re-derived elevation would certify.
+    let verify = position(gui.plan(), StepKind::VerifyDestination);
+    let named_gui = naming_destination(gui.plan());
+    assert!(
+        matches!(
+            certify_destination(
+                &gui,
+                verify,
+                token(&gui),
+                &[StepRead::Output(finished(&named_gui))]
+            ),
+            Disposition::Verified { .. }
+        ),
+        "the GUI-app control certifies"
+    );
     let plan = gui.plan();
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");

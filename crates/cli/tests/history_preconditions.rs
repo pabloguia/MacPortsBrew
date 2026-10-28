@@ -19,6 +19,11 @@
 //! moved with the names, and the inverse tripwires below make sure no read
 //! helper can be named out of the rule's reach.
 //!
+//! Two exceptions (work order 16 part S): `the_destination_is_reread_before_removal`
+//! here is a positive structural check held whatever the switch is, and
+//! `the_switch_needs_the_destination_contract_evaluable` lives in
+//! `crates/cli/tests/executor.rs`, beside the in-code snapshots it plans from.
+//!
 //! The text checks live in [`wiring_violations`], a pure function of the flag
 //! and the shell's files, which is itself tested **with the flag true** on a
 //! good stub and on one mutant per rule. So the proof that a tripwire would
@@ -1289,6 +1294,17 @@ fn reread_violations(files: &[SourceFile]) -> Vec<String> {
         .unwrap_or(0);
     let rest = &code[arm..];
     let at = |token: &str| rest.find(token);
+    // Per command (mutant 35): the re-read is inside the loop over the step's
+    // commands, so a step with two removal commands re-reads twice.
+    match (
+        at("for command in &step.commands"),
+        at("if let Some(reverify) = reverify"),
+    ) {
+        (Some(each), Some(branch)) if each < branch => {}
+        _ => violations.push(format!(
+            "{name}: the re-read must be inside the loop over the step's commands"
+        )),
+    }
     let (Some(branch), Some(reverified), Some(current), Some(dispatch)) = (
         at("if let Some(reverify) = reverify"),
         at("destination_still_verified("),
@@ -1321,8 +1337,9 @@ fn reread_violations(files: &[SourceFile]) -> Vec<String> {
 #[test]
 fn the_reread_tripwire_fires_on_its_mutants() {
     let good = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                for command in &step.commands { \
                 if let Some(reverify) = reverify { destination_still_verified(x); } \
-                lock.verify_still_current(); mutation_dispatch(y); } } }";
+                lock.verify_still_current(); mutation_dispatch(y); } } } }";
     assert!(reread_violations(&one(good)).is_empty());
     let dropped = good.replace("destination_still_verified(x);", "");
     assert!(!reread_violations(&one(&dropped)).is_empty(), "dropped");
@@ -1341,6 +1358,14 @@ fn the_reread_tripwire_fires_on_its_mutants() {
     let unconditional = "fn f() { match a { Action::DispatchMutating { reverify } => { \
                 destination_still_verified(x); \
                 lock.verify_still_current(); mutation_dispatch(y); } } }";
+    let once_per_step = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                if let Some(reverify) = reverify { destination_still_verified(x); } \
+                for command in &step.commands { \
+                lock.verify_still_current(); mutation_dispatch(y); } } } }";
+    assert!(
+        !reread_violations(&one(once_per_step)).is_empty(),
+        "once per step, not per command"
+    );
     assert!(
         !reread_violations(&one(unconditional)).is_empty(),
         "no branch"

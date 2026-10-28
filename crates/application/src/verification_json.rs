@@ -216,4 +216,36 @@ mod tests {
         assert_eq!(linked_report(DOCUMENT, "GH"), LinkedReport::NotLinked);
         assert_eq!(linked_report(DOCUMENT, "openssl"), LinkedReport::NotLinked);
     }
+
+    /// The JSON half of INV-17's one rule, the same four cases the domain's
+    /// `invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers`
+    /// runs as plain-text rows: exactly one record marked active passes; one
+    /// marked beside another installed version passes; none marked fails; two
+    /// records of the name fail.
+    #[test]
+    fn invariant_17_exactly_one_record_marked_active_holds_for_the_json_parse() {
+        let doc = |formulae: &str| format!(r#"{{"formulae": [{formulae}], "casks": []}}"#);
+        let entry = |linked: &str, installed: &[&str]| {
+            let installed: Vec<String> = installed
+                .iter()
+                .map(|v| format!(r#"{{"version": "{v}"}}"#))
+                .collect();
+            format!(
+                r#"{{"name": "xz", "linked_keg": {linked}, "installed": [{}]}}"#,
+                installed.join(", ")
+            )
+        };
+        let one = doc(&entry("\"5.8.3\"", &["5.8.3"]));
+        let beside = doc(&entry("\"5.8.3\"", &["5.8.2", "5.8.3"]));
+        let none = doc(&entry("null", &["5.8.3"]));
+        let two = doc(&format!(
+            "{}, {}",
+            entry("\"5.8.3\"", &["5.8.3"]),
+            entry("\"5.8.3\"", &["5.8.3"])
+        ));
+        assert_eq!(linked_report(&one, "xz"), LinkedReport::Linked);
+        assert_eq!(linked_report(&beside, "xz"), LinkedReport::Linked);
+        assert_eq!(linked_report(&none, "xz"), LinkedReport::NotLinked);
+        assert_eq!(linked_report(&two, "xz"), LinkedReport::Ambiguous);
+    }
 }

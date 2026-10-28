@@ -545,6 +545,7 @@ fn directions() -> [(&'static str, Direction); 2] {
 #[test]
 fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
     use Boundary::*;
+    let mut removed_somewhere = false;
     for (name, direction) in directions() {
         let scratch = Scratch::new("order");
         let site = Site::exits(&scratch, 0);
@@ -573,6 +574,7 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
             MarkerWritten,
         ];
         if removes {
+            removed_somewhere = true;
             expected.extend([ConfigurationRechecked, DestinationReverified]);
         }
         expected.extend([
@@ -604,6 +606,10 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
             "{name}"
         );
     }
+    assert!(
+        removed_somewhere,
+        "a removal ran in one direction, so the re-read order was checked"
+    );
 }
 
 // --- each boundary made to fail -------------------------------------------------
