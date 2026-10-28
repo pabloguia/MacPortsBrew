@@ -22,7 +22,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
 | C — advanced-mode entry (warning, JSON) | 0 | in review PR #28 | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
 | D — what defines a service | 0 | todo | | May merge with the capture owed |
-| P — stage the owner items, once | 0 | in progress `wo16/P-owner-staging` | PR #30 | Ends `waiting on owner`. Research: R-21, R-22, R-23 |
+| P — stage the owner items, once | 0 | in progress `wo16/P-owner-staging` | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Ends `waiting on owner`. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | todo | | Ends `waiting on owner` |
 | S — slice 6 parts B and C | 0 | todo | | First of the chain |
 | E — slice 7 + the dependency ADR | S, P | todo | | P's `check-licences.sh` entries must be applied before the dependency lands |
@@ -54,6 +54,12 @@ Remove a line when the owner has done it, citing the commit.
   2026-10-27 ("Auto-Mode Bypass"). Action: run `/tooling-recheck` with scope
   "Hooks, permissions, CI" yourself, or allow that subagent launch, and save the
   note as `docs/research/tooling/2026-10-27-hooks-permissions-ci.md`.
+
+- **Apply part P's four staged patches** (blocks part D's code commit through
+  04; E through 01; F and H through 02; J through 03). Staged:
+  `docs/passes/16-staged/P/`. Action: follow its README — `git apply` the four
+  patches, run `.claude/hooks/test-hooks.sh`,
+  `scripts/generate-codex-layer.sh --check` and `scripts/validate.sh`, commit.
 
 ## Disclosures
 

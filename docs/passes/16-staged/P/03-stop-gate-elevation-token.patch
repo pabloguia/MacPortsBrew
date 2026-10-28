@@ -1,0 +1,214 @@
+diff --git a/.claude/hooks/stop-gate.sh b/.claude/hooks/stop-gate.sh
+--- a/.claude/hooks/stop-gate.sh
++++ b/.claude/hooks/stop-gate.sh
+@@ -115,16 +115,46 @@
+ for b in crates/*/build.rs; do [ -f "$b" ] && scan_paths+=("$b"); done
+ if [ ${#scan_paths[@]} -gt 0 ]; then
+   mutating='"[^"]*\b(install|uninstall|reinstall|upgrade|link|unlink|selfupdate|activate|deactivate)\b[^"]*"'
+-  if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
+-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }' \
+-     | head -1 | grep -q .; then
++  # Each scan in this block is captured whole, then filtered. Under pipefail,
++  # `| head -1 | grep -q .` is false when grep exits 2 (an unreadable file) or
++  # a stage takes SIGPIPE (more hits than a pipe holds), and a hit then passed.
++  # grep's 1 is "no match"; anything above it means the scan did not run.
++  mutating_raw="$(grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null)"; mutating_rc=$?
++  if [ "$mutating_rc" -gt 1 ]; then
++    fail+=("The mutating-literal scan could not read every file under src/ or build.rs (grep exit $mutating_rc), so it did not run. That is not the same as passing.")
++  fi
++  mutating_hits="$(printf '%s\n' "$mutating_raw" \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"
++  if [ -n "$mutating_hits" ]; then
+     fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned. And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
+   fi
+-  if grep -RInE '\b(sudo|doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null \
+-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }' \
+-     | head -1 | grep -q .; then
++  # The elevation program is the one token admitted, and only by path: under
++  # crates/adapters/src/process/, where the process executor names it as its
++  # allowlist entry (INV-06; pass 16 part J). Decided on the path grep prints,
++  # as a prefix with its trailing slash, so a sibling processes/ or another
++  # crate's process/ is not admitted. Every other token is refused everywhere,
++  # process/ included.
++  token_raw="$(grep -RInE '\b(doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null)"; token_rc=$?
++  if [ "$token_rc" -gt 1 ]; then
++    fail+=("The elevation, service-control and symlink token scan could not read every file under src/ or build.rs (grep exit $token_rc), so it did not run. That is not the same as passing.")
++  fi
++  token_hits="$(printf '%s\n' "$token_raw" \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
++  if [ -n "$token_hits" ]; then
+     fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing in this pass elevates, controls services or creates symlinks.")
+   fi
++  # Captured whole: under pipefail, `| head -1 | grep -q .` is false when grep
++  # exits 2 (an unreadable file) or a stage takes SIGPIPE, and a hit passes.
++  elevation_raw="$(grep -RInE '\bsudo\b' "${scan_paths[@]}" 2>/dev/null)"; elevation_rc=$?
++  if [ "$elevation_rc" -gt 1 ]; then
++    fail+=("The elevation-program scan could not read every file under src/ or build.rs (grep exit $elevation_rc), so it did not run. That is not the same as passing.")
++  fi
++  elevation_hits="$(printf '%s\n' "$elevation_raw" \
++     | awk -F: -v admitted='crates/adapters/src/process/' 'index($1, admitted) != 1' \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
++  if [ -n "$elevation_hits" ]; then
++    fail+=("The elevation program is named in non-comment code outside crates/adapters/src/process/. INV-06: only the process executor names it, as its allowlist entry; nothing else names the program or its path.")
++  fi
+ fi
+ 
+ # 4. Once there is a crate, the gate runs the real validation rather than only
+diff --git a/.claude/hooks/test-hooks.sh b/.claude/hooks/test-hooks.sh
+--- a/.claude/hooks/test-hooks.sh
++++ b/.claude/hooks/test-hooks.sh
+@@ -332,6 +332,47 @@
+ printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
+ printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
+ boundary_case "literal in a crate build.rs blocks" block 'mutating subcommand literal'
++rm -f "$boundary/crates/domain/build.rs"
++# The elevation program is admitted by path, under crates/adapters/src/process/
++# only: the process executor names it there, as its allowlist entry (INV-06;
++# pass 16 part J). Every other elevation token is still refused there, the
++# path is a prefix with its trailing slash, and a comment anywhere passes.
++DOAS="do""as"
++mkdir -p "$boundary/crates/adapters/src/process" "$boundary/crates/adapters/src/processes" \
++         "$boundary/crates/cli/src/process"
++printf 'pub(crate) const PERMITTED_PROGRAMS: &[&str] = &["%s"];\n' "$SUDO" > "$boundary/crates/adapters/src/process/mod.rs"
++boundary_case "elevation program in crates/adapters/src/process/ passes" 0 ''
++printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/process/mod.rs"
++boundary_case "another elevation token in crates/adapters/src/process/ blocks" block 'elevation, service-control or symlink token'
++printf 'fn f() {}\n' > "$boundary/crates/adapters/src/process/mod.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/processes/mod.rs"
++boundary_case "elevation program in a sibling processes/ blocks" block 'outside crates/adapters/src/process/'
++rm -f "$boundary/crates/adapters/src/processes/mod.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++boundary_case "elevation program elsewhere in adapters blocks" block 'outside crates/adapters/src/process/'
++printf '// the process executor names %s; nothing here does\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++boundary_case "elevation program in a comment elsewhere passes" 0 ''
++rm -f "$boundary/crates/adapters/src/registry.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/cli/src/process/mod.rs"
++boundary_case "elevation program in crates/cli/src/process/ blocks" block 'outside crates/adapters/src/process/'
++rm -f "$boundary/crates/cli/src/process/mod.rs"
++# An unreadable file under a scanned src/ makes grep exit 2, and a scan that
++# ended `| head -1 | grep -q .` under pipefail then passed a hit beside it.
++# Each scan is captured whole now: the unreadable file fails on its own, and a
++# hit beside it is still reported. Skipped as root, who can read mode 000.
++if [ "$(id -u)" -ne 0 ]; then
++  printf 'fn f() {}\n' > "$boundary/crates/adapters/src/locked.rs"
++  chmod 000 "$boundary/crates/adapters/src/locked.rs"
++  boundary_case "an unreadable file under src/ blocks on its own" block 'could not read every file'
++  printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "elevation program beside an unreadable file blocks" block 'elevation program is named'
++  printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "elevation token beside an unreadable file blocks" block 'elevation, service-control or symlink token appears'
++  printf 'let s = "%s";\n' "$INST" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "mutating literal beside an unreadable file blocks" block 'mutating subcommand literal'
++  chmod 644 "$boundary/crates/adapters/src/locked.rs"
++  rm -f "$boundary/crates/adapters/src/locked.rs" "$boundary/crates/adapters/src/registry.rs"
++fi
+ rm -rf "$boundary"
+ 
+ # --- cases added after the 2026-09-05 security review ------------------------
+diff --git a/.codex/hooks/stop-gate.sh b/.codex/hooks/stop-gate.sh
+--- a/.codex/hooks/stop-gate.sh
++++ b/.codex/hooks/stop-gate.sh
+@@ -121,16 +121,46 @@
+ for b in crates/*/build.rs; do [ -f "$b" ] && scan_paths+=("$b"); done
+ if [ ${#scan_paths[@]} -gt 0 ]; then
+   mutating='"[^"]*\b(install|uninstall|reinstall|upgrade|link|unlink|selfupdate|activate|deactivate)\b[^"]*"'
+-  if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
+-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }' \
+-     | head -1 | grep -q .; then
++  # Each scan in this block is captured whole, then filtered. Under pipefail,
++  # `| head -1 | grep -q .` is false when grep exits 2 (an unreadable file) or
++  # a stage takes SIGPIPE (more hits than a pipe holds), and a hit then passed.
++  # grep's 1 is "no match"; anything above it means the scan did not run.
++  mutating_raw="$(grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null)"; mutating_rc=$?
++  if [ "$mutating_rc" -gt 1 ]; then
++    fail+=("The mutating-literal scan could not read every file under src/ or build.rs (grep exit $mutating_rc), so it did not run. That is not the same as passing.")
++  fi
++  mutating_hits="$(printf '%s\n' "$mutating_raw" \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"
++  if [ -n "$mutating_hits" ]; then
+     fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned. And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
+   fi
+-  if grep -RInE '\b(sudo|doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null \
+-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }' \
+-     | head -1 | grep -q .; then
++  # The elevation program is the one token admitted, and only by path: under
++  # crates/adapters/src/process/, where the process executor names it as its
++  # allowlist entry (INV-06; pass 16 part J). Decided on the path grep prints,
++  # as a prefix with its trailing slash, so a sibling processes/ or another
++  # crate's process/ is not admitted. Every other token is refused everywhere,
++  # process/ included.
++  token_raw="$(grep -RInE '\b(doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null)"; token_rc=$?
++  if [ "$token_rc" -gt 1 ]; then
++    fail+=("The elevation, service-control and symlink token scan could not read every file under src/ or build.rs (grep exit $token_rc), so it did not run. That is not the same as passing.")
++  fi
++  token_hits="$(printf '%s\n' "$token_raw" \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
++  if [ -n "$token_hits" ]; then
+     fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing in this pass elevates, controls services or creates symlinks.")
+   fi
++  # Captured whole: under pipefail, `| head -1 | grep -q .` is false when grep
++  # exits 2 (an unreadable file) or a stage takes SIGPIPE, and a hit passes.
++  elevation_raw="$(grep -RInE '\bsudo\b' "${scan_paths[@]}" 2>/dev/null)"; elevation_rc=$?
++  if [ "$elevation_rc" -gt 1 ]; then
++    fail+=("The elevation-program scan could not read every file under src/ or build.rs (grep exit $elevation_rc), so it did not run. That is not the same as passing.")
++  fi
++  elevation_hits="$(printf '%s\n' "$elevation_raw" \
++     | awk -F: -v admitted='crates/adapters/src/process/' 'index($1, admitted) != 1' \
++     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
++  if [ -n "$elevation_hits" ]; then
++    fail+=("The elevation program is named in non-comment code outside crates/adapters/src/process/. INV-06: only the process executor names it, as its allowlist entry; nothing else names the program or its path.")
++  fi
+ fi
+ 
+ # 4. Once there is a crate, the gate runs the real validation rather than only
+diff --git a/.codex/hooks/test-hooks.sh b/.codex/hooks/test-hooks.sh
+--- a/.codex/hooks/test-hooks.sh
++++ b/.codex/hooks/test-hooks.sh
+@@ -338,6 +338,47 @@
+ printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
+ printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
+ boundary_case "literal in a crate build.rs blocks" block 'mutating subcommand literal'
++rm -f "$boundary/crates/domain/build.rs"
++# The elevation program is admitted by path, under crates/adapters/src/process/
++# only: the process executor names it there, as its allowlist entry (INV-06;
++# pass 16 part J). Every other elevation token is still refused there, the
++# path is a prefix with its trailing slash, and a comment anywhere passes.
++DOAS="do""as"
++mkdir -p "$boundary/crates/adapters/src/process" "$boundary/crates/adapters/src/processes" \
++         "$boundary/crates/cli/src/process"
++printf 'pub(crate) const PERMITTED_PROGRAMS: &[&str] = &["%s"];\n' "$SUDO" > "$boundary/crates/adapters/src/process/mod.rs"
++boundary_case "elevation program in crates/adapters/src/process/ passes" 0 ''
++printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/process/mod.rs"
++boundary_case "another elevation token in crates/adapters/src/process/ blocks" block 'elevation, service-control or symlink token'
++printf 'fn f() {}\n' > "$boundary/crates/adapters/src/process/mod.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/processes/mod.rs"
++boundary_case "elevation program in a sibling processes/ blocks" block 'outside crates/adapters/src/process/'
++rm -f "$boundary/crates/adapters/src/processes/mod.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++boundary_case "elevation program elsewhere in adapters blocks" block 'outside crates/adapters/src/process/'
++printf '// the process executor names %s; nothing here does\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++boundary_case "elevation program in a comment elsewhere passes" 0 ''
++rm -f "$boundary/crates/adapters/src/registry.rs"
++printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/cli/src/process/mod.rs"
++boundary_case "elevation program in crates/cli/src/process/ blocks" block 'outside crates/adapters/src/process/'
++rm -f "$boundary/crates/cli/src/process/mod.rs"
++# An unreadable file under a scanned src/ makes grep exit 2, and a scan that
++# ended `| head -1 | grep -q .` under pipefail then passed a hit beside it.
++# Each scan is captured whole now: the unreadable file fails on its own, and a
++# hit beside it is still reported. Skipped as root, who can read mode 000.
++if [ "$(id -u)" -ne 0 ]; then
++  printf 'fn f() {}\n' > "$boundary/crates/adapters/src/locked.rs"
++  chmod 000 "$boundary/crates/adapters/src/locked.rs"
++  boundary_case "an unreadable file under src/ blocks on its own" block 'could not read every file'
++  printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "elevation program beside an unreadable file blocks" block 'elevation program is named'
++  printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "elevation token beside an unreadable file blocks" block 'elevation, service-control or symlink token appears'
++  printf 'let s = "%s";\n' "$INST" > "$boundary/crates/adapters/src/registry.rs"
++  boundary_case "mutating literal beside an unreadable file blocks" block 'mutating subcommand literal'
++  chmod 644 "$boundary/crates/adapters/src/locked.rs"
++  rm -f "$boundary/crates/adapters/src/locked.rs" "$boundary/crates/adapters/src/registry.rs"
++fi
+ rm -rf "$boundary"
+ 
+ # --- cases added after the 2026-09-05 security review ------------------------
