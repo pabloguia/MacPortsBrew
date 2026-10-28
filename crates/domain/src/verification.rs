@@ -380,9 +380,15 @@ pub enum FailureCause {
     /// The name a removal check requires gone is still a line's first token.
     NamePresent,
     /// The provider does not report exactly one record of the destination
-    /// package as active (or linked): none, two, a record of it in a shape this
-    /// build does not know, or a document it could not read.
+    /// package as active (or linked): none, or two.
     ActiveNotReported,
+    /// The provider's answer is not in the shape this build knows: a JSON
+    /// document it could not read, or a row of the destination package in a
+    /// shape that is neither marked active nor the provider's own not-active
+    /// one. Distinct from [`Self::ActiveNotReported`] because it says the
+    /// provider's output changed, not that the package is inactive (work order
+    /// 16 part S, security review of S-1, L-1).
+    OutputShapeUnknown,
 }
 
 /// Judges `output` against `expectation`.
@@ -395,7 +401,7 @@ pub enum FailureCause {
 /// satisfied by saying nothing.
 ///
 /// A [`SuccessSemantic::JsonReportsPackageLinked`] read needs a JSON parse this
-/// crate cannot make, so it never passes here ([`FailureCause::ActiveNotReported`]);
+/// crate cannot make, so it never passes here ([`FailureCause::OutputShapeUnknown`]);
 /// [`evaluate_with`] takes the parse.
 pub fn evaluate(expectation: &Expectation<'_>, output: &ReadOutput<'_>) -> Verdict {
     evaluate_with(expectation, output, &|_, _| LinkedReport::Unparseable)
@@ -450,24 +456,34 @@ pub fn evaluate_with(
             marked_active(output.stdout, name.as_str())
         }),
         Kind::Linked(name) => reported_active(code, output.stdout, || {
-            linked(output.stdout, name.as_str()) == LinkedReport::Linked
+            match linked(output.stdout, name.as_str()) {
+                LinkedReport::Linked => Ok(()),
+                // Two entries of one name is the JSON form of two marked rows.
+                LinkedReport::NotLinked | LinkedReport::Ambiguous => {
+                    Err(FailureCause::ActiveNotReported)
+                }
+                LinkedReport::Unparseable => Err(FailureCause::OutputShapeUnknown),
+            }
         }),
     }
 }
 
 /// The shared tail of both "active" semantics, after did-not-finish and
 /// truncation: exit 0, a non-empty inventory, then the provider's record.
-fn reported_active(code: i32, stdout: &str, reported: impl FnOnce() -> bool) -> Verdict {
+fn reported_active(
+    code: i32,
+    stdout: &str,
+    reported: impl FnOnce() -> Result<(), FailureCause>,
+) -> Verdict {
     if code != 0 {
         return Verdict::Failed(FailureCause::NonZeroExit);
     }
     if token_lines(stdout) == 0 {
         return Verdict::Failed(FailureCause::EmptyOutput);
     }
-    if reported() {
-        Verdict::Passed
-    } else {
-        Verdict::Failed(FailureCause::ActiveNotReported)
+    match reported() {
+        Ok(()) => Verdict::Passed,
+        Err(cause) => Verdict::Failed(cause),
     }
 }
 
@@ -487,7 +503,10 @@ fn reported_active(code: i32, stdout: &str, reported: impl FnOnce() -> bool) -> 
 /// the shape this build knows, and the check fails however many marked rows
 /// there are. The name is compared literally, without case folding (finding
 /// 6): a plan spelling it differently from the registry halts.
-fn marked_active(stdout: &str, name: &str) -> bool {
+///
+/// `Err(OutputShapeUnknown)` for a row of an unknown shape,
+/// `Err(ActiveNotReported)` for zero or two marked rows.
+fn marked_active(stdout: &str, name: &str) -> Result<(), FailureCause> {
     let mut marked = 0usize;
     for line in stdout.lines() {
         let tokens: Vec<&str> = line.split_whitespace().collect();
@@ -498,10 +517,14 @@ fn marked_active(stdout: &str, name: &str) -> bool {
         match tokens.len() {
             3 if versioned && tokens[2] == "(active)" => marked += 1,
             2 if versioned => {}
-            _ => return false,
+            _ => return Err(FailureCause::OutputShapeUnknown),
         }
     }
-    marked == 1
+    if marked == 1 {
+        Ok(())
+    } else {
+        Err(FailureCause::ActiveNotReported)
+    }
 }
 
 /// Whether `name` is the first whitespace-separated token of some line of

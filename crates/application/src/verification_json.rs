@@ -36,8 +36,16 @@ struct Document {
 #[derive(Deserialize)]
 struct Formula {
     name: String,
+    /// Required but nullable: a document without the key is not the shape
+    /// this build knows, while `null` is Homebrew's "no linked keg" (security
+    /// review of S-1, L-2). `deserialize_with` makes serde require the key.
+    #[serde(deserialize_with = "nullable")]
     linked_keg: Option<String>,
     installed: Vec<Installed>,
+}
+
+fn nullable<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(d)
 }
 
 #[derive(Deserialize)]
@@ -116,6 +124,15 @@ mod tests {
                {"name": "bb", "linked_keg": null, "installed": [{"version": "2.0"}]}"#,
         );
         assert_eq!(linked_report(&doc, "aa"), LinkedReport::NotLinked);
+    }
+
+    #[test]
+    fn a_formula_without_the_linked_keg_key_is_unparseable() {
+        let without =
+            r#"{"formulae": [{"name": "xz", "installed": [{"version": "5.8.3"}]}], "casks": []}"#;
+        assert_eq!(linked_report(without, "xz"), LinkedReport::Unparseable);
+        let null = r#"{"formulae": [{"name": "xz", "linked_keg": null, "installed": [{"version": "5.8.3"}]}], "casks": []}"#;
+        assert_eq!(linked_report(null, "xz"), LinkedReport::NotLinked);
     }
 
     #[test]

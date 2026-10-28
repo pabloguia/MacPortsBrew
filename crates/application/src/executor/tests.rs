@@ -1721,3 +1721,36 @@ fn an_installed_read_never_answers_provider_reports_active() {
         assert!(!answers(&VerificationCheck::PackageAbsent, semantic));
     }
 }
+
+#[test]
+fn a_removal_with_no_step_to_reread_is_never_dispatched() {
+    // Defence in depth behind `destination_verified_before`: a removal the
+    // application can name no re-read for halts instead of dispatching.
+    for from in [HB, MP] {
+        let run = forced_run(from);
+        let plan = run.plan();
+        let remove = position(plan, StepKind::RemoveSource);
+        assert_eq!(
+            dispatch_for(plan, remove),
+            Action::DispatchMutating {
+                reverify: reverify_for(plan, remove)
+            },
+            "{from}: the control"
+        );
+        let mut bare = plan.clone();
+        bare.steps.retain(|s| s.kind != StepKind::VerifyDestination);
+        let remove = position(&bare, StepKind::RemoveSource);
+        assert_eq!(
+            dispatch_for(&bare, remove),
+            Action::Halt(HaltReason::UnexecutedMutation),
+            "{from}"
+        );
+        // An add is dispatched with no re-read.
+        let add = position(plan, StepKind::AddDestination);
+        assert_eq!(
+            dispatch_for(plan, add),
+            Action::DispatchMutating { reverify: None },
+            "{from}"
+        );
+    }
+}

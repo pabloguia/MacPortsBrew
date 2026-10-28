@@ -8249,7 +8249,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     `info --json=v2 --installed` judged by `JSON_REPORTS_PACKAGE_LINKED` (R-20 findings 19, 20). **One INV-17 rule for
     both (D2): exactly one record of the package is marked active by the provider**; MacPorts' two-token inactive
     sibling (R-20 finding 7) is the only other shape ignored, and any other row of the name fails the read
-    (security-reviewer, second round, Fix 1). New cause `ACTIVE_NOT_REPORTED`. The JSON half is a typed parse of the
+    (security-reviewer, second round, Fix 1). New causes `ACTIVE_NOT_REPORTED` (none or two marked) and `OUTPUT_SHAPE_UNKNOWN` (an unknown row shape or an unreadable document; PR #33 review, L-1). The JSON half is a typed parse of the
     whole stdout in the application layer (`verification_json`, C2): leading or trailing data, a duplicate field and a
     wrong type are unparseable; exactly one `formulae[]` entry of the name; `linked_keg` equal to one of its own
     `installed[].version`; `casks` never consulted; stderr never read. Nothing from the output becomes evidence, a

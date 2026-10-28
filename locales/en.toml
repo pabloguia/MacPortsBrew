@@ -444,6 +444,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "migrate.failure.name_absent" = "the package is not in what it printed"
 "migrate.failure.name_present" = "the package is still in what it printed"
 "migrate.failure.active_not_reported" = "it does not show exactly one installation of the package as the active one"
+"migrate.failure.output_shape_unknown" = "the provider output changed: it is not in the form this version knows how to read"
 "migrate.unevaluable.no_evaluation_for_step_kind" = "this build has no way to check this kind of step"
 "migrate.unevaluable.no_command" = "the step has no command to read"
 "migrate.unevaluable.no_check" = "the step has no check to read against"

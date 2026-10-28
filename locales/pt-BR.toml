@@ -321,6 +321,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "migrate.failure.name_absent" = "o pacote não está no que foi mostrado"
 "migrate.failure.name_present" = "o pacote ainda está no que foi mostrado"
 "migrate.failure.active_not_reported" = "não mostra exatamente uma instalação do pacote como a ativa"
+"migrate.failure.output_shape_unknown" = "a saída do gerenciador de pacotes mudou: não está no formato que esta versão sabe ler"
 "migrate.unevaluable.no_evaluation_for_step_kind" = "esta versão não tem como verificar este tipo de etapa"
 "migrate.unevaluable.no_command" = "a etapa não tem comando para ler"
 "migrate.unevaluable.no_check" = "a etapa não tem verificação com a qual comparar a leitura"

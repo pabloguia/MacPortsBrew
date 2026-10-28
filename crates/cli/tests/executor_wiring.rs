@@ -939,15 +939,10 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             seen: Seen::default(),
         };
         let plan = direction.cleared().run().plan().clone();
-        let source = plan.source.clone();
-        let source_reread = std::cell::Cell::new(false);
+        let reread_providers: RefCell<Vec<ProviderId>> = RefCell::new(Vec::new());
         let mut setup = unchanged(&direction, &scratch);
         setup.reread = &*Box::leak(Box::new(|provider: &ProviderId, _: &str| {
-            // A removal re-reads the destination first, by design (M1); the
-            // re-read that follows the lock check is the source's.
-            if *provider == source {
-                source_reread.set(true);
-            }
+            reread_providers.borrow_mut().push(provider.clone());
             Ok(ProviderConfiguration::Read { files: Vec::new() })
         }));
         let report = run_with_mutations(
@@ -966,26 +961,45 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             },
             &HomeRedaction::Recorded,
         );
-        let halt = report.as_ref().ok().and_then(|report| {
+        let halted = report.as_ref().ok().and_then(|report| {
             report.records.iter().find_map(|r| match &r.disposition {
-                Disposition::Halted { reason, .. } => Some(reason.clone()),
+                Disposition::Halted { reason, .. } => Some((r.index, reason.clone())),
                 _ => None,
             })
         });
+        let (index, halt) = halted.unwrap_or_else(|| panic!("{name}: no halt: {report:?}"));
         assert_eq!(
             halt,
-            Some(HaltReason::PreconditionFailed {
+            HaltReason::PreconditionFailed {
                 command: 0,
                 why: Precondition::LockLost,
-            }),
+            },
             "{name}: {report:?}"
         );
         assert!(site.handed.borrow().is_empty(), "{name}");
-        assert!(
-            !source_reread.get(),
-            "{name}: the source's re-read comes after the check"
-        );
+        // The halted step's own provider is never re-read: its re-read comes
+        // after the lock check. The only re-read allowed before it is a
+        // removal's destination re-read (M1), and only when it certified.
         let seen = observer.seen.all();
+        let halted_provider = plan
+            .steps
+            .iter()
+            .find(|s| s.index == index)
+            .and_then(|s| s.provider.clone())
+            .expect("the halted step has a provider");
+        let reread = reread_providers.borrow().clone();
+        assert!(
+            !reread.contains(&halted_provider),
+            "{name}: the step's own re-read comes after the check: {reread:?}"
+        );
+        if seen.contains(&Boundary::DestinationReverified) {
+            assert!(
+                reread.iter().all(|p| *p == plan.destination),
+                "{name}: {reread:?}"
+            );
+        } else {
+            assert!(reread.is_empty(), "{name}: no re-read at all: {reread:?}");
+        }
         assert!(!seen.contains(&Boundary::StillCurrent), "{name}: {seen:?}");
         assert!(!seen.contains(&Boundary::Dispatched), "{name}: {seen:?}");
         assert_ne!(report.map(|r| r.exit_code()).ok(), Some(0), "{name}");

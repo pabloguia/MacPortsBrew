@@ -102,6 +102,8 @@ fn active(name: &str, stdout: &str) -> Verdict {
 }
 
 const FAILED: Verdict = Verdict::Failed(FailureCause::ActiveNotReported);
+/// A row of the name, or a document, in a shape this build does not know.
+const SHAPE: Verdict = Verdict::Failed(FailureCause::OutputShapeUnknown);
 
 // --- the marked shape ------------------------------------------------------
 
@@ -152,7 +154,7 @@ fn an_inactive_sibling_is_ignored_and_a_lone_inactive_row_is_not_active() {
 fn a_verbose_row_is_not_active() {
     assert_eq!(
         active("xz", "  xz @5.8.3_0 (active) requested_variants=''\n"),
-        FAILED
+        SHAPE
     );
 }
 
@@ -165,13 +167,13 @@ fn a_lone_row_with_another_third_token_is_not_active() {
         "  xz @5.8.3_0 active\n",
         "  xz @5.8.3_0 (Active)\n",
     ] {
-        assert_eq!(active("xz", row), FAILED, "{row:?}");
+        assert_eq!(active("xz", row), SHAPE, "{row:?}");
     }
 }
 
 #[test]
 fn a_second_token_without_at_is_not_active() {
-    assert_eq!(active("xz", "  xz 5.8.3_0 (active)\n"), FAILED);
+    assert_eq!(active("xz", "  xz 5.8.3_0 (active)\n"), SHAPE);
 }
 
 #[test]
@@ -183,8 +185,8 @@ fn any_row_of_the_name_in_an_unknown_shape_fails_even_beside_an_active_row() {
         "  xz @5.8.2_0 (inactive)\n",
         "  xz 5.8.2_0\n",
     ] {
-        assert_eq!(active("xz", &format!("{good}{odd}")), FAILED, "{odd:?}");
-        assert_eq!(active("xz", &format!("{odd}{good}")), FAILED, "{odd:?}");
+        assert_eq!(active("xz", &format!("{good}{odd}")), SHAPE, "{odd:?}");
+        assert_eq!(active("xz", &format!("{odd}{good}")), SHAPE, "{odd:?}");
     }
 }
 
@@ -296,15 +298,15 @@ fn the_new_semantics_are_valid_on_verify_destination_only() {
 fn the_parserless_evaluate_never_passes_a_linked_read() {
     let p = plan("src-name", "xz", &linked_cmd());
     let e = expectation_for(&p, 0, 0).expect("a linked check");
-    assert_eq!(evaluate(&e, &exited(0, "{\"formulae\":[]}")), FAILED);
-    for report in [
-        LinkedReport::NotLinked,
-        LinkedReport::Ambiguous,
-        LinkedReport::Unparseable,
+    assert_eq!(evaluate(&e, &exited(0, "{\"formulae\":[]}")), SHAPE);
+    for (report, expected) in [
+        (LinkedReport::NotLinked, FAILED),
+        (LinkedReport::Ambiguous, FAILED),
+        (LinkedReport::Unparseable, SHAPE),
     ] {
         assert_eq!(
             evaluate_with(&e, &exited(0, "{}"), &|_, _| report),
-            FAILED,
+            expected,
             "{report:?}"
         );
     }
@@ -357,4 +359,20 @@ fn invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers(
             "json: {report:?}"
         );
     }
+}
+
+#[test]
+fn an_unknown_shape_is_its_own_cause_and_inactive_is_another() {
+    // L-1: "the provider's output changed" is not "the package is inactive".
+    // A row of the name in an unknown shape, alone or beside a marked one, and
+    // an unreadable document, are OUTPUT_SHAPE_UNKNOWN; none marked, two
+    // marked and two entries are ACTIVE_NOT_REPORTED.
+    assert_eq!(active("xz", "  xz @5.8.3_0 (active) extra\n"), SHAPE);
+    assert_eq!(active("xz", "  xz\n  xz @5.8.3_0 (active)\n"), SHAPE);
+    assert_eq!(active("xz", "  xz @5.8.3_0\n"), FAILED);
+    assert_eq!(
+        active("xz", "  xz @5.8.2_0 (active)\n  xz @5.8.3_0 (active)\n"),
+        FAILED
+    );
+    assert_eq!(active("xz", "  jq @1.8.2_0 (active)\n"), FAILED);
 }

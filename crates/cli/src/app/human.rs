@@ -1121,6 +1121,7 @@ fn failure_key(value: FailureCause) -> &'static str {
         FailureCause::NameAbsent => "migrate.failure.name_absent",
         FailureCause::NamePresent => "migrate.failure.name_present",
         FailureCause::ActiveNotReported => "migrate.failure.active_not_reported",
+        FailureCause::OutputShapeUnknown => "migrate.failure.output_shape_unknown",
     }
 }
 
@@ -1370,6 +1371,7 @@ mod tests {
             FailureCause::NameAbsent,
             FailureCause::NamePresent,
             FailureCause::ActiveNotReported,
+            FailureCause::OutputShapeUnknown,
         ] {
             out.push(HaltReason::VerificationFailed { command: 0, cause });
         }

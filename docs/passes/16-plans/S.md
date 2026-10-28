@@ -592,6 +592,9 @@ opt-in removal or confirmation levels (K); no elevation; no mutating command;
 | spec-guardian | S-1 code, `a6f6263` (plus the uncommitted docs) | **no Tier 1 violation**; two to fix: (1) mutant 35 survived (`each_removal_command_is_preceded_by_its_own_reread` cannot tell once per step from once per command with one removal command); (2) SE-107 cited a "Mutation proof" section that did not exist; lows: stale 04 "still owed" sentence, an application-level `invariant_17_*` for the JSON parse, stale pointers to the moved tripwire, the shell half tested one way, the residual window understated in 04 | (1) `reread_violations` requires the re-read inside `for command in &step.commands`, with a mutant case; mutant 35 now killed; (2) this section; the rest fixed in S-1's second commit (04 both sentences, `invariant_17_exactly_one_record_marked_active_holds_for_the_json_parse`, the module header and `08-pre-flip-design-notes.md`, SE-107's one-way note); deviations (a)–(d) judged accepted |
 | security-reviewer | S-1 code, `a6f6263` | **no critical, high or medium**; L-1 = mutant 35; L-2 the order test silent if no removal ran; L-3 the loader accepts a non-active semantic on `verify_active`; Info-1 `reverify_for` takes the first `VERIFY_DESTINATION`; Info-2 the `DESTINATION_NOT_REVERIFIED` text narrower than the precondition | L-1 as above; L-2 the order test asserts a removal ran in one direction; L-3 the loader now requires an active semantic on `verify_active` and allows the two only there (`verify_active_takes_an_active_semantic_and_only_it_does`, mutant 36); Info-1 `rposition`, the nearest before the removal; Info-2 both locales reworded |
 
+| security-reviewer | PR #33 | **approved**; L-1 a distinct cause for a changed output shape; L-2 `linked_keg` required but nullable; I-3 the drift test both ways if cheap | L-1 `OUTPUT_SHAPE_UNKNOWN` (both locales, both schemas), `an_unknown_shape_is_its_own_cause_and_inactive_is_another`, mutants 37 and 38; L-2 `a_formula_without_the_linked_keg_key_is_unparseable`, mutant 39; I-3 declined (As built, deviation 5) |
+| spec-guardian | PR #33 | **approved**; (1) the lock-lost test lost its full assertion; (2) the step-sequence test pins two in-code plans; (3) mutant 27's wording; (4) halt a removal with no step to re-read | (1) restored and strengthened; (2) As built, deviation 6; (3) row 27; (4) `dispatch_for`, `a_removal_with_no_step_to_reread_is_never_dispatched`, mutant 40 |
+
 ## Mutation proof
 
 Run 2026-10-28 in an isolated copy of the S-1 tree (one copy, its own target
@@ -630,7 +633,7 @@ second commit.
 | 24 | drop the re-verify before `REMOVE_SOURCE` | killed | `invariant_03_a_removal_whose_destination_was_not_reverified_ends_partial` and three more |
 | 25 | drop the destination configuration re-check before the re-read | killed | `a_destination_configuration_that_drifted_stops_the_removal_before_the_reread` (added for it) |
 | 26 | slow re-read after the lock and source re-checks | killed | the order test; and structurally `the_destination_is_reread_before_removal` |
-| 27 | `destination_still_verified` ignores the token's provider | **survives, equivalent** | the token is passed on to `certify_destination`, which refuses it and is mapped back to `WRONG_PROVIDER_TOKEN`; the check is defence in depth. `invariant_01_a_destination_token_for_the_wrong_provider_is_refused` pins the observable behaviour, which both copies produce |
+| 27 | `destination_still_verified` ignores the token's provider | **survives, safety-equivalent** | it differs only in the reported reason when the elevation check also fails: the token is passed on to `certify_destination`, which refuses it and is mapped back to `WRONG_PROVIDER_TOKEN`, so the removal is refused either way. `invariant_01_a_destination_token_for_the_wrong_provider_is_refused` pins the observable behaviour |
 | 28 | `destination_still_verified` accepts anything not `Halted` | **survives, equivalent** | `certify_destination` returns only `Verified` or `Halted` (`judge_reads` has no other ending), so the extra arms are unreachable; the exhaustive match is kept so a new ending must be placed |
 | 29 | skip the elevation re-derivation | killed (round 2) | `invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused` (its GUI-app half was paired with the wrong snapshot in round 1; fixed, with a control that the same reads certify) |
 | 30 | `reverify_for` answers `ADD_DESTINATION` | killed (round 2) | `reverify_for_names_the_verify_step_for_remove_source_only` (a doctored add after the verify step added; in planner plans the add precedes the verify step, so round 1 could not see it) |
@@ -640,6 +643,13 @@ second commit.
 | 34 | `judge_step` certifies a `VERIFY_DESTINATION` | killed | `judge_step_never_verifies_a_verify_destination_even_with_passing_reads` |
 | 35 | the re-read once per step | killed (round 2) | `a_destination_configuration_that_drifted_stops_the_removal_before_the_reread`, `invariant_03_*`; and structurally `reread_violations` (the re-read inside `for command in &step.commands`, its mutant case in `the_reread_tripwire_fires_on_its_mutants`) |
 | 36 | loader accepts an installed semantic on `verify_active` (security-reviewer L-3) | killed | `verify_active_takes_an_active_semantic_and_only_it_does` |
+| 37 | a row of the name in an unknown shape reported `ACTIVE_NOT_REPORTED` (PR #33 review, L-1) | killed | `an_unknown_shape_is_its_own_cause_and_inactive_is_another` and two more |
+| 38 | an unreadable JSON document reported `ACTIVE_NOT_REPORTED` (L-1) | killed | `the_parserless_evaluate_never_passes_a_linked_read` |
+| 39 | `linked_keg` optional again (L-2) | killed | `a_formula_without_the_linked_keg_key_is_unparseable` |
+| 40 | a removal dispatched with no step to re-read (spec-guardian 4) | killed | `a_removal_with_no_step_to_reread_is_never_dispatched` |
+
+Mutants 37–40 were run in this worktree, each applied alone with its file
+restored afterwards, against the crate's own tests.
 
 ## As built (S-1)
 
@@ -671,7 +681,25 @@ change to `data/`, `fixtures/`, `crates/adapters/`, `Cargo.toml` or
      instead of `NotRecorded`, so a certifying read can follow a re-check.
   5. The shell half of the re-read is reachable toward MacPorts only until
      part K (a removal from MacPorts elevates); the application half is tested
-     both ways (SE-107).
+     both ways (SE-107). For the same reason
+     `a_destination_configuration_that_drifted_stops_the_removal_before_the_reread`
+     runs toward MacPorts only: toward Homebrew the removal is MacPorts' and
+     the gate refuses it (security-reviewer I-3, declined as not cheap).
+  6. `the_planner_step_sequence_is_unchanged` pins the two in-code install
+     plans, one per direction — not every fixture plan, as the Tests section
+     says. `every_plan_this_planner_builds_from_every_fixture_is_refused_for_execution`
+     still covers the fixture plans for the gate, and S-1 changes no step
+     kind (spec-guardian, PR #33 review, 2).
+- **From the PR #33 review (both reviewers approved; low fixes):** a
+  distinct cause `OUTPUT_SHAPE_UNKNOWN` ("the provider output changed") for an
+  unreadable JSON document and for a row of the name in an unknown shape;
+  `ACTIVE_NOT_REPORTED` stays for none or two marked, for `NotLinked`, and —
+  the session's call — for `Ambiguous`, the JSON form of two marked records
+  (L-1). `linked_keg` is required but nullable, so a formula without the key
+  is unparseable (L-2). The lock-lost test again forbids any re-read of the
+  halted step's provider, and any re-read at all when no destination re-read
+  certified (spec-guardian 1). A `REMOVE_SOURCE` with no step to re-read
+  halts in `dispatch_for` (spec-guardian 4, defence in depth).
 - **Beyond the plan, from the code reviews:** the loader requires an active
   semantic on `verify_active` and allows the two only there (L-3);
   `reverify_for` takes the nearest `VERIFY_DESTINATION` before the removal

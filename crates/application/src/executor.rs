@@ -767,9 +767,24 @@ fn mutating_action(
             return Action::Halt(HaltReason::ElevationNotNone { command });
         }
     }
-    Action::DispatchMutating {
-        reverify: reverify_for(plan, position),
+    dispatch_for(plan, position)
+}
+
+/// The dispatch of the mutating step at `position`, with its destination
+/// re-read: a `REMOVE_SOURCE` for which [`reverify_for`] names no
+/// `VERIFY_DESTINATION` halts rather than being dispatched without a re-read.
+/// Defence in depth: [`destination_verified_before`] already requires that
+/// step, so no plan reaches the halt today (spec-guardian, review of S-1).
+fn dispatch_for(plan: &MigrationPlan, position: usize) -> Action {
+    let reverify = reverify_for(plan, position);
+    let removal = plan
+        .steps
+        .get(position)
+        .is_some_and(|s| s.kind == StepKind::RemoveSource);
+    if removal && reverify.is_none() {
+        return Action::Halt(HaltReason::UnexecutedMutation);
     }
+    Action::DispatchMutating { reverify }
 }
 
 /// Whether the `SNAPSHOT_BEFORE` before the step at `position` was recorded

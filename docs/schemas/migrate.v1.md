@@ -139,9 +139,12 @@ written durably and read back; nothing was changed), `MUTATION_FAILED` (`command
 `command` counts from 0 within the step. A `check` here is the check's kind
 only, never its fields.
 
-Work order 16 part S adds, each to an open set: the halt cause
+Work order 16 part S adds, each to an open set: the halt causes
 `ACTIVE_NOT_REPORTED` (`VERIFICATION_FAILED`: the read does not show exactly one
-installation of the package as the active one); the `UNEVALUABLE` reason
+installation of the package as the active one, none or two) and
+`OUTPUT_SHAPE_UNKNOWN` (the provider's answer is not in the shape this build
+knows: an unreadable JSON document, or a row of the package in an unknown
+shape); the `UNEVALUABLE` reason
 `NOT_CERTIFIED_HERE` (a `VERIFY_DESTINATION` is certified only after its
 provider's configuration was re-checked); the `PRECONDITION_FAILED` reason
 `DESTINATION_NOT_REVERIFIED` (the destination, read again with its
