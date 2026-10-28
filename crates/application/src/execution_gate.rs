@@ -25,10 +25,13 @@
 //!
 //! **Exactly which fields of a command the gate checks.** It refuses a command
 //! on a step kind the planner writes none on. On `VERIFY_DESTINATION` and
-//! `VERIFY_REMOVAL` it checks, for every command: `argv` and `success`, both
-//! equal to what the planner derives from the provider command table for that
-//! side's provider and operation (`planned_argv`, `planned_success` — the
-//! planner's own functions); and, through `verification::expectation_for`,
+//! `VERIFY_REMOVAL` it checks the commands **by position and in number**:
+//! command `i` carries the `argv` and `success` the planner derives for the
+//! step's `i`-th operation from the provider command table, and the step
+//! carries exactly as many commands as there are operations
+//! (`provider_commands::verify_destination_reads`, the rule the planner builds
+//! the step from; `verify_absent` alone for a removal); and, through
+//! `verification::expectation_for`,
 //! `target` (a provider), `placeholder` (false), the step's provider (the side
 //! its kind reads) and the safety of the name it reads. So a forged `VERIFY_*`
 //! step carrying a mutating verb, or a read whose semantic was swapped, is
@@ -55,7 +58,7 @@ use crate::provider_commands;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
     expectation_for, Elevation, ErrorId, ExpectationError, MigrationPlan, PackageKind, ProviderId,
-    StepKind, VerificationCheck,
+    StepKind, SuccessSemantic, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -188,9 +191,13 @@ pub enum ExecutionRefusal {
     },
     /// A command of a `VERIFY_DESTINATION` or `VERIFY_REMOVAL` step whose argv
     /// or success semantic is not the one the planner derives from the provider
-    /// command table for that side's provider: the `verify` verb with the
-    /// destination name appended, or the `verify_absent` verb with no name, and
-    /// that operation's semantic. A verification step is where a read is
+    /// command table for that side's provider **at that position**, or a step
+    /// whose commands are more or fewer than the operations it reads: for a
+    /// destination, `provider_commands::verify_destination_reads` (the
+    /// `verify` verb with the destination name appended, then `verify_active`
+    /// with none when the table holds it); for a removal, the `verify_absent`
+    /// verb with no name; each with its operation's semantic. A missing, extra,
+    /// swapped or reordered command is refused. A verification step is where a read is
     /// dispatched, so one carrying any other argv — a mutating verb among them
     /// — or a swapped semantic is a forgery of the one step kind this build
     /// would run. `EXIT_STATUS` on a MacPorts read is the case that matters:
@@ -287,6 +294,17 @@ pub enum ExecutionRefusal {
         /// The step.
         step: u32,
     },
+    /// A check that is evaluable on its verification step in this build
+    /// ([`evaluable_in_this_build`]) but that no command of that step carries
+    /// a semantic to answer (work order 16 part S, M2b). Evaluable means
+    /// evaluable **by this plan**: a step whose reads cannot answer one of its
+    /// checks is refused here rather than halted at run time.
+    CheckHasNoAnsweringRead {
+        /// The step carrying it.
+        step: u32,
+        /// The check.
+        check: VerificationCheck,
+    },
 }
 
 impl ExecutionRefusal {
@@ -321,6 +339,7 @@ impl ExecutionRefusal {
             Self::ProviderConfiguration { step, .. } => (*step, 22),
             Self::MutationIsNotThePlannersCommand { step } => (*step, 23),
             Self::MutationNotVerifiedAfter { step } => (*step, 24),
+            Self::CheckHasNoAnsweringRead { step, .. } => (*step, 25),
         }
     }
 }
@@ -520,6 +539,34 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
     kind == reads
 }
 
+/// Whether a passed read of `semantic` answers `check`. Presence is answered
+/// by a destination read, absence by an inventory read, `PROVIDER_REPORTS_ACTIVE`
+/// by an active read alone; nothing else is answered by any read. An
+/// "installed" read never answers `PROVIDER_REPORTS_ACTIVE` (D11): installed is
+/// not active.
+///
+/// Shared by the gate ([`ExecutionRefusal::CheckHasNoAnsweringRead`]) and the
+/// executor, so "evaluable by this plan" and "answered at run time" are one
+/// rule.
+pub(crate) fn answers(check: &VerificationCheck, semantic: SuccessSemantic) -> bool {
+    match check {
+        VerificationCheck::PackageNewlyPresent => matches!(
+            semantic,
+            SuccessSemantic::ExitStatus | SuccessSemantic::StdoutNamesPackage
+        ),
+        VerificationCheck::PackageAbsent => semantic == SuccessSemantic::StdoutOmitsPackage,
+        VerificationCheck::ProviderReportsActive => matches!(
+            semantic,
+            SuccessSemantic::StdoutMarksPackageActive | SuccessSemantic::JsonReportsPackageLinked
+        ),
+        VerificationCheck::ProviderIntegrityCheck
+        | VerificationCheck::ExecutablesOwnedByDestination { .. }
+        | VerificationCheck::LivenessProbe { .. }
+        | VerificationCheck::NoCrossProviderLinkage
+        | VerificationCheck::Unknown => false,
+    }
+}
+
 /// Every reason `plan` may not be executed by this build.
 ///
 /// Never refuses rendering: a caller showing a plan does not consult this.
@@ -664,22 +711,19 @@ fn refusals(
     // verification command is then refused below.
     let table = provider_commands::load().unwrap_or_default();
     for step in &plan.steps {
-        let expected = match step.kind {
-            StepKind::VerifyDestination => {
-                let entry = table.get(plan.destination.as_str());
-                plan.destination_package.as_deref().map(|name| {
-                    (
-                        planned_argv(entry, "verify", name),
-                        planned_success(entry, "verify"),
-                    )
-                })
-            }
+        let expected: Option<Vec<(Vec<String>, SuccessSemantic)>> = match step.kind {
+            StepKind::VerifyDestination => plan.destination_package.as_deref().map(|name| {
+                provider_commands::verify_destination_reads(&table, plan.destination.as_str(), name)
+                    .into_iter()
+                    .map(|(_, argv, success)| (argv, success))
+                    .collect()
+            }),
             StepKind::VerifyRemoval => {
                 let entry = table.get(plan.source.as_str());
-                Some((
+                Some(vec![(
                     planned_argv(entry, "verify_absent", &plan.package.name),
                     planned_success(entry, "verify_absent"),
-                ))
+                )])
             }
             StepKind::SnapshotBefore
             | StepKind::AddDestination
@@ -692,13 +736,47 @@ fn refusals(
         };
         // A provider the table does not hold derives an illustration, never a
         // read, so nothing matches it.
-        let derived = expected.filter(|(argv, _)| !argv.iter().any(|a| a.starts_with('<')));
-        if step.commands.iter().any(|c| {
-            derived
-                .as_ref()
-                .is_none_or(|(argv, success)| *argv != c.argv || *success != c.success)
-        }) {
+        let derived = expected.filter(|reads| {
+            reads
+                .iter()
+                .all(|(argv, _)| !argv.iter().any(|a| a.starts_with('<')))
+        });
+        // By position and in number: a missing, extra, swapped or reordered
+        // command is not the planner's (V2). A step with no command at all is
+        // refused as asserting nothing, above, and is not refused twice.
+        let disagrees = !step.commands.is_empty()
+            && derived.as_ref().is_none_or(|reads| {
+                reads.len() != step.commands.len()
+                    || reads
+                        .iter()
+                        .zip(&step.commands)
+                        .any(|((argv, success), c)| *argv != c.argv || *success != c.success)
+            });
+        if disagrees {
             refusals.push(ExecutionRefusal::CommandIsNotThePlannersRead { step: step.index });
+        }
+    }
+    // "Evaluable" is "evaluable by this plan" (M2b): a check this build can
+    // evaluate on the step, that none of the step's commands can answer, is
+    // refused here rather than halted at run time.
+    for step in &plan.steps {
+        if step.commands.is_empty()
+            || !matches!(
+                step.kind,
+                StepKind::VerifyDestination | StepKind::VerifyRemoval
+            )
+        {
+            continue;
+        }
+        for check in &step.verification {
+            if evaluable_in_this_build(step.kind, check)
+                && !step.commands.iter().any(|c| answers(check, c.success))
+            {
+                refusals.push(ExecutionRefusal::CheckHasNoAnsweringRead {
+                    step: step.index,
+                    check: check.clone(),
+                });
+            }
         }
     }
     for (position, step) in plan.steps.iter().enumerate() {

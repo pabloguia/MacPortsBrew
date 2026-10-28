@@ -178,7 +178,9 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
             | Unevaluable::NoPassingRead
             | Unevaluable::MissingRead
             | Unevaluable::PresenceBeforeUnknown
-            | Unevaluable::PresentBeforeTheRun => true,
+            | Unevaluable::PresentBeforeTheRun
+            // Given by `judge_step` whatever the reads, so possibly after one.
+            | Unevaluable::NotCertifiedHere => true,
         },
         HaltReason::RecordsDoNotMatchPlan => true,
     }

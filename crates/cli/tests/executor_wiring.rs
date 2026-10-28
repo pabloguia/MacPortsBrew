@@ -461,6 +461,12 @@ impl ReadSite for Reads<'_> {
     }
 }
 
+/// A configuration re-read that finds nothing that could outrank the plan.
+#[allow(clippy::unnecessary_wraps)]
+fn clean_reread(_: &ProviderId, _: &str) -> Result<ProviderConfiguration, DomainError> {
+    Ok(ProviderConfiguration::Read { files: Vec::new() })
+}
+
 /// How the test configures one run.
 struct Setup<'a> {
     live: bool,
@@ -539,6 +545,7 @@ fn directions() -> [(&'static str, Direction); 2] {
 #[test]
 fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
     use Boundary::*;
+    let mut removed_somewhere = false;
     for (name, direction) in directions() {
         let scratch = Scratch::new("order");
         let site = Site::exits(&scratch, 0);
@@ -551,24 +558,34 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
             &seen,
         )
         .unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        assert_eq!(
-            seen.all(),
-            [
-                Probed,
-                Locked,
-                Replanned,
-                MarkerRead,
-                SnapshotWritten,
-                MarkerWritten,
-                StillCurrent,
-                ConfigurationRechecked,
-                Dispatched,
-                RecordWritten,
-                RecordReadBack,
-                MarkerCleared,
-            ],
-            "{name}: {report:?}"
-        );
+        // A removal is preceded by the destination's configuration re-check
+        // and its re-read, before the lock check and the source's re-check
+        // (work order 16 part S, M1); an add is not.
+        let removes = report.records.iter().any(|r| {
+            r.kind == StepKind::RemoveSource
+                && matches!(r.disposition, Disposition::Performed { .. })
+        });
+        let mut expected = vec![
+            Probed,
+            Locked,
+            Replanned,
+            MarkerRead,
+            SnapshotWritten,
+            MarkerWritten,
+        ];
+        if removes {
+            removed_somewhere = true;
+            expected.extend([ConfigurationRechecked, DestinationReverified]);
+        }
+        expected.extend([
+            StillCurrent,
+            ConfigurationRechecked,
+            Dispatched,
+            RecordWritten,
+            RecordReadBack,
+            MarkerCleared,
+        ]);
+        assert_eq!(seen.all(), expected, "{name}: {report:?}");
         assert_eq!(site.handed.borrow().len(), 1, "{name}");
         // `SET_PRIMARY` is passed over (SE-036 layer 4 does not exist), and a
         // passed-over step is not a carried-out one: never a completion here.
@@ -589,6 +606,10 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
             "{name}"
         );
     }
+    assert!(
+        removed_somewhere,
+        "a removal ran in one direction, so the re-read order was checked"
+    );
 }
 
 // --- each boundary made to fail -------------------------------------------------
@@ -917,16 +938,16 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             scratch: &scratch,
             seen: Seen::default(),
         };
-        let reread_called = std::cell::Cell::new(false);
+        let plan = direction.cleared().run().plan().clone();
+        let reread_providers: RefCell<Vec<ProviderId>> = RefCell::new(Vec::new());
         let mut setup = unchanged(&direction, &scratch);
-        setup.reread = &*Box::leak(Box::new(|_: &ProviderId, _: &str| {
-            reread_called.set(true);
+        setup.reread = &*Box::leak(Box::new(|provider: &ProviderId, _: &str| {
+            reread_providers.borrow_mut().push(provider.clone());
             Ok(ProviderConfiguration::Read { files: Vec::new() })
         }));
-        let plan = direction.cleared().run().plan().clone();
         let report = run_with_mutations(
             &direction.cleared(),
-            || Reads(Box::leak(Box::new(plan))),
+            || Reads(Box::leak(Box::new(plan.clone()))),
             MutatingRun {
                 live: setup.live,
                 state: &scratch.state,
@@ -940,26 +961,45 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             },
             &HomeRedaction::Recorded,
         );
-        let halt = report.as_ref().ok().and_then(|report| {
+        let halted = report.as_ref().ok().and_then(|report| {
             report.records.iter().find_map(|r| match &r.disposition {
-                Disposition::Halted { reason, .. } => Some(reason.clone()),
+                Disposition::Halted { reason, .. } => Some((r.index, reason.clone())),
                 _ => None,
             })
         });
+        let (index, halt) = halted.unwrap_or_else(|| panic!("{name}: no halt: {report:?}"));
         assert_eq!(
             halt,
-            Some(HaltReason::PreconditionFailed {
+            HaltReason::PreconditionFailed {
                 command: 0,
                 why: Precondition::LockLost,
-            }),
+            },
             "{name}: {report:?}"
         );
         assert!(site.handed.borrow().is_empty(), "{name}");
-        assert!(
-            !reread_called.get(),
-            "{name}: the re-read comes after the check"
-        );
+        // The halted step's own provider is never re-read: its re-read comes
+        // after the lock check. The only re-read allowed before it is a
+        // removal's destination re-read (M1), and only when it certified.
         let seen = observer.seen.all();
+        let halted_provider = plan
+            .steps
+            .iter()
+            .find(|s| s.index == index)
+            .and_then(|s| s.provider.clone())
+            .expect("the halted step has a provider");
+        let reread = reread_providers.borrow().clone();
+        assert!(
+            !reread.contains(&halted_provider),
+            "{name}: the step's own re-read comes after the check: {reread:?}"
+        );
+        if seen.contains(&Boundary::DestinationReverified) {
+            assert!(
+                reread.iter().all(|p| *p == plan.destination),
+                "{name}: {reread:?}"
+            );
+        } else {
+            assert!(reread.is_empty(), "{name}: no re-read at all: {reread:?}");
+        }
         assert!(!seen.contains(&Boundary::StillCurrent), "{name}: {seen:?}");
         assert!(!seen.contains(&Boundary::Dispatched), "{name}: {seen:?}");
         assert_ne!(report.map(|r| r.exit_code()).ok(), Some(0), "{name}");
@@ -1073,14 +1113,12 @@ fn a_marker_gone_or_another_runs_after_the_record_is_an_error_and_stays() {
         let scratch = Scratch::new("anomaly");
         let site = Site::new(&scratch, Box::new(|s| action(s)));
         let seen = Seen::default();
-        let report = run(
-            &direction.cleared(),
-            &scratch,
-            &site,
-            unchanged(&direction, &scratch),
-            &seen,
-        )
-        .expect("a report");
+        // The add deletes the lock file in one case; the certifying read's
+        // configuration re-read that follows is not a mutation and is not
+        // under the lock check, so this re-read does not assert it.
+        let mut setup = unchanged(&direction, &scratch);
+        setup.reread = &clean_reread;
+        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
         assert_eq!(
             report.history_error,
             Some(ErrorId::HistoryUnusable),
@@ -1420,4 +1458,282 @@ fn nothing_is_read_back_after_a_write_that_was_not_known_to_be_durable() {
     );
     assert!(!called.get(), "the read-back was not asked for");
     assert!(scratch.marker().exists());
+}
+// --- work order 16 part S: the destination re-read before removal -----------------
+
+/// Answers the destination's reads with its package for the first
+/// `present_for` of them, then as if it had vanished; every read is logged.
+struct Vanishing<'p> {
+    plan: &'p MigrationPlan,
+    present_for: usize,
+    log: RefCell<Vec<(ProviderId, Vec<String>)>>,
+}
+
+impl<'p> Vanishing<'p> {
+    fn new(plan: &'p MigrationPlan, present_for: usize) -> Self {
+        Self {
+            plan,
+            present_for,
+            log: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn destination_reads(&self) -> Vec<Vec<String>> {
+        self.log
+            .borrow()
+            .iter()
+            .filter(|(p, _)| *p == self.plan.destination)
+            .map(|(_, argv)| argv.clone())
+            .collect()
+    }
+}
+
+impl ReadSite for &Vanishing<'_> {
+    fn read(
+        &self,
+        provider: &ProviderId,
+        command: &PlanCommand,
+    ) -> Result<Invocation, PlanReadError> {
+        self.log
+            .borrow_mut()
+            .push((provider.clone(), command.argv.clone()));
+        let earlier = self
+            .log
+            .borrow()
+            .iter()
+            .filter(|(p, _)| *p == self.plan.destination)
+            .count();
+        let (code, stdout) = if *provider == self.plan.destination {
+            if earlier <= self.present_for {
+                (
+                    0,
+                    format!(
+                        "  {} 1.0\n",
+                        self.plan
+                            .destination_name()
+                            .expect("a destination")
+                            .as_str()
+                    ),
+                )
+            } else {
+                (1, String::new())
+            }
+        } else {
+            (0, "  unrelated 1.0\n".to_string())
+        };
+        Ok(Invocation {
+            program: "x".into(),
+            argv: command.argv.clone(),
+            environment: BTreeMap::new(),
+            status: ExitStatus::Exited { code },
+            stdout,
+            stderr: String::new(),
+            truncated: false,
+            duration_ms: 1,
+        })
+    }
+}
+
+fn run_reading<'s, S: ReadSite + 's>(
+    cleared: &GateClear,
+    scratch: &Scratch,
+    site: &Site<'_>,
+    reads: S,
+    seen: &Seen,
+    direction: &Direction,
+) -> RunReport {
+    run_with_mutations(
+        cleared,
+        move || reads,
+        MutatingRun {
+            live: true,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site,
+            recapture: unchanged(direction, scratch).recapture,
+            reread: unchanged(direction, scratch).reread,
+            read_back: &history_store::read_back,
+            observer: seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report")
+}
+
+#[test]
+fn invariant_01_the_reread_uses_the_verify_steps_own_commands() {
+    // Toward MacPorts the run reaches a removal. The destination is read
+    // twice: once to certify, once immediately before the removal — and both
+    // times with exactly the VERIFY_DESTINATION's own commands.
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("reread-commands");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let reads = Vanishing::new(&plan, usize::MAX);
+    let report = run_reading(&cleared, &scratch, &site, &reads, &seen, &direction);
+    let verify = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyDestination)
+        .expect("a destination check");
+    let own: Vec<Vec<String>> = verify.commands.iter().map(|c| c.argv.clone()).collect();
+    let mut twice = own.clone();
+    twice.extend(own);
+    assert_eq!(reads.destination_reads(), twice, "{report:?}");
+    assert_eq!(site.handed.borrow().len(), 1, "the removal went ahead");
+}
+
+#[test]
+fn each_removal_command_is_preceded_by_its_own_reread() {
+    // One re-read and one destination re-check per removal command handed
+    // over: the re-check's token is consumed by `destination_still_verified`,
+    // so it cannot certify a second command (a planner plan has one removal
+    // command; the gate refuses any other, so the count is the proof here).
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("reread-each");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let reads = Vanishing::new(&plan, usize::MAX);
+    let _ = run_reading(&cleared, &scratch, &site, &reads, &seen, &direction);
+    let removals = site.handed.borrow().len();
+    let reverified = seen
+        .all()
+        .iter()
+        .filter(|b| **b == Boundary::DestinationReverified)
+        .count();
+    assert_eq!(removals, 1);
+    assert_eq!(reverified, removals);
+}
+
+#[test]
+fn invariant_03_a_removal_whose_destination_was_not_reverified_ends_partial() {
+    // The destination certifies, then has vanished when it is read again just
+    // before the removal: the source is not handed over, and the run ends
+    // PARTIAL_SUCCESS (exit 3) naming DESTINATION_NOT_REVERIFIED.
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("reread-vanished");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let verify = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyDestination)
+        .expect("a destination check");
+    let reads = Vanishing::new(&plan, verify.commands.len());
+    let report = run_reading(&cleared, &scratch, &site, &reads, &seen, &direction);
+    assert!(site.handed.borrow().is_empty(), "nothing was removed");
+    assert!(
+        !seen.all().contains(&Boundary::Dispatched),
+        "{:?}",
+        seen.all()
+    );
+    assert!(!seen.all().contains(&Boundary::DestinationReverified));
+    let halt = report.records.iter().find_map(|r| match &r.disposition {
+        Disposition::Halted { reason, .. } => Some((r.kind, reason.clone())),
+        _ => None,
+    });
+    assert_eq!(
+        halt,
+        Some((
+            StepKind::RemoveSource,
+            HaltReason::PreconditionFailed {
+                command: 0,
+                why: Precondition::DestinationNotReverified,
+            }
+        )),
+        "{report:?}"
+    );
+    assert!(
+        matches!(report.outcome, RunOutcome::PartialSuccess { .. }),
+        "{:?}",
+        report.outcome
+    );
+    assert_eq!(report.exit_code(), 3);
+    let json = serde_json::to_string(&report).expect("serialises");
+    assert!(json.contains("DESTINATION_NOT_REVERIFIED"), "{json}");
+}
+#[test]
+fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread() {
+    // The destination's configuration is re-checked before each re-read: clean
+    // when it certifies, unknowable (or unreadable) just before the removal.
+    // The removal halts with the configuration's own identifier, and the
+    // destination is not read again.
+    for (what, then, why) in [
+        (
+            "drifted",
+            Ok(ProviderConfiguration::Unknowable),
+            Precondition::ConfigurationDrift,
+        ),
+        (
+            "unreadable",
+            Err(DomainError::new(ErrorId::SafetyBlocked, "not detected")),
+            Precondition::ConfigurationUnreadable,
+        ),
+    ] {
+        let direction = Direction::toward_macports();
+        let scratch = Scratch::new("reread-drift");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let cleared = direction.cleared();
+        let plan = cleared.run().plan().clone();
+        let destination = plan.destination.clone();
+        let calls = std::cell::Cell::new(0usize);
+        let reread = move |provider: &ProviderId, _: &str| {
+            if *provider == destination {
+                calls.set(calls.get() + 1);
+                if calls.get() > 1 {
+                    return then.clone();
+                }
+            }
+            Ok(ProviderConfiguration::Read { files: Vec::new() })
+        };
+        let reads = Vanishing::new(&plan, usize::MAX);
+        let report = run_with_mutations(
+            &cleared,
+            || &reads,
+            MutatingRun {
+                live: true,
+                state: &scratch.state,
+                euid: scratch.euid,
+                start: scratch.start(),
+                site: &site,
+                recapture: unchanged(&direction, &scratch).recapture,
+                reread: &reread,
+                read_back: &history_store::read_back,
+                observer: &seen,
+            },
+            &HomeRedaction::Recorded,
+        )
+        .expect("a report");
+        let halt = report.records.iter().find_map(|r| match &r.disposition {
+            Disposition::Halted { reason, .. } => Some((r.kind, reason.clone())),
+            _ => None,
+        });
+        assert_eq!(
+            halt,
+            Some((
+                StepKind::RemoveSource,
+                HaltReason::PreconditionFailed { command: 0, why }
+            )),
+            "{what}: {report:?}"
+        );
+        assert!(site.handed.borrow().is_empty(), "{what}");
+        let verify = plan
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::VerifyDestination)
+            .expect("a destination check");
+        assert_eq!(
+            reads.destination_reads().len(),
+            verify.commands.len(),
+            "{what}: the destination was read again after its configuration failed"
+        );
+    }
 }

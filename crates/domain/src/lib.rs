@@ -78,7 +78,8 @@ pub use text::{
     CHARACTER_SAMPLES, LEGITIMATE_TEXT_WITH_FORMAT,
 };
 pub use verification::{
-    evaluate, expectation_for, stdout_names, DestinationName, Expectation, ExpectationError,
-    FailureCause, ProcessEnd, ReadEvidence, ReadOutput, SourceName, Verdict,
+    evaluate, evaluate_with, expectation_for, stdout_names, DestinationName, Expectation,
+    ExpectationError, FailureCause, LinkedReport, ProcessEnd, ReadEvidence, ReadOutput, SourceName,
+    Verdict,
 };
 pub use version::Version;

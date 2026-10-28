@@ -37,7 +37,13 @@
 //! 4. **Step success is judged, never inferred from an exit status alone**
 //!    (`04-migration-and-safety.md`): `judge_step` evaluates every read
 //!    against the snapshot the plan was built from, which arrives paired with
-//!    the plan (`PlannedRun`) and cannot be supplied beside it.
+//!    the plan (`PlannedRun`) and cannot be supplied beside it. A
+//!    `VERIFY_DESTINATION` is judged by `certify_destination` instead, and only
+//!    after its provider's configuration was re-read and re-checked
+//!    (`Action::Certify`, SE-107 C1). Before each removal command, the
+//!    destination is read again with the commands of the `VERIFY_DESTINATION`
+//!    the application names (`reverify`) and `destination_still_verified`
+//!    must hold; which step, and so which commands, is never chosen here.
 //! 5. **Nothing a read printed is kept, and no plan text is kept raw.** A
 //!    record carries `ReadEvidence` — result, line count, truncation flag — a
 //!    halt reason carries a check's kind and never its fields, and the texts
@@ -66,13 +72,14 @@ use macportsbrew_adapters::persistence::snapshot_store::{self, StateSnapshot};
 use macportsbrew_adapters::persistence::{history_store, StateDir};
 use macportsbrew_adapters::process::{Invocation, PlanReadRefusal};
 use macportsbrew_adapters::registry::{
-    plan_read_sites, PlanReadError, PlanReadSites, RegistryContext,
+    plan_read_sites, reread_configuration, PlanReadError, PlanReadSites, RegistryContext,
 };
 use macportsbrew_application::{
-    execution_refusals, judge_mutation, judge_step, must_record, next_action, next_action_with,
-    outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
-    run_record, Action, ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult,
-    PlannedRun, Precondition, RunOutcome, StepRead, StepRecord,
+    certify_destination, destination_still_verified, execution_refusals, judge_mutation,
+    judge_step, must_record, next_action, next_action_with, outcome_of, plan_still_holds,
+    read_back_matches, recheck_provider_configuration, refused, run_record, Action,
+    ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
+    Precondition, RunOutcome, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
@@ -226,14 +233,19 @@ impl RunReport {
 /// built only if the execution gate passes the plan. `home` is how any text
 /// the report keeps is redacted.
 pub fn run(planned: &PlannedRun, ctx: &RegistryContext<'_>, home: &HomeRedaction) -> RunReport {
-    run_with(planned, || plan_read_sites(ctx), home)
+    let reread =
+        |provider: &ProviderId, program: &str| reread_configuration(ctx, provider, program);
+    run_with(planned, || plan_read_sites(ctx), &reread, home)
 }
 
 /// [`run`], with the read sites from `sites`, which is called only after the
-/// gate passed the plan and never otherwise.
+/// gate passed the plan and never otherwise, and a provider's configuration
+/// re-read through `reread` before a `VERIFY_DESTINATION` is certified (SE-107
+/// C1; `registry::reread_configuration` in the product).
 pub fn run_with<S: ReadSite>(
     planned: &PlannedRun,
     sites: impl FnOnce() -> S,
+    reread: Reread<'_>,
     home: &HomeRedaction,
 ) -> RunReport {
     let plan = planned.plan();
@@ -254,13 +266,14 @@ pub fn run_with<S: ReadSite>(
             },
             // Not answered without an allowance, and this loop has none: if it
             // ever were, nothing is dispatched or written.
-            Action::DispatchMutating | Action::TakeSnapshot | Action::RecordHistory => {
+            Action::DispatchMutating { .. } | Action::TakeSnapshot | Action::RecordHistory => {
                 Disposition::Halted {
                     reason: macportsbrew_application::HaltReason::UnexecutedMutation,
                     evidence: Vec::new(),
                     ends: Vec::new(),
                 }
             }
+            Action::Certify => certify(planned, position, &site, reread, home, &mut refusal),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -373,6 +386,9 @@ pub enum Boundary {
     StillCurrent,
     /// The provider's configuration was re-read and re-checked.
     ConfigurationRechecked,
+    /// The destination was read again with its `VERIFY_DESTINATION`'s own
+    /// commands, immediately before a removal command, and still certified.
+    DestinationReverified,
     /// A mutating command was handed to the mutation site.
     Dispatched,
     /// The run's record was written.
@@ -551,6 +567,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             // The one write of the record follows the loop; the step is only
             // recorded pending here (D2, D3).
             Action::RecordHistory => Disposition::RecordPendingReadBack,
+            Action::Certify => certify(planned, position, &site, io.reread, home, &mut refusal),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -559,7 +576,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                 let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
                 judge_step(planned, position, &reads)
             }
-            Action::DispatchMutating => {
+            Action::DispatchMutating { reverify } => {
                 if !marker_written {
                     // After the snapshot step, so the marker can name the one
                     // trace a run that never records itself leaves (D1).
@@ -580,6 +597,52 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                         results.push(MutationResult::PreconditionFailed(Precondition::NoProvider));
                         break;
                     };
+                    // A removal: the destination read again, per command and
+                    // first, so the lock and the source's re-check below are
+                    // the freshest facts at dispatch (work order 16 part S, M1).
+                    if let Some(reverify) = reverify.as_ref() {
+                        let destination = reverify.provider();
+                        let verify = plan
+                            .steps
+                            .get(reverify.verify_position())
+                            .map_or(&[][..], |s| s.commands.as_slice());
+                        let program = verify.first().map_or("", |c| c.program.as_str());
+                        let Ok(configuration) = (io.reread)(destination, program) else {
+                            results.push(MutationResult::PreconditionFailed(
+                                Precondition::ConfigurationUnreadable,
+                            ));
+                            break;
+                        };
+                        let destination_checked = recheck_provider_configuration(
+                            destination,
+                            planned.before(),
+                            &configuration,
+                        );
+                        let Ok(destination_checked) = destination_checked else {
+                            results.push(MutationResult::PreconditionFailed(
+                                Precondition::ConfigurationDrift,
+                            ));
+                            break;
+                        };
+                        io.observer
+                            .at(Boundary::ConfigurationRechecked, Some(step.index));
+                        let reread = read_commands(Some(destination), verify, &site);
+                        if let Some(Err(PlanReadError::Refused(r))) = reread.last() {
+                            refusal = Some(rendered_refusal(step.index, r, home));
+                        }
+                        let reads: Vec<StepRead<'_>> = reread.iter().map(step_read).collect();
+                        if let Err(why) = destination_still_verified(
+                            planned,
+                            reverify,
+                            destination_checked,
+                            &reads,
+                        ) {
+                            results.push(MutationResult::PreconditionFailed(why));
+                            break;
+                        }
+                        io.observer
+                            .at(Boundary::DestinationReverified, Some(step.index));
+                    }
                     if lock.verify_still_current().is_err() {
                         results.push(MutationResult::PreconditionFailed(Precondition::LockLost));
                         break;
@@ -711,6 +774,44 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             record_read_back,
         },
     })
+}
+
+/// A `VERIFY_DESTINATION` (SE-107 C1): the destination provider's
+/// configuration re-read and re-checked, then the step's commands read, then
+/// `certify_destination` with the re-check's token. A failed re-read or
+/// re-check halts before any read. Sequencing only; every judgement is the
+/// application's.
+fn certify(
+    planned: &PlannedRun,
+    position: usize,
+    site: &dyn ReadSite,
+    reread: Reread<'_>,
+    home: &HomeRedaction,
+    refusal: &mut Option<RenderedRefusal>,
+) -> Disposition {
+    let step = &planned.plan().steps[position];
+    let halted = |why| Disposition::Halted {
+        reason: HaltReason::PreconditionFailed { command: 0, why },
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    };
+    let Some(provider) = step.provider.as_ref() else {
+        return halted(Precondition::NoProvider);
+    };
+    let program = step.commands.first().map_or("", |c| c.program.as_str());
+    let Ok(configuration) = reread(provider, program) else {
+        return halted(Precondition::ConfigurationUnreadable);
+    };
+    let checked = recheck_provider_configuration(provider, planned.before(), &configuration);
+    let Ok(checked) = checked else {
+        return halted(Precondition::ConfigurationDrift);
+    };
+    let results = read_commands(Some(provider), &step.commands, site);
+    if let Some(Err(PlanReadError::Refused(r))) = results.last() {
+        *refusal = Some(rendered_refusal(step.index, r, home));
+    }
+    let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
+    certify_destination(planned, position, checked, &reads)
 }
 
 /// Writes `snapshot` (the capture taken under the lock) durably into the state

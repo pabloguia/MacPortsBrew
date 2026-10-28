@@ -19,6 +19,11 @@
 //! moved with the names, and the inverse tripwires below make sure no read
 //! helper can be named out of the rule's reach.
 //!
+//! Two exceptions (work order 16 part S): `the_destination_is_reread_before_removal`
+//! here is a positive structural check held whatever the switch is, and
+//! `the_switch_needs_the_destination_contract_evaluable` lives in
+//! `crates/cli/tests/executor.rs`, beside the in-code snapshots it plans from.
+//!
 //! The text checks live in [`wiring_violations`], a pure function of the flag
 //! and the shell's files, which is itself tested **with the flag true** on a
 //! good stub and on one mutant per rule. So the proof that a tripwire would
@@ -1246,15 +1251,159 @@ fn the_switch_needs_the_executed_plan_tied_to_the_one_shown() {
     );
 }
 
-/// No structural fact yet: an unconditional failure while the switch is on.
+/// A positive structural check, held whatever the switch is (work order 16
+/// part S, §8; it replaces `the_switch_needs_the_window_before_removal_closed_or_accepted`):
+/// in the shell's `DispatchMutating` handling, the branch taken when the
+/// application names a re-read (`reverify: Some(..)`) calls
+/// `destination_still_verified(` before `verify_still_current(` and before
+/// `mutation_dispatch(`. The shell has no removal arm of its own: which step is
+/// re-read is the application's `reverify_for`. And 04 declares the residual
+/// DP-048 accepts, after that re-read.
 #[test]
-fn the_switch_needs_the_window_before_removal_closed_or_accepted() {
+fn the_destination_is_reread_before_removal() {
+    let violations = reread_violations(&executor_files());
+    assert!(violations.is_empty(), "{violations:?}");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let spec = std::fs::read_to_string(root.join("docs/spec/04-migration-and-safety.md"))
+        .expect("04 reads");
+    assert!(
+        spec.contains("**The residual removal window is accepted and declared (DP-048"),
+        "04 no longer declares the residual window after the re-read (DP-048)"
+    );
+}
+
+/// What is wrong with the re-read before removal in `files`.
+fn reread_violations(files: &[SourceFile]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let codes: Vec<(String, String)> = files
+        .iter()
+        .map(|(name, text)| (name.clone(), code_of(text)))
+        .collect();
+    let arms: Vec<&(String, String)> = codes
+        .iter()
+        .filter(|(_, c)| c.contains("Action::DispatchMutating { reverify }"))
+        .collect();
+    let [(name, code)] = arms.as_slice() else {
+        return vec![format!(
+            "{} files handle `Action::DispatchMutating {{ reverify }}`; one must",
+            arms.len()
+        )];
+    };
+    let arm = code
+        .find("Action::DispatchMutating { reverify }")
+        .unwrap_or(0);
+    let rest = &code[arm..];
+    let at = |token: &str| rest.find(token);
+    // Per command (mutant 35): the re-read is inside the loop over the step's
+    // commands, so a step with two removal commands re-reads twice.
+    match (
+        at("for command in &step.commands"),
+        at("if let Some(reverify) = reverify"),
+    ) {
+        (Some(each), Some(branch)) if each < branch => {}
+        _ => violations.push(format!(
+            "{name}: the re-read must be inside the loop over the step's commands"
+        )),
+    }
+    let (Some(branch), Some(reverified), Some(current), Some(dispatch)) = (
+        at("if let Some(reverify) = reverify"),
+        at("destination_still_verified("),
+        at("verify_still_current("),
+        at("mutation_dispatch("),
+    ) else {
+        return vec![format!(
+            "{name}: the reverify branch, destination_still_verified(, verify_still_current( \
+             and mutation_dispatch( must all follow the DispatchMutating arm"
+        )];
+    };
+    if branch >= reverified {
+        violations.push(format!(
+            "{name}: the re-read is not in the `reverify` branch"
+        ));
+    }
+    if reverified >= current {
+        violations.push(format!(
+            "{name}: destination_still_verified( must come before verify_still_current( (M1)"
+        ));
+    }
+    if reverified >= dispatch {
+        violations.push(format!(
+            "{name}: destination_still_verified( must come before mutation_dispatch("
+        ));
+    }
+    violations
+}
+
+#[test]
+fn the_reread_tripwire_fires_on_its_mutants() {
+    let good = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                for command in &step.commands { \
+                if let Some(reverify) = reverify { destination_still_verified(x); } \
+                lock.verify_still_current(); mutation_dispatch(y); } } } }";
+    assert!(reread_violations(&one(good)).is_empty());
+    let dropped = good.replace("destination_still_verified(x);", "");
+    assert!(!reread_violations(&one(&dropped)).is_empty(), "dropped");
+    let late = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                lock.verify_still_current(); \
+                if let Some(reverify) = reverify { destination_still_verified(x); } \
+                mutation_dispatch(y); } } }";
+    assert!(!reread_violations(&one(late)).is_empty(), "after the lock");
+    let after = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                lock.verify_still_current(); mutation_dispatch(y); \
+                if let Some(reverify) = reverify { destination_still_verified(x); } } } }";
+    assert!(
+        !reread_violations(&one(after)).is_empty(),
+        "after the dispatch"
+    );
+    let unconditional = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                destination_still_verified(x); \
+                lock.verify_still_current(); mutation_dispatch(y); } } }";
+    let once_per_step = "fn f() { match a { Action::DispatchMutating { reverify } => { \
+                if let Some(reverify) = reverify { destination_still_verified(x); } \
+                for command in &step.commands { \
+                lock.verify_still_current(); mutation_dispatch(y); } } } }";
+    assert!(
+        !reread_violations(&one(once_per_step)).is_empty(),
+        "once per step, not per command"
+    );
+    assert!(
+        !reread_violations(&one(unconditional)).is_empty(),
+        "no branch"
+    );
+}
+
+/// The shell never derives a command: which commands the destination is read
+/// again with is the plan's `VERIFY_DESTINATION`, named by the application,
+/// never the command table (work order 16 part S, V4, L5; mutant 18).
+#[test]
+fn the_shell_never_derives_a_command() {
+    for (name, text) in executor_files() {
+        let code = code_of(&text);
+        for word in [
+            "planned_argv",
+            "provider_commands",
+            "verify_destination_reads",
+        ] {
+            assert!(!code.contains(word), "{name} names {word}");
+        }
+    }
+}
+
+/// Fails while the switch is on (work order 16 part S, V3): removal is not yet
+/// opt-in. DP-048 (c) bounds the residual window by making removal opt-in
+/// (`--remove-source`, with a confirmation stronger than an install's) and by
+/// dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
+/// answered and all six destination checks were evaluated. It replaces slice 6
+/// part D's planned flip tripwire; work order 16 part K turns it positive.
+#[test]
+fn the_switch_needs_removal_opt_in() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
     assert!(
         !switch,
-        "nothing re-checks the destination between VERIFY_DESTINATION and REMOVE_SOURCE \
-         (04, slice 4 review M6a; next to DP-030); remove this only with that check or the \
-         owner's acceptance of the residual"
+        "removal is not opt-in: DP-048 (c) requires --remove-source with a confirmation \
+         stronger than an install's, and REMOVE_SOURCE dispatched only when the re-read ran, \
+         DP-030's probe answered and all six destination checks were evaluated; work order 16 \
+         part K builds it (SE-107)"
     );
 }
 
@@ -1338,20 +1487,8 @@ fn the_switch_needs_release_builds_free_of_the_test_support_feature() {
     );
 }
 
-/// Detection: the destination check 04's contract names first is still not
-/// evaluable, so a removal is guarded by fewer checks than the contract
-/// (INV-01; slice 4 review, spec 2).
-#[test]
-fn the_switch_needs_the_destination_contract_evaluable() {
-    use macportsbrew_application::evaluable_in_this_build;
-    use macportsbrew_domain::{StepKind, VerificationCheck};
-    let evaluable = evaluable_in_this_build(
-        StepKind::VerifyDestination,
-        &VerificationCheck::ProviderReportsActive,
-    );
-    assert!(
-        !THIS_BUILD_DISPATCHES_MUTATIONS || evaluable,
-        "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
-         destination contract (04, Verification contract; SE-094)"
-    );
-}
+// `the_switch_needs_the_destination_contract_evaluable` lives in
+// `crates/cli/tests/executor.rs`, beside the in-code snapshots it plans from
+// in each direction (work order 16 part S, §8): the recordings do not record
+// whether MacPorts packages define services, so the planner refuses to plan
+// from them toward Homebrew.

@@ -245,13 +245,13 @@ fn dispatched_positions(plan: &MigrationPlan) -> Vec<usize> {
     let mut dispatched = Vec::new();
     for position in 0..plan.steps.len() {
         let disposition = match next_action(plan, position, &records) {
-            Action::Dispatch => {
+            Action::Dispatch | Action::Certify => {
                 dispatched.push(position);
                 Disposition::Verified {
                     evidence: Vec::new(),
                 }
             }
-            Action::DispatchMutating | Action::TakeSnapshot | Action::RecordHistory => {
+            Action::DispatchMutating { .. } | Action::TakeSnapshot | Action::RecordHistory => {
                 panic!("no allowance, so never a mutating dispatch or a bracket performed")
             }
             Action::PassOver(d) => d,
@@ -707,7 +707,7 @@ fn invariant_06_a_verification_read_is_never_dispatched_elevated() {
     let records: Vec<StepRecord> = (0..verify)
         .map(|p| record(&plan, p, Disposition::NotPerformedInThisBuild))
         .collect();
-    assert_eq!(next_action(&plan, verify, &records), Action::Dispatch);
+    assert_eq!(next_action(&plan, verify, &records), Action::Certify);
     for elevation in [
         Elevation::Required { reason: "x".into() },
         Elevation::Unknown,

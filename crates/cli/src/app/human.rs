@@ -544,6 +544,12 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
                 SuccessSemantic::StdoutOmitsPackage => {
                     format!("  [{}]", label(ctx, "plan.success_omits"))
                 }
+                // A whole inventory, like the line above: a reader who takes it
+                // for a listing would not know what it must show.
+                SuccessSemantic::StdoutMarksPackageActive
+                | SuccessSemantic::JsonReportsPackageLinked => {
+                    format!("  [{}]", label(ctx, "plan.success_active"))
+                }
                 SuccessSemantic::Unknown => {
                     format!("  [{}]", label(ctx, "plan.success_unknown"))
                 }
@@ -1067,6 +1073,7 @@ fn precondition_key(why: Precondition) -> &'static str {
         Precondition::ConfigurationUnreadable => "migrate.precondition.configuration_unreadable",
         Precondition::ConfigurationDrift => "migrate.precondition.configuration_drift",
         Precondition::WrongProviderToken => "migrate.precondition.wrong_provider_token",
+        Precondition::DestinationNotReverified => "migrate.precondition.destination_not_reverified",
     }
 }
 
@@ -1113,6 +1120,8 @@ fn failure_key(value: FailureCause) -> &'static str {
         FailureCause::EmptyOutput => "migrate.failure.empty_output",
         FailureCause::NameAbsent => "migrate.failure.name_absent",
         FailureCause::NamePresent => "migrate.failure.name_present",
+        FailureCause::ActiveNotReported => "migrate.failure.active_not_reported",
+        FailureCause::OutputShapeUnknown => "migrate.failure.output_shape_unknown",
     }
 }
 
@@ -1126,6 +1135,7 @@ fn unevaluable_key(value: Unevaluable) -> &'static str {
         Unevaluable::MissingRead => "migrate.unevaluable.missing_read",
         Unevaluable::PresenceBeforeUnknown => "migrate.unevaluable.presence_before_unknown",
         Unevaluable::PresentBeforeTheRun => "migrate.unevaluable.present_before_the_run",
+        Unevaluable::NotCertifiedHere => "migrate.unevaluable.not_certified_here",
     }
 }
 
@@ -1211,6 +1221,13 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
         ExecutionRefusal::CommandIsNotThePlannersRead { step: s } => {
             step("migrate.refusal.command_is_not_the_planners_read", *s)
         }
+        ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check } => ctx.messages.render(
+            "migrate.refusal.check_has_no_answering_read",
+            &params(&[
+                ("step", s.to_string()),
+                ("check", label(ctx, check_key(CheckKind::from(check)))),
+            ]),
+        ),
         ExecutionRefusal::Expectation { step: s, error } => ctx.messages.render(
             "migrate.refusal.expectation",
             &params(&[
@@ -1353,6 +1370,8 @@ mod tests {
             FailureCause::EmptyOutput,
             FailureCause::NameAbsent,
             FailureCause::NamePresent,
+            FailureCause::ActiveNotReported,
+            FailureCause::OutputShapeUnknown,
         ] {
             out.push(HaltReason::VerificationFailed { command: 0, cause });
         }
