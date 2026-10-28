@@ -29,6 +29,13 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `doctor`: says, per provider, whether the reads this tool asks it for may
+  reach the network on the provider's own account (its local metadata index is
+  missing), are answered offline, or cannot be told from this input; and names
+  a configuration setting that decides whether the provider sends its own
+  analytics (`brew.env`'s `HOMEBREW_NO_ANALYTICS`; MacPorts has none). The
+  charter's no-network and no-telemetry non-goals now say exactly this
+  (DP-028).
 - `plan`, `migrate` and `restore --plan`: a destination that records the
   package as not available, not supported on this platform, or disabled now
   makes the plan a manual review (`destination_artifact_unavailable`, exit 4),
@@ -834,9 +841,11 @@ translation are in place; the others are not.
   can switch analytics and network fetches back on for those reads. MacPortsBrew
   itself makes no network call of its own. Observed on Homebrew 7.0.4,
   2026-10-02 ([R-15](docs/research/R-15-homebrew-brew-env.md)). `doctor` now
-  reports such a file and a mutation against it is refused (DP-027); whether
-  that meets the "no network" and "no telemetry" non-goals is open
-  ([DP-028](docs/decisions-pending.md)).
+  reports such a file and a mutation against it is refused (DP-027). The
+  charter's non-goals now say what holds: MacPortsBrew sends nothing and makes
+  no network call of its own, and `doctor` discloses a provider configuration
+  that may enable the provider's analytics and whether a provider read may
+  reach the network ([DP-028](docs/decisions-pending.md), ruled 2026-10-27).
 - `Messages::for_locale` wires `pt-BR` (the translation laid over English) and the
   pseudolocale; `es`, `ja` and `zh-CN` still select their plural rules and layout
   while the text stays English.

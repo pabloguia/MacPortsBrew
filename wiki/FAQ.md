@@ -67,8 +67,11 @@ setting, never the value), and does the same for a MacPorts
 registry and ports from; a migration step against a provider configured that
 way is refused (this build refuses every step regardless; this is the refusal
 that remains once migration lands). Observed on Homebrew 7.0.4, 2026-10-02,
-and MacPorts 2.12.6, 2026-10-03. Whether that is enough to meet the
-no-network and no-telemetry promises is still an open question for the project.
+and MacPorts 2.12.6, 2026-10-03. `doctor` also says, per provider, whether
+its reads may reach the network, and names a setting that decides whether the
+provider sends its own analytics. That is what the no-network and
+no-telemetry promises cover: MacPortsBrew sends nothing and calls the network
+for nothing, and says when a provider might (DP-028, ruled 2026-10-27).
 
 `doctor --report` writes a **local** file, without your user name or home
 folder path. `PATH` entries a finding mentions appear with your home folder

@@ -2,6 +2,10 @@
 
 # Pass 08, slice 2 — the single-instance lock, the interrupted-run marker, the concurrent-provider detector
 
+> **Run through work order 16 (SE-109); its §1 item 8 overrides this file's
+> plan-mode, merge, push, dependency and stop instructions.**
+> (`prompts/16-complete-mutating-product.md`)
+
 Work order for one session. Parent work order:
 [`08-the-mutating-executor.md`](08-the-mutating-executor.md), item 2 (its
 section 3, the hard boundary, binds here unchanged). Written 2026-10-04 at the

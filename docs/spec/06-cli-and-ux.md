@@ -154,13 +154,17 @@ alignment. This is tested with the pseudolocale and with CJK fixtures.
 ## Privacy and diagnostics
 
 **MUST.** No telemetry, no network calls that report anything about the user.
-**Not met in one respect, recorded rather than relied on (R-15, 2026-10-02):**
-this tool reports nothing, but a `brew.env` in Homebrew's configuration can
-switch Homebrew's own analytics back on for the reads this tool asks of it,
-and Homebrew downloads its catalogue on an empty cache. The tool detects and
-discloses the first (`doctor`, a plan's risks; DP-027), and refuses a mutation
-under it; whether that disclosure meets this MUST is DP-028, open. README and
-wiki say so (SE-016 item 3).
+This MUST is about what MacPortsBrew itself does, as the charter's non-goals
+now say (DP-028, ruled 2026-10-27). Two things a provider does on its own
+account are disclosed rather than prevented (R-15, 2026-10-02): a `brew.env`
+in Homebrew's configuration can switch Homebrew's own analytics back on for
+the reads this tool asks of it, and Homebrew downloads its catalogue on an
+empty cache. `doctor` names a configuration key that governs a provider's
+analytics (`provider_configuration_analytics`) and says, per provider, whether
+a read may reach the network (`provider_read_may_reach_network`,
+`provider_reads_offline`, `provider_network_use_unknown`); a plan's risks
+carry the configuration, and a mutation under it is refused (DP-027). README
+and wiki say so (SE-016 item 3).
 
 **MUST.** `doctor --report` writes a redacted local diagnostic file the user can
 attach to an issue: versions, architecture, macOS version, provider prefixes,

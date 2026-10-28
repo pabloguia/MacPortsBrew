@@ -2,6 +2,10 @@
 
 # Pass 08, slice 6 — the checks that guard a removal
 
+> **Run through work order 16 (SE-109); its §1 item 8 overrides this file's
+> plan-mode, merge, push, dependency and stop instructions.**
+> (`prompts/16-complete-mutating-product.md`)
+
 Work order for one session. Parent: [`08-the-mutating-executor.md`](08-the-mutating-executor.md);
 its §3 binds unchanged. Written 2026-10-18, after slice 5 merged (PR #10).
 **`THIS_BUILD_DISPATCHES_MUTATIONS` stays `false` for the whole slice.**

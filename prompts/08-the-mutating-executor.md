@@ -2,6 +2,10 @@
 
 # MacPortsBrew — The mutating executor (08-THE-MUTATING-EXECUTOR)
 
+> **Run through work order 16 (SE-109); its §1 item 8 overrides this file's
+> plan-mode, merge, push, dependency and stop instructions.**
+> (`prompts/16-complete-mutating-product.md`)
+
 The dry-run half of the executor shipped in pass 05, was hardened in pass 06,
 and pass 07 settled the owner's decisions that blocked the rest (DP-026, DP-027;
 report `../docs/passes/07-owner-rulings-and-housekeeping-report.md`). This pass

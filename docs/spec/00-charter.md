@@ -125,8 +125,11 @@ MacPortsBrew does **not**:
 - manage Mac App Store apps or arbitrary `.app` bundles;
 - consolidate or deduplicate the two providers' dependency trees;
 - attempt to make one provider's libraries satisfy the other's dependencies;
-- require Homebrew, MacPorts, network access, or an LLM in order to run;
-- send telemetry.
+- require Homebrew, MacPorts, network access, or an LLM in order to run (a
+  provider's own read may reach the network on its own account, and
+  MacPortsBrew says when it can);
+- send telemetry (MacPortsBrew sends nothing; if a provider's own configuration
+  enables its analytics, MacPortsBrew discloses that).
 
 ## Discoverability
 

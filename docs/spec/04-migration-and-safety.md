@@ -172,9 +172,12 @@ plan: `restore --plan --run <id>` shows it, and `restore --run <id>` puts it to
 the execution gate, which refuses it.
 
 **MUST.** A restore step whose artifact is no longer available on this
-machine — the Homebrew formula an Intel Mac can no longer bottle, or a
-provider that no longer supports this macOS — becomes a `MANUAL_REVIEW` step
-that the plan still shows, with the reason. `history` then reports the run as
+machine — one the destination records as unavailable, unsupported on this
+platform or disabled, or a provider that no longer supports this macOS —
+becomes a `MANUAL_REVIEW` step that the plan still shows, with the reason. A
+step that would build from source is not this case: a source build is a cost
+the plan names in its default view (`destination_source_build`, with what the
+build needs), not an unavailable artifact (DP-050, ruled 2026-10-27). `history` then reports the run as
 partially restorable, and executing the plan exits with the safety-check code.
 This is the case the project exists for, and it is precisely where "undo"
 must not read as more reversible than it is.
@@ -193,10 +196,6 @@ the package, for `migrate` and a restore plan alike. What stays unmet, clause by
   catalogue is not consulted offline, and an unknown is not raised as
   unavailable (it would stop every restore). So the restore case this MUST is
   written about is not caught.
-- **"The Homebrew formula an Intel Mac can no longer bottle"** builds from
-  source, which stays a non-blocking `destination_source_build` risk under
-  DP-050's reversible default. The example is not rewritten before the owner
-  rules.
 - **"A provider that no longer supports this macOS"** is a provider-level
   support fact, not a package's availability, and the planner does not read it.
 - **`history` does not report a run as partially restorable**: it is read-only
@@ -340,6 +339,16 @@ between `VERIFY_DESTINATION` and `REMOVE_SOURCE`, so a concurrent `brew` or
 `port` could remove the destination in that window, unseen while the detector
 does not exist (slice 4 review, M6a). It is closed by a check before the
 removal or accepted by the owner beside DP-030.
+
+**The residual removal window is accepted and declared (DP-048, ruled
+2026-10-27).** Once slice 6's re-read of the destination runs immediately
+before `REMOVE_SOURCE`, what remains is the gap between that read and the
+provider's own uninstall: milliseconds plus the provider's run time. Nothing a
+reader can do closes it, so it is declared here, next to DP-030's, rather than
+claimed closed. It is bounded by making removal opt-in (`--remove-source`, with
+a confirmation stronger than an install's) and by dispatching `REMOVE_SOURCE`
+only when the re-read ran, DP-030's probe answered, and all six destination
+checks were evaluated for that package (work order 16, parts S, G, H and K).
 
 ## Privilege
 
