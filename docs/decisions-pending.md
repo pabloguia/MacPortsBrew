@@ -11,53 +11,38 @@ are recorded.
 
 ## Open
 
-### DP-054 — Under `--replay`, may a Homebrew plan go ahead while the materialised half of "defines a service" is unknown?
+### DP-054 — Relax DP-032 and DP-016 for `--replay`, so a replayed Homebrew plan can go ahead while the keg cannot be read?
 
-Raised 2026-10-28, work order 16 part D, by the session implementing DP-032. Plan:
-`docs/passes/16-plans/D.md`. Evidence: R-8, "Addendum 2026-10-28".
+Raised 2026-10-28, work order 16 part D; narrowed the same day after
+`spec-guardian`'s review. Plan: `docs/passes/16-plans/D.md`. Evidence: R-8,
+"Addendum 2026-10-28".
 
-- **The question.** DP-032 ruled that a package is a service if it is declared
-  **or** materialised, and that an unknown answer refuses the plan. For
-  Homebrew the materialised half is the plist in the keg
-  (`<cellar>/<name>/<version>/homebrew.mxcl.<name>.plist`, or `sh.brew.<name>.plist`
-  since Homebrew 6.0.22). That half is not redundant: the keg plist is written at
-  install time from the formula *as it was then*, while `brew info --json=v2`
-  reports the formula *as it is now*, so a formula that later dropped its
-  `service` block keeps a materialised plist (R-8 addendum, question 5). The keg
-  is a file. A recording holds subprocess output only, so under `--replay` the
-  keg cannot be read (INV-15), and the half is unknown.
-- **What it costs if unknown refuses.** Every replayed plan whose source is
-  Homebrew and whose formula declares no service is refused, exactly as every
-  replayed MacPorts plan already is (DP-016 (c)). That is nearly every plan the
-  project demonstrates: the walkthrough, `migrate` and `history` end-to-end
-  tests, the `plan.v1`/`migrate.v1` documented samples, and
-  `wiki/Homebrew-to-MacPorts-Migration.md`. `--replay` would no longer show a plan
-  at all. DP-016 (c) accepted that cost for MacPorts when Homebrew still showed
-  one; this would take the last one away.
-- **Why it is yours.** It trades a safety property against the feature that
-  exists to demonstrate safety, which DP-016 already called the owner's.
-- **Options.**
-  - **(a) Unknown refuses, in both providers.** The ruling as written, and
-    symmetric (INV-17). `--replay` plans become refusals until (b)'s recordings
-    exist; the samples and tests are rewritten to show the refusal.
-  - **(b) Record the reads.** Capture records the keg and Portfile reads beside
-    the subprocess invocations (a recording schema addition, INV-15 kept: replay
-    answers from the recording, never the disk). Existing fixtures carry no such
-    entries, so they answer unknown and refuse as in (a) until they are
-    re-captured — on the machines they came from, which are the owner's.
-  - **(c) Homebrew's declaration answers alone where the keg cannot be read.**
-    Under `--replay` only, a formula whose current declaration is `null` is
-    treated as not a service, the plan carries a named caveat
-    (`service_materialisation_not_read`), and a live run reads the keg as
-    ruled. Cost: a replayed plan can miss a formula whose service block was
-    removed after install. It is the unknown-as-no shape this project forbids,
-    confined to a demonstration path that never executes.
-- **Recommendation: (b), with (a)'s behaviour until the fixtures are
-  re-captured.** It keeps the ruling and INV-15 whole, and the cost is a capture
-  run on two machines.
-- **Reversible default taken meanwhile.** Part D is held at its plan; nothing
-  in the code changes until this is ruled, because each option rewrites a
-  different set of tests and samples. Part D's research and plan are merged.
+- **What is already ruled, and is being implemented.** DP-032: a package is a
+  service if it is declared or materialised, and unknown refuses the plan.
+  DP-016 (c) then (d): refuse where the source cannot answer, then record service
+  status in the recording. Work order 16 D.5: under `--replay` the reader answers
+  from the recording or as unknown. Part D implements that: under `--replay` the
+  disk-backed halves are unknown, so a replayed plan whose source row does not
+  declare a service is refused, **for both providers**. Plans are demonstrated
+  from a live snapshot instead (`--from-snapshot`), the precedent DP-016 (c) set
+  for MacPorts; the walkthrough, samples and wiki move to it. DP-016 (d) is the
+  later addition that lets replay answer.
+- **Why the materialised half matters for Homebrew.** The keg plist is written
+  at install from the formula as it was then; `brew info --json=v2` reports the
+  formula as it is now. A formula that later dropped its `service` block keeps the
+  plist (R-8 addendum, A-5).
+- **The open question.** Whether, under `--replay` only, a Homebrew formula whose
+  current declaration is `null` should count as not a service, with a named plan
+  caveat, so replayed Homebrew plans keep showing.
+  - **(a) No.** Keep the rulings as they are. This is what part D builds.
+  - **(c) Yes.** Cost: it reverses DP-032 ("unknown refuses") and DP-016 (c) for
+    replay; it adds a second, replay-dependent rule beside the one DP-032 stated
+    once in the domain, so either the domain learns about replay or an adapter
+    reports an unknown half as `NO`, which `.claude/rules/adapters.md` forbids; and
+    it is a special case for one provider, an INV-17 shape. `security-reviewer`
+    recommends against it.
+- **Recommendation: (a).** Nothing waits on this: part D proceeds on (a), and (c)
+  would be an addition on top.
 
 ---
 
