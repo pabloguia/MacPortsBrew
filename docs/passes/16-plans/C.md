@@ -135,7 +135,8 @@ shows, to `analysis`, or to the executor, the gate or verification.
 | spec-guardian | revised plan | **approved**; low: add a `restore --plan` end-to-end case | Added to Tests |
 | security-reviewer | revised plan | **approved**; low: N1 no indexing panic, N2 message wording for `restore` | Folded into Design §1 and §6 |
 | security-reviewer | `59a4824` | **approved**; medium (latent): `migrate` printed the notice after execution; low: hostile-text comment overstated | Notice moved before the execution block; comment and As-built corrected |
-| spec-guardian | `59a4824` | not yet: F1 vacuous dependency check; F2 no restore test, wrong reason; F3 mutants unrecorded; F4 notice under `--json`; F5 field order | All resolved above; a confirming re-review follows |
+| spec-guardian | `59a4824` | not yet: F1 vacuous dependency check; F2 no restore test, wrong reason; F3 mutants unrecorded; F4 notice under `--json`; F5 field order | All resolved above |
+| spec-guardian | `6fefd45` | **approved**; low: three mutants guarded by reasoning, not executed (recorded above) | Accepted; part K may execute them |
 
 ## As built (2026-10-28)
 
