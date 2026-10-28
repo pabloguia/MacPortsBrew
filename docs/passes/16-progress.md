@@ -109,3 +109,4 @@ session stopped and why.
 
 - 2026-10-27: ledger created; part 0 done; no implementation part started.
   The resumability rules came in with the pull request that added this file.
+- 2026-10-28: C merged (PR #28); D implemented and approved, held as a patch on P's matrix patch (PR #29); P and M staged and merged (PRs #30, #31). Next: S, which needs nothing from the owner; D's code, E, F, H and J wait on P's staged items.
