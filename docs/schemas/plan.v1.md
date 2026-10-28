@@ -733,6 +733,7 @@ non-mutating and the command exits 4:
   "source": "homebrew",
   "destination": "macports",
   "retainSource": false,
+  "enteredBy": "DEFAULT_VIEW",
   "primaryAfter": "macports",
   "recommendation": {
     "kind": "MIGRATE_TO",

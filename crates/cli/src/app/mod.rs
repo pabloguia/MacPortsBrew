@@ -19,7 +19,7 @@ use clap::{Parser, Subcommand};
 use context::Context;
 use macportsbrew_application::{AnalysisOptions, DoctorReport, PlanRequest, Severity};
 use macportsbrew_domain::{redact_home, ConcurrencyFlag, DomainError, ErrorId, HomeRedaction};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -413,6 +413,7 @@ fn run_inner(
             if cli.json {
                 let document = Flagged {
                     body: &explanation,
+                    warnings: Vec::new(),
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -446,9 +447,11 @@ fn run_inner(
                 &macportsbrew_adapters::registry::known_provider_ids(),
             )?;
             let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+            named_entry_notice(&ctx, &plan, stderr);
             if cli.json {
                 let document = Flagged {
                     body: &plan,
+                    warnings: plan_warnings(&plan),
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -479,6 +482,7 @@ fn run_inner(
             },
             &options(BTreeSet::new()),
             stdout,
+            stderr,
         ),
         Command::Doctor { report, deep } => {
             if *deep && !cli.json {
@@ -520,6 +524,7 @@ fn run_inner(
             if cli.json {
                 let document = Flagged {
                     body: &doc,
+                    warnings: Vec::new(),
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -546,6 +551,7 @@ fn run_inner(
                 .ok_or_else(|| DomainError::new(ErrorId::Usage, "restore needs --run <id>"))?,
             &options(BTreeSet::new()),
             stdout,
+            stderr,
         ),
         Command::Snapshot { out } => {
             let (key, path) = match context::save_snapshot(&ctx, out.as_deref(), cli.dry_run)? {
@@ -586,7 +592,52 @@ fn run_inner(
 struct Flagged<'a, T: serde::Serialize> {
     #[serde(flatten)]
     body: &'a T,
+    /// DP-037: derived from a plan's `enteredBy`, never stored on it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<PlanWarning>,
     concurrent_provider_activity: ConcurrencyFlag,
+}
+
+/// A warning a plan document carries, as a stable message identifier. A
+/// closed set: the domain carries no catalogue key, and nothing read from a
+/// file can name one (part C plan §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+pub(crate) enum PlanWarning {
+    /// The row the plan acts on is outside the default view (DP-037).
+    #[serde(rename = "advanced.warning")]
+    AdvancedWarning,
+}
+
+/// The warnings `plan`'s entry implies. Derived, so the document can never
+/// say `NAMED` without the warning, or the reverse.
+pub(crate) fn plan_warnings(plan: &macportsbrew_domain::MigrationPlan) -> Vec<PlanWarning> {
+    if plan
+        .entered_by
+        .is_some_and(macportsbrew_domain::EntryMode::is_advanced)
+    {
+        vec![PlanWarning::AdvancedWarning]
+    } else {
+        Vec::new()
+    }
+}
+
+/// DP-037: a row entered only by naming it prints the advanced-mode warning
+/// and says the entry is for this package only. With `--advanced` the warning
+/// was printed once at the start and is not repeated.
+pub(crate) fn named_entry_notice(
+    ctx: &Context,
+    plan: &macportsbrew_domain::MigrationPlan,
+    stderr: &mut dyn Write,
+) {
+    if plan.entered_by == Some(macportsbrew_domain::EntryMode::Named) {
+        let _ = writeln!(stderr, "{}", ctx.messages.render_id("advanced.warning"));
+        let params = BTreeMap::from([("package".to_string(), plan.package.name.clone())]);
+        let _ = writeln!(
+            stderr,
+            "{}",
+            ctx.messages.render("plan.entered_by_named", &params)
+        );
+    }
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {

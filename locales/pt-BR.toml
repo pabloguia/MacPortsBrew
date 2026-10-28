@@ -165,6 +165,7 @@ policy.stale_notice = "Os dados de política foram verificados pela última vez 
 
 privilege.user_unknown = "O MacPortsBrew não conseguiu saber com qual usuário está rodando, então não pôde verificar se está rodando como root. Ele nunca precisa de direitos de administrador; execute-o com o seu próprio usuário."
 advanced.warning = "O modo avançado mostra dependências. Esses pacotes são gerenciados automaticamente pelo gerenciador de pacotes deles; remover ou migrar um deles sozinho pode quebrar os pacotes que dependem dele. As dependências reversas continuam sendo verificadas, e as dependências nunca vêm pré-selecionadas."
+plan.entered_by_named = "{package} está fora da visão padrão, então este plano atua sobre ele em modo avançado, só para este pacote. As dependências dele não são adicionadas."
 
 # --- status ---------------------------------------------------------------
 "status.machine_heading" = "Máquina"

@@ -265,6 +265,7 @@ policy.stale_notice = "Policy data was last verified on {readOn}; provider facts
 
 privilege.user_unknown = "MacPortsBrew could not tell which user it is running as, so it could not check that it is not running as root. It never needs administrator rights; run it as your own user."
 advanced.warning = "Advanced mode shows dependencies. These packages are managed automatically by their provider; removing or migrating one on its own can break the packages that depend on it. Reverse dependencies are still checked and dependencies are never preselected."
+plan.entered_by_named = "{package} is outside the default view, so this plan acts on it in advanced mode, for this package only. Its own dependencies are not added."
 
 # --- status ---------------------------------------------------------------
 "status.machine_heading" = "Machine"

@@ -138,6 +138,9 @@ struct Document<'a> {
     nothing_to_restore: Option<NothingToRestoreReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
     plan: Option<&'a MigrationPlan>,
+    /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<super::PlanWarning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
     concurrent_provider_activity: ConcurrencyFlag,
@@ -152,6 +155,7 @@ pub(super) fn restore(
     run_id: &str,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
     // The scope again, from what the context is, for the one caller that is not
     // the command line (a test builds a context from a recording).
@@ -293,6 +297,7 @@ pub(super) fn restore(
     } else {
         Mode::Execute
     };
+    super::named_entry_notice(ctx, &plan, stderr);
     if cli.json {
         let document = Document {
             schema_version: RESTORE_SCHEMA_VERSION,
@@ -306,6 +311,7 @@ pub(super) fn restore(
             notes: &notes,
             nothing_to_restore: None,
             plan: Some(&plan),
+            warnings: super::plan_warnings(&plan),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
         };
@@ -379,6 +385,7 @@ fn nothing_to_restore(
             notes: &[],
             nothing_to_restore: Some(reason),
             plan: None,
+            warnings: Vec::new(),
             execution: None,
             concurrent_provider_activity: concurrency.clone(),
         };

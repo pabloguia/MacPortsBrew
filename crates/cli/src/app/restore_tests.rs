@@ -183,7 +183,15 @@ fn run_restore(
     id: &str,
 ) -> (Result<i32, DomainError>, String) {
     let mut out = Vec::new();
-    let code = restore(ctx, cli, plan_only, id, &options(ctx), &mut out);
+    let code = restore(
+        ctx,
+        cli,
+        plan_only,
+        id,
+        &options(ctx),
+        &mut out,
+        &mut std::io::sink(),
+    );
     (code, String::from_utf8(out).unwrap())
 }
 
