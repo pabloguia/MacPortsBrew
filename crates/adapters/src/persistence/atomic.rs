@@ -190,6 +190,22 @@ fn write_new_with(
     durability: Durability,
     sync: impl Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), PublishError> {
+    write_new_with_mode(path, bytes, publish, durability, sync, FILE_MODE)
+}
+
+/// [`write_new_with`] with the mode the temporary is *created* with passed in
+/// (DP-029 (d)). Production always passes [`FILE_MODE`]; a test passes a wide
+/// mode to prove that the `fchmod` after creation, not the creation mode, is
+/// what leaves a record `0o600` - which is how an unusual umask is covered
+/// without changing the process's umask (no `unsafe`, no shell).
+fn write_new_with_mode(
+    path: &Path,
+    bytes: &[u8],
+    publish: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    durability: Durability,
+    sync: impl Fn(&Path) -> std::io::Result<()>,
+    creation_mode: u32,
+) -> Result<(), PublishError> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let failed = |what: String| PublishError::Failed(DomainError::new(ErrorId::Io, what));
     let parent = path
@@ -202,7 +218,7 @@ fn write_new_with(
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .mode(FILE_MODE)
+            .mode(creation_mode)
             .open(&temporary)?;
         file.set_permissions(std::fs::Permissions::from_mode(FILE_MODE))?;
         file.write_all(bytes)?;
@@ -548,6 +564,37 @@ mod tests {
         let target = dir.join("run.json");
         write_new_with(&target, b"r", link, Durability::BestEffort, failing_sync).unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"r");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_record_created_wide_or_narrow_still_lands_0600() {
+        // DP-029 (d): the creation mode stands in for an umask this test cannot
+        // set. Both directions must publish 0o600: wide (0o644, the ruling's
+        // case) and narrow (0o400, the "unreadable forever" record the fchmod
+        // exists for). The narrow case is what makes the kill independent of
+        // the umask this test runs under: an umask only clears bits, so without
+        // the fchmod a 0o400 creation can never come out 0o600 (security-reviewer,
+        // 2026-10-27). The 0277 read-back half stays owed and held by reading
+        // (SE-092).
+        let dir = scratch("atomic-creation-mode");
+        for (name, mode) in [("wide.json", 0o644), ("narrow.json", 0o400)] {
+            let target = dir.join(name);
+            write_new_with_mode(
+                &target,
+                b"r",
+                link,
+                Durability::Required,
+                sync_directory,
+                mode,
+            )
+            .unwrap();
+            assert_eq!(
+                std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                FILE_MODE,
+                "created at {mode:o}"
+            );
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

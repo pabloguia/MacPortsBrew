@@ -88,7 +88,9 @@ record with a deliberately wide mode (`0o644`) and asserts it ends `0600`. That
 kills the removal of the post-creation permission fix without a umask, `unsafe`
 or a shell. The `0277` read-back half stays owed and held by reading, as
 recorded; revisit only if a second umask-dependent rule appears. Propagation:
-work order 16, part B, with the mutant run that proves the kill.
+work order 16, part B — done 2026-10-27 (`write_new_with_mode`,
+`a_record_created_wide_or_narrow_still_lands_0600`, at `0o644` and `0o400`; the mutant that drops the `fchmod` is
+killed by it alone).
 
 Raised 2026-10-05, pass 08 slice 2, Part A. SE-092 owes a test that a history
 record lands `0600` and reads back under a `0277` umask. The umask is
