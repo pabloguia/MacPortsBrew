@@ -24,7 +24,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | D — what defines a service | 0 | todo | | May merge with the capture owed |
 | P — stage the owner items, once | 0 | in progress `wo16/P-owner-staging` | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Ends `waiting on owner`. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | waiting on owner (merged `bc52b3c`) | PR #31 | Staged: `docs/passes/16-staged/M/` (three security reviews, final approve). Owner applies it; see Needs the owner |
-| S — slice 6 parts B and C | 0 | todo | | First of the chain |
+| S — slice 6 parts B and C | 0 | in progress `wo16/S-0-plan` | | Plan `16-plans/S.md` approved by both reviewers (two rounds). Phased: S-0 plan and staged table patch; S-1 inert code (next); S-2 after S-1 merges and the owner applies `16-staged/S/`. Follow-up: the policy-version invariant does not count `analytics_read_on` (part A's 2026-10-27) |
 | E — slice 7 + the dependency ADR | S, P | todo | | P's `check-licences.sh` entries must be applied before the dependency lands |
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
 | G — lock probe | F | todo | | |
