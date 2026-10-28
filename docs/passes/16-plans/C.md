@@ -134,15 +134,46 @@ shows, to `analysis`, or to the executor, the gate or verification.
 | security-reviewer | plan, first draft | approve with fixes: closed set for `warnings` (M1); source row decides (M2); K's contract that the level is derived and never trusted (M3); two copies can disagree (L1); E's digest covers the field (L2); hostile-text test (L3); restore (L4); `UNKNOWN` (L5); `options` vs `opts` (L6) | All folded in; `warnings` moved off the domain type entirely |
 | spec-guardian | revised plan | **approved**; low: add a `restore --plan` end-to-end case | Added to Tests |
 | security-reviewer | revised plan | **approved**; low: N1 no indexing panic, N2 message wording for `restore` | Folded into Design §1 and §6 |
+| security-reviewer | `59a4824` | **approved**; medium (latent): `migrate` printed the notice after execution; low: hostile-text comment overstated | Notice moved before the execution block; comment and As-built corrected |
+| spec-guardian | `59a4824` | not yet: F1 vacuous dependency check; F2 no restore test, wrong reason; F3 mutants unrecorded; F4 notice under `--json`; F5 field order | All resolved above; a confirming re-review follows |
 
 ## As built (2026-10-28)
 
-- Implemented as designed. `restore --plan` shares `plan_warnings` and
-  `named_entry_notice` with `plan` and `migrate`; its end-to-end case is not
-  added because the only recorded run the restore tests use (`restore_tests.rs`)
-  migrated a top-level package, and a run record for a dependency would have to
-  be invented. Its `DEFAULT_VIEW` document is covered by the existing restore
-  tests, which now see `enteredBy` in the plan.
+- Implemented as designed.
+- `restore --plan`: `invariant_13_a_restore_that_acts_on_a_dependency_warns`
+  (`restore_tests.rs`) makes the current machine hold the restored row as a
+  dependency, the way those tests already build their records in code, and
+  asserts `NAMED`, the `--json` warning and the stderr notice (spec-guardian,
+  code review F2; the first draft of this note wrongly said it could not be
+  reached).
+- The "dependencies are never added" check now plans `tool`, which depends on
+  `dep`, and asserts its steps never name `dep` (spec-guardian F1; the first
+  version checked a reverse dependency and was vacuous).
 - `a_plan_whose_entry_moved_under_the_lock_is_refused` pins `plan_still_holds`.
-- `hostile_text.rs` runs `plan` and `migrate` on a named dependency, so the new
-  stderr notice goes through the escaping check.
+- `hostile_text.rs` runs `plan` and `migrate` on a named dependency, so the
+  notice's template is in the escaping check; its `{package}` parameter is
+  escaped structurally by `render` (no captured name is hostile).
+- `migrate` prints the notice before the execution block, not after it
+  (security-reviewer, code review).
+- Under `--json` the notice is also on stderr, as `--advanced`'s warning
+  already is in every mode; DP-037 says the warning is "printed (and carried in
+  `--json`)" (spec-guardian F4).
+
+### Mutation proof (isolated worktree, at `59a4824`, removed afterwards)
+
+| Mutant | Killed by |
+|---|---|
+| 1 `entered_by` always `DefaultView` | invariant_13, invariant_17, end-to-end |
+| 2 decide from `unit.advanced_only` alone | invariant_17 only |
+| 3 `opts.advanced` for `options.advanced` | invariant_13, invariant_17, end-to-end |
+| 4 swap `Advanced`/`Named` | invariant_13, invariant_17, end-to-end |
+| 5a notice on `DefaultView` | end-to-end only |
+| 5b notice on any advanced entry (repeats under `--advanced`) | end-to-end only |
+| 6 `plan_warnings` always empty | end-to-end only |
+| 6b `migrate`'s document drops `warnings` | end-to-end only |
+
+No survivors. The planner mutant that appends a step for a dependency was not
+in that run: the planner has no single insertion point for it, and its guard is
+the strengthened assertion above, which fails on any step naming `dep`. The
+restore-only mutants (dropping the notice or the warnings in `restore.rs`) are
+guarded by the new restore test, added after the run.

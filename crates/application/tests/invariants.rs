@@ -2017,10 +2017,14 @@ fn invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation() {
             Some(EntryMode::DefaultView)
         );
     }
-    // Only the named package is planned: its own dependencies are not added.
+    // Only the named package is planned. `tool` depends on `dep`, so a plan
+    // for `tool` is the one that could add a dependency: its steps never name
+    // `dep`, in either mode.
     assert_eq!(named.package.name, "dep");
-    let text = serde_json::to_string(&named.steps).unwrap();
-    assert!(!text.contains("\"tool\""), "{text}");
+    for advanced in [false, true] {
+        let text = serde_json::to_string(&plan_with(&snap, "tool", MP, advanced).steps).unwrap();
+        assert!(!text.contains("\"dep\""), "{text}");
+    }
 }
 
 /// The source row decides, not the unit's visibility: a unit top-level under

@@ -487,6 +487,10 @@ fn migrate_with(
         MigrationStart::Run(planned, note) => (planned, note),
     };
     let note_doc = note.as_ref().map(not_recognised);
+    // DP-037: shown before anything runs, never after (security-reviewer,
+    // part C): the notice is what a person reads before the stronger
+    // confirmation part K will ask for.
+    super::named_entry_notice(ctx, planned.plan(), stderr);
     let report = match mode {
         Mode::Render => None,
         Mode::Execute => {
@@ -515,7 +519,6 @@ fn migrate_with(
         }
     };
     let plan = planned.plan();
-    super::named_entry_notice(ctx, plan, stderr);
     if cli.json {
         let doc = Document {
             schema_version: MIGRATE_SCHEMA_VERSION,
