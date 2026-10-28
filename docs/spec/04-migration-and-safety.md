@@ -345,10 +345,12 @@ removal or accepted by the owner beside DP-030.
 before `REMOVE_SOURCE`, what remains is the gap between that read and the
 provider's own uninstall: milliseconds plus the provider's run time. Nothing a
 reader can do closes it, so it is declared here, next to DP-030's, rather than
-claimed closed. It is bounded by making removal opt-in (`--remove-source`, with
-a confirmation stronger than an install's) and by dispatching `REMOVE_SOURCE`
-only when the re-read ran, DP-030's probe answered, and all six destination
-checks were evaluated for that package (work order 16, parts S, G, H and K).
+claimed closed. **Not yet met:** it will be bounded by making removal opt-in
+(`--remove-source`, with a confirmation stronger than an install's) and by
+dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
+answered, and all six destination checks were evaluated for that package. None
+of those four exists yet; work order 16 parts S, G, H and K build them, and the
+switch stays off until they do.
 
 ## Privilege
 

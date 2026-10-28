@@ -537,7 +537,6 @@ fn an_input_that_cannot_say_is_a_warning_that_it_is_unknown() {
 
 // --- A provider installed in more than one place (pass 12, item B) ----------
 
-/// The snapshot, saying where `id` was found.
 // --- DP-028: what the charter's non-goals promise is disclosed ---------------
 
 #[test]
@@ -636,6 +635,45 @@ fn whether_a_read_may_reach_the_network_is_said_and_unknown_is_never_offline() {
     }
 }
 
+#[test]
+fn invariant_17_the_analytics_disclosure_follows_the_data_not_the_provider_id() {
+    // The finding is driven by what the file record carries, which the
+    // provider-configuration data decides; the same record under either
+    // provider gives the same finding.
+    for provider_id in ["homebrew", "macports", "some-third-provider"] {
+        let mut analytics = file("~/.config-file", true, &["A_KEY"]);
+        analytics.analytics_keys = ["A_KEY".to_string()].into_iter().collect();
+        let mut p = configured(
+            provider_id,
+            macportsbrew_domain::ProviderConfiguration::Read {
+                files: vec![analytics],
+            },
+        );
+        p.detection.provider = ProviderId::new(provider_id);
+        let snap = snapshot(
+            Architecture::Arm64,
+            installed(),
+            &["/usr/bin"],
+            vec![(provider_id, p)],
+        );
+        let report = doctor(
+            &snap,
+            &PolicyData::load_embedded().expect("the embedded policy data loads"),
+            TODAY,
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.id == "provider_configuration_analytics"
+                    && f.provider == Some(ProviderId::new(provider_id))),
+            "{provider_id}: {:?}",
+            report.findings
+        );
+    }
+}
+
+/// The snapshot, saying where `id` was found.
 fn found_at(mut snap: Snapshot, id: &str, installations: Installations) -> Snapshot {
     snap.environment
         .installations

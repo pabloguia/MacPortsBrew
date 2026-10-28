@@ -1311,6 +1311,14 @@ impl Snapshot {
                             return refuse(&format!("a configuration key of {id}"), key);
                         }
                     }
+                    // DP-028: `doctor` says "`<file>` sets <key>" from this list, so
+                    // a key must pass the same rule and be one the file set -
+                    // capture only ever produces a subset of `keys`.
+                    for key in &file.analytics_keys {
+                        if !is_safe_configuration_key(key) || !file.keys.contains(key) {
+                            return refuse(&format!("a configuration analytics key of {id}"), key);
+                        }
+                    }
                 }
             }
         }
@@ -1656,6 +1664,41 @@ mod tests {
             },
         );
         assert!(with_provider(snapshot_with(fine)).check_names().is_ok());
+    }
+
+    #[test]
+    fn invariant_15_a_forged_configuration_key_is_refused_on_load() {
+        // DP-027/DP-028: `doctor` prints a key back and says "<file> sets
+        // <key>", so a document - which states whatever it likes - must carry
+        // only names capture could have produced.
+        let with_file = |keys: &[&str], analytics: &[&str]| {
+            let mut snapshot = with_provider(snapshot_with(EnvironmentSnapshot::default()));
+            let provider = snapshot.providers.values_mut().next().expect("one");
+            provider.configuration = crate::ProviderConfiguration::Read {
+                files: vec![ConfigurationFile {
+                    path: "~/.config-file".into(),
+                    scope: ConfigurationScope::User,
+                    readable: true,
+                    keys: keys.iter().map(|k| (*k).to_string()).collect(),
+                    analytics_keys: analytics.iter().map(|k| (*k).to_string()).collect(),
+                }],
+            };
+            snapshot.check_names()
+        };
+        assert!(with_file(&["A_KEY", "AN_ANALYTICS_KEY"], &["AN_ANALYTICS_KEY"]).is_ok());
+        for (keys, analytics) in [
+            (&["bad/key"][..], &[][..]),
+            (&["A_KEY"][..], &["/Users/someone/.ssh/id"][..]),
+            (&["A_KEY\u{1b}[2J"][..], &[][..]),
+            (&["A_KEY"][..], &["A\u{1b}]52;x"][..]),
+            // Capture only ever produces a subset of `keys`.
+            (&["A_KEY"][..], &["NOT_SET_BY_THE_FILE"][..]),
+        ] {
+            assert!(
+                with_file(keys, analytics).is_err(),
+                "accepted keys {keys:?}, analytics {analytics:?}"
+            );
+        }
     }
 
     /// The snapshot with one absent provider, `any-provider`, so an

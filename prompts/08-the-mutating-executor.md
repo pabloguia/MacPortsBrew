@@ -74,7 +74,9 @@ writes first and run the hook tests last when the owner arms the escape
    never invented).
 6. **The elevation consent path** (INV-06): per operation, enumerated, shown.
 7. **A written proposal** for flipping `THIS_BUILD_DISPATCHES_MUTATIONS`, with
-   `--retain-source` as the default for the first release, into
+   `--retain-source` as the default for the first release (superseded: DP-048
+   (c), ruled 2026-10-27 — the source is retained by default and removal is
+   opt-in with `--remove-source`; work order 16 part L writes the proposal), into
    `docs/decisions-pending.md` for the owner.
 
 ## 6. Definition of done

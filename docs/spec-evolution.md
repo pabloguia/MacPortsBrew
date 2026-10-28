@@ -8379,3 +8379,16 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     cost, DP-050) and the matching bullet of its declared deviation, and gains the residual removal window next to
     DP-030's (DP-048); DP-036's hedges are gone; the superseded slice work orders carry a banner; the roadmap is
     rewritten for the symmetric v0.2.0.
+  - **Reviews of part A** (`security-reviewer`, `spec-guardian`, `docs-auditor`, 2026-10-27, at `c3967e6`).
+    Resolved: `analyticsKeys` is now validated on load like `keys` and must be a subset of them
+    (`invariant_15_a_forged_configuration_key_is_refused_on_load`; the subset clause's mutant is killed); the data
+    carries `analytics_source`/`analytics_read_on`; every data-named analytics key is tested as one its provider's
+    reader accepts; 04's removal bound is stated as not yet met; `invariant_17_the_analytics_disclosure_follows_the_data_not_the_provider_id`
+    added; the messages no longer say "index is present" or rely on finding order. **Accepted, with reasons:**
+    (1) MacPorts' offline-metadata capability is a cited claim about the reads this tool runs (R-3: they answer
+    from the local ports index and no fetching verb is ever invoked), not a probe of the machine, so it holds under
+    replay too; the message says what holds for both providers ("answered from data already on this machine"), and
+    the README says which basis applies to which. (2) A `brew.env` that sets `HOMEBREW_NO_ANALYTICS=1` to opt out
+    also draws the analytics warning, because values are never kept; the message says it cannot tell which way.
+    (3) An unreadable file draws `provider_configuration_unreadable`, not the analytics disclosure; the docs say
+    "when the file can be read".

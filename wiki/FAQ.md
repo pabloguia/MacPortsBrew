@@ -68,8 +68,9 @@ registry and ports from; a migration step against a provider configured that
 way is refused (this build refuses every step regardless; this is the refusal
 that remains once migration lands). Observed on Homebrew 7.0.4, 2026-10-02,
 and MacPorts 2.12.6, 2026-10-03. `doctor` also says, per provider, whether
-its reads may reach the network, and names a setting that decides whether the
-provider sends its own analytics. That is what the no-network and
+its reads are answered from data already on the machine or may reach the
+network, and, when the file can be read, names a setting that decides whether
+the provider sends its own analytics. That is what the no-network and
 no-telemetry promises cover: MacPortsBrew sends nothing and calls the network
 for nothing, and says when a provider might (DP-028, ruled 2026-10-27).
 

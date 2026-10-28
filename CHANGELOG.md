@@ -33,7 +33,8 @@ describes the ones a user sees. (DP-045, ruled
   reach the network on the provider's own account (its local metadata index is
   missing), are answered offline, or cannot be told from this input; and names
   a configuration setting that decides whether the provider sends its own
-  analytics (`brew.env`'s `HOMEBREW_NO_ANALYTICS`; MacPorts has none). The
+  analytics (`brew.env`'s `HOMEBREW_NO_ANALYTICS`; MacPorts 2.12.6 has none,
+  observed 2026-10-27, R-16 addendum). The
   charter's no-network and no-telemetry non-goals now say exactly this
   (DP-028).
 - `plan`, `migrate` and `restore --plan`: a destination that records the

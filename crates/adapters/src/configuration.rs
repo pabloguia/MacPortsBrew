@@ -66,6 +66,11 @@ struct Entry {
     /// (DP-028): a file that sets one is disclosed as such by `doctor`.
     #[serde(default)]
     analytics_keys: BTreeSet<String>,
+    /// Where `analytics_keys` was established, and when (INV-20).
+    #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
+    analytics_source: String,
+    #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
+    analytics_read_on: String,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
     source: String,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
@@ -440,6 +445,27 @@ mod tests {
             ["HOMEBREW_NO_ANALYTICS"],
             "exactly the keys the data names as governing analytics (DP-028)"
         );
+    }
+
+    #[test]
+    fn every_analytics_key_in_the_data_is_one_its_providers_reader_accepts() {
+        // A typo, or a key outside what the reader takes, would make the
+        // intersection always empty and the DP-028 disclosure never fire.
+        for entry in &document().entry {
+            for key in &entry.analytics_keys {
+                assert!(is_safe_configuration_key(key), "{}: {key}", entry.provider);
+                let line = match entry.syntax {
+                    Syntax::EnvAssignment => format!("{key}=1"),
+                    Syntax::WordValue => format!("{key} yes"),
+                };
+                assert_eq!(
+                    entry.syntax.key(&line),
+                    Some(key.as_str()),
+                    "{}: the reader would not record {key}",
+                    entry.provider
+                );
+            }
+        }
     }
 
     #[test]
