@@ -372,8 +372,14 @@ that way is refused — this build refuses every step regardless, and this is th
 refusal that remains once migration lands (observed on Homebrew 7.0.4,
 2026-10-02, [R-15](docs/research/R-15-homebrew-brew-env.md), and MacPorts
 2.12.6, 2026-10-03, [R-16](docs/research/R-16-macports-user-configuration.md)).
-Whether that is enough to meet the no-network and no-telemetry promises is
-still an open question for the project. `doctor --report` writes a diagnostic
+`doctor` also says, per provider, whether the reads it asks for are answered
+from data already on the machine or may reach the network (for Homebrew,
+whether its local catalogue is there; MacPorts' reads answer from its local
+ports index, R-3), and, when the file can be read, names a configuration
+setting that decides whether the provider sends its own analytics. That is what the
+no-network and no-telemetry promises cover: MacPortsBrew sends nothing and
+calls the network for nothing, and says when a provider might
+([DP-028](docs/decisions-pending.md), ruled 2026-10-27). `doctor --report` writes a diagnostic
 file locally, without your user name or home folder path. `PATH` entries a
 finding mentions appear with your home folder shown as `~`; other environment
 variables are named but their values are left out. It also lists every

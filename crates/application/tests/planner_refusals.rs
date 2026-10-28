@@ -898,6 +898,7 @@ fn with_configuration(mut snap: Snapshot, provider: &str, keys: &[&str]) -> Snap
             scope: macportsbrew_domain::ConfigurationScope::User,
             readable: true,
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
+            analytics_keys: std::collections::BTreeSet::new(),
         }],
     };
     snap

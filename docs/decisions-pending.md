@@ -25,8 +25,9 @@ provider's own configuration. (b) would refuse users for a configuration they se
 on purpose and adds no safety to a read; (a) leaves the promise to be inferred
 from silence. The INV-10 paragraph was applied **by the owner**, in
 commit `cc844d1` on 2026-10-27 (the invariants file is guarded, and says so); the charter wording is
-applied by work order 16 part A once the owner has confirmed it, and only after
-part A has checked that both behaviours it promises exist:
+applied by work order 16 part A on 2026-10-27, after part A checked both
+behaviours it promises and built the two `doctor` disclosures that were missing
+(SE-109, "Propagation, work order 16 part A"):
 
 - **INV-10, a second paragraph:** "This covers the environment MacPortsBrew
   passes. Configuration a provider reads on its own (`brew.env`, a user
@@ -1260,8 +1261,8 @@ what this build does.
   certificate (Developer ID Installer) is still a real requirement. The pass-09
   release workflow builds and signs on `macos-26-intel` and `macos-26`, so the
   per-commit / per-release question no longer has a cost attached. Separately,
-  the ruling's ".app" is read as the `.dmg` (no `.app` exists in any design);
-  that reading is the owner's to confirm in DP-036.
+  the ruling's ".app" is the `.dmg` (no `.app` exists in any design; DP-036
+  ruled (a) on 2026-10-27, and no application bundle is planned).
 - **Reopened 2026-09-16 on the owner's ruling**, after R-11 established two
   numbers DP-008 did not have when it chose to publish all three artifacts —
   bare binary, `.pkg` and `.dmg` — unconditionally.

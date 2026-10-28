@@ -849,6 +849,7 @@ fn a_configuration_that_drifted_or_could_not_be_read_stops_the_step_before_its_c
                         keys: ["HOMEBREW_NO_AUTO_UPDATE".to_string()]
                             .into_iter()
                             .collect(),
+                        analytics_keys: std::collections::BTreeSet::new(),
                     }],
                 })
             }),

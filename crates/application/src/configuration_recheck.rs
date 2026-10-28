@@ -122,6 +122,7 @@ mod tests {
                 .iter()
                 .map(|k| (*k).to_string())
                 .collect::<BTreeSet<_>>(),
+            analytics_keys: BTreeSet::new(),
         }
     }
 

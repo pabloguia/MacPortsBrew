@@ -2,6 +2,10 @@
 
 # MacPortsBrew — The mutating executor (08-THE-MUTATING-EXECUTOR)
 
+> **Run through work order 16 (SE-109); its §1 item 8 overrides this file's
+> plan-mode, merge, push, dependency and stop instructions.**
+> (`prompts/16-complete-mutating-product.md`)
+
 The dry-run half of the executor shipped in pass 05, was hardened in pass 06,
 and pass 07 settled the owner's decisions that blocked the rest (DP-026, DP-027;
 report `../docs/passes/07-owner-rulings-and-housekeeping-report.md`). This pass
@@ -70,7 +74,9 @@ writes first and run the hook tests last when the owner arms the escape
    never invented).
 6. **The elevation consent path** (INV-06): per operation, enumerated, shown.
 7. **A written proposal** for flipping `THIS_BUILD_DISPATCHES_MUTATIONS`, with
-   `--retain-source` as the default for the first release, into
+   `--retain-source` as the default for the first release (superseded: DP-048
+   (c), ruled 2026-10-27 — the source is retained by default and removal is
+   opt-in with `--remove-source`; work order 16 part L writes the proposal), into
    `docs/decisions-pending.md` for the owner.
 
 ## 6. Definition of done

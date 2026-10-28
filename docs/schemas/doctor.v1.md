@@ -68,6 +68,10 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `policy_stale` | `WARNING` | (policy staleness) | the read date and the threshold |
 | `provider_configuration_none` | `OK` | `doctor.provider_configuration_none` | `provider` |
 | `provider_configuration_outranks` | `WARNING` | `doctor.provider_configuration_outranks` | `provider`, `file`, `keys` |
+| `provider_configuration_analytics` | `WARNING` | `doctor.provider_configuration_analytics` | `provider`, `file`, `keys` (only the keys that govern the provider's analytics; DP-028) |
+| `provider_reads_offline` | `OK` | `doctor.provider_reads_offline` | `provider` |
+| `provider_read_may_reach_network` | `WARNING` | `doctor.provider_read_may_reach_network` | `provider` |
+| `provider_network_use_unknown` | `WARNING` | `doctor.provider_network_use_unknown` | `provider` |
 | `provider_configuration_unreadable` | `WARNING` | `doctor.provider_configuration_unreadable` | `provider`, `file` |
 | `provider_configuration_unknown` | `WARNING` | `doctor.provider_configuration_unknown` | `provider` |
 
@@ -168,7 +172,7 @@ nothing is changed.
 
 A recording carries no `PATH`, so both findings below are `OK`:
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/4 -->
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/5 -->
 ```json
 {
   "id": "cross_provider_exposure",
@@ -186,7 +190,7 @@ A recording carries no `PATH`, so both findings below are `OK`:
 }
 ```
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/5 -->
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json doctor at=/findings/6 -->
 ```json
 {
   "id": "cross_provider_exposure",
@@ -252,6 +256,17 @@ deliberate way to deal with a marker.
       "severity": "WARNING",
       "reason": {
         "id": "doctor.provider_configuration_unknown",
+        "params": {
+          "provider": "homebrew"
+        }
+      },
+      "provider": "homebrew"
+    },
+    {
+      "id": "provider_network_use_unknown",
+      "severity": "WARNING",
+      "reason": {
+        "id": "doctor.provider_network_use_unknown",
         "params": {
           "provider": "homebrew"
         }

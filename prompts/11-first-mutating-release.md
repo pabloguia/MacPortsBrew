@@ -54,8 +54,10 @@ As `TEMPLATE-PASS.md` §4.
    captured from the VM (`scripts/capture-fixture.sh`) and a failing test before
    any fix.
 3. **User surfaces**: README, wiki, `--help`, release notes, CHANGELOG `[0.2.0]`
-   say what is changed, what is never changed, how to undo, and that
-   `--retain-source` is the default.
+   say what is changed, what is never changed, how to undo, and that the
+   source is retained by default: removal is opt-in, `--remove-source` chosen
+   per run with a confirmation stronger than an install's (DP-048 (c), ruled
+   2026-10-27).
 4. **Go/no-go memo** for the owner in the report: what passed, what failed, what
    is accepted, the recall plan.
 

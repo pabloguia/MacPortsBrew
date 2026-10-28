@@ -204,6 +204,8 @@ pub fn doctor(snapshot: &Snapshot, policy: &PolicyData, today: &str) -> DoctorRe
                 for (finding, severity, reason) in configuration_findings(id, &p.configuration) {
                     add(finding, severity, reason, Some(id.clone()));
                 }
+                let (finding, severity, reason) = network_finding(id, &p.capabilities);
+                add(finding, severity, reason, Some(id.clone()));
                 let running = p.detection.prefix.as_ref().map_or_else(
                     || "?".to_string(),
                     |prefix| prefix.to_string_lossy().into_owned(),
@@ -756,6 +758,20 @@ fn configuration_findings(
                     .with("file", &file.path)
                     .with("keys", &keys.join(", ")),
             ));
+            // DP-028: the charter promises that a provider configuration that
+            // may enable the provider's own analytics is disclosed. The value
+            // is never kept, so this says the key is set, not which way.
+            if !file.analytics_keys.is_empty() {
+                let analytics: Vec<&str> = file.analytics_keys.iter().map(String::as_str).collect();
+                out.push((
+                    "provider_configuration_analytics",
+                    Severity::Warning,
+                    Reason::new("doctor.provider_configuration_analytics")
+                        .with("provider", id)
+                        .with("file", &file.path)
+                        .with("keys", &analytics.join(", ")),
+                ));
+            }
         }
     }
     if out.is_empty() {
@@ -766,4 +782,37 @@ fn configuration_findings(
         ));
     }
     out
+}
+
+/// Whether a read this tool asks `id` for may reach the network on the
+/// provider's own account (DP-028: "MacPortsBrew says when it can").
+///
+/// MacPortsBrew makes no network call of its own; the question is the
+/// provider's. Its local metadata index answers it: present, a read is served
+/// from it; absent, the provider may download it first; not known from this
+/// input - a recording, a snapshot without it - is said as unknown, never as
+/// "offline". A configuration that turns fetching back on is the separate
+/// `provider_configuration_outranks` finding.
+fn network_finding(
+    id: &ProviderId,
+    capabilities: &macportsbrew_domain::ProviderCapabilities,
+) -> (&'static str, Severity, Reason) {
+    use macportsbrew_domain::{Capability, CapabilityState};
+    match capabilities.capabilities.get(&Capability::OfflineMetadata) {
+        Some(CapabilityState::Available) => (
+            "provider_reads_offline",
+            Severity::Ok,
+            Reason::new("doctor.provider_reads_offline").with("provider", id),
+        ),
+        Some(CapabilityState::Unavailable { .. }) => (
+            "provider_read_may_reach_network",
+            Severity::Warning,
+            Reason::new("doctor.provider_read_may_reach_network").with("provider", id),
+        ),
+        Some(CapabilityState::Unknown) | None => (
+            "provider_network_use_unknown",
+            Severity::Warning,
+            Reason::new("doctor.provider_network_use_unknown").with("provider", id),
+        ),
+    }
 }

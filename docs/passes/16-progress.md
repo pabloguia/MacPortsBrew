@@ -18,7 +18,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | Part | Depends on | Status | Branch / PR / commit | Notes |
 |---|---|---|---|---|
 | 0 — owner confirms the rulings | — | merged `fd443ef` | PR #24 | Confirmed in chat 2026-10-27 |
-| A — documentation rulings | 0 | todo | | |
+| A — documentation rulings | 0 | in progress `wo16/A-doc-rulings` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | todo | | |
 | C — advanced-mode entry (warning, JSON) | 0 | todo | | Its confirmation half lands in K |
 | D — what defines a service | 0 | todo | | May merge with the capture owed |
@@ -48,7 +48,12 @@ Append items here as they appear. Each line gives:
 
 Remove a line when the owner has done it, citing the commit.
 
-- (none yet)
+- **The hooks/permissions/CI group of `/tooling-recheck`** (blocks nothing in
+  the chain; leaves `.claude/hooks/` contracts un-re-read since 2026-10-26).
+  The auto-mode classifier refused the session's subagent launch for it on
+  2026-10-27 ("Auto-Mode Bypass"). Action: run `/tooling-recheck` with scope
+  "Hooks, permissions, CI" yourself, or allow that subagent launch, and save the
+  note as `docs/research/tooling/2026-10-27-hooks-permissions-ci.md`.
 
 ## Decisions raised during the pass
 

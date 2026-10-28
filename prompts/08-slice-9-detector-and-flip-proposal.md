@@ -2,6 +2,10 @@
 
 # Pass 08, slice 9 — the owner's detector ruling, and the proposal to turn mutations on
 
+> **Run through work order 16 (SE-109); its §1 item 8 overrides this file's
+> plan-mode, merge, push, dependency and stop instructions.**
+> (`prompts/16-complete-mutating-product.md`)
+
 Work order for one session. Parent: [`08-the-mutating-executor.md`](08-the-mutating-executor.md),
 item 2's unbuilt half and item 7. Its §3 binds unchanged. Written as "slice 6"
 and renumbered on 2026-10-18, when slices 6–8 (the checks before removal, the

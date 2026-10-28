@@ -4718,8 +4718,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   Not decided here, and held for the owner: whether `mpb` is installed by a
   release (DP-033, a charter question), the temporary keychain password in
   `security`'s argv against ADR-0005's text (DP-034), the repository's
-  account (DP-031), the identifier and install directory (DP-035), and the
-  reading of DP-019's ".app" (DP-036).
+  account (DP-031), and the identifier and install directory (DP-035). DP-019's
+  ".app" is the `.dmg`, and no application bundle is planned (DP-036, ruled
+  (a) on 2026-10-27).
 
 ## SE-068 — The release design had an inbound security channel and no outbound one
 - Status: accepted (the project owner asked for the plan, 2026-09-04, DP-009)
@@ -8361,3 +8362,33 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - `docs/spec/01-invariants.md` is edited only by the owner: DP-028's INV-10 paragraph landed in the owner's own
     commit `cc844d1` (2026-10-27), after the permission rule and the auto-mode classifier refused the session's edit.
   - Guarded files, and the process allowlist frozen by work order 16, change only with the owner's message.
+- **Propagation, work order 16 part A (2026-10-27).** The documentation rulings are applied, and the two
+  behaviours DP-028's charter wording promises were checked first, as the ruling required:
+  - **Analytics.** `doctor` already named every `brew.env` key, `HOMEBREW_NO_ANALYTICS` among them, but never said
+    that a key governs analytics. `data/policy/provider-configuration.toml` now names the analytics keys per
+    provider (Homebrew: `HOMEBREW_NO_ANALYTICS`, R-15 run d; MacPorts: none, observed 2026-10-27, R-16 addendum);
+    the adapter carries the ones a file sets into the snapshot (`analyticsKeys`, additive); and `doctor` reports
+    `provider_configuration_analytics`. The value is never kept, so the finding says the key is set, not which way.
+  - **Network.** Nothing said, per machine, when a provider read may reach the network: the offline-metadata
+    capability was captured and never shown. `doctor` now reports `provider_reads_offline`,
+    `provider_read_may_reach_network` or `provider_network_use_unknown` from it, reading only the snapshot, so
+    `--replay` and `--from-snapshot` give the same answer as a live run (INV-15). An unknown is a warning, never
+    "offline".
+  - Then: the charter's two non-goals carry DP-028's wording; 06's privacy MUST, README, the FAQ and the CHANGELOG
+    no longer call DP-028 open; 04's restore MUST loses the "can no longer bottle" example (a source build is a named
+    cost, DP-050) and the matching bullet of its declared deviation, and gains the residual removal window next to
+    DP-030's (DP-048); DP-036's hedges are gone; the superseded slice work orders carry a banner; the roadmap is
+    rewritten for the symmetric v0.2.0.
+  - **Reviews of part A** (`security-reviewer`, `spec-guardian`, `docs-auditor`, 2026-10-27, at `c3967e6`).
+    Resolved: `analyticsKeys` is now validated on load like `keys` and must be a subset of them
+    (`invariant_15_a_forged_configuration_key_is_refused_on_load`; the subset clause's mutant is killed); the data
+    carries `analytics_source`/`analytics_read_on`; every data-named analytics key is tested as one its provider's
+    reader accepts; 04's removal bound is stated as not yet met; `invariant_17_the_analytics_disclosure_follows_the_data_not_the_provider_id`
+    added; the messages no longer say "index is present" or rely on finding order. **Accepted, with reasons:**
+    (1) MacPorts' offline-metadata capability is a cited claim about the reads this tool runs (R-3: they answer
+    from the local ports index and no fetching verb is ever invoked), not a probe of the machine, so it holds under
+    replay too; the message says what holds for both providers ("answered from data already on this machine"), and
+    the README says which basis applies to which. (2) A `brew.env` that sets `HOMEBREW_NO_ANALYTICS=1` to opt out
+    also draws the analytics warning, because values are never kept; the message says it cannot tell which way.
+    (3) An unreadable file draws `provider_configuration_unreadable`, not the analytics disclosure; the docs say
+    "when the file can be read".

@@ -41,7 +41,10 @@ guarded paths wait for the owner again), and **2026-10-26** at the start of pass
 08 slice 6 (`docs/research/tooling/2026-10-26-*.md`; no contract break; new
 findings, all in guarded paths: pasted text can arm the guard-edit escape, the
 guards fail open on exit 1 without `onFailure: "block"`, and hooks read the main
-checkout in a worktree). The
+checkout in a worktree), and **2026-10-27** at the start of work order 16
+(`docs/research/tooling/2026-10-27-*.md`; memory/settings and subagents/skills
+re-read, no contract break; the hooks/permissions/CI group was refused by the
+auto-mode classifier and is an owner item in `docs/passes/16-progress.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

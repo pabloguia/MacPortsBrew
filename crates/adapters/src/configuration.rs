@@ -62,6 +62,15 @@ struct Entry {
     provider: String,
     syntax: Syntax,
     files: Vec<FileSpec>,
+    /// The keys that decide whether the provider sends its own analytics
+    /// (DP-028): a file that sets one is disclosed as such by `doctor`.
+    #[serde(default)]
+    analytics_keys: BTreeSet<String>,
+    /// Where `analytics_keys` was established, and when (INV-20).
+    #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
+    analytics_source: String,
+    #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
+    analytics_read_on: String,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
     source: String,
     #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
@@ -177,10 +186,16 @@ fn read_under(
                 scope: spec.scope,
                 readable: false,
                 keys: BTreeSet::new(),
+                analytics_keys: BTreeSet::new(),
             });
             continue;
         };
-        if let Some(file) = read_one(&path, label, spec.scope, entry.syntax) {
+        if let Some(mut file) = read_one(&path, label, spec.scope, entry.syntax) {
+            file.analytics_keys = file
+                .keys
+                .intersection(&entry.analytics_keys)
+                .cloned()
+                .collect();
             files.push(file);
         }
     }
@@ -218,6 +233,7 @@ fn read_one(
         scope,
         readable: false,
         keys: BTreeSet::new(),
+        analytics_keys: BTreeSet::new(),
     };
     match std::fs::metadata(path) {
         // Not a regular file - a directory, a device a link points at - is
@@ -254,6 +270,7 @@ fn read_one(
         scope,
         readable: true,
         keys,
+        analytics_keys: BTreeSet::new(),
     })
 }
 
@@ -423,6 +440,40 @@ mod tests {
             "a value was kept: {shown}"
         );
         assert_eq!(found.outranks(), Some(true));
+        assert_eq!(
+            files[0].analytics_keys.iter().collect::<Vec<_>>(),
+            ["HOMEBREW_NO_ANALYTICS"],
+            "exactly the keys the data names as governing analytics (DP-028)"
+        );
+    }
+
+    #[test]
+    fn every_analytics_key_in_the_data_is_one_its_providers_reader_accepts() {
+        // A typo, or a key outside what the reader takes, would make the
+        // intersection always empty and the DP-028 disclosure never fire.
+        for entry in &document().entry {
+            for key in &entry.analytics_keys {
+                assert!(is_safe_configuration_key(key), "{}: {key}", entry.provider);
+                let line = match entry.syntax {
+                    Syntax::EnvAssignment => format!("{key}=1"),
+                    Syntax::WordValue => format!("{key} yes"),
+                };
+                assert_eq!(
+                    entry.syntax.key(&line),
+                    Some(key.as_str()),
+                    "{}: the reader would not record {key}",
+                    entry.provider
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_with_no_analytics_key_marks_none() {
+        let tree = Tree::new("brew-no-analytics");
+        tree.write("home/.homebrew/brew.env", "HOMEBREW_CACHE=/x\n");
+        let found = tree.read("homebrew");
+        assert!(files(&found)[0].analytics_keys.is_empty());
     }
 
     #[test]
