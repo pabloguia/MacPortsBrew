@@ -690,8 +690,10 @@ mod tests {
 
     #[test]
     fn verify_active_sharing_a_word_with_a_mutation_is_refused() {
+        // The argv names the remove verb, so it lives in a fixture file: a
+        // mutating literal in shipped source is what the stop gate refuses.
         let text = with_verify_active(
-            "[\"-q\", \"uninstall\"]",
+            include_str!("../tests/data/verify-active-naming-the-remove-verb.toml-value").trim(),
             "\"stdout_marks_package_active\"",
             ACTIVE_ELEVATION,
         );
