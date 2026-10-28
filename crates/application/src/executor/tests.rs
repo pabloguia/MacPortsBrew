@@ -222,7 +222,7 @@ fn a_verification_failure_halts_and_names_the_check() {
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let absent = finished("  unrelated 1.0\n");
     assert_eq!(
-        judge_step(&run, verify, &[StepRead::Output(absent)]),
+        judge(&run, verify, &[StepRead::Output(absent)]),
         Disposition::Halted {
             ends: Vec::new(),
             reason: HaltReason::VerificationFailed {
@@ -238,7 +238,7 @@ fn a_verification_failure_halts_and_names_the_check() {
     let removal = position(run.plan(), StepKind::VerifyRemoval);
     let still_there = finished("gnu-sed 4.9\nother 1.0\n");
     assert!(matches!(
-        judge_step(&run, removal, &[StepRead::Output(still_there)]),
+        judge(&run, removal, &[StepRead::Output(still_there)]),
         Disposition::Halted {
             reason: HaltReason::VerificationFailed {
                 command: 0,
@@ -269,7 +269,7 @@ fn a_truncated_or_killed_read_halts() {
         (killed, FailureCause::DidNotFinish),
     ] {
         assert!(matches!(
-            judge_step(&run, verify, &[StepRead::Output(output)]),
+            judge(&run, verify, &[StepRead::Output(output)]),
             Disposition::Halted { reason: HaltReason::VerificationFailed { cause: c, .. }, .. } if c == cause
         ));
     }
@@ -292,7 +292,7 @@ fn a_truncated_or_killed_read_halts() {
         ),
     ] {
         assert_eq!(
-            judge_step(&run, verify, &[read]),
+            judge(&run, verify, &[read]),
             Disposition::Halted {
                 ends: Vec::new(),
                 reason,
@@ -307,14 +307,14 @@ fn every_check_must_be_backed_by_a_passing_read() {
     let run = full_run();
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let named = naming_destination(run.plan());
-    let passed = judge_step(&run, verify, &[StepRead::Output(finished(&named))]);
+    let passed = judge(&run, verify, &[StepRead::Output(finished(&named))]);
     assert!(
         matches!(passed, Disposition::Verified { ref evidence } if evidence.len() == 1),
         "{passed:?}"
     );
     // Fewer reads than commands: never a pass.
     assert_eq!(
-        judge_step(&run, verify, &[]),
+        judge(&run, verify, &[]),
         Disposition::Halted {
             ends: Vec::new(),
             reason: HaltReason::Unevaluable {
@@ -327,7 +327,7 @@ fn every_check_must_be_backed_by_a_passing_read() {
     // A step whose checks no command answers: no command, nothing passed.
     let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
     assert!(matches!(
-        judge_step(&bare, verify, &[]),
+        judge(&bare, verify, &[]),
         Disposition::Halted {
             reason: HaltReason::Unevaluable {
                 why: Unevaluable::NoPassingRead,
@@ -343,7 +343,7 @@ fn every_check_must_be_backed_by_a_passing_read() {
             .push(VerificationCheck::ProviderIntegrityCheck);
     });
     assert!(matches!(
-        judge_step(&extra, verify, &[StepRead::Output(finished(&named))]),
+        judge(&extra, verify, &[StepRead::Output(finished(&named))]),
         Disposition::Halted {
             reason: HaltReason::Unevaluable {
                 why: Unevaluable::CheckHasNoEvaluation,
@@ -357,7 +357,7 @@ fn every_check_must_be_backed_by_a_passing_read() {
         p.steps[verify].verification = vec![VerificationCheck::PackageAbsent];
     });
     assert!(matches!(
-        judge_step(&misplaced, verify, &[StepRead::Output(finished(&named))]),
+        judge(&misplaced, verify, &[StepRead::Output(finished(&named))]),
         Disposition::Halted {
             reason: HaltReason::Unevaluable { .. },
             ..
@@ -385,7 +385,7 @@ fn newly_present_from(edit: impl FnOnce(&mut Snapshot)) -> Option<Unevaluable> {
     });
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let named = naming_destination(run.plan());
-    match judge_step(&run, verify, &[StepRead::Output(finished(&named))]) {
+    match judge(&run, verify, &[StepRead::Output(finished(&named))]) {
         Disposition::Halted {
             reason:
                 HaltReason::Unevaluable {
@@ -492,6 +492,29 @@ use macportsbrew_domain::{RunStart, RunStatus};
 /// A snapshot whose providers' configuration was read and found empty, so the
 /// planner raises no configuration risk (DP-027 (b)) and the gate's
 /// configuration refusal does not stand between a test and the mutating path.
+/// A configuration re-check's token for `run`'s destination, as the shell
+/// obtains one before certifying (SE-107 C1). Taken against a configured copy
+/// of the snapshot, so a test about the reads is not a test about the
+/// configuration.
+fn token(run: &PlannedRun) -> ConfigurationRechecked {
+    crate::configuration_recheck::recheck_provider_configuration(
+        &run.plan().destination,
+        &configured(run.before().clone()),
+        &macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
+    )
+    .expect("an empty configuration outranks nothing")
+}
+
+/// How the shells judge the step at `position`: a `VERIFY_DESTINATION` by
+/// `certify_destination` with a fresh token, every other step by `judge_step`.
+fn judge(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
+    if run.plan().steps[position].kind == StepKind::VerifyDestination {
+        certify_destination(run, position, token(run), reads)
+    } else {
+        judge_step(run, position, reads)
+    }
+}
+
 fn configured(mut snap: Snapshot) -> Snapshot {
     for provider in snap.providers.values_mut() {
         provider.configuration =
@@ -563,8 +586,8 @@ fn records_until(run: &PlannedRun, position: usize) -> Vec<StepRecord> {
     let mut records = Vec::new();
     for at in 0..position {
         let disposition = match next_action_with(run, at, &records, Some(&allowance)) {
-            Action::Dispatch => verified(),
-            Action::DispatchMutating => Disposition::Performed {
+            Action::Dispatch | Action::Certify => verified(),
+            Action::DispatchMutating { .. } => Disposition::Performed {
                 ends: vec![CommandEnd::Exited { code: 0 }],
             },
             Action::TakeSnapshot => Disposition::SnapshotTaken,
@@ -605,7 +628,7 @@ fn an_allowance_dispatches_an_unelevated_add_and_halts_an_elevated_one() {
     let add = position(plan, StepKind::AddDestination);
     assert_eq!(
         next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
-        Action::DispatchMutating
+        Action::DispatchMutating { reverify: None }
     );
     // From Homebrew toward MacPorts: MacPorts' add elevates (data, not code).
     let run = forced_run(HB);
@@ -698,7 +721,9 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     let good = records_until(&run, remove);
     assert_eq!(
         next_action_with(&run, remove, &good, Some(&allowance)),
-        Action::DispatchMutating
+        Action::DispatchMutating {
+            reverify: reverify_for(plan, remove)
+        }
     );
     // Any other ending of the guarding verification: never a dispatch.
     for other in [
@@ -708,9 +733,11 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     ] {
         let mut records = good.clone();
         records[verify].disposition = other.clone();
-        assert_ne!(
-            next_action_with(&run, remove, &records, Some(&allowance)),
-            Action::DispatchMutating,
+        assert!(
+            !matches!(
+                next_action_with(&run, remove, &records, Some(&allowance)),
+                Action::DispatchMutating { .. }
+            ),
             "{other:?}"
         );
     }
@@ -725,10 +752,10 @@ fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {
     let plan = run.plan();
     let remove = position(plan, StepKind::RemoveSource);
     let records = records_until(&run, remove);
-    assert_ne!(
+    assert!(!matches!(
         next_action_with(&run, remove, &records, Some(&allowance)),
-        Action::DispatchMutating
-    );
+        Action::DispatchMutating { .. }
+    ),);
     assert!(!execution_refusals_for(&run, Some(&allowance)).may_execute());
 }
 
@@ -765,10 +792,10 @@ fn set_primary_and_cleanup_are_never_dispatched_under_an_allowance() {
                     disposition: verified(),
                 })
                 .collect();
-            assert_ne!(
+            assert!(!matches!(
                 next_action_with(&run, at, &records, Some(&allowance)),
-                Action::DispatchMutating
-            );
+                Action::DispatchMutating { .. }
+            ),);
         }
     }
 }
@@ -1152,10 +1179,10 @@ fn a_gui_apps_mutation_is_re_derived_for_its_kind_and_never_dispatched_on_none()
     let plan = run.plan();
     let remove = position(plan, StepKind::RemoveSource);
     assert_eq!(plan.steps[remove].commands[0].elevation, Elevation::None);
-    assert_ne!(
+    assert!(!matches!(
         next_action_with(&run, remove, &records_until(&run, remove), Some(&allowance)),
-        Action::DispatchMutating
-    );
+        Action::DispatchMutating { .. }
+    ),);
     let step = plan.steps[remove].index;
     assert!(execution_refusals_for(&run, Some(&allowance))
         .refusals()
@@ -1287,7 +1314,7 @@ fn a_mutating_command_is_never_dispatched_before_the_snapshot_was_taken() {
     // And the control: with the snapshot taken, the same add is dispatched.
     assert_eq!(
         next_action_with(&run, add, &records_until(&run, add), Some(&allowance)),
-        Action::DispatchMutating
+        Action::DispatchMutating { reverify: None }
     );
 }
 
@@ -1352,4 +1379,378 @@ fn a_snapshot_that_could_not_be_taken_halts_the_run_and_records_nothing_was_disp
         HaltReason::SnapshotNotTaken.error_id(),
         ErrorId::SafetyBlocked
     );
+}
+// --- work order 16 part S: certification and the re-read before removal -----
+
+/// A re-check's token for `provider`, against a configured copy of `run`'s
+/// snapshot.
+fn token_for(run: &PlannedRun, provider: &ProviderId) -> ConfigurationRechecked {
+    crate::configuration_recheck::recheck_provider_configuration(
+        provider,
+        &configured(run.before().clone()),
+        &macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
+    )
+    .expect("an empty configuration outranks nothing")
+}
+
+#[test]
+fn judge_step_never_verifies_a_verify_destination_even_with_passing_reads() {
+    // D1: the reads would pass through `certify_destination`, and still
+    // `judge_step` answers `NOT_CERTIFIED_HERE` before looking at them.
+    let run = full_run();
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let named = naming_destination(run.plan());
+    let reads = [StepRead::Output(finished(&named))];
+    assert!(matches!(
+        certify_destination(&run, verify, token(&run), &reads),
+        Disposition::Verified { .. }
+    ));
+    assert_eq!(
+        judge_step(&run, verify, &reads),
+        Disposition::Halted {
+            reason: HaltReason::Unevaluable {
+                check: None,
+                why: Unevaluable::NotCertifiedHere
+            },
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        }
+    );
+    // And `next_action` never sends it to `judge_step`: it answers `Certify`.
+    let records: Vec<StepRecord> = (0..verify)
+        .map(|p| StepRecord {
+            index: run.plan().steps[p].index,
+            kind: run.plan().steps[p].kind,
+            disposition: Disposition::NotPerformedInThisBuild,
+        })
+        .collect();
+    assert_eq!(next_action(run.plan(), verify, &records), Action::Certify);
+}
+
+#[test]
+fn certify_destination_refuses_a_token_for_another_provider() {
+    // L1: a re-check of the source certifies nothing about the destination.
+    let run = full_run();
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let named = naming_destination(run.plan());
+    let source = run.plan().source.clone();
+    assert_eq!(
+        certify_destination(
+            &run,
+            verify,
+            token_for(&run, &source),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Disposition::Halted {
+            reason: HaltReason::PreconditionFailed {
+                command: 0,
+                why: Precondition::WrongProviderToken
+            },
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        }
+    );
+    // A position that is not a VERIFY_DESTINATION is not certified either.
+    let removal = position(run.plan(), StepKind::VerifyRemoval);
+    assert_eq!(
+        certify_destination(&run, removal, token(&run), &[]),
+        Disposition::Halted {
+            reason: HaltReason::RecordsDoNotMatchPlan,
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        }
+    );
+}
+
+#[test]
+fn reverify_for_names_the_verify_step_for_remove_source_only() {
+    for from in [HB, MP] {
+        let run = forced_run(from);
+        let plan = run.plan();
+        let verify = position(plan, StepKind::VerifyDestination);
+        for (at, step) in plan.steps.iter().enumerate() {
+            let answer = reverify_for(plan, at);
+            if step.kind == StepKind::RemoveSource {
+                let r = answer.unwrap_or_else(|| panic!("{from}: a removal is re-read"));
+                assert_eq!(r.verify_position(), verify, "{from}");
+                assert_eq!(r.provider(), &plan.destination, "{from}");
+            } else {
+                assert_eq!(answer, None, "{from}: {:?}", step.kind);
+            }
+        }
+        // Only a removal is re-read, wherever another step sits: an add placed
+        // after the VERIFY_DESTINATION (a doctored plan) is still `None`.
+        let mut late_add = plan.clone();
+        let add = position(&late_add, StepKind::AddDestination);
+        let copy = late_add.steps[add].clone();
+        late_add.steps.push(copy);
+        let last = late_add.steps.len() - 1;
+        assert_eq!(reverify_for(&late_add, last), None, "{from}: an add");
+        // A removal with no VERIFY_DESTINATION before it has nothing to re-read.
+        let mut bare = plan.clone();
+        bare.steps.retain(|s| s.kind != StepKind::VerifyDestination);
+        let remove = position(&bare, StepKind::RemoveSource);
+        assert_eq!(reverify_for(&bare, remove), None, "{from}");
+    }
+}
+
+#[test]
+fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
+    // Both directions: the destination verified, then a re-read that no longer
+    // names it, and the removal does not go ahead.
+    for from in [HB, MP] {
+        let run = forced_run(from);
+        let plan = run.plan();
+        let remove = position(plan, StepKind::RemoveSource);
+        let reverify = reverify_for(plan, remove).expect("a removal is re-read");
+        let named = naming_destination(plan);
+        assert_eq!(
+            destination_still_verified(
+                &run,
+                &reverify,
+                token(&run),
+                &[StepRead::Output(finished(&named))]
+            ),
+            Ok(()),
+            "{from}: the control"
+        );
+        // Gone: the read fails as a provider's read of a missing package does.
+        let gone = ReadOutput {
+            end: ProcessEnd::Exited { code: 1 },
+            stdout: "",
+            truncated: false,
+        };
+        assert_eq!(
+            destination_still_verified(&run, &reverify, token(&run), &[StepRead::Output(gone)]),
+            Err(Precondition::DestinationNotReverified),
+            "{from}"
+        );
+        // And where the read is judged by what it names, a listing without it.
+        let judged_by_name = plan.steps[reverify.verify_position()].commands[0].success
+            == macportsbrew_domain::SuccessSemantic::StdoutNamesPackage;
+        if judged_by_name {
+            assert_eq!(
+                destination_still_verified(
+                    &run,
+                    &reverify,
+                    token(&run),
+                    &[StepRead::Output(finished("  unrelated 1.0\n"))]
+                ),
+                Err(Precondition::DestinationNotReverified),
+                "{from}"
+            );
+        }
+    }
+}
+
+#[test]
+fn invariant_01_removal_refused_when_the_reread_is_truncated_failed_or_unjudged() {
+    let run = forced_run(MP);
+    let plan = run.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let named = naming_destination(plan);
+    let reads: Vec<Vec<StepRead<'_>>> = vec![
+        vec![StepRead::Output(ReadOutput {
+            end: ProcessEnd::Exited { code: 0 },
+            stdout: &named,
+            truncated: true,
+        })],
+        vec![StepRead::Output(ReadOutput {
+            end: ProcessEnd::DidNotFinish,
+            stdout: &named,
+            truncated: false,
+        })],
+        vec![StepRead::Output(ReadOutput {
+            end: ProcessEnd::Exited { code: 1 },
+            stdout: &named,
+            truncated: false,
+        })],
+        vec![StepRead::SiteRefused],
+        vec![StepRead::SiteUnavailable],
+        vec![StepRead::TransportFailed(ErrorId::ProviderTimeout)],
+        vec![],
+    ];
+    for read in &reads {
+        assert_eq!(
+            destination_still_verified(&run, &reverify, token(&run), read),
+            Err(Precondition::DestinationNotReverified),
+            "{read:?}"
+        );
+    }
+}
+
+#[test]
+fn invariant_01_destination_still_verified_requires_exactly_verified() {
+    // Any disposition but `Verified` is a refusal — an unevaluable verify step
+    // included: a re-read step whose check this build cannot answer.
+    let run = forced_run(MP).map_plan(|p| {
+        let verify = position(p, StepKind::VerifyDestination);
+        p.steps[verify].verification.clear();
+    });
+    let plan = run.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let named = naming_destination(plan);
+    assert!(matches!(
+        certify_destination(
+            &run,
+            reverify.verify_position(),
+            token(&run),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Disposition::Halted { .. }
+    ));
+    assert_eq!(
+        destination_still_verified(
+            &run,
+            &reverify,
+            token(&run),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Err(Precondition::DestinationNotReverified)
+    );
+}
+
+#[test]
+fn invariant_01_a_destination_token_for_the_wrong_provider_is_refused() {
+    let run = forced_run(MP);
+    let plan = run.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let named = naming_destination(plan);
+    let source = plan.source.clone();
+    assert_eq!(
+        destination_still_verified(
+            &run,
+            &reverify,
+            token_for(&run, &source),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Err(Precondition::WrongProviderToken)
+    );
+}
+
+#[test]
+fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
+    // L4: the elevation is checked on the plan's field and re-derived from the
+    // compiled table; here the plan's field says a prompt is needed.
+    let run = forced_run(MP).map_plan(|p| {
+        let verify = position(p, StepKind::VerifyDestination);
+        for c in &mut p.steps[verify].commands {
+            c.elevation = Elevation::Required { reason: "x".into() };
+        }
+    });
+    let plan = run.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let named = naming_destination(plan);
+    assert_eq!(
+        destination_still_verified(
+            &run,
+            &reverify,
+            token(&run),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Err(Precondition::DestinationNotReverified)
+    );
+    // And the table's own answer: a GUI app's read toward MacPorts is of
+    // unknown elevation, so the re-derived elevation is not `NONE` even with
+    // the plan's field left at `NONE`.
+    let toward_macports = forced_run(HB);
+    let mut snap = toward_macports.before().clone();
+    for p in snap.providers.values_mut() {
+        for row in &mut p.inventory.installed {
+            row.kind = PackageKind::GuiApp;
+        }
+    }
+    let gui = PlannedRun::new(toward_macports.plan().clone(), snap);
+    // The control: with the GUI app's reads present, everything but the
+    // re-derived elevation would certify.
+    let verify = position(gui.plan(), StepKind::VerifyDestination);
+    let named_gui = naming_destination(gui.plan());
+    assert!(
+        matches!(
+            certify_destination(
+                &gui,
+                verify,
+                token(&gui),
+                &[StepRead::Output(finished(&named_gui))]
+            ),
+            Disposition::Verified { .. }
+        ),
+        "the GUI-app control certifies"
+    );
+    let plan = gui.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let named = naming_destination(plan);
+    assert_eq!(
+        destination_still_verified(
+            &gui,
+            &reverify,
+            token(&gui),
+            &[StepRead::Output(finished(&named))]
+        ),
+        Err(Precondition::DestinationNotReverified)
+    );
+}
+
+#[test]
+fn an_installed_read_never_answers_provider_reports_active() {
+    // D11: installed is not active.
+    use crate::execution_gate::answers;
+    use macportsbrew_domain::SuccessSemantic;
+    for semantic in [
+        SuccessSemantic::ExitStatus,
+        SuccessSemantic::StdoutNamesPackage,
+        SuccessSemantic::StdoutOmitsPackage,
+        SuccessSemantic::Unknown,
+    ] {
+        assert!(
+            !answers(&VerificationCheck::ProviderReportsActive, semantic),
+            "{semantic:?}"
+        );
+    }
+    for semantic in [
+        SuccessSemantic::StdoutMarksPackageActive,
+        SuccessSemantic::JsonReportsPackageLinked,
+    ] {
+        assert!(answers(&VerificationCheck::ProviderReportsActive, semantic));
+        assert!(!answers(&VerificationCheck::PackageNewlyPresent, semantic));
+        assert!(!answers(&VerificationCheck::PackageAbsent, semantic));
+    }
+}
+
+#[test]
+fn a_removal_with_no_step_to_reread_is_never_dispatched() {
+    // Defence in depth behind `destination_verified_before`: a removal the
+    // application can name no re-read for halts instead of dispatching.
+    for from in [HB, MP] {
+        let run = forced_run(from);
+        let plan = run.plan();
+        let remove = position(plan, StepKind::RemoveSource);
+        assert_eq!(
+            dispatch_for(plan, remove),
+            Action::DispatchMutating {
+                reverify: reverify_for(plan, remove)
+            },
+            "{from}: the control"
+        );
+        let mut bare = plan.clone();
+        bare.steps.retain(|s| s.kind != StepKind::VerifyDestination);
+        let remove = position(&bare, StepKind::RemoveSource);
+        assert_eq!(
+            dispatch_for(&bare, remove),
+            Action::Halt(HaltReason::UnexecutedMutation),
+            "{from}"
+        );
+        // An add is dispatched with no re-read.
+        let add = position(plan, StepKind::AddDestination);
+        assert_eq!(
+            dispatch_for(plan, add),
+            Action::DispatchMutating { reverify: None },
+            "{from}"
+        );
+    }
 }

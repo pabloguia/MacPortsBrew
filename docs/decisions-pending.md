@@ -464,7 +464,9 @@ provider lock closes it (R-17, DP-030).
 ever on; a first release that cannot remove anything cannot break INV-01 in
 practice. **What it blocks:** the flip proposal. **Reversible default taken:**
 (c) — slice 6 builds the re-check, and the proposal's defaults refuse
-`REMOVE_SOURCE`.
+`REMOVE_SOURCE`. *Superseded by the ruling (c); slice 6 part D is not built
+(work order 16 part S, SE-107).* The re-read runs before the lock and source
+configuration re-checks, not after them (M1; SE-107).
 
 ### DP-049 — Tying the executed plan to the plan shown: a `sha2` dependency and `--plan-digest` — **RESOLVED 2026-10-27: (a) and (b), both routes in v0.2.0**
 

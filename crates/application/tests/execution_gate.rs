@@ -222,6 +222,7 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         ExecutionRefusal::ManualReview { step }
         | ExecutionRefusal::NoSnapshotBeforeFirstMutation { step }
         | ExecutionRefusal::CheckNotEvaluableInThisBuild { step, .. }
+        | ExecutionRefusal::CheckHasNoAnsweringRead { step, .. }
         | ExecutionRefusal::VerificationAssertsNothing { step }
         | ExecutionRefusal::Expectation { step, .. }
         | ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step }
@@ -1369,4 +1370,156 @@ fn an_unknown_configuration_risk_is_refused_like_a_found_one() {
             .any(|(step, p)| *step == index_of(&plan, StepKind::AddDestination) && *p == to),
         "{refused:?}"
     );
+}
+// --- work order 16 part S ------------------------------------------------------
+
+/// The verification step's commands refused as not the planner's, or not.
+fn refused_as_not_the_planners(plan: &MigrationPlan, at: usize) -> bool {
+    let step = plan.steps[at].index;
+    refused(&execution_refusals(plan), |r| {
+        matches!(
+            r,
+            ExecutionRefusal::CommandIsNotThePlannersRead { step: s } if *s == step
+        )
+    })
+}
+
+#[test]
+fn planner_and_gate_share_one_verify_destination_rule() {
+    // V2: the planner's VERIFY_DESTINATION carries exactly what
+    // `verify_destination_reads` derives, and the gate's pin compares by
+    // position and in number. With the shipped table the list is `[verify]`.
+    let table = macportsbrew_application::provider_commands::load().expect("the table loads");
+    for source in [HB, MP] {
+        let (snap, package, to) = install_needed(source);
+        let plan = plan_for(&snap, package, to, false);
+        let verify = position(&plan, StepKind::VerifyDestination);
+        let name = plan
+            .destination_name()
+            .expect("a destination")
+            .as_str()
+            .to_string();
+        let derived = macportsbrew_application::provider_commands::verify_destination_reads(
+            &table,
+            plan.destination.as_str(),
+            &name,
+        );
+        assert_eq!(derived.len(), 1, "{source}: S-1 is inert");
+        assert_eq!(derived[0].0, "verify", "{source}");
+        let carried: Vec<(Vec<String>, SuccessSemantic)> = plan.steps[verify]
+            .commands
+            .iter()
+            .map(|c| (c.argv.clone(), c.success))
+            .collect();
+        let expected: Vec<(Vec<String>, SuccessSemantic)> = derived
+            .into_iter()
+            .map(|(_, argv, success)| (argv, success))
+            .collect();
+        assert_eq!(carried, expected, "{source}");
+        assert!(!refused_as_not_the_planners(&plan, verify), "{source}");
+
+        // An extra command after it — the planner's own, repeated: the length
+        // differs, so a zip that stops at the shorter list would let it by.
+        let mut extra = plan.clone();
+        let first = extra.steps[verify].commands[0].clone();
+        extra.steps[verify].commands.push(first.clone());
+        assert!(
+            refused_as_not_the_planners(&extra, verify),
+            "{source}: extra"
+        );
+
+        // A foreign read placed first, the planner's second: reordered.
+        let mut reordered = plan.clone();
+        let mut other = first.clone();
+        other.argv.push("--another".into());
+        reordered.steps[verify].commands.insert(0, other.clone());
+        assert!(
+            refused_as_not_the_planners(&reordered, verify),
+            "{source}: reordered"
+        );
+
+        // The planner's read swapped for another one: same length, wrong cell.
+        let mut swapped = plan.clone();
+        swapped.steps[verify].commands[0] = other;
+        assert!(
+            refused_as_not_the_planners(&swapped, verify),
+            "{source}: swapped"
+        );
+
+        // Its semantic swapped alone.
+        let mut semantic = plan.clone();
+        semantic.steps[verify].commands[0].success = SuccessSemantic::StdoutMarksPackageActive;
+        assert!(
+            refused_as_not_the_planners(&semantic, verify),
+            "{source}: semantic"
+        );
+    }
+}
+
+#[test]
+fn a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused() {
+    // M2b: evaluable means evaluable by this plan. A removal check whose read
+    // cannot answer absence is refused at the gate, by name, not halted later.
+    let mut plan = full_plan();
+    let removal = position(&plan, StepKind::VerifyRemoval);
+    let step = plan.steps[removal].index;
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckHasNoAnsweringRead { .. }
+    )));
+    for command in &mut plan.steps[removal].commands {
+        command.success = SuccessSemantic::StdoutNamesPackage;
+    }
+    let report = execution_refusals(&plan);
+    assert!(
+        refused(&report, |r| matches!(
+            r,
+            ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::PackageAbsent }
+                if *s == step
+        )),
+        "{:?}",
+        report.refusals()
+    );
+    assert_refused(&report);
+
+    // The same on a destination: presence answered by nothing.
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    let step = plan.steps[verify].index;
+    for command in &mut plan.steps[verify].commands {
+        command.success = SuccessSemantic::StdoutOmitsPackage;
+    }
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::PackageNewlyPresent }
+            if *s == step
+    )));
+}
+
+#[test]
+fn the_planner_step_sequence_is_unchanged() {
+    // INV-01's ordering: part S changes which commands a VERIFY_DESTINATION
+    // carries, never where it sits.
+    use StepKind::*;
+    for source in [HB, MP] {
+        let (snap, package, to) = install_needed(source);
+        let plan = plan_for(&snap, package, to, false);
+        let kinds: Vec<StepKind> = plan.steps.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                SnapshotBefore,
+                AddDestination,
+                VerifyDestination,
+                SetPrimary,
+                VerifyResolution,
+                RemoveSource,
+                VerifyRemoval,
+                CleanupReview,
+                RecordHistory,
+            ],
+            "{source}"
+        );
+        assert!(plan.check_ordering().is_ok(), "{source}");
+    }
 }

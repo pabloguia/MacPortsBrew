@@ -877,17 +877,28 @@ pub fn plan_outcome(
             vec![],
             add_reason,
         ));
-        steps.push(next(
-            StepKind::VerifyDestination,
-            Some(request.to.clone()),
-            vec![command(
+        // One rule for the planner and the gate's pin: the operations come from
+        // `provider_commands::verify_destination_operations`, in its order, so
+        // the gate derives exactly this list (work order 16 part S, V2).
+        let verify_commands = crate::provider_commands::verify_destination_operations(
+            commands.get(request.to.as_str()),
+        )
+        .into_iter()
+        .map(|operation| {
+            command(
                 &commands,
                 dest_snapshot,
                 &request.to,
-                "verify",
+                operation,
                 &dest_name,
                 kind,
-            )?],
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        steps.push(next(
+            StepKind::VerifyDestination,
+            Some(request.to.clone()),
+            verify_commands,
             {
                 // Every one of the contract's checks is satisfiable by state
                 // that predates the plan. For a package the destination already
@@ -1070,14 +1081,17 @@ pub fn plan_outcome(
 ///
 /// A list rather than a predicate on the verb string, so that adding a read
 /// verb is a decision made here rather than one that happens by spelling.
-const READ_OPERATIONS: &[&str] = &["verify", "verify_absent"];
+const READ_OPERATIONS: &[&str] = &["verify", "verify_absent", "verify_active"];
 
 /// Operations whose argv carries no package name.
 ///
-/// One today. It is a function rather than a `const` list inline so the reason
-/// sits with the rule: see `SuccessSemantic::StdoutOmitsPackage`.
+/// Two: the removal inventory and the destination's active read. It is a
+/// function rather than a `const` list inline so the reason sits with the rule:
+/// see `SuccessSemantic::StdoutOmitsPackage` and
+/// `SuccessSemantic::StdoutMarksPackageActive` — each reads a whole inventory,
+/// and a command asking about one name answers a different question.
 pub(crate) fn names_no_package(operation: &str) -> bool {
-    operation == "verify_absent"
+    matches!(operation, "verify_absent" | "verify_active")
 }
 
 /// Whether `package` is one of a provider's reserved words — compared without
@@ -1105,6 +1119,8 @@ pub(crate) fn planned_success(
         Some("exit_status") => SuccessSemantic::ExitStatus,
         Some("stdout_names_package") => SuccessSemantic::StdoutNamesPackage,
         Some("stdout_omits_package") => SuccessSemantic::StdoutOmitsPackage,
+        Some("stdout_marks_package_active") => SuccessSemantic::StdoutMarksPackageActive,
+        Some("json_reports_package_linked") => SuccessSemantic::JsonReportsPackageLinked,
         _ => SuccessSemantic::Unknown,
     }
 }
@@ -1607,7 +1623,7 @@ mod tests {
     /// detection and put an administrator prompt on the step that closes
     /// INV-01's loop. A constant must not both define and grade its own test
     /// (`spec-guardian`, 2026-09-19).
-    const READS: &[&str] = &["verify", "verify_absent"];
+    const READS: &[&str] = &["verify", "verify_absent", "verify_active"];
 
     fn table_demanding_elevation_for_reads() -> BTreeMap<String, ProviderCommands> {
         let mut table = provider_commands::load().expect("the shipped table parses");

@@ -3494,7 +3494,10 @@ finding ids in each entry.
     the loop accepts it and records it as a known network side effect the
     mutating pass inherits — this build cannot reach it. (The premise first
     written here, that the fetch changes nothing on the machine, is false: it
-    writes Homebrew's API cache, ~30 MB, R-15 E7; SE-016 item 3.) (7) A `DetectedPrefix` records `replay: runner.is_replay()`
+    writes Homebrew's API cache, ~30 MB, R-15 E7; SE-016 item 3.) *Amended 2026-10-28 (SE-107 C5, work order 16
+    part S):* the run loop will also run the nameless `brew info --json=v2 --installed` to certify a destination
+    and to re-read it before a removal; that is an accepted residual of the same kind, mitigated by the
+    configuration re-check that now precedes every certifying read (C1) and by DP-027 (b). (7) A `DetectedPrefix` records `replay: runner.is_replay()`
     at detection; `plan_read_spec` passes it to `CommandSpec::plan_read`, which
     marks the spec `replay_only`, and `SystemRunner::run` refuses a marked
     spec before the allowlist and before anything is spawned (one field and
@@ -8194,7 +8197,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: none; test code only.
 
 ## SE-107 — Pass 08 slice 6: an artifact the destination cannot supply is `MANUAL_REVIEW`; the plan review's rulings
-- Status: accepted (part A built; parts B, C and D planned, not built)
+- Status: accepted (A built; B and C built inert, S-1, their cells staged for the owner; D superseded — amended
+  2026-10-28, work order 16 part S)
 - Date / Pass: 2026-10-26 / pass 08 slice 6 (`docs/passes/08-slice-6-plan.md`)
 - Original assumption: 04's MUST that a step whose artifact is no longer available becomes `MANUAL_REVIEW` was met by
   no plan (SE-092, slice 5 D8); the planner read a destination's availability only for the non-blocking
@@ -8237,6 +8241,65 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   other template).
 - Compatibility impact: a plan can now carry a new risk id and stop at a new reason; both are additions to open sets
   (`plan.v1.md`), so no schema version moves. No fixture or documented sample changes: no recording carries the states.
+- **Amended 2026-10-28, work order 16 part S (`docs/passes/16-plans/S.md`, reviewed by both reviewers in two rounds).
+  Parts B and C built as inert code (S-1); the cells that make B evaluable are staged for the owner
+  (`docs/passes/16-staged/S/`, S-2); part D superseded, not built.**
+  - Part B's design. `PROVIDER_REPORTS_ACTIVE` is answered by one new read per provider, already on the process
+    allowlist and naming no package: MacPorts `-q installed` judged by `STDOUT_MARKS_PACKAGE_ACTIVE`, Homebrew
+    `info --json=v2 --installed` judged by `JSON_REPORTS_PACKAGE_LINKED` (R-20 findings 19, 20). **One INV-17 rule for
+    both (D2): exactly one record of the package is marked active by the provider**; MacPorts' two-token inactive
+    sibling (R-20 finding 7) is the only other shape ignored, and any other row of the name fails the read
+    (security-reviewer, second round, Fix 1). New causes `ACTIVE_NOT_REPORTED` (none or two marked) and `OUTPUT_SHAPE_UNKNOWN` (an unknown row shape or an unreadable document; PR #33 review, L-1). The JSON half is a typed parse of the
+    whole stdout in the application layer (`verification_json`, C2): leading or trailing data, a duplicate field and a
+    wrong type are unparseable; exactly one `formulae[]` entry of the name; `linked_keg` equal to one of its own
+    `installed[].version`; `casks` never consulted; stderr never read. Nothing from the output becomes evidence, a
+    path or a flag (C3); truncation and did-not-finish fail before the semantic (C4).
+  - **Deliberate fail-closed cases (L7):** an inactive MacPorts image never passes (there is no positive inactive
+    marker, R-20 finding 2); the name is compared in the registry's own spelling, so a case difference halts (R-20
+    finding 6). **Keg-only (R-20 finding 10), direction-dependent:** a linked keg-only formula passes, an unlinked one
+    halts — which bites only MacPorts→Homebrew, where a freshly installed keg-only formula is not linked.
+    **GUI apps:** toward MacPorts the gate refuses the step (`verify_active_gui_app` elevation `unknown`); toward
+    Homebrew a cask halts at run time (`NotLinked`). Both fail closed; part H owns the "unchecked" outcome.
+  - **One rule for planner and gate (V2, M2a):** `provider_commands::verify_destination_reads` — `verify`, then
+    `verify_active` when the table holds it. The planner builds the step from it; the gate's pin compares by position
+    and in number. **New refusal (M2b):** `CHECK_HAS_NO_ANSWERING_READ`, ordinal 25. The loader accepts the two
+    semantics only on a no-package verb, requires `verify_active_gui_app` beside `verify_active`, and refuses a
+    `verify_active` sharing a word with the entry's add or remove verb.
+  - **C1:** `judge_step` refuses a `VERIFY_DESTINATION` (`NOT_CERTIFIED_HERE`) whatever its reads say;
+    `certify_destination` takes the destination's `ConfigurationRechecked` token by value and is the only path to its
+    `Verified`; `next_action` answers `Certify`, and both shells re-read and re-check the configuration before the
+    read (`run_with` gained a re-read seam). Under `--replay` a certifying read halts before it is made.
+  - **Part C and the order (M1, rewording the slice 6 work order's "after the lock and configuration re-checks"):**
+    `Action::DispatchMutating { reverify }`, `reverify` from the pure `reverify_for` (`REMOVE_SOURCE` only). Per
+    removal command: destination configuration re-read and re-check → destination re-read with the verify step's own
+    gate-pinned commands → `destination_still_verified` (token by value; provider checked; each re-read command's
+    elevation re-derived and required `NONE`, L4; `Ok` only on exactly `Verified`) → lock still current → source
+    configuration re-check → dispatch. The slow read comes first so the cheap confirmations are freshest at dispatch.
+    Identifiers (D5): `CONFIGURATION_UNREADABLE` / `CONFIGURATION_DRIFT` for the destination's configuration,
+    `DESTINATION_NOT_REVERIFIED` when the re-read ran and did not certify; the outcome is `PARTIAL_SUCCESS`, exit 3
+    (INV-03). The re-read's evidence is not carried (D4); the halt's `why` is the record.
+  - **Part D superseded by DP-048 (c) and work order 16 part K:** removal becomes opt-in rather than refused by release
+    policy. `the_switch_needs_removal_opt_in` replaces part D's planned flip tripwire and K's tests replace its
+    `invariant_01_*`. `the_switch_needs_the_window_before_removal_closed_or_accepted` became the positive structural
+    `the_destination_is_reread_before_removal`, and `the_switch_needs_the_destination_contract_evaluable` was widened
+    to every check of the planner's `VERIFY_DESTINATION` in each direction (it moved to `crates/cli/tests/executor.rs`,
+    beside the in-code snapshots it plans from: the recordings do not record MacPorts' service facts).
+  - **The shell half runs one way until part K:** the shell's re-read tests reach a removal toward MacPorts only,
+    because a removal from MacPorts elevates and the gate refuses it; the code path names no provider, and the
+    application half (`reverify_for`, `destination_still_verified`, `invariant_01_*`) is tested in both directions.
+  - **Handed to K (L6):** any elevation prompt for `REMOVE_SOURCE` must come before the re-read, or 04's residual
+    sentence must name the prompt's duration; no credential caching.
+  - Still owed by S-2: the owner's commands-table hunk, the policy version bump to `2026.10.18-1` with every pinned
+    copy regenerated, `evaluable_in_this_build` true for `PROVIDER_REPORTS_ACTIVE` on `VERIFY_DESTINATION`, and the
+    replay tests over the recordings.
+  - Tests: `crates/domain/tests/verification_active.rs` (the row rule, `invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers`);
+    `verification_json` unit tests; the executor's `certify_destination`, `reverify_for`, `destination_still_verified`
+    and `invariant_01_*` tests; `planner_and_gate_share_one_verify_destination_rule`,
+    `a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused`, `the_planner_step_sequence_is_unchanged`; the
+    loader's three coupling tests; the shell's `a_certifying_read_follows_a_configuration_recheck`,
+    `invariant_01_the_reread_uses_the_verify_steps_own_commands`, `each_removal_command_is_preceded_by_its_own_reread`,
+    `invariant_03_a_removal_whose_destination_was_not_reverified_ends_partial`, `the_shell_never_derives_a_command`
+    and the order test; the three tripwires. Mutation proof in the plan's "Mutation proof".
 
 
 
@@ -8328,6 +8391,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - DP-049 (a) and (b).
   - DP-050 (a), plus a toolchain check.
   - DP-051 (a) before v0.2.0; an unchecked package is never removed.
+  - Propagation, work order 16 part S (2026-10-28): the destination re-read before `REMOVE_SOURCE` that DP-048 (c)
+    names is built (S-1), and slice 6 part D is superseded by DP-048 (c) and part K (SE-107).
 - Rejected, in this entry:
   - Shipping v0.2.0 in one direction first, to gather evidence before elevating (DP-046 (a)). The evidence is still
     gathered: v0.2.0 is not tagged until work order 11's acceptance passes in both directions on disposable machines.

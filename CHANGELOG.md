@@ -29,6 +29,18 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `migrate --json`: a destination check (`VERIFY_DESTINATION`) is now read only
+  after its provider's configuration was read again and re-checked; a
+  configuration that cannot be read again, or has changed, halts the step before
+  the read (`PRECONDITION_FAILED`, `CONFIGURATION_UNREADABLE` or
+  `CONFIGURATION_DRIFT`). Under `--replay` the configuration cannot be read
+  again, so such a step halts. The gate also refuses a check none of its step's
+  commands can answer (`CHECK_HAS_NO_ANSWERING_READ`). The commands a plan lists
+  are unchanged, and the gate still refuses every plan this build makes, so no
+  run reaches these steps yet. Behind the switch, which stays off: the destination is read
+  again immediately before each removal command (`DESTINATION_NOT_REVERIFIED`),
+  and the reads that will make "installed and active" checkable are built but
+  not yet in the commands table (work order 16 part S; SE-107).
 - `doctor`: says, per provider, whether the reads this tool asks it for may
   reach the network on the provider's own account (its local metadata index is
   missing), are answered offline, or cannot be told from this input; and names

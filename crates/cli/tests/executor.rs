@@ -26,11 +26,12 @@ use macportsbrew_application::{
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, CommandLineTools, EnvironmentSnapshot, FailureCause, HomeRedaction,
-    InstalledPackage, Machine, MacosVersion, MigrationPlan, PackageIdentity, PackageKind,
-    PackageMetadata, PlanCommand, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
-    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, Snapshot, StepKind,
-    Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    CapabilityState, CommandLineTools, DomainError, EnvironmentSnapshot, FailureCause,
+    HomeRedaction, InstalledPackage, Machine, MacosVersion, MigrationPlan, PackageIdentity,
+    PackageKind, PackageMetadata, PlanCommand, Provenance, ProviderCapabilities,
+    ProviderConfiguration, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
+    ProviderSnapshot, RequestedSet, Snapshot, StepKind, Translation, Version,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -225,7 +226,10 @@ fn provider(id: &str, packages: &[Pkg]) -> ProviderSnapshot {
         environment: BTreeMap::new(),
         invocation_environment: BTreeMap::new(),
         resolutions: BTreeMap::new(),
-        configuration: macportsbrew_domain::ProviderConfiguration::NotRecorded,
+        // Read, holding nothing that could outrank the plan: a certifying read
+        // follows a configuration re-check (SE-107 C1), which a configuration
+        // the capture never recorded fails closed.
+        configuration: ProviderConfiguration::Read { files: Vec::new() },
     }
 }
 
@@ -409,7 +413,14 @@ fn honest(
 /// Runs `planned` through `spy`, which is handed to the loop only after the
 /// gate passed the plan.
 fn spied<S: ReadSite>(planned: &PlannedRun, spy: &S, home: &HomeRedaction) -> RunReport {
-    run_with(planned, || spy, home)
+    run_with(planned, || spy, &clean, home)
+}
+
+/// A provider configuration re-read that finds nothing that could outrank the
+/// plan, as on a machine whose configuration did not move (SE-107 C1).
+#[allow(clippy::unnecessary_wraps)]
+fn clean(_: &ProviderId, _: &str) -> Result<ProviderConfiguration, DomainError> {
+    Ok(ProviderConfiguration::Read { files: Vec::new() })
 }
 
 /// What a run did, step by step, without the evidence counts: those are the
@@ -461,6 +472,7 @@ fn the_execution_gate_is_consulted_before_any_step() {
             built.set(true);
             Spy::new(|_: &ProviderId, _: &PlanCommand| Err(PlanReadError::NotDetected))
         },
+        &clean,
         &HomeRedaction::Recorded,
     );
     assert!(!built.get(), "a read site was built for a refused plan");
@@ -517,8 +529,54 @@ fn the_guard_holds_behind_the_real_read_site_too() {
     }
 }
 
+/// The product's read sites over `runner`, with a configuration re-read that
+/// finds nothing (`clean`). Not `run` itself: under a replay the product's
+/// re-read cannot know the configuration, so `run` halts every certifying read
+/// before it is made (SE-107 C1, `plan.v1.md` obligation 6) — pinned on its own
+/// by `a_replayed_certifying_read_halts_before_it_is_made`.
 fn run_real(planned: &PlannedRun, runner: &ReplayRunner) -> RunReport {
-    run(planned, &context(runner), &HomeRedaction::Recorded)
+    let ctx = context(runner);
+    run_with(
+        planned,
+        || registry::plan_read_sites(&ctx),
+        &clean,
+        &HomeRedaction::Recorded,
+    )
+}
+
+#[test]
+fn a_replayed_certifying_read_halts_before_it_is_made() {
+    // The product's own loop over a recording: the destination's configuration
+    // cannot be re-read from a replay, so the certifying read is never made
+    // and the step halts as a failed precondition, never as a verdict.
+    for source in [HB, MP] {
+        let run_ = install(source, true);
+        let plan = run_.plan();
+        let name = plan
+            .destination_name()
+            .expect("a destination")
+            .as_str()
+            .to_string();
+        let runner = ReplayRunner::new(recording(&[(plan.destination.as_str(), &name)], naming));
+        let report = run(&run_, &context(&runner), &HomeRedaction::Recorded);
+        let verify = plan
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::VerifyDestination)
+            .expect("a destination check")
+            .index;
+        assert!(
+            matches!(
+                report.outcome,
+                RunOutcome::Halted {
+                    step,
+                    reason: HaltReason::PreconditionFailed { command: 0, .. }
+                } if step == verify
+            ),
+            "{source}: {:?}",
+            report.outcome
+        );
+    }
 }
 
 #[test]
@@ -980,7 +1038,27 @@ fn a_provider_with_no_read_site_halts() {
     let runner = ReplayRunner::new(recording_as_captured());
     let mut ctx = context(&runner);
     ctx.prefix_override = Some(Vec::new());
+    // The product's loop stops earlier: a provider it cannot detect has no
+    // configuration to re-read, so the certifying read is never made.
     let report = macportsbrew::executor::run(&run, &ctx, &HomeRedaction::Recorded);
+    assert!(
+        matches!(
+            report.outcome,
+            RunOutcome::Halted {
+                reason: HaltReason::PreconditionFailed { command: 0, .. },
+                ..
+            }
+        ),
+        "{:?}",
+        report.outcome
+    );
+    // Past that re-read, the read site itself is missing.
+    let report = run_with(
+        &run,
+        || registry::plan_read_sites(&ctx),
+        &clean,
+        &HomeRedaction::Recorded,
+    );
     assert!(matches!(
         report.outcome,
         RunOutcome::Halted {
@@ -1287,4 +1365,112 @@ fn there_is_exactly_one_mutation_site_and_it_refuses() {
             "the product site names {banned}: {body}"
         );
     }
+}
+#[test]
+fn a_certifying_read_follows_a_configuration_recheck() {
+    // SE-107 C1: the destination's configuration is re-read and re-checked
+    // before its VERIFY_DESTINATION is read; unreadable or drifted, the step
+    // halts and nothing of the destination is read.
+    #[allow(clippy::unnecessary_wraps)]
+    fn unreadable(_: &ProviderId, _: &str) -> Result<ProviderConfiguration, DomainError> {
+        Err(DomainError::new(
+            macportsbrew_domain::ErrorId::SafetyBlocked,
+            "not detected",
+        ))
+    }
+    #[allow(clippy::unnecessary_wraps)]
+    fn unknowable(_: &ProviderId, _: &str) -> Result<ProviderConfiguration, DomainError> {
+        Ok(ProviderConfiguration::Unknowable)
+    }
+    type Reread = fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>;
+    for source in [HB, MP] {
+        for (reread, why) in [
+            (
+                unreadable as Reread,
+                macportsbrew_application::Precondition::ConfigurationUnreadable,
+            ),
+            (
+                unknowable as Reread,
+                macportsbrew_application::Precondition::ConfigurationDrift,
+            ),
+        ] {
+            let run_ = install(source, false);
+            let plan = run_.plan();
+            let verify = plan
+                .steps
+                .iter()
+                .find(|s| s.kind == StepKind::VerifyDestination)
+                .expect("a destination check")
+                .index;
+            let spy = Spy::new(honest(plan));
+            let report = run_with(&run_, || &spy, &reread, &HomeRedaction::Recorded);
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Halted {
+                    step: verify,
+                    reason: HaltReason::PreconditionFailed { command: 0, why }
+                },
+                "{source}"
+            );
+            assert!(
+                !spy.calls().iter().any(|(p, _)| *p == plan.destination),
+                "{source}: the destination was read before its configuration was re-checked"
+            );
+        }
+    }
+}
+
+/// Detection, widened by work order 16 part S (§8): every check the planner
+/// writes on a `VERIFY_DESTINATION`, in each direction, must be evaluable in
+/// this build before the switch goes on — a removal is otherwise guarded by
+/// fewer checks than 04's contract (INV-01; slice 4 review, spec 2). The
+/// failure names the checks that are not. Held whatever the switch is: the
+/// check this build does evaluate there stays evaluable.
+#[test]
+fn the_switch_needs_the_destination_contract_evaluable() {
+    use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
+    use macportsbrew_domain::VerificationCheck;
+    let mut not_evaluable = BTreeSet::new();
+    let mut directions = BTreeSet::new();
+    for source in [HB, MP] {
+        // The planner's own plan, not narrowed to what this build evaluates.
+        let (snap, package, to) = install_needed(source);
+        let run_ = planned(&snap, package, to, false);
+        let plan = run_.plan();
+        let steps: Vec<_> = plan
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::VerifyDestination)
+            .collect();
+        assert_eq!(steps.len(), 1, "{source}");
+        directions.insert((plan.source.clone(), plan.destination.clone()));
+        for step in steps {
+            assert!(!step.verification.is_empty(), "{source}");
+            for check in &step.verification {
+                if !evaluable_in_this_build(step.kind, check) {
+                    not_evaluable.insert(format!(
+                        "{:?}",
+                        macportsbrew_application::CheckKind::from(check)
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!(directions.len(), 2, "a plan each way");
+    assert!(
+        !THIS_BUILD_DISPATCHES_MUTATIONS || not_evaluable.is_empty(),
+        "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
+         destination contract (04, Verification contract; SE-094): {not_evaluable:?}"
+    );
+    assert!(
+        evaluable_in_this_build(
+            StepKind::VerifyDestination,
+            &VerificationCheck::PackageNewlyPresent
+        ),
+        "PACKAGE_NEWLY_PRESENT is evaluated on a VERIFY_DESTINATION"
+    );
+    // What the failure names in S-1: the five checks of 04's contract this
+    // build cannot evaluate yet (PROVIDER_REPORTS_ACTIVE lands in S-2, the
+    // other four are DP-051's, part H).
+    assert_eq!(not_evaluable.len(), 5, "{not_evaluable:?}");
 }

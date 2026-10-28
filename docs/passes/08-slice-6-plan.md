@@ -15,9 +15,9 @@ slice is that item. Its parts have different blockers:
 | Part | Blocked on | This session |
 |---|---|---|
 | A — `MANUAL_REVIEW` for an unavailable artifact | nothing (DP-050's default) | built |
-| D — removal refused by release policy | nothing (DP-048's default), but see §6 finding 1 | **not built**: after C, with its own test waiver |
-| B — `PROVIDER_REPORTS_ACTIVE` evaluable | `security-reviewer`'s ruling on moving `brew info --json=v2 --installed` into the run loop (R-20; pass 14 report) | **ruled for, with conditions** (§6); next session |
-| C — re-read the destination before removal | B's check (it reuses the verify step's commands, which B changes) | after B |
+| D — removal refused by release policy | nothing (DP-048's default), but see §6 finding 1 | **superseded, not built** (DP-048 (c), work order 16 part K; SE-107) |
+| B — `PROVIDER_REPORTS_ACTIVE` evaluable | `security-reviewer`'s ruling on moving `brew info --json=v2 --installed` into the run loop (R-20; pass 14 report) | **ruled for, with conditions** (§6); built by work order 16 part S — see `docs/passes/16-plans/S.md` |
+| C — re-read the destination before removal | B's check (it reuses the verify step's commands, which B changes) | built by work order 16 part S — see `docs/passes/16-plans/S.md` |
 
 *Superseded by the plan review (§6, finding 1):* this plan first proposed
 building D before B and C (D9). The reviewers showed D's refusal would stop the

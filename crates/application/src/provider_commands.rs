@@ -109,6 +109,50 @@ pub fn load() -> Result<BTreeMap<String, ProviderCommands>, DomainError> {
     parse(SOURCE)
 }
 
+/// The operations a `VERIFY_DESTINATION` reads, in order: `verify`, then
+/// `verify_active` when the provider's entry holds that verb (work order 16
+/// part S, §3, V2).
+///
+/// **The one rule the planner and the execution gate share.** The planner
+/// builds the step's commands from it and the gate's pin derives the expected
+/// list from it, element by element and in length, so the two cannot drift.
+/// Without `verify_active` in the table — every table this build ships — the
+/// list is `[verify]`, which is exactly what both did before.
+#[must_use]
+pub fn verify_destination_operations(entry: Option<&ProviderCommands>) -> Vec<&'static str> {
+    let mut operations = vec!["verify"];
+    if entry.is_some_and(|e| e.verbs.contains_key("verify_active")) {
+        operations.push("verify_active");
+    }
+    operations
+}
+
+/// What a `VERIFY_DESTINATION` of `name` toward `provider` carries, command by
+/// command: the argv and the success semantic the planner writes for each of
+/// [`verify_destination_operations`], with the operation it came from.
+#[must_use]
+pub fn verify_destination_reads(
+    table: &BTreeMap<String, ProviderCommands>,
+    provider: &str,
+    name: &str,
+) -> Vec<(
+    &'static str,
+    Vec<String>,
+    macportsbrew_domain::SuccessSemantic,
+)> {
+    let entry = table.get(provider);
+    verify_destination_operations(entry)
+        .into_iter()
+        .map(|operation| {
+            (
+                operation,
+                crate::planner::planned_argv(entry, operation, name),
+                crate::planner::planned_success(entry, operation),
+            )
+        })
+        .collect()
+}
+
 /// The same, over any text. Split out so the checks below can be exercised
 /// against a deliberately broken copy of the table rather than only against the
 /// one that ships - a validation nothing can fail is not a validation.
@@ -244,7 +288,7 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                 .collect()
         };
         let mutating: BTreeSet<&str> = words("add").union(&words("remove")).copied().collect();
-        for read in ["verify", "verify_absent"] {
+        for read in ["verify", "verify_absent", "verify_active"] {
             if let Some(word) = words(read).intersection(&mutating).next() {
                 return Err(DomainError::new(
                     ErrorId::PolicyDataInvalid,
@@ -302,15 +346,60 @@ fn parse(source: &str) -> Result<BTreeMap<String, ProviderCommands>, DomainError
                     ),
                 ));
             }
+            // The same coupling for the two "active" semantics (work order 16
+            // part S, V1): each reads a whole inventory and judges one row or
+            // entry of it, so a verb that appends the package name would hand
+            // the judgement an answer to a different question.
+            if let Some(
+                semantic @ ("stdout_marks_package_active" | "json_reports_package_linked"),
+            ) = e.success.get(verb).map(String::as_str)
+            {
+                if verb != "verify_active" || !crate::planner::names_no_package(verb) {
+                    return Err(DomainError::new(
+                        ErrorId::PolicyDataInvalid,
+                        format!(
+                            "provider-commands.toml: entry {} gives {verb} the success semantic \
+                             {semantic}, but {verb} is a verb the planner appends the package \
+                             name to. An active read asks for the whole inventory and finds the \
+                             package's record in it",
+                            e.provider
+                        ),
+                    ));
+                }
+            }
+            if verb == "verify_active"
+                && !matches!(
+                    e.success.get(verb).map(String::as_str),
+                    Some("stdout_marks_package_active" | "json_reports_package_linked")
+                )
+            {
+                return Err(DomainError::new(
+                    ErrorId::PolicyDataInvalid,
+                    format!(
+                        "provider-commands.toml: entry {} gives verify_active a success semantic \
+                         that is not stdout_marks_package_active or json_reports_package_linked; \
+                         the active read answers PROVIDER_REPORTS_ACTIVE and nothing else does",
+                        e.provider
+                    ),
+                ));
+            }
             match e.success.get(verb).map(String::as_str) {
-                Some("exit_status" | "stdout_names_package" | "stdout_omits_package") => {}
+                Some(
+                    "exit_status"
+                    | "stdout_names_package"
+                    | "stdout_omits_package"
+                    | "stdout_marks_package_active"
+                    | "json_reports_package_linked",
+                ) => {}
                 Some(other) => {
                     return Err(DomainError::new(
                         ErrorId::PolicyDataInvalid,
                         format!(
                             "provider-commands.toml: entry {} gives {verb} the success \
                              semantic {other:?}, which is not exit_status, \
-                             stdout_names_package or stdout_omits_package; an unrecognised \
+                             stdout_names_package, stdout_omits_package, \
+                             stdout_marks_package_active or json_reports_package_linked; an \
+                             unrecognised \
                              value silently becomes \"unknown\", which an executor must \
                              refuse to run",
                             e.provider
@@ -495,6 +584,134 @@ mod tests {
                 err.detail
             );
         }
+    }
+
+    /// The shipped table with a `verify_active` verb added to the MacPorts
+    /// entry: `verb` as its argv, `success` as its semantic, and the elevation
+    /// cells `elevation` (each a whole line). A test-only shape; no table this
+    /// build ships holds the verb (work order 16 part S, §10).
+    fn with_verify_active(verb: &str, success: &str, elevation: &[&str]) -> String {
+        let text = SOURCE.replacen(
+            "verify_absent = [\"-q\", \"installed\"]",
+            &format!("verify_absent = [\"-q\", \"installed\"]\nverify_active = {verb}"),
+            1,
+        );
+        // The MacPorts entry's success cell is the second occurrence.
+        let at = text
+            .match_indices("verify_absent = \"stdout_omits_package\"")
+            .nth(1)
+            .expect("the MacPorts success cell")
+            .0;
+        let mut text = text;
+        text.insert_str(at, &format!("verify_active = {success}\n"));
+        text.replacen(
+            "verify_absent_gui_app = \"unknown\"",
+            &format!(
+                "verify_absent_gui_app = \"unknown\"\n{}",
+                elevation.join("\n")
+            ),
+            1,
+        )
+    }
+
+    const ACTIVE_ELEVATION: &[&str] = &[
+        "verify_active = \"none\"",
+        "verify_active_gui_app = \"unknown\"",
+    ];
+
+    #[test]
+    fn the_new_semantics_are_accepted_on_a_no_package_verb() {
+        for success in [
+            "\"stdout_marks_package_active\"",
+            "\"json_reports_package_linked\"",
+        ] {
+            let text = with_verify_active("[\"-q\", \"installed\"]", success, ACTIVE_ELEVATION);
+            let table = parse(&text).unwrap_or_else(|e| panic!("{success}: {e:?}"));
+            let entry = table.get("macports");
+            assert_eq!(
+                verify_destination_operations(entry),
+                vec!["verify", "verify_active"]
+            );
+            let reads = verify_destination_reads(&table, "macports", "xz");
+            assert_eq!(reads.len(), 2);
+            assert_eq!(reads[1].1, vec!["-q".to_string(), "installed".to_string()]);
+        }
+    }
+
+    #[test]
+    fn the_new_semantics_require_a_no_package_verb() {
+        for semantic in ["stdout_marks_package_active", "json_reports_package_linked"] {
+            let text = SOURCE.replacen(
+                "verify = \"stdout_names_package\"",
+                &format!("verify = \"{semantic}\""),
+                1,
+            );
+            let err = parse(&text).expect_err("a name-taking verb with an active semantic");
+            assert_eq!(err.id, ErrorId::PolicyDataInvalid);
+            assert!(err.detail.contains(semantic), "{}", err.detail);
+            assert!(err.detail.contains("appends the package"), "{}", err.detail);
+        }
+    }
+
+    #[test]
+    fn verify_active_takes_an_active_semantic_and_only_it_does() {
+        // An installed read on the active verb proves presence, not activation.
+        let text = with_verify_active(
+            "[\"-q\", \"installed\"]",
+            "\"stdout_names_package\"",
+            ACTIVE_ELEVATION,
+        );
+        let err = parse(&text).expect_err("verify_active with an installed semantic");
+        assert!(err.detail.contains("verify_active"), "{}", err.detail);
+        // And an active semantic on the removal inventory is refused too.
+        let text = SOURCE.replacen(
+            "verify_absent = \"stdout_omits_package\"",
+            "verify_absent = \"stdout_marks_package_active\"",
+            1,
+        );
+        assert!(parse(&text).is_err(), "an active semantic on verify_absent");
+    }
+
+    #[test]
+    fn verify_active_requires_its_gui_app_elevation_cell() {
+        let text = with_verify_active(
+            "[\"-q\", \"installed\"]",
+            "\"stdout_marks_package_active\"",
+            &["verify_active = \"none\""],
+        );
+        let err = parse(&text).expect_err("verify_active without verify_active_gui_app");
+        assert_eq!(err.id, ErrorId::PolicyDataInvalid);
+        assert!(
+            err.detail.contains("verify_active_gui_app"),
+            "{}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn verify_active_sharing_a_word_with_a_mutation_is_refused() {
+        let text = with_verify_active(
+            "[\"-q\", \"uninstall\"]",
+            "\"stdout_marks_package_active\"",
+            ACTIVE_ELEVATION,
+        );
+        let err = parse(&text).expect_err("verify_active naming the remove verb");
+        assert!(err.detail.contains("F-53"), "{}", err.detail);
+    }
+
+    #[test]
+    fn the_shipped_table_derives_verify_alone() {
+        // S-1 is inert: no shipped entry holds `verify_active`, so every
+        // VERIFY_DESTINATION reads exactly what it read before (§10).
+        let table = load().expect("the shipped table parses");
+        for (id, entry) in &table {
+            assert_eq!(
+                verify_destination_operations(Some(entry)),
+                vec!["verify"],
+                "{id}"
+            );
+        }
+        assert_eq!(verify_destination_operations(None), vec!["verify"]);
     }
 
     #[test]

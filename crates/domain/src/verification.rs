@@ -96,6 +96,14 @@ enum Kind<'p> {
     /// complete, non-empty inventory in which the name is no line's first
     /// token.
     Omits(SourceName<'p>),
+    /// `VERIFY_DESTINATION` over [`SuccessSemantic::StdoutMarksPackageActive`]:
+    /// a clean, complete inventory in which exactly one row of the name is in
+    /// the marked shape and no row of it is in an unknown one.
+    Active(DestinationName<'p>),
+    /// `VERIFY_DESTINATION` over [`SuccessSemantic::JsonReportsPackageLinked`]:
+    /// a clean, complete document whose parse, made outside this crate,
+    /// reports the name [`LinkedReport::Linked`].
+    Linked(DestinationName<'p>),
 }
 
 impl<'p> Expectation<'p> {
@@ -105,13 +113,17 @@ impl<'p> Expectation<'p> {
             Kind::ExitZero(_) => SuccessSemantic::ExitStatus,
             Kind::Names(_) => SuccessSemantic::StdoutNamesPackage,
             Kind::Omits(_) => SuccessSemantic::StdoutOmitsPackage,
+            Kind::Active(_) => SuccessSemantic::StdoutMarksPackageActive,
+            Kind::Linked(_) => SuccessSemantic::JsonReportsPackageLinked,
         }
     }
 
     /// The destination name, for a destination check.
     pub fn destination(&self) -> Option<DestinationName<'p>> {
         match self.0 {
-            Kind::ExitZero(name) | Kind::Names(name) => Some(name),
+            Kind::ExitZero(name) | Kind::Names(name) | Kind::Active(name) | Kind::Linked(name) => {
+                Some(name)
+            }
             Kind::Omits(_) => None,
         }
     }
@@ -119,10 +131,30 @@ impl<'p> Expectation<'p> {
     /// The source name, for a removal check.
     pub fn source(&self) -> Option<SourceName<'p>> {
         match self.0 {
-            Kind::ExitZero(_) | Kind::Names(_) => None,
+            Kind::ExitZero(_) | Kind::Names(_) | Kind::Active(_) | Kind::Linked(_) => None,
             Kind::Omits(name) => Some(name),
         }
     }
+}
+
+/// What a parse of a JSON inventory says about one package, as the caller of
+/// [`evaluate_with`] reports it. Only [`Self::Linked`] passes.
+///
+/// Defined here so the rule that judges it stays in this crate while the
+/// parse — which needs a JSON reader this crate does not depend on — is made
+/// in the application layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkedReport {
+    /// Exactly one entry of the name, linked to one of its own installed
+    /// versions.
+    Linked,
+    /// No entry of the name, or one with no linked record, or one linked to a
+    /// version it does not hold.
+    NotLinked,
+    /// More than one entry of the name.
+    Ambiguous,
+    /// The document is not the shape this build knows.
+    Unparseable,
 }
 
 /// Why a command cannot be judged at all. Each is a refusal, never a pass.
@@ -260,6 +292,30 @@ pub fn expectation_for(
             }
             Ok(Expectation(Kind::Omits(source)))
         }
+        (
+            StepKind::VerifyDestination,
+            semantic @ (SuccessSemantic::StdoutMarksPackageActive
+            | SuccessSemantic::JsonReportsPackageLinked),
+        ) => {
+            let name = safe_destination(plan)?;
+            // A whole-inventory read: one that asks about a name answers a
+            // different question, and is refused like a removal check's.
+            let source = plan.source_name();
+            if cmd
+                .argv
+                .iter()
+                .any(|a| a == name.as_str() || a == source.as_str())
+            {
+                return Err(ExpectationError::ArgvNamesAPackage);
+            }
+            Ok(Expectation(
+                if semantic == SuccessSemantic::StdoutMarksPackageActive {
+                    Kind::Active(name)
+                } else {
+                    Kind::Linked(name)
+                },
+            ))
+        }
         _ => Err(ExpectationError::SemanticNotValidForStep),
     }
 }
@@ -323,6 +379,16 @@ pub enum FailureCause {
     NameAbsent,
     /// The name a removal check requires gone is still a line's first token.
     NamePresent,
+    /// The provider does not report exactly one record of the destination
+    /// package as active (or linked): none, or two.
+    ActiveNotReported,
+    /// The provider's answer is not in the shape this build knows: a JSON
+    /// document it could not read, or a row of the destination package in a
+    /// shape that is neither marked active nor the provider's own not-active
+    /// one. Distinct from [`Self::ActiveNotReported`] because it says the
+    /// provider's output changed, not that the package is inactive (work order
+    /// 16 part S, security review of S-1, L-1).
+    OutputShapeUnknown,
 }
 
 /// Judges `output` against `expectation`.
@@ -333,7 +399,23 @@ pub enum FailureCause {
 /// absence demands exit 0, a complete output and a non-empty one, each checked
 /// on its own, before it asks about the name at all — it is the one semantic
 /// satisfied by saying nothing.
+///
+/// A [`SuccessSemantic::JsonReportsPackageLinked`] read needs a JSON parse this
+/// crate cannot make, so it never passes here ([`FailureCause::OutputShapeUnknown`]);
+/// [`evaluate_with`] takes the parse.
 pub fn evaluate(expectation: &Expectation<'_>, output: &ReadOutput<'_>) -> Verdict {
+    evaluate_with(expectation, output, &|_, _| LinkedReport::Unparseable)
+}
+
+/// [`evaluate`], with `linked` answering what a JSON inventory (the stdout, the
+/// destination name) says about the package. Consulted for a
+/// [`SuccessSemantic::JsonReportsPackageLinked`] read only, and only after the
+/// shared did-not-finish, truncation, exit-status and empty-output checks.
+pub fn evaluate_with(
+    expectation: &Expectation<'_>,
+    output: &ReadOutput<'_>,
+    linked: &dyn Fn(&str, &str) -> LinkedReport,
+) -> Verdict {
     let code = match output.end {
         ProcessEnd::DidNotFinish => return Verdict::Failed(FailureCause::DidNotFinish),
         ProcessEnd::Exited { code } => code,
@@ -370,6 +452,78 @@ pub fn evaluate(expectation: &Expectation<'_>, output: &ReadOutput<'_>) -> Verdi
             }
             Verdict::Passed
         }
+        Kind::Active(name) => reported_active(code, output.stdout, || {
+            marked_active(output.stdout, name.as_str())
+        }),
+        Kind::Linked(name) => reported_active(code, output.stdout, || {
+            match linked(output.stdout, name.as_str()) {
+                LinkedReport::Linked => Ok(()),
+                // Two entries of one name is the JSON form of two marked rows.
+                LinkedReport::NotLinked | LinkedReport::Ambiguous => {
+                    Err(FailureCause::ActiveNotReported)
+                }
+                LinkedReport::Unparseable => Err(FailureCause::OutputShapeUnknown),
+            }
+        }),
+    }
+}
+
+/// The shared tail of both "active" semantics, after did-not-finish and
+/// truncation: exit 0, a non-empty inventory, then the provider's record.
+fn reported_active(
+    code: i32,
+    stdout: &str,
+    reported: impl FnOnce() -> Result<(), FailureCause>,
+) -> Verdict {
+    if code != 0 {
+        return Verdict::Failed(FailureCause::NonZeroExit);
+    }
+    if token_lines(stdout) == 0 {
+        return Verdict::Failed(FailureCause::EmptyOutput);
+    }
+    match reported() {
+        Ok(()) => Verdict::Passed,
+        Err(cause) => Verdict::Failed(cause),
+    }
+}
+
+/// Whether exactly one row of `stdout` records `name` as active, in the shape
+/// R-20 reads from a plain-text inventory, and no row of `name` is in a shape
+/// this build does not know.
+///
+/// **The one rule for both providers' "active" (INV-17):** exactly one record
+/// of the package is marked active; a record of it in the provider's own
+/// not-active shape is ignored; two marked is not active; a record of it in any
+/// other shape is not active. Here a marked row is exactly three tokens, the
+/// second beginning with `@` and the third exactly `(active)`; the not-active
+/// shape is exactly two tokens, the second beginning with `@` (R-20 finding 7,
+/// read from the source and not observed). Every other row whose first token
+/// is the name — one token, four or more (verbose output, finding 5), a third
+/// token other than `(active)`, a second without `@` — means the output is not
+/// the shape this build knows, and the check fails however many marked rows
+/// there are. The name is compared literally, without case folding (finding
+/// 6): a plan spelling it differently from the registry halts.
+///
+/// `Err(OutputShapeUnknown)` for a row of an unknown shape,
+/// `Err(ActiveNotReported)` for zero or two marked rows.
+fn marked_active(stdout: &str, name: &str) -> Result<(), FailureCause> {
+    let mut marked = 0usize;
+    for line in stdout.lines() {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.first() != Some(&name) {
+            continue;
+        }
+        let versioned = tokens.get(1).is_some_and(|t| t.starts_with('@'));
+        match tokens.len() {
+            3 if versioned && tokens[2] == "(active)" => marked += 1,
+            2 if versioned => {}
+            _ => return Err(FailureCause::OutputShapeUnknown),
+        }
+    }
+    if marked == 1 {
+        Ok(())
+    } else {
+        Err(FailureCause::ActiveNotReported)
     }
 }
 

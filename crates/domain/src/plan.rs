@@ -204,6 +204,38 @@ pub enum SuccessSemantic {
     /// verify removal" reads as "the removal failed", whose natural response is
     /// to remove it again.
     StdoutOmitsPackage,
+    /// The destination provider's **plain-text inventory** marks exactly one
+    /// record of the package as the active one (04, verification check 1;
+    /// `PROVIDER_REPORTS_ACTIVE`; R-20 findings 1, 2, 5-7, 19).
+    ///
+    /// Valid on `VERIFY_DESTINATION` only, and only for a command whose argv
+    /// names neither of the plan's packages: like [`Self::StdoutOmitsPackage`]
+    /// it reads the whole inventory, so a command asking about one name cannot
+    /// carry it. Judged by `verification::evaluate`, with the one rule both
+    /// providers share (INV-17): exactly one record of the name, compared
+    /// literally and without case folding, is in the provider's marked shape —
+    /// three tokens, the second beginning with `@`, the third exactly
+    /// `(active)`; a record in the provider's own not-active shape — exactly
+    /// two tokens, the second beginning with `@` — is ignored; any other record
+    /// of the name, and zero or two marked ones, fail
+    /// (`FailureCause::ActiveNotReported`).
+    ///
+    /// **An older build reads this value as [`Self::Unknown`]**, which every
+    /// executor must refuse, so adding it is additive (`plan.v1.md`).
+    StdoutMarksPackageActive,
+    /// The destination provider's **JSON inventory** records exactly one entry
+    /// of the package as linked, to one of that entry's own installed versions
+    /// (04, verification check 1; `PROVIDER_REPORTS_ACTIVE`; R-20 findings 8-13,
+    /// 20, 21).
+    ///
+    /// Valid on `VERIFY_DESTINATION` only, for a command naming neither
+    /// package. The document is parsed in the application layer — this crate
+    /// has no JSON dependency — and handed to
+    /// `verification::evaluate_with` as a `LinkedReport`; the parser-less
+    /// `verification::evaluate` never passes it. An entry with no linked record
+    /// (an unlinked formula, a cask) fails, which is a deliberate fail-closed
+    /// choice (SE-107). Read as [`Self::Unknown`] by an older build.
+    JsonReportsPackageLinked,
     /// Not stated, or stated in terms this build does not recognise.
     ///
     /// The refusing value, and the default, for the reason
