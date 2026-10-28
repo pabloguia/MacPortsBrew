@@ -8398,3 +8398,14 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   Mutation proof: removing the `fchmod` after creation fails that test and no other of the module's 19. **Still
   owed and held by reading:** the `0277`-umask read-back half SE-092 names; revisit only if a second
   umask-dependent rule appears.
+- **Propagation, work order 16 part C (2026-10-27/28), DP-037 (b).** Plan `docs/passes/16-plans/C.md`, reviewed twice
+  by `spec-guardian` and `security-reviewer`. `MigrationPlan` records `enteredBy` (`DEFAULT_VIEW`, `ADVANCED`,
+  `NAMED`), decided by the **source row** the plan would remove, so a unit top-level under the destination and a
+  dependency under the source is still `NAMED`; `plan`, `migrate` and `restore --plan` print `advanced.warning` and
+  `plan.entered_by_named` for a `NAMED` entry and carry `warnings: ["advanced.warning"]` at the `--json` document
+  level, derived and never stored; the named package's dependencies are never added. 06's advanced-mode section says
+  so (Tier 3, additive). **Contract handed to parts K and E:** the confirmation level is a pure function of the
+  in-memory plan just built from a live capture, never of a plan read from a file; an absent `enteredBy` means the
+  strictest level; `warnings` is never an input to a decision; E's digest covers `enteredBy` and keeps
+  `DEFAULT_VIEW` distinct from absence; `UNKNOWN` ownership counts as the default view by the current spec, a
+  choice K confirms or changes; and C's confirmation half is a blocking acceptance item of K.

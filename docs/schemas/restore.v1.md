@@ -46,6 +46,7 @@ as root, for a value that is not a run id (usage, exit 2), and for
 | `notes` | What a person reviewing the plan should know. `NOT_VERSION_EXACT` always (`package`, and `recordedVersion` when the record states one); `KEEPS_DESTINATION` (`reason`: `ADD_NOT_PERFORMED`, `DESTINATION_HELD_IT_BEFORE`, `BEFORE_STATE_NOT_ESTABLISHED`) when the package the run added is not removed; `RECORD_NOT_CONFIRMED`; `OUTCOME_UNCERTAIN` when a dispatched command did not end in a known exit 0 |
 | `nothingToRestore` | Present instead of `plan` when there is nothing to put back: `RUN_CHANGED_NOTHING` (the run dispatched no mutating step) or `ALREADY_RESTORED` (the machine is as the run found it). Exit 0 (INV-16) |
 | `plan` | The `plan.v1` plan, unchanged. Absent with `nothingToRestore` |
+| `warnings` | As in [`plan.v1.md`](plan.v1.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Since 2026-10-27, additive (DP-037) |
 | `execution` | With `EXECUTE` only: `outcome`, and the `gateRefusals` that ended it, exactly as [`migrate.v1`](migrate.v1.md) states them |
 
 New values may be added to `notes` and `reason` without a version bump

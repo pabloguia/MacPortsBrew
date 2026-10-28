@@ -319,6 +319,10 @@ fn no_human_command_prints_a_hostile_character_a_snapshot_keeps() {
         vec!["plan", "htop", "--to", "homebrew"],
         vec!["migrate", "htop", "--to", "macports"],
         vec!["migrate", "htop", "--to", "homebrew"],
+        // A named dependency: DP-037's notice on stderr renders the package
+        // name as a parameter, so it goes through the same escaping.
+        vec!["plan", "brotli", "--to", "macports"],
+        vec!["migrate", "brotli", "--to", "macports"],
         vec!["doctor"],
         vec!["--verbose", "explain", "htop"],
         vec!["--verbose", "migrate", "htop", "--to", "macports"],

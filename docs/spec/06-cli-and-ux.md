@@ -180,6 +180,16 @@ it displays a warning to the effect that these packages are managed
 automatically by their provider and that removing or migrating them
 individually can break packages that depend on them.
 
+**Naming a package is such a deliberate action, for that package only**
+(DP-037, ruled 2026-10-27). When `plan`, `migrate` or `restore` acts on a row
+outside the default view — judged by the **source row** the plan would remove,
+not by whether the unit is listed — and `--advanced` was not given, the
+warning is shown, the plan records `enteredBy: NAMED` (`ADVANCED` with
+`--advanced`, `DEFAULT_VIEW` otherwise), and `--json` carries
+`warnings: ["advanced.warning"]`. The named package's own dependencies are
+never added. The stronger confirmation below is defined with the confirmation
+levels in work order 16 part K; until then no plan executes.
+
 **MUST.** In advanced mode: reverse dependencies are still checked (INV-04);
 dependencies are still never preselected; destructive actions require a stronger
 confirmation than in normal mode; and the other provider is still never treated

@@ -134,3 +134,15 @@ shows, to `analysis`, or to the executor, the gate or verification.
 | security-reviewer | plan, first draft | approve with fixes: closed set for `warnings` (M1); source row decides (M2); K's contract that the level is derived and never trusted (M3); two copies can disagree (L1); E's digest covers the field (L2); hostile-text test (L3); restore (L4); `UNKNOWN` (L5); `options` vs `opts` (L6) | All folded in; `warnings` moved off the domain type entirely |
 | spec-guardian | revised plan | **approved**; low: add a `restore --plan` end-to-end case | Added to Tests |
 | security-reviewer | revised plan | **approved**; low: N1 no indexing panic, N2 message wording for `restore` | Folded into Design §1 and §6 |
+
+## As built (2026-10-28)
+
+- Implemented as designed. `restore --plan` shares `plan_warnings` and
+  `named_entry_notice` with `plan` and `migrate`; its end-to-end case is not
+  added because the only recorded run the restore tests use (`restore_tests.rs`)
+  migrated a top-level package, and a run record for a dependency would have to
+  be invented. Its `DEFAULT_VIEW` document is covered by the existing restore
+  tests, which now see `enteredBy` in the plan.
+- `a_plan_whose_entry_moved_under_the_lock_is_refused` pins `plan_still_holds`.
+- `hostile_text.rs` runs `plan` and `migrate` on a named dependency, so the new
+  stderr notice goes through the escaping check.
