@@ -18,7 +18,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | Part | Depends on | Status | Branch / PR / commit | Notes |
 |---|---|---|---|---|
 | 0 — owner confirms the rulings | — | merged `fd443ef` | PR #24 | Confirmed in chat 2026-10-27 |
-| A — documentation rulings | 0 | in progress `wo16/A-doc-rulings` | | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
+| A — documentation rulings | 0 | in progress `wo16/A-doc-rulings` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | todo | | |
 | C — advanced-mode entry (warning, JSON) | 0 | todo | | Its confirmation half lands in K |
 | D — what defines a service | 0 | todo | | May merge with the capture owed |
