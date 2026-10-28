@@ -505,13 +505,21 @@ options startupitems startupitem.autostart startupitem.debug \
         startupitem.user startupitem.daemondo.verbosity
 
 default startupitem.autostart   no
-default startupitem.create      {[portstartupitem::get_startupitem_type]}
+default startupitem.create      {[portstartupitem::get_startupitem_type]}   # MISQUOTED: see the correction below
 default startupitem.install     {$system_options(startupitem_install)}
 default startupitem.location    LaunchDaemons
 default startupitem.name        {${subport}}
 default startupitem.uniquename  {org.macports.${startupitem.name}}
 default startupitem.plist       {${startupitem.uniquename}.plist}
 ```
+
+**Correction (2026-10-28).** The `startupitem.create` line above is
+misquoted. MacPorts 2.12.6's `portstartupitem.tcl` has no `default` for
+`startupitem.create`; the computed default is on `startupitem.type`
+(`default startupitem.type {[portstartupitem::get_startupitem_type]}`, line
+120), and `get_startupitem_type` answers `none` unless the global
+`startupitem.create` is true (addendum 2026-10-28, A-2). The quote is kept as it
+was read, so the correction is visible rather than silent.
 
 The user note it generates references `"sudo port load ${subport}"`.
 
@@ -995,7 +1003,16 @@ none (`startupitem.type none`) should count is DP-032. The system
   and E-9 are still cited only, and the three MacPorts `UNRESOLVED` items above
   stay open until they are observed.
 - **When MacPorts' minor version changes** (2.12.6 at the addendum):
-  `portstartupitem.tcl`'s location and naming rules, by its sha256.
+  `portstartupitem.tcl`'s location and naming rules, by its sha256; and, for
+  the declared half the registry Portfile reader depends on (addendum
+  2026-10-28), the registry layout in `registry2.0/portimage.tcl` and the
+  creation condition in `portstartupitem.tcl`, by the sha256s in that
+  addendum's table.
+- **When the sha256 of Homebrew's `Library/Homebrew/service.rb` changes**
+  (`6da2207b…c7cb7` at Homebrew 7.0.4): `plist_names` and `to_hash`, which the
+  materialised half's reading of a keg and the declared half's `service`
+  key rest on (addendum 2026-10-28, A-5; the label constants in
+  `crates/adapters/src/homebrew/keg.rs` carry the same citation).
 - **When the curated stateful list is first written** — regenerate the 86-name
   E-6 candidate list against the then-current catalogue rather than copying
   this note's list, and record the new revision and date.
@@ -1356,9 +1373,9 @@ $ find /usr/local/Cellar -maxdepth 3 -name 'homebrew.*.plist' -o -maxdepth 3 -na
 /usr/local/Cellar/unbound/1.26.0/homebrew.mxcl.unbound.plist
 … (plus the matching homebrew.<name>.service systemd units)
 $ stat -f '%Sp %Su:%Sg %HT %z' /usr/local/Cellar/emacs/31.1/homebrew.mxcl.emacs.plist
--rw-r--r-- pirado:admin Regular File 630
+-rw-r--r-- <user>:admin Regular File 630
 $ ls -la /usr/local/opt/emacs/homebrew.mxcl.emacs.plist
--rw-r--r--@ 1 pirado  admin  630 Aug 24 16:32 /usr/local/opt/emacs/homebrew.mxcl.emacs.plist
+-rw-r--r--@ 1 <user>  admin  630 Aug 24 16:32 /usr/local/opt/emacs/homebrew.mxcl.emacs.plist
 $ plutil -p /usr/local/Cellar/emacs/31.1/homebrew.mxcl.emacs.plist
 {
   "KeepAlive" => true

@@ -21,7 +21,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
 | C — advanced-mode entry (warning, JSON) | 0 | merged `0564fc3` | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
-| D — what defines a service | 0 | in progress `wo16/D-service-definition` | PR #29 | Plan `16-plans/D.md` approved by both reviewers (second round); implementation next. Implements DP-032 with replay unknown (ruled); DP-054 asks only whether to relax that. No port with a startup item is installed on this machine (observed 2026-10-28) |
+| D — what defines a service | 0 | waiting on owner (P's `04-fixture-matrix-service-rule.patch`) | `wo16/D-service-definition`, PR #29 | Implemented and approved by both reviewers (code, two rounds); 20 of 21 mutants killed, m18 race-only. The code is `docs/passes/16-plans/D-implementation.patch`: the commit gate cannot pass until the matrix patch is applied. **Resume** as `wo16/D-2` from `origin/main` after it is: `git apply docs/passes/16-plans/D-implementation.patch`, fill the `<commit>` placeholder in `fixtures/snapshots/README.md`, split into Conventional commits, delete the patch file, run `scripts/validate.sh`. No port with a startup item is installed here (owner item) |
 | P — stage the owner items, once | 0 | todo | | Ends `waiting on owner` |
 | M — harden the Claude workflows | 0 | todo | | Ends `waiting on owner` |
 | S — slice 6 parts B and C | 0 | todo | | First of the chain |
