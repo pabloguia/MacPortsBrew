@@ -2846,3 +2846,86 @@ fn a_dry_run_writes_no_snapshot_and_no_report() {
     assert!(String::from_utf8_lossy(&doctor.stderr).contains("Dry run"));
     assert_eq!(tree(scratch.path()), before, "a dry run wrote something");
 }
+
+// ---------------------------------------------------------------------------
+// DP-037, work order 16 part C: naming a dependency enters advanced mode for it.
+
+#[test]
+fn invariant_13_naming_a_dependency_warns_once_and_says_so_in_json() {
+    let scratch = Scratch::new("named-entry");
+    let path = fixture(BOTH);
+    let path = path.to_str().expect("fixture path is UTF-8");
+    let warning = "Advanced mode shows dependencies.";
+    let named = "outside the default view";
+    for command in ["plan", "migrate"] {
+        for (package, entry) in [("brotli", "NAMED"), ("actionlint", "DEFAULT_VIEW")] {
+            let json = run(
+                &scratch,
+                &[
+                    "--replay", path, "--json", command, package, "--to", "macports", "--today",
+                    TODAY,
+                ],
+            );
+            let value: Value = serde_json::from_slice(&json.stdout).unwrap();
+            let plan = if command == "plan" {
+                &value
+            } else {
+                &value["plan"]
+            };
+            assert_eq!(plan["enteredBy"], entry, "{command} {package}");
+            let stderr = String::from_utf8_lossy(&json.stderr);
+            if entry == "NAMED" {
+                assert_eq!(
+                    value["warnings"],
+                    serde_json::json!(["advanced.warning"]),
+                    "{command} {package}"
+                );
+                assert_eq!(stderr.matches(warning).count(), 1, "{command}: {stderr}");
+                assert!(stderr.contains(named), "{command}: {stderr}");
+            } else {
+                assert!(value.get("warnings").is_none(), "{command} {package}");
+                assert!(!stderr.contains(warning), "{command}: {stderr}");
+            }
+            // Rendered output carries the same notice on stderr.
+            let human = run(
+                &scratch,
+                &[
+                    "--replay", path, command, package, "--to", "macports", "--today", TODAY,
+                ],
+            );
+            let stderr = String::from_utf8_lossy(&human.stderr);
+            assert_eq!(
+                stderr.matches(warning).count(),
+                usize::from(entry == "NAMED"),
+                "{command} {package}: {stderr}"
+            );
+        }
+        // With `--advanced` the warning was printed once at the start and is
+        // not repeated; the entry is ADVANCED.
+        let advanced = run(
+            &scratch,
+            &[
+                "--replay",
+                path,
+                "--json",
+                "--advanced",
+                command,
+                "brotli",
+                "--to",
+                "macports",
+                "--today",
+                TODAY,
+            ],
+        );
+        let value: Value = serde_json::from_slice(&advanced.stdout).unwrap();
+        let plan = if command == "plan" {
+            &value
+        } else {
+            &value["plan"]
+        };
+        assert_eq!(plan["enteredBy"], "ADVANCED");
+        let stderr = String::from_utf8_lossy(&advanced.stderr);
+        assert_eq!(stderr.matches(warning).count(), 1, "{command}: {stderr}");
+        assert!(!stderr.contains(named), "{command}: {stderr}");
+    }
+}
