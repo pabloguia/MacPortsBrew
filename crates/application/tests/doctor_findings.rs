@@ -15,9 +15,10 @@
 
 use macportsbrew_application::{doctor, Severity};
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, EnvironmentSnapshot, Installations, Machine, MacosVersion,
-    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderPresence, ProviderSnapshot, Snapshot, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot,
+    Installations, Machine, MacosVersion, Provenance, ProviderCapabilities, ProviderDetection,
+    ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot, Snapshot, Translation,
+    Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -448,6 +449,7 @@ fn file(path: &str, readable: bool, keys: &[&str]) -> macportsbrew_domain::Confi
         scope: macportsbrew_domain::ConfigurationScope::User,
         readable,
         keys: keys.iter().map(|k| (*k).to_string()).collect(),
+        analytics_keys: std::collections::BTreeSet::new(),
     }
 }
 
@@ -536,6 +538,104 @@ fn an_input_that_cannot_say_is_a_warning_that_it_is_unknown() {
 // --- A provider installed in more than one place (pass 12, item B) ----------
 
 /// The snapshot, saying where `id` was found.
+// --- DP-028: what the charter's non-goals promise is disclosed ---------------
+
+#[test]
+fn a_file_setting_an_analytics_key_discloses_it_and_one_that_does_not_is_silent() {
+    let mut analytics = file(
+        "~/.homebrew/brew.env",
+        true,
+        &["HOMEBREW_CACHE", "HOMEBREW_NO_ANALYTICS"],
+    );
+    analytics.analytics_keys = ["HOMEBREW_NO_ANALYTICS".to_string()].into_iter().collect();
+    let found = configuration_findings(macportsbrew_domain::ProviderConfiguration::Read {
+        files: vec![analytics],
+    });
+    let mut ids: Vec<&str> = found.iter().map(|f| f.0.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        [
+            "provider_configuration_analytics",
+            "provider_configuration_outranks"
+        ]
+    );
+    let (_, severity, detail) = found
+        .iter()
+        .find(|f| f.0 == "provider_configuration_analytics")
+        .expect("the analytics finding");
+    assert_eq!(*severity, Severity::Warning);
+    assert!(
+        detail.contains("HOMEBREW_NO_ANALYTICS") && !detail.contains("HOMEBREW_CACHE"),
+        "only the analytics keys are named: {detail}"
+    );
+
+    let found = configuration_findings(macportsbrew_domain::ProviderConfiguration::Read {
+        files: vec![file("~/.homebrew/brew.env", true, &["HOMEBREW_CACHE"])],
+    });
+    assert!(
+        found
+            .iter()
+            .all(|f| f.0 != "provider_configuration_analytics"),
+        "{found:?}"
+    );
+}
+
+fn network_finding(state: Option<CapabilityState>) -> Vec<(String, Severity)> {
+    let mut p = provider("homebrew", "/opt/homebrew", Architecture::Arm64);
+    p.capabilities
+        .capabilities
+        .remove(&Capability::OfflineMetadata);
+    if let Some(state) = state {
+        p.capabilities
+            .capabilities
+            .insert(Capability::OfflineMetadata, state);
+    }
+    let snap = snapshot(
+        Architecture::Arm64,
+        installed(),
+        &["/usr/bin"],
+        vec![("homebrew", p)],
+    );
+    let report = doctor(
+        &snap,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        TODAY,
+    );
+    report
+        .findings
+        .iter()
+        .filter(|f| f.id.contains("network") || f.id.contains("offline"))
+        .map(|f| (f.id.clone(), f.severity))
+        .collect()
+}
+
+#[test]
+fn whether_a_read_may_reach_the_network_is_said_and_unknown_is_never_offline() {
+    assert_eq!(
+        network_finding(Some(CapabilityState::Available)),
+        [("provider_reads_offline".to_string(), Severity::Ok)]
+    );
+    assert_eq!(
+        network_finding(Some(CapabilityState::Unavailable {
+            reason: "no cached index".into()
+        })),
+        [(
+            "provider_read_may_reach_network".to_string(),
+            Severity::Warning
+        )]
+    );
+    for state in [Some(CapabilityState::Unknown), None] {
+        assert_eq!(
+            network_finding(state),
+            [(
+                "provider_network_use_unknown".to_string(),
+                Severity::Warning
+            )]
+        );
+    }
+}
+
 fn found_at(mut snap: Snapshot, id: &str, installations: Installations) -> Snapshot {
     snap.environment
         .installations

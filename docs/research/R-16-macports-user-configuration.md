@@ -597,3 +597,20 @@ findings below rest on source (E2, E3), not on an observed override.
   or adds an action that fetches.
 - A mutating MacPorts pass is designed: the elevated `HOME`/`SUDO_USER`
   question in "Cannot determine" must be answered on the target machine first.
+
+## Addendum, 2026-10-27: no analytics key (work order 16 part A, DP-028)
+
+DP-028's charter wording promises that MacPortsBrew discloses a provider
+configuration that enables the provider's analytics. For MacPorts the question
+is whether `macports.conf` accepts any such key.
+
+- **Observed, read-only, 2026-10-27, MacPorts 2.12.6:**
+  `grep -rn -i "stats_participate\|stats_url" /opt/local/libexec/macports/lib`
+  and `grep -n -i stats .../macports1.0/macports.tcl` both print nothing, and
+  the installed `/opt/local/etc/macports/macports.conf` names no `stats` key.
+- **So:** the MacPorts entry in `data/policy/provider-configuration.toml`
+  carries no `analytics_keys`, and `doctor` has no analytics disclosure to make
+  for MacPorts on this version.
+- **Not established:** whether a statistics port (installed separately)
+  reads a key of its own from elsewhere. Nothing MacPortsBrew runs invokes one.
+- **Re-check when** the MacPorts base version changes.

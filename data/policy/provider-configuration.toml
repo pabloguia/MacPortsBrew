@@ -32,6 +32,11 @@ files = [
   { path = "{prefix}/etc/homebrew/brew.env", scope = "PREFIX" },
   { path = "~/.homebrew/brew.env", scope = "USER" },
 ]
+# Keys that decide whether Homebrew sends its own analytics (DP-028). Blanking
+# HOMEBREW_NO_ANALYTICS in a brew.env turns them back on for every Ruby
+# command, a read included (R-15, run d; Library/Homebrew/utils/analytics.rb
+# lines 108-109, brew.rb line 146, at Homebrew 7.0.4).
+analytics_keys = ["HOMEBREW_NO_ANALYTICS"]
 source = "https://github.com/Homebrew/brew/blob/master/bin/brew (export_homebrew_env_file, lines 128-181 at Homebrew 7.0.4); docs/research/R-15-homebrew-brew-env.md"
 read_on = "2026-10-02"
 note = """
@@ -53,6 +58,9 @@ files = [
   # (R-16): it does not outrank anything this tool sets, so it is not listed.
   { path = "~/.macports/macports.conf", scope = "USER" },
 ]
+# No analytics_keys: the MacPorts 2.12.6 base library names no statistics or
+# analytics key (`grep -rni stats_` over /opt/local/libexec/macports/lib finds
+# none, observed 2026-10-27; R-16 addendum).
 source = "/opt/local/libexec/macports/lib/macports1.0/macports.tcl lines 53-73 and 1157-1199, MacPorts 2.12.6; docs/research/R-16-macports-user-configuration.md"
 read_on = "2026-10-03"
 note = """

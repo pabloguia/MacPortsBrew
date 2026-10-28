@@ -174,6 +174,11 @@ pub struct ConfigurationFile {
     /// Values are never kept.
     #[serde(default)]
     pub keys: std::collections::BTreeSet<String>,
+    /// Those of `keys` that decide whether the provider sends its own
+    /// analytics, as the provider-configuration data names them (DP-028).
+    /// The value is never kept, so this says the key is set, not which way.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub analytics_keys: std::collections::BTreeSet<String>,
 }
 
 /// Whose configuration a file is.
