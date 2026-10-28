@@ -19,8 +19,8 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 |---|---|---|---|---|
 | 0 — owner confirms the rulings | — | merged `fd443ef` | PR #24 | Confirmed in chat 2026-10-27 |
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
-| B — creation-mode seam | 0 | in progress `wo16/B-creation-mode` | PR #27 | |
-| C — advanced-mode entry (warning, JSON) | 0 | todo | | Its confirmation half lands in K |
+| B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
+| C — advanced-mode entry (warning, JSON) | 0 | in progress `wo16/C-advanced-entry` | | Plan approved: `docs/passes/16-plans/C.md`. Its confirmation half lands in K |
 | D — what defines a service | 0 | todo | | May merge with the capture owed |
 | P — stage the owner items, once | 0 | todo | | Ends `waiting on owner` |
 | M — harden the Claude workflows | 0 | todo | | Ends `waiting on owner` |
@@ -29,7 +29,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
 | G — lock probe | F | todo | | |
 | H — four destination checks | G, P | todo | | |
-| K — removal opt-in | H, C, A | todo | | |
+| K — removal opt-in | H, C, A | todo | | **Blocking:** C's confirmation half and the contract in `16-plans/C.md` §9 (absent `enteredBy` = strictest; level derived, never trusted; `UNKNOWN` ownership a deliberate choice) |
 | I — layer 4, consented | K | todo | | |
 | J — elevation | I, P | todo | | Needs P's elevation entries applied |
 | L — flip proposal | J | todo | | The deliverable is a document |
