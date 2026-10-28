@@ -20,8 +20,8 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | 0 — owner confirms the rulings | — | merged `fd443ef` | PR #24 | Confirmed in chat 2026-10-27 |
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
-| C — advanced-mode entry (warning, JSON) | 0 | in review PR #28 | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
-| D — what defines a service | 0 | todo | | May merge with the capture owed |
+| C — advanced-mode entry (warning, JSON) | 0 | merged `0564fc3` | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
+| D — what defines a service | 0 | in progress `wo16/D-service-definition` | | May merge with the capture owed. No port with a startup item is installed on this machine (observed 2026-10-28) |
 | P — stage the owner items, once | 0 | todo | | Ends `waiting on owner` |
 | M — harden the Claude workflows | 0 | todo | | Ends `waiting on owner` |
 | S — slice 6 parts B and C | 0 | todo | | First of the chain |
