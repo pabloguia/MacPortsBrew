@@ -21,7 +21,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
 | C — advanced-mode entry (warning, JSON) | 0 | merged `0564fc3` | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
-| D — what defines a service | 0 | in progress `wo16/D-service-definition` | | May merge with the capture owed. No port with a startup item is installed on this machine (observed 2026-10-28) |
+| D — what defines a service | 0 | blocked on DP-054 | `wo16/D-service-definition`, PR #29 | Research (R-8 addendum) and plan (`16-plans/D.md`) merge; code waits for DP-054. No port with a startup item is installed on this machine (observed 2026-10-28) |
 | P — stage the owner items, once | 0 | todo | | Ends `waiting on owner` |
 | M — harden the Claude workflows | 0 | todo | | Ends `waiting on owner` |
 | S — slice 6 parts B and C | 0 | todo | | First of the chain |
@@ -54,12 +54,20 @@ Remove a line when the owner has done it, citing the commit.
   2026-10-27 ("Auto-Mode Bypass"). Action: run `/tooling-recheck` with scope
   "Hooks, permissions, CI" yourself, or allow that subagent launch, and save the
   note as `docs/research/tooling/2026-10-27-hooks-permissions-ci.md`.
+- **Rule DP-054** (blocks part D's code; `docs/decisions-pending.md`). Whether a
+  replayed Homebrew plan may go ahead while the keg plist cannot be read.
+  Action: reply with (a), (b) or (c); the recommendation is (b).
+- **Capture a MacPorts recording with a startup item** (part D's end-to-end
+  case; D may merge without it). No port here declares or creates one. Action:
+  on a machine with MacPorts `nginx` or `dbus` installed, run
+  `scripts/capture-fixture.sh` and commit the recording under
+  `fixtures/recordings/`.
 
 ## Decisions raised during the pass
 
 Append each new DP number with the part that raised it.
 
-- (none yet)
+- DP-054 — part D, 2026-10-28: replayed Homebrew plans and the unreadable keg
 
 ## Session log
 
