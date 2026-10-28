@@ -8392,3 +8392,9 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     also draws the analytics warning, because values are never kept; the message says it cannot tell which way.
     (3) An unreadable file draws `provider_configuration_unreadable`, not the analytics disclosure; the docs say
     "when the file can be read".
+- **Propagation, work order 16 part B (2026-10-27), DP-029 (d).** The durable write's creation mode is a
+  crate-private parameter (`persistence::atomic::write_new_with_mode`); production passes `FILE_MODE` (`0o600`),
+  unchanged. `a_record_created_wide_still_lands_0600` creates a record at `0o644` and asserts it lands `0600`.
+  Mutation proof: removing the `fchmod` after creation fails that test and no other of the module's 19. **Still
+  owed and held by reading:** the `0277`-umask read-back half SE-092 names; revisit only if a second
+  umask-dependent rule appears.

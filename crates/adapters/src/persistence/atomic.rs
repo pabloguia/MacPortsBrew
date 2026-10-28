@@ -190,6 +190,22 @@ fn write_new_with(
     durability: Durability,
     sync: impl Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), PublishError> {
+    write_new_with_mode(path, bytes, publish, durability, sync, FILE_MODE)
+}
+
+/// [`write_new_with`] with the mode the temporary is *created* with passed in
+/// (DP-029 (d)). Production always passes [`FILE_MODE`]; a test passes a wide
+/// mode to prove that the `fchmod` after creation, not the creation mode, is
+/// what leaves a record `0o600` - which is how an unusual umask is covered
+/// without changing the process's umask (no `unsafe`, no shell).
+fn write_new_with_mode(
+    path: &Path,
+    bytes: &[u8],
+    publish: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    durability: Durability,
+    sync: impl Fn(&Path) -> std::io::Result<()>,
+    creation_mode: u32,
+) -> Result<(), PublishError> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let failed = |what: String| PublishError::Failed(DomainError::new(ErrorId::Io, what));
     let parent = path
@@ -202,7 +218,7 @@ fn write_new_with(
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .mode(FILE_MODE)
+            .mode(creation_mode)
             .open(&temporary)?;
         file.set_permissions(std::fs::Permissions::from_mode(FILE_MODE))?;
         file.write_all(bytes)?;
@@ -548,6 +564,30 @@ mod tests {
         let target = dir.join("run.json");
         write_new_with(&target, b"r", link, Durability::BestEffort, failing_sync).unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"r");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_record_created_wide_still_lands_0600() {
+        // DP-029 (d): the creation mode stands in for an umask this test cannot
+        // set. A wide one (0o644) must still publish 0o600, so removing the
+        // post-creation permission fix fails this test. The 0277 read-back half
+        // stays owed and held by reading (SE-092).
+        let dir = scratch("atomic-creation-mode");
+        let target = dir.join("record.json");
+        write_new_with_mode(
+            &target,
+            b"r",
+            link,
+            Durability::Required,
+            sync_directory,
+            0o644,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            FILE_MODE
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
