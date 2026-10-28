@@ -22,7 +22,9 @@ order, which model the owner should start the session with.
 > v0.2.0 is now symmetric (both directions, elevation consented per step,
 > consented shims, opt-in removal), and the mutating track runs as
 > [`16-complete-mutating-product.md`](16-complete-mutating-product.md), which
-> folds in slice 6 parts B–C and slices 7–9 below. Where this sheet still describes the narrow v0.2.0
+> folds in slice 6 parts B–C and slices 7–9 below. Start every session with the
+> fixed prompt in that work order's header; its progress is in
+> `docs/passes/16-progress.md`. Where this sheet still describes the narrow v0.2.0
 > or lists DP-028..DP-051 as open, it is stale; part A of work order 16 rewrites it.
 
 **Done:** passes 00–07, 09 (release machinery, staged then; installed by pass 15 part B), 10 (release candidate),
