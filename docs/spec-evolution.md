@@ -8394,7 +8394,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     "when the file can be read".
 - **Propagation, work order 16 part B (2026-10-27), DP-029 (d).** The durable write's creation mode is a
   crate-private parameter (`persistence::atomic::write_new_with_mode`); production passes `FILE_MODE` (`0o600`),
-  unchanged. `a_record_created_wide_still_lands_0600` creates a record at `0o644` and asserts it lands `0600`.
+  unchanged. `a_record_created_wide_or_narrow_still_lands_0600` creates a record at `0o644` and at `0o400` and asserts each lands `0600`; the narrow case makes the kill independent of the test's umask (security-reviewer, 2026-10-27).
   Mutation proof: removing the `fchmod` after creation fails that test and no other of the module's 19. **Still
   owed and held by reading:** the `0277`-umask read-back half SE-092 names; revisit only if a second
   umask-dependent rule appears.
