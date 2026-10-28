@@ -505,13 +505,21 @@ options startupitems startupitem.autostart startupitem.debug \
         startupitem.user startupitem.daemondo.verbosity
 
 default startupitem.autostart   no
-default startupitem.create      {[portstartupitem::get_startupitem_type]}
+default startupitem.create      {[portstartupitem::get_startupitem_type]}   # MISQUOTED: see the correction below
 default startupitem.install     {$system_options(startupitem_install)}
 default startupitem.location    LaunchDaemons
 default startupitem.name        {${subport}}
 default startupitem.uniquename  {org.macports.${startupitem.name}}
 default startupitem.plist       {${startupitem.uniquename}.plist}
 ```
+
+**Correction (2026-10-28).** The `startupitem.create` line above is
+misquoted. MacPorts 2.12.6's `portstartupitem.tcl` has no `default` for
+`startupitem.create`; the computed default is on `startupitem.type`
+(`default startupitem.type {[portstartupitem::get_startupitem_type]}`, line
+120), and `get_startupitem_type` answers `none` unless the global
+`startupitem.create` is true (addendum 2026-10-28, A-2). The quote is kept as it
+was read, so the correction is visible rather than silent.
 
 The user note it generates references `"sudo port load ${subport}"`.
 
@@ -995,9 +1003,627 @@ none (`startupitem.type none`) should count is DP-032. The system
   and E-9 are still cited only, and the three MacPorts `UNRESOLVED` items above
   stay open until they are observed.
 - **When MacPorts' minor version changes** (2.12.6 at the addendum):
-  `portstartupitem.tcl`'s location and naming rules, by its sha256.
+  `portstartupitem.tcl`'s location and naming rules, by its sha256; and, for
+  the declared half the registry Portfile reader depends on (addendum
+  2026-10-28), the registry layout in `registry2.0/portimage.tcl` and the
+  creation condition in `portstartupitem.tcl`, by the sha256s in that
+  addendum's table.
+- **When the sha256 of Homebrew's `Library/Homebrew/service.rb` changes**
+  (`6da2207b…c7cb7` at Homebrew 7.0.4): `plist_names` and `to_hash`, which the
+  materialised half's reading of a keg and the declared half's `service`
+  key rest on (addendum 2026-10-28, A-5; the label constants in
+  `crates/adapters/src/homebrew/keg.rs` carry the same citation).
 - **When the curated stateful list is first written** — regenerate the 86-name
   E-6 candidate list against the then-current catalogue rather than copying
   this note's list, and record the new revision and date.
 - Not time-sensitive in the support-tier sense: nothing here depends on a
   published deadline.
+
+## Addendum 2026-10-28: what defines a service (DP-032, work order 16 part D)
+
+DP-032 was ruled on 2026-10-27: a package is a service if it **declares** one
+or its provider **materialised** one, and a declaration that cannot be
+interpreted is unknown. This addendum sets out the facts both halves rest on.
+Every observation is from 2026-10-28 on the machine in the header, which now
+runs **MacPorts 2.12.6** at `/opt/local` and **Homebrew 7.0.4** at `/usr/local`
+(`brew --version`; `/usr/local/Homebrew` HEAD
+`edb70f031e4170c780799633a1226ff73e1077f4`; the `homebrew/core` tap is still at
+`e045d7385fd7ad8907621300224f8a860bdd7bbb`, 2026-09-02T09:54:08Z). Nothing was
+changed and nothing ran under `sudo`.
+
+**Environment.** Homebrew ran under the shell's
+`HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1`
+(`env | grep -i '^homebrew'`). The one `brew info` call also had
+`HOMEBREW_NO_INSTALL_FROM_API=1`, because `~/Library/Caches/Homebrew/api` did not
+exist and API mode would have had to download it. One side effect was observed:
+that call created `~/Library/Caches/Homebrew/bootsnap/`, a Ruby boot cache.
+Before the call, `ls` reported `~/Library/Caches/Homebrew` as "No such file or
+directory". MacPorts commands print `Warning: port definitions are more than
+two weeks old` on stderr. `port` has no auto-update to suppress.
+
+The MacPorts 2.12.6 sources below were read where they are installed (sha256):
+
+| File | sha256 |
+|---|---|
+| `/opt/local/libexec/macports/lib/registry2.0/portimage.tcl` | `d8ecb2b3736a587ee58d806c8048f86b560ea920b2cec5821b8f3462560cbb5c` |
+| `.../registry2.0/portuninstall.tcl` | `52c81122732974b8b9aa84a3c93ab4570f51d10487efffc44d424f73a19f7728` |
+| `.../registry2.0/registry_util.tcl` | `1659d07262618afbd753c82d24a76974ebc026293658c978bbb61e70c8e80121` |
+| `.../registry2.0/receipt_sqlite.tcl` | `858dca027c7dfd8cacc4879a692ebfb929ad677f8393e7f61499fc39e49820bc` |
+| `.../macports1.0/macports.tcl` | `aa1d25941f3eec0e35a4584471ea7a94471bcdd9a7550978e694fa9e528b2c32` |
+| `.../port1.0/portstartupitem.tcl` | `cc4d2c99b1e303d4677f9d562f8c3a9f076bea2d8e28263f099b805f0ee592b3` (same as the 2026-10-10 addendum) |
+| `.../port1.0/portdestroot.tcl` | `f4306484af1e3acab00e65925255359c6d4ad17b5310017bea321f82396714a0` |
+| `.../port1.0/portload.tcl` | `ca5bdef6e6490ad74b643f4ce0370e5d2d788b41f86930b8896fbab6d0dbbc3b` |
+| `.../port1.0/portactivate.tcl` | `517cf0f5fd847918dc78f8964e8464013f7f00d50f20ce1b09d7f5f768f76055` |
+| `.../port1.0/portutil.tcl` | `dea1e466b773a0440d8663e24c0cc3b6f68da6b68b8e277228226a5d2fe435ce` |
+| `/opt/local/bin/port` (the `port` Tcl script) | `e04d53dc06ec84cd718cb40f6ba8867b2fa22c20ef9dbfa9c8203a5d6a915e49` |
+| `/opt/local/etc/macports/macports.conf` | `2e83ac75bf400f96d989d2e1a4c39f531fcf370bde9363a8183d516fa27423b8` |
+
+The ports tree is the rsync tree as synced on this machine,
+`/opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports`
+(`PortIndex` mtime 2026-09-06T17:01). Every quoted Portfile has its sha256 given.
+
+### A-1 — Where MacPorts keeps the installed Portfile
+
+**Observed.**
+
+```
+$ ls /opt/local/var/macports/registry/
+portfiles  portgroups  registry.db  registry.db-shm  registry.db-wal
+$ ls /opt/local/var/macports/registry/portfiles | wc -l
+      18
+$ port -q installed | wc -l
+      18
+$ ls -la /opt/local/var/macports/registry/portfiles/jq-1.8.2_0
+drwxr-xr-x@  3 root  wheel   96 Sep  7 15:58 .
+drwxr-xr-x@ 20 root  wheel  640 Sep  7 15:58 ..
+drwxr-xr-x@  3 root  wheel   96 Sep  7 15:58 bc6d69841dd2407dde9475ba2e0f29e1607315254ca1f5ee672a479ad27e7408-1489
+$ cd /opt/local/var/macports/registry/portfiles
+$ find . -mindepth 3 -maxdepth 6 -exec stat -f '%Sp %l %Su:%Sg %HT %z %N' {} \;
+-rw-r--r-- 1 root:wheel Regular File 1489 ./jq-1.8.2_0/bc6d6984…a7408-1489/Portfile
+… (18 lines, one per installed port, all `-rw-r--r-- 1 root:wheel Regular File`)
+$ find . -mindepth 1 -maxdepth 3 | awk -F/ 'NF==4{print $4}' | sort | uniq -c
+  18 Portfile
+```
+
+The layout has **two levels below `portfiles/`**:
+`registry/portfiles/<name>-<version>_<revision>/<sha256>-<size>/Portfile`.
+Each `<sha256>-<size>` directory holds exactly one entry: a regular file named
+`Portfile`, mode `0644`, owned by `root:wheel`, link count 1. There is **no
+`files/` directory**. A loop over all 18 confirmed that each directory name is
+the file's `shasum -a 256` value, a `-`, and its byte size (`ok=18 bad=0`).
+Ports built from one Portfile have identical content but separate directories.
+For example, `gettext`, `gettext-runtime`, `gettext-tools-libs` and
+`libtextstyle` each have their own `<name>-1.0_0/cf18ded7…-7936/Portfile`. Every
+installed port on this machine has one.
+
+The registry records the location. This was a read-only query
+(`sqlite3 -readonly`); the sizes and mtimes of the db, `-shm` and `-wal` files
+were unchanged afterwards:
+
+```
+$ sqlite3 -readonly /opt/local/var/macports/registry/registry.db '.schema ports'
+CREATE TABLE ports (id INTEGER PRIMARY KEY, name TEXT COLLATE NOCASE, portfile TEXT, location TEXT, epoch INTEGER, version TEXT COLLATE VERSION, revision INTEGER, variants TEXT, requested_variants TEXT, state TEXT, date DATETIME, installtype TEXT, archs TEXT, requested INTEGER, os_platform TEXT, os_major INTEGER, cxx_stdlib TEXT, cxx_stdlib_overridden INTEGER, UNIQUE (name, epoch, version, revision, variants));
+CREATE TABLE portgroups (id INTEGER, name TEXT, version TEXT COLLATE VERSION, size INTEGER, sha256 TEXT, FOREIGN KEY(id) REFERENCES ports(id) ON DELETE CASCADE);
+$ sqlite3 -readonly …/registry.db "select name, version, revision, quote(variants), portfile, state from ports order by id;"
+ncurses|6.6|0|''|124bc8876268bae621e908cc62e13e5ae4680f7ee6e26970aded91103073edb8-3331|installed
+…
+jq|1.8.2|0|''|bc6d69841dd2407dde9475ba2e0f29e1607315254ca1f5ee672a479ad27e7408-1489|installed
+```
+
+The `ports.portfile` column holds the `<sha256>-<size>` component, not a path.
+The `portgroups` table lists each PortGroup an installed port used, with its
+version, size and sha256 (for example `jq|github|1.0|12898d72…-4817`). The group
+file itself is kept beside the registry as
+`registry/portgroups/<sha256>-<size>/<name>-<version>.tcl`. This was observed for
+all nine groups in use here: `github-1.0.tcl`, `muniversal-1.0.tcl`,
+`muniversal-1.1.tcl`, `clang_dependency-1.0.tcl`, `gnulib-1.0.tcl`,
+`legacysupport-1.1.tcl`, `makefile-1.0.tcl`, `compiler_wrapper-1.0.tcl` and
+`conflicts_build-1.0.tcl`.
+
+**Cited (source, 2.12.6).**
+
+- `registry2.0/portimage.tcl`, `proc install`, lines 1083-1122:
+  - Line 1090 builds the stored path as
+    `[file join ${registry.path} registry portfiles <name>-<version>_<revision> ${portfile_sha256}-${portfile_size}]`.
+  - Lines 1091-1096 copy only `${portfile_reg_dir}/Portfile`, with
+    `file attributes … -permissions 0644`.
+  - Lines 1099-1113 copy each PortGroup to
+    `registry portgroups ${pgsha256}-${pgsize}` as `${pgname}-${pgversion}.tcl`.
+  - Lines 1119-1122 record `$regref portfile ${portfile_sha256}-${portfile_size}`
+    on the entry, and one `addgroup` per group.
+- `macports1.0/macports.tcl`, `mportopen_installed`, lines 2630-2662, reopens
+  the port from exactly that directory and points `_portgroup_search_dirs` at
+  the stored groups. This is how MacPorts runs deactivate and uninstall from
+  the registry (`registry_util.tcl`, `run_target`, lines 125-175).
+- `registry2.0/portuninstall.tcl`, lines 295-335, deletes the stored Portfile
+  only when no other entry with the same `portfile`, `name`, `version` and
+  `revision` remains.
+
+**Variants.** The registry key is `UNIQUE (name, epoch, version, revision,
+variants)`, but the directory key is `<name>-<version>_<revision>` plus the
+content hash. Two installed entries that differ only in variants therefore share
+one `<sha256>-<size>` directory when their Portfiles are byte-identical. When
+the Portfiles differ, they sit as two sibling hash directories under one
+`<name>-<version>_<revision>`. The uninstall logic above is written for exactly
+that sharing. Epoch is not part of the path. This was read in source only: no
+port on this machine has two entries.
+
+**Conclusion.** A reader finds a port's installed Portfile from its registry row
+(`name`, `version`, `revision`, `portfile`). It must never derive the Portfile
+from the ports tree, which describes the *current* port and not what was
+installed. The registry pins the PortGroups the port used in the same way, by
+sha256.
+
+### A-2 — Which Portfile forms make MacPorts create a startup item
+
+**Cited (source, `portstartupitem.tcl`, 2.12.6).**
+
+- **Options** (lines 90-99): `startupitems`, and `startupitem.` + `autostart`,
+  `debug`, `create`, `custom_file`, `executable`, `group`, `init`, `install`,
+  `location`, `logevents`, `logfile`, `logfile.stderr`, `name`, `netchange`,
+  `pidfile`, `plist`, `requires`, `restart`, `start`, `stop`, `type`,
+  `uniquename`, `user`, `daemondo.verbosity`.
+- **Defaults** (lines 101-124): `autostart no`, `custom_file {}`,
+  `executable {}`, `init/start/stop/restart {}`,
+  `install {$system_options(startupitem_install)}`, `location LaunchDaemons`,
+  `name {${subport}}`, `plist {${startupitem.uniquename}.plist}`,
+  `uniquename {org.macports.${startupitem.name}}`, and
+  `default startupitem.type {[portstartupitem::get_startupitem_type]}`
+  (line 120). **`startupitem.create` has no `default`.**
+  This contradicts E-7 above. E-7 was read from `master` on 2026-09-02 and
+  quotes a `default startupitem.create {[portstartupitem::get_startupitem_type]}`
+  line. 2.12.6 has no such line: the computed default is on
+  `startupitem.type`.
+- **Type** (`get_startupitem_type`, lines 129-148): the type is `none` when
+  `[tbool startupitem.create]` is false. `tbool` returns 0 for an unset
+  variable (`portutil.tcl`, lines 930-936). Otherwise the type is
+  `$system_options(startupitem_type)`, where `default` or empty means `launchd`
+  on `darwin` and `none` elsewhere.
+- **Multiple items** (`foreach_startupitem`, lines 152-199): a non-empty
+  `startupitems` list is read as key/value pairs, and each `name` key starts a
+  new item. That item's `uniquename` defaults to `org.macports.<name>` and its
+  `plist` to `<uniquename>.plist`. Any key an item does not set falls back to
+  the global `startupitem.<key>`. Without `startupitems`, the single item is the
+  global `startupitem.*` set.
+- **Creation condition** (`startupitem_create`, lines 513-530, which destroot
+  calls unconditionally, `portdestroot.tcl` line 125):
+
+  ```tcl
+  if {${si_type} ne "none" && ([tbool si_create] || $si_custom_file ne "")} {
+  ```
+
+  An item is materialised only if its type is not `none` and either `create` is
+  true or a `custom_file` is given. Only type `launchd` is handled. Note how the
+  two interact: an item that does not set `type` gets the global default, and
+  that default is computed from the **global** `startupitem.create`. A port that
+  sets `startupitem.create no` must therefore set `startupitem.type launchd`
+  explicitly before its `custom_file` item is installed. That is what
+  `logrotate`, `display-switch`, `sphinx`, `apcupsd` and `dnsupdate` do (A-6).
+- **Activation and load work from the declaration, not the file.**
+  `portactivate.tcl` (lines 71-77) and `portload.tcl` (lines 54-60) iterate
+  `foreach_startupitem`, which covers every declared item whatever its type.
+  `add_notes` (lines 202-230) prints the `sudo port load` note for every item
+  whose type is not `none`. So `dbus` (A-6) declares two items with
+  `type launchd`, `create no` and no `custom_file`. `startupitem_create` makes no
+  item for it, yet `port load` still loads it, because its Portfile writes the
+  plists itself.
+- **Where the link goes** (`install_darwin_launchd`, lines 273-281): when
+  running as root with `install` true, MacPorts creates a symlink
+  `/Library/<location>/<plist>`. Otherwise it creates a symlink
+  `${prefix}/etc/<location>/<plist>`, which sits **beside the `<uniquename>/`
+  item directory** in the same location directory.
+
+**`startupitem_type none` in `macports.conf`.** Observed:
+
+```
+$ sed -n 175,181p /opt/local/etc/macports/macports.conf
+# Type of generated StartupItems.
+# - launchd: Create StartupItems for use with launchd.
+# - default: Create StartupItems for launchd on macOS and none on
+#   other platforms.
+# - none: Disable creation of StartupItems.
+# This setting only applies when building ports from source.
+#startupitem_type    	default
+$ grep -n '^[^#]*startupitem' /opt/local/etc/macports/macports.conf; echo "exit=$?"
+exit=1
+```
+
+`macports.tcl`, lines 1542-1555, sets the defaults: `startupitem_type` is
+`default`, `startupitem_install` is `yes` and `startupitem_autostart` is `yes`.
+With `startupitem_type none`, `get_startupitem_type` returns `none` for every
+port that does not set `startupitem.type` itself, so building from source
+creates nothing. The config comment says the setting does not apply to a binary
+archive, whose destroot already contains the item. A port that sets
+`startupitem.type launchd` explicitly overrides the system setting.
+
+**Conclusion.** For DP-032's declared half, "declares a startup item" is best
+defined as follows: the evaluated Portfile yields at least one item from
+`foreach_startupitem` whose type is not `none`, or whose `create` is true, or
+which has a `custom_file`. Base's own condition, the one `startupitem_create`
+acts on, is narrower: the line quoted in A-2. The two differ for ports like
+`dbus` and `avahi`, and under `startupitem_type none`. In both cases the broader
+definition is the safe one, because it reports a service.
+
+### A-3 — PortGroups that add startup items
+
+**Observed.**
+
+```
+$ G=/opt/local/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports/_resources/port1.0/group
+$ ls $G | wc -l
+     105
+$ grep -ln 'startupitem' $G/*.tcl
+(no output)
+$ grep -n -i 'startupitem\|LaunchDaemon\|LaunchAgent\|launchctl\|daemondo' $G/*
+…/group/kde4-1.1.tcl:130: launchctl load -w /Library/LaunchAgents/org.freedesktop.dbus-session.plist
+```
+
+`kde4-1.1.tcl` (sha256
+`96e165f973a3bcf037a625f3f760181e33a9900a767f173af0349e563eb652be`), line 130,
+is inside a `notes "…"` string that tells the user to load `dbus`'s agent. It
+sets no option.
+
+**Conclusion.** **No PortGroup in this ports tree adds a startup item**, so the
+list is empty. This holds for this tree on this date and is not a guarantee. A
+PortGroup is Tcl and a later revision could set `startupitem.*`, and a private
+source can ship its own groups. The registry pins the exact group files each
+port used (A-1), so a reader can check *those* copies instead of the current
+tree. If a stored PortGroup mentions `startupitem`, that is a form the bounded
+reader does not interpret, and the answer is unknown.
+
+### A-4 — How `port provides` attributes a path
+
+**Observed.** The stderr warning is omitted below for calls without `-q`.
+
+```
+$ port provides /opt/local/bin/jq; echo "exit=$?"
+/opt/local/bin/jq is provided by: jq
+exit=0
+$ port provides /usr/bin/true; echo "exit=$?"
+/usr/bin/true is not provided by a MacPorts port.
+exit=0
+$ port provides /opt/local/etc/nonexistent.plist; echo "exit=$?"
+/opt/local/etc/nonexistent.plist does not exist.
+exit=0
+$ port provides /opt/local/bin | tail -1
+/opt/local/bin is a directory.
+$ port -q provides /opt/local/bin/jq; echo "exit=$?"
+jq
+exit=0
+$ port -q provides /usr/bin/true; echo "exit=$?"
+exit=0
+$ port -q provides /opt/local/etc/nonexistent.plist; echo "exit=$?"
+exit=0
+$ port -q provides /opt/local/bin/jq /usr/bin/true /opt/local/bin/tree | od -c
+0000000    j   q  \n   t   r   e   e  \n
+```
+
+**Cited.** `/opt/local/bin/port`, `action_provides`, lines 2181-2216:
+
+- Each argument goes through `file normalize`.
+- A directory that is not a symlink prints "is a directory".
+- For anything else, `registry::file_registered $file` returns the owning
+  port's name, or 0.
+- Under `-q` (`ports_quiet`), only the bare name is printed. The "not
+  provided", "does not exist" and "is a directory" messages are suppressed.
+- The exit status is 0 in every case.
+
+**Conclusion.** With `-q`, "not owned", "does not exist" and "is a directory"
+all produce the **same empty output and exit 0**. In a multi-path call the
+unowned paths simply drop out, so output lines can no longer be matched to
+arguments. Attribution is only sound with one path per invocation, reading
+empty output as "no owner proven": unknown for that item, not "no service".
+`crates/adapters/src/macports/service.rs` already works this way
+(`ARGV_PROVIDES = ["-q", "provides"]`, one call per item). The answer is the
+port name only, without version or variants. When `install` is true, the
+registry also records the `/Library/LaunchDaemons/<plist>` symlink, because
+activation renames the file-map entry (`portactivate.tcl`, lines 71-77). A
+`provides` query on that path is therefore attributable too.
+
+No port on this machine has a startup item:
+
+```
+$ ls /opt/local/etc
+macports
+$ grep -l startupitem /opt/local/var/macports/registry/portfiles/*/*/Portfile; echo "grep-exit=$?"
+grep-exit=1
+```
+
+Work order 16 D.2 asks for a recording "with a MacPorts port that has a startup
+item". That recording **cannot be captured here** without installing such a
+port, which this note may not do.
+
+### A-5 — Homebrew: the declared and materialised halves
+
+**Observed: which installed formulae declare `service`.**
+
+```
+$ HOMEBREW_NO_INSTALL_FROM_API=1 brew info --json=v2 --installed > brew-installed.json; echo "exit=$?"
+exit=0
+```
+
+A script processed the output: 192 formulae and 9 casks. Every formula object
+has a `service` key, which is JSON `null` when the formula has no service block.
+Five are non-null:
+
+```
+emacs      {"keep_alive": {"always": true}, "run": ["/usr/local/opt/emacs/bin/emacs", "--fg-daemon"], "run_type": "immediate"}
+httpd      {"environment_variables": {"PATH": "…"}, "run": ["/usr/local/opt/httpd/bin/httpd", "-D", "FOREGROUND"], "run_type": "immediate"}
+jupyterlab {"error_log_path": "…", "keep_alive": {"always": true}, "log_path": "…", "run": ["/usr/local/opt/jupyterlab/bin/jupyter-lab"], "run_type": "immediate"}
+php@8.4    {"error_log_path": "…", "keep_alive": {"always": true}, "run": ["/usr/local/opt/php@8.4/sbin/php-fpm", "--nodaemonize"], "run_type": "immediate", "working_dir": "/usr/local/var"}
+unbound    {"keep_alive": {"always": true}, "require_root": true, "run": ["/usr/local/opt/unbound/sbin/unbound", "-d", "-c", "/usr/local/etc/unbound/unbound.conf"], "run_type": "immediate"}
+```
+
+With `HOMEBREW_NO_INSTALL_FROM_API=1`, this output comes from the **tap's
+current** formula, not the installed one. The installed copy of the formula is
+in the keg, at `<cellar>/<name>/<version>/.brew/<name>.rb`. For example, lines
+52-56 of `/usr/local/Cellar/unbound/1.26.0/.brew/unbound.rb` hold `service do`,
+`run [opt_sbin/"unbound", …]` and `require_root true`.
+
+**Observed: the keg plists.**
+
+```
+$ find /usr/local/Cellar -maxdepth 3 -name 'homebrew.*.plist' -o -maxdepth 3 -name 'homebrew.*.service'
+/usr/local/Cellar/emacs/31.1/homebrew.mxcl.emacs.plist
+/usr/local/Cellar/emacs/31.1/homebrew.emacs.service
+/usr/local/Cellar/php@8.4/8.4.25/homebrew.mxcl.php@8.4.plist
+/usr/local/Cellar/php@8.4/8.4.24/homebrew.mxcl.php@8.4.plist
+/usr/local/Cellar/httpd/2.4.68/homebrew.mxcl.httpd.plist
+/usr/local/Cellar/jupyterlab/4.6.3/homebrew.mxcl.jupyterlab.plist
+/usr/local/Cellar/unbound/1.26.0/homebrew.mxcl.unbound.plist
+… (plus the matching homebrew.<name>.service systemd units)
+$ stat -f '%Sp %Su:%Sg %HT %z' /usr/local/Cellar/emacs/31.1/homebrew.mxcl.emacs.plist
+-rw-r--r-- <user>:admin Regular File 630
+$ ls -la /usr/local/opt/emacs/homebrew.mxcl.emacs.plist
+-rw-r--r--@ 1 <user>  admin  630 Aug 24 16:32 /usr/local/opt/emacs/homebrew.mxcl.emacs.plist
+$ plutil -p /usr/local/Cellar/emacs/31.1/homebrew.mxcl.emacs.plist
+{
+  "KeepAlive" => true
+  "Label" => "homebrew.mxcl.emacs"
+  "LimitLoadToSessionType" => [ "Aqua", "Background", "LoginWindow", "StandardIO", "System" ]
+  "ProgramArguments" => [ "/usr/local/opt/emacs/bin/emacs", "--fg-daemon" ]
+  "RunAtLoad" => true
+}
+$ ls ~/Library/LaunchAgents /Library/LaunchDaemons 2>&1 | grep -i homebrew; echo "exit=$?"
+exit=1
+```
+
+Each of the five formulae with a non-null `service` has a keg plist in every
+installed version (php@8.4 has one in both 8.4.24 and 8.4.25). No keg holds a
+plist without a `service`. None of the services is started: neither launchd
+directory contains anything named `homebrew*`. `/usr/local/opt/<name>` is a
+symlink to the keg, so the opt path and the Cellar path are the same file.
+
+**Cited (Homebrew source, `/usr/local/Homebrew` at 7.0.4, read 2026-10-28).**
+
+| File | sha256 | Lines |
+|---|---|---|
+| `Library/Homebrew/formula_installer.rb` | `833fa39f2ab1e39aab4c772ec49e567a1420e32e54e84ec57e4649052b817fe5` | 1005-1015 (`finish` calls `install_service`), 1366-1394 |
+| `Library/Homebrew/formula.rb` | `5f09f104376dfe08235c261ed721da391ae47be1cba98a63923e4c7802dbf436` | 1511-1542 |
+| `Library/Homebrew/service.rb` | `6da2207bb5f7e72dfb8477f19ab53aaab8d6a9de9807a9f9f5a1711e4c3c7cb7` | 54-55, 86-105, 573-575, 758-764 |
+| `Library/Homebrew/services/system.rb` | `f9994d84dd018708b45424a2b0b1be944e4858ef705787d2488c1e09f19d6d42` | 64-84 |
+| `Library/Homebrew/services/formula_wrapper.rb` | `cc7762117eadf00565f27efd146a901e4625f14df87f98e5998e2135b360d70b` | 196-212 |
+
+- **When a keg plist is written.** `install_service` writes the plist only
+  `if formula.service? && formula.service.command?` (line 1367), and `command?`
+  is `!@run.empty?` (`service.rb`, lines 573-575). It writes
+  `formula.launchd_service_path` with mode `0644` (lines 1382-1384). That path
+  is `(any_installed_prefix || opt_prefix)/"<plist_name>.plist"`
+  (`formula.rb`, lines 1535-1542), which is inside the keg. A `service` block
+  **without `run`** writes no plist. docs.brew.sh (below) says such a formula is
+  expected to ship its own service file in the prefix.
+- **The label has changed.** In 7.0.4, `service.rb` lines 86-105 define:
+  - `default_plist_name` is `canonical_plist_name`, which is
+    `"sh.brew.#{@formula.name}"`.
+  - `legacy_plist_name` is `"homebrew.mxcl.#{@formula.name}"`.
+  - `plist_names` is `[plist_name, canonical, legacy].uniq`, unless
+    `name macos:` set a name explicitly.
+
+  `git -C /usr/local/Homebrew log -S canonical_plist_name` lists two commits:
+  `fdf5b3be68 2026-09-02 services: recognize both macOS service labels` and
+  `963b69f634 2026-09-02 services: default to canonical macOS service labels`.
+  `git tag --contains 963b69f634` lists `6.0.22`, `7.0.0`, `7.0.1`, …. A
+  formula installed by Homebrew **6.0.22 or later** therefore gets
+  `sh.brew.<name>.plist` with `Label sh.brew.<name>`. The kegs on this machine
+  were installed in August 2026 by an earlier Homebrew and carry
+  `homebrew.mxcl.<name>.plist`. Both names can exist on one machine.
+- **The JSON shape.** When there are no run params, `to_hash` (lines 758-764)
+  returns only `{name: {macos: …, linux: …}}.compact_blank`, which is `{}` or
+  `{"name": {"macos": "<label>"}}`. `name.macos` appears only when the formula
+  set it explicitly. A non-null `service` object without `run` is therefore a
+  declared service with no generated plist.
+- **After `brew services start`.** `services/system.rb`, lines 64-84: the boot
+  path is `/Library/LaunchDaemons` (as root) and the user path is
+  `~/Library/LaunchAgents`. In `formula_wrapper.rb`, lines 196-212, `dest_dir`
+  is the boot path when running as root and the user path otherwise, and `dest`
+  is `dest_dir/<service file basename>`.
+
+docs.brew.sh, read 2026-10-28:
+
+- `https://docs.brew.sh/Manpage` (`services`): "If `sudo` is passed, operate on
+  `/Library/LaunchDaemons` … Otherwise, operate on `~/Library/LaunchAgents`".
+- `https://docs.brew.sh/Formula-Cookbook` (service files): "If `name` is
+  defined without `run`, then Homebrew makes no attempt to change the
+  package-provided service file". The `run` field "instructs Homebrew to
+  create a service description file". The page does not name the
+  `homebrew.mxcl.` or `sh.brew.` prefix; that comes from source only.
+
+**Conclusion.** Homebrew's declared half is "the formula's `service` is
+non-null": an object, possibly without `run`. Its materialised half is a plist
+in the keg named by any of the formula's `plist_names`: `sh.brew.<name>`,
+`homebrew.mxcl.<name>`, or an explicit `name macos:` label. After
+`brew services start`, the same basename also appears in `~/Library/LaunchAgents`
+or `/Library/LaunchDaemons`. A keg plist exists **only** for a service block
+with `run`, and it does not depend on whether the service was started.
+
+### A-6 — The bounded set of recognisable Portfile forms
+
+**Observed survey.** A Python script (run as `python3 -I`) read every `Portfile`
+in the tree. 264 Portfiles mention `startupitem`.
+
+- `startupitem.create` lines: 203 top-level `yes`, 12 top-level `no`, 30
+  indented `yes`, 1 indented `no`, and 9 with the value on a continuation line.
+- 8 Portfiles use `startupitems`, 15 set `startupitem.type` (all to `launchd`),
+  and 7 set `startupitem.custom_file`.
+- A brace-depth pass found the enclosing block of every `startupitem.create`,
+  `.type`, `.custom_file` and `startupitems` line: 242 at top level, 20 inside
+  `if {…}`, 18 inside `subport …`, 7 inside `variant …`, 6 inside
+  `platform …`, and 1 other. These counts are heuristic.
+
+Examples. Each quote is the Portfile line verbatim:
+
+| Port | sha256 | Lines | Form |
+|---|---|---|---|
+| `www/nginx` | `970cb16f5a1ed15dec53c18398e180aeab68902051df8f147dc059f058b42362` | 107, 109 | top level: `startupitem.create      yes`; `startupitem.executable  ${prefix}/sbin/nginx -g "daemon off;"` |
+| `databases/redis` | `52b09851ba46dc682d8b9c8fe7da4708ae7dafbcbcef53b42e2f7ccc4cba3708` | 109, 126 | top level `startupitem.create      yes`, inherited by `subport redis7 {` |
+| `databases/postgresql17-server` | `e33172183af194b21b784bca7907dc4440dda1eb644c57855fca84adf200587a` | 40-45 | top level `startupitem.create  yes`, then `startupitem.init    \` / `.start` / `.stop` continuations |
+| `databases/mysql8` | `23177b63d2a0b858e27be30abb700dc26f7c0a219cf553549f8985dc4114c3e9` | 19, 267, 287 | `set name_mysql          ${name}`; `subport ${name_mysql}-server {`; indented `startupitem.create      yes` |
+| `devel/dbus` | `c5e92c79a8fe40d84ae5a2e8da30937924340d20687c0f54062576c84805c244` | 57-66 | `startupitem.type    launchd`, `startupitem.create  no`, `startupitems        name        dbus-system \` with `uniquename  ${daemon_uniquename}` |
+| `sysutils/logrotate` | `a2810386df357d92be108efee1e88e76eab909b77b2e60ab1aaaedfd92fd24e6` | 74-76 | `startupitem.type    launchd`, `startupitem.create  no`, `startupitem.custom_file \` |
+| `security/tor` | `f72bce7cbdf727ee5fcca08d5ed39567f52c7f6dd88d7b960d5f627f36c98219` | 107 | `platform darwin {` then `startupitem.create          yes` |
+| `devel/perforce` | `0a4e6a70a2f4261b0db439230f0f927d427cc7eea3ce6ea1a0065e38dab58296` | 63 | `variant server {` then `startupitem.create  yes` |
+| `net/openssh` | `c0e911d8d72417f5276887e09f969c52095bba19dcfddd67abb8efc79403d5e4` | 184, 188 | `if {${name} eq ${subport}} {` then `startupitem.create  yes` |
+
+Some ports create launch machinery **without any `startupitem.*` option**, by
+writing the plist from Tcl in `post-destroot`:
+
+- `net/dnsmasq` (sha256 `294b4a4a…f4ddf`), lines 92-101: `set itemdir
+  ${prefix}/etc/${daemondest}/${uniquename}`, then `open … w 0644`.
+- `net/xymon-server`, lines 114-126: `xinstall` into
+  `${prefix}/etc/LaunchDaemons/org.macports.${name}/`, then `ln -sf` into
+  `/Library/LaunchDaemons`.
+- `net/grafana` (sha256 `c94106e2…31421`, lines 56-57 and 128-134) and
+  `sysutils/telegraf` (sha256 `b0288b0f…b1e14`, lines 100-106): both install
+  into `${prefix}/etc/LaunchDaemons/org.macports.${name}` and add a
+  `/Library/LaunchDaemons` symlink.
+- `finance/bitcoin` does the same under `if {[variant_isset daemon]}` (lines
+  103-105 and 128-131).
+
+The remaining Portfiles referred to in this section have these sha256s:
+`net/xymon-server`
+`ee5f431961f4ffdb8ad0df3b7b3d84fe77ff89f257d879e8d763bae9e41faa84`;
+`finance/bitcoin`
+`ae429a0a0353c8f2961503ff2a2f0945231c5d1bf5ebf2289cf64a5ebc63b2be`;
+`net/syncthing`
+`4688130e5de4dd2d35f9c1143c60db67066f94d3606cf016ae75b256bd5a60ce`;
+`sysutils/salt`
+`f30175d5dd9caf6e84f8513c516074ca0bed2d05fbe7be4a90a9fada7200b7b7`.
+
+76 Portfiles mention `/Library/LaunchDaemons` or `/Library/LaunchAgents`. At
+least 40 of them contain no `startupitem` at all; some mention the path only in
+`notes`, such as `net/syncthing`, lines 68-77. Not all 76 were classified.
+
+**Recognisable by a line-based reader.** A form qualifies only if the line is at
+top level: no leading whitespace, outside any brace block, with a literal value
+on the same line.
+
+1. `startupitem.create yes`, with any whitespace → declares. `true` and `1`
+   also count, because `tbool` uses `string is true -strict`.
+2. `startupitem.create no` with no other item-creating line → base declares
+   nothing (but see 5).
+3. `startupitem.type launchd` (literal), together with `create yes` or a
+   `custom_file` line → declares.
+4. `startupitem.custom_file <anything>` together with
+   `startupitem.type launchd` → declares. The value may be a variable, because
+   only its presence matters.
+5. `startupitems name <literal> …` at top level → declares at least one item.
+   The item names may be literal. The `uniquename` and `plist` values are often
+   variables, but answering "declares" does not need them.
+6. No `startupitem` token anywhere in the Portfile, **and** no `PortGroup` line
+   whose stored group mentions `startupitem` → declares nothing *by option*.
+   The materialised half still applies.
+
+**Not interpretable by a line-based reader** (the answer is unknown):
+
+- Any `startupitem*` line that is indented or inside braces: `variant … {`,
+  `subport … {` (including a subport whose name is a variable, as in `mysql8`),
+  `if {…} {` / `else`, `platform … {`, `proc`, and phase blocks.
+- A value on a continuation line (`startupitem.create \` followed by the next
+  line), or a value that is a variable or a command substitution (`${…}`, `[…]`).
+- The `-append`, `-prepend`, `-delete` and `-replace` forms
+  (`startupitems-append` appears, commented out, in `sysutils/salt`).
+- A `startupitem.type` other than the literal `launchd` (for example `none`, or
+  a variable), combined with anything else.
+- Top-level declarations that a subport inherits (`redis` → `redis7`). The line
+  itself *is* recognisable, but whether it applies to the installed subport
+  depends on Tcl evaluation. Reading it as applying to every subport is the
+  safe answer, because it reports a service.
+- Launch machinery written from Tcl without `startupitem.*` (`dnsmasq`,
+  `xymon-server`, `grafana`, `telegraf`, `bitcoin`). The reader cannot see it by
+  construction; only the materialised half catches it.
+- A `PortGroup` whose stored copy mentions `startupitem` (there are none today,
+  A-3).
+- The system setting `startupitem_type none` (A-2). It changes what is
+  materialised, not what is declared, so it does not affect the declared half.
+
+### Findings of this addendum
+
+- **F-A1.** The installed Portfile is
+  `registry/portfiles/<name>-<version>_<revision>/<sha256>-<size>/Portfile`.
+  That directory holds exactly one regular file, mode `0644`, and no `files/`.
+  The path is found through the registry's `ports.portfile` column. The
+  PortGroups a port used are pinned in the `portgroups` table and stored as
+  `registry/portgroups/<sha256>-<size>/<name>-<version>.tcl`. Observed for all
+  18 installed ports and confirmed in 2.12.6 source. Answerable **offline**
+  from the filesystem and the registry. The registry is `root:wheel 0644` and
+  its files are readable.
+- **F-A2.** Base creates an item only if `type ne none && (create || custom_file)`.
+  The type defaults to `none` unless the **global** `startupitem.create` is
+  true. For DP-032, "declares" should use the broader test: any item whose type
+  is not `none`, or whose `create` is true, or which has a `custom_file` (A-2).
+- **F-A3.** No PortGroup in this ports tree adds a startup item.
+- **F-A4.** `port -q provides` prints either the owning port's bare name or
+  nothing, with exit 0 in both cases. One path per call is the only sound way
+  to use it.
+- **F-A5.** Homebrew 6.0.22 and later names generated plists `sh.brew.<name>`.
+  Formulae installed earlier keep `homebrew.mxcl.<name>`, and an explicit
+  `name macos:` overrides both. A keg plist exists exactly when the service
+  block has `run`.
+- **F-A6.** A **symlink** `${prefix}/etc/<location>/<plist>` beside the item
+  directory is a legitimate MacPorts layout. It appears for a non-root build or
+  with `startupitem.install no` (`install_darwin_launchd`).
+- **F-A7.** No MacPorts port on this machine declares or materialises a startup
+  item, so the D.2 recording cannot be captured here without an install.
+
+### Cannot determine (this addendum)
+
+- `UNRESOLVED`: **the first MacPorts version** to store Portfiles and
+  PortGroups in the registry with this layout. The 2.12.6 `ChangeLog` (read
+  2026-10-28 via
+  `https://raw.githubusercontent.com/macports/macports-base/v2.12.6/ChangeLog`,
+  first 100 000 characters only) has no entry for it. A future attempt needs
+  `git log -S 'registry portfiles' -- src/registry2.0/portimage.tcl` on a clone
+  of `macports/macports-base`. Until then, treat the layout as 2.12.6's,
+  re-checked against the sha256s above, and treat a missing directory as
+  unknown.
+- `UNRESOLVED`: the case of two entries that differ only in variants was read in
+  source but not observed.
+- `UNRESOLVED`: whether Homebrew 7.0.4 rewrites an existing `homebrew.mxcl.*`
+  keg plist to `sh.brew.*` during any operation other than an install.
+  Observing it would need a mutating command.
+- Not established: a recording of a port with a startup item (F-A7).
+
+### Impact on the specification (addendum 2026-10-28)
+
+- **DP-032's ruling text and work order 16 D.1 name `homebrew.mxcl.*` as the
+  Homebrew materialised form.** Since Homebrew 6.0.22 the default is
+  `sh.brew.<name>` (F-A5). A reader that recognised only `homebrew.mxcl.*`
+  would miss every service a current Homebrew installs. The Homebrew half must
+  accept the formula's full `plist_names` set. This contradicts the ruling's
+  wording, not its intent; whether it needs a `docs/spec-evolution.md` entry is
+  the main agent's decision.
+- **Homebrew's declared half** should be "`service` is non-null", not "has
+  `run`". A `service` of `{}` or `{"name": …}` is a declared service whose plist
+  the package supplies itself (A-5).
+- **`crates/adapters/src/macports/service.rs`** treats "any other stray entry"
+  in a location directory as unknown. F-A6 shows that a symlinked `<plist>`
+  beside its `<uniquename>/` directory is a normal MacPorts layout, so such a
+  machine would read as unknown. That fails closed and is therefore safe, but
+  it is a false unknown worth handling when the reader lands.
+- **E-7's quoted `default startupitem.create {…}` line** does not exist in
+  2.12.6 (A-2); the computed default is on `startupitem.type`. The 2026-10-10
+  addendum's line references to `portstartupitem.tcl` still hold.
+- Re-check triggers to add: a change of MacPorts minor version (re-check the
+  sha256s in the table above, especially `portimage.tcl` and
+  `portstartupitem.tcl`), and a change to the sha256 of Homebrew's `service.rb`
+  (`plist_names`, `to_hash`).
