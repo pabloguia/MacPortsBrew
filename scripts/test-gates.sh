@@ -542,6 +542,9 @@ else
       release) f="$d/wf/release.yml" ;;
       other)   f=""; for c in "$d"/wf/*.yml; do [ "$(basename "$c")" = release.yml ] || { f="$c"; break; }; done ;;
       action)  f="$d/act/action.yml" ;;
+      validation) f="$d/wf/repository-validation.yml" ;;
+      claude)  f="$d/wf/claude.yml" ;;
+      review)  f="$d/wf/claude-code-review.yml" ;;
     esac
     PYSRC="$py" python3 - "$f" <<'PYEOF' || { note FAIL "$label" "the construction did not apply"; miss; return; }
 import os, sys
@@ -612,7 +615,360 @@ PYEOF
   wf_case "a flag of another tool on a line that is not a build" accept release "$(in_first '      - run: grep -F x file')"
   wf_case "a commented build line with a flag"                accept release 't = t + "\n    # cargo build --all-features\n"'
   wf_case "a commented call of build-release.sh with -F"      accept release 't = t + "\n    # scripts/build-release.sh t o -F x\n"'
+  # Rule 11 (DP-039 (b).5, pass 16 part M) and the spelling hardening of rules
+  # 4 and 6: the Claude environment and key stay in the two Claude workflows,
+  # in the job that needs the gate, and no spelling of an environment slips past.
+  wf_case "environment: claude in another workflow"           reject validation "$(at_end '    environment: claude')"
+  wf_case "environment: Claude in another workflow"           reject validation "$(at_end '    environment: Claude')"
+  wf_case "secrets.ANTHROPIC_API_KEY in another workflow"     reject validation "$(at_end '      - run: echo ${{ secrets.ANTHROPIC_API_KEY }}')"
+  wf_case "the key in lower case in another workflow"         reject validation "$(at_end '      - run: echo ${{ secrets.anthropic_api_key }}')"
+  wf_case "the key in a composite action"                     reject action     "$(at_end '      - run: echo ${{ secrets.ANTHROPIC_API_KEY }}')"
+  wf_case "a single-quoted environment"                       reject validation 't = t + "\n    environment: \x27claude\x27\n"'
+  wf_case "a double-quoted environment"                       reject validation 't = t + "\n    environment: \x22claude\x22\n"'
+  wf_case "a flow-mapping environment"                        reject validation 't = t + "\n    environment: { name: claude }\n"'
+  wf_case "an environment as an expression"                   reject validation 't = t + "\n    environment: ${{ \x27claude\x27 }}\n"'
+  wf_case "an environment as a mapping"                       reject validation 't = t + "\n    environment:\n      name: claude\n"'
+  wf_case "a quoted claude environment in claude.yml's gate"  reject claude     't = t.replace("  gate:\n    runs-on:", "  gate:\n    environment: \x22claude\x22\n    runs-on:", 1)'
+  wf_case "the key in claude.yml's gate job"                  reject claude     't = t.replace("      - id: check\n", "      - run: echo ${{ secrets.ANTHROPIC_API_KEY }}\n      - id: check\n", 1)'
+  wf_case "the key in lower case in the gate job"             reject claude     't = t.replace("      - id: check\n", "      - run: echo ${{ secrets.anthropic_api_key }}\n      - id: check\n", 1)'
+  wf_case "the review job without needs: gate"                reject review     't = t.replace("    needs: gate\n", "", 1)'
+  wf_case "a second environment: claude line"                 reject claude     't = t.replace("    environment: claude\n", "    environment: claude\n    environment: claude\n", 1)'
+  wf_case "release-signing in another case, elsewhere"        reject validation "$(at_end '    environment: Release-Signing')"
+  wf_case "a second selection, in another case"               reject release    "$(in_sign '    environment: Release-Signing')"
+  wf_case "a quoted release-signing selection"                reject release    't = t.replace("    environment: release-signing\n", "    environment: \x27release-signing\x27\n", 1)'
+  wf_case "an environment built by an expression"             reject release    "$(in_first '    environment: ${{ format(\x27release-{0}\x27, \x27signing\x27) }}')"
+  wf_case "secrets.mpb_* in lower case elsewhere"             reject validation "$(at_end '      - run: echo ${{ secrets.mpb_team_id }}')"
   rm -rf "$wg"
+fi
+
+echo
+echo "== the Claude workflows: DP-039 (b)'s five points, each able to say no (pass 16 part M)"
+# A structural check of claude.yml and claude-code-review.yml, run over their
+# non-comment lines: the real files must pass, and a copy with ONE weakening
+# must fail on that weakening's rule. It reads text, not GitHub's evaluation of
+# the YAML, so it proves the shape is present - not that the gate script is
+# correct at run time, nor any Claude Code or GitHub behaviour the workflows'
+# comments cite. Rules (DP-039 (b) point, and the part M review item):
+#   T   the only trigger is workflow_dispatch (SE-099)
+#   H3  the gate refuses every event but workflow_dispatch
+#   G   a `gate` job exists, holds no secret and no environment, compares
+#       head.repo.full_name, tests the owner's account id, accepts only
+#       refs/heads/$default_branch, checks the triggering actor and the pull
+#       request's own author_association                              (1, 3)
+#   A   the association arm is exactly `OWNER|MEMBER) ;;`, the pull request's
+#       `.author_association` is read and anything else hits the arm
+#       `*) refuse "pull request #$PR_NUMBER was opened...`, and no other
+#       association literal appears in the file                          (3)
+#   N   the job holding the secret `needs: gate`, and its first step re-checks
+#       the triggering actor, names no action and no secret          (3, L1)
+#   C   that job's first checkout is the gate's base commit with no `path:`;
+#       every later checkout has a `path:`, and every checkout with a `path:`
+#       is the gate's head commit; every
+#       checkout has `persist-credentials: false`                        (2)
+#   S   a `find work -depth` step deletes `.claude` and a `find work -type l`
+#       deletes links, before the action step, not disabled          (2, M3)
+#   X   `--setting-sources user`; settings from the runner's temp file; a jq
+#       step reads exactly ` .claude/settings.json` (the trusted root, never
+#       work/), drops allow rules, before the action step, not disabled  (2)
+#   F   exactly one `--permission-mode`, and it is dontAsk; none of
+#       --dangerously*, --settings, --add-dir, --mcp-config, --plugin-dir,
+#       --allowed-tools, --disallowed-tools; every --allowedTools/--tools is
+#       written `--flag "..."`                                           (4)
+#   W   no edit tool in ANY --allowedTools or --tools; every allowed Bash rule
+#       is `git status`, `git log` or `git show` (not `git diff`, review R1)(4)
+#   D   Edit, Write, Read(./.git/**), Bash(git diff*) and the git denies of
+#       review item H1 are in --disallowedTools                (4, H1, H2, R1)
+#   B   the bubblewrap/userns isolation step, with its `command -v bwrap`
+#       check, runs before the action step, and
+#       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is "1"                          (H1)
+#   Q   no `continue-on-error` anywhere in the job holding the secret
+#   K   secrets.ANTHROPIC_API_KEY (any case) is on exactly one line, under the
+#       claude-code-action step's `with:`                                 (5)
+#   I   no plugins, plugin_marketplaces, allowed_non_write_users or
+#       allowed_bots input                                               (4)
+#   R   no `${{` inside any `run:` (script injection)
+#   E   exactly one environment line, `environment: claude`, in the job that
+#       reads `secrets.`                                                 (5)
+#   P   no permission value contains `write` (write-all included)        (5)
+# MPB_GATES_CLAUDE_WORKFLOWS points it at a staged copy (docs/passes/16-staged/M)
+# before the owner installs the files.
+CWD_DIR="${MPB_GATES_CLAUDE_WORKFLOWS:-.github/workflows}"
+if [ ! -f "$CWD_DIR/claude.yml" ] || [ ! -f "$CWD_DIR/claude-code-review.yml" ]; then
+  note FAIL "the two Claude workflows are missing" "$CWD_DIR"; miss
+else
+  cw="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+  cat >"$cw/verdict.py" <<'PYEOF'
+import re, sys
+lines = [l.rstrip("\n") for l in open(sys.argv[1]) if not re.match(r"\s*#", l)]
+text = "\n".join(lines)
+bad = set()
+ind = lambda l: len(l) - len(l.lstrip(" "))
+
+def block(key):
+    out, inside = [], False
+    for l in lines:
+        if re.match(r"^[A-Za-z0-9_-]+:", l):
+            inside = l.startswith(key + ":")
+            continue
+        if inside:
+            out.append(l)
+    return out
+
+# T
+if {m.group(1) for l in block("on") for m in [re.match(r"^  ([A-Za-z_]+):", l)] if m} != {"workflow_dispatch"}:
+    bad.add("T")
+
+jobs, cur = {}, None
+for l in block("jobs"):
+    m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", l)
+    if m:
+        cur = m.group(1); jobs[cur] = []
+    elif cur:
+        jobs[cur].append(l)
+J = {k: "\n".join(v) for k, v in jobs.items()}
+holders = [k for k, v in J.items() if "secrets." in v]
+job = jobs[holders[0]] if len(holders) == 1 else []
+jobtext = "\n".join(job)
+
+def steps_of(body):
+    out, s = [], None
+    for l in body:
+        if l.startswith("      - "):
+            s = [l]; out.append(s)
+        elif s is not None:
+            s.append(l)
+    return out
+steps = steps_of(job)
+S = ["\n".join(s) for s in steps]
+
+# H3, G
+gate = J.get("gate", "")
+if not re.search(r'^\s+\[ "\$EVENT_NAME" = workflow_dispatch \] \|\| refuse', gate, re.M):
+    bad.add("H3")
+if (not gate or "secrets." in gate or "environment:" in gate
+        or "head.repo.full_name" not in gate or "repository_owner_id" not in gate
+        or '"refs/heads/$default_branch"' not in gate
+        or 'owner_or_member "$TRIGGERING_ACTOR"' not in gate
+        or "'.author_association" not in gate):
+    bad.add("G")
+
+# A
+if ("OWNER|MEMBER) ;;" not in gate or "'.author_association" not in gate
+        or '*) refuse "pull request #$PR_NUMBER was opened' not in gate or re.search(
+        r"\b(COLLABORATOR|CONTRIBUTOR|FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|MANNEQUIN|NONE)\b", text)):
+    bad.add("A")
+
+# N
+if (len(holders) != 1 or not re.search(r"^    needs: gate\s*$", jobtext, re.M) or not S
+        or 'owner_or_member "$TRIGGERING_ACTOR"' not in S[0]
+        or re.search(r"\buses\s*:", S[0]) or "secrets." in S[0]):
+    bad.add("N")
+
+# C
+checkouts = [s for s in S if "actions/checkout@" in s]
+all_checkouts = [s for s in ("\n".join(x) for j in jobs.values() for x in steps_of(j)) if "actions/checkout@" in s]
+if (not checkouts or "ref: ${{ needs.gate.outputs.base_sha }}" not in checkouts[0]
+        or re.search(r"^\s+path:", checkouts[0], re.M)
+        or not all(re.search(r"^\s+path:", c, re.M) for c in checkouts[1:])
+        or any(re.search(r"^\s+path:", c, re.M) and "ref: ${{ needs.gate.outputs.head_sha }}" not in c
+               for c in all_checkouts)
+        or any(not re.search(r"^\s+persist-credentials: false\s*$", c, re.M) for c in all_checkouts)):
+    bad.add("C")
+
+act = next((i for i, s in enumerate(S) if "anthropics/claude-code-action@" in s), None)
+def before_action(pred):
+    i = next((i for i, s in enumerate(S) if pred(s)), None)
+    return (i is not None and act is not None and i < act
+            and not re.search(r"^\s+(- )?if:.*false", S[i], re.M))
+
+# S
+if not before_action(lambda s: "find work -depth" in s and re.search(r"-name \.claude ", s)
+                     and "find work -type l -exec rm" in s):
+    bad.add("S")
+
+# X, F, W, D
+args = ""
+for st in steps:
+    for i, x in enumerate(st):
+        if re.match(r"^\s+claude_args:\s*>-", x):
+            args = " ".join(y.strip() for y in st[i + 1:] if not re.match(r"^\s+[a-z_]+:", y))
+if ("--setting-sources user" not in args
+        or not re.search(r"^\s+settings: \$\{\{ runner\.temp \}\}/", jobtext, re.M)
+        or not before_action(lambda s: "del(.permissions.allow" in s
+                             and "' .claude/settings.json >\"$RUNNER_TEMP/" in s and "work/" not in s)):
+    bad.add("X")
+
+def lists(flag):
+    return [v.split(",") for v in re.findall(r"--" + flag + r' "([^"]*)"', args)]
+if (re.findall(r"--permission-mode\s+(\S+)", args) != ["dontAsk"]
+        or args.count("--permission-mode") != 1
+        or re.search(r"--dangerously|--settings\b|--add-dir|--mcp-config|--plugin-dir|--allowed-tools|--disallowed-tools", args)
+        or len(lists("allowedTools")) != len(re.findall(r"--allowedTools\b", args))
+        or len(lists("tools")) != len(re.findall(r"--tools\b", args))):
+    bad.add("F")
+edit = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+allowed = [a for l in lists("allowedTools") for a in l]
+tools = [a for l in lists("tools") for a in l]
+if (not allowed or not tools or edit & set(allowed) or edit & set(tools)
+        or any(a.startswith("Bash") and not re.fullmatch(r"Bash\(git (status|log|show) \*\)", a)
+               for a in allowed)):
+    bad.add("W")
+denied = {a for l in lists("disallowedTools") for a in l}
+need = {"Edit", "Write", "Read(./.git/**)", "Bash(git diff*)", "Bash(git *--no-index*)", "Bash(git -c*)",
+        "Bash(git *--config-env*)", "Bash(git ls-remote*)", "Bash(git fetch*)", "Bash(git remote*)",
+        "Bash(git submodule*)", "Bash(git clone*)", "Bash(git config*)"}
+if not need <= denied:
+    bad.add("D")
+
+# B, I
+if (not before_action(lambda s: "--no-install-recommends bubblewrap" in s and "command -v bwrap" in s and "apparmor_restrict_unprivileged_userns=0" in s)
+        or not re.search(r'^\s+CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"\s*$', text, re.M)):
+    bad.add("B")
+if re.search(r"^\s+(plugins|plugin_marketplaces|allowed_non_write_users|allowed_bots)\s*:", text, re.M):
+    bad.add("I")
+
+# Q
+if "continue-on-error" in jobtext:
+    bad.add("Q")
+
+# K
+keyre = re.compile(r"secrets\s*\.\s*anthropic_api_key", re.I)
+keylines = [l for l in lines if keyre.search(l)]
+akey = []
+if act is not None:
+    w = False
+    for x in steps[act]:
+        if re.match(r"^\s+with:\s*$", x):
+            w = True
+        elif w and keyre.search(x):
+            akey.append(x)
+if len(keylines) != 1 or len(akey) != 1:
+    bad.add("K")
+
+# R
+for i, l in enumerate(lines):
+    m = re.match(r"^(\s*)(- )?run:\s*(.*)$", l)
+    if not m:
+        continue
+    body = [m.group(3)]
+    for x in lines[i + 1:]:
+        if x.strip() and ind(x) <= len(m.group(1)) + (2 if m.group(2) else 0):
+            break
+        body.append(x)
+    if "${{" in "\n".join(body):
+        bad.add("R")
+
+# E
+envs = [l for l in lines if re.match(r"^\s*environment\s*:", l)]
+if (len(envs) != 1 or envs[0].strip() != "environment: claude" or len(holders) != 1
+        or not re.search(r"^    environment: claude\s*$", jobtext, re.M)):
+    bad.add("E")
+
+# P
+for i, l in enumerate(lines):
+    m = re.match(r"^(\s*)permissions:\s*(.*)$", l)
+    if not m:
+        continue
+    vals = [m.group(2)]
+    for x in lines[i + 1:]:
+        if x.strip() and ind(x) <= len(m.group(1)):
+            break
+        vals.append(x.split(":", 1)[-1])
+    if any("write" in v for v in vals):
+        bad.add("P")
+
+print(" ".join(sorted(bad)))
+PYEOF
+  cw_case() { # <label> <want: accept|rule id> <target: claude|review> <python: transforms the text `t`>
+    local label="$1" want="$2" target="$3" py="$4" d f got
+    d="$(mktemp -d "$cw/case.XXXXXX")"
+    cp "$CWD_DIR/claude.yml" "$CWD_DIR/claude-code-review.yml" "$d/"
+    case "$target" in claude) f="$d/claude.yml" ;; review) f="$d/claude-code-review.yml" ;; esac
+    if [ -n "$py" ]; then
+      PYSRC="$py" python3 - "$f" <<'PYEOF' || { note FAIL "$label" "the construction did not apply"; miss; return; }
+import os, sys
+p = sys.argv[1]
+t = open(p).read()
+before = t
+exec(os.environ["PYSRC"])
+if t == before:
+    sys.exit(1)
+open(p, "w").write(t)
+PYEOF
+    fi
+    got="$(python3 "$cw/verdict.py" "$f" 2>&1)" || got="error: $got"
+    if { [ "$want" = accept ] && [ -z "$got" ]; } || { [ "$want" != accept ] && [[ " $got " == *" $want "* ]]; }; then
+      pass; note ok "$label"
+    else
+      note FAIL "$label" "wanted $want, got '${got:-accept}'"; miss
+    fi
+  }
+  for wf in claude review; do
+    cw_case "$wf: the workflow as it is"                         accept "$wf" ''
+    cw_case "$wf: a pull_request trigger beside dispatch"        T  "$wf" 't = t.replace("  workflow_dispatch:", "  pull_request:\n  workflow_dispatch:", 1)'
+    cw_case "$wf: the gate accepts any event"                    H3 "$wf" 't = t.replace("[ \"$EVENT_NAME\" = workflow_dispatch ] || refuse", "true || refuse", 1)'
+    cw_case "$wf: the head-repository comparison removed"        G  "$wf" 't = t.replace("head.repo.full_name", "head.repo.name")'
+    cw_case "$wf: the default-branch ref test removed"           G  "$wf" 't = t.replace("[ \"$REF\" = \"refs/heads/$default_branch\" ] ||", "true ||", 1)'
+    cw_case "$wf: the gate skips the triggering actor"           G  "$wf" 't = t.replace("          owner_or_member \"$TRIGGERING_ACTOR\" || refuse \"re-run", "          true || refuse \"re-run", 1)'
+    cw_case "$wf: the PR author association not read"            G  "$wf" 't = t.replace("jq -r '"'"'.author_association", "jq -r '"'"'.user.login", 1)'
+    cw_case "$wf: COLLABORATOR added to the arm"                 A  "$wf" 't = t.replace("OWNER|MEMBER) ;;", "OWNER|MEMBER|COLLABORATOR) ;;", 1)'
+    cw_case "$wf: the arm widened to a wildcard"                 A  "$wf" 't = t.replace("OWNER|MEMBER) ;;", "OWNER|MEMBER|*) ;;", 1)'
+    cw_case "$wf: the Claude job no longer needs the gate"       N  "$wf" 't = t.replace("    needs: gate\n", "", 1)'
+    cw_case "$wf: the job's first-step re-check removed"         N  "$wf" 't = t.replace("          owner_or_member \"$TRIGGERING_ACTOR\" || refuse \"attempt", "          true || refuse \"attempt", 1)'
+    cw_case "$wf: the key read in the gate job"                  G  "$wf" 't = t.replace("      - id: check\n", "      - run: echo hi\n        env:\n          K: ${{ secrets.ANTHROPIC_API_KEY }}\n      - id: check\n", 1)'
+    cw_case "$wf: the trusted checkout given a path"             C  "$wf" 't = t.replace("ref: ${{ needs.gate.outputs.base_sha }}\n", "ref: ${{ needs.gate.outputs.base_sha }}\n          path: base\n", 1)'
+    cw_case "$wf: the head checked out at the root"              C  "$wf" 't = t.replace("          path: work\n", "", 1)'
+    cw_case "$wf: work/ checked out from the branch, not the SHA" C "$wf" 't = t.replace("ref: ${{ needs.gate.outputs.head_sha }}", "ref: ${{ github.head_ref }}", 1)'
+    cw_case "$wf: a checkout that keeps its credential"          C  "$wf" 't = t.replace("          persist-credentials: false\n", "          persist-credentials: true\n", 1)'
+    cw_case "$wf: .claude kept in the examined tree"             S  "$wf" 't = t.replace("-name .claude -o ", "", 1)'
+    cw_case "$wf: symbolic links kept"                           S  "$wf" 't = t.replace("          find work -type l -exec rm -f -- {} +\n", "", 1)'
+    cw_case "$wf: the removal step disabled"                     S  "$wf" 't = t.replace("      - name: Remove configuration from the examined tree\n", "      - name: Remove configuration from the examined tree\n        if: false\n", 1)'
+    cw_case "$wf: --setting-sources user dropped"                X  "$wf" 't = t.replace("--setting-sources user\n", "", 1)'
+    cw_case "$wf: settings read from the checkout"               X  "$wf" 't = t.replace("settings: ${{ runner.temp }}/claude-ci-settings.json", "settings: .claude/settings.json", 1)'
+    cw_case "$wf: allow rules kept in the derived settings"      X  "$wf" 't = t.replace("del(.permissions.allow, ", "del(", 1)'
+    cw_case "$wf: the settings step disabled"                    X  "$wf" 't = t.replace("      - name: Derive the run'"'"'s settings from the trusted checkout\n", "      - name: Derive the run'"'"'s settings from the trusted checkout\n        if: ${{ false }}\n", 1)'
+    cw_case "$wf: --permission-mode dontAsk dropped"             F  "$wf" 't = t.replace("--permission-mode dontAsk\n", "", 1)'
+    cw_case "$wf: a second --permission-mode"                    F  "$wf" 't = t.replace("--permission-mode dontAsk\n", "--permission-mode dontAsk\n            --permission-mode bypassPermissions\n", 1)'
+    cw_case "$wf: --dangerously-skip-permissions"                F  "$wf" 't = t.replace("--max-turns", "--dangerously-skip-permissions --max-turns", 1)'
+    cw_case "$wf: --settings in claude_args"                     F  "$wf" 't = t.replace("--max-turns", "--settings work/s.json --max-turns", 1)'
+    cw_case "$wf: --add-dir in claude_args"                      F  "$wf" 't = t.replace("--max-turns", "--add-dir work --max-turns", 1)'
+    cw_case "$wf: --mcp-config in claude_args"                   F  "$wf" 't = t.replace("--max-turns", "--mcp-config work/m.json --max-turns", 1)'
+    cw_case "$wf: --plugin-dir in claude_args"                   F  "$wf" 't = t.replace("--max-turns", "--plugin-dir work --max-turns", 1)'
+    cw_case "$wf: the hyphenated --allowed-tools"                F  "$wf" 't = t.replace("--max-turns", "--allowed-tools Edit --max-turns", 1)'
+    cw_case "$wf: an unquoted --allowedTools"                    F  "$wf" 't = t.replace("--max-turns", "--allowedTools=Edit --max-turns", 1)'
+    cw_case "$wf: Edit in --allowedTools"                        W  "$wf" 't = t.replace("--allowedTools \"Read,", "--allowedTools \"Edit,Read,", 1)'
+    cw_case "$wf: Write in --tools"                              W  "$wf" 't = t.replace("--tools \"Read,", "--tools \"Write,Read,", 1)'
+    cw_case "$wf: a second --allowedTools carrying Write"        W  "$wf" 't = t.replace("--max-turns", "--allowedTools \"Write\" --max-turns", 1)'
+    cw_case "$wf: an unrestricted Bash allowed"                  W  "$wf" 't = t.replace("Bash(git status *)", "Bash", 1)'
+    cw_case "$wf: a non-git Bash rule allowed"                   W  "$wf" 't = t.replace("Bash(git status *)", "Bash(gh *)", 1)'
+    cw_case "$wf: git diff allowed again"                        W  "$wf" 't = t.replace("Bash(git status *),Bash(git log *)", "Bash(git status *),Bash(git diff *),Bash(git log *)", 1)'
+    cw_case "$wf: git diff no longer denied"                     D  "$wf" 't = t.replace("Bash(git diff*),", "", 1)'
+    cw_case "$wf: Write no longer denied"                        D  "$wf" 't = t.replace("--disallowedTools \"Edit,Write,", "--disallowedTools \"Edit,", 1)'
+    cw_case "$wf: ./.git readable"                               D  "$wf" 't = t.replace("Read(./.git/**),", "", 1)'
+    cw_case "$wf: git -c allowed"                                D  "$wf" 't = t.replace("Bash(git -c*),", "", 1)'
+    cw_case "$wf: git --no-index allowed"                        D  "$wf" 't = t.replace("Bash(git *--no-index*),", "", 1)'
+    cw_case "$wf: git fetch allowed"                             D  "$wf" 't = t.replace("Bash(git fetch*),", "", 1)'
+    cw_case "$wf: git config allowed"                            D  "$wf" 't = t.replace("Bash(git config*),", "", 1)'
+    cw_case "$wf: the isolation step removed"                    B  "$wf" 't = t.replace("bubblewrap socat", "socat", 1)'
+    cw_case "$wf: the userns sysctl removed"                     B  "$wf" 't = t.replace("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0", "true", 1)'
+    cw_case "$wf: the bwrap presence check dropped"              B  "$wf" 't = t.replace("command -v bwrap >/dev/null ||", "true ||", 1)'
+    cw_case "$wf: continue-on-error in the secret job"           Q  "$wf" 't = t.replace("      - name: Install subprocess isolation dependencies\n", "      - name: Install subprocess isolation dependencies\n        continue-on-error: true\n", 1)'
+    cw_case "$wf: the settings derived from work/"               X  "$wf" 't = t.replace("'"'"' .claude/settings.json >", "'"'"' work/.claude/settings.json >", 1)'
+    cw_case "$wf: the PR association arm no longer refuses"      A  "$wf" 't = t.replace("*) refuse \"pull request #$PR_NUMBER was opened", "*) echo \"pull request #$PR_NUMBER was opened", 1)'
+    cw_case "$wf: the key also in a step env"                    K  "$wf" 't = t.replace("      - name: Install subprocess isolation dependencies\n        shell: bash\n", "      - name: Install subprocess isolation dependencies\n        shell: bash\n        env:\n          K: ${{ secrets.ANTHROPIC_API_KEY }}\n", 1)'
+    cw_case "$wf: the key in lower case in the job env"          K  "$wf" 't = t.replace("      MPB_UNATTENDED: \"1\"\n", "      MPB_UNATTENDED: \"1\"\n      K: ${{ secrets.anthropic_api_key }}\n", 1)'
+    cw_case "$wf: the subprocess scrub off"                      B  "$wf" 't = t.replace("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"1\"", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: \"0\"", 1)'
+    cw_case "$wf: a plugins input"                               I  "$wf" 't = t.replace("          display_report: \"true\"\n", "          display_report: \"true\"\n          plugins: \"x@y\"\n", 1)'
+    cw_case "$wf: a plugin_marketplaces input"                   I  "$wf" 't = t.replace("          display_report: \"true\"\n", "          display_report: \"true\"\n          plugin_marketplaces: \"https://example.invalid/m.git\"\n", 1)'
+    cw_case "$wf: allowed_non_write_users"                       I  "$wf" 't = t.replace("          display_report: \"true\"\n", "          display_report: \"true\"\n          allowed_non_write_users: \"*\"\n", 1)'
+    cw_case "$wf: allowed_bots"                                  I  "$wf" 't = t.replace("          display_report: \"true\"\n", "          display_report: \"true\"\n          allowed_bots: \"*\"\n", 1)'
+    cw_case "$wf: an expression inside run:"                     R  "$wf" 't = t.replace("          set -euo pipefail\n", "          set -euo pipefail\n          echo \"${{ github.head_ref }}\"\n", 1)'
+    cw_case "$wf: the environment line removed"                  E  "$wf" 't = t.replace("    environment: claude\n", "", 1)'
+    cw_case "$wf: a second environment"                          E  "$wf" 't = t.replace("  gate:\n    runs-on:", "  gate:\n    environment: other\n    runs-on:", 1)'
+    cw_case "$wf: a write permission"                            P  "$wf" 't = t.replace("      contents: read\n", "      contents: write\n", 1)'
+    cw_case "$wf: permissions: write-all"                        P  "$wf" 't = t.replace("permissions: {}", "permissions: write-all", 1)'
+  done
+  rm -rf "$cw"
 fi
 
 echo
