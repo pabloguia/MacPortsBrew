@@ -30,6 +30,7 @@ once at its own root; see "What an executor inherits".
 | `destination` | string | Provider id it would move to |
 | `destinationPackage` | string, optional | The name under the destination, when the mapping selected one |
 | `retainSource` | boolean | `--retain-source`: keep the source package after migrating |
+| `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan would remove, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
 | `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards |
 | `recommendation` | `Outcome` | What the policy engine recommends, independently of what was asked for |
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
@@ -39,6 +40,7 @@ once at its own root; see "What an executor inherits".
 | `policyVersion` | string | |
 | `dryRunOnly` | boolean | `true` in this build: whether the build that wrote the plan can run its mutating steps. A plan carrying `false` is refused for execution (`PLAN_NOT_DRY_RUN_ONLY`). It describes the build and is not the boundary — the gate and the absence of any mutating path are |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider may have been changing the machine while the input was read (obligation 5). Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, and every `plan --json` this build writes carries it, always last, after `dryRunOnly`; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity). It belongs to the `plan` command's document, not to `MigrationPlan`: `migrate` carries the plan under its own `plan` key *without* it and writes the flag once at its own root, and the execution gate neither reads nor requires it |
+| `warnings` | array of message identifiers, optional | Written, when present, between `dryRunOnly` and `concurrentProviderActivity`. `["advanced.warning"]` when `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Derived from `enteredBy` when the document is written, never stored on the plan, and a closed set: `advanced.warning` is the only value this build writes. Since 2026-10-27, additive (DP-037). A script reads the identifier; the text is in the catalogue |
 
 ## `MigrationStep`
 
@@ -733,6 +735,7 @@ non-mutating and the command exits 4:
   "source": "homebrew",
   "destination": "macports",
   "retainSource": false,
+  "enteredBy": "DEFAULT_VIEW",
   "primaryAfter": "macports",
   "recommendation": {
     "kind": "MIGRATE_TO",

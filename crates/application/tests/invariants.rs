@@ -6,12 +6,13 @@
 //! on the analysis or the plan, never on a live machine.
 
 use macportsbrew_application::{
-    analyze, build_plan, provider_commands, AnalysisOptions, AnalysisSource, PlanRequest,
+    analyze, build_plan, execution_refusals, provider_commands, AnalysisOptions, AnalysisSource,
+    PlanRequest,
 };
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
     AvailabilityEvidence, Capability, CapabilityState, CommandLineTools, CommandTarget,
-    ConcurrencyFlag, DependencyEdge, Elevation, EnvironmentSnapshot, ExecutableOwner,
+    ConcurrencyFlag, DependencyEdge, Elevation, EntryMode, EnvironmentSnapshot, ExecutableOwner,
     InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind,
     PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
     ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot,
@@ -1972,4 +1973,100 @@ fn a_destination_already_holding_the_package_is_not_blocked_as_unavailable() {
             "toward {dest}"
         );
     }
+}
+
+// --- DP-037, work order 16 part C: how the row a plan acts on was entered ---
+
+fn plan_with(snap: &Snapshot, package: &str, to: &str, advanced: bool) -> MigrationPlan {
+    build_plan(
+        snap,
+        &policy(),
+        &AnalysisOptions {
+            advanced,
+            ..options()
+        },
+        &PlanRequest {
+            package: package.into(),
+            to: ProviderId::new(to),
+            retain_source: false,
+        },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+
+/// INV-13 and DP-037. A dependency named without `--advanced` is entered by
+/// naming it: the plan records `NAMED`, and the gate refuses it. **The
+/// stronger confirmation half is pending until work order 16 part K**, which
+/// defines the confirmation levels; the ledger lists it there as blocking.
+/// Until then the closest present truth is asserted: nothing can execute it.
+#[test]
+fn invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation() {
+    let snap = both_present();
+    let named = plan_with(&snap, "dep", MP, false);
+    assert_eq!(named.entered_by, Some(EntryMode::Named));
+    assert!(!execution_refusals(&named).refusals().is_empty());
+    assert_eq!(
+        plan_with(&snap, "dep", MP, true).entered_by,
+        Some(EntryMode::Advanced)
+    );
+    // A top-level row is in the default view, with or without `--advanced`.
+    for advanced in [false, true] {
+        assert_eq!(
+            plan_with(&snap, "tool", MP, advanced).entered_by,
+            Some(EntryMode::DefaultView)
+        );
+    }
+    // Only the named package is planned. `tool` depends on `dep`, so a plan
+    // for `tool` is the one that could add a dependency: its steps never name
+    // `dep`, in either mode.
+    assert_eq!(named.package.name, "dep");
+    for advanced in [false, true] {
+        let text = serde_json::to_string(&plan_with(&snap, "tool", MP, advanced).steps).unwrap();
+        assert!(!text.contains("\"dep\""), "{text}");
+    }
+}
+
+/// The source row decides, not the unit's visibility: a unit top-level under
+/// the destination and a dependency under the source is visible, and the
+/// removal still acts on a dependency. The same in both directions (INV-17).
+#[test]
+fn invariant_17_a_dependency_source_row_is_named_entry_in_either_direction() {
+    for (dependency_side, to) in [(HB, MP), (MP, HB)] {
+        let mut snap = both_present();
+        let side = snap
+            .providers
+            .get_mut(&ProviderId::new(dependency_side))
+            .unwrap();
+        side.inventory.requested.names.remove("tool");
+        for p in &mut side.inventory.installed {
+            if p.identity.name == "tool" {
+                p.requested = Some(false);
+            }
+        }
+        assert_eq!(
+            plan_with(&snap, "tool", to, false).entered_by,
+            Some(EntryMode::Named),
+            "source {dependency_side} holds a dependency"
+        );
+    }
+}
+
+#[test]
+fn every_plan_the_planner_produces_records_its_entry() {
+    let snap = both_present();
+    for (package, to) in [("tool", MP), ("tool", HB), ("dep", MP)] {
+        for advanced in [false, true] {
+            assert!(plan_with(&snap, package, to, advanced).entered_by.is_some());
+        }
+    }
+}
+
+#[test]
+fn a_plan_document_from_before_the_field_loads_with_no_entry() {
+    let plan = plan_with(&both_present(), "tool", MP, false);
+    let mut value = serde_json::to_value(&plan).unwrap();
+    value.as_object_mut().unwrap().remove("enteredBy");
+    let loaded: MigrationPlan = serde_json::from_value(value).unwrap();
+    assert_eq!(loaded.entered_by, None);
 }

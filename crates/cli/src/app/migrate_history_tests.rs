@@ -222,9 +222,15 @@ fn run(
     store: &Store,
 ) -> (Result<i32, DomainError>, String) {
     let mut out = Vec::new();
-    let code = migrate_with(ctx, cli, request, &options(ctx), &mut out, &|key| {
-        store.read(key)
-    });
+    let code = migrate_with(
+        ctx,
+        cli,
+        request,
+        &options(ctx),
+        &mut out,
+        &mut std::io::sink(),
+        &|key| store.read(key),
+    );
     (code, String::from_utf8(out).unwrap())
 }
 
@@ -313,6 +319,7 @@ fn history_is_read_only_by_a_live_retained_run() {
         &request("htop", "macports"),
         &options_for(&replayed),
         &mut out,
+        &mut std::io::sink(),
         &reader,
     )
     .unwrap();
@@ -330,6 +337,7 @@ fn history_is_read_only_by_a_live_retained_run() {
         &plain,
         &options_for(&ctx),
         &mut Vec::new(),
+        &mut std::io::sink(),
         &reader,
     )
     .unwrap();
@@ -342,6 +350,7 @@ fn history_is_read_only_by_a_live_retained_run() {
         &request("htop", "macports"),
         &options_for(&ctx),
         &mut Vec::new(),
+        &mut std::io::sink(),
         &reader,
     )
     .unwrap();

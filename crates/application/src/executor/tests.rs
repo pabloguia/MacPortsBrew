@@ -1047,6 +1047,22 @@ fn plans_that_differ_for_no_listed_fact_are_named_plan_differs() {
 }
 
 #[test]
+fn a_plan_whose_entry_moved_under_the_lock_is_refused() {
+    // DP-037 (part C plan §9): the entry decides the confirmation level part
+    // K will require, so a re-plan under the lock that enters the row
+    // differently must refuse, even when no listed fact names why.
+    let run = consolidation_run();
+    let now = consolidation_snapshot();
+    let mut fresh = replanned(&now);
+    fresh.entered_by = Some(macportsbrew_domain::EntryMode::Named);
+    assert_ne!(run.plan().entered_by, fresh.entered_by);
+    assert_eq!(
+        plan_still_holds(run.plan(), &fresh, run.before(), &now),
+        Err(StateFact::PlanDiffers)
+    );
+}
+
+#[test]
 fn a_provider_that_moved_or_changed_what_it_can_do_under_the_lock_is_named() {
     // The mutation proof: the run is refused either way, but the diagnosis
     // named neither fact in any test, so swapping them survived.

@@ -418,6 +418,32 @@ pub struct MigrationStep {
     pub reason: Reason,
 }
 
+/// How the row a plan acts on was entered (DP-037, INV-13).
+///
+/// Decided by the **source row** the plan would remove, not by whether the
+/// unit is visible: a unit can be top-level under one provider and a
+/// dependency under the other, and it is the dependency that a removal acts on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EntryMode {
+    /// The row is in the default view.
+    DefaultView,
+    /// The row is outside the default view, and `--advanced` was given.
+    Advanced,
+    /// The row is outside the default view, and naming it was the only entry
+    /// into advanced mode - for that package only.
+    Named,
+}
+
+impl EntryMode {
+    /// Whether the row is outside the default view, so `advanced.warning`
+    /// applies and a destructive step needs the stronger confirmation.
+    #[must_use]
+    pub fn is_advanced(self) -> bool {
+        matches!(self, Self::Advanced | Self::Named)
+    }
+}
+
 /// The plan for one package.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -435,6 +461,13 @@ pub struct MigrationPlan {
     pub destination_package: Option<String>,
     /// Whether the source package is kept (`--retain-source`).
     pub retain_source: bool,
+    /// How the source row was entered (DP-037). Every plan this build
+    /// produces carries `Some`, and `DefaultView` is written out, never
+    /// collapsed into absence. `None` exists only so a document from before
+    /// the field loads; whatever chooses a confirmation level treats it as
+    /// the strictest (work order 16, part C plan §9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entered_by: Option<EntryMode>,
     /// Which provider becomes primary afterwards.
     pub primary_after: ProviderId,
     /// The recommendation this plan follows, and whether the user overrode
@@ -865,6 +898,7 @@ mod tests {
             destination: ProviderId::new("b"),
             destination_package: Some("x".into()),
             retain_source: false,
+            entered_by: Some(EntryMode::DefaultView),
             primary_after: ProviderId::new("b"),
             recommendation: Outcome::MigrateTo {
                 provider: ProviderId::new("b"),

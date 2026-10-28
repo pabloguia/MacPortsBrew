@@ -117,6 +117,9 @@ struct Document<'a> {
     retained_run_not_recognised: Option<NotRecognisedDoc<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     plan: Option<&'a MigrationPlan>,
+    /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<super::PlanWarning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
     /// Always written: whether a provider may have been changing the machine
@@ -337,8 +340,9 @@ pub fn migrate(
     request: &PlanRequest,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
-    migrate_with(ctx, cli, request, options, stdout, &|key| {
+    migrate_with(ctx, cli, request, options, stdout, stderr, &|key| {
         read_history(ctx, key)
     })
 }
@@ -360,6 +364,7 @@ fn migrate_with(
     request: &PlanRequest,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
     history: &dyn Fn(&MigrationKey) -> Result<HistoryView, DomainError>,
 ) -> Result<i32, DomainError> {
     let mode = Mode::of(cli);
@@ -418,6 +423,7 @@ fn migrate_with(
                     retained_run_done: None,
                     retained_run_not_recognised: None,
                     plan: None,
+                    warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
                 };
@@ -457,6 +463,7 @@ fn migrate_with(
                     }),
                     retained_run_not_recognised: None,
                     plan: None,
+                    warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
                 };
@@ -480,6 +487,10 @@ fn migrate_with(
         MigrationStart::Run(planned, note) => (planned, note),
     };
     let note_doc = note.as_ref().map(not_recognised);
+    // DP-037: shown before anything runs, never after (security-reviewer,
+    // part C): the notice is what a person reads before the stronger
+    // confirmation part K will ask for.
+    super::named_entry_notice(ctx, planned.plan(), stderr);
     let report = match mode {
         Mode::Render => None,
         Mode::Execute => {
@@ -516,6 +527,7 @@ fn migrate_with(
             retained_run_done: None,
             retained_run_not_recognised: note_doc,
             plan: Some(plan),
+            warnings: super::plan_warnings(plan),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
         };

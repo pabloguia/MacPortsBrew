@@ -54,8 +54,8 @@ pub use package::{
     DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
 };
 pub use plan::{
-    CommandTarget, Elevation, MigrationPlan, MigrationStep, PlanCommand, PlanRisk, StepKind,
-    SuccessSemantic, VerificationCheck,
+    CommandTarget, Elevation, EntryMode, MigrationPlan, MigrationStep, PlanCommand, PlanRisk,
+    StepKind, SuccessSemantic, VerificationCheck,
 };
 pub use provider::{
     Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,

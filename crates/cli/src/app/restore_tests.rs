@@ -183,7 +183,15 @@ fn run_restore(
     id: &str,
 ) -> (Result<i32, DomainError>, String) {
     let mut out = Vec::new();
-    let code = restore(ctx, cli, plan_only, id, &options(ctx), &mut out);
+    let code = restore(
+        ctx,
+        cli,
+        plan_only,
+        id,
+        &options(ctx),
+        &mut out,
+        &mut std::io::sink(),
+    );
     (code, String::from_utf8(out).unwrap())
 }
 
@@ -478,4 +486,37 @@ fn the_human_text_leads_with_the_run_what_is_known_and_what_the_plan_cannot_say(
     ] {
         assert!(out.contains(expected), "{expected:?} missing from:\n{out}");
     }
+}
+
+/// DP-037 on the restore path: a restore acts on the row the current machine
+/// holds, so when that row is now a dependency under the provider the restore
+/// removes from, the plan is `NAMED`, `--json` carries the warning, and the
+/// notice is on stderr - the same shared code as `plan` and `migrate`.
+#[test]
+fn invariant_13_a_restore_that_acts_on_a_dependency_warns() {
+    let scratch = Scratch::new("named");
+    let cli = cli(&["--plan", "--run", RUN_ID]);
+    let mut ctx = live(&scratch, &cli);
+    seed(&scratch, &ctx, performed());
+    let homebrew = ctx
+        .snapshot
+        .providers
+        .get_mut(&ProviderId::new("homebrew"))
+        .unwrap();
+    homebrew.inventory.requested.names.remove("htop");
+    for p in &mut homebrew.inventory.installed {
+        if p.identity.name == "htop" {
+            p.requested = Some(false);
+        }
+    }
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let code = restore(&ctx, &cli, true, RUN_ID, &options(&ctx), &mut out, &mut err);
+    let out = String::from_utf8(out).unwrap();
+    assert_eq!(code.expect("planned"), 0, "{out}");
+    let doc: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(doc["plan"]["enteredBy"], "NAMED");
+    assert_eq!(doc["warnings"], serde_json::json!(["advanced.warning"]));
+    let err = String::from_utf8(err).unwrap();
+    assert!(err.contains("outside the default view"), "{err}");
 }

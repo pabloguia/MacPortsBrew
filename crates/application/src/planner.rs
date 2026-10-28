@@ -10,9 +10,9 @@ use crate::report::ProviderRow;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
     ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence, DomainError,
-    Elevation, ErrorId, MigrationPlan, MigrationStep, Outcome, PackageIdentity, PackageKind,
-    PlanCommand, PlanRisk, ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot,
-    StepKind, SuccessSemantic, VerificationCheck,
+    Elevation, EntryMode, ErrorId, MigrationPlan, MigrationStep, Outcome, PackageIdentity,
+    PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence, ProviderSnapshot, Reason,
+    Snapshot, StepKind, SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -505,6 +505,25 @@ pub fn plan_outcome(
             &unit.rows,
             &request.to,
         );
+    };
+    // DP-037: how the row this plan acts on was entered. The *source row* is
+    // what a removal would act on, so it decides, not the unit's visibility: a
+    // unit top-level under the destination and a dependency under the source
+    // is visible, and removing that dependency is still advanced-mode work
+    // (INV-13). `unit.advanced_only` only ever makes the answer stricter.
+    // `options.advanced` is the user's flag; `opts` above forces it on.
+    let Some(source_row) = unit.rows.get(&source) else {
+        return Err(DomainError::new(
+            ErrorId::Internal,
+            format!("{source} holds {} but has no row for it", unit.name),
+        ));
+    };
+    let entered_by = if source_row.ownership.shown_in_normal_mode() && !unit.advanced_only {
+        EntryMode::DefaultView
+    } else if options.advanced {
+        EntryMode::Advanced
+    } else {
+        EntryMode::Named
     };
     // DP-016(c). INV-19 forces `MANUAL_REVIEW` on a service package, and
     // `classify` decides that from `metadata.defines_service` — a bool that the
@@ -1029,6 +1048,7 @@ pub fn plan_outcome(
         destination: request.to.clone(),
         destination_package,
         retain_source: request.retain_source,
+        entered_by: Some(entered_by),
         primary_after: request.to.clone(),
         recommendation: Outcome::MigrateTo {
             provider: request.to.clone(),
