@@ -133,11 +133,25 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 written durably and read back; nothing was changed), `MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
 `MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
 `NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
-`WRONG_PROVIDER_TOKEN`) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
+`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
 `PROVIDER_STATE`, `PROVIDER_LOCATION`, `PROVIDER_CAPABILITY`, `SOURCE_PACKAGE`,
 `DESTINATION_PACKAGE`, `REVERSE_DEPENDENCY`, `CLASSIFICATION`, `PLAN_DIFFERS`).
 `command` counts from 0 within the step. A `check` here is the check's kind
 only, never its fields.
+
+Work order 16 part S adds, each to an open set: the halt cause
+`ACTIVE_NOT_REPORTED` (`VERIFICATION_FAILED`: the read does not show exactly one
+installation of the package as the active one); the `UNEVALUABLE` reason
+`NOT_CERTIFIED_HERE` (a `VERIFY_DESTINATION` is certified only after its
+provider's configuration was re-checked); the `PRECONDITION_FAILED` reason
+`DESTINATION_NOT_REVERIFIED` (the destination, read again with its
+`VERIFY_DESTINATION`'s own commands immediately before a removal command, did
+not certify, so the source was not removed and the run ends `PARTIAL_SUCCESS`,
+exit 3, after the destination was added); and the gate refusal
+`CHECK_HAS_NO_ANSWERING_READ` (`step`, `check`). A `VERIFY_DESTINATION` whose
+provider's configuration could not be re-read or has drifted halts
+`PRECONDITION_FAILED` with `CONFIGURATION_UNREADABLE` or `CONFIGURATION_DRIFT`
+and command 0 before any read; under `--replay` it always does.
 
 **When history is consulted.** Only by a live `migrate --retain-source` whose
 planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run

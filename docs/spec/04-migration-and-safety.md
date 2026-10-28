@@ -59,13 +59,27 @@ The original brief said "verify" without defining it. It is defined here.
    a recorded reason for packages with no such flag) and it exits successfully.
 5. No new cross-provider linkage was introduced (see contamination check below).
 
+**What check 1 reads, per provider** (work order 16 part S; SE-107; R-20). The
+provider's own record of activation, from a read of its **whole** inventory that
+names no package, one rule for both: exactly one record of the package is marked
+active by the provider. MacPorts — exactly one image of the port marked
+`(active)` by the registry (`port -q installed`); Homebrew formulae — the keg
+Homebrew records as linked (`linked_keg` in `brew info --json=v2 --installed`),
+equal to one of that formula's own installed versions. A cask has no such record
+and cannot pass, and an unlinked formula (keg-only ones included) does not pass.
+**Check 1 is satisfied only together with `PACKAGE_NEWLY_PRESENT` on the same
+step**: "active" is read from a whole inventory and does not by itself prove that
+this run installed the package. The reads and their semantics are built (work
+order 16 part S-1); the commands-table cells that make the planner write them,
+and so make the check evaluable, are the owner's to apply (S-2).
+
 **MUST.** A failed verification means the source package is not touched (INV-01)
 and the run reports failure with the specific check that failed.
 
 **MUST NOT.** "The install command exited 0" is not verification.
 
 **MUST.** A verification command is a read. The commands table refuses a
-`verify` or `verify_absent` verb that shares a non-flag word with the same entry's own
+`verify`, `verify_absent` or `verify_active` verb that shares a non-flag word with the same entry's own
 add or remove verb, and the spawn site refuses any provider subcommand not on
 its read list (F-53, SE-050). The second half holds while that list contains only reads;
 SE-050 records what changes when an executor adds mutating subcommands to it.
@@ -334,23 +348,28 @@ naming the fact that moved (SE-092, D6); the lock is confirmed before every
 mutating command. **Done in slice 5:** a stranded marker in `doctor`. **Still owed,
 each a precondition of the flag-flip proposal and each behind a tripwire:** the
 application-level refusal on an observed or unchecked provider; and **a
-residual the re-plan does not close** — nothing re-checks the destination
-between `VERIFY_DESTINATION` and `REMOVE_SOURCE`, so a concurrent `brew` or
-`port` could remove the destination in that window, unseen while the detector
-does not exist (slice 4 review, M6a). It is closed by a check before the
-removal or accepted by the owner beside DP-030.
+residual the re-plan does not close** — between `VERIFY_DESTINATION` and
+`REMOVE_SOURCE` a concurrent `brew` or `port` could remove the destination,
+unseen while the detector does not exist (slice 4 review, M6a). The check
+before the removal is now built behind the switch (work order 16 part S-1;
+the paragraph below), and what remains after it is accepted (DP-048).
 
 **The residual removal window is accepted and declared (DP-048, ruled
 2026-10-27).** Once slice 6's re-read of the destination runs immediately
 before `REMOVE_SOURCE`, what remains is the gap between that read and the
-provider's own uninstall: milliseconds plus the provider's run time. Nothing a
+provider's own uninstall: the lock check and the source's configuration
+re-read that follow it (M1), milliseconds, plus the provider's run time. Nothing a
 reader can do closes it, so it is declared here, next to DP-030's, rather than
-claimed closed. **Not yet met:** it will be bounded by making removal opt-in
+claimed closed. **Met (work order 16 part S-1):** the destination is read again,
+with its `VERIFY_DESTINATION`'s own commands and after its configuration is
+re-checked, immediately before each `REMOVE_SOURCE` command and before the lock
+and source-configuration re-checks; a re-read that does not certify halts the
+removal (`DESTINATION_NOT_REVERIFIED`). **Not yet met:** it will be bounded by making removal opt-in
 (`--remove-source`, with a confirmation stronger than an install's) and by
 dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
-answered, and all six destination checks were evaluated for that package. None
-of those four exists yet; work order 16 parts S, G, H and K build them, and the
-switch stays off until they do.
+answered, and all six destination checks were evaluated for that package. The
+re-read exists (part S); the opt-in, the probe and the checks do not yet — work
+order 16 parts K, G and H build them — and the switch stays off until they do.
 
 ## Privilege
 
