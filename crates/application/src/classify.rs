@@ -4,7 +4,9 @@
 //! R-8 for the detection rules per provider). Every rule records its
 //! evidence; the curated stateful data is consulted through policy data.
 
-use macportsbrew_domain::{ClassSet, PackageClass, PackageKind, PackageMetadata, ProviderId};
+use macportsbrew_domain::{
+    Answer, ClassSet, PackageClass, PackageKind, PackageMetadata, ProviderId,
+};
 use macportsbrew_policy::PolicyData;
 
 /// Classifies one package from what its provider reported.
@@ -38,7 +40,9 @@ pub fn classify(
         if let Some(origin) = &meta.origin {
             set.add(PackageClass::ThirdPartySourced, "non_core_origin", origin);
         }
-        if meta.defines_service {
+        // DP-032: the rule's answer, never the bool. `UNKNOWN` adds no class:
+        // the planner refuses a plan from it instead (INV-19).
+        if meta.service_answer() == Answer::Yes {
             set.add(PackageClass::Service, "provider_service_definition", name);
         }
         if language_family && !meta.versioned_siblings.is_empty() {
@@ -197,10 +201,10 @@ mod tests {
     #[test]
     fn service_and_runtime_stack_into_a_set() {
         let meta = PackageMetadata {
-            defines_service: true,
             versioned_siblings: ["php@8.3".to_string()].into_iter().collect(),
             ..PackageMetadata::default()
-        };
+        }
+        .with_service(macportsbrew_domain::ServiceDefinition::both(Answer::Yes));
         let set = classify(
             &ProviderId::new("homebrew"),
             "php@8.4",

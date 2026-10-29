@@ -1337,7 +1337,55 @@ impl Snapshot {
     ) -> Result<(), crate::error::DomainError> {
         self.check_schema()?;
         self.check_names()?;
+        self.check_services()?;
         self.check_invocation_environments(contracts)
+    }
+
+    /// The service question's two load rules (DP-032, `snapshot.v1.md`).
+    ///
+    /// 1. A row that carries `service` carries a `definesService` bool equal to
+    ///    the rule's answer being `YES`. `false` beside `UNKNOWN` is consistent;
+    ///    `true` beside anything but `YES` is a document that disagrees with
+    ///    itself, and older readers trust the bool.
+    /// 2. A provider carries `service` on every metadata row or on none. A
+    ///    capture writes it on every row; a document with it on some rows only
+    ///    is an edited one, and a deleted `service` would otherwise read as an
+    ///    older document's absence on exactly the row a plan is about.
+    ///
+    /// A row without `service` is not refused: it answers `UNKNOWN`, and the
+    /// planner refuses a plan from it ([`crate::PackageMetadata::service_answer`]).
+    pub(crate) fn check_services(&self) -> Result<(), crate::error::DomainError> {
+        let refuse = |detail: String| {
+            Err(crate::error::DomainError::new(
+                crate::error::ErrorId::SnapshotUnusable,
+                detail,
+            ))
+        };
+        for (id, provider) in &self.providers {
+            let metadata = &provider.inventory.metadata;
+            let carrying = metadata.values().filter(|m| m.service.is_some()).count();
+            if carrying != 0 && carrying != metadata.len() {
+                return refuse(format!(
+                    "{id} records the service question for {carrying} of {} packages; a \
+                     capture records it for all of them or for none",
+                    metadata.len()
+                ));
+            }
+            for (name, meta) in metadata {
+                if let Some(service) = meta.service {
+                    let rule = service.defines_service() == crate::package::Answer::Yes;
+                    if meta.defines_service != rule {
+                        return refuse(format!(
+                            "{id} package {name:?} says definesService is {} where its service \
+                             answer is {:?}",
+                            meta.defines_service,
+                            service.defines_service()
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Records every capability a loaded document does not mention as
@@ -1699,6 +1747,71 @@ mod tests {
                 "accepted keys {keys:?}, analytics {analytics:?}"
             );
         }
+    }
+
+    /// A snapshot whose one provider holds `rows` as its metadata.
+    fn with_metadata(rows: &[(&str, crate::PackageMetadata)]) -> Snapshot {
+        let mut snapshot = with_provider(snapshot_with(EnvironmentSnapshot::default()));
+        let provider = snapshot.providers.values_mut().next().expect("one");
+        for (name, meta) in rows {
+            provider
+                .inventory
+                .metadata
+                .insert((*name).to_string(), meta.clone());
+        }
+        snapshot
+    }
+
+    #[test]
+    fn a_service_bool_that_disagrees_with_the_rule_is_refused_on_load() {
+        use crate::{Answer, PackageMetadata, ServiceDefinition};
+        let consistent =
+            |answer| PackageMetadata::default().with_service(ServiceDefinition::both(answer));
+        for answer in [Answer::Yes, Answer::No, Answer::Unknown] {
+            assert!(
+                with_metadata(&[("a", consistent(answer))])
+                    .check_services()
+                    .is_ok(),
+                "{answer:?} written by the rule is consistent"
+            );
+        }
+        // `true` beside anything but YES, and `false` beside YES.
+        for (bool_says, answer) in [
+            (true, Answer::No),
+            (true, Answer::Unknown),
+            (false, Answer::Yes),
+        ] {
+            let mut meta = consistent(answer);
+            meta.defines_service = bool_says;
+            assert!(
+                with_metadata(&[("a", meta)]).check_services().is_err(),
+                "{bool_says} beside {answer:?} loaded"
+            );
+        }
+        // A newer build's value this one reads as UNKNOWN, beside `true`: the
+        // fail-closed break `snapshot.v1.md` states.
+        let newer: PackageMetadata = serde_json::from_str(
+            r#"{"definesService":true,"service":{"declared":"SOMETHING_NEWER","materialised":"NO"}}"#,
+        )
+        .expect("an unknown variant still parses");
+        assert!(with_metadata(&[("a", newer)]).check_services().is_err());
+    }
+
+    #[test]
+    fn a_provider_with_the_service_question_on_some_rows_only_is_refused_on_load() {
+        use crate::{Answer, PackageMetadata, ServiceDefinition};
+        let known = PackageMetadata::default().with_service(ServiceDefinition::both(Answer::No));
+        let old = PackageMetadata::default();
+        assert!(with_metadata(&[("a", known.clone()), ("b", old.clone())])
+            .check_services()
+            .is_err());
+        // All, or none (an older document), loads.
+        assert!(with_metadata(&[("a", known.clone()), ("b", known)])
+            .check_services()
+            .is_ok());
+        assert!(with_metadata(&[("a", old.clone()), ("b", old)])
+            .check_services()
+            .is_ok());
     }
 
     /// The snapshot with one absent provider, `any-provider`, so an

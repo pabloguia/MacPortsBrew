@@ -6125,7 +6125,7 @@
             "state": "AVAILABLE"
           },
           "SERVICE_METADATA": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "UNPRIVILEGED_READ": {
             "state": "AVAILABLE"

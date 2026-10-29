@@ -126,6 +126,18 @@ so a `RUNTIME` classification can never suppress the `MANUAL_REVIEW` that an
 INV-19 class requires of the same package. Every member class is displayed, not
 only the winning one.
 
+**MUST.** Whether a package is a `SERVICE` is decided by **one rule, in the
+domain** (DP-032): `ServiceDefinition { declared, materialised }`, each half an
+`Answer` (`YES`, `NO`, `UNKNOWN`) the provider's adapter supplies — what the
+package's own description declares, and what the provider wrote on disk for it.
+The package defines a service if either half is `YES`; it does not only if both
+are `NO`; any other combination is `UNKNOWN`. Only `YES` adds the class.
+`UNKNOWN` is never read as `NO`: the planner refuses a plan whose source row
+answers it (INV-19, DP-016 (c)), and a row that carries no answer at all — a
+document written before the field existed — answers `UNKNOWN`. The rule names
+no provider and knows nothing of replay; an adapter that cannot look answers
+`UNKNOWN` for that half (INV-15, INV-17).
+
 **MUST.** MacPorts has no concept equivalent to a Homebrew cask (R-1, 2026-09-02,
 confirms the cask semantics this relies on, and adds a safety reason: a cask may
 plant launch machinery under a vendor label that no cask metadata names). Casks appear in inventory and in `doctor`,

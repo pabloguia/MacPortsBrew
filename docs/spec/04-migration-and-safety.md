@@ -124,6 +124,14 @@ explicit, separate, advanced-mode confirmation and is recorded.
 **MUST NOT.** Never stop, start, unload or relocate a background service as an
 implicit side effect of a package migration.
 
+**MUST.** `SERVICE` is detected from the source row's service answer, the union
+`02-domain-model.md` states once (DP-032). Where that answer is `UNKNOWN` — a
+half could not be read, a Portfile form the bounded reader does not interpret,
+a cask, a row from a document that predates the field, or any disk-backed half
+under `--replay` — the planner refuses with `SafetyUnverifiable`, naming the
+package and never a path. The re-plan under the run lock goes through the same
+planner, so an answer that became unknown refuses the run.
+
 ## Rollback and snapshots
 
 **MUST.** Do not promise transaction semantics the underlying package managers

@@ -1314,21 +1314,171 @@ mod tests {
     use macportsbrew_application::StepRecord;
     use macportsbrew_domain::ErrorId;
 
-    /// A context over a committed recording; nothing here reads this machine.
+    /// A context over the committed live capture; nothing here reads this
+    /// machine. A capture, not a recording: a replayed source row cannot answer
+    /// the service question, so no plan is built from one (DP-032, part D).
     fn context() -> Context {
+        context_in("en")
+    }
+
+    /// [`context`], rendering in `language`.
+    fn context_in(language: &str) -> Context {
         let fixture = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/recordings/both-providers-arm64-macos15.json"
+            "/../../fixtures/snapshots/both-providers-intel-macos26-live.json"
         );
         let cli = super::super::Cli::parse_from([
             "macportsbrew",
-            "--replay",
+            "--language",
+            language,
+            "--from-snapshot",
             fixture,
             "--today",
             "2026-09-02",
             "status",
         ]);
-        Context::build(&cli, &mut Vec::new()).expect("the recording builds a context")
+        Context::build(&cli, &mut Vec::new()).expect("the capture builds a context")
+    }
+
+    /// One instance of every refusal the execution gate can give.
+    ///
+    /// `position` is an exhaustive `match`, so a new variant fails to compile
+    /// here until it is added to the list; the test below checks that every
+    /// position is filled exactly once (spec-guardian, part D review).
+    fn every_gate_refusal() -> Vec<ExecutionRefusal> {
+        use macportsbrew_domain::{ExpectationError, VerificationCheck};
+        fn position(refusal: &ExecutionRefusal) -> usize {
+            match refusal {
+                ExecutionRefusal::SchemaVersionNotThisBuilds { .. } => 0,
+                ExecutionRefusal::Ordering => 1,
+                ExecutionRefusal::StepIndicesNotSequential => 2,
+                ExecutionRefusal::EmptyPlan => 3,
+                ExecutionRefusal::NoSnapshotBeforeFirstMutation { .. } => 4,
+                ExecutionRefusal::NoRecordHistoryAtEnd => 5,
+                ExecutionRefusal::MoreThanOneSnapshotBefore { .. } => 6,
+                ExecutionRefusal::MoreThanOneRecordHistory { .. } => 7,
+                ExecutionRefusal::ManualReview { .. } => 8,
+                ExecutionRefusal::Placeholder { .. } => 9,
+                ExecutionRefusal::UnrecognisedCheck { .. } => 10,
+                ExecutionRefusal::CheckNotEvaluableInThisBuild { .. } => 11,
+                ExecutionRefusal::VerificationAssertsNothing { .. } => 12,
+                ExecutionRefusal::UnknownSuccess { .. } => 13,
+                ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { .. } => 14,
+                ExecutionRefusal::CommandIsNotThePlannersRead { .. } => 15,
+                ExecutionRefusal::Expectation { .. } => 16,
+                ExecutionRefusal::SameProviderOnBothSides => 17,
+                ExecutionRefusal::ElevationRequired { .. } => 18,
+                ExecutionRefusal::ElevationUnknown { .. } => 19,
+                ExecutionRefusal::MutationNotInThisBuild { .. } => 20,
+                ExecutionRefusal::PlanNotDryRunOnly => 21,
+                ExecutionRefusal::ProviderConfiguration { .. } => 22,
+                ExecutionRefusal::MutationIsNotThePlannersCommand { .. } => 23,
+                ExecutionRefusal::MutationNotVerifiedAfter { .. } => 24,
+                ExecutionRefusal::CheckHasNoAnsweringRead { .. } => 25,
+            }
+        }
+        const VARIANTS: usize = 26;
+        let all = vec![
+            ExecutionRefusal::SchemaVersionNotThisBuilds {
+                found: 2,
+                expected: 1,
+            },
+            ExecutionRefusal::Ordering,
+            ExecutionRefusal::StepIndicesNotSequential,
+            ExecutionRefusal::EmptyPlan,
+            ExecutionRefusal::NoSnapshotBeforeFirstMutation { step: 2 },
+            ExecutionRefusal::NoRecordHistoryAtEnd,
+            ExecutionRefusal::MoreThanOneSnapshotBefore { steps: vec![1, 4] },
+            ExecutionRefusal::MoreThanOneRecordHistory { steps: vec![7, 8] },
+            ExecutionRefusal::ManualReview { step: 3 },
+            ExecutionRefusal::Placeholder { steps: vec![2] },
+            ExecutionRefusal::UnrecognisedCheck { steps: vec![3] },
+            ExecutionRefusal::CheckNotEvaluableInThisBuild {
+                step: 4,
+                check: VerificationCheck::ProviderReportsActive,
+            },
+            ExecutionRefusal::VerificationAssertsNothing { step: 3 },
+            ExecutionRefusal::UnknownSuccess { steps: vec![2, 6] },
+            ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step: 1 },
+            ExecutionRefusal::CommandIsNotThePlannersRead { step: 3 },
+            ExecutionRefusal::Expectation {
+                step: 3,
+                error: ExpectationError::NoDestinationName,
+            },
+            ExecutionRefusal::SameProviderOnBothSides,
+            ExecutionRefusal::ElevationRequired { steps: vec![2] },
+            ExecutionRefusal::ElevationUnknown { steps: vec![6] },
+            ExecutionRefusal::MutationNotInThisBuild { step: 2 },
+            ExecutionRefusal::PlanNotDryRunOnly,
+            ExecutionRefusal::ProviderConfiguration {
+                step: 2,
+                provider: ProviderId::new("macports"),
+            },
+            ExecutionRefusal::MutationIsNotThePlannersCommand { step: 2 },
+            ExecutionRefusal::MutationNotVerifiedAfter { step: 6 },
+            ExecutionRefusal::CheckHasNoAnsweringRead {
+                step: 5,
+                check: VerificationCheck::PackageAbsent,
+            },
+        ];
+        let mut filled = [false; VARIANTS];
+        for refusal in &all {
+            let at = position(refusal);
+            assert!(!filled[at], "variant {at} listed twice");
+            filled[at] = true;
+        }
+        assert!(
+            filled.iter().all(|f| *f),
+            "a variant is missing: {filled:?}"
+        );
+        all
+    }
+
+    #[test]
+    fn every_gate_refusal_is_a_catalogue_sentence_in_every_shipped_locale() {
+        // `run_report` renders the gate's refusals for the plan in front of it,
+        // and no plan this build writes reaches most of them; so each variant
+        // is rendered directly, in English and in Brazilian Portuguese.
+        let refusals = every_gate_refusal();
+        let en = context_in("en");
+        let pt = context_in("pt-BR");
+        let mut seen_en = Vec::new();
+        for refusal in &refusals {
+            let english = gate_refusal_line(&en, refusal);
+            let portuguese = gate_refusal_line(&pt, refusal);
+            for (tag, line) in [("en", &english), ("pt-BR", &portuguese)] {
+                assert!(
+                    !line.trim().is_empty(),
+                    "{tag}: {refusal:?} renders nothing"
+                );
+                for raw in ["migrate.", "{", "}", "refusal."] {
+                    assert!(!line.contains(raw), "{tag}: {raw:?} in {line:?}");
+                }
+            }
+            assert_ne!(english, portuguese, "{refusal:?} is not translated");
+            assert!(
+                !seen_en.contains(&english),
+                "{refusal:?} shares its sentence with another refusal: {english:?}"
+            );
+            seen_en.push(english);
+        }
+        assert!(
+            en.messages.missing().is_empty(),
+            "{:?}",
+            en.messages.missing()
+        );
+        assert!(
+            pt.messages.missing().is_empty(),
+            "{:?}",
+            pt.messages.missing()
+        );
+        // The values a refusal quotes reach the sentence.
+        let schema = gate_refusal_line(&en, &refusals[0]);
+        assert!(schema.contains('2') && schema.contains('1'), "{schema}");
+        let steps = gate_refusal_line(&pt, &refusals[6]);
+        assert!(steps.contains('1') && steps.contains('4'), "{steps}");
+        let provider = gate_refusal_line(&pt, &refusals[22]);
+        assert!(provider.contains("macports"), "{provider}");
     }
 
     /// Every halt reason the run loop can record.

@@ -503,10 +503,12 @@ provider command and must not be resolved through `PATH`.
 
 Both shapes as they actually serialise — `target`, like `elevation`, is an
 internally tagged union, so the tag repeats the field name. Taken from
-`plan htop --to macports --json` against
-`fixtures/recordings/both-providers-arm64-macos15.json`:
+`plan htop --to macports --json` against the committed live capture
+`fixtures/snapshots/both-providers-intel-macos26-live.json` (a recording can no
+longer plan it: since work order 16 part D a replayed source row that declares no
+service answers the service question `UNKNOWN` and is refused, DP-032):
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/2/commands/0 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/2/commands/0 -->
 ```json
 {
   "target": {
@@ -519,6 +521,7 @@ internally tagged union, so the tag repeats the field name. Taken from
     "htop"
   ],
   "environment": {
+    "HOME": "~",
     "LANG": "C",
     "LC_ALL": "C",
     "NO_COLOR": "1",
@@ -535,7 +538,7 @@ internally tagged union, so the tag repeats the field name. Taken from
 }
 ```
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/3/commands/0 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/commands/0 -->
 ```json
 {
   "target": {
@@ -562,7 +565,7 @@ check it satisfies are only meaningful together — this is what an executor
 inherits from item 3 above. Note `argv` carries **no package name**: the
 `htop` this plan removes appears nowhere in it.
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json plan htop --to macports at=/steps/6 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/6 -->
 ```json
 {
   "index": 7,
@@ -573,12 +576,13 @@ inherits from item 3 above. Note `argv` carries **no package name**: the
       "target": {
         "target": "PROVIDER"
       },
-      "program": "/opt/homebrew/bin/brew",
+      "program": "/usr/local/bin/brew",
       "argv": [
         "list",
         "--versions"
       ],
       "environment": {
+        "HOME": "~",
         "HOMEBREW_NO_ANALYTICS": "1",
         "HOMEBREW_NO_AUTO_UPDATE": "1",
         "HOMEBREW_NO_COLOR": "1",
@@ -588,7 +592,7 @@ inherits from item 3 above. Note `argv` carries **no package name**: the
         "LANG": "C",
         "LC_ALL": "C",
         "NO_COLOR": "1",
-        "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "TERM": "dumb"
       },
       "elevation": {
@@ -623,7 +627,7 @@ folded onto one line — and are now written exactly as the binary serialises
 them, because that is what a marker can check. The verbosity is the price of
 the check, and this is a contract an executor is built against rather than
 prose. The pointers are `/steps/2/commands/0` and `/steps/3/commands/0` for this
-recording and this package; they are positions in one output, not part of the
+capture and this package; they are positions in one output, not part of the
 schema, so a plan whose steps change moves them and the marker fails loudly
 rather than silently comparing the wrong command.
 
@@ -739,11 +743,12 @@ mutating step that names no provider whenever any provider carries the risk.
 
 ## Worked example
 
-`macportsbrew plan curl --to macports --json` on a machine with Homebrew and no
-MacPorts. Every step is `MANUAL_REVIEW`, so the plan is entirely
+`macportsbrew plan curl --to macports --json` on the machine the committed live
+capture describes: no port reaches a strong enough mapping, and other formulae
+depend on `curl`. Every step is `MANUAL_REVIEW`, so the plan is entirely
 non-mutating and the command exits 4:
 
-<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json --json plan curl --to macports exit=4 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan curl --to macports exit=4 -->
 ```json
 {
   "schemaVersion": 1,
@@ -768,16 +773,6 @@ non-mutating and the command exits 4:
       "index": 1,
       "kind": "MANUAL_REVIEW",
       "reason": {
-        "id": "reason.destination_provider_absent",
-        "params": {
-          "provider": "macports"
-        }
-      }
-    },
-    {
-      "index": 2,
-      "kind": "MANUAL_REVIEW",
-      "reason": {
         "id": "reason.mapping_confidence_below_threshold",
         "params": {
           "candidates": "0",
@@ -788,7 +783,7 @@ non-mutating and the command exits 4:
       }
     },
     {
-      "index": 3,
+      "index": 2,
       "kind": "MANUAL_REVIEW",
       "reason": {
         "id": "reason.reverse_dependencies_present",
@@ -800,16 +795,6 @@ non-mutating and the command exits 4:
     }
   ],
   "risks": [
-    {
-      "id": "destination_absent",
-      "reason": {
-        "id": "reason.destination_provider_absent",
-        "params": {
-          "provider": "macports"
-        }
-      },
-      "blocking": true
-    },
     {
       "id": "mapping",
       "reason": {
@@ -833,16 +818,6 @@ non-mutating and the command exits 4:
         }
       },
       "blocking": true
-    },
-    {
-      "id": "provider_configuration",
-      "reason": {
-        "id": "reason.provider_configuration_unknown",
-        "params": {
-          "provider": "homebrew"
-        }
-      },
-      "blocking": false
     }
   ],
   "policyVersion": "2026.10.12-4",

@@ -58,6 +58,9 @@ fn installed(
         },
         PackageMetadata {
             defines_service: service,
+            service: Some(macportsbrew_domain::ServiceDefinition::both(
+                macportsbrew_domain::Answer::from(service),
+            )),
             ..PackageMetadata::default()
         },
     )

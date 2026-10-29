@@ -30,6 +30,7 @@
 //!   package as prebuilt and is a silent-misparse bug.
 
 pub mod json;
+pub mod keg;
 
 use crate::filesystem::FilesystemScope;
 use crate::process::{
@@ -38,11 +39,11 @@ use crate::process::{
 use json::{checked_name, parse_installed_json, Cask, Formula, Observed, Parsed};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::{
-    Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, DependencyEdge, DomainError, ErrorId, ExecutableOwner, InstalledPackage,
-    Machine, PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities,
+    Answer, Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
+    Capability, CapabilityState, DependencyEdge, DomainError, ErrorId, ExecutableOwner,
+    InstalledPackage, Machine, PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities,
     ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderRead,
-    ProviderSnapshot, RequestedSet, Resolution, Version,
+    ProviderSnapshot, RequestedSet, Resolution, ServiceDefinition, Version,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -402,11 +403,28 @@ impl<'r> HomebrewAdapter<'r> {
         let invocation = self.run(ARGV_INFO)?;
         invocation.require_success()?;
         let parsed = parse_installed_json(&invocation.stdout);
-        let capabilities = self.capability_table(parsed.as_ref());
+        let mut capabilities = self.capability_table(parsed.as_ref());
         let inventory = match &parsed {
             Ok(document) => self.build_inventory(document),
             Err(error) => Err(error.clone()),
         };
+        // DP-032: the capability says "known" only when every row's answer is.
+        // It is informational - the planner asks the row - but an `Available`
+        // beside an `UNKNOWN` row would say the opposite of the row.
+        let every_row_known = inventory.as_ref().is_ok_and(|inventory| {
+            inventory
+                .metadata
+                .values()
+                .all(|m| m.service_answer() != Answer::Unknown)
+        });
+        if !every_row_known
+            && capabilities.capabilities.get(&Capability::ServiceMetadata)
+                == Some(&CapabilityState::Available)
+        {
+            capabilities
+                .capabilities
+                .insert(Capability::ServiceMetadata, CapabilityState::Unknown);
+        }
         let analysis = Analysis {
             inventory,
             capabilities,
@@ -535,7 +553,10 @@ impl HomebrewAdapter<'_> {
 
         for formula in &document.formulae {
             self.push_formula_rows(formula, &cellar, &mut installed, &mut requested);
-            metadata.insert(formula.name.clone(), formula_metadata(formula, &pinned));
+            metadata.insert(
+                formula.name.clone(),
+                formula_metadata(formula, &pinned, &cellar, self.filesystem),
+            );
             availability.insert(formula.name.clone(), self.formula_availability(formula));
         }
         for cask in &document.casks {
@@ -801,7 +822,28 @@ fn state_reason(flag: Option<bool>, reason: Option<&String>) -> Option<String> {
     }
 }
 
-fn formula_metadata(formula: &Formula, pinned: &BTreeSet<String>) -> PackageMetadata {
+fn formula_metadata(
+    formula: &Formula,
+    pinned: &BTreeSet<String>,
+    cellar: &Path,
+    filesystem: FilesystemScope,
+) -> PackageMetadata {
+    // DP-032. Declared: `service` non-null (a missing key never parsed).
+    // Materialised: a launch file in a keg, found by `name` - never
+    // `full_name`, which can hold `/` - and each installed version.
+    let versions: Vec<&str> = formula
+        .installed
+        .iter()
+        .map(|k| k.version.as_str())
+        .collect();
+    let service = ServiceDefinition {
+        declared: if formula.has_service {
+            Answer::Yes
+        } else {
+            Answer::No
+        },
+        materialised: keg::materialised(cellar, &formula.name, &versions, filesystem),
+    };
     PackageMetadata {
         description: formula.desc.clone(),
         homepage: formula.homepage.clone(),
@@ -813,12 +855,14 @@ fn formula_metadata(formula: &Formula, pinned: &BTreeSet<String>) -> PackageMeta
         replaced_by: formula.replaced_by.clone(),
         pinned: formula.pinned || pinned.contains(&formula.name),
         not_on_default_path_reason: keg_only_reason(formula),
-        defines_service: formula.has_service,
+        defines_service: false,
+        service: None,
         executables: BTreeSet::new(),
         aliases: formula.aliases.iter().cloned().collect(),
         versioned_siblings: formula.versioned_formulae.iter().cloned().collect(),
         notes: formula.caveats.clone(),
     }
+    .with_service(service)
 }
 
 /// The prose reason when the provider gives one, and the symbol it uses
@@ -859,11 +903,16 @@ fn cask_metadata(cask: &Cask) -> PackageMetadata {
         pinned: cask.pinned,
         not_on_default_path_reason: None,
         defines_service: false,
+        service: None,
         executables: BTreeSet::new(),
         aliases: BTreeSet::new(),
         versioned_siblings: BTreeSet::new(),
         notes,
     }
+    // R2: a cask can carry a launch stanza in its uninstall directives, and nothing here reads it, so
+    // the answer is unknown - not the `false` this used to hardcode. A plan
+    // from a cask row is refused until a cask reader exists (SE-109).
+    .with_service(ServiceDefinition::both(Answer::Unknown))
 }
 
 /// Edges between packages that are actually present. The runtime record of

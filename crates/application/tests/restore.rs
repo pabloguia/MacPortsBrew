@@ -69,6 +69,9 @@ fn holding(id: &str, prefix: &str, names: &[&str], service: &[&str]) -> Provider
                     format!("https://example.org/{name}")
                 }),
                 defines_service: service.contains(name),
+                service: Some(macportsbrew_domain::ServiceDefinition::both(
+                    macportsbrew_domain::Answer::from(service.contains(name)),
+                )),
                 ..PackageMetadata::default()
             },
         );

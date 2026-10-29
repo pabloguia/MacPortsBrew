@@ -3,8 +3,9 @@
 //! The live branch of `migrate --retain-source` (pass 08 slice 1, H3).
 //! Every binary-level test runs under `--replay`, which never consults
 //! history, so this is where reading history, recognising a re-run and
-//! rendering the answer are exercised: a context is built from a captured
-//! recording, its scope is set to [`HistoryScope::ThisMachine`] here, and
+//! rendering the answer are exercised: a context is built from the committed
+//! live capture (`--from-snapshot`, which never consults history either; a replayed
+//! plan is refused since part D), its scope is set to [`HistoryScope::ThisMachine`] here, and
 //! history is read from a scratch store. Nothing touches the real one.
 
 use super::*;
@@ -19,22 +20,22 @@ use std::collections::BTreeSet;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-const RECORDING: &str = "both-providers-arm64-macos15.json";
 const RUN_STAMP: &str = "20261004T130000Z";
 const RECORD_ID: &str = "20261004T120000Z-00000000000000a1";
 
-fn recording() -> PathBuf {
+/// The committed live capture (`fixtures/snapshots/`). A replayed source row
+/// cannot answer the service question (DP-032, part D), so a plan is built
+/// from a capture of the machine itself.
+fn live_snapshot() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/recordings")
-        .join(RECORDING)
+        .join("../../fixtures/snapshots/both-providers-intel-macos26-live.json")
 }
 
 fn cli(package: &str, to: &str, json: bool) -> Cli {
-    let recording = recording();
     let mut args = vec![
         "macportsbrew".to_string(),
-        "--replay".into(),
-        recording.to_string_lossy().into_owned(),
+        "--from-snapshot".into(),
+        live_snapshot().to_string_lossy().into_owned(),
         "--today".into(),
         "2026-10-04".into(),
     ];
@@ -45,14 +46,14 @@ fn cli(package: &str, to: &str, json: bool) -> Cli {
     Cli::try_parse_from(args).expect("the arguments parse")
 }
 
-/// A context from the recording, made to consult history as a live run
+/// A context from the live capture, made to consult history as a live run
 /// does.
 fn live(cli: &Cli) -> Context {
     let mut ctx = Context::build(cli, &mut std::io::sink()).expect("the context builds");
     assert_eq!(
         ctx.history,
         HistoryScope::NotConsulted,
-        "a replay never consults"
+        "a snapshot file never consults"
     );
     ctx.history = HistoryScope::ThisMachine;
     ctx.run_stamp = RUN_STAMP.into();
@@ -150,13 +151,19 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
 }
 
 /// Makes the context's capture show `plan`'s executable resolving to the
-/// destination: what a live capture after the run would read. A recording
-/// has no `PATH`, so it carries no resolution of its own.
+/// destination: what a live capture after the run would read.
 fn resolve_to_destination(ctx: &mut Context, plan: &MigrationPlan) {
     let name = plan
         .destination_package
         .clone()
         .unwrap_or_else(|| plan.package.name.clone());
+    // A live capture carries the resolution it read before the run; after
+    // it, the executable resolves to the destination and to nothing else.
+    for (id, provider) in &mut ctx.snapshot.providers {
+        if *id != plan.destination {
+            provider.resolutions.remove(&name);
+        }
+    }
     let destination = ctx
         .snapshot
         .providers

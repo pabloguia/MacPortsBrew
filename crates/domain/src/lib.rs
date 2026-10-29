@@ -51,7 +51,8 @@ pub use machine::{
 pub use mapping::{Confidence, MappingCandidate, MappingEvidence, PackageMapping};
 pub use ownership::{classify_ownership as classify_ownership_for, Ownership, OwnershipEvidence};
 pub use package::{
-    DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
+    Answer, DependencyEdge, InstalledPackage, PackageIdentity, PackageKind, PackageMetadata,
+    ServiceDefinition,
 };
 pub use plan::{
     CommandTarget, Elevation, EntryMode, MigrationPlan, MigrationStep, PlanCommand, PlanRisk,

@@ -9,10 +9,11 @@ use crate::provider_commands::{self, ProviderCommands};
 use crate::report::ProviderRow;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
-    ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence, DomainError,
-    Elevation, EntryMode, ErrorId, MigrationPlan, MigrationStep, Outcome, PackageIdentity,
-    PackageKind, PlanCommand, PlanRisk, ProviderId, ProviderPresence, ProviderSnapshot, Reason,
-    Snapshot, StepKind, SuccessSemantic, VerificationCheck,
+    Answer, ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence,
+    DomainError, Elevation, EntryMode, ErrorId, MigrationPlan, MigrationStep, Outcome,
+    PackageIdentity, PackageKind, PackageMetadata, PlanCommand, PlanRisk, ProviderId,
+    ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind, SuccessSemantic,
+    VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -525,36 +526,35 @@ pub fn plan_outcome(
     } else {
         EntryMode::Named
     };
-    // DP-016(c). INV-19 forces `MANUAL_REVIEW` on a service package, and
-    // `classify` decides that from `metadata.defines_service` — a bool that the
-    // source provider fills. Where the adapter could not look, it reports
-    // `Capability::ServiceMetadata: Unknown` and that bool is `false`, so the
-    // rule silently does not fire and the plan looks ordinary. Under `--replay`
-    // that is every MacPorts package, because the scan answers `Unreadable`
-    // wherever this host's filesystem is not the machine being described (F-25,
-    // F-29).
+    // DP-016(c), DP-032. INV-19 forces `MANUAL_REVIEW` on a service package,
+    // and `classify` decides that from the source row's service answer — the
+    // union of what the package declares and what its provider materialised.
+    // Where that answer is `UNKNOWN` the rule cannot fire, and a plan built
+    // anyway would look ordinary: so the plan is refused, rather than the rule
+    // weakened. (a) — treating `UNKNOWN` as a service — was rejected by the
+    // owner in DP-016.
     //
-    // The owner ruled (c): refuse the plan rather than weaken the rule. (a) —
-    // treat `Unknown` as a service and force review — would have made every
-    // replayed MacPorts plan a `MANUAL_REVIEW`, which costs `--replay` the one
-    // thing it exists to demonstrate. Closing the path that needs the missing
-    // fact costs only that path: `analyze`, `status` and `explain` never ask
-    // this question and keep working.
-    //
-    // Asked of the **source**, because that is whose metadata classifies the
-    // package being moved. A destination that cannot answer says nothing about
-    // what is being removed.
-    if snapshot.providers.get(&source).is_some_and(|p| {
-        p.capabilities
-            .cannot_answer(macportsbrew_domain::Capability::ServiceMetadata)
-    }) {
+    // Asked of the **source row**, because that is whose metadata classifies
+    // the package being moved; a destination that cannot answer says nothing
+    // about what is being removed. A row with no metadata, or metadata from a
+    // document written before the question existed, answers `UNKNOWN` too.
+    // This replaces the capability check that stood here, which it subsumes:
+    // a provider that could not look answers `UNKNOWN` on every row (INV-15
+    // under `--replay`). `analyze`, `status` and `explain` never ask the
+    // question and keep working. The message names the package, never a path.
+    let source_answer = snapshot
+        .providers
+        .get(&source)
+        .and_then(|p| p.inventory.metadata.get(&source_row.name))
+        .map_or(Answer::Unknown, PackageMetadata::service_answer);
+    if source_answer == Answer::Unknown {
         return Err(DomainError::new(
             ErrorId::SafetyUnverifiable,
             format!(
-                "this input does not record whether {source} packages define services, so the \
-                 rule that forces manual review for a service package cannot be evaluated for \
-                 {}",
-                unit.name
+                "whether {source} package {} defines a background service is not known, so \
+                 the rule that forces manual review for a service package cannot be evaluated \
+                 for {}",
+                source_row.name, unit.name
             ),
         ));
     }

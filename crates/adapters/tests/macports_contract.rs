@@ -695,7 +695,49 @@ fn macports_prefix(tag: &str) -> PathBuf {
     ));
     std::fs::remove_dir_all(&root).ok();
     std::fs::create_dir_all(root.join("etc/macports")).unwrap();
+    declares_nothing(&root);
     root
+}
+
+/// Lays down, under `root`, what the declared half of the service question
+/// reads (part D §4): a `macports.conf` that keeps the default `portdbpath`, an
+/// empty home with no user file, no stored PortGroups, and for every port the
+/// fixture has installed a registry Portfile that declares nothing. So the
+/// declared half answers `NO` everywhere and these tests stay about the scan,
+/// the materialised half. The shape is A-1's; the text is the smallest
+/// Portfile that answers `NO`.
+fn declares_nothing(root: &Path) {
+    std::fs::write(
+        root.join("etc/macports/macports.conf"),
+        format!("portdbpath {}\n", root.join("var/macports").display()),
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    std::fs::create_dir_all(root.join("var/macports/registry/portgroups")).unwrap();
+    let rows = MacPortsAdapter::new(
+        ReplayRunner::new(Recording::from_json(&fixture_text(MACPORTS_FIXTURE)).unwrap()),
+        root.to_path_buf(),
+        None,
+        FilesystemScope::Elsewhere,
+    )
+    .inventory()
+    .expect("the fixture's inventory")
+    .installed;
+    let text = "PortSystem 1.0\n";
+    for row in rows {
+        let leaf = format!(
+            "{}-{}_{}",
+            row.identity.name,
+            row.version.as_str(),
+            row.revision.as_deref().expect("a revision")
+        );
+        let dir = root
+            .join("var/macports/registry/portfiles")
+            .join(leaf)
+            .join(format!("{:064x}-{}", 0, text.len()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Portfile"), text).unwrap();
+    }
 }
 
 /// A default-named StartupItem for `port` under `location`.
@@ -988,7 +1030,7 @@ fn adapter_on_disk(root: &Path, items: &[(&str, &str, &str)]) -> MacPortsAdapter
     MacPortsAdapter::new(
         ReplayRunner::new(recording),
         root.to_path_buf(),
-        None,
+        Some(root.join("home")),
         FilesystemScope::ThisMachine,
     )
 }
@@ -1049,7 +1091,7 @@ fn invariant_19_an_item_is_attributed_to_the_port_the_registry_names() {
     let adapter = MacPortsAdapter::new(
         ReplayRunner::new(Recording::from_json(&doc.to_string()).expect("recording")),
         named.clone(),
-        None,
+        Some(named.join("home")),
         FilesystemScope::ThisMachine,
     );
     assert_eq!(service_capability(&adapter), CapabilityState::Available);
@@ -1062,6 +1104,62 @@ fn invariant_19_an_item_is_attributed_to_the_port_the_registry_names() {
     assert_eq!(service_capability(&silent), CapabilityState::Unknown);
     std::fs::remove_dir_all(&root).ok();
     std::fs::remove_dir_all(&named).ok();
+}
+
+#[test]
+fn a_declared_startup_item_with_nothing_materialised_is_a_service() {
+    // DP-032, the `dbus` shape: the installed Portfile declares an item that
+    // MacPorts never materialised. The union answers `YES`; an unreadable
+    // Portfile makes the answer `UNKNOWN`, and the capability says so.
+    use macportsbrew_domain::{Answer, ServiceDefinition};
+    let root = macports_prefix("declared-only");
+    let service = |adapter: &MacPortsAdapter<ReplayRunner>, name: &str| {
+        adapter.inventory().unwrap().metadata[name].service
+    };
+    let portfile = std::fs::read_dir(root.join("var/macports/registry/portfiles"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("wget-")
+        })
+        .expect("wget's registry directory");
+    let hash = std::fs::read_dir(&portfile)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = "startupitem.type    launchd\nstartupitem.create  no\n";
+    std::fs::remove_dir_all(&hash).unwrap();
+    let declaring = portfile.join(format!("{:064x}-{}", 0, text.len()));
+    std::fs::create_dir_all(&declaring).unwrap();
+    std::fs::write(declaring.join("Portfile"), text).unwrap();
+    let adapter = adapter_on_disk(&root, &[]);
+    assert_eq!(
+        service(&adapter, "wget"),
+        Some(ServiceDefinition {
+            declared: Answer::Yes,
+            materialised: Answer::No,
+        })
+    );
+    assert!(
+        defines_service(&adapter, "wget"),
+        "the bool is written from the rule"
+    );
+    assert_eq!(service_capability(&adapter), CapabilityState::Available);
+
+    // The same Portfile, one byte longer than its directory says: unknown.
+    std::fs::write(declaring.join("Portfile"), format!("{text}#")).unwrap();
+    let adapter = adapter_on_disk(&root, &[]);
+    assert_eq!(
+        service(&adapter, "wget").map(ServiceDefinition::defines_service),
+        Some(Answer::Unknown)
+    );
+    assert_eq!(service_capability(&adapter), CapabilityState::Unknown);
+    std::fs::remove_dir_all(&root).ok();
 }
 
 #[test]

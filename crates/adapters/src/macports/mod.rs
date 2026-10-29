@@ -69,15 +69,17 @@
 pub mod availability;
 pub mod names;
 pub mod parse;
+pub mod portfile;
 pub mod service;
 
 use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
-    ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState, DependencyEdge,
-    DomainError, ErrorId, ExecutableOwner, InstalledPackage, Machine, PackageIdentity, PackageKind,
-    PackageMetadata, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderPresence, ProviderRead, ProviderSnapshot, RequestedSet, Resolution, Version,
+    Answer, ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState,
+    DependencyEdge, DomainError, ErrorId, ExecutableOwner, InstalledPackage, Machine,
+    PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities, ProviderDetection,
+    ProviderId, ProviderInventory, ProviderPresence, ProviderRead, ProviderSnapshot, RequestedSet,
+    Resolution, ServiceDefinition, Version,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -469,7 +471,31 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         )?;
 
         let dependencies = edges(&names, &depends_lib, &depends_run, &depends_build);
-        let metadata = metadata(&names, &index, &homepage, &description, &services);
+        // DP-032's declared half, from the Portfile each entry was installed
+        // from (part D §4). Only where this host's disk is the machine, and
+        // only under the default `portdbpath`.
+        let portdbpath = crate::configuration::macports_portdbpath(
+            &self.prefix,
+            self.home.as_deref(),
+            self.filesystem,
+        );
+        let entries: Vec<portfile::Entry<'_>> = rows
+            .iter()
+            .map(|r| portfile::Entry {
+                name: &r.name,
+                version: &r.version,
+                revision: r.revision.as_deref(),
+            })
+            .collect();
+        let declared = portfile::declared(portdbpath.as_deref(), &entries, self.filesystem);
+        let metadata = metadata(
+            &names,
+            &index,
+            &homepage,
+            &description,
+            &services,
+            &declared,
+        );
         let availability = availability(&names, &index, &active_variants, self.machine.as_ref());
 
         Ok(ProviderInventory {
@@ -658,11 +684,23 @@ fn metadata(
     homepage: &BTreeMap<String, parse::IndexOrigin>,
     description: &BTreeMap<String, String>,
     services: &service::ServiceScan,
+    declared: &BTreeMap<String, Answer>,
 ) -> BTreeMap<String, PackageMetadata> {
     let mut out = BTreeMap::new();
     for name in names {
         let origin = homepage.get(name).cloned().unwrap_or_default();
         let entry = index.get(name);
+        // DP-032: the union of the two halves, decided by the domain's rule.
+        // The materialised half is the item scan: an unreadable scan is
+        // `UNKNOWN` for every port, never `NO`.
+        let service = ServiceDefinition {
+            declared: declared.get(name).copied().unwrap_or(Answer::Unknown),
+            materialised: match services {
+                service::ServiceScan::Scanned(found) if found.contains(name) => Answer::Yes,
+                service::ServiceScan::Scanned(_) => Answer::No,
+                service::ServiceScan::Unreadable => Answer::Unknown,
+            },
+        };
         out.insert(
             name.clone(),
             PackageMetadata {
@@ -675,9 +713,9 @@ fn metadata(
                 // R-3 Finding 8: `replaced_by` and `obsolete` are two
                 // independent states and must not collapse into one flag.
                 // `obsolete` is not read here, so `deprecated` stays unset.
-                defines_service: services.defines_service(name),
                 ..PackageMetadata::default()
-            },
+            }
+            .with_service(service),
         );
     }
     out
@@ -763,12 +801,19 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         capabilities.insert(Capability::DeprecationState, CapabilityState::Unknown);
         capabilities.insert(
             Capability::ServiceMetadata,
-            if self.inventory().is_ok()
-                && self
-                    .services
-                    .borrow()
-                    .as_ref()
-                    .is_some_and(service::ServiceScan::is_known)
+            // DP-032: `Available` only when every row's answer is known. It is
+            // informational - the planner asks the row - but it must not say
+            // "known" beside a row that is not.
+            if self.inventory().is_ok_and(|inventory| {
+                inventory
+                    .metadata
+                    .values()
+                    .all(|m| m.service_answer() != Answer::Unknown)
+            }) && self
+                .services
+                .borrow()
+                .as_ref()
+                .is_some_and(service::ServiceScan::is_known)
             {
                 CapabilityState::Available
             } else {

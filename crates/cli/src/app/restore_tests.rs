@@ -31,11 +31,19 @@ fn recording() -> PathBuf {
         .join(RECORDING)
 }
 
+/// The committed live capture (`fixtures/snapshots/`). A replayed source row
+/// cannot answer the service question (DP-032, part D), so a plan is built
+/// from a capture of the machine itself.
+fn live_snapshot() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/snapshots/both-providers-intel-macos26-live.json")
+}
+
 fn cli(extra: &[&str]) -> Cli {
     let mut args = vec![
         "macportsbrew".to_string(),
-        "--replay".into(),
-        recording().to_string_lossy().into_owned(),
+        "--from-snapshot".into(),
+        live_snapshot().to_string_lossy().into_owned(),
         "--today".into(),
         "2026-10-04".into(),
         "--json".into(),
@@ -461,8 +469,8 @@ fn the_human_text_leads_with_the_run_what_is_known_and_what_the_plan_cannot_say(
     let scratch = Scratch::new("human");
     let mut args = vec![
         "macportsbrew".to_string(),
-        "--replay".into(),
-        recording().to_string_lossy().into_owned(),
+        "--from-snapshot".into(),
+        live_snapshot().to_string_lossy().into_owned(),
         "--today".into(),
         "2026-10-04".into(),
         "restore".into(),

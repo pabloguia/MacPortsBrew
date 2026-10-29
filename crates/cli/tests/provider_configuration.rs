@@ -136,14 +136,17 @@ fn a_plan_against_that_provider_carries_the_risk_and_still_plans() {
             &file,
             "--json",
             "plan",
-            "htop",
+            "jupyterlab",
             "--to",
             "macports",
         ],
     );
     assert_eq!(
         out.status.code(),
-        Some(0),
+        // A formula the recording declares a service for: since part D the only
+        // kind a replayed document can plan (DP-032). It stops at manual review,
+        // and the configuration risk rides on it, non-blocking, all the same.
+        Some(4),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );

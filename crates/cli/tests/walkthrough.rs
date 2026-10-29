@@ -166,12 +166,16 @@ fn explain_and_plan_name_the_package_or_say_plainly_why_not() {
             "htop (held by homebrew)".into(),
             "",
         ),
+        // A recording cannot list a keg, so a source row that declares no
+        // service answers the service question `UNKNOWN`, and its plan is
+        // refused, and says so, in either direction (DP-032, part D). A plan is
+        // walked from the live capture (`a_hostile_prefix_in_a_snapshot_*`, below).
         (
             "both-providers-intel-macos26",
             vec!["plan", "htop", "--to", "macports"],
-            0,
-            "Plan: move htop from homebrew to macports".into(),
-            "",
+            4,
+            String::new(),
+            "macportsbrew: A safety rule could not be evaluated from this input",
         ),
         (
             "both-providers-arm64-macos15",
@@ -183,9 +187,9 @@ fn explain_and_plan_name_the_package_or_say_plainly_why_not() {
         (
             "both-providers-arm64-macos15",
             vec!["plan", "htop", "--to", "macports"],
-            0,
-            "Plan: move htop from homebrew to macports".into(),
-            "",
+            4,
+            String::new(),
+            "macportsbrew: A safety rule could not be evaluated from this input",
         ),
         (
             "homebrew-only-intel-macos26",
@@ -198,8 +202,8 @@ fn explain_and_plan_name_the_package_or_say_plainly_why_not() {
             "homebrew-only-intel-macos26",
             vec!["plan", &package, "--to", "macports"],
             4,
-            format!("Plan: move {package} from homebrew to macports"),
-            "",
+            String::new(),
+            "macportsbrew: A safety rule could not be evaluated from this input",
         ),
         (
             "homebrew-deprecated-and-tap-intel-macos26",
@@ -212,8 +216,8 @@ fn explain_and_plan_name_the_package_or_say_plainly_why_not() {
             "homebrew-deprecated-and-tap-intel-macos26",
             vec!["plan", &package, "--to", "macports"],
             4,
-            format!("Plan: move {package} from homebrew to macports"),
-            "",
+            String::new(),
+            "macportsbrew: A safety rule could not be evaluated from this input",
         ),
         (
             "macports-only-intel-macos12",
@@ -222,8 +226,7 @@ fn explain_and_plan_name_the_package_or_say_plainly_why_not() {
             "gnutls (held by macports)".into(),
             "",
         ),
-        // A recording cannot say whether a MacPorts port defines a service, so
-        // a MacPorts-sourced plan from one is refused, and says so (DP-016).
+        // The same refusal from a MacPorts source (DP-016, DP-032).
         (
             "macports-only-intel-macos12",
             vec!["plan", "gnutls", "--to", "homebrew"],
@@ -308,7 +311,9 @@ fn stale_policy_data_warns_once_and_never_refuses() {
     for args in [
         vec!["status"],
         vec!["analyze"],
-        vec!["plan", "htop", "--to", "macports"],
+        // A plan a recording can still build (a declared service, part D):
+        // it stops at manual review, exit 4, which is not a refusal.
+        vec!["plan", "jupyterlab", "--to", "macports"],
     ] {
         let out = Command::new(BIN)
             .arg("--replay")
@@ -319,8 +324,10 @@ fn stale_policy_data_warns_once_and_never_refuses() {
             .env_remove("MACPORTSBREW_LANG")
             .output()
             .expect("run");
-        assert_eq!(out.status.code(), Some(0), "{args:?}");
+        let want = if args[0] == "plan" { 4 } else { 0 };
+        assert_eq!(out.status.code(), Some(want), "{args:?}");
         let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(!stdout.is_empty(), "{args:?}: it answers");
         let stderr = String::from_utf8_lossy(&out.stderr);
         let notice = "Policy data was last verified on";
         assert_eq!(stderr.matches(notice).count(), 1, "{args:?}: {stderr}");

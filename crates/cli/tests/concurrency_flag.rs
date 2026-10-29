@@ -25,11 +25,16 @@ const BIN: &str = env!("CARGO_BIN_EXE_macportsbrew");
 const TODAY: &str = "2026-09-02";
 const MP: &str = "macports";
 
-/// Both providers: `htop --to macports` plans and exits 0, `nginx --to
-/// macports` is refused because MacPorts already holds it.
+/// Both providers: `nginx --to macports` is refused because MacPorts already
+/// holds it.
 const BOTH: &str = "both-providers-arm64-macos15";
-/// Homebrew alone: `curl --to macports` is all `MANUAL_REVIEW`, exit 4.
+/// Homebrew alone.
 const HOMEBREW_ONLY: &str = "homebrew-only-intel-macos26";
+/// A formula the recordings declare a service for. Since part D a replayed
+/// source row that declares none cannot be planned (DP-032): its plan is
+/// refused before any document is written. This one plans, and stops at
+/// manual review (exit 4), so every plan shape here carries a document.
+const REPLAYED_SERVICE: &str = "jupyterlab";
 
 /// The sentence `UNKNOWABLE` renders to, from the catalogue.
 const UNKNOWABLE_IN_WORDS: &str =
@@ -139,13 +144,13 @@ fn snapshot_file(scratch: &Scratch, name: &str) -> String {
     path
 }
 
-/// The invocations this file pins, with their exit codes: a plan that exits
-/// 0, a plan that stops at manual review (exit 4), an analysis, an
+/// The invocations this file pins, with their exit codes: plans that stop at
+/// manual review (exit 4; the only plans a recording builds since part D), an analysis, an
 /// explanation and a doctor report.
 fn invocations() -> Vec<(&'static str, Vec<&'static str>, i32)> {
     vec![
-        (BOTH, vec!["plan", "htop", "--to", MP], 0),
-        (HOMEBREW_ONLY, vec!["plan", "curl", "--to", MP], 4),
+        (BOTH, vec!["plan", REPLAYED_SERVICE, "--to", MP], 4),
+        (HOMEBREW_ONLY, vec!["plan", REPLAYED_SERVICE, "--to", MP], 4),
         (BOTH, vec!["analyze"], 0),
         (HOMEBREW_ONLY, vec!["analyze", "curl"], 0),
         (BOTH, vec!["explain", "htop"], 0),
@@ -335,10 +340,10 @@ fn the_plan_document_appends_the_flag_after_every_field_it_already_had() {
         &scratch,
         &argv(
             &["--replay", &file, "--json"],
-            &["plan", "htop", "--to", MP],
+            &["plan", REPLAYED_SERVICE, "--to", MP],
         ),
     );
-    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
     let doc = document(&out);
     let keys: Vec<&String> = doc.as_object().expect("an object").keys().collect();
     assert_eq!(
@@ -390,8 +395,8 @@ fn every_command_that_carries_the_flag_shares_the_one_serialiser() {
         &["analyze"],
         &["status"],
         &["list"],
-        &["plan", "htop", "--to", MP],
-        &["migrate", "htop", "--to", MP],
+        &["plan", REPLAYED_SERVICE, "--to", MP],
+        &["migrate", REPLAYED_SERVICE, "--to", MP],
         &["explain", "htop"],
         &["doctor"],
     ];
@@ -403,7 +408,12 @@ fn every_command_that_carries_the_flag_shares_the_one_serialiser() {
     };
     for args in commands {
         let out = run(&scratch, &argv(&input, args));
-        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", stderr(&out));
+        // A plan that stops at manual review exits 4 and still writes its document.
+        assert!(
+            matches!(out.status.code(), Some(0 | 4)),
+            "{args:?}: {}",
+            stderr(&out)
+        );
         assert_eq!(fragment(&stdout(&out)), expected, "{args:?}");
     }
 
@@ -413,7 +423,11 @@ fn every_command_that_carries_the_flag_shares_the_one_serialiser() {
     let mut last_lines = Vec::new();
     for args in &commands[..] {
         let out = run(&scratch, &argv(&human, args));
-        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", stderr(&out));
+        assert!(
+            matches!(out.status.code(), Some(0 | 4)),
+            "{args:?}: {}",
+            stderr(&out)
+        );
         let text = stdout(&out);
         let ends_with_flag = text
             .lines()

@@ -84,9 +84,12 @@ fn provider(id: &str, prefix: &str, packages: &[&str]) -> ProviderSnapshot {
             installed_from_prebuilt: Some(true),
             install_path: None,
         });
-        inventory
-            .metadata
-            .insert((*name).to_string(), PackageMetadata::default());
+        inventory.metadata.insert(
+            (*name).to_string(),
+            PackageMetadata::default().with_service(macportsbrew_domain::ServiceDefinition::both(
+                macportsbrew_domain::Answer::No,
+            )),
+        );
         inventory.availability.insert(
             (*name).to_string(),
             AvailabilityAssessment {
