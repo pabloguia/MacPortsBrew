@@ -21,11 +21,11 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | A — documentation rulings | 0 | merged `439814c` | PR #26 | Built two read-only `doctor` disclosures DP-028's charter wording needed (SE-109) |
 | B — creation-mode seam | 0 | merged `d4d4737` | PR #27 | The `0277` read-back half stays owed (SE-109) |
 | C — advanced-mode entry (warning, JSON) | 0 | merged `0564fc3` | PR #28 | Plan and reviews: `docs/passes/16-plans/C.md` (approved; mutation proof recorded). Its confirmation half lands in K |
-| D — what defines a service | 0 | waiting on owner (P's `04-fixture-matrix-service-rule.patch`) | PR #29, docs merged `ca26df6` | Implemented and approved by both reviewers (code, two rounds); 20 of 21 mutants killed, m18 race-only. The code is `docs/passes/16-plans/D-implementation.patch`: the commit gate cannot pass until the matrix patch is applied. **Resume** as `wo16/D-2` from `origin/main` after it is: `git apply docs/passes/16-plans/D-implementation.patch`, fill the `<commit>` placeholder in `fixtures/snapshots/README.md`, split into Conventional commits, delete the patch file, run `scripts/validate.sh`. No port with a startup item is installed here (owner item) |
-| P — stage the owner items, once | 0 | waiting on owner (merged `fef24c0`) | PR #30 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). Owner applies them; see Needs the owner. Research: R-21, R-22, R-23 |
+| D — what defines a service | 0 | ready to resume (P/04 applied by the owner, merged `d30cd3e`) | PR #29, docs merged `ca26df6` | Implemented and approved by both reviewers (code, two rounds); 20 of 21 mutants killed, m18 race-only. The code is `docs/passes/16-plans/D-implementation.patch`: the commit gate cannot pass until the matrix patch is applied. **Resume** as `wo16/D-2` from `origin/main` after it is: `git apply docs/passes/16-plans/D-implementation.patch`, fill the `<commit>` placeholder in `fixtures/snapshots/README.md`, split into Conventional commits, delete the patch file, run `scripts/validate.sh`. No port with a startup item is installed here (owner item) |
+| P — stage the owner items, once | 0 | 02–04 applied by the owner (`12220fe`, merged `d30cd3e`); 01 waits for part E's ADR | PR #30, PR #37, PR #38 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). 01's staged comment broke `check-licences.sh` (an apostrophe inside the single-quoted Python); the owner reverted it, and PR #37 (`12df3ab`) corrects it. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | done; the Claude reviewer is deferred by the owner (staged `bc52b3c`; applied by the owner, merged `91d7720`) | PR #31, PR #35 | Staged: `docs/passes/16-staged/M/` (three security reviews, final approve). Applied as `22b7fdf`. The owner decided (2026-10-28) not to run the Claude reviewer for now, so no key and no `claude` environment are set up. If it is ever enabled: create the `claude` environment (required reviewer, `main` only) before any key exists, and store the key there only |
 | S — slice 6 parts B and C | 0 | waiting on owner (`16-staged/S/`) | S-0 merged `0f64d9d` (PR #32); S-1 merged `8040e1c` (PR #33) | S-1 is inert code, approved by both reviewers; 38 of 40 mutants killed, 2 argued equivalent (`16-plans/S.md`). **Resume** as `wo16/S-2-active` once the owner has applied `docs/passes/16-staged/S/01-verify-active-cells.patch` (its README): the session's policy version bump and regenerated pinned copies, then S.md §10's S-2 steps. Follow-up: the policy-version invariant does not count `analytics_read_on` (part A's 2026-10-27) |
-| E — slice 7 + the dependency ADR | S, P | todo | | P's `check-licences.sh` entries must be applied before the dependency lands |
+| E — slice 7 + the dependency ADR | S, P | todo | | P/01 (corrected in PR #37) must be applied with or before the dependency; F and H's P/02 and J's P/03 are applied |
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
 | G — lock probe | F | todo | | |
 | H — four destination checks | G, P | todo | | |
@@ -64,11 +64,11 @@ Remove a line when the owner has done it, citing the commit.
   `scripts/capture-fixture.sh` and commit the recording under
   `fixtures/recordings/`.
 
-- **Apply part P's four staged patches** (blocks part D's code commit through
-  04; E through 01; F and H through 02; J through 03). Staged:
-  `docs/passes/16-staged/P/`. Action: follow its README — `git apply` the four
-  patches, run `.claude/hooks/test-hooks.sh`,
-  `scripts/generate-codex-layer.sh --check` and `scripts/validate.sh`, commit.
+- **Apply part P's corrected patch 01** (blocks part E's dependency). 02 to 04
+  are applied (`12220fe`, PR #38). Staged:
+  `docs/passes/16-staged/P/01-licences-libc.patch`, corrected in PR #37.
+  Action: with or after part E's ADR, on a topic branch, `git apply` it, run
+  `scripts/validate.sh`, commit.
 
 - **Apply part S's staged table patch** (blocks S-2, and so E and the rest of
   the chain). Staged: `docs/passes/16-staged/S/`; S-1 is on `main`, so it can
@@ -111,3 +111,4 @@ session stopped and why.
 - 2026-10-28: C merged (PR #28); D implemented and approved, held as a patch on P's matrix patch (PR #29); P and M staged and merged (PRs #30, #31). Then S-0 (PR #32) and S-1 (PR #33) merged. Stopped: every remaining part waits on an owner item — D's code on P's `04` patch, S-2 on S's table patch, E on S-2 and P's `01`, and the rest of the chain after them.
 - 2026-10-28, later: the owner applied part M's staged patch (`22b7fdf`, PR #35, merged `91d7720`); its three checks passed locally and every required CI check passed. M now waits only on the `claude` environment.
 - 2026-10-28, later still: the owner decided not to run the Claude reviewer for now. The `claude` environment item leaves Needs the owner; M is done, and the M row keeps the setup order for the day it is enabled.
+- 2026-10-28, later still: the owner applied P's patches. 01 broke `check-licences.sh` (its staged comment closed the single-quoted Python program), so the owner reverted it and the session corrected the staged text (PR #37, `12df3ab`). 02 to 04 passed `test-hooks.sh` (225/225), the codex-layer check and `validate.sh`, and merged (PR #38, `d30cd3e`). D can resume as `wo16/D-2`.
