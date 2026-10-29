@@ -338,6 +338,47 @@ boundary_case "literal under crates/*/src blocks" block 'mutating subcommand lit
 printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
 printf 'fn main() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/build.rs"
 boundary_case "literal in a crate build.rs blocks" block 'mutating subcommand literal'
+rm -f "$boundary/crates/domain/build.rs"
+# The elevation program is admitted by path, under crates/adapters/src/process/
+# only: the process executor names it there, as its allowlist entry (INV-06;
+# pass 16 part J). Every other elevation token is still refused there, the
+# path is a prefix with its trailing slash, and a comment anywhere passes.
+DOAS="do""as"
+mkdir -p "$boundary/crates/adapters/src/process" "$boundary/crates/adapters/src/processes" \
+         "$boundary/crates/cli/src/process"
+printf 'pub(crate) const PERMITTED_PROGRAMS: &[&str] = &["%s"];\n' "$SUDO" > "$boundary/crates/adapters/src/process/mod.rs"
+boundary_case "elevation program in crates/adapters/src/process/ passes" 0 ''
+printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/process/mod.rs"
+boundary_case "another elevation token in crates/adapters/src/process/ blocks" block 'elevation, service-control or symlink token'
+printf 'fn f() {}\n' > "$boundary/crates/adapters/src/process/mod.rs"
+printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/processes/mod.rs"
+boundary_case "elevation program in a sibling processes/ blocks" block 'outside crates/adapters/src/process/'
+rm -f "$boundary/crates/adapters/src/processes/mod.rs"
+printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
+boundary_case "elevation program elsewhere in adapters blocks" block 'outside crates/adapters/src/process/'
+printf '// the process executor names %s; nothing here does\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
+boundary_case "elevation program in a comment elsewhere passes" 0 ''
+rm -f "$boundary/crates/adapters/src/registry.rs"
+printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/cli/src/process/mod.rs"
+boundary_case "elevation program in crates/cli/src/process/ blocks" block 'outside crates/adapters/src/process/'
+rm -f "$boundary/crates/cli/src/process/mod.rs"
+# An unreadable file under a scanned src/ makes grep exit 2, and a scan that
+# ended `| head -1 | grep -q .` under pipefail then passed a hit beside it.
+# Each scan is captured whole now: the unreadable file fails on its own, and a
+# hit beside it is still reported. Skipped as root, who can read mode 000.
+if [ "$(id -u)" -ne 0 ]; then
+  printf 'fn f() {}\n' > "$boundary/crates/adapters/src/locked.rs"
+  chmod 000 "$boundary/crates/adapters/src/locked.rs"
+  boundary_case "an unreadable file under src/ blocks on its own" block 'could not read every file'
+  printf 'fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/adapters/src/registry.rs"
+  boundary_case "elevation program beside an unreadable file blocks" block 'elevation program is named'
+  printf 'fn f() { run("%s"); }\n' "$DOAS" > "$boundary/crates/adapters/src/registry.rs"
+  boundary_case "elevation token beside an unreadable file blocks" block 'elevation, service-control or symlink token appears'
+  printf 'let s = "%s";\n' "$INST" > "$boundary/crates/adapters/src/registry.rs"
+  boundary_case "mutating literal beside an unreadable file blocks" block 'mutating subcommand literal'
+  chmod 644 "$boundary/crates/adapters/src/locked.rs"
+  rm -f "$boundary/crates/adapters/src/locked.rs" "$boundary/crates/adapters/src/registry.rs"
+fi
 rm -rf "$boundary"
 
 # --- cases added after the 2026-09-05 security review ------------------------

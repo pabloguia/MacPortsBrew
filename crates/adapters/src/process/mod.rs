@@ -136,13 +136,41 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
                 required_options: &[],
                 positionals: Positionals::None,
             },
-            // `list --pinned`, the verify-absent inventory `list --versions`,
-            // and the verify read `list --versions <name>`.
+            // `list` has three shapes, one entry each, and a name only ever
+            // follows an option that keeps it out of the cask loader.
+            //
+            // `list --pinned` and the verify-absent inventory `list --versions`:
+            // no name.
             ReadSubcommand {
                 name: "list",
                 long_options: &["--pinned", "--versions"],
                 required_options: &[],
-                positionals: Positionals::AtMostOneName,
+                positionals: Positionals::None,
+            },
+            // The verify read `list --versions <name>`. With a name, `--versions`
+            // takes `filtered_list` (`Formulary.to_rack` and `rack.exist?`) and
+            // never reaches the cask loader (`cmd/list.rb` lines 189-191 and
+            // 297-313, Homebrew 7.0.4; R-21 E-8, 2026-10-28).
+            ReadSubcommand {
+                name: "list",
+                long_options: &["--versions"],
+                required_options: &["--versions"],
+                positionals: Positionals::ExactlyOneName,
+            },
+            // A formula's file list, `list --formula <name>`, for part F's
+            // executable list (R-21 finding 2). `--formula` is required, not
+            // just allowed: a bare `list <name>` can reach
+            // `warn_if_cask_conflicts` and the cask loader, R-1's unresolved
+            // tap-clone risk; with `--formula` a missing keg is re-raised before
+            // the cask branch (`cli/named_args.rb` lines 372-381 and 629-641,
+            // Homebrew 7.0.4; R-21 E-8 and the Refused table, 2026-10-28).
+            // Off a TTY it runs `find <keg> -not -type d -print` and writes
+            // nothing (`cmd/list.rb` lines 252-257; R-21 E-9).
+            ReadSubcommand {
+                name: "list",
+                long_options: &["--formula"],
+                required_options: &["--formula"],
+                positionals: Positionals::ExactlyOneName,
             },
         ],
         separators: &[],
@@ -218,6 +246,23 @@ pub(crate) const PERMITTED_SUBCOMMANDS: &[ProviderReads] = &[
                 required_options: &[],
                 positionals: Positionals::AbsolutePaths,
             },
+            // A port's file list, `-q contents <name>`, for part F's executable
+            // list (R-21 finding 1). `action_contents` reads the registry and
+            // `puts` each path - no `registry::write`, no file opened for
+            // writing, no `mportopen` (`/opt/local/bin/port` lines 3294-3338,
+            // MacPorts 2.12.6; R-21 E-3, E-4, 2026-10-28). No long option:
+            // `--size` and `--units` only change the print format and no read
+            // passes them. Exactly one name, never none: with an empty port list
+            // `require_portlist` falls back to `get_current_port`, the Portfile
+            // in the working directory (`/opt/local/bin/port` lines 286-293,
+            // same file and sha256 as R-21 E-1; `action_contents` calls it, R-21
+            // E-3), which `port` would open and evaluate as Tcl.
+            ReadSubcommand {
+                name: "contents",
+                long_options: &[],
+                required_options: &[],
+                positionals: Positionals::ExactlyOneName,
+            },
         ],
         // `port` runs one argv as a *sequence* of actions: an element that is
         // exactly `;` ends one and starts the next, and the loop continues while
@@ -244,6 +289,13 @@ pub(crate) enum Positionals {
     None,
     /// Zero or one, of the provider's name class.
     AtMostOneName,
+    /// Exactly one, of the provider's name class: for a read whose empty
+    /// argument list the provider fills in itself - `port contents` with no
+    /// port reads the Portfile in the working directory (`require_portlist`,
+    /// `/opt/local/bin/port` lines 286-293, MacPorts 2.12.6, read 2026-10-28;
+    /// R-21 E-3) - or where a name is what selects the safe branch
+    /// (`brew list --formula <name>`, `brew list --versions <name>`; R-21 E-8).
+    ExactlyOneName,
     /// Exactly one, from this fixed set.
     OneOf(&'static [&'static str]),
     /// One or more, of the provider's name class.
@@ -325,6 +377,7 @@ fn positionals_permitted(
     match positionals {
         Positionals::None => args.is_empty(),
         Positionals::AtMostOneName => args.len() <= 1 && args.iter().all(|a| name_class(a)),
+        Positionals::ExactlyOneName => args.len() == 1 && name_class(args[0]),
         Positionals::OneOf(words) => args.len() == 1 && words.contains(&args[0]),
         Positionals::Names => !args.is_empty() && args.iter().all(|a| name_class(a)),
         Positionals::AbsolutePaths => {
@@ -399,7 +452,9 @@ pub(crate) struct ProviderReads {
 ///
 /// One entry, not a list of names plus side lists keyed by name: what a
 /// subcommand may take is read where the subcommand is, so the two cannot
-/// drift apart.
+/// drift apart. A subcommand whose reads differ in shape - `brew list` with
+/// and without a name - has one entry per shape, and an invocation must fit one
+/// entry whole ([`is_permitted_invocation`]).
 ///
 /// It says which options may appear, not which must: `brew info <name>` with
 /// no `--json=v2` passes here. Nothing in this build produces that argv - the
@@ -472,9 +527,6 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     let Some(subcommand) = rest.next() else {
         return false;
     };
-    let Some(entry) = reads.subcommands.iter().find(|s| s.name == subcommand) else {
-        return false;
-    };
     if argv.iter().any(|a| reads.separators.contains(&a.as_str())) {
         return false;
     }
@@ -482,9 +534,18 @@ pub(crate) fn is_permitted_invocation(program: &std::path::Path, argv: &[String]
     // subcommand's list, whole; a single-dash one never is. Everything else is
     // a positional.
     let (options, positionals): (Vec<&str>, Vec<&str>) = rest.partition(|a| a.starts_with('-'));
-    options.iter().all(|a| entry.long_options.contains(a))
-        && entry.required_options.iter().all(|r| options.contains(r))
-        && positionals_permitted(&entry.positionals, &positionals, reads.name_class)
+    // A subcommand may have more than one entry, each a whole shape; the
+    // invocation is permitted when one of them admits all of it. Options and
+    // positionals are never mixed across entries.
+    reads
+        .subcommands
+        .iter()
+        .filter(|s| s.name == subcommand)
+        .any(|entry| {
+            options.iter().all(|a| entry.long_options.contains(a))
+                && entry.required_options.iter().all(|r| options.contains(r))
+                && positionals_permitted(&entry.positionals, &positionals, reads.name_class)
+        })
 }
 
 /// The programs the executor's own tests spawn, and only in a test build.
@@ -1007,6 +1068,9 @@ mod tests {
             let sub = head.iter().find(|a| **a != "-q").unwrap();
             used.push(("port", (*sub).to_string()));
         }
+        for head in crate::homebrew::ALLOWED_ARGV_PREFIXES {
+            used.push(("brew", head[0].to_string()));
+        }
         for reads in PERMITTED_SUBCOMMANDS {
             for sub in reads.subcommands {
                 assert!(
@@ -1049,6 +1113,8 @@ mod tests {
                     .collect()
             } else if *head == crate::macports::ARGV_PROVIDES {
                 vec![argv(&["/opt/local/bin/curl"])]
+            } else if *head == crate::macports::ARGV_CONTENTS {
+                vec![argv(&["ripgrep"])]
             } else {
                 panic!("port {head:?}: an argv prefix this test knows no tail for");
             };
@@ -1057,6 +1123,16 @@ mod tests {
                 held.extend(tail);
                 reads.push(("port".into(), held));
             }
+        }
+        for head in crate::homebrew::ALLOWED_ARGV_PREFIXES {
+            let tail = if *head == crate::homebrew::ARGV_LIST_FORMULA {
+                argv(&["ripgrep"])
+            } else {
+                panic!("brew {head:?}: an argv prefix this test knows no tail for");
+            };
+            let mut held = argv(head);
+            held.extend(tail);
+            reads.push(("brew".into(), held));
         }
 
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1136,6 +1212,9 @@ mod tests {
             (brew, argv(&["list", "--versions", "wget"])),
             (brew, argv(&["list", "--versions", "python@3.12"])),
             (brew, argv(&["list", "--versions"])),
+            (brew, argv(&["list", "--pinned"])),
+            (brew, argv(&["list", "--formula", "ripgrep"])),
+            (port, argv(&["-q", "contents", "ripgrep"])),
             (port, argv(&["-q", "installed", "jq"])),
             (port, argv(&["-q", "installed", "py313-numpy"])),
             (port, argv(&["-q", "installed"])),
@@ -1211,6 +1290,26 @@ mod tests {
             ),
             (port, argv(&["-q", "provides", "jq"])),
             (port, argv(&["-q", "provides", "/opt/local/bin/a\0b"])),
+            // `list` with a name only after `--versions` or `--formula`, never
+            // bare: a bare name can reach the cask loader (R-21 E-8). And the
+            // shapes do not mix.
+            (brew, argv(&["list", "ripgrep"])),
+            (brew, argv(&["list", "--pinned", "ripgrep"])),
+            (brew, argv(&["list", "--formula"])),
+            (brew, argv(&["list", "--formula", "ripgrep", "jq"])),
+            (brew, argv(&["list", "--formula", "--versions", "ripgrep"])),
+            (brew, argv(&["list", "--formula", "--pinned"])),
+            (brew, argv(&["list", "--formula", "foo.rb"])),
+            (brew, argv(&["list", "--formulae", "ripgrep"])),
+            (brew, argv(&["list", "--cask", "ripgrep"])),
+            // `contents` takes exactly one port: none means the Portfile in
+            // the working directory (R-21 E-3), and no option.
+            (port, argv(&["-q", "contents"])),
+            (port, argv(&["-q", "contents", "jq", "htop"])),
+            (port, argv(&["-q", "contents", "current"])),
+            (port, argv(&["-q", "contents", "./Portfile"])),
+            (port, argv(&["-q", "contents", "--size", "jq"])),
+            (port, argv(&["-q", "contents", "--units=K", "jq"])),
         ] {
             assert!(
                 !is_permitted_invocation(program, &bad),

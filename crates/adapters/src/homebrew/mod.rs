@@ -90,6 +90,20 @@ pub const ALLOWED_ARGV: &[&[&str]] = &[
     ARGV_PINNED,
 ];
 
+/// A formula's keg file list, `list --formula <formula>`: part F's executable
+/// list reads it (R-21 finding 2). `--formula` is part of the prefix because it
+/// is what keeps the name out of the cask loader (R-21 E-8).
+pub(crate) const ARGV_LIST_FORMULA: &[&str] = &["list", "--formula"];
+
+/// The argument vectors this adapter will extend with exactly one validated
+/// formula name - the Homebrew counterpart of
+/// [`crate::macports::ALLOWED_ARGV_PREFIXES`]. Held here so the spawn-site
+/// allowlist entry is tied to an adapter in both directions; nothing in this
+/// build runs it yet, and [`ALLOWED_ARGV`] still refuses it at
+/// `HomebrewAdapter::run`. Part F is the consumer: it adds the read, and the
+/// prefix match with one name of `is_brew_name`'s class, to that check.
+pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[ARGV_LIST_FORMULA];
+
 fn changed(detail: impl Into<String>) -> DomainError {
     DomainError::new(ErrorId::ProviderOutputChanged, detail)
 }
