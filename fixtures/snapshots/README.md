@@ -23,7 +23,7 @@ direction, is a capture taken on the machine itself.
 | Architecture | x86_64 (native) |
 | Provider versions | Homebrew 7.0.4; MacPorts 2.12.6 |
 | Capture date | 2026-10-28T09:24:27Z |
-| Capturing command | `macportsbrew snapshot --out <file>`, built from commit `<commit>` (the part D implementation commit; its working tree before commit, on top of `5f0db01`, branch `wo16/D-impl`) |
+| Capturing command | `macportsbrew snapshot --out <file>`, built from the working tree that became commit `45938de` (the part D implementation, captured before commit on top of `5f0db01`, branch `wo16/D-impl`) |
 | `provenance.origin` | `captured` (unedited) |
 | SHA-256 | `678e38f74bd558e7ebdc16e28b54b151be2ecc709473e01126e4aa312dfbf048` |
 
