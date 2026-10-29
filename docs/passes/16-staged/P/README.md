@@ -104,6 +104,14 @@ as inside it for 03's path rule (the allowlist at the spawn site stays the real
 control); `brew list` with no name stays admitted (harmless); `build_scripts_allowed`
 matches by name, so a later `libc` version's build script is not re-read.
 
+**Corrected 2026-10-28, after the owner's first run.** The comment 01 adds sat
+inside the single-quoted Python program the script hands to `python3 -c`, and
+carried an apostrophe (which closed the quote) and a `$RUSTC` (which
+`shellcheck` flags there): the licence and shellcheck stages failed. The
+comment now carries neither; the patched script was built in memory and passed
+`bash -n` and `shellcheck`, writing no guarded file. This is the kind of defect
+a patch written as text can carry, which is why the owner's run comes first.
+
 ## Counted as applied
 
 Each patch, when `git apply --reverse --check <patch>` succeeds on
