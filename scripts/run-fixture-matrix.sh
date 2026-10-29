@@ -122,7 +122,7 @@ expect_json() { # <label> <expected-codes-space-separated> <out-file> <rc>
 # a document is still required everywhere one is possible; the assertions above
 # are what is added on top. A non-empty stdout that does not parse stays a
 # failure either way.
-expect_plan() { # <label> <out-file> <err-file> <rc> <want: plan|refusal>
+expect_plan() { # <label> <out-file> <err-file> <rc> <want: plan|review|refusal>
   local label="$1" out="$2" err="$3" rc="$4" want="$5" stops
   case "$rc" in
     0 | 4) ok ;;
@@ -144,6 +144,10 @@ expect_plan() { # <label> <out-file> <err-file> <rc> <want: plan|refusal>
   fi
   if [ "$want" = "plan" ] && [ ! -s "$out" ]; then
     fail "$label: refused, and this fixture has the facts to be planned"
+    return
+  fi
+  if [ "$want" = "review" ] && { [ ! -s "$out" ] || [ "$rc" != "4" ]; }; then
+    fail "$label: this row defines a service, so a plan must be built and stop at MANUAL_REVIEW (INV-19)"
     return
   fi
   ok
@@ -244,14 +248,38 @@ for fixture in fixtures/recordings/*.json; do
     run "$tmp/explain.json" --replay "$fixture" --json explain "$pkg" --today "$TODAY" && rc=0 || rc=$?
     expect_json "explain $pkg" "0" "$tmp/explain.json" "$rc"
 
-    # Which outcome this fixture owes, derived from the source rather than from
-    # the fixture's name so it stays true as fixtures are added. A MacPorts
-    # source cannot answer whether its packages define services under `--replay`
-    # - the scan will not read a filesystem that is not the recorded machine's
-    # (F-25, F-29) - so DP-016(c) refuses rather than let INV-19's rule be
-    # silently unevaluated. Every other source has the fact and gets a plan.
-    want="plan"
-    [ "$src" = "macports" ] && want="refusal"
+    # Which outcome this fixture owes, derived from what the replayed snapshot
+    # records rather than from the fixture's name, so it stays true as fixtures
+    # are added. A build that records whether each package defines a service
+    # (DP-032, work order 16 part D) answers it per row, by the domain's one
+    # rule: `YES` on either half owes a plan that stops at manual review
+    # (INV-19); anything else owes a refusal (DP-016 (c)). `NO` cannot occur
+    # under `--replay`, where the halves on disk are unknown, so a `NO` here
+    # means the live disk was consulted (INV-15) and fails. A build from before
+    # part D records no `service`: there a MacPorts source cannot answer under
+    # `--replay` (F-25, F-29) and is refused, and every other source is
+    # planned. That branch is removed once part D is on `main`.
+    rm -f "$tmp/want.snapshot.json"
+    run "$tmp/want.out" --replay "$fixture" snapshot --out "$tmp/want.snapshot.json" --today "$TODAY" && rc=0 || rc=$?
+    answer="ERROR"
+    if [ "$rc" = "0" ]; then
+      answer="$(jq -r --arg s "$src" --arg p "$pkg" '
+        ([.providers[]?.inventory.metadata[]? | has("service")] | any) as $built
+        | .providers[$s].inventory.metadata[$p].service as $v
+        | if $v == null then (if $built then "UNKNOWN" else "ABSENT" end)
+          elif $v.declared == "YES" or $v.materialised == "YES" then "YES"
+          elif $v.declared == "NO" and $v.materialised == "NO" then "NO"
+          else "UNKNOWN" end' "$tmp/want.snapshot.json" 2>/dev/null)" || answer="ERROR"
+    else
+      fail "snapshot for $pkg: exit $rc"
+    fi
+    case "$answer" in
+      ABSENT) want="plan"; [ "$src" = "macports" ] && want="refusal" ;;
+      YES) want="review" ;;
+      NO) fail "$pkg: a replayed row answered NO, so the live disk was consulted (INV-15)"; want="refusal" ;;
+      UNKNOWN) want="refusal" ;;
+      *) [ "$rc" != "0" ] || fail "snapshot for $pkg: service answer unreadable ($answer)"; want="refusal" ;;
+    esac
 
     # Three correct outcomes, two of which are exit 4; `expect_plan` tells them
     # apart and holds the fixture to the one it owes.

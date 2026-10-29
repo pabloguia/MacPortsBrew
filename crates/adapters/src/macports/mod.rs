@@ -113,6 +113,12 @@ const INFO_FIELDS_DEPENDS_LIB: &[&str] = &["--depends_lib"];
 const INFO_FIELDS_DEPENDS_RUN: &[&str] = &["--depends_run"];
 const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
 pub(crate) const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
+/// A port's installed file list, `-q contents <port>`: part F's executable
+/// list reads it (R-21 finding 1). Held here so the spawn-site allowlist entry
+/// is tied to an adapter in both directions; part F adds the read that extends
+/// it, with exactly one name that has passed [`names::is_safe_name`] - never
+/// none, which `port` would answer from the Portfile in the working directory.
+pub(crate) const ARGV_CONTENTS: &[&str] = &["-q", "contents"];
 
 /// Every field tail [`INFO_BASE`] may be extended with, one entry per `info`
 /// read the snapshot makes. [`is_allowed_argv`] refuses an `info` argument
@@ -145,14 +151,15 @@ pub const ALLOWED_ARGV: &[&[&str]] = &[
 
 /// The argument vectors this adapter appends validated values to.
 ///
-/// Unlike Homebrew's, two of this adapter's reads carry data: `info` takes the
-/// port names it is asking about, and `provides` takes a path. Those cannot be
+/// Some of this adapter's reads carry data: `info` takes the port names it is
+/// asking about, `provides` takes a path, and `contents` (part F) takes one
+/// port name. Those cannot be
 /// enumerated, so what is fixed is their *leading* portion — the subcommand
 /// and the flags — and each appended element has already passed
 /// [`names::is_safe_name`] or [`names::is_safe_path`]. A prefix match is a
 /// weaker guarantee than an exact one, which is why it is a separate list: an
 /// argument vector matched here is one whose tail was validated elsewhere.
-pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES];
+pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES, ARGV_CONTENTS];
 
 /// True when `argv` is an exact allow-list entry, or extends an allow-listed
 /// prefix - and, for `info`, extends [`INFO_BASE`] with exactly one

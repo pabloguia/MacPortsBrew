@@ -121,15 +121,45 @@ for d in crates/*/src; do [ -d "$d" ] && scan_paths+=("$d"); done
 for b in crates/*/build.rs; do [ -f "$b" ] && scan_paths+=("$b"); done
 if [ ${#scan_paths[@]} -gt 0 ]; then
   mutating='"[^"]*\b(install|uninstall|reinstall|upgrade|link|unlink|selfupdate|activate|deactivate)\b[^"]*"'
-  if grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }' \
-     | head -1 | grep -q .; then
+  # Each scan in this block is captured whole, then filtered. Under pipefail,
+  # `| head -1 | grep -q .` is false when grep exits 2 (an unreadable file) or
+  # a stage takes SIGPIPE (more hits than a pipe holds), and a hit then passed.
+  # grep's 1 is "no match"; anything above it means the scan did not run.
+  mutating_raw="$(grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null)"; mutating_rc=$?
+  if [ "$mutating_rc" -gt 1 ]; then
+    fail+=("The mutating-literal scan could not read every file under src/ or build.rs (grep exit $mutating_rc), so it did not run. That is not the same as passing.")
+  fi
+  mutating_hits="$(printf '%s\n' "$mutating_raw" \
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"
+  if [ -n "$mutating_hits" ]; then
     fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned. And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
   fi
-  if grep -RInE '\b(sudo|doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }' \
-     | head -1 | grep -q .; then
+  # The elevation program is the one token admitted, and only by path: under
+  # crates/adapters/src/process/, where the process executor names it as its
+  # allowlist entry (INV-06; pass 16 part J). Decided on the path grep prints,
+  # as a prefix with its trailing slash, so a sibling processes/ or another
+  # crate's process/ is not admitted. Every other token is refused everywhere,
+  # process/ included.
+  token_raw="$(grep -RInE '\b(doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null)"; token_rc=$?
+  if [ "$token_rc" -gt 1 ]; then
+    fail+=("The elevation, service-control and symlink token scan could not read every file under src/ or build.rs (grep exit $token_rc), so it did not run. That is not the same as passing.")
+  fi
+  token_hits="$(printf '%s\n' "$token_raw" \
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
+  if [ -n "$token_hits" ]; then
     fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing in this pass elevates, controls services or creates symlinks.")
+  fi
+  # Captured whole: under pipefail, `| head -1 | grep -q .` is false when grep
+  # exits 2 (an unreadable file) or a stage takes SIGPIPE, and a hit passes.
+  elevation_raw="$(grep -RInE '\bsudo\b' "${scan_paths[@]}" 2>/dev/null)"; elevation_rc=$?
+  if [ "$elevation_rc" -gt 1 ]; then
+    fail+=("The elevation-program scan could not read every file under src/ or build.rs (grep exit $elevation_rc), so it did not run. That is not the same as passing.")
+  fi
+  elevation_hits="$(printf '%s\n' "$elevation_raw" \
+     | awk -F: -v admitted='crates/adapters/src/process/' 'index($1, admitted) != 1' \
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
+  if [ -n "$elevation_hits" ]; then
+    fail+=("The elevation program is named in non-comment code outside crates/adapters/src/process/. INV-06: only the process executor names it, as its allowlist entry; nothing else names the program or its path.")
   fi
 fi
 
