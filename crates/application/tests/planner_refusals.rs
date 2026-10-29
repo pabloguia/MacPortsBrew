@@ -25,11 +25,11 @@ use macportsbrew_application::{
     HistoryConsultation, MigrationStart, PlanOutcome, PlanRequest,
 };
 use macportsbrew_domain::{
-    Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot, ErrorId,
-    InstalledPackage, Machine, MacosVersion, PackageIdentity, PackageKind, PackageMetadata,
-    Provenance, ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderPresence, ProviderSnapshot, RequestedSet, Snapshot, Translation, Version,
-    SNAPSHOT_SCHEMA_VERSION,
+    Answer, Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot,
+    ErrorId, InstalledPackage, Machine, MacosVersion, PackageIdentity, PackageKind,
+    PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
+    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, ServiceDefinition,
+    Snapshot, StepKind, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -70,7 +70,10 @@ fn holding(id: &str, prefix: &str, names: &[(&str, Option<&str>)]) -> ProviderSn
             PackageMetadata {
                 homepage: homepage.map(str::to_string),
                 ..PackageMetadata::default()
-            },
+            }
+            .with_service(macportsbrew_domain::ServiceDefinition::both(
+                macportsbrew_domain::Answer::No,
+            )),
         );
     }
     inventory.requested = RequestedSet {
@@ -606,96 +609,215 @@ fn every_curated_name_is_one_the_planner_would_accept() {
     );
 }
 
-/// DP-016(c): a plan is refused when the source cannot say whether its packages
-/// define services, because INV-19's protection would be silently absent.
-///
-/// `classify` reads `metadata.defines_service`, a bool the source provider
-/// fills. Where the adapter could not look it reports
-/// `Capability::ServiceMetadata: Unknown` and that bool is `false`, so
-/// `PackageClass::Service` is never added and the rule that forces
-/// `MANUAL_REVIEW` never fires — on a plan that looks entirely ordinary. Under
-/// `--replay` that is every MacPorts package (F-25, F-29).
-///
-/// The owner ruled (c) over (a): refuse the plan rather than treat `Unknown` as
-/// a service, because (a) would make every replayed MacPorts plan a
-/// `MANUAL_REVIEW` and cost `--replay` the thing it exists to demonstrate.
+/// Sets `package`'s service answer under `provider`.
+fn set_service(snap: &mut Snapshot, provider: &str, package: &str, service: ServiceDefinition) {
+    let meta = snap
+        .providers
+        .get_mut(&ProviderId::new(provider))
+        .expect("provider")
+        .inventory
+        .metadata
+        .get_mut(package)
+        .expect("metadata");
+    *meta = std::mem::take(meta).with_service(service);
+}
+
+/// Whether the plan for `package` toward `to`, when one is built, is sent to
+/// `MANUAL_REVIEW` by its class (the risk `class`, blocking).
+fn plan_outcome_of(snapshot: &Snapshot, package: &str, to: &str) -> Result<bool, ErrorId> {
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    build_plan(
+        snapshot,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: package.to_string(),
+            to: ProviderId::new(to),
+            retain_source: false,
+        },
+        &known(),
+    )
+    .map(|plan| {
+        plan.risks.iter().any(|r| r.id == "class" && r.blocking)
+            && plan.steps.iter().any(|s| s.kind == StepKind::ManualReview)
+    })
+    .map_err(|e| e.id)
+}
+
+/// DP-016(c), DP-032: a plan is refused when the **source row** cannot say
+/// whether its package defines a service, because INV-19's protection would be
+/// silently absent. Kept from the capability-keyed version of this refusal and
+/// re-keyed on the row (part D, spec-guardian 1): the capability is now
+/// informational and decides nothing.
 ///
 /// Four cases, because the refusal has to be *narrow* to be worth having: the
 /// two that decide it, the one that proves the question is asked of the source,
-/// and the one that keeps "never asked" from meaning "could not look".
+/// and the one that proves the capability no longer decides it.
 #[test]
 fn invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan() {
-    let with = |snap: &mut Snapshot, provider: &str, state: CapabilityState| {
-        snap.providers
-            .get_mut(&ProviderId::new(provider))
-            .expect("provider")
-            .capabilities
-            .capabilities
-            .insert(Capability::ServiceMetadata, state);
-    };
-
-    // Unknown on the source: refused, and the refusal names what is missing.
+    // Unknown on the source row: refused, and the refusal names what is missing.
     let mut snap = both(&[("wget", None)], &[]);
-    with(&mut snap, HB, CapabilityState::Unknown);
+    set_service(
+        &mut snap,
+        HB,
+        "wget",
+        ServiceDefinition::both(Answer::Unknown),
+    );
     let (id, detail) = plan_for(&snap, "wget", MP).expect_err("must refuse");
     assert_eq!(id, ErrorId::SafetyUnverifiable);
     assert!(
         detail.contains("service") && detail.contains("wget"),
         "the refusal must say which fact is missing and for what: {detail}"
     );
+    assert!(!detail.contains('/'), "the refusal names no path: {detail}");
 
-    // Available on the source: planning is untouched. Without this the test
+    // Known on the source row: planning is untouched. Without this the test
     // would pass just as well if the refusal were unconditional.
-    let mut snap = both(&[("wget", None)], &[]);
-    with(&mut snap, HB, CapabilityState::Available);
+    let snap = both(&[("wget", None)], &[]);
     assert!(
         plan_for(&snap, "wget", MP).is_ok(),
-        "a source that can answer still plans"
+        "a source row that can answer still plans"
     );
 
-    // Unknown on the *destination* only. The question is about the package being
-    // moved, which the source classifies; a destination that cannot answer says
-    // nothing about it.
-    let mut snap = both(&[("wget", None)], &[]);
-    with(&mut snap, HB, CapabilityState::Available);
-    with(&mut snap, MP, CapabilityState::Unknown);
+    // Unknown on the *destination* row only. The question is about the package
+    // being moved, which the source classifies.
+    let mut snap = both(&[("wget", None)], &[("wget", None)]);
+    set_service(
+        &mut snap,
+        MP,
+        "wget",
+        ServiceDefinition::both(Answer::Unknown),
+    );
     assert!(
         plan_for(&snap, "wget", MP).is_ok(),
         "the destination's ignorance is not about the package being removed"
     );
 
-    // Unavailable on the source: refused too, and this arm was missing until
-    // `security-reviewer` reproduced the gap on 2026-09-18. The predicate
-    // matched only `Unknown`, so a document saying `UNAVAILABLE` planned
-    // normally - exit 0, a full plan with a `REMOVE_SOURCE` step - while the
-    // two shapes this pass had just closed refused.
-    //
-    // `Unavailable` is not an affirmative answer to "can this provider tell
-    // you whether a package defines a service". A provider that does not offer
-    // service metadata cannot tell you, exactly as one whose scan failed
-    // cannot. Only `Available` is.
+    // The capability no longer decides: `Unavailable` beside a known row
+    // plans, and `Available` beside an unknown row refuses.
     let mut snap = both(&[("wget", None)], &[]);
-    with(
+    snap.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("provider")
+        .capabilities
+        .capabilities
+        .insert(
+            Capability::ServiceMetadata,
+            CapabilityState::Unavailable {
+                reason: "provider_exposes_no_service_metadata".into(),
+            },
+        );
+    assert!(plan_for(&snap, "wget", MP).is_ok());
+    snap.providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("provider")
+        .capabilities
+        .capabilities
+        .insert(Capability::ServiceMetadata, CapabilityState::Available);
+    set_service(
         &mut snap,
         HB,
-        CapabilityState::Unavailable {
-            reason: "provider_exposes_no_service_metadata".into(),
-        },
+        "wget",
+        ServiceDefinition::both(Answer::Unknown),
     );
-    let (id, _) = plan_for(&snap, "wget", MP)
-        .expect_err("a source that reports the capability unavailable must refuse too");
-    assert_eq!(id, ErrorId::SafetyUnverifiable);
-
-    // Absent entirely, which is what every other test in this file carries.
-    // "Never reported" is not "could not be detected", and reading it as the
-    // latter would refuse every plan built from a hand-made snapshot.
-    let snap = both(&[("wget", None)], &[]);
-    assert!(
-        plan_for(&snap, "wget", MP).is_ok(),
-        "a capability nobody reported was never asked about, not undetectable"
+    assert_eq!(
+        plan_for(&snap, "wget", MP).expect_err("the row decides").0,
+        ErrorId::SafetyUnverifiable
     );
 }
 
+/// The source row's answer under each of the shapes part D's plan names, in
+/// one direction.
+fn service_cases(from: &str, to: &str) {
+    let source_only = || {
+        if from == HB {
+            both(&[("svc", None)], &[])
+        } else {
+            both(&[], &[("svc", None)])
+        }
+    };
+    // UNKNOWN: refused.
+    for unknown in [
+        ServiceDefinition::both(Answer::Unknown),
+        ServiceDefinition {
+            declared: Answer::No,
+            materialised: Answer::Unknown,
+        },
+        ServiceDefinition {
+            declared: Answer::Unknown,
+            materialised: Answer::No,
+        },
+    ] {
+        let mut snap = source_only();
+        set_service(&mut snap, from, "svc", unknown);
+        assert_eq!(
+            plan_outcome_of(&snap, "svc", to),
+            Err(ErrorId::SafetyUnverifiable),
+            "{from}->{to} {unknown:?}"
+        );
+    }
+    // A row with no answer at all (a document from before the field).
+    let mut snap = source_only();
+    snap.providers
+        .get_mut(&ProviderId::new(from))
+        .expect("provider")
+        .inventory
+        .metadata
+        .get_mut("svc")
+        .expect("metadata")
+        .service = None;
+    assert_eq!(
+        plan_outcome_of(&snap, "svc", to),
+        Err(ErrorId::SafetyUnverifiable),
+        "{from}->{to} absent"
+    );
+    // YES from either half alone reaches MANUAL_REVIEW through the planner:
+    // the declared-only shape (`dbus`: `type launchd`, `create no`) and the
+    // stale-keg shape (a plist the declaration no longer shows).
+    for yes in [
+        ServiceDefinition {
+            declared: Answer::Yes,
+            materialised: Answer::No,
+        },
+        ServiceDefinition {
+            declared: Answer::No,
+            materialised: Answer::Yes,
+        },
+        ServiceDefinition {
+            declared: Answer::Yes,
+            materialised: Answer::Unknown,
+        },
+    ] {
+        let mut snap = source_only();
+        set_service(&mut snap, from, "svc", yes);
+        assert_eq!(
+            plan_outcome_of(&snap, "svc", to),
+            Ok(true),
+            "{from}->{to} {yes:?}"
+        );
+    }
+    // Both NO: a plan, and not one the service class sent to review.
+    let snap = source_only();
+    assert_eq!(
+        plan_outcome_of(&snap, "svc", to),
+        Ok(false),
+        "{from}->{to} NO"
+    );
+}
+
+/// INV-19 through the planner: an `UNKNOWN` source row is refused; a `YES`
+/// from either half alone reaches `MANUAL_REVIEW` (part D, Tests).
+#[test]
+fn invariant_19_an_unknown_service_answer_refuses_the_plan() {
+    service_cases(HB, MP);
+}
+
+/// INV-17: the same cases in the other direction give the same answers.
+#[test]
+fn invariant_17_the_service_rule_is_the_same_in_both_directions() {
+    service_cases(HB, MP);
+    service_cases(MP, HB);
+}
 /// `migration_start` for `package` toward `to`, with every other argument as
 /// `outcome_for` passes it.
 fn start_for(

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The execution gate over every captured recording, in every direction the
-//! recording can plan (`crates/application/src/execution_gate.rs`).
+//! The execution gate over every captured recording and every committed live
+//! capture, in every direction each can plan
+//! (`crates/application/src/execution_gate.rs`).
 //!
 //! Lives here rather than beside the gate's own tests because replaying a
 //! recording needs the adapters, and `scripts/check-layering.sh` forbids
@@ -81,10 +82,27 @@ struct Tally {
     asked: BTreeSet<(ProviderId, ProviderId)>,
     planned: BTreeSet<(ProviderId, ProviderId)>,
     plans: usize,
+    /// Plans that do not stop at `MANUAL_REVIEW`, so reach the
+    /// `MUTATION_NOT_IN_THIS_BUILD` assertion below.
+    unstopped: usize,
+}
+
+/// A committed live capture, read as `--from-snapshot` reads it: through the
+/// checked load path, so a capture that fails `Snapshot::check` fails here.
+fn captured(path: &Path) -> Snapshot {
+    macportsbrew_adapters::persistence::load_snapshot(path).expect("the capture loads")
 }
 
 fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOptions) -> Tally {
-    let snapshot = snapshot_of(recording);
+    check_snapshot(recording, &snapshot_of(recording), policy, options)
+}
+
+fn check_snapshot(
+    recording: &Path,
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+) -> Tally {
     let mut tally = Tally::default();
     for (source, held) in &snapshot.providers {
         let names: BTreeSet<&str> = held
@@ -98,7 +116,7 @@ fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOpti
                 tally.asked.insert((source.clone(), to.clone()));
                 for retain in [false, true] {
                     let Ok(plan) = build_plan(
-                        &snapshot,
+                        snapshot,
                         policy,
                         options,
                         &PlanRequest {
@@ -132,6 +150,7 @@ fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOpti
                             r,
                             ExecutionRefusal::MutationNotInThisBuild { step } if *step == first
                         )));
+                        tally.unstopped += 1;
                     }
                     // What the planner wrote from the real table is never
                     // refused as a forged command, as another schema version's
@@ -179,6 +198,13 @@ fn every_plan_this_planner_builds_from_every_fixture_is_refused_for_execution() 
         .collect();
     recordings.sort();
     assert!(!recordings.is_empty());
+    let mut captures: Vec<PathBuf> = std::fs::read_dir(root().join("fixtures/snapshots"))
+        .expect("fixtures/snapshots")
+        .map(|e| e.expect("entry").path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    captures.sort();
+    assert!(!captures.is_empty());
 
     // One thread per recording: the planner analyses the whole machine for
     // every package it is asked about, and the recordings hold hundreds.
@@ -186,6 +212,11 @@ fn every_plan_this_planner_builds_from_every_fixture_is_refused_for_execution() 
         let handles: Vec<_> = recordings
             .iter()
             .map(|r| scope.spawn(|| check_recording(r, &policy, &options)))
+            .chain(
+                captures
+                    .iter()
+                    .map(|c| scope.spawn(|| check_snapshot(c, &captured(c), &policy, &options))),
+            )
             .collect();
         handles
             .into_iter()
@@ -198,12 +229,19 @@ fn every_plan_this_planner_builds_from_every_fixture_is_refused_for_execution() 
         .flat_map(|t| t.asked.iter().cloned())
         .collect();
     assert!(plans > 0, "the fixtures produced plans to check");
-    // Both directions are *asked* (INV-17). Not both are *planned*: no
-    // recording captures whether a MacPorts port defines a service, so the
-    // planner refuses every plan out of MacPorts from a fixture as
-    // unverifiable (INV-19) — and a plan that was never built has nothing to
-    // execute. `execution_gate.rs` in the application crate covers the
-    // MacPorts-to-Homebrew direction with a synthesised snapshot.
+    // A replayed source row cannot answer the service question (DP-032,
+    // INV-15), so from a recording only a row that declares a service is
+    // planned, and its plan stops at `MANUAL_REVIEW`. The live captures are
+    // what reach a plan that does not stop: without them the branch that
+    // checks `MUTATION_NOT_IN_THIS_BUILD` would be asserted over nothing.
+    let unstopped: usize = tallies.iter().map(|t| t.unstopped).sum();
+    assert!(
+        unstopped > 0,
+        "a plan that does not stop at MANUAL_REVIEW reached the gate"
+    );
+    // Both directions are *asked* (INV-17), and both are *planned*: the live
+    // captures answer the service question for each provider's rows, so each
+    // direction yields plans.
     let planned: BTreeSet<_> = tallies
         .iter()
         .flat_map(|t| t.planned.iter().cloned())
@@ -211,6 +249,10 @@ fn every_plan_this_planner_builds_from_every_fixture_is_refused_for_execution() 
     assert!(
         planned.contains(&(ProviderId::new("homebrew"), ProviderId::new("macports"))),
         "a Homebrew-to-MacPorts plan was built, not only asked for: {planned:?}"
+    );
+    assert!(
+        planned.contains(&(ProviderId::new("macports"), ProviderId::new("homebrew"))),
+        "a MacPorts-to-Homebrew plan was built, not only asked for: {planned:?}"
     );
     let reversed: BTreeSet<_> = asked.iter().map(|(a, b)| (b.clone(), a.clone())).collect();
     assert!(

@@ -50,6 +50,13 @@ fn fixture(name: &str) -> PathBuf {
         .join(format!("{name}.json"))
 }
 
+/// The committed live capture (`fixtures/snapshots/README.md`). Since part D a
+/// replayed source row that declares no service cannot be planned from, so a
+/// test about what a plan does starts from a capture of the machine itself.
+fn live_snapshot() -> PathBuf {
+    root().join("fixtures/snapshots/both-providers-intel-macos26-live.json")
+}
+
 /// A temporary directory unique to one test, removed when the test ends.
 struct Scratch(PathBuf);
 
@@ -541,7 +548,7 @@ fn planning_toward_a_provider_that_is_not_installed_stops_at_manual_review() {
             path.to_str().expect("path"),
             "--json",
             "plan",
-            "ghidra",
+            "jupyterlab",
             "--to",
             "macports",
             "--today",
@@ -550,6 +557,19 @@ fn planning_toward_a_provider_that_is_not_installed_stops_at_manual_review() {
     );
     assert_eq!(out.status.code(), Some(4));
     assert!(out.stderr.is_empty());
+    // A formula the recording declares a service for: since part D a replayed
+    // row that declares none is refused before the plan (DP-032), and a cask
+    // (`ghidra`, which stood here) answers unknown. The absent destination is
+    // still a blocking risk of its own.
+    let plan: Value = serde_json::from_slice(&out.stdout).expect("plan JSON");
+    assert!(
+        plan["risks"]
+            .as_array()
+            .expect("risks")
+            .iter()
+            .any(|r| r["id"] == "destination_absent" && r["blocking"] == true),
+        "{plan}"
+    );
 }
 
 #[test]
@@ -862,26 +882,10 @@ fn a_replayed_run_is_not_sent_after_a_snapshot_it_never_had() {
 #[test]
 fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
     let scratch = Scratch::new("f43b");
-    let clean = scratch.path().join("clean.json");
-    assert_eq!(
-        run(
-            &scratch,
-            &[
-                "--replay",
-                fixture(BOTH).to_str().expect("path"),
-                "--json",
-                "snapshot",
-                "--out",
-                clean.to_str().expect("path"),
-                "--today",
-                TODAY,
-            ],
-        )
-        .status
-        .code(),
-        Some(0),
-        "capturing the clean snapshot"
-    );
+    // The live capture: a replayed source row cannot answer the service
+    // question, so it would be refused before the rule this test is about
+    // (part D).
+    let clean = live_snapshot();
 
     let mut doc: Value =
         serde_json::from_slice(&std::fs::read(&clean).expect("read")).expect("JSON");
@@ -966,26 +970,10 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
 #[test]
 fn a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it() {
     let scratch = Scratch::new("dp021dest");
-    let clean = scratch.path().join("clean.json");
-    assert_eq!(
-        run(
-            &scratch,
-            &[
-                "--replay",
-                fixture(BOTH).to_str().expect("path"),
-                "--json",
-                "snapshot",
-                "--out",
-                clean.to_str().expect("path"),
-                "--today",
-                TODAY,
-            ],
-        )
-        .status
-        .code(),
-        Some(0),
-        "capturing the clean snapshot"
-    );
+    // The live capture: a replayed source row cannot answer the service
+    // question, so it would be refused before the rule this test is about
+    // (part D).
+    let clean = live_snapshot();
 
     // The mirror of the test above: **macports** is the home-installed one, so
     // it is the destination of `--to macports` rather than the source. Both
@@ -2152,64 +2140,24 @@ fn invariant_15_a_replayed_or_snapshotted_run_never_redacts_against_this_host() 
 
 #[test]
 fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the_plan() {
-    // DP-016(c) refuses a plan whose source cannot say whether its packages
-    // define services, and it keys on `CapabilityState::Unknown`. An *absent*
-    // entry is deliberately not `Unknown` — in memory a capability nobody
-    // reported was never asked about, which is what lets a hand-made snapshot
-    // still be planned.
+    // DP-016(c), re-keyed on the row by part D (DP-032; spec-guardian 1). The
+    // planner asks the source row's `service` answer, and a row that carries
+    // none - a document written by a build from before the field, with the
+    // same `SNAPSHOT_SCHEMA_VERSION` - answers `UNKNOWN`, whatever its old
+    // `definesService` bool says: that bool held one half only. So such a
+    // document can be analysed and cannot be planned from.
     //
-    // A document is not in that position, and that was the hole this closes
-    // (F-29's residual). Both shipping adapters always write the entry, so the
-    // live path was safe; a document written by a build predating the
-    // capability carries the same `SNAPSHOT_SCHEMA_VERSION`, so it loaded, and
-    // INV-19's rule went silently unevaluated on a real plan — the exact
-    // outcome DP-016 exists to prevent, one route over.
-    //
-    // Demonstrated rather than asserted: a real capture, the key deleted, the
-    // real binary planning from it.
-    let scratch = Scratch::new("f29-absent-capability");
-    let path = fixture("both-providers-arm64-macos15");
-    let path = path.to_str().expect("fixture path is UTF-8");
-
-    let captured = scratch.path().join("both.json");
-    assert_eq!(
-        run(
-            &scratch,
-            &[
-                "--replay",
-                path,
-                "--json",
-                "snapshot",
-                "--out",
-                captured.to_str().expect("path"),
-                "--today",
-                TODAY,
-            ],
-        )
-        .status
-        .code(),
-        Some(0),
-        "capturing the snapshot"
-    );
-
+    // Demonstrated rather than asserted: the committed live capture, the field
+    // deleted, the real binary planning from it.
+    let scratch = Scratch::new("f29-absent-service");
     let mut doc: Value =
-        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
-    // The capture answers the question — under replay MacPorts cannot scan
-    // another machine's filesystem, so it says `UNKNOWN` and says it out loud.
-    // Set it to a definite answer first, so that what this test removes is the
-    // *record* and not an unknown that was already there: without this the
-    // refusal would fire for the reason DP-016(c) already covered and prove
-    // nothing new.
-    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
-        serde_json::json!({ "state": "AVAILABLE" });
-    let answerable = scratch.path().join("answerable.json");
-    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
-    assert_eq!(
+        serde_json::from_slice(&std::fs::read(live_snapshot()).expect("read")).expect("JSON");
+    let plan_htop = |file: &Path| {
         run(
             &scratch,
             &[
                 "--from-snapshot",
-                answerable.to_str().expect("path"),
+                file.to_str().expect("path"),
                 "plan",
                 "htop",
                 "--to",
@@ -2218,36 +2166,36 @@ fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the
                 TODAY,
             ],
         )
-        .status
-        .code(),
+    };
+    assert_eq!(
+        plan_htop(&live_snapshot()).status.code(),
         Some(0),
-        "the control: a document that answers the question plans normally"
+        "the control: a document whose source row answers the question plans normally"
     );
 
-    // Now the same document with the entry simply not there.
-    let obj = doc["providers"]["macports"]["capabilities"]["capabilities"]
+    // Every MacPorts row without `service`, as an older build wrote them.
+    let rows = doc["providers"]["macports"]["inventory"]["metadata"]
         .as_object_mut()
-        .expect("the capability table is an object");
+        .expect("the metadata is an object");
+    let mut removed = 0;
+    for row in rows.values_mut() {
+        if row
+            .as_object_mut()
+            .expect("a row")
+            .remove("service")
+            .is_some()
+        {
+            removed += 1;
+        }
+    }
     assert!(
-        obj.remove("SERVICE_METADATA").is_some(),
-        "the key this test is about must have been there to remove"
+        removed > 1,
+        "the field this test is about must have been there"
     );
     let silent = scratch.path().join("silent.json");
     std::fs::write(&silent, serde_json::to_vec(&doc).expect("serialise")).expect("write");
 
-    let out = run(
-        &scratch,
-        &[
-            "--from-snapshot",
-            silent.to_str().expect("path"),
-            "plan",
-            "htop",
-            "--to",
-            "homebrew",
-            "--today",
-            TODAY,
-        ],
-    );
+    let out = plan_htop(&silent);
     assert_eq!(
         out.status.code(),
         Some(4),
@@ -2259,6 +2207,25 @@ fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the
         "a refusal writes no plan document: {}",
         String::from_utf8_lossy(&out.stdout)
     );
+
+    // On some rows only, the document is refused on load (exit 8): a deleted
+    // `service` must not read as an older document's absence.
+    doc["providers"]["macports"]["inventory"]["metadata"]["jq"]["service"] =
+        serde_json::json!({ "declared": "NO", "materialised": "NO" });
+    let partial = scratch.path().join("partial.json");
+    std::fs::write(&partial, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    assert_eq!(plan_htop(&partial).status.code(), Some(8));
+    doc["providers"]["macports"]["inventory"]["metadata"]["jq"]
+        .as_object_mut()
+        .expect("a row")
+        .remove("service");
+
+    // The capability arms below were how this refusal used to key (DP-016(c),
+    // F-29). Since part D the capability is informational and the rows decide:
+    // with no row answering, each still refuses; with the rows answering, the
+    // same capability edits plan (the control at the end).
+    let answering: Value =
+        serde_json::from_slice(&std::fs::read(live_snapshot()).expect("read")).expect("JSON");
 
     // And read-only analysis of the same document still works, because the
     // analysis degrades and says so rather than failing (`.claude/rules/
@@ -2360,6 +2327,17 @@ fn invariant_19_a_document_that_does_not_record_the_service_question_refuses_the
         "and it writes no plan: {}",
         String::from_utf8_lossy(&blanked.stdout)
     );
+
+    // The control: rows that answer plan whatever the capability says.
+    let mut answering = answering;
+    answering["providers"]["macports"]["capabilities"]["capabilities"] = serde_json::json!({});
+    let rows_decide = scratch.path().join("rows-decide.json");
+    std::fs::write(
+        &rows_decide,
+        serde_json::to_vec(&answering).expect("serialise"),
+    )
+    .expect("write");
+    assert_eq!(plan_htop(&rows_decide).status.code(), Some(0));
 }
 
 /// SE-092's S3 addendum, through the real binary. A package only its
@@ -2493,12 +2471,21 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // exercises it. Manufacturing an `unknown` to keep that green would test a
     // path no user can reach. See F-24's closure note and F-35.
     let scratch = Scratch::new("f10-elevation");
-    let path = fixture("both-providers-arm64-macos15");
+    let path = live_snapshot();
     let path = path.to_str().expect("fixture path is UTF-8");
+    // The live capture: a replayed source row cannot answer the service
+    // question and is refused before any step is rendered (part D).
     let out = run(
         &scratch,
         &[
-            "--replay", path, "plan", "htop", "--to", "macports", "--today", TODAY,
+            "--from-snapshot",
+            path,
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+            "--today",
+            TODAY,
         ],
     );
     let text = String::from_utf8_lossy(&out.stdout);
@@ -2528,40 +2515,12 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // one summary line either way. Running both directions also exercises
     // INV-17: the same code renders both, and only the data differs.
     //
-    // Through a snapshot rather than `--replay`, because DP-016(c) refuses a
-    // plan whose source cannot say whether its packages define services — and
-    // under replay MacPorts never can, since the scan will not read another
-    // machine's filesystem (F-25, F-29). The one thing patched is that
-    // capability, to what a live MacPorts machine reports; the binary, the
-    // planner and the rendering are the real ones, and this direction is the
-    // only place INV-06's *elevating* branch and INV-17's symmetry are
-    // asserted at all.
-    let captured = scratch.path().join("both.json");
-    assert_eq!(
-        run(
-            &scratch,
-            &[
-                "--replay",
-                path,
-                "--json",
-                "snapshot",
-                "--out",
-                captured.to_str().expect("path"),
-                "--today",
-                TODAY,
-            ],
-        )
-        .status
-        .code(),
-        Some(0),
-        "capturing the snapshot"
-    );
-    let mut doc: Value =
-        serde_json::from_slice(&std::fs::read(&captured).expect("read")).expect("JSON");
-    doc["providers"]["macports"]["capabilities"]["capabilities"]["SERVICE_METADATA"] =
-        serde_json::json!({ "state": "AVAILABLE" });
-    let answerable = scratch.path().join("answerable.json");
-    std::fs::write(&answerable, serde_json::to_vec(&doc).expect("serialise")).expect("write");
+    // Through the live capture, like the direction above: a replayed source
+    // row cannot answer whether it defines a service, so it is refused before
+    // any step is rendered (DP-016(c), DP-032). The binary, the planner and the
+    // rendering are the real ones, and this direction is the only place
+    // INV-06's *elevating* branch and INV-17's symmetry are asserted at all.
+    let answerable = live_snapshot();
 
     let out = run(
         &scratch,
@@ -2617,7 +2576,7 @@ fn no_rust_identifier_reaches_the_reader() {
     // human output. That catches a sixth site nobody has written yet, which a
     // list of expected sentences would not.
     let scratch = Scratch::new("no-debug-render");
-    let path = fixture(BOTH);
+    let path = live_snapshot();
     let path = path.to_str().expect("fixture path is UTF-8");
     let mut seen = 0usize;
     for args in [
@@ -2625,7 +2584,7 @@ fn no_rust_identifier_reaches_the_reader() {
         vec!["status"],
         vec!["explain", "htop"],
     ] {
-        let mut argv = vec!["--replay", path];
+        let mut argv = vec!["--from-snapshot", path];
         argv.extend_from_slice(&args);
         argv.extend_from_slice(&["--today", TODAY]);
         let out = run(&scratch, &argv);
@@ -2853,7 +2812,7 @@ fn a_dry_run_writes_no_snapshot_and_no_report() {
 #[test]
 fn invariant_13_naming_a_dependency_warns_once_and_says_so_in_json() {
     let scratch = Scratch::new("named-entry");
-    let path = fixture(BOTH);
+    let path = live_snapshot();
     let path = path.to_str().expect("fixture path is UTF-8");
     let warning = "Advanced mode shows dependencies.";
     let named = "outside the default view";
@@ -2862,7 +2821,14 @@ fn invariant_13_naming_a_dependency_warns_once_and_says_so_in_json() {
             let json = run(
                 &scratch,
                 &[
-                    "--replay", path, "--json", command, package, "--to", "macports", "--today",
+                    "--from-snapshot",
+                    path,
+                    "--json",
+                    command,
+                    package,
+                    "--to",
+                    "macports",
+                    "--today",
                     TODAY,
                 ],
             );
@@ -2890,7 +2856,14 @@ fn invariant_13_naming_a_dependency_warns_once_and_says_so_in_json() {
             let human = run(
                 &scratch,
                 &[
-                    "--replay", path, command, package, "--to", "macports", "--today", TODAY,
+                    "--from-snapshot",
+                    path,
+                    command,
+                    package,
+                    "--to",
+                    "macports",
+                    "--today",
+                    TODAY,
                 ],
             );
             let stderr = String::from_utf8_lossy(&human.stderr);
@@ -2905,7 +2878,7 @@ fn invariant_13_naming_a_dependency_warns_once_and_says_so_in_json() {
         let advanced = run(
             &scratch,
             &[
-                "--replay",
+                "--from-snapshot",
                 path,
                 "--json",
                 "--advanced",

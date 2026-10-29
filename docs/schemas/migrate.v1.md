@@ -200,103 +200,40 @@ Nothing to move, under `--yes`:
 }
 ```
 
-`--dry-run` wins over `--yes`:
+`--dry-run` wins over `--yes` (rendered from the committed live capture, the
+input a plan with commands comes from; see below):
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate htop --to macports --yes --dry-run --today 2026-09-02 at=/mode -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json migrate htop --to macports --yes --dry-run --today 2026-09-02 at=/mode -->
 ```json
 "RENDER"
 ```
 
-Executed: the gate refuses the plan, so nothing runs and there are no step
-records. Step 2 is refused because it changes the machine, though it carries no
-command (`htop` is already under MacPorts); the checks are refused because this
-build cannot evaluate them. Every mutating step is also refused as
-`PROVIDER_CONFIGURATION`: a replay cannot record either provider's own
-configuration, so each side carries an unknown `provider_configuration` risk,
-and the gate refuses every mutating step against it.
+Executed: `EXECUTE` mode needs a runner, so it is shown over a recording, and
+since work order 16 part D a recording can plan only a source row that
+**declares** a background service: a keg or a registry Portfile cannot be read
+under `--replay`, so any other row answers the service question `UNKNOWN` and
+its plan is refused before the gate (`snapshot.v1.md`, `ServiceDefinition`).
+`jupyterlab` declares one, so its plan stops at `MANUAL_REVIEW`, and the gate
+refuses each such step by name; nothing runs and there are no step records. The
+refusals a plan with commands draws — `MUTATION_NOT_IN_THIS_BUILD`,
+`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`, and `PROVIDER_CONFIGURATION` wherever a
+provider's own configuration is unknown — are listed above.
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate htop --to macports --yes --today 2026-09-02 at=/execution exit=4 -->
+<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate jupyterlab --to macports --yes --today 2026-09-02 at=/execution exit=4 -->
 ```json
 {
   "outcome": {
     "outcome": "REFUSED",
-    "refusals": 12
+    "refusals": 2
   },
   "gateRefusals": [
     {
-      "refusal": "MUTATION_NOT_IN_THIS_BUILD",
+      "refusal": "MANUAL_REVIEW",
+      "step": 1
+    },
+    {
+      "refusal": "MANUAL_REVIEW",
       "step": 2
-    },
-    {
-      "refusal": "PROVIDER_CONFIGURATION",
-      "step": 2,
-      "provider": "macports"
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 3,
-      "check": {
-        "check": "PROVIDER_REPORTS_ACTIVE"
-      }
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 3,
-      "check": {
-        "check": "PROVIDER_INTEGRITY_CHECK"
-      }
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 3,
-      "check": {
-        "check": "EXECUTABLES_OWNED_BY_DESTINATION",
-        "executables": [
-          "htop"
-        ]
-      }
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 3,
-      "check": {
-        "check": "LIVENESS_PROBE",
-        "executable": "htop",
-        "flag": "--version"
-      }
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 3,
-      "check": {
-        "check": "NO_CROSS_PROVIDER_LINKAGE"
-      }
-    },
-    {
-      "refusal": "CHECK_NOT_EVALUABLE_IN_THIS_BUILD",
-      "step": 4,
-      "check": {
-        "check": "PROVIDER_REPORTS_ACTIVE"
-      }
-    },
-    {
-      "refusal": "PROVIDER_CONFIGURATION",
-      "step": 4,
-      "provider": "macports"
-    },
-    {
-      "refusal": "VERIFICATION_ASSERTS_NOTHING",
-      "step": 5
-    },
-    {
-      "refusal": "PROVIDER_CONFIGURATION",
-      "step": 6,
-      "provider": "homebrew"
-    },
-    {
-      "refusal": "PROVIDER_CONFIGURATION",
-      "step": 8,
-      "provider": "homebrew"
     }
   ]
 }

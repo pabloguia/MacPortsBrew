@@ -89,7 +89,17 @@ struct Tally {
 }
 
 fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOptions) -> Tally {
-    let snapshot = snapshot_of(recording);
+    check(&snapshot_of(recording), recording, policy, options)
+}
+
+/// Every read the planner writes from `snapshot`, checked against the sites
+/// `recording` answers.
+fn check(
+    snapshot: &Snapshot,
+    recording: &Path,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+) -> Tally {
     // The prefixes this snapshot detected, as a replay-only override: the
     // runner is a recording, so nothing here can reach a live spawn, and no
     // spec built below is run at all.
@@ -119,7 +129,7 @@ fn check_recording(recording: &Path, policy: &PolicyData, options: &AnalysisOpti
             for name in &names {
                 for retain in [false, true] {
                     let Ok(plan) = build_plan(
-                        &snapshot,
+                        snapshot,
                         policy,
                         options,
                         &PlanRequest {
@@ -197,7 +207,7 @@ fn every_read_the_planner_writes_from_every_fixture_passes_the_read_allowlist() 
     recordings.sort();
     assert!(!recordings.is_empty());
 
-    let tallies: Vec<Tally> = std::thread::scope(|scope| {
+    let mut tallies: Vec<Tally> = std::thread::scope(|scope| {
         let handles: Vec<_> = recordings
             .iter()
             .map(|r| scope.spawn(|| check_recording(r, &policy, &options)))
@@ -207,6 +217,22 @@ fn every_read_the_planner_writes_from_every_fixture_passes_the_read_allowlist() 
             .map(|h| h.join().expect("a recording's check panicked"))
             .collect()
     });
+    // Part D: a replayed source row that declares no service is refused before
+    // any step, so the plans with reads come from the live capture, checked
+    // against the recording of the same machine.
+    let live: Snapshot = serde_json::from_str(
+        &std::fs::read_to_string(
+            root().join("fixtures/snapshots/both-providers-intel-macos26-live.json"),
+        )
+        .expect("the live capture"),
+    )
+    .expect("the live capture parses");
+    tallies.push(check(
+        &live,
+        &root().join("fixtures/recordings/both-providers-intel-macos26.json"),
+        &policy,
+        &options,
+    ));
     let reads: usize = tallies.iter().map(|t| t.reads).sum();
     let providers: BTreeSet<ProviderId> = tallies
         .iter()

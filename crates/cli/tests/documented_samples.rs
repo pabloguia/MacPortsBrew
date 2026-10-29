@@ -73,6 +73,10 @@ const BIN: &str = env!("CARGO_BIN_EXE_macportsbrew");
 /// the machine the suite happens to run on (INV-15, INV-05).
 const REQUIRED_FLAG: &str = "--replay";
 
+/// The other committed input a sample may read: a snapshot under
+/// `fixtures/snapshots/`, captured on a live machine and committed (part D).
+const SNAPSHOT_FLAG: &str = "--from-snapshot";
+
 /// The only subcommands and flags a marker may name.
 ///
 /// Found by `security-reviewer` on 2026-09-19, and older than the change that
@@ -113,20 +117,28 @@ const ALLOWED: &[&str] = &[
 /// flag, which is what kept `--report` and `--out` reachable.
 fn check_argv(args: &[String], path: &Path, line: usize) {
     let where_ = format!("{}:{line}", path.display());
-    assert_eq!(
-        args.first().map(String::as_str),
-        Some(REQUIRED_FLAG),
-        "{where_}: a documented sample must be replayed, not taken from this machine, \
-         and `{REQUIRED_FLAG}` must lead so the recording is the token after it"
-    );
+    // Since work order 16 part D a plan with commands cannot be built from a
+    // recording (a replayed source row cannot answer the service question,
+    // DP-032), so a sample of one reads the committed live capture with
+    // `--from-snapshot` instead. Either way the input is a committed fixture
+    // file, never this machine.
+    let (directory, what) = match args.first().map(String::as_str) {
+        Some(REQUIRED_FLAG) => ("fixtures/recordings/", "recording"),
+        Some(SNAPSHOT_FLAG) => ("fixtures/snapshots/", "snapshot"),
+        other => panic!(
+            "{where_}: a documented sample must be replayed or read from a committed \
+             snapshot, not taken from this machine, and `{REQUIRED_FLAG}` or \
+             `{SNAPSHOT_FLAG}` must lead so the file is the token after it: {other:?}"
+        ),
+    };
     let recording = args.get(1).map_or("", String::as_str);
     assert!(
-        recording.starts_with("fixtures/recordings/")
+        recording.starts_with(directory)
             && Path::new(recording)
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("json"))
             && !recording.contains(".."),
-        "{where_}: {recording:?} is not a committed recording under fixtures/recordings/"
+        "{where_}: {recording:?} is not a committed {what} under {directory}"
     );
     for token in &args[2..] {
         let bare_name = !token.is_empty()

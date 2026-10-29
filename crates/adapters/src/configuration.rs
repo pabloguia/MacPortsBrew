@@ -274,6 +274,67 @@ fn read_one(
     })
 }
 
+/// The prefix-relative system configuration file of a MacPorts installation.
+pub const MACPORTS_SYSTEM_FILE: &str = "etc/macports/macports.conf";
+
+/// Where the MacPorts installation at `prefix` keeps its registry
+/// (`portdbpath`), **only when that is the default** `<prefix>/var/macports`
+/// (DP-032, part D §4a, L3). `None` — the declared half of the service
+/// question is then `UNKNOWN` for every port — when this host's disk is not the
+/// machine described (INV-15), when the system file or a user file the data
+/// names cannot be read or parsed, when a user file has no home to be found
+/// under, or when any of them sets `portdbpath` to anything but exactly
+/// `<prefix>/var/macports`, written out. MacPorts does not substitute a
+/// variable in this value (`macports1.0/macports.tcl` lines 1165-1200, 2.12.6:
+/// trim, `realpath`, else `file normalize`), so a literal `${prefix}` names
+/// some other directory and answers `None` (security review L1). A
+/// non-default location is not followed: a value from a configuration file
+/// never becomes a path here.
+///
+/// The system file is read as well as the files [`read`] records, because
+/// `portdbpath` is set there (`/opt/local/etc/macports/macports.conf` line 12,
+/// MacPorts 2.12.6, sha256 in R-8's addendum table).
+pub fn macports_portdbpath(
+    prefix: &Path,
+    home: Option<&Path>,
+    filesystem: FilesystemScope,
+) -> Option<PathBuf> {
+    if !filesystem.is_this_machine() {
+        return None;
+    }
+    let default = prefix.join("var/macports");
+    let entry = document().entry.iter().find(|e| e.provider == "macports")?;
+    let mut paths = vec![(prefix.join(MACPORTS_SYSTEM_FILE), true)];
+    for spec in &entry.files {
+        let (_, located) = locate(&spec.path, prefix, home, Path::new("/"));
+        paths.push((located?, false));
+    }
+    for (path, required) in paths {
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !required => continue,
+            _ => return None,
+        }
+        let text = crate::persistence::bounded_read::read_bounded(
+            &path,
+            MAX_CONFIGURATION_BYTES,
+            crate::persistence::bounded_read::OpenPolicy::FollowAsNamed,
+            crate::persistence::bounded_read::any_regular_file,
+        )
+        .ok()?;
+        for line in Syntax::WordValue.lines(&text) {
+            if Syntax::WordValue.key(line) != Some("portdbpath") {
+                continue;
+            }
+            let value = line["portdbpath".len()..].trim_matches([' ', '\t']);
+            if Path::new(value) != default {
+                return None;
+            }
+        }
+    }
+    Some(default)
+}
+
 /// Parses the embedded document; a malformed file is this repository's own
 /// mistake and fails at the first call, as [`crate::prefixes`] does.
 fn document() -> &'static Document {
@@ -570,5 +631,57 @@ mod tests {
         std::fs::create_dir_all(tree.path("home/.macports/macports.conf")).expect("a directory");
         let found = tree.read("macports");
         assert!(!files(&found)[0].readable, "{found:?}");
+    }
+
+    #[test]
+    fn the_registry_is_found_only_at_the_default_portdbpath() {
+        let tree = Tree::new("portdbpath");
+        let prefix = tree.path("prefix");
+        let home = tree.path("home");
+        let at =
+            |home: Option<&Path>| macports_portdbpath(&prefix, home, FilesystemScope::ThisMachine);
+        let default = Some(prefix.join("var/macports"));
+        // No system file: MacPorts is not configured here, so unknown.
+        assert_eq!(at(Some(&home)), None);
+        // The default: unset, or written out in full.
+        tree.write("prefix/etc/macports/macports.conf", "prefix\t/x\n");
+        assert_eq!(at(Some(&home)), default);
+        let expanded = format!(
+            "portdbpath          \t{}\n",
+            prefix.join("var/macports").display()
+        );
+        tree.write("prefix/etc/macports/macports.conf", &expanded);
+        assert_eq!(at(Some(&home)), default);
+        // MacPorts substitutes nothing in this value, so a literal `${prefix}`
+        // names another directory (security review L1).
+        tree.write(
+            "prefix/etc/macports/macports.conf",
+            "portdbpath ${prefix}/var/macports\n",
+        );
+        assert_eq!(at(Some(&home)), None);
+        tree.write("prefix/etc/macports/macports.conf", &expanded);
+        // A user file that keeps the default is fine; no home to look for one
+        // under is not.
+        tree.write("home/.macports/macports.conf", &expanded);
+        assert_eq!(at(Some(&home)), default);
+        assert_eq!(at(None), None, "no home: the user file cannot be ruled out");
+        // Any other value, in either file, is unknown (L3).
+        tree.write("home/.macports/macports.conf", "portdbpath /elsewhere\n");
+        assert_eq!(at(Some(&home)), None);
+        tree.write("home/.macports/macports.conf", "");
+        tree.write(
+            "prefix/etc/macports/macports.conf",
+            "portdbpath /opt/other/var/macports\n",
+        );
+        assert_eq!(at(Some(&home)), None);
+        // An unreadable (here: not a regular) system file is unknown.
+        std::fs::remove_file(prefix.join("etc/macports/macports.conf")).unwrap();
+        std::fs::create_dir_all(prefix.join("etc/macports/macports.conf")).unwrap();
+        assert_eq!(at(Some(&home)), None);
+        // And another machine's disk is never read (INV-15).
+        assert_eq!(
+            macports_portdbpath(&prefix, Some(&home), FilesystemScope::Elsewhere),
+            None
+        );
     }
 }

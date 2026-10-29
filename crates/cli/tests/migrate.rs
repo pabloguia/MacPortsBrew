@@ -42,6 +42,11 @@ const BOTH: &str = "both-providers-arm64-macos15";
 const BOTH_INTEL: &str = "both-providers-intel-macos26";
 /// MacPorts alone; Homebrew was not detected.
 const MACPORTS_ONLY: &str = "macports-only-intel-macos12";
+/// A formula the recordings' JSON declares a service for. Under `--replay` a
+/// source row answers the service question only from what it declares (DP-032,
+/// part D): this one answers `YES` and plans, to `MANUAL_REVIEW`; one that
+/// declares none answers `UNKNOWN` and is refused (`htop`).
+const REPLAYED_SERVICE: &str = "emacs";
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -196,15 +201,17 @@ fn mutating_prefixes() -> Vec<String> {
 fn migrate_dry_run_renders_every_command_including_elevated_ones() {
     // `04-migration-and-safety.md`: `--dry-run` produces the plan and every
     // command that would run, and mutates nothing — including no `sudo`.
+    // From the live capture: a replayed source row cannot answer the service
+    // question, so a plan with commands is built from a capture (part D).
     let scratch = Scratch::new("dry-run-renders");
-    let file = fixture(BOTH_INTEL);
-    let json = migrate(&scratch, &file, &["--json", "--dry-run"], "python@3.12", MP);
+    let file = live_snapshot();
+    let json = from_snapshot(&scratch, &file, &["--json", "--dry-run"], "python@3.12", MP);
     assert_eq!(json.status.code(), Some(0), "{}", stderr(&json));
     let doc = document(&json);
     assert_eq!(doc["schemaVersion"], 1);
     assert_eq!(doc["mode"], "RENDER");
     assert!(doc.get("execution").is_none(), "a render runs nothing");
-    let human = migrate(&scratch, &file, &["--dry-run"], "python@3.12", MP);
+    let human = from_snapshot(&scratch, &file, &["--dry-run"], "python@3.12", MP);
     assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
     let text = stdout(&human);
     let mut commands = 0;
@@ -254,13 +261,18 @@ fn migrate_dry_run_renders_every_command_including_elevated_ones() {
 
 #[test]
 fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
+    // Execute mode needs a runner, so it is shown over a recording; and over a
+    // recording only a source row that declares a service can be planned (part
+    // D): its plan stops at `MANUAL_REVIEW`, which the gate refuses by name.
+    // The mutating-step refusal (`MUTATION_NOT_IN_THIS_BUILD`) of a plan with
+    // commands is rendered in process, `crates/cli/tests/executor.rs`.
     let scratch = Scratch::new("yes-refused");
     let file = fixture(BOTH);
-    let human = migrate(&scratch, &file, &["--yes"], "htop", MP);
+    let human = migrate(&scratch, &file, &["--yes"], REPLAYED_SERVICE, MP);
     assert_eq!(human.status.code(), Some(4), "{}", stderr(&human));
     let text = stdout(&human);
     assert!(
-        text.contains("Plan: move htop from homebrew to macports"),
+        text.contains("Plan: move emacs from homebrew to macports"),
         "{text}"
     );
     assert!(
@@ -272,8 +284,17 @@ fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
         "what to do by hand follows the reasons: {text}"
     );
     assert!(
-        text.contains("Step 2 changes the machine, and this build changes nothing."),
+        text.contains("Step 1 needs a human decision, and nothing outranks it."),
         "{text}"
+    );
+    // A row that declares none is refused before any plan or gate.
+    let refused = migrate(&scratch, &file, &["--yes"], "htop", MP);
+    assert_eq!(refused.status.code(), Some(4), "{}", stderr(&refused));
+    assert!(refused.stdout.is_empty(), "{}", stdout(&refused));
+    assert!(
+        stderr(&refused).contains("whether homebrew package htop defines a background service"),
+        "{}",
+        stderr(&refused)
     );
     // No identifier reaches a person: neither a refusal tag nor a key.
     for raw in [
@@ -284,11 +305,11 @@ fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
     ] {
         assert!(!text.contains(raw), "{raw} reached the user:\n{text}");
     }
-    let json = migrate(&scratch, &file, &["--json", "--yes"], "htop", MP);
+    let json = migrate(&scratch, &file, &["--json", "--yes"], REPLAYED_SERVICE, MP);
     assert_eq!(json.status.code(), Some(4), "{}", stderr(&json));
     let doc = document(&json);
     assert_eq!(doc["mode"], "EXECUTE");
-    assert_eq!(doc["plan"]["package"]["name"], "htop");
+    assert_eq!(doc["plan"]["package"]["name"], REPLAYED_SERVICE);
     assert_eq!(doc["execution"]["outcome"]["outcome"], "REFUSED");
     let refusals = doc["execution"]["gateRefusals"]
         .as_array()
@@ -300,7 +321,7 @@ fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
     );
     assert!(refusals
         .iter()
-        .any(|r| r["refusal"] == "MUTATION_NOT_IN_THIS_BUILD" && r["step"] == 2));
+        .any(|r| r["refusal"] == "MANUAL_REVIEW" && r["step"] == 1));
     assert!(
         doc["execution"].get("steps").is_none(),
         "a refused plan runs no step: {}",
@@ -312,15 +333,17 @@ fn migrate_yes_is_refused_for_execution_and_still_renders_the_plan() {
 fn migrate_dry_run_wins_over_yes() {
     let scratch = Scratch::new("dry-run-wins");
     let file = fixture(BOTH);
-    let plain = migrate(&scratch, &file, &["--json"], "htop", MP);
+    let plain = migrate(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP);
     let both = migrate(
         &scratch,
         &file,
         &["--json", "--yes", "--dry-run"],
-        "htop",
+        REPLAYED_SERVICE,
         MP,
     );
-    assert_eq!(both.status.code(), Some(0), "{}", stderr(&both));
+    // A plan that stops at `MANUAL_REVIEW` renders with exit 4 (part D: the
+    // one a recording can still plan).
+    assert_eq!(both.status.code(), Some(4), "{}", stderr(&both));
     assert_eq!(document(&both)["mode"], "RENDER");
     assert!(document(&both).get("execution").is_none());
     assert_eq!(
@@ -334,7 +357,7 @@ fn migrate_from_snapshot_refuses_to_execute() {
     // A snapshot file has no runner and no provenance an execution could
     // check (SE-050): execute mode is a usage error before any output.
     let scratch = Scratch::new("from-snapshot");
-    let file = snapshot_file(&scratch, BOTH);
+    let file = live_snapshot();
     let refused = from_snapshot(&scratch, &file, &["--yes"], "htop", MP);
     assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
     assert!(
@@ -412,7 +435,7 @@ fn invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_a
 #[test]
 fn invariant_16_repeated_migrate_dry_runs_are_byte_identical() {
     let scratch = Scratch::new("repeated");
-    let file = snapshot_file(&scratch, BOTH);
+    let file = live_snapshot();
     for extra in [&[][..], &["--json"][..]] {
         let first = from_snapshot(&scratch, &file, extra, "htop", MP);
         let second = from_snapshot(&scratch, &file, extra, "htop", MP);
@@ -431,12 +454,14 @@ fn activity(doc: &Value) -> &Value {
 /// Every shape a `migrate` document takes over `input`: a rendered plan, an
 /// executed one (when `execute` is allowed), and nothing to move.
 fn every_migrate_shape(execute: bool) -> Vec<(&'static [&'static str], &'static str, i32)> {
+    // The plan is the one a recording can still build: a declared service,
+    // stopping at `MANUAL_REVIEW` (exit 4; part D).
     let mut shapes: Vec<(&'static [&'static str], &'static str, i32)> = vec![
-        (&["--json"][..], "htop", 0),
+        (&["--json"][..], REPLAYED_SERVICE, 4),
         (&["--json", "--dry-run"][..], "nginx", 0),
     ];
     if execute {
-        shapes.push((&["--json", "--yes"][..], "htop", 4));
+        shapes.push((&["--json", "--yes"][..], REPLAYED_SERVICE, 4));
         shapes.push((&["--json", "--yes"][..], "nginx", 0));
     }
     shapes
@@ -530,7 +555,7 @@ fn invariant_15_migrate_under_replay_is_a_function_of_the_recording() {
         "--json",
         "--yes",
         "migrate",
-        "htop",
+        REPLAYED_SERVICE,
         "--to",
         MP,
         "--today",
@@ -555,30 +580,69 @@ fn invariant_15_migrate_under_replay_is_a_function_of_the_recording() {
 fn invariant_06_migrate_never_elevates() {
     // A plan with a step that needs administrator rights is refused for
     // execution by name; nothing is run, so nothing can ask for a password.
+    //
+    // Execute mode needs a runner, and over a recording a plan with commands
+    // is no longer built (part D: a replayed source row cannot answer the
+    // service question). So the plan comes from the live capture, and the gate
+    // the binary's execute mode consults is asked of it in process.
     let scratch = Scratch::new("never-elevates");
-    let file = fixture(BOTH_INTEL);
-    let out = migrate(&scratch, &file, &["--json", "--yes"], "python@3.12", MP);
-    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
-    let doc = document(&out);
-    let refusals = doc["execution"]["gateRefusals"]
-        .as_array()
-        .expect("refusals");
+    let snapshot = load_snapshot(&live_snapshot()).expect("the live capture loads");
+    let start = migration_start(
+        &snapshot,
+        &PolicyData::load_embedded().expect("policy"),
+        &AnalysisOptions {
+            today: TODAY.to_string(),
+            ..AnalysisOptions::default()
+        },
+        &PlanRequest {
+            package: "python@3.12".to_string(),
+            to: ProviderId::new(MP),
+            retain_source: false,
+        },
+        &registry::known_provider_ids(),
+        HistoryConsultation::NotConsulted,
+    )
+    .expect("a plan");
+    let MigrationStart::Run(planned, _) = start else {
+        panic!("python@3.12 has something to move");
+    };
+    let refusals = macportsbrew_application::execution_refusals(planned.plan());
     assert!(
-        refusals
-            .iter()
-            .any(|r| r["refusal"] == "ELEVATION_REQUIRED" && r["steps"] == serde_json::json!([2])),
-        "{refusals:?}"
+        refusals.refusals().iter().any(|r| matches!(
+            r,
+            macportsbrew_application::ExecutionRefusal::ElevationRequired { steps }
+                if steps == &[2]
+        )),
+        "{:?}",
+        refusals.refusals()
     );
-    assert!(doc["execution"].get("steps").is_none());
-    let human = migrate(&scratch, &file, &["--yes"], "python@3.12", MP);
-    assert!(stdout(&human).contains(
-        "Steps that need administrator rights, which this build has no way to ask for: 2."
-    ));
-    for output in [&out, &human] {
+    // The binary renders the elevated step and asks for nothing.
+    let human = from_snapshot(
+        &scratch,
+        &live_snapshot(),
+        &["--dry-run"],
+        "python@3.12",
+        MP,
+    );
+    assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
+    assert!(
+        stdout(&human).contains("elevation required"),
+        "{}",
+        stdout(&human)
+    );
+    // And over a recording the same request is refused before any plan.
+    let replayed = migrate(
+        &scratch,
+        &fixture(BOTH_INTEL),
+        &["--yes"],
+        "python@3.12",
+        MP,
+    );
+    assert_eq!(replayed.status.code(), Some(4), "{}", stderr(&replayed));
+    for output in [&human, &replayed] {
         assert!(!stdout(output).contains("sudo") && !stderr(output).contains("sudo"));
     }
 }
-
 /// `recording` with an answer for every provider command `plan_for` would
 /// run, mutating ones included, so that a dispatch of one would *succeed* —
 /// and be counted by the runner — rather than fail for want of an answer.
@@ -638,12 +702,15 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
     let policy = PolicyData::load_embedded().expect("policy");
     let mutating = mutating_prefixes();
     let mut answered_mutations = 0;
-    for (fixture_name, package, to) in [(BOTH, "htop", MP), (BOTH_INTEL, "python@3.12", MP)] {
+    // The plans come from the live capture (part D: a replayed source row cannot
+    // answer the service question); the recording of the same machine answers
+    // their commands, so a dispatch would succeed and be counted.
+    for (fixture_name, package, to) in [(BOTH_INTEL, "htop", MP), (BOTH_INTEL, "python@3.12", MP)] {
         let original =
             Recording::from_json(&std::fs::read_to_string(fixture(fixture_name)).expect("reads"))
                 .expect("parses");
         // The plan's commands, from the document `migrate` renders.
-        let shown = migrate(&scratch, &fixture(fixture_name), &["--json"], package, to);
+        let shown = from_snapshot(&scratch, &live_snapshot(), &["--json"], package, to);
         let doc = document(&shown);
         let commands: Vec<(String, Vec<String>)> = doc["plan"]["steps"]
             .as_array()
@@ -676,17 +743,16 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
             .join(format!("{fixture_name}-{package}.json"));
         std::fs::write(&file, rec.to_json()).expect("write");
 
-        // Through the binary: refused, and no step was run at all.
+        // Through the binary, over the recording: refused before any plan, so
+        // no step was run at all.
         let out = migrate(&scratch, &file, &["--json", "--yes"], package, to);
         assert_eq!(out.status.code(), Some(4), "{package}: {}", stderr(&out));
-        let doc = document(&out);
-        assert_eq!(doc["execution"]["outcome"]["outcome"], "REFUSED");
-        assert!(doc["execution"].get("steps").is_none());
+        assert!(out.stdout.is_empty(), "{package}: {}", stdout(&out));
 
         // In process, the composition `migrate` runs, over a runner that
         // counts what it was asked: nothing mutating, and in this build
         // nothing at all.
-        let snapshot = load_snapshot(&snapshot_file_from(&scratch, &file)).expect("snapshot");
+        let snapshot = load_snapshot(&live_snapshot()).expect("snapshot");
         let start = migration_start(
             &snapshot,
             &policy,
@@ -979,11 +1045,13 @@ fn invariant_02_migrate_executes_a_plan_built_in_process_only_while_nothing_dest
 
 #[test]
 fn migrate_shows_a_plan_that_stops_at_manual_review_and_refuses_to_execute_it() {
-    // `node` maps ambiguously to two ports, so its plan is MANUAL_REVIEW
-    // throughout (INV-19): shown, exit 4, and refused by name under --yes.
+    // `node` has no strong counterpart among the ports and dependents of its
+    // own, so its plan is MANUAL_REVIEW throughout (INV-19): shown, exit 4, from
+    // the live capture. Under --yes, over a recording, the plan a recording can
+    // still build (a declared service, part D) is refused by name.
     let scratch = Scratch::new("manual-review");
     let file = fixture(BOTH);
-    let shown = migrate(&scratch, &file, &["--json"], "node", MP);
+    let shown = from_snapshot(&scratch, &live_snapshot(), &["--json"], "node", MP);
     assert_eq!(shown.status.code(), Some(4), "{}", stderr(&shown));
     let doc = document(&shown);
     assert_eq!(doc["mode"], "RENDER");
@@ -994,7 +1062,7 @@ fn migrate_shows_a_plan_that_stops_at_manual_review_and_refuses_to_execute_it() 
         .map(|s| s["kind"].as_str().expect("kind"))
         .collect();
     assert!(kinds.iter().all(|k| *k == "MANUAL_REVIEW"), "{kinds:?}");
-    let human = migrate(&scratch, &file, &[], "node", MP);
+    let human = from_snapshot(&scratch, &live_snapshot(), &[], "node", MP);
     assert_eq!(human.status.code(), Some(4));
     assert!(
         stdout(&human).contains("Plan: move node"),
@@ -1002,7 +1070,15 @@ fn migrate_shows_a_plan_that_stops_at_manual_review_and_refuses_to_execute_it() 
         stdout(&human)
     );
 
-    let executed = migrate(&scratch, &file, &["--json", "--yes"], "node", MP);
+    let replayed = document(&migrate(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP));
+    let kinds: Vec<&str> = replayed["plan"]["steps"]
+        .as_array()
+        .expect("steps")
+        .iter()
+        .map(|s| s["kind"].as_str().expect("kind"))
+        .collect();
+    assert!(kinds.iter().all(|k| *k == "MANUAL_REVIEW"), "{kinds:?}");
+    let executed = migrate(&scratch, &file, &["--json", "--yes"], REPLAYED_SERVICE, MP);
     assert_eq!(executed.status.code(), Some(4), "{}", stderr(&executed));
     let doc = document(&executed);
     assert_eq!(doc["mode"], "EXECUTE");
@@ -1015,7 +1091,7 @@ fn migrate_shows_a_plan_that_stops_at_manual_review_and_refuses_to_execute_it() 
         assert_eq!(refusal["refusal"], "MANUAL_REVIEW", "{refusal}");
         assert_eq!(refusal["step"], i + 1, "{refusal}");
     }
-    let human = migrate(&scratch, &file, &["--yes"], "node", MP);
+    let human = migrate(&scratch, &file, &["--yes"], REPLAYED_SERVICE, MP);
     assert!(
         stdout(&human).contains("Step 1 needs a human decision, and nothing outranks it."),
         "{}",
@@ -1053,11 +1129,19 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
         .collect();
     fixtures.sort();
+    let mut inputs: Vec<(PathBuf, PathBuf)> = fixtures
+        .iter()
+        .map(|file| (snapshot_file_from(&scratch, file), file.clone()))
+        .collect();
+    // Part D: a replayed source row that declares no service is refused before
+    // the gate, so the plans with commands come from the live capture, run over
+    // the recording of the same machine.
+    inputs.push((live_snapshot(), fixture(BOTH_INTEL)));
     let mut checked = 0;
-    for file in fixtures {
+    for (snapshot_path, file) in inputs {
         let rec =
             Recording::from_json(&std::fs::read_to_string(&file).expect("reads")).expect("parses");
-        let snapshot = load_snapshot(&snapshot_file_from(&scratch, &file)).expect("snapshot");
+        let snapshot = load_snapshot(&snapshot_path).expect("snapshot");
         // Every unit of the default view: the packages a person would ask to
         // migrate. Dependency-level units are left out to keep this test
         // fast; their plans go through the same planner and gate.
@@ -1187,7 +1271,8 @@ fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
     let scratch = Scratch::new("history-replay");
     poison_history(&scratch);
     let before = tree(&scratch.state_dir());
-    // `htop --to macports --retain-source` is a full plan in this recording.
+    // The plan a recording can still build: a declared service, stopping at
+    // `MANUAL_REVIEW` (part D). `--retain-source` still asks for history.
     let recording = fixture(BOTH);
     let recording = recording.to_str().unwrap();
     for mode in [&["--json"][..], &["--json", "--yes"][..]] {
@@ -1195,7 +1280,14 @@ fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
         extra.push("--retain-source");
         let argv: Vec<&str> = ["--replay", recording]
             .into_iter()
-            .chain(["migrate", "htop", "--to", "macports", "--today", TODAY])
+            .chain([
+                "migrate",
+                REPLAYED_SERVICE,
+                "--to",
+                "macports",
+                "--today",
+                TODAY,
+            ])
             .chain(extra)
             .collect();
         let out = run(&scratch, &argv);
@@ -1228,7 +1320,7 @@ fn invariant_15_a_replayed_migrate_creates_neither_the_lock_nor_the_marker() {
             "--replay",
             recording,
             "migrate",
-            "htop",
+            REPLAYED_SERVICE,
             "--to",
             "macports",
             "--today",
@@ -1304,7 +1396,7 @@ fn invariant_15_a_migrate_from_a_snapshot_file_neither_reads_nor_writes_history(
     // A snapshot file is another moment, so its history is not this one's:
     // the branch that builds its context says so, and this holds it.
     let scratch = Scratch::new("history-snapshot");
-    let file = snapshot_file(&scratch, BOTH);
+    let file = live_snapshot();
     poison_history(&scratch);
     let before = tree(&scratch.state_dir());
     let out = run(

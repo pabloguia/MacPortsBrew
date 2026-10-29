@@ -63,7 +63,10 @@ fn holding(id: &str, prefix: &str, name: &str, kind: PackageKind) -> ProviderSna
         PackageMetadata {
             homepage: Some(HOME.to_string()),
             ..PackageMetadata::default()
-        },
+        }
+        .with_service(macportsbrew_domain::ServiceDefinition::both(
+            macportsbrew_domain::Answer::No,
+        )),
     );
     ProviderSnapshot {
         detection: ProviderDetection {
@@ -200,4 +203,40 @@ fn no_step_of_a_cask_plan_can_carry_the_verb_that_would_fail() {
             );
         }
     }
+}
+
+#[test]
+fn a_cask_row_as_the_adapter_writes_it_is_refused_not_reviewed() {
+    // Part D, R2: a cask can carry a launch stanza that nothing here reads, so
+    // the adapter writes its service answer `UNKNOWN`, and a plan from it is
+    // refused where it used to reach `MANUAL_REVIEW` through `GUI_APP`
+    // (SE-109). The tests above keep a known answer, to show what the planner
+    // does once a cask reader exists.
+    let policy = PolicyData::load_embedded().expect("the embedded policy data loads");
+    let mut snap = snapshot(PackageKind::GuiApp);
+    let meta = snap
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("homebrew")
+        .inventory
+        .metadata
+        .get_mut("gimp")
+        .expect("metadata");
+    *meta = std::mem::take(meta).with_service(macportsbrew_domain::ServiceDefinition::both(
+        macportsbrew_domain::Answer::Unknown,
+    ));
+    let known: Vec<ProviderId> = snap.providers.keys().cloned().collect();
+    let refused = build_plan(
+        &snap,
+        &policy,
+        &AnalysisOptions::default(),
+        &PlanRequest {
+            package: "gimp".to_string(),
+            to: ProviderId::new(MP),
+            retain_source: false,
+        },
+        &known,
+    )
+    .expect_err("an unknown cask row refuses");
+    assert_eq!(refused.id, macportsbrew_domain::ErrorId::SafetyUnverifiable);
 }

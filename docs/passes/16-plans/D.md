@@ -127,7 +127,15 @@ with `read_bounded` as above. If any stored group mentions `startupitem`
 (case-insensitive, raw bytes), or any cannot be read, the declared half is
 `UNKNOWN` for every port whose Portfile contains the token `PortGroup`. Today none
 mentions it (A-3), so this costs nothing, catches nested groups, and needs no
-path rule.
+path rule. *Implementation review (security-reviewer L3):* every top-level line
+whose first word is `PortGroup` must also be exactly `PortGroup <name>
+<version>`, both literal, with `<name>-<version>.tcl` among the stored names —
+compared as a string, never joined into a path — or the declared half is
+`UNKNOWN`; a group that is not stored is one 4b never read. *Code review
+(security-reviewer R1):* any other line mentioning `portgroup`
+(case-insensitive) that is not a `#` comment line — `x; PortGroup a 1.0`,
+`if {$x} { PortGroup a 1.0 }` — is `UNKNOWN` too: it loads a group this check
+cannot name.
 
 **4c. Recognising the text: a pure function of the bytes**, unit-tested on
 in-code text. Only lines with no leading whitespace and not starting with `#`
@@ -141,8 +149,8 @@ blocks `NO`).
 | A top-level `startupitem.type <literal>` other than `none` | `YES` |
 | A top-level `startupitem.custom_file <literal>` | `YES` |
 | A top-level `startupitems` line whose first key is `name <literal>` | `YES` |
-| No `startupitem` token anywhere, no top-level `source`, and 4b passes | `NO` |
-| Anything else — `create no` alone, `type none` alone, a declaration only inside a block or a continuation, `${...}`/`[...]` values, the `-append`/`-delete` forms, a top-level `source` | `UNKNOWN` |
+| No `startupitem` token anywhere, no `source` word anywhere, and 4b passes | `NO` |
+| Anything else — `create no` alone, `type none` alone, a declaration only inside a block or a continuation, `${...}`/`[...]` values, the `-append`/`-delete` forms, the word `source` anywhere | `UNKNOWN` |
 
 **`YES` wins (R1):** one recognised `YES` line makes the answer `YES` whatever
 else the file holds. Over-approximating is the safe side — `YES` reaches
@@ -280,13 +288,19 @@ every read is a file read or the existing `port -q provides`. No new crate.
 ## Implementation notes from the second round (folded in, no re-review needed)
 
 - `source` is searched anywhere in the raw bytes, like `startupitem`; any
-  occurrence blocks `NO` (security-reviewer 1).
+  occurrence blocks `NO` (security-reviewer 1). *Implementation review
+  (spec-guardian risk 4):* an occurrence is a whole Tcl word — not preceded or
+  followed by a letter, digit, `_` or `-` — matched on raw bytes,
+  case-insensitive, comments counted. `[source x]` and `source x` block `NO`;
+  `sourceforge`, `sources` and `open-source` do not.
 - §4b: an absent `registry/portgroups/` is `UNKNOWN` for ports that use a
   PortGroup; exceeding the 256-entry bound is `UNKNOWN`, never truncation; group
   reads count toward the 8 MiB budget (security-reviewer 2).
 - `portdbpath`: a `macports.conf` that cannot be read or parsed is `UNKNOWN`;
   "default" means exactly `${prefix}/var/macports` or its expansion
-  (security-reviewer 3).
+  (security-reviewer 3). *Implementation review (security-reviewer L1):* only
+  the expansion is accepted, compared as a path; the literal `${prefix}` form is
+  not expanded and answers `UNKNOWN`.
 - Homebrew: any regular top-level `*.service` file is `YES`, like `*.plist`
   (security-reviewer 4).
 - Compatibility with a newer build: a document whose bool is `true` beside an
@@ -312,3 +326,130 @@ every read is a file read or the existing `port -q provides`. No new crate.
 | spec-guardian | plan, `41c26c2` | **not approved**: V1 a document without `service` read from its bool; V2 the Portfile rule narrower than F-A2; V3 holding the code on DP-054 when (a)/(b) are already ruled (DP-016 (d), D.5); D1 DP-054 framing; D2 the PortGroup path; D3 the custom label; R1–R6; missing tests and mutants | All folded in: absence is unknown and the live snapshot is re-captured (§1); the decision table and its oracle (§4c); the code proceeds and DP-054 asks only about relaxing (§ruling); the tests and mutants above |
 | security-reviewer | revised plan, `323cb62` | **approve**; six non-blocking notes | Folded into "Implementation notes from the second round" |
 | spec-guardian | revised plan, `323cb62` | **approved**; three low notes | Folded into "Implementation notes from the second round" |
+
+## As built
+
+Implemented on `wo16/D-impl` (2026-10-28). Where the build differs from the
+plan, or the plan left a choice open:
+
+- **Not committed: `scripts/run-fixture-matrix.sh` blocks the gate.** The
+  matrix derives the outcome a fixture owes from the source provider alone
+  (`want="refusal"` only for MacPorts). Under this design a replayed Homebrew
+  row that declares no service is refused, so the four Homebrew fixtures fail
+  ("refused, and this fixture has the facts to be planned"; 4 failed, 178
+  passed). The plan did not list the script, `scripts/*.sh` is outside this
+  implementation's reach, and the guard hook refused an edit even to a scratch
+  copy outside the repository. The change it needs — read `want` from the
+  replayed snapshot's source row: a row with a `service` record owes a plan only
+  when the union is `YES`; a row without one keeps today's expectation — is the
+  owner's to stage. Every other check of `scripts/validate.sh` passes on the
+  working tree; the code is held there and as a patch, uncommitted.
+- **"Row" is the metadata entry.** `ProviderInventory.metadata` is keyed by
+  package name, not by installed row, so the planner asks the source
+  provider's entry for the source row's name, and a missing entry answers
+  `UNKNOWN`. The all-or-none load check is over a provider's metadata entries.
+- **`portdbpath`** (`configuration::macports_portdbpath`) reads the system
+  `etc/macports/macports.conf` under the prefix (required) and the user files
+  `provider-configuration.toml` names (absent is fine; no home to find them
+  under is `UNKNOWN`). It answers the default only; nothing read becomes a path.
+- **Recogniser details** left open by §4c: `create` accepts `yes`, `true`, `1`
+  and `on`, case-insensitively (`string is true -strict`); `create`, `type` and
+  `custom_file` count only as exactly two words with a literal value (no `$ [ ]
+  { } " \ ;`); `startupitems name <literal>` may continue. A line continuing the
+  one before (`\`) is never top-level.
+- **Homebrew's materialised half opens no file**: directory listings and
+  `lstat` only. The `ServiceMetadata` capability is now `UNKNOWN` on any
+  Homebrew with a cask (casks answer `UNKNOWN`), and under every replay; four
+  golden analyses changed in exactly that cell.
+- **`error.safety_unverifiable`'s remediation** ("the fact is absent from the
+  document itself") became false: a live capture can answer `UNKNOWN` (a
+  Portfile mentioning `source`). Reworded in `en` and `pt-BR` to "absent from
+  the input, or could not be read where it lives", the precedent SE-092 set for
+  `PROVIDER_PRESENCE_UNPROVEN`; and "This is not something to fix on your
+  machine" became "This does not necessarily mean anything is wrong on your
+  machine" (spec-guardian risk 8), since an unknown can now come from this
+  machine's own disk.
+- **Documented samples may read a committed snapshot.**
+  `crates/cli/tests/documented_samples.rs` accepted only `--replay
+  fixtures/recordings/…`; it now also accepts `--from-snapshot
+  fixtures/snapshots/….json`, still never a path elsewhere and never this
+  machine. The `plan.v1.md`, `migrate.v1.md` and wiki plan samples read the live
+  capture; `migrate.v1.md`'s executed sample now shows the gate refusing a
+  replayed `MANUAL_REVIEW` plan (`jupyterlab`).
+- **Binary-level execute-mode tests over a recording** now use a formula that
+  declares a service (`emacs`, `jupyterlab`) and see `MANUAL_REVIEW` refusals;
+  the plan with commands is refused before the gate and is asserted as such.
+  `invariant_06_migrate_never_elevates` checks `ELEVATION_REQUIRED` in process
+  on the live capture's plan. The rendered sentences for
+  `MUTATION_NOT_IN_THIS_BUILD` and `ELEVATION_REQUIRED` are no longer reached
+  through the binary. `run_report` renders the gate's refusals from the plan in
+  front of it, not from `RunReport::gate_refusals`, so the run-report test
+  never reached most of them;
+  `every_gate_refusal_is_a_catalogue_sentence_in_every_shipped_locale`
+  (`crates/cli/src/app/human.rs`) now renders one instance of every
+  `ExecutionRefusal` variant through `gate_refusal_line` in `en` and `pt-BR`,
+  from a list an exhaustive `match` keeps complete (spec-guardian MUST 1).
+- **The gate over the live capture.** A replay now reaches only `MANUAL_REVIEW`
+  plans, so `crates/cli/tests/execution_gate_fixtures.rs` also runs every
+  `fixtures/snapshots/*.json`, asserts that some plan does not stop (so its
+  `MUTATION_NOT_IN_THIS_BUILD` branch is exercised) and that both directions
+  are planned (spec-guardian MUST 3).
+- **Test helpers.** In-memory snapshots carry `service` (both halves from the
+  old bool, `Answer: From<bool>`); `macports_contract`'s scratch prefixes lay
+  down a registry Portfile that declares nothing for every recorded port and a
+  scratch home, so those tests stay about the scan. Domain helpers added:
+  `PackageMetadata::with_service` (writes the bool from the rule) and
+  `service_answer`.
+- **The live snapshot** was re-captured with the part D build, and again after
+  the implementation review; see `fixtures/snapshots/README.md`.
+- **Implementation review (spec-guardian, security-reviewer).** `source` is a
+  whole Tcl word (risk 4; §4c and the second-round notes above amended);
+  `keg()` decides only after counting its whole listing, so an over-long
+  listing is `UNKNOWN` even with a plist in it (risk 5); `stored_groups` takes
+  the `FilesystemScope` and answers unanswerable under `Elsewhere` (risk 6);
+  `portdbpath` accepts only the expanded default, compared as a path (L1);
+  `read_checked` requires the bytes read to equal the size checked and charges
+  the budget by what was read (L2); and every `PortGroup <name> <version>` line
+  must name a stored `<name>-<version>.tcl`, compared and never joined into a
+  path (L3, §4b amended); any other non-comment line mentioning `portgroup` is
+  `UNKNOWN` (code review R1; it changed no answer on the capturing machine).
+
+## Mutation proof
+
+Each mutant applied to the working tree, the named tests run, the file
+restored (2026-10-28). All fifteen are killed (8, 9 and 11 split in two).
+Mutants 3, 4, 5, 7, 14 and 15 were re-run after the final clippy edits to
+`keg.rs`, `portfile.rs` and `package.rs`, and are still killed by the same tests.
+After the implementation review, every mutant whose code it touched (3, 4, 5,
+6, 7, 8a, 8b, 14) was re-run and is still killed, and mutants 16–20 were added
+for the review's fixes, and mutant 21 for the code review's R1. All but one
+are killed; **18 survives**, and is kept as
+defence in depth: the bytes read differ from the length checked on the handle
+only when another process rewrites the file between the check and the read,
+which no single-threaded test can produce on demand.
+
+| # | Mutant | Killed by |
+|---|---|---|
+| 1 | The union as `AND` | `package::tests::the_union_is_the_rule_in_all_nine_cells`, `the_bool_is_written_from_the_rule` |
+| 2 | `UNKNOWN` read as `NO` in the planner | `invariant_19_an_unknown_service_answer_refuses_the_plan`, `invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan`, `invariant_17_the_service_rule_is_the_same_in_both_directions` |
+| 3 | The recogniser accepts an indented declaration | `portfile::tests::every_row_of_the_decision_table`, `the_six_real_excerpts_answer_their_oracle` |
+| 4 | The PortGroup rule (4b) removed | `portfile::tests::a_portgroup_is_unanswerable_only_when_the_stored_groups_are`, `a_stored_portgroup_mentioning_the_token_or_unreadable_blocks_no`, `every_portgroup_line_must_name_a_stored_group`, `more_stored_groups_than_the_bound_is_unknown_not_truncated` |
+| 5 | `read_bounded`'s `accept` closure skipped (for the Portfile) | `portfile::tests::every_shape_the_walk_does_not_expect_is_unknown` (size mismatch, hard link) |
+| 6 | An absent keg read as `NO` | `keg::tests::an_absent_or_unreadable_keg_is_unknown_and_not_no`, `versions_combine_yes_first_then_unknown` |
+| 7 | Only fixed plist names checked | `keg::tests::every_name_homebrew_writes_and_an_old_custom_label_are_yes` |
+| 8a | An `Elsewhere` keg reader touching the disk | `keg::tests::invariant_15_a_replayed_reader_never_consults_the_keg` |
+| 8b | An `Elsewhere` Portfile reader touching the disk | `portfile::tests::a_non_default_portdbpath_or_another_machine_is_unknown_for_every_port` |
+| 9a | The bool-agreement load check removed | `snapshot::tests::a_service_bool_that_disagrees_with_the_rule_is_refused_on_load` |
+| 9b | The all-or-none load check removed | `snapshot::tests::a_provider_with_the_service_question_on_some_rows_only_is_refused_on_load` |
+| 10 | The bool written from one half | `package::tests::the_bool_is_written_from_the_rule` |
+| 11 | `ServiceMetadata` `AVAILABLE` while a row is `UNKNOWN` (MacPorts; Homebrew) | `a_declared_startup_item_with_nothing_materialised_is_a_service`; `capabilities_are_detected_from_the_document_and_never_assumed` |
+| 12 | The refusal asked of the destination row | `invariant_19_a_source_that_cannot_answer_the_service_question_refuses_the_plan` and every `planner_refusals` test whose destination holds no row |
+| 13 | An unknown `Answer` variant failing to parse | `package::tests::an_answer_from_a_newer_build_reads_as_unknown`, `snapshot::tests::a_service_bool_that_disagrees_with_the_rule_is_refused_on_load` |
+| 14 | A missing revision read as `0` | `portfile::tests::every_shape_the_walk_does_not_expect_is_unknown` |
+| 15 | A row without `service` read from its bool | `package::tests::a_row_without_the_service_question_answers_unknown_whatever_its_bool_says` |
+| 16 | `keg()` answering `YES` at the first plist, before counting the listing | `keg::tests::a_launch_file_does_not_outrun_an_overflowing_listing` |
+| 17 | `PortGroup` lines not checked against the stored names (L3) | `portfile::tests::every_portgroup_line_must_name_a_stored_group` |
+| 18 | The bytes read not compared with the length checked (L2) | **survives** — see above |
+| 19 | `source` matched as a substring rather than a word | `portfile::tests::a_whole_word_source_blocks_no_and_a_mention_inside_a_word_does_not`, `every_row_of_the_decision_table` |
+| 20 | A literal `${prefix}/var/macports` accepted as the default (L1) | `configuration::tests::the_registry_is_found_only_at_the_default_portdbpath` |
+| 21 | A non-comment line mentioning `portgroup` in another form skipped by `cover` (R1) | `portfile::tests::every_portgroup_line_must_name_a_stored_group` |

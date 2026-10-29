@@ -40,7 +40,7 @@ produce an automatic action; a plan that depends on one stops at "needs a human
 decision". `macportsbrew explain <package>` lists the candidates that were
 considered, each with its confidence and the evidence for it, so you can look
 at what was weighed. In a plan the stop appears as the line below, copied from
-`plan curl --to macports` replayed from the committed Intel recording (the
+`plan curl --to macports` read from the committed live capture (the
 whole plan is on [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md#build-the-plan)):
 
 ```

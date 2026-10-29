@@ -145,10 +145,15 @@ fn capabilities_are_detected_from_the_document_and_never_assumed() {
         Capability::ReverseDependencies,
         Capability::ArtifactAvailability,
         Capability::DeprecationState,
-        Capability::ServiceMetadata,
     ] {
         assert!(capabilities.has(capability), "expected {capability:?}");
     }
+    // DP-032: under replay a keg cannot be listed, so a formula that declares
+    // no service answers `UNKNOWN`, and the capability says so (part D §2).
+    assert_eq!(
+        capabilities.capabilities[&Capability::ServiceMetadata],
+        CapabilityState::Unknown
+    );
     // Homebrew has no "which package owns this file" query, and with no home
     // directory supplied the cached index cannot be looked for. Neither is
     // reported as absent.
@@ -305,6 +310,25 @@ fn casks_are_reported_as_applications_and_carry_no_record_of_intent() {
     );
     // homebrew/cask is the core catalogue, not a third-party origin.
     assert_eq!(metadata.origin, None);
+    // Part D, R2: nothing reads a cask's launch stanza, so its service answer
+    // is unknown in both halves - never the `false` it used to be.
+    assert_eq!(
+        metadata.service,
+        Some(macportsbrew_domain::ServiceDefinition::both(
+            macportsbrew_domain::Answer::Unknown
+        ))
+    );
+    assert!(!metadata.defines_service);
+    // A formula's declared half comes from the recorded JSON even under
+    // replay; its materialised half (a keg) cannot be read here.
+    let php = &inventory.metadata["php@8.4"];
+    assert_eq!(
+        php.service.map(|s| (s.declared, s.materialised)),
+        Some((
+            macportsbrew_domain::Answer::Yes,
+            macportsbrew_domain::Answer::Unknown
+        ))
+    );
 
     // A cask that updates itself outside the provider says so.
     assert!(inventory.metadata["visualdiffer"]

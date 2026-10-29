@@ -113,7 +113,7 @@ considered refusal, not a shrug.
 
 Yes. It is your machine. `macportsbrew plan <pkg> --to <provider>` (`homebrew` or
 `macports`) builds the plan whether or not the engine agrees, and says so. From
-`plan curl --to macports` replayed from the committed Intel recording, the
+`plan curl --to macports` read from the committed live capture, the
 plan's third line:
 
 ```

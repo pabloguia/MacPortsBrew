@@ -46,10 +46,12 @@ fn run(recording: &str, args: &[&str]) -> Output {
 
 #[test]
 fn a_planned_class_is_the_class_identifier_and_reads_as_its_label() {
-    // `copilot-cli` is a cask: a `GUI_APP`, which forces manual review.
+    // `jupyterlab` declares a service in this recording: `SERVICE`, which forces
+    // manual review. (A cask, `copilot-cli`, stood here; since part D a cask
+    // row answers the service question `UNKNOWN` and is refused before any plan.)
     let json = run(
         "both-providers-arm64-macos15",
-        &["--json", "plan", "copilot-cli", "--to", "macports"],
+        &["--json", "plan", "jupyterlab", "--to", "macports"],
     );
     let doc: serde_json::Value = serde_json::from_slice(&json.stdout)
         .unwrap_or_else(|e| panic!("not JSON ({e}): {}", String::from_utf8_lossy(&json.stderr)));
@@ -59,18 +61,15 @@ fn a_planned_class_is_the_class_identifier_and_reads_as_its_label() {
         .iter()
         .find(|r| r["reason"]["id"] == "reason.class_requires_review")
         .map(|r| r["reason"]["params"]["class"].clone());
-    assert_eq!(class, Some(serde_json::json!("GUI_APP")), "{doc}");
+    assert_eq!(class, Some(serde_json::json!("SERVICE")), "{doc}");
 
     let human = run(
         "both-providers-arm64-macos15",
-        &["plan", "copilot-cli", "--to", "macports"],
+        &["plan", "jupyterlab", "--to", "macports"],
     );
     let text = String::from_utf8_lossy(&human.stdout);
-    assert!(text.contains("classed as Application"), "{text}");
-    assert!(
-        !text.contains("GuiApp") && !text.contains("GUI_APP"),
-        "{text}"
-    );
+    assert!(text.contains("classed as Background service"), "{text}");
+    assert!(!text.contains("SERVICE"), "{text}");
 }
 
 #[test]

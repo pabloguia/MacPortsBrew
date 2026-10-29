@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.03-1",
+  "policyVersion": "2026.10.12-4",
   "provenance": {
-    "capturedAt": "2026-10-11T04:09:13Z",
+    "capturedAt": "2026-10-28T09:24:27Z",
     "capturedBy": "macportsbrew capture",
     "origin": "captured"
   },
@@ -163,7 +163,21 @@
         "index": 27,
         "kind": "OWNER_WRITABLE"
       }
-    ]
+    ],
+    "installations": {
+      "homebrew": {
+        "state": "READ",
+        "prefixes": [
+          "/usr/local"
+        ]
+      },
+      "macports": {
+        "state": "READ",
+        "prefixes": [
+          "/opt/local"
+        ]
+      }
+    }
   },
   "providers": {
     "homebrew": {
@@ -205,7 +219,7 @@
             "state": "AVAILABLE"
           },
           "SERVICE_METADATA": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "UNPRIVILEGED_READ": {
             "state": "AVAILABLE"
@@ -233,6 +247,7 @@
             },
             "kind": "PACKAGE",
             "version": "4.0.0",
+            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -389,7 +404,6 @@
             },
             "kind": "PACKAGE",
             "version": "2026.7.22",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -462,6 +476,7 @@
             },
             "kind": "PACKAGE",
             "version": "9.11",
+            "revision": "1",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -500,7 +515,6 @@
             },
             "kind": "PACKAGE",
             "version": "8.21.0",
-            "revision": "1",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -623,7 +637,6 @@
             },
             "kind": "PACKAGE",
             "version": "1.5.19",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -876,7 +889,7 @@
             },
             "kind": "PACKAGE",
             "version": "0.7.6_3",
-            "revision": "3",
+            "revision": "4",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -889,6 +902,7 @@
             },
             "kind": "PACKAGE",
             "version": "14.3.1",
+            "revision": "1",
             "active": false,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -901,6 +915,7 @@
             },
             "kind": "PACKAGE",
             "version": "14.4.0",
+            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -962,6 +977,7 @@
             },
             "kind": "PACKAGE",
             "version": "78.3",
+            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -1047,7 +1063,7 @@
             },
             "kind": "PACKAGE",
             "version": "4.6.3",
-            "revision": "1",
+            "revision": "3",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -1304,7 +1320,7 @@
             },
             "kind": "PACKAGE",
             "version": "18.6",
-            "revision": "1",
+            "revision": "2",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -1571,7 +1587,6 @@
             },
             "kind": "PACKAGE",
             "version": "1.11.4_1",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -1621,7 +1636,6 @@
             },
             "kind": "PACKAGE",
             "version": "23.1.0",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -1706,7 +1720,7 @@
             },
             "kind": "PACKAGE",
             "version": "1.2.2_2",
-            "revision": "3",
+            "revision": "4",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -1840,7 +1854,6 @@
             },
             "kind": "PACKAGE",
             "version": "7.991",
-            "revision": "1",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -1853,6 +1866,7 @@
             },
             "kind": "PACKAGE",
             "version": "26.7.0",
+            "revision": "1",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -1949,7 +1963,6 @@
             },
             "kind": "PACKAGE",
             "version": "2.7.0",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -2300,7 +2313,6 @@
             },
             "kind": "PACKAGE",
             "version": "3.14.7",
-            "revision": "2",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -2362,7 +2374,6 @@
             },
             "kind": "PACKAGE",
             "version": "0.23.1",
-            "revision": "1",
             "active": true,
             "requested": true,
             "installedFromPrebuilt": true,
@@ -2423,7 +2434,6 @@
             },
             "kind": "PACKAGE",
             "version": "9.1.0",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -2568,7 +2578,6 @@
             },
             "kind": "PACKAGE",
             "version": "1.26.0",
-            "revision": "1",
             "active": true,
             "requested": false,
             "installedFromPrebuilt": true,
@@ -4128,11 +4137,6 @@
           },
           {
             "from": "ghidra",
-            "to": "python@3.14",
-            "buildOnly": true
-          },
-          {
-            "from": "ghidra",
             "to": "webp",
             "buildOnly": false
           },
@@ -4194,11 +4198,6 @@
           {
             "from": "glib",
             "to": "pkgconf",
-            "buildOnly": true
-          },
-          {
-            "from": "glib",
-            "to": "python@3.14",
             "buildOnly": true
           },
           {
@@ -4659,11 +4658,6 @@
           {
             "from": "harfbuzz",
             "to": "pkgconf",
-            "buildOnly": true
-          },
-          {
-            "from": "harfbuzz",
-            "to": "python@3.14",
             "buildOnly": true
           },
           {
@@ -5513,11 +5507,6 @@
           },
           {
             "from": "libxcb",
-            "to": "python@3.14",
-            "buildOnly": true
-          },
-          {
-            "from": "libxcb",
             "to": "xorgproto",
             "buildOnly": false
           },
@@ -5690,11 +5679,6 @@
             "from": "llvm",
             "to": "lz4",
             "buildOnly": false
-          },
-          {
-            "from": "llvm",
-            "to": "python@3.14",
-            "buildOnly": true
           },
           {
             "from": "llvm",
@@ -5979,11 +5963,6 @@
           {
             "from": "node",
             "to": "pkgconf",
-            "buildOnly": true
-          },
-          {
-            "from": "node",
-            "to": "python@3.14",
             "buildOnly": true
           },
           {
@@ -7982,11 +7961,6 @@
             "buildOnly": true
           },
           {
-            "from": "z3",
-            "to": "python@3.14",
-            "buildOnly": true
-          },
-          {
             "from": "zeromq",
             "to": "libsodium",
             "buildOnly": false
@@ -8019,7 +7993,11 @@
             "license": "MIT",
             "availableVersion": "1.7.12",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ada-url": {
             "description": "WHATWG-compliant and fast URL parser written in modern C++",
@@ -8027,12 +8005,20 @@
             "license": "Apache-2.0 OR MIT",
             "availableVersion": "4.0.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "adoptopenjdk": {
             "availableVersion": "16.0.1,9",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "aom": {
             "description": "Codec library for encoding and decoding AV1 video streams",
@@ -8040,7 +8026,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "3.15.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "apr": {
             "description": "Apache Portable Runtime library",
@@ -8049,7 +8039,11 @@
             "availableVersion": "1.7.6",
             "pinned": false,
             "notOnDefaultPathReason": "Apple's CLT provides apr",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "apr-util": {
             "description": "Companion library to apr, the Apache Portable Runtime library",
@@ -8058,7 +8052,11 @@
             "availableVersion": "1.6.5",
             "pinned": false,
             "notOnDefaultPathReason": "Apple's CLT provides apr (but not apr-util)",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "argon2": {
             "description": "Password hashing library and CLI utility",
@@ -8066,7 +8064,11 @@
             "license": "CC0-1.0 OR Apache-2.0",
             "availableVersion": "20190702",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "autoconf": {
             "description": "Automatic configure script builder",
@@ -8075,6 +8077,10 @@
             "availableVersion": "2.73",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "autoconf@2.73"
             ]
@@ -8083,9 +8089,13 @@
             "description": "Generic-purpose lossless compression algorithm by Google",
             "homepage": "https://github.com/google/brotli",
             "license": "MIT",
-            "availableVersion": "1.2.0",
+            "availableVersion": "1.2.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "bvi": {
             "description": "Vi-like binary file (hex) editor",
@@ -8093,23 +8103,35 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "1.5.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "c-ares": {
             "description": "Asynchronous DNS library",
             "homepage": "https://c-ares.org/",
             "license": "MIT",
-            "availableVersion": "1.34.8",
+            "availableVersion": "1.34.9",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ca-certificates": {
             "description": "Mozilla CA certificate store",
             "homepage": "https://curl.se/docs/caextract.html",
             "license": "MPL-2.0",
-            "availableVersion": "2026-09-25",
+            "availableVersion": "2026-10-20",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "cairo": {
             "description": "Vector graphics library with cross-device output support",
@@ -8117,7 +8139,11 @@
             "license": "LGPL-2.1-only OR MPL-1.1",
             "availableVersion": "1.18.6",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "cask": {
             "description": "Emacs dependency management",
@@ -8125,15 +8151,23 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "0.9.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "certifi": {
             "description": "Mozilla CA bundle for Python",
             "homepage": "https://github.com/certifi/python-certifi",
             "license": "MPL-2.0",
-            "availableVersion": "2026.7.22",
+            "availableVersion": "2026.10.23",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "cffi": {
             "description": "C Foreign Function Interface for Python",
@@ -8141,7 +8175,11 @@
             "license": "MIT-0",
             "availableVersion": "2.1.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "cloc": {
             "description": "Statistics utility to count lines of code",
@@ -8149,31 +8187,47 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "2.10",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "cmake": {
             "description": "Cross-platform make",
             "homepage": "https://www.cmake.org/",
             "license": "BSD-3-Clause",
-            "availableVersion": "4.4.4",
+            "availableVersion": "4.4.5",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "To install the CMake documentation, run:\n  brew install cmake-docs"
           },
           "codeburn": {
             "description": "See where your AI coding tokens go - by task, tool, model, and project",
             "homepage": "https://codeburn.app/",
             "license": "MIT",
-            "availableVersion": "0.9.25",
+            "availableVersion": "0.9.27",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "copilot-cli": {
             "description": "Brings the power of Copilot coding agent directly to your terminal",
             "homepage": "https://docs.github.com/en/copilot/concepts/agents/about-copilot-cli",
-            "availableVersion": "1.0.95",
+            "availableVersion": "1.0.105",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            },
             "notes": "the vendor updates this application itself"
           },
           "coreutils": {
@@ -8183,6 +8237,10 @@
             "availableVersion": "9.12",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "Commands also provided by macOS and the commands dir, dircolors, vdir have been installed with the prefix \"g\".\nIf you need to use these commands with their normal names, you can add a \"gnubin\" directory to your PATH with:\n  PATH=\"$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH\""
           },
           "cryptography": {
@@ -8191,16 +8249,24 @@
             "license": "Apache-2.0 OR BSD-3-Clause",
             "availableVersion": "50.0.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "curl": {
             "description": "Get a file from an HTTP, HTTPS or FTP server",
             "homepage": "https://curl.se",
             "license": "curl",
-            "availableVersion": "8.22.0",
+            "availableVersion": "8.23.0",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "dav1d": {
             "description": "AV1 decoder targeted to be small and fast",
@@ -8208,7 +8274,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "1.5.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "dwarfutils": {
             "description": "Dump and produce DWARF debug information in ELF objects",
@@ -8217,6 +8287,10 @@
             "availableVersion": "2.3.3",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libdwarf"
             ]
@@ -8227,7 +8301,11 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "31.1",
             "pinned": false,
-            "definesService": true
+            "definesService": true,
+            "service": {
+              "declared": "YES",
+              "materialised": "YES"
+            }
           },
           "espeak-ng": {
             "description": "Speech synthesizer that supports more than hundred languages and accents",
@@ -8235,7 +8313,11 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "1.52.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ffmpeg": {
             "description": "Play, record, convert, and stream select audio and video codecs",
@@ -8244,6 +8326,10 @@
             "availableVersion": "9.0.2",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "ffmpeg@9"
             ],
@@ -8264,15 +8350,23 @@
             "availableVersion": "4.11.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "All commands have been installed with the prefix \"g\".\nIf you need to use these commands with their normal names, you\ncan add a \"gnubin\" directory to your PATH from your bashrc like:\n  PATH=\"$HOMEBREW_PREFIX/opt/findutils/libexec/gnubin:$PATH\""
           },
           "firebase-cli": {
             "description": "Firebase command-line tools",
             "homepage": "https://firebase.google.com/docs/cli/",
             "license": "MIT",
-            "availableVersion": "15.33.0",
+            "availableVersion": "15.34.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "fmt": {
             "description": "Open-source formatting library for C++",
@@ -8280,7 +8374,11 @@
             "license": "MIT",
             "availableVersion": "12.2.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "fontconfig": {
             "description": "XML-based font configuration API for X Windows",
@@ -8288,23 +8386,35 @@
             "license": "HPND-sell-variant AND Unicode-3.0 AND MIT-Modern-Variant AND MIT AND LicenseRef-Homebrew-public-domain",
             "availableVersion": "2.18.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "freetds": {
             "description": "Libraries to talk to Microsoft SQL Server and Sybase databases",
             "homepage": "https://www.freetds.org/",
             "license": "GPL-2.0-or-later",
-            "availableVersion": "1.5.19",
+            "availableVersion": "1.5.20",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "freetype": {
             "description": "Software library to render fonts",
             "homepage": "https://www.freetype.org/",
             "license": "FTL",
-            "availableVersion": "2.14.3",
+            "availableVersion": "2.15.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "freetype2"
             ]
@@ -8315,14 +8425,22 @@
             "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
             "availableVersion": "1.0.17",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gcloud-cli": {
             "description": "Set of tools to manage resources and applications hosted on Google Cloud",
             "homepage": "https://cloud.google.com/cli/",
-            "availableVersion": "588.0.0",
+            "availableVersion": "591.0.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            },
             "notes": "the vendor updates this application itself"
           },
           "gd": {
@@ -8332,6 +8450,10 @@
             "availableVersion": "2.3.3",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libgd"
             ]
@@ -8342,17 +8464,25 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "2.44.8",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gemini-cli": {
             "description": "Interact with Google Gemini AI models from the command-line",
             "homepage": "https://geminicli.com",
             "license": "Apache-2.0",
-            "availableVersion": "0.46.0",
+            "availableVersion": "0.65.0",
             "deprecated": "unsupported",
             "replacedBy": "antigravity-cli",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gettext": {
             "description": "GNU internationalization (i18n) and localization (l10n) library",
@@ -8360,23 +8490,35 @@
             "license": "GPL-3.0-or-later AND LGPL-2.1-or-later",
             "availableVersion": "1.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gh": {
             "description": "GitHub command-line tool",
             "homepage": "https://cli.github.com/",
             "license": "MIT",
-            "availableVersion": "2.102.0",
+            "availableVersion": "2.103.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ghidra": {
             "description": "Multi-platform software reverse engineering framework",
             "homepage": "https://github.com/NationalSecurityAgency/ghidra",
             "license": "Apache-2.0",
-            "availableVersion": "12.1.4",
+            "availableVersion": "12.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "giflib": {
             "description": "Library and utilities for processing GIFs",
@@ -8384,14 +8526,22 @@
             "license": "MIT",
             "availableVersion": "6.1.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gimp": {
             "description": "Free and open-source image editor",
             "homepage": "https://www.gimp.org/",
             "availableVersion": "3.2.6",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "git": {
             "description": "Distributed revision control system",
@@ -8400,15 +8550,23 @@
             "availableVersion": "2.56.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "The Tcl/Tk GUIs (e.g. gitk, git-gui) are now in the `git-gui` formula.\nSubversion interoperability (git-svn) is now in the `git-svn` formula."
           },
           "git-lfs": {
             "description": "Git extension for versioning large files",
             "homepage": "https://git-lfs.com/",
             "license": "MIT",
-            "availableVersion": "3.8.0",
+            "availableVersion": "3.8.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "Update your git config to finish installation:\n\n  # Update global git config\n  $ git lfs install\n\n  # Update system git config\n  $ git lfs install --system"
           },
           "gitleaks": {
@@ -8417,7 +8575,11 @@
             "license": "MIT",
             "availableVersion": "8.30.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "glib": {
             "description": "Core application library for C",
@@ -8425,7 +8587,11 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "2.90.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gmp": {
             "description": "GNU multiple precision arithmetic library",
@@ -8433,7 +8599,11 @@
             "license": "LGPL-3.0-or-later OR GPL-2.0-or-later",
             "availableVersion": "6.3.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gnutls": {
             "description": "GNU Transport Layer Security (TLS) Library",
@@ -8442,6 +8612,10 @@
             "availableVersion": "3.8.13",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "Guile bindings are now in the `guile-gnutls` formula."
           },
           "go-task": {
@@ -8450,7 +8624,11 @@
             "license": "MIT",
             "availableVersion": "3.54.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "graphite2": {
             "description": "Smart font renderer for non-Roman scripts",
@@ -8458,7 +8636,11 @@
             "license": "MIT OR MPL-2.0 OR LGPL-2.1-or-later OR GPL-2.0-or-later",
             "availableVersion": "1.3.15",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "graphviz": {
             "description": "Graph visualization software from AT&T and Bell Labs",
@@ -8466,7 +8648,11 @@
             "license": "EPL-1.0",
             "availableVersion": "16.1.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gts": {
             "description": "GNU triangulated surface library",
@@ -8474,23 +8660,35 @@
             "license": "LGPL-2.0-or-later",
             "availableVersion": "0.7.6",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "harfbuzz": {
             "description": "OpenType text shaping engine",
             "homepage": "https://github.com/harfbuzz/harfbuzz",
             "license": "MIT",
-            "availableVersion": "14.6.0",
+            "availableVersion": "15.0.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "hdrhistogram_c": {
             "description": "C port of the HdrHistogram",
             "homepage": "https://github.com/HdrHistogram/HdrHistogram_c",
             "license": "CC0-1.0 OR BSD-2-Clause",
-            "availableVersion": "0.12.0",
+            "availableVersion": "0.12.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "highway": {
             "description": "Performance-portable, length-agnostic SIMD with runtime dispatch",
@@ -8498,7 +8696,11 @@
             "license": "Apache-2.0 OR BSD-3-Clause",
             "availableVersion": "1.4.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "htop": {
             "description": "Improved top (interactive process viewer)",
@@ -8507,6 +8709,10 @@
             "availableVersion": "3.5.3",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "htop requires root privileges to correctly display all running processes,\nso you will need to run `sudo htop`.\nYou should be certain that you trust any software you grant root privileges."
           },
           "httpd": {
@@ -8516,6 +8722,10 @@
             "availableVersion": "2.4.69",
             "pinned": false,
             "definesService": true,
+            "service": {
+              "declared": "YES",
+              "materialised": "YES"
+            },
             "aliases": [
               "apache-httpd",
               "apache2"
@@ -8528,15 +8738,16 @@
             "license": "Unicode-3.0",
             "availableVersion": "78.3",
             "pinned": false,
-            "notOnDefaultPathReason": "macOS provides libicucore.dylib (but nothing else)",
+            "notOnDefaultPathReason": ":versioned_formula",
             "definesService": false,
-            "aliases": [
-              "icu4c"
-            ],
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "versionedSiblings": [
-              "icu4c@75",
               "icu4c@76",
-              "icu4c@77"
+              "icu4c@77",
+              "icu4c@79"
             ]
           },
           "imath": {
@@ -8545,7 +8756,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "3.2.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "jasper": {
             "description": "Library for manipulating JPEG-2000 images",
@@ -8553,7 +8768,11 @@
             "license": "JasPer-2.0",
             "availableVersion": "4.2.9",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "jemalloc": {
             "description": "Implementation of malloc emphasizing fragmentation avoidance",
@@ -8561,7 +8780,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "5.4.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "jpeg-turbo": {
             "description": "JPEG image codec that aids compression and decompression",
@@ -8570,6 +8793,10 @@
             "availableVersion": "3.2.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libjpeg-turbo"
             ]
@@ -8580,7 +8807,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "0.12.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "json-c": {
             "description": "JSON parser for C",
@@ -8588,7 +8819,11 @@
             "license": "MIT",
             "availableVersion": "0.19",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "jupyterlab": {
             "description": "Interactive environments for writing and running code",
@@ -8597,15 +8832,23 @@
             "availableVersion": "4.6.4",
             "pinned": false,
             "definesService": true,
+            "service": {
+              "declared": "YES",
+              "materialised": "YES"
+            },
             "notes": "Additional kernels can be installed into the shared jupyter directory\n  $HOMEBREW_PREFIX/etc/jupyter"
           },
           "just": {
             "description": "Handy way to save and run project-specific commands",
             "homepage": "https://just.systems",
             "license": "CC0-1.0",
-            "availableVersion": "1.58.0",
+            "availableVersion": "1.59.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "krb5": {
             "description": "Network authentication protocol",
@@ -8614,7 +8857,11 @@
             "availableVersion": "1.22.2",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "lame": {
             "description": "High quality MPEG Audio Layer III (MP3) encoder",
@@ -8622,7 +8869,11 @@
             "license": "LGPL-2.0-or-later",
             "availableVersion": "4.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libavif": {
             "description": "Library for encoding and decoding .avif files",
@@ -8630,7 +8881,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "1.4.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libdatrie": {
             "description": "Double-Array Trie Library",
@@ -8638,7 +8893,11 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "0.2.14",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libdeflate": {
             "description": "Heavily optimized DEFLATE/zlib/gzip compression and decompression",
@@ -8646,7 +8905,11 @@
             "license": "MIT",
             "availableVersion": "1.26",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libev": {
             "description": "Asynchronous event library",
@@ -8654,7 +8917,11 @@
             "license": "BSD-2-Clause OR GPL-2.0-or-later",
             "availableVersion": "4.33",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libevent": {
             "description": "Asynchronous event library",
@@ -8662,7 +8929,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "2.1.13",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libffi": {
             "description": "Portable Foreign Function Interface library",
@@ -8671,7 +8942,11 @@
             "availableVersion": "3.8.0",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libgcrypt": {
             "description": "Cryptographic library based on the code from GnuPG",
@@ -8679,7 +8954,11 @@
             "license": "LGPL-2.1-or-later AND GPL-2.0-or-later",
             "availableVersion": "1.12.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libgit2": {
             "description": "C library of Git core methods that is re-entrant and linkable",
@@ -8688,6 +8967,10 @@
             "availableVersion": "1.9.7",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libgit2@1.9"
             ],
@@ -8702,7 +8985,11 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "1.61",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libidn2": {
             "description": "International domain name library (IDNA2008, Punycode and TR46)",
@@ -8710,7 +8997,11 @@
             "license": "(GPL-2.0-or-later OR LGPL-3.0-or-later) AND (Unicode-TOU AND Unicode-DFS-2016) AND GPL-3.0-or-later AND LGPL-2.1-or-later AND FSFAP-no-warranty-disclaimer",
             "availableVersion": "2.3.8",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "liblinear": {
             "description": "Library for large linear classification",
@@ -8718,7 +9009,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "2.50",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libmaxminddb": {
             "description": "C library for the MaxMind DB file format",
@@ -8726,7 +9021,11 @@
             "license": "Apache-2.0",
             "availableVersion": "1.14.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libnghttp2": {
             "description": "HTTP/2 C Library",
@@ -8734,7 +9033,11 @@
             "license": "MIT",
             "availableVersion": "1.70.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libnghttp3": {
             "description": "HTTP/3 library written in C",
@@ -8742,7 +9045,11 @@
             "license": "MIT",
             "availableVersion": "1.18.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libngtcp2": {
             "description": "IETF QUIC protocol implementation",
@@ -8750,7 +9057,11 @@
             "license": "MIT",
             "availableVersion": "1.25.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libpng": {
             "description": "Library for manipulating PNG images",
@@ -8758,7 +9069,11 @@
             "license": "libpng-2.0",
             "availableVersion": "1.6.59",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libpq": {
             "description": "Postgres C API library",
@@ -8768,6 +9083,10 @@
             "pinned": false,
             "notOnDefaultPathReason": "it conflicts with PostgreSQL",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libpq@18"
             ],
@@ -8782,15 +9101,23 @@
             "license": "MIT",
             "availableVersion": "0.23.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "librsvg": {
             "description": "Library to render SVG files using Cairo",
             "homepage": "https://wiki.gnome.org/Projects/LibRsvg",
             "license": "LGPL-2.1-or-later",
-            "availableVersion": "2.63.2",
+            "availableVersion": "2.63.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libsmi": {
             "description": "Library to Access SMI MIB Information",
@@ -8798,7 +9125,11 @@
             "license": "TCL AND BSD-3-Clause AND Beerware",
             "availableVersion": "0.5.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libsodium": {
             "description": "NaCl networking and cryptography library",
@@ -8806,7 +9137,11 @@
             "license": "ISC",
             "availableVersion": "1.0.22",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libssh": {
             "description": "C library SSHv1/SSHv2 client and server protocols",
@@ -8814,7 +9149,11 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "0.12.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libssh2": {
             "description": "C library implementing the SSH2 protocol",
@@ -8822,7 +9161,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "1.11.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libtasn1": {
             "description": "ASN.1 structure parser library",
@@ -8831,6 +9174,10 @@
             "availableVersion": "4.21.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libtasn"
             ]
@@ -8841,7 +9188,11 @@
             "license": "LGPL-2.1-or-later",
             "availableVersion": "0.1.30",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libtiff": {
             "description": "TIFF library and utilities",
@@ -8849,7 +9200,11 @@
             "license": "libtiff",
             "availableVersion": "4.7.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libtool": {
             "description": "Generic library support script",
@@ -8858,15 +9213,23 @@
             "availableVersion": "2.6.2",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "All commands have been installed with the prefix \"g\".\nIf you need to use these commands with their normal names, you\ncan add a \"gnubin\" directory to your PATH from your bashrc like:\n  PATH=\"$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$PATH\""
           },
           "libunistring": {
             "description": "C string library for manipulating Unicode strings",
             "homepage": "https://www.gnu.org/software/libunistring/",
             "license": "GPL-2.0-or-later OR LGPL-3.0-or-later",
-            "availableVersion": "1.4.2",
+            "availableVersion": "1.5",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libuv": {
             "description": "Multi-platform support library with a focus on asynchronous I/O",
@@ -8874,7 +9237,11 @@
             "license": "MIT",
             "availableVersion": "1.53.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libvmaf": {
             "description": "Perceptual video quality assessment based on multi-method fusion",
@@ -8882,7 +9249,11 @@
             "license": "BSD-2-Clause-Patent",
             "availableVersion": "3.2.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libvpx": {
             "description": "VP8/VP9 video codec",
@@ -8890,15 +9261,23 @@
             "license": "BSD-3-Clause",
             "availableVersion": "1.17.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libx11": {
             "description": "X.Org: Core X11 protocol client library",
             "homepage": "https://www.x.org/",
             "license": "MIT",
-            "availableVersion": "1.8.13",
+            "availableVersion": "1.8.14",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libxau": {
             "description": "X.Org: A Sample Authorization Protocol for X",
@@ -8906,7 +9285,11 @@
             "license": "MIT",
             "availableVersion": "1.0.12",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libxcb": {
             "description": "X.Org: Interface to the X Window System protocol",
@@ -8914,7 +9297,11 @@
             "license": "MIT",
             "availableVersion": "1.17.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libxdmcp": {
             "description": "X.Org: X Display Manager Control Protocol library",
@@ -8922,7 +9309,11 @@
             "license": "MIT",
             "availableVersion": "1.1.5",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libxext": {
             "description": "X.Org: Library for common extensions to the X11 protocol",
@@ -8930,15 +9321,23 @@
             "license": "MIT",
             "availableVersion": "1.3.7",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libxrender": {
             "description": "X.Org: Library for the Render Extension to the X11 protocol",
             "homepage": "https://www.x.org/",
             "license": "MIT",
-            "availableVersion": "0.9.12",
+            "availableVersion": "0.9.13",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libyaml": {
             "description": "YAML Parser",
@@ -8946,15 +9345,23 @@
             "license": "MIT",
             "availableVersion": "0.2.5",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libzip": {
             "description": "C library for reading, creating, and modifying zip archives",
             "homepage": "https://libzip.org/",
             "license": "BSD-3-Clause",
-            "availableVersion": "1.12",
+            "availableVersion": "1.12.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "links": {
             "description": "Lynx-like WWW browser that supports tables, menus, etc.",
@@ -8962,7 +9369,11 @@
             "license": "GPL-2.0-or-later WITH cryptsetup-OpenSSL-exception",
             "availableVersion": "2.30",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "little-cms2": {
             "description": "Color management engine supporting ICC profiles",
@@ -8971,6 +9382,10 @@
             "availableVersion": "2.19.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "lcms2"
             ]
@@ -8981,16 +9396,24 @@
             "license": "MIT",
             "availableVersion": "9.4.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "llvm": {
             "description": "Next-gen compiler infrastructure",
             "homepage": "https://llvm.org/",
             "license": "Apache-2.0 WITH LLVM-exception",
-            "availableVersion": "23.1.3",
+            "availableVersion": "23.1.4",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "llvm@23"
             ],
@@ -9014,6 +9437,10 @@
             "availableVersion": "5.5.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "lua@5.5"
             ],
@@ -9028,7 +9455,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "1.10.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "lzo": {
             "description": "Real-time data compression library",
@@ -9036,7 +9467,11 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "2.10",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "m4": {
             "description": "Macro processing language",
@@ -9045,7 +9480,11 @@
             "availableVersion": "1.4.21",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "maturin": {
             "description": "Build and publish Rust crates as Python packages",
@@ -9053,14 +9492,22 @@
             "license": "Apache-2.0 OR MIT",
             "availableVersion": "1.15.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "meld": {
             "description": "Visual diff and merge tool",
             "homepage": "https://gitlab.com/dehesselle/meld_macos",
             "availableVersion": "3.22.3+105",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "merve": {
             "description": "C++ lexer for extracting named exports from CommonJS modules",
@@ -9068,15 +9515,23 @@
             "license": "Apache-2.0",
             "availableVersion": "1.2.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "mise": {
             "description": "Polyglot runtime manager (asdf rust clone)",
             "homepage": "https://mise.jdx.dev/",
             "license": "MIT",
-            "availableVersion": "2026.10.7",
+            "availableVersion": "2026.10.21",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "If you are using fish shell, mise will be activated for you automatically."
           },
           "moreutils": {
@@ -9085,7 +9540,11 @@
             "license": "GPL-2.0-or-later AND (GPL-2.0-only OR Artistic-2.0)",
             "availableVersion": "0.70",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "mpdecimal": {
             "description": "Library for decimal floating point arithmetic",
@@ -9094,6 +9553,10 @@
             "availableVersion": "4.0.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libmpdec"
             ]
@@ -9104,7 +9567,11 @@
             "license": "LGPL-2.1-only",
             "availableVersion": "1.33.7",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "nbytes": {
             "description": "Library of byte handling functions extracted from Node.js core",
@@ -9112,7 +9579,11 @@
             "license": "MIT",
             "availableVersion": "0.1.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ncurses": {
             "description": "Text-based UI library",
@@ -9121,7 +9592,11 @@
             "availableVersion": "6.6",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "net-snmp": {
             "description": "Implements SNMP v1, v2c, and v3, using IPv4 and IPv6",
@@ -9130,15 +9605,23 @@
             "availableVersion": "5.9.5.2",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "netpbm": {
             "description": "Image manipulation",
             "homepage": "https://netpbm.sourceforge.net/",
             "license": "GPL-3.0-or-later",
-            "availableVersion": "11.02.30",
+            "availableVersion": "10.86.51",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "nettle": {
             "description": "Low-level cryptographic library",
@@ -9147,6 +9630,10 @@
             "availableVersion": "4.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libnettle",
               "nettle@4"
@@ -9159,17 +9646,25 @@
             "description": "Port scanning utility for large networks",
             "homepage": "https://nmap.org/",
             "license": "LicenseRef-Homebrew-cannot-represent",
-            "availableVersion": "7.991",
+            "availableVersion": "7.993",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "node": {
             "description": "Open-source, cross-platform JavaScript runtime environment",
             "homepage": "https://nodejs.org/",
             "license": "MIT",
-            "availableVersion": "26.11.1",
+            "availableVersion": "26.12.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "node.js",
               "node@26",
@@ -9191,6 +9686,10 @@
             "availableVersion": "0.40.8",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "Please note that upstream has asked us to make explicit managing\nnvm via Homebrew is unsupported by them and you should check any\nproblems against the standard nvm install method prior to reporting.\n\nYou should create NVM's working directory if it doesn't exist:\n  mkdir ~/.nvm\n\nAdd the following to your shell profile e.g. ~/.profile or ~/.zshrc:\n  export NVM_DIR=\"$HOME/.nvm\"\n  [ -s \"$HOMEBREW_PREFIX/opt/nvm/nvm.sh\" ] && \\. \"$HOMEBREW_PREFIX/opt/nvm/nvm.sh\"  # This loads nvm\n  [ -s \"$HOMEBREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm\" ] && \\. \"$HOMEBREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm\"  # This loads nvm bash_completion\n\nYou can set $NVM_DIR to any location, but leaving it unchanged from\n$HOMEBREW_PREFIX/Cellar/nvm/0.40.8 will destroy any nvm-installed Node installations\nupon upgrade/reinstall.\n\nType `nvm help` for further information."
           },
           "nvtop": {
@@ -9200,7 +9699,11 @@
             "availableVersion": "3.3.2",
             "deprecated": "checksum_mismatch",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "oniguruma": {
             "description": "Regular expressions library",
@@ -9208,7 +9711,11 @@
             "license": "BSD-2-Clause",
             "availableVersion": "6.9.10",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "openexr": {
             "description": "High dynamic-range image file format",
@@ -9217,6 +9724,10 @@
             "availableVersion": "3.5.2",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "openexr@3"
             ]
@@ -9225,10 +9736,14 @@
             "description": "Development kit for the Java programming language",
             "homepage": "https://openjdk.org/",
             "license": "GPL-2.0-only WITH Classpath-exception-2.0",
-            "availableVersion": "27",
+            "availableVersion": "27.0.1.0.3",
             "pinned": false,
             "notOnDefaultPathReason": ":shadowed_by_macos",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "java",
               "openjdk@27"
@@ -9246,10 +9761,14 @@
             "description": "Development kit for the Java programming language",
             "homepage": "https://openjdk.org/",
             "license": "GPL-2.0-only WITH Classpath-exception-2.0",
-            "availableVersion": "21.0.12.1",
+            "availableVersion": "21.0.13.0.3",
             "pinned": false,
             "notOnDefaultPathReason": ":versioned_formula",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "versionedSiblings": [
               "openjdk@11",
               "openjdk@17",
@@ -9264,59 +9783,79 @@
             "license": "BSD-2-Clause",
             "availableVersion": "0.32.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "openldap": {
             "description": "Open source suite of directory software",
             "homepage": "https://www.openldap.org/software/",
             "license": "OLDAP-2.8",
-            "availableVersion": "2.7.1",
+            "availableVersion": "2.7.2",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "openssl@3": {
             "description": "Cryptography and SSL/TLS Toolkit",
             "homepage": "https://openssl-library.org",
             "license": "Apache-2.0",
-            "availableVersion": "3.6.5",
+            "availableVersion": "3.5.9",
             "pinned": false,
             "notOnDefaultPathReason": ":versioned_formula",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
-              "openssl@3.6"
+              "openssl@3.5"
             ],
             "versionedSiblings": [
               "openssl@3.0",
-              "openssl@3.5",
+              "openssl@3.6",
               "openssl@4"
             ],
-            "notes": "To add additional certificates, place .pem files in\n  $HOMEBREW_PREFIX/etc/openssl@3/certs\n\nand run\n  $HOMEBREW_PREFIX/opt/openssl@3/bin/c_rehash\n\nOpenSSL 3.6 is only supported until 2026-11-01 so the `openssl@3`\nformula will be downgraded to OpenSSL 3.5 (LTS) in a future update."
+            "notes": "To add additional certificates, place .pem files in\n  $HOMEBREW_PREFIX/etc/openssl@3/certs\n\nand run\n  $HOMEBREW_PREFIX/opt/openssl@3/bin/c_rehash"
           },
           "openssl@4": {
             "description": "Cryptography and SSL/TLS Toolkit",
             "homepage": "https://openssl-library.org",
             "license": "Apache-2.0",
-            "availableVersion": "4.0.3",
+            "availableVersion": "4.1.0",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "openssl"
             ],
             "versionedSiblings": [
               "openssl@3",
               "openssl@3.0",
-              "openssl@3.5"
+              "openssl@3.6"
             ],
-            "notes": "To add additional certificates, place .pem, .crt, .cer, or .crl files in\n  $HOMEBREW_PREFIX/etc/openssl@4/certs\n\nand run\n  $HOMEBREW_PREFIX/Cellar/openssl@4/4.0.3/bin/openssl rehash $HOMEBREW_PREFIX/etc/openssl@4/certs"
+            "notes": "To add additional certificates, place .pem, .crt, .cer, or .crl files in\n  $HOMEBREW_PREFIX/etc/openssl@4/certs\n\nand run\n  $HOMEBREW_PREFIX/Cellar/openssl@4/4.1.0/bin/openssl rehash $HOMEBREW_PREFIX/etc/openssl@4/certs"
           },
           "opentofu": {
             "description": "Drop-in replacement for Terraform. Infrastructure as Code Tool",
             "homepage": "https://opentofu.org/",
             "license": "MPL-2.0",
-            "availableVersion": "1.13.1",
+            "availableVersion": "1.13.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "opus": {
             "description": "Audio codec",
@@ -9324,22 +9863,34 @@
             "license": "BSD-3-Clause",
             "availableVersion": "1.6.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "oracle-jdk": {
             "description": "JDK from Oracle",
             "homepage": "https://www.oracle.com/java/technologies/downloads/",
-            "availableVersion": "27",
+            "availableVersion": "27.0.1.0.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "osv-scanner": {
             "description": "Vulnerability scanner which uses the OSV database",
             "homepage": "https://google.github.io/osv-scanner/",
             "license": "Apache-2.0",
-            "availableVersion": "2.6.0",
+            "availableVersion": "2.7.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "p11-kit": {
             "description": "Library to load and enumerate PKCS#11 modules",
@@ -9347,7 +9898,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "0.26.5",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "p7zip": {
             "description": "7-Zip (high compression file archiver) implementation",
@@ -9355,7 +9910,11 @@
             "license": "LGPL-2.1-or-later AND GPL-2.0-or-later",
             "availableVersion": "17.06",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pandoc": {
             "description": "Swiss-army knife of markup format conversion",
@@ -9363,7 +9922,11 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "3.12.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pango": {
             "description": "Framework for layout and rendering of i18n text",
@@ -9371,7 +9934,11 @@
             "license": "LGPL-2.0-or-later",
             "availableVersion": "1.58.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pcaudiolib": {
             "description": "Portable C Audio Library",
@@ -9379,7 +9946,11 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "1.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pcre2": {
             "description": "Perl compatible regular expressions library with a new API",
@@ -9387,16 +9958,24 @@
             "license": "BSD-3-Clause",
             "availableVersion": "10.49",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "php@8.4": {
             "description": "General-purpose scripting language",
             "homepage": "https://www.php.net/",
             "license": "PHP-3.01 AND Zend-2.0 AND BSL-1.0 AND MIT AND Apache-1.0 AND Apache-2.0 AND bcrypt-Solar-Designer AND BSD-2-Clause-Darwin AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC AND ISC AND LGPL-2.1-only AND LGPL-2.1-or-later AND OLDAP-2.8 AND TCL AND Zlib",
-            "availableVersion": "8.4.26",
+            "availableVersion": "8.4.27",
             "pinned": false,
             "notOnDefaultPathReason": ":versioned_formula",
             "definesService": true,
+            "service": {
+              "declared": "YES",
+              "materialised": "YES"
+            },
             "versionedSiblings": [
               "php@8.1",
               "php@8.2",
@@ -9410,15 +9989,23 @@
             "license": "MIT",
             "availableVersion": "2.2.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pipx": {
             "description": "Execute binaries from Python packages in isolated environments",
             "homepage": "https://pipx.pypa.io",
             "license": "MIT",
-            "availableVersion": "1.17.12",
+            "availableVersion": "1.18.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pixman": {
             "description": "Low-level library for pixel manipulation",
@@ -9426,15 +10013,23 @@
             "license": "MIT",
             "availableVersion": "0.46.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pkgconf": {
             "description": "Package compiler and linker metadata toolkit",
             "homepage": "https://github.com/pkgconf/pkgconf",
             "license": "ISC",
-            "availableVersion": "3.0.8",
+            "availableVersion": "3.0.10",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "pkg-config",
               "pkgconfig"
@@ -9444,25 +10039,37 @@
             "description": "C parser in Python",
             "homepage": "https://github.com/eliben/pycparser",
             "license": "BSD-3-Clause",
-            "availableVersion": "3.11",
+            "availableVersion": "3.12",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pydantic": {
             "description": "Data validation using Python type hints",
             "homepage": "https://pydantic.dev/docs/validation",
             "license": "MIT",
-            "availableVersion": "2.14.0",
+            "availableVersion": "2.14.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "python@3.12": {
             "description": "Interpreted, interactive, object-oriented programming language",
             "homepage": "https://www.python.org/",
             "license": "Python-2.0",
-            "availableVersion": "3.12.15",
+            "availableVersion": "3.12.16",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "versionedSiblings": [
               "python@3.10",
               "python@3.11",
@@ -9477,9 +10084,13 @@
             "description": "Interpreted, interactive, object-oriented programming language",
             "homepage": "https://www.python.org/",
             "license": "Python-2.0",
-            "availableVersion": "3.13.16",
+            "availableVersion": "3.13.18",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "versionedSiblings": [
               "python@3.10",
               "python@3.11",
@@ -9494,9 +10105,13 @@
             "description": "Interpreted, interactive, object-oriented programming language",
             "homepage": "https://www.python.org/",
             "license": "Python-2.0",
-            "availableVersion": "3.14.8",
+            "availableVersion": "3.14.10",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "versionedSiblings": [
               "python@3.10",
               "python@3.11",
@@ -9514,7 +10129,11 @@
             "availableVersion": "8.3.6",
             "pinned": false,
             "notOnDefaultPathReason": "macOS provides BSD libedit",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "rpds-py": {
             "description": "Python bindings to Rust's persistent data structures",
@@ -9522,7 +10141,11 @@
             "license": "MIT",
             "availableVersion": "2026.9.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "sdl2-compat": {
             "description": "SDL2 compatibility layer that uses SDL3 behind the scenes",
@@ -9531,6 +10154,10 @@
             "availableVersion": "2.32.74",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "sdl2"
             ]
@@ -9541,23 +10168,35 @@
             "license": "Zlib",
             "availableVersion": "3.4.18",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "sem-cli": {
             "description": "Semantic version control CLI with entity-level diffs and blame",
             "homepage": "https://ataraxy-labs.github.io/sem/",
             "license": "MIT OR Apache-2.0",
-            "availableVersion": "0.27.0",
+            "availableVersion": "0.28.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "semgrep": {
             "description": "Easily detect and prevent bugs and anti-patterns in your codebase",
             "homepage": "https://semgrep.dev",
             "license": "LGPL-2.1-only",
-            "availableVersion": "1.180.0",
+            "availableVersion": "1.182.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "shellcheck": {
             "description": "Static analysis and lint tool, for (ba)sh scripts",
@@ -9565,31 +10204,47 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "0.11.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "simdjson": {
             "description": "SIMD-accelerated C++ JSON parser",
             "homepage": "https://simdjson.org",
             "license": "Apache-2.0",
-            "availableVersion": "5.0.3",
+            "availableVersion": "5.0.6",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "simdutf": {
             "description": "Unicode conversion routines, fast",
             "homepage": "https://simdutf.github.io/simdutf/",
             "license": "Apache-2.0 OR MIT",
-            "availableVersion": "9.2.1",
+            "availableVersion": "9.3.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "sonar-scanner": {
             "description": "Launcher to analyze a project with SonarQube",
             "homepage": "https://docs.sonarqube.org/latest/analysis/scan/sonarscanner/",
             "license": "LGPL-3.0-or-later",
-            "availableVersion": "8.1.0.6389",
+            "availableVersion": "8.3.0.16463",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "speexdsp": {
             "description": "Speex audio processing library",
@@ -9597,16 +10252,24 @@
             "license": "BSD-3-Clause",
             "availableVersion": "1.2.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "sqlite": {
             "description": "Command-line interface for SQLite",
             "homepage": "https://sqlite.org/index.html",
             "license": "blessing",
-            "availableVersion": "3.53.4",
+            "availableVersion": "3.54.1",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "sqlite3"
             ]
@@ -9617,15 +10280,23 @@
             "license": "BSD-3-Clause",
             "availableVersion": "4.2.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "swiftformat": {
             "description": "Formatting tool for reformatting Swift code",
             "homepage": "https://github.com/nicklockwood/SwiftFormat",
             "license": "MIT",
-            "availableVersion": "0.63.1",
+            "availableVersion": "0.64.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "swiftlint": {
             "description": "Tool to enforce Swift style and conventions",
@@ -9633,7 +10304,11 @@
             "license": "MIT",
             "availableVersion": "0.65.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "tidy-html5": {
             "description": "Granddaddy of HTML tools, with support for modern standards",
@@ -9641,7 +10316,11 @@
             "license": "Zlib",
             "availableVersion": "5.8.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "tmux": {
             "description": "Terminal multiplexer",
@@ -9650,6 +10329,10 @@
             "availableVersion": "3.8",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "Example configuration has been installed to:\n  $HOMEBREW_PREFIX/opt/tmux/share/tmux"
           },
           "tree": {
@@ -9658,7 +10341,11 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "2.3.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "tree-sitter": {
             "description": "Incremental parsing library",
@@ -9667,6 +10354,10 @@
             "availableVersion": "0.27.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "libtree-sitter",
               "tree-sitter@0.27"
@@ -9680,9 +10371,13 @@
             "description": "Validating, recursive, caching DNS resolver",
             "homepage": "https://www.unbound.net",
             "license": "BSD-3-Clause",
-            "availableVersion": "1.26.1",
+            "availableVersion": "1.26.2",
             "pinned": false,
-            "definesService": true
+            "definesService": true,
+            "service": {
+              "declared": "YES",
+              "materialised": "YES"
+            }
           },
           "unixodbc": {
             "description": "ODBC 3 connectivity for UNIX",
@@ -9690,7 +10385,11 @@
             "license": "LGPL-2.1-or-later AND GPL-2.0-or-later",
             "availableVersion": "2.3.14",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "unzip": {
             "description": "Extraction utility for .zip compressed archives",
@@ -9699,7 +10398,11 @@
             "availableVersion": "6.0",
             "pinned": false,
             "notOnDefaultPathReason": ":provided_by_macos",
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "utf8proc": {
             "description": "Clean C library for processing UTF-8 Unicode data",
@@ -9707,15 +10410,23 @@
             "license": "MIT AND Unicode-DFS-2015",
             "availableVersion": "2.12.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "uv": {
             "description": "Extremely fast Python package installer and resolver, written in Rust",
             "homepage": "https://docs.astral.sh/uv/",
             "license": "Apache-2.0 OR MIT",
-            "availableVersion": "0.13.0",
+            "availableVersion": "0.13.6",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "uvwasi": {
             "description": "WASI syscall API built atop libuv",
@@ -9723,7 +10434,11 @@
             "license": "MIT",
             "availableVersion": "0.0.23",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "visualdiffer": {
             "description": "Visually compare folders and files",
@@ -9731,14 +10446,22 @@
             "availableVersion": "2.2.1",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            },
             "notes": "the vendor updates this application itself"
           },
           "wailbrew": {
             "description": "Manage Homebrew packages with a UI",
             "homepage": "https://github.com/wickenico/WailBrew",
-            "availableVersion": "0.13.2",
+            "availableVersion": "0.14.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "watch": {
             "description": "Executes a program periodically, showing output fullscreen",
@@ -9746,7 +10469,11 @@
             "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
             "availableVersion": "4.0.7",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "webp": {
             "description": "Image format providing lossless and lossy compression for web images",
@@ -9754,7 +10481,11 @@
             "license": "BSD-3-Clause",
             "availableVersion": "1.6.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "wget": {
             "description": "Internet file retriever",
@@ -9762,7 +10493,11 @@
             "license": "GPL-3.0-or-later",
             "availableVersion": "1.25.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "wireshark": {
             "description": "Network analyzer and capture tool - without graphical user interface",
@@ -9771,6 +10506,10 @@
             "availableVersion": "4.6.9",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "notes": "This formula only installs the command-line utilities by default.\n\nInstall Wireshark.app with Homebrew Cask:\n  brew install wireshark-app\n\nIf your list of available capture interfaces is empty\n(default macOS behavior), install ChmodBPF:\n  brew install --cask wireshark-chmodbpf"
           },
           "wireshark-chmodbpf": {
@@ -9778,7 +10517,11 @@
             "homepage": "https://www.wireshark.org/",
             "availableVersion": "4.6.9",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "UNKNOWN"
+            }
           },
           "x264": {
             "description": "H.264/AVC encoder",
@@ -9786,7 +10529,11 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "r3222",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "x265": {
             "description": "H.265/HEVC encoder",
@@ -9794,7 +10541,11 @@
             "license": "GPL-2.0-or-later",
             "availableVersion": "4.3",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "xcodegen": {
             "description": "Generate your Xcode project from a spec file and your folder structure",
@@ -9802,7 +10553,11 @@
             "license": "MIT",
             "availableVersion": "2.46.0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "xorgproto": {
             "description": "X.Org: Protocol Headers",
@@ -9810,7 +10565,11 @@
             "license": "MIT",
             "availableVersion": "2026.1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "xz": {
             "description": "General-purpose data compression with high compression ratio",
@@ -9818,15 +10577,23 @@
             "license": "0BSD AND GPL-2.0-or-later",
             "availableVersion": "5.8.4",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "z3": {
             "description": "High-performance theorem prover",
             "homepage": "https://github.com/Z3Prover/z3",
             "license": "MIT",
-            "availableVersion": "5.1.0",
+            "availableVersion": "5.3.2",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "zeromq": {
             "description": "High-performance, asynchronous messaging library",
@@ -9835,6 +10602,10 @@
             "availableVersion": "4.3.5",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "0mq",
               "zmq"
@@ -9847,6 +10618,10 @@
             "availableVersion": "1.5.7",
             "pinned": false,
             "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            },
             "aliases": [
               "pzstd"
             ]
@@ -9977,12 +10752,18 @@
           },
           "brotli": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -10003,12 +10784,18 @@
           },
           "c-ares": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -10093,12 +10880,18 @@
           },
           "cloc": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -10461,7 +11254,7 @@
               },
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
                 "offline": true
               }
             ],
@@ -10813,12 +11606,18 @@
           },
           "icu4c@78": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -11580,12 +12379,18 @@
           },
           "libxrender": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -12071,12 +12876,18 @@
           },
           "openjdk@21": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -12689,12 +13500,18 @@
           },
           "sqlite": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "tahoe",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -13105,12 +13922,18 @@
           },
           "z3": {
             "availability": {
-              "state": "BINARY_AVAILABLE"
+              "state": "SOURCE_BUILD_REQUIRED",
+              "reason": "NO_ARTIFACT_FOR_THIS_PLATFORM"
             },
             "evidence": [
               {
                 "source": "bottle.stable.files",
-                "detail": "sonoma",
+                "detail": "no tag offered for this machine",
+                "offline": true
+              },
+              {
+                "source": "cached metadata index",
+                "detail": "the index is generated for one platform tag, so it cannot separate `no artifact published anywhere` from `none published for this platform`; distinguishing them needs the tap on disk or the network",
                 "offline": true
               }
             ],
@@ -13901,10 +14724,10 @@
             "state": "AVAILABLE"
           },
           "DEPRECATION_STATE": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "SERVICE_METADATA": {
-            "state": "AVAILABLE"
+            "state": "UNKNOWN"
           },
           "UNPRIVILEGED_READ": {
             "state": "AVAILABLE"
@@ -14274,7 +15097,11 @@
             "license": "{Autoconf GPL-3+}",
             "availableVersion": "2.73_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "NO"
+            }
           },
           "automake": {
             "description": "the gnu automake utility for generating Makefile.in",
@@ -14282,7 +15109,11 @@
             "license": "{GPL-2+ Permissive}",
             "availableVersion": "1.18.1_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gettext": {
             "description": "GNU internationalization (i18n) and localization (l10n) tools",
@@ -14290,7 +15121,11 @@
             "license": "GPL-3+",
             "availableVersion": "1.0_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gettext-runtime": {
             "description": "GNU internationalization (i18n) and localization (l10n) runtime library",
@@ -14298,7 +15133,11 @@
             "license": "{LGPL-2.1+ GPL-3+}",
             "availableVersion": "1.0_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gettext-tools-libs": {
             "description": "GNU internationalization (i18n) and localization (l10n) tools libraries",
@@ -14306,7 +15145,11 @@
             "license": "GPL-3+",
             "availableVersion": "1.0_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "gperf": {
             "description": "GNU perfect hash generator",
@@ -14314,7 +15157,11 @@
             "license": "GPL-3+",
             "availableVersion": "3.3_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "htop": {
             "description": "an interactive text-mode process viewer for Unix",
@@ -14322,7 +15169,11 @@
             "license": "GPL-2",
             "availableVersion": "3.5.2_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "jq": {
             "description": "A lightweight and flexible command-line JSON processor",
@@ -14330,7 +15181,11 @@
             "license": "MIT",
             "availableVersion": "1.8.2_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libiconv": {
             "description": "Character set conversion library",
@@ -14338,7 +15193,11 @@
             "license": "{LGPL-2+ GPL-3+}",
             "availableVersion": "1.19_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libtextstyle": {
             "description": "a text styling library, part of gettext",
@@ -14346,7 +15205,11 @@
             "license": "GPL-3+",
             "availableVersion": "1.0_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "libtool": {
             "description": "The GNU Portable Library Tool",
@@ -14354,7 +15217,11 @@
             "license": "libtool",
             "availableVersion": "2.6.2_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "m4": {
             "description": "GNU macro processor",
@@ -14362,7 +15229,11 @@
             "license": "GPL-3+",
             "availableVersion": "1.4.21_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "ncurses": {
             "description": "emulation of curses in System V Release 4.0",
@@ -14370,7 +15241,11 @@
             "license": "MIT",
             "availableVersion": "6.6_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "NO"
+            }
           },
           "oniguruma6": {
             "description": "A regular expressions library.",
@@ -14378,7 +15253,11 @@
             "license": "BSD",
             "availableVersion": "6.9.10_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "pkgconfig": {
             "description": "pkg-config, a system for managing library compile and link flags",
@@ -14386,7 +15265,11 @@
             "license": "GPL-2+",
             "availableVersion": "0.29.2_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "tree": {
             "description": "display tree-view of directories with optional color/HTML output",
@@ -14394,7 +15277,11 @@
             "license": "GPL-2+",
             "availableVersion": "2.3.2_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "UNKNOWN",
+              "materialised": "NO"
+            }
           },
           "xz": {
             "description": "XZ Utils",
@@ -14402,7 +15289,11 @@
             "license": "{public-domain GPL-2+}",
             "availableVersion": "5.8.3_0",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           },
           "xz-bootstrap": {
             "description": "XZ Utils",
@@ -14410,7 +15301,11 @@
             "license": "{public-domain GPL-2+}",
             "availableVersion": "5.8.3_1",
             "pinned": false,
-            "definesService": false
+            "definesService": false,
+            "service": {
+              "declared": "NO",
+              "materialised": "NO"
+            }
           }
         },
         "availability": {

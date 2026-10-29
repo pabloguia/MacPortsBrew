@@ -59,6 +59,9 @@ fn provider(id: &str, prefix: &str, packages: &[Pkg]) -> ProviderSnapshot {
             PackageMetadata {
                 homepage: p.homepage.map(str::to_string),
                 defines_service: p.service,
+                service: Some(macportsbrew_domain::ServiceDefinition::both(
+                    macportsbrew_domain::Answer::from(p.service),
+                )),
                 ..PackageMetadata::default()
             },
         );
@@ -1045,20 +1048,52 @@ fn invariant_04_a_dependent_that_appeared_under_the_lock_refuses_the_run() {
 fn invariant_19_a_service_that_appeared_under_the_lock_refuses_the_run() {
     let run = consolidation_run();
     let mut now = consolidation_snapshot();
-    now.providers
-        .get_mut(&ProviderId::new(HB))
-        .expect("homebrew")
-        .inventory
-        .metadata
-        .get_mut("gnu-sed")
-        .expect("metadata")
-        .defines_service = true;
+    set_service(&mut now, macportsbrew_domain::Answer::Yes);
     let fresh = replanned(&now);
     assert_ne!(*run.plan(), fresh, "the planner sees the service");
     assert_eq!(
         plan_still_holds(run.plan(), &fresh, run.before(), &now),
         Err(StateFact::Classification)
     );
+}
+
+/// Sets the source row's service answer in `snap`.
+fn set_service(snap: &mut Snapshot, answer: macportsbrew_domain::Answer) {
+    let meta = snap
+        .providers
+        .get_mut(&ProviderId::new(HB))
+        .expect("homebrew")
+        .inventory
+        .metadata
+        .get_mut("gnu-sed")
+        .expect("metadata");
+    *meta = std::mem::take(meta).with_service(macportsbrew_domain::ServiceDefinition::both(answer));
+}
+
+#[test]
+fn invariant_19_a_service_answer_that_became_unknown_under_the_lock_refuses_the_run() {
+    // The re-plan under the lock goes through the same planner (part D §2),
+    // and the shell's recapture propagates its refusal: nothing is replanned,
+    // so nothing runs (`crates/cli/src/app/migrate.rs`, `recapture`).
+    let mut now = consolidation_snapshot();
+    set_service(&mut now, macportsbrew_domain::Answer::Unknown);
+    let refused = plan_run(
+        &now,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        &AnalysisOptions {
+            today: "2026-09-30".into(),
+            advanced: false,
+            only: BTreeSet::new(),
+        },
+        &PlanRequest {
+            package: "gnu-sed".into(),
+            to: ProviderId::new(MP),
+            retain_source: false,
+        },
+        &now.providers.keys().cloned().collect::<Vec<_>>(),
+    )
+    .expect_err("an unknown answer refuses the re-plan");
+    assert_eq!(refused.id, macportsbrew_domain::ErrorId::SafetyUnverifiable);
 }
 
 #[test]

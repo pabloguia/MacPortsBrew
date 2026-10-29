@@ -86,13 +86,13 @@ like it needed an exception, and fixing the adapter removed the need for one
 what keeps the live and document routes identical (INV-15), and a document
 whose table is empty or partial refuses to be planned from either way.
 
-The case this closes is `SERVICE_METADATA`. The planner refuses to build a plan
-when the source cannot say whether its packages define services, because
-INV-19's `MANUAL_REVIEW` is driven by a boolean that renders unknown as
-`false`, so the rule would silently not fire (DP-016, option (c)). That refusal
-keys on `UNKNOWN`, and a document predating the capability carries the same
-`schemaVersion` - so it loaded, and planned, as though the answer were no. That
-was F-29's residual hole and this is what closes it.
+The case this rule was written for was `SERVICE_METADATA` (F-29). Since work
+order 16 part D the planner no longer reads that capability: it asks the
+**source row's** `service` answer and refuses with `SafetyUnverifiable` where it
+is `UNKNOWN` (DP-016 (c), DP-032; see `PackageMetadata` below). The capability
+is now informational - `AVAILABLE` only when every row of the provider answers
+`YES` or `NO` - and a document predating it still loads and still cannot be
+planned from, because its rows carry no `service`.
 
 Two consequences worth stating, because each is a choice:
 
@@ -145,10 +145,51 @@ the same as false.
 | `replacedBy` | string | What the provider says supersedes it |
 | `pinned` | boolean | |
 | `notOnDefaultPathReason` | string | Why the package's executables are not on the default `PATH` |
-| `definesService` | boolean | Contributes the `SERVICE` class, which forces `MANUAL_REVIEW` (INV-19) |
+| `definesService` | boolean | Kept for older readers: `true` exactly when `service`'s answer is `YES`. Decides nothing in this build |
+| `service` | `ServiceDefinition` | The service question (DP-032), below. Absent from a document written before work order 16 part D |
 | `executables` | array of string | Mapping evidence, and what a `LIVENESS_PROBE` would run |
 | `aliases` | array of string | |
 | `versionedSiblings` | array of string | The rest of a versioned family, e.g. the other `python@3.x` |
+
+### `ServiceDefinition`
+
+| Field | Type | Notes |
+|---|---|---|
+| `declared` | `YES` \| `NO` \| `UNKNOWN` | The package's own description declares a background service |
+| `materialised` | `YES` \| `NO` \| `UNKNOWN` | The provider wrote launch machinery for it on disk |
+
+**One rule decides, in the domain** (DP-032): the package defines a service if
+either half is `YES`; it does not only if both are `NO`; otherwise the answer is
+`UNKNOWN`. `YES` contributes the `SERVICE` class, which forces `MANUAL_REVIEW`
+(INV-19). `UNKNOWN` refuses a plan whose source row it is, with
+`SafetyUnverifiable` (exit 4): a plan built anyway would look ordinary.
+
+**Absence is unknown.** A row without `service` answers `UNKNOWN`, whatever its
+`definesService` says: that bool held one half only. So a document written
+before this field can still be analysed and cannot be planned from.
+
+**Two load checks** (`SnapshotUnusable`, exit 8), at the one validation point
+every route goes through:
+
+- A row carrying `service` carries `definesService` equal to "the answer is
+  `YES`". `false` beside `UNKNOWN` is consistent.
+- A provider carries `service` on **every** metadata row or on none. A capture
+  writes every one; a document with it on some rows only has been edited, and a
+  deleted `service` would otherwise read as an older document's absence on
+  exactly the row a plan is about.
+
+**The additive rule, and its one fail-closed break.** A value from a newer build
+that this one does not know reads as `UNKNOWN`. If that newer document also says
+`definesService: true`, this build refuses it on load (the bool disagrees with
+`UNKNOWN`), rather than load a document whose two statements of the same fact
+differ.
+
+**Where the filesystem is not the machine** (`--replay`, or a snapshot of one),
+every disk-backed half is `UNKNOWN` (INV-15): both MacPorts halves and the
+Homebrew materialised half. Homebrew's declared half is read from the recorded
+JSON. A replayed plan whose source row does not declare a service is therefore
+refused in both directions (INV-17); a plan is demonstrated from a live
+snapshot instead (`fixtures/snapshots/`).
 
 ## Reading a snapshot instead of a machine
 

@@ -4853,7 +4853,12 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   `<!-- sample: --replay <fixture> <command> -->` and the test replays exactly
   that, comparing stdout with the fenced block below the marker. Markers without
   `--replay` are refused; a leading `$ …` prompt line is ignored; a scan finding
-  fewer than two samples fails.
+  fewer than two samples fails. **Since work order 16 part D (2026-10-28)** a
+  marker may instead read a committed capture, `--from-snapshot
+  fixtures/snapshots/<name>.json`: a replayed source row cannot answer DP-032's
+  service question, so a plan sample needs a capture. The rule this entry exists
+  for is unchanged — the input is a file in the repository, never a path
+  elsewhere and never this machine — and a marker with neither form is refused.
 - Rationale: three deliberate, correct changes — F-20's catalogue keys, the
   `count.packages_with_top_level` key, and the R-5a data read — each left a
   documented sample asserting the behaviour it replaced, and nothing in the
@@ -8474,3 +8479,30 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   strictest level; `warnings` is never an input to a decision; E's digest covers `enteredBy` and keeps
   `DEFAULT_VIEW` distinct from absence; `UNKNOWN` ownership counts as the default view by the current spec, a
   choice K confirms or changes; and C's confirmation half is a blocking acceptance item of K.
+- **Propagation, work order 16 part D (2026-10-28), DP-032 (c) then (b).** Plan `docs/passes/16-plans/D.md`, reviewed
+  twice by `spec-guardian` and `security-reviewer`; evidence R-8's addendum of 2026-10-28. **The union, once:**
+  `ServiceDefinition { declared, materialised }` of `Answer` (`YES`/`NO`/`UNKNOWN`, a newer value reading as
+  `UNKNOWN`) and one domain rule, `defines_service()`; each adapter supplies its two halves; the old
+  `definesService` bool is written from the rule and decides nothing. **Absence is unknown:** a row without
+  `service` answers `UNKNOWN`, so a document from before the field can be analysed and not planned from;
+  `Snapshot::check` refuses a bool that disagrees with the rule and a provider with `service` on some rows only.
+  The planner asks the **source row** and refuses `UNKNOWN` with `SafetyUnverifiable`, replacing the
+  `ServiceMetadata` capability check (the capability is now informational, `AVAILABLE` only when every row is
+  known). **The `homebrew.mxcl.*` wording:** DP-032 names only that label; since Homebrew 6.0.22 the default is
+  `sh.brew.<name>` and `name macos:` overrides both (F-A5), so the materialised half accepts any regular top-level
+  `*.plist` or `*.service` in a keg — the intent of the ruling ("the plist Homebrew materialised"), not its letter.
+  **MacPorts' declared half** reads the installed Portfile from the registry under the default `portdbpath`
+  through a bounded recogniser (top-level literal forms are `YES`, `YES` wins; `NO` only with no `startupitem`
+  token and no `source` word anywhere, and every `PortGroup` line naming a stored group that is itself clean);
+  everything else, including three of the eighteen ports on the capturing machine whose Portfile carries `source`
+  as a word, is `UNKNOWN`, a known false unknown that fails closed.
+  **Casks** answer `UNKNOWN` (a `launchctl` stanza is not read), so a plan from a cask row is now refused where it
+  reached `MANUAL_REVIEW` through `GUI_APP`. **Replay** (DP-016 (c), D.5): every disk-backed half is `UNKNOWN`
+  under `--replay`, so a replayed plan whose source row does not declare a service is refused in both directions
+  (INV-17); plans are demonstrated from the re-captured live snapshot. Follow-up, not done: DP-016 (d) (record the
+  reader's inputs so replay runs the same function), a cask `launchctl` reader, and the `startupitem.install no`
+  symlink layout in `service::scan`. The end-to-end recording of a MacPorts startup-item port stays an owner item
+  (F-A7). **Tests that follow from it:** a documented sample may read a committed capture with `--from-snapshot`
+  (SE-070, amended); `crates/cli/tests/execution_gate_fixtures.rs` now runs the gate over `fixtures/snapshots/` as
+  well as the recordings, because a replay reaches only `MANUAL_REVIEW` plans, and asserts that plans which do not
+  stop reach it and that both directions are planned.

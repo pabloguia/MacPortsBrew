@@ -60,8 +60,8 @@ in normal mode.
 
 Before anything is removed, MacPortsBrew resolves what **inside that same
 provider** depends on it. If removal would break them, it is blocked by default
-and explained — here as it appears in `plan curl --to macports`, replayed from
-the committed Intel recording:
+and explained — here as it appears in `plan curl --to macports`, read from
+the committed live capture:
 
 ```
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.

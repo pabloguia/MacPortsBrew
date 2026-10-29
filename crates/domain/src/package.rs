@@ -128,9 +128,18 @@ pub struct PackageMetadata {
     /// with the provider's stated reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_on_default_path_reason: Option<String>,
-    /// The provider exposes a background service definition.
+    /// Whether the package defines a background service, **as a bool for older
+    /// readers**. Written from [`ServiceDefinition::defines_service`] (`true`
+    /// only for [`Answer::Yes`]) and never read to decide anything: a `false`
+    /// here cannot tell "no" from "unknown". [`Self::service_answer`] is the
+    /// question this build asks (DP-032, SE-109).
     #[serde(default)]
     pub defines_service: bool,
+    /// The two halves of the service question (DP-032). Absent from a document
+    /// written before it existed, which answers [`Answer::Unknown`] whatever
+    /// the bool beside it says: that bool was one half only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<ServiceDefinition>,
     /// Executables the package provides, sorted, when known.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub executables: BTreeSet<String>,
@@ -143,4 +152,180 @@ pub struct PackageMetadata {
     /// Text the provider shows after install (caveats, notes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+impl PackageMetadata {
+    /// Whether this package defines a background service: the rule's answer
+    /// over [`Self::service`], and [`Answer::Unknown`] when the row does not
+    /// carry it — never the bool, which held one half only (DP-032, V1).
+    #[must_use]
+    pub fn service_answer(&self) -> Answer {
+        self.service
+            .map_or(Answer::Unknown, ServiceDefinition::defines_service)
+    }
+
+    /// Records `service` and writes the older bool from the rule, so the two
+    /// cannot disagree in anything this build produces.
+    #[must_use]
+    pub fn with_service(mut self, service: ServiceDefinition) -> Self {
+        self.defines_service = service.defines_service() == Answer::Yes;
+        self.service = Some(service);
+        self
+    }
+}
+
+/// A three-valued answer: a yes, a no, or the honest "could not tell".
+///
+/// `UNKNOWN` is a real state (`02-domain-model.md`): it is never read as `NO`.
+/// A value written by a newer build that this one does not know reads as
+/// `UNKNOWN` (`serde(other)`), the additive rule of `snapshot.v1.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Answer {
+    /// Established, and true.
+    Yes,
+    /// Established, and false.
+    No,
+    /// Not established.
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<bool> for Answer {
+    /// An established answer. There is no `bool` that means "unknown".
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Yes
+        } else {
+            Self::No
+        }
+    }
+}
+
+/// What a provider says about a package's background service, in the two
+/// halves DP-032 ruled: what the package **declares**, and what the provider
+/// **materialised** for it. Each adapter supplies both; the domain decides from
+/// them with one rule, [`Self::defines_service`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceDefinition {
+    /// The package's own description declares a service.
+    pub declared: Answer,
+    /// The provider wrote launch machinery for it on disk.
+    pub materialised: Answer,
+}
+
+impl ServiceDefinition {
+    /// The same answer for both halves.
+    #[must_use]
+    pub const fn both(answer: Answer) -> Self {
+        Self {
+            declared: answer,
+            materialised: answer,
+        }
+    }
+
+    /// **The rule, stated once** (DP-032): the union. `YES` if either half is
+    /// `YES`; `NO` only if both are `NO`; otherwise `UNKNOWN`. A service either
+    /// half can see is a service, and one half that cannot look means the
+    /// question is not answered.
+    #[must_use]
+    pub const fn defines_service(self) -> Answer {
+        match (self.declared, self.materialised) {
+            (Answer::Yes, _) | (_, Answer::Yes) => Answer::Yes,
+            (Answer::No, Answer::No) => Answer::No,
+            (Answer::Unknown, _) | (_, Answer::Unknown) => Answer::Unknown,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_union_is_the_rule_in_all_nine_cells() {
+        use Answer::{No, Unknown, Yes};
+        for (declared, materialised, want) in [
+            (Yes, Yes, Yes),
+            (Yes, No, Yes),
+            (Yes, Unknown, Yes),
+            (No, Yes, Yes),
+            (Unknown, Yes, Yes),
+            (No, No, No),
+            (No, Unknown, Unknown),
+            (Unknown, No, Unknown),
+            (Unknown, Unknown, Unknown),
+        ] {
+            assert_eq!(
+                ServiceDefinition {
+                    declared,
+                    materialised
+                }
+                .defines_service(),
+                want,
+                "{declared:?} + {materialised:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_bool_is_written_from_the_rule() {
+        for (definition, want) in [
+            (
+                ServiceDefinition {
+                    declared: Answer::Yes,
+                    materialised: Answer::No,
+                },
+                true,
+            ),
+            (
+                ServiceDefinition {
+                    declared: Answer::No,
+                    materialised: Answer::Yes,
+                },
+                true,
+            ),
+            (
+                ServiceDefinition {
+                    declared: Answer::No,
+                    materialised: Answer::Unknown,
+                },
+                false,
+            ),
+            (ServiceDefinition::both(Answer::No), false),
+        ] {
+            let meta = PackageMetadata::default().with_service(definition);
+            assert_eq!(meta.defines_service, want, "{definition:?}");
+            assert_eq!(meta.service, Some(definition));
+        }
+    }
+
+    #[test]
+    fn a_row_without_the_service_question_answers_unknown_whatever_its_bool_says() {
+        // V1: an older document's bool held one half only.
+        for bool_says in [true, false] {
+            let meta = PackageMetadata {
+                defines_service: bool_says,
+                ..PackageMetadata::default()
+            };
+            assert_eq!(meta.service_answer(), Answer::Unknown);
+        }
+        let read: PackageMetadata =
+            serde_json::from_str(r#"{"definesService":true}"#).expect("an older row");
+        assert_eq!(read.service_answer(), Answer::Unknown);
+    }
+
+    #[test]
+    fn an_answer_from_a_newer_build_reads_as_unknown() {
+        let read: ServiceDefinition =
+            serde_json::from_str(r#"{"declared":"PROBABLY","materialised":"NO"}"#)
+                .expect("an unknown variant parses");
+        assert_eq!(read.declared, Answer::Unknown);
+        assert_eq!(read.defines_service(), Answer::Unknown);
+        assert_eq!(
+            serde_json::to_string(&ServiceDefinition::both(Answer::Yes)).unwrap(),
+            r#"{"declared":"YES","materialised":"YES"}"#
+        );
+    }
 }

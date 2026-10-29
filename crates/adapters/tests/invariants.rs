@@ -14,12 +14,15 @@
 //! kind of claim that cannot fail a test, so it is asserted against the source
 //! text instead.
 
+use macportsbrew_adapters::configuration::macports_portdbpath;
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::homebrew::{self, HomebrewAdapter};
+use macportsbrew_adapters::macports::portfile::{self, Entry};
 use macportsbrew_adapters::macports::MacPortsAdapter;
 use macportsbrew_adapters::persistence::StateDir;
 use macportsbrew_adapters::process::ReplayRunner;
 use macportsbrew_adapters::system::{is_reported, SystemMachine};
+use macportsbrew_domain::Answer;
 use macportsbrew_domain::{
     Capability, CapabilityState, ExecutableOwner, HomeRedaction, MachineRead, ProviderRead,
 };
@@ -158,6 +161,88 @@ fn invariant_15_a_replayed_reader_never_consults_the_live_filesystem() {
         replayed.which("tool"),
         None,
         "a replayed reader answered from the replaying host's filesystem"
+    );
+
+    // --- the service question's disk-backed halves (DP-032, part D §6) -----
+    // A tree that would answer every one of them: a `macports.conf` keeping the
+    // default `portdbpath`, a registry Portfile that declares a startup item, a
+    // stored PortGroup, and a keg holding a plist. Under `Elsewhere` each half
+    // is `UNKNOWN`; the control below, on the same tree as `ThisMachine`,
+    // answers, so the `Elsewhere` half is not vacuous.
+    let prefix = dir.join("prefix");
+    let home = dir.join("home");
+    std::fs::create_dir_all(prefix.join("etc/macports")).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(prefix.join("etc/macports/macports.conf"), "").unwrap();
+    let text = "startupitem.create yes\n";
+    let registry = prefix.join("var/macports/registry");
+    let hash = registry
+        .join("portfiles/svc-1.0_0")
+        .join(format!("{:064x}-{}", 1, text.len()));
+    std::fs::create_dir_all(&hash).unwrap();
+    std::fs::write(hash.join("Portfile"), text).unwrap();
+    let group = registry.join(format!("portgroups/{:064x}-1", 2));
+    std::fs::create_dir_all(&group).unwrap();
+    std::fs::write(group.join("github-1.0.tcl"), "x").unwrap();
+    let keg = dir.join("Cellar/svc/1.0");
+    std::fs::create_dir_all(&keg).unwrap();
+    std::fs::write(keg.join("sh.brew.svc.plist"), "<plist/>").unwrap();
+    let entries = [Entry {
+        name: "svc",
+        version: "1.0",
+        revision: Some("0"),
+    }];
+    let declared = |scope: FilesystemScope| {
+        // The registry is handed over directly, so the reader's own guard is
+        // what is tested, not only `macports_portdbpath`'s.
+        let portdbpath = prefix.join("var/macports");
+        portfile::declared(Some(&portdbpath), &entries, scope)["svc"]
+    };
+    let materialised = |scope: FilesystemScope| {
+        homebrew::keg::materialised(&dir.join("Cellar"), "svc", &["1.0"], scope)
+    };
+    assert_eq!(
+        macports_portdbpath(&prefix, Some(&home), FilesystemScope::Elsewhere),
+        None
+    );
+    assert_eq!(
+        declared(FilesystemScope::Elsewhere),
+        Answer::Unknown,
+        "a Portfile was read"
+    );
+    assert_eq!(
+        materialised(FilesystemScope::Elsewhere),
+        Answer::Unknown,
+        "a keg was listed"
+    );
+    assert_eq!(
+        declared(FilesystemScope::ThisMachine),
+        Answer::Yes,
+        "the control"
+    );
+    assert_eq!(
+        materialised(FilesystemScope::ThisMachine),
+        Answer::Yes,
+        "the control"
+    );
+    let mut budget = portfile::Budget::new();
+    assert_eq!(
+        portfile::stored_groups(
+            &prefix.join("var/macports"),
+            FilesystemScope::Elsewhere,
+            &mut budget
+        ),
+        portfile::Groups::Unanswerable,
+        "a stored group on this host was read for another machine"
+    );
+    assert_eq!(
+        portfile::stored_groups(
+            &prefix.join("var/macports"),
+            FilesystemScope::ThisMachine,
+            &mut budget
+        ),
+        portfile::Groups::clean(["github-1.0.tcl"]),
+        "the control"
     );
 
     std::fs::remove_dir_all(&dir).ok();

@@ -44,28 +44,26 @@ are covered in [Dependencies and Safety](Dependencies-and-Safety.md).
 macportsbrew plan curl --to macports
 ```
 
-On a machine with Homebrew and no MacPorts — here the committed recording
-`homebrew-only-intel-macos26`, replayed, so a test holds this block to what the
-program prints — that produces, and exits 4:
+On the machine the committed live capture `both-providers-intel-macos26-live`
+describes — read from that file, so a test holds this block to what the program
+prints — that produces, and exits 4. (A recording cannot be planned from for a
+package that declares no background service, because it cannot show the keg;
+see [Dependencies and Safety](Dependencies-and-Safety.md).)
 
-<!-- sample: --replay fixtures/recordings/homebrew-only-intel-macos26.json plan curl --to macports --today 2026-09-02 exit=4 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json plan curl --to macports exit=4 -->
 ```
 Plan: move curl from homebrew to macports
   This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk.
   This plan goes against the recommendation (Needs a human decision).
 
 Risks detected
-  ! macports is not installed on this machine. MacPortsBrew does not install package managers; install macports yourself first if you want to move packages there.
   ! No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
-  - Whether the configuration of homebrew overrides the settings this tool would run it with is not known from this input - it was read from a recording or a snapshot that does not record it. A step that changes homebrew is refused while it is unknown.
 
 Steps, in order
-  1. Needs a human decision - macports is not installed on this machine. MacPortsBrew does not install package managers; install macports yourself first if you want to move packages there.
+  1. Needs a human decision - No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
        Execution would stop here for a human decision (exit code 4).
-  2. Needs a human decision - No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
-       Execution would stop here for a human decision (exit code 4).
-  3. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
+  2. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
        Execution would stop here for a human decision (exit code 4).
 
 Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read.

@@ -85,6 +85,9 @@ fn provider(
                 PackageMetadata {
                     homepage: p.homepage.map(str::to_string),
                     defines_service: p.service,
+                    service: Some(macportsbrew_domain::ServiceDefinition::both(
+                        macportsbrew_domain::Answer::from(p.service),
+                    )),
                     ..PackageMetadata::default()
                 },
             );

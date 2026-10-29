@@ -61,13 +61,17 @@ with MacPorts and no Homebrew, prints this on stderr, nothing on stdout, and
 exits 4:
 
 ```
-macportsbrew: A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: this input does not record whether macports packages define services, so the rule that forces manual review for a service package cannot be evaluated for gnutls. This is not something to fix on your machine — the fact is absent from the document itself. `analyze`, `status` and `explain` do not depend on it and still work.
+macportsbrew: A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: whether macports package gnutls defines a background service is not known, so the rule that forces manual review for a service package cannot be evaluated for gnutls. This does not necessarily mean anything is wrong on your machine — the fact is absent from the input, or could not be read where it lives. `analyze`, `status` and `explain` do not depend on it and still work.
 ```
 
-A recording cannot answer whether a MacPorts port defines a service, so every
-plan out of MacPorts from a replayed recording is refused as unverifiable, by
-design — a safety rule that cannot be evaluated is a refusal, never a pass. The
-refusal is about the recording, not about this direction.
+Whether a package defines a background service is two questions: does it
+**declare** one, and did its provider **write** one on disk. For a port, both
+answers are on the recorded machine's disk — the Portfile it was installed from,
+and its launch items — so a recording answers neither, and every plan out of
+MacPorts from a replayed recording is refused as unverifiable, by design: a
+safety rule that cannot be evaluated is a refusal, never a pass. The same holds
+for a Homebrew formula that declares no service, whose keg a recording cannot
+show. The refusal is about the recording, not about this direction.
 
 A snapshot taken on a live machine does record that fact, and from one this
 direction plans in full. Here is the plan from the committed live capture of an
