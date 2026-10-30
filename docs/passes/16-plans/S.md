@@ -596,6 +596,8 @@ opt-in removal or confirmation levels (K); no elevation; no mutating command;
 | spec-guardian | PR #33 | **approved**; (1) the lock-lost test lost its full assertion; (2) the step-sequence test pins two in-code plans; (3) mutant 27's wording; (4) halt a removal with no step to re-read | (1) restored and strengthened; (2) As built, deviation 6; (3) row 27; (4) `dispatch_for`, `a_removal_with_no_step_to_reread_is_never_dispatched`, mutant 40 |
 | spec-guardian | PR #44 (`35bc7a5`, `d6b4784`) | **not approved**: F1 04's "check 1 only with `PACKAGE_NEWLY_PRESENT`" unenforced and now reachable (the consolidation case); F2 stale comments; F3 an `invariant_15_*` test that cannot fail; F4 deviations 7 and 8 accepted; F5 the delta's mutation proof owed | F1 `judge_reads` pairing rule + 04 reworded + SE-107, `invariant_01_provider_reports_active_alone_never_verifies_an_install`; F2 reworded; F3 renamed; F5 below |
 | security-reviewer | PR #44 (`35bc7a5`, `d6b4784`) | **approve**; M1 = F1; L1 no gate test for this check's `CHECK_HAS_NO_ANSWERING_READ`; L2 any active version passes; I1 the replay test is clean; the tooling notes' items 1–3 rated Medium, Low, Low | M1 as F1; L1 the case added to `a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused`; L2 handed to H and K (SE-107); tooling items in the ledger's Needs the owner |
+| spec-guardian | `00a448a` | **approved**; F1–F5 fixed; no new finding | — |
+| security-reviewer | `00a448a` | **approve**; M1 and L1 fixed; new Low for part H: the gate never compares a `VERIFY_DESTINATION`'s verification list with the planner's, so once DP-051's four are evaluable a plan with them stripped would clear it | handed to H (ledger, H row): refuse a `VERIFY_DESTINATION` missing any of the four when H lands |
 
 **Mutation proof, S-2 second pull request** (subagent, isolated worktree at
 `d6b4784`, removed afterwards): (1) the arm moved to `VERIFY_REMOVAL` — killed
@@ -607,8 +609,12 @@ recording holds that shape), killed by `verification_json`'s unit tests; (5) a
 missing entry linked — killed by the replay tests; (6) `marked_active` dropping
 the `@` test — survives the replay tests, killed by
 `a_second_token_without_at_is_not_active`. The pairing rule added after the
-review is killed by removal: `invariant_01_provider_reports_active_alone_never_verifies_an_install`
-expects a halt where the unpaired rule verifies.
+review was not run as a mutant; it is argued: removing it makes the
+absent-before case verify, which
+`invariant_01_provider_reports_active_alone_never_verifies_an_install` pins as
+a halt; and removing only its `PACKAGE_NEWLY_PRESENT` guard would halt
+`invariant_01_a_removal_is_dispatched_only_after_its_destination_verified`,
+whose plan carries both checks and expects a dispatch (spec-guardian, re-review).
 
 ## Mutation proof
 
@@ -791,7 +797,7 @@ Cut from `origin/main` at `f6f3494`. No change to `data/`, `fixtures/`,
 - **Replay `invariant_15_*`** (`crates/application/tests/replay_active.rs`):
   `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`,
   `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`,
-  `invariant_15_a_package_the_recording_does_not_hold_is_never_active`. Counts
+  and the plain `a_package_the_recording_does_not_hold_is_never_active`. Counts
   pinned literally (2026-10-30), recordings labelled by provenance.
 - **Docs:** 04's check-1 paragraph, `plan.v1.md` obligation 6, CHANGELOG,
   SE-107 (status and the S-2 bullet).
@@ -808,7 +814,7 @@ Cut from `origin/main` at `f6f3494`. No change to `data/`, `fixtures/`,
   entry.
 - **Samples:** no schema sample or golden lists `PROVIDER_REPORTS_ACTIVE` as
   refused (checked by `grep`), so none moved.
-- **Mutation proof for this delta:** listed in the Reviews table once run.
+- **Mutation proof for this delta:** under the Reviews table.
 - Part S is complete with this pull request. The `analytics_read_on` gap in the
   policy-version test stays a follow-up.
 - **From the PR #44 review** (spec-guardian not approved on F1; security-reviewer

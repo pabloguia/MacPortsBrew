@@ -46,10 +46,13 @@ checkout in a worktree), and **2026-10-27** at the start of work order 16
 re-read, no contract break; the hooks/permissions/CI group was refused by the
 auto-mode classifier and is an owner item in `docs/passes/16-progress.md`), and
 **2026-10-30**, all three groups, during work order 16 part S
-(`docs/research/tooling/2026-10-30-*.md`; no contract break; new findings, all
-in guarded paths or the owner's files: the guard-edit escape does not filter a
-cross-session message envelope, and a mod can approve a call a deny rule or a
-`PreToolUse` hook refused unless managed settings or a Team login apply). The
+(`docs/research/tooling/2026-10-30-*.md`; no contract break; the guarded-path
+findings wait for the owner: the guard-edit escape does not filter a
+cross-session message envelope, and a mod — a Claude Code extension that handles
+permission checks, hooks note §3 item 3 — can approve a call a deny rule or a
+`PreToolUse` hook refused unless managed settings or a Team login apply; the
+wording items for this chapter and `.claude/README.md` are open in the notes and
+listed in `docs/passes/16-progress.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

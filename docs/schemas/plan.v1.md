@@ -300,7 +300,8 @@ comments:
    `PACKAGE_NEWLY_PRESENT` on the same step it certifies only a consolidation
    — the snapshot the plan arrived paired with shows the destination already
    held the package — and otherwise the step halts `UNEVALUABLE` /
-   `ACTIVE_ALONE_AFTER_AN_INSTALL` (04, check 1). A planner
+   `ACTIVE_ALONE_AFTER_AN_INSTALL`, or `PRESENCE_BEFORE_UNKNOWN` when the
+   snapshot cannot say (04, check 1). A planner
    `VERIFY_DESTINATION` also carries DP-051's four checks, so the gate still
    refuses it unnarrowed (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`).
    **Evaluable means evaluable by this plan:** a check this build evaluates on

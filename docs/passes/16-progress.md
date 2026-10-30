@@ -28,7 +28,7 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | E — slice 7 + the dependency ADR | S, P | todo | | P/01 (corrected in PR #37) must be applied with or before the dependency; F and H's P/02 and J's P/03 are applied |
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
 | G — lock probe | F | todo | | |
-| H — four destination checks | G, P | todo | | |
+| H — four destination checks | G, P | todo | | From part S's PR #44 review (security-reviewer): when the four become evaluable, the gate must refuse a `VERIFY_DESTINATION` missing any of them (the plan-only analogue of V2); and L2, "some version active" is not "the version this run installed" (SE-107) |
 | K — removal opt-in | H, C, A | todo | | **Blocking:** C's confirmation half and the contract in `16-plans/C.md` §9 (absent `enteredBy` = strictest; level derived, never trusted; `UNKNOWN` ownership a deliberate choice) |
 | I — layer 4, consented | K | todo | | |
 | J — elevation | I, P | todo | | Needs P's elevation entries applied |
@@ -77,7 +77,9 @@ Remove a line when the owner has done it, citing the commit.
   mod can approve a call a deny rule or a `PreToolUse` hook refused unless
   managed settings or a Team login apply; the guards carry no
   `onFailure: "block"`. Action: read the hooks note's Recommendations and
-  decide which to apply through an armed edit.
+  decide which to apply through an armed edit. Unguarded wording items from
+  the same run (spec 11 and `.claude/README.md`: the memory note's items 3–5
+  and 8–10) are a session follow-up, not the owner's.
 
 ## Disclosures
 

@@ -149,7 +149,8 @@ shape); the `UNEVALUABLE` reason
 provider's configuration was re-checked) and `ACTIVE_ALONE_AFTER_AN_INSTALL`
 (`check`: `PROVIDER_REPORTS_ACTIVE`, on a step without `PACKAGE_NEWLY_PRESENT`
 whose destination did not already hold the package before the run; 04, check
-1); the `PRECONDITION_FAILED` reason
+1; when the snapshot cannot say, the step halts with the existing
+`PRESENCE_BEFORE_UNKNOWN`); the `PRECONDITION_FAILED` reason
 `DESTINATION_NOT_REVERIFIED` (the destination, read again with its
 `VERIFY_DESTINATION`'s own commands immediately before a removal command, did
 not certify, so the source was not removed and the run ends `PARTIAL_SUCCESS`,

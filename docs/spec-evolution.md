@@ -7527,6 +7527,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       there. Making the check evaluable is pass 08 slice 6's. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
+      (Superseded in part by SE-107, S-2: the check is evaluable again from an
+      activation read, and the gate now refuses that step for DP-051's four.)
     - 04 asks the plan for environment changes, cleanup policy and a rollback
       story; `MigrationPlan` carries cleanup review as a step, records
       environment changes in history (SE-092), and has no rollback field.
@@ -8315,7 +8317,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     making check 1 evaluable made the gap reachable once part H lands. Resolved both ways: 04 now states the
     consolidation case, and `judge_reads` enforces the rest — `PROVIDER_REPORTS_ACTIVE` on a step without
     `PACKAGE_NEWLY_PRESENT` passes only when the paired snapshot shows the destination held the package; absent halts
-    with the new `Unevaluable::ACTIVE_ALONE_AFTER_AN_INSTALL` (both locales), unknown with `PRESENCE_BEFORE_UNKNOWN`
+    with the new `Unevaluable::ActiveAloneAfterAnInstall` (`ACTIVE_ALONE_AFTER_AN_INSTALL`) (both locales), unknown with `PRESENCE_BEFORE_UNKNOWN`
     (`invariant_01_provider_reports_active_alone_never_verifies_an_install`, both directions). Also:
     `CHECK_HAS_NO_ANSWERING_READ` pinned for this check (L1); the out-of-recording test lost its `invariant_15_`
     prefix, since a text judge cannot reach a live read (F3). Noted for parts H and K (L2): "some version active" is
