@@ -708,7 +708,7 @@ change to `data/`, `fixtures/`, `crates/adapters/`, `Cargo.toml` or
 - **Next:** S-1 merges; then the owner applies `docs/passes/16-staged/S/`
   on `wo16/S-2-active` (Needs the owner, item 1), and S-2 follows.
 
-## As built (S-2, first commit)
+## As built (S-2, first commit, `073678c`)
 
 On `wo16/S-2-active`, cut from `origin/main` at `6a81fc4`, by the **armed
 variant** of §10. The owner's message, 2026-10-30: "Apply
