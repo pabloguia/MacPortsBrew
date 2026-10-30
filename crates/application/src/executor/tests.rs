@@ -444,6 +444,87 @@ fn newly_present_from(edit: impl FnOnce(&mut Snapshot)) -> Option<Unevaluable> {
     }
 }
 
+/// The plan from `source`'s `install_needed` snapshot, edited by `edit`, its
+/// destination check narrowed to `PROVIDER_REPORTS_ACTIVE` alone, judged with
+/// every read passing. `edit` gets the snapshot, the destination and its
+/// package name.
+fn active_alone_from(
+    source: &str,
+    edit: impl FnOnce(&mut Snapshot, &ProviderId, &str),
+) -> Option<Unevaluable> {
+    let (mut snap, package, to) = install_needed(source);
+    let probe = planned(&snap, package, to);
+    let destination = probe.plan().destination.clone();
+    let name = probe
+        .plan()
+        .destination_name()
+        .expect("named")
+        .as_str()
+        .to_owned();
+    edit(&mut snap, &destination, &name);
+    let run = planned(&snap, package, to).map_plan(|p| {
+        let verify = position(p, StepKind::VerifyDestination);
+        p.steps[verify].verification = vec![VerificationCheck::ProviderReportsActive];
+    });
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let outputs = destination_outputs(run.plan());
+    match judge(&run, verify, &passing(&outputs)) {
+        Disposition::Halted {
+            reason:
+                HaltReason::Unevaluable {
+                    check: Some(CheckKind::ProviderReportsActive),
+                    why,
+                },
+            ..
+        } => Some(why),
+        Disposition::Verified { .. } => None,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// 04, check 1: "active" is read from a whole inventory, so on a step without
+/// `PACKAGE_NEWLY_PRESENT` it certifies only a consolidation — the package the
+/// destination already held before the run — in both directions (INV-01,
+/// INV-17; spec-guardian F1 and security-reviewer M1 on PR #44).
+#[test]
+fn invariant_01_provider_reports_active_alone_never_verifies_an_install() {
+    for source in [HB, MP] {
+        assert_eq!(
+            active_alone_from(source, |_, _, _| {}),
+            Some(Unevaluable::ActiveAloneAfterAnInstall),
+            "{source}: absent before the run"
+        );
+        assert_eq!(
+            active_alone_from(source, |snap, destination, name| {
+                let provider = snap.providers.get_mut(destination).expect("destination");
+                provider.inventory.installed.push(InstalledPackage {
+                    identity: PackageIdentity::new(destination.clone(), name),
+                    kind: PackageKind::Package,
+                    version: Version::new("1.0"),
+                    revision: None,
+                    variants: BTreeSet::new(),
+                    active: true,
+                    requested: Some(true),
+                    installed_from_prebuilt: Some(true),
+                    install_path: None,
+                });
+            }),
+            None,
+            "{source}: a consolidation is guarded by active alone"
+        );
+        assert_eq!(
+            active_alone_from(source, |snap, destination, _| {
+                snap.providers
+                    .get_mut(destination)
+                    .expect("destination")
+                    .capabilities = ProviderCapabilities::default();
+            }),
+            Some(Unevaluable::PresenceBeforeUnknown),
+            "{source}: an inventory not recorded as readable is not a yes"
+        );
+    }
+}
+
 #[test]
 fn newly_present_needs_the_package_absent_from_the_snapshot_before_the_run() {
     let destination = ProviderId::new(MP);
@@ -601,8 +682,9 @@ fn forced_run(from: &str) -> PlannedRun {
 /// package had been installed by hand: MacPorts' own writes elevate and consent
 /// is not wired, so this is the one way this build reaches a removal at all,
 /// Homebrew's unelevated uninstall (data, not code: INV-17). A consolidation
-/// cannot stand in: since D11 its `VERIFY_DESTINATION` carries no check this
-/// build can evaluate, and the gate refuses it as asserting nothing.
+/// cannot stand in: its `VERIFY_DESTINATION` carries the four DP-051 checks
+/// this build cannot evaluate (part H), and narrowed to the one it can,
+/// `PROVIDER_REPORTS_ACTIVE`, it is a different case from the one this tests.
 fn consolidation_run() -> PlannedRun {
     planned(&consolidation_snapshot(), "gnu-sed", MP).map_plan(|p| *p = without_add(p))
 }
@@ -753,8 +835,8 @@ fn the_narrowed_plan_clears_the_gate_only_under_an_allowance() {
 
 /// "Verified" here means the plan's own checks on that `VERIFY_DESTINATION`
 /// passed. 04's full destination contract is not evaluable in this build
-/// (`PROVIDER_REPORTS_ACTIVE` and four more are refused by the gate), so the
-/// narrowed plan carries `PACKAGE_NEWLY_PRESENT` only; a flip tripwire holds
+/// (DP-051's four checks are refused by the gate), so the narrowed plan
+/// carries `PACKAGE_NEWLY_PRESENT` and `PROVIDER_REPORTS_ACTIVE`; a flip tripwire holds
 /// the switch off until the contract is evaluable (slice 4 review, spec 2).
 #[test]
 fn invariant_01_a_removal_is_dispatched_only_after_its_destination_verified() {

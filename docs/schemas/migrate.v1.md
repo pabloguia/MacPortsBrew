@@ -146,7 +146,10 @@ installation of the package as the active one, none or two) and
 knows: an unreadable JSON document, or a row of the package in an unknown
 shape); the `UNEVALUABLE` reason
 `NOT_CERTIFIED_HERE` (a `VERIFY_DESTINATION` is certified only after its
-provider's configuration was re-checked); the `PRECONDITION_FAILED` reason
+provider's configuration was re-checked) and `ACTIVE_ALONE_AFTER_AN_INSTALL`
+(`check`: `PROVIDER_REPORTS_ACTIVE`, on a step without `PACKAGE_NEWLY_PRESENT`
+whose destination did not already hold the package before the run; 04, check
+1); the `PRECONDITION_FAILED` reason
 `DESTINATION_NOT_REVERIFIED` (the destination, read again with its
 `VERIFY_DESTINATION`'s own commands immediately before a removal command, did
 not certify, so the source was not removed and the run ends `PARTIAL_SUCCESS`,

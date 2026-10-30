@@ -1543,6 +1543,29 @@ fn a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused() {
         ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::PackageNewlyPresent }
             if *s == step
     )));
+
+    // And activation: a destination step whose reads include no activation
+    // read leaves `PROVIDER_REPORTS_ACTIVE` unanswered (security-reviewer L1 on
+    // PR #44); a presence read never stands in for it (D11).
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    let step = plan.steps[verify].index;
+    if !plan.steps[verify]
+        .verification
+        .contains(&VerificationCheck::ProviderReportsActive)
+    {
+        plan.steps[verify]
+            .verification
+            .push(VerificationCheck::ProviderReportsActive);
+    }
+    for command in &mut plan.steps[verify].commands {
+        command.success = SuccessSemantic::StdoutNamesPackage;
+    }
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::ProviderReportsActive }
+            if *s == step
+    )));
 }
 
 #[test]

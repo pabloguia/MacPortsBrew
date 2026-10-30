@@ -296,9 +296,13 @@ comments:
    activation read alone — `STDOUT_MARKS_PACKAGE_ACTIVE` or
    `JSON_REPORTS_PACKAGE_LINKED`, which every `VERIFY_DESTINATION` lists second
    — and never by a presence read
-   (`an_installed_read_never_answers_provider_reports_active`). A
-   consolidation's `VERIFY_DESTINATION`, whose other checks are not evaluable,
-   still asserts nothing beyond that.
+   (`an_installed_read_never_answers_provider_reports_active`). Without
+   `PACKAGE_NEWLY_PRESENT` on the same step it certifies only a consolidation
+   — the snapshot the plan arrived paired with shows the destination already
+   held the package — and otherwise the step halts `UNEVALUABLE` /
+   `ACTIVE_ALONE_AFTER_AN_INSTALL` (04, check 1). A planner
+   `VERIFY_DESTINATION` also carries DP-051's four checks, so the gate still
+   refuses it unnarrowed (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`).
    **Evaluable means evaluable by this plan:** a check this build evaluates on
    the step, that none of the step's commands carries a semantic to answer, is
    refused (`CHECK_HAS_NO_ANSWERING_READ`,

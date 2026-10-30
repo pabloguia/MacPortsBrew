@@ -209,11 +209,11 @@ fn invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker() {
     }
 }
 
-/// The judge never consults anything but the text it is handed: an inventory
-/// recorded on one machine says nothing about a package it does not hold, even
-/// one this machine may have installed (INV-15).
+/// An inventory says nothing about a package it does not hold. Not an
+/// `invariant_15_*` test: the judge takes text, so no live read could reach it
+/// here anyway (spec-guardian F3 on PR #44).
 #[test]
-fn invariant_15_a_package_the_recording_does_not_hold_is_never_active() {
+fn a_package_the_recording_does_not_hold_is_never_active() {
     {
         let name = "not-a-recorded-package";
         let json = recorded(

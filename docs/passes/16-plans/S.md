@@ -594,6 +594,21 @@ opt-in removal or confirmation levels (K); no elevation; no mutating command;
 
 | security-reviewer | PR #33 | **approved**; L-1 a distinct cause for a changed output shape; L-2 `linked_keg` required but nullable; I-3 the drift test both ways if cheap | L-1 `OUTPUT_SHAPE_UNKNOWN` (both locales, both schemas), `an_unknown_shape_is_its_own_cause_and_inactive_is_another`, mutants 37 and 38; L-2 `a_formula_without_the_linked_keg_key_is_unparseable`, mutant 39; I-3 declined (As built, deviation 5) |
 | spec-guardian | PR #33 | **approved**; (1) the lock-lost test lost its full assertion; (2) the step-sequence test pins two in-code plans; (3) mutant 27's wording; (4) halt a removal with no step to re-read | (1) restored and strengthened; (2) As built, deviation 6; (3) row 27; (4) `dispatch_for`, `a_removal_with_no_step_to_reread_is_never_dispatched`, mutant 40 |
+| spec-guardian | PR #44 (`35bc7a5`, `d6b4784`) | **not approved**: F1 04's "check 1 only with `PACKAGE_NEWLY_PRESENT`" unenforced and now reachable (the consolidation case); F2 stale comments; F3 an `invariant_15_*` test that cannot fail; F4 deviations 7 and 8 accepted; F5 the delta's mutation proof owed | F1 `judge_reads` pairing rule + 04 reworded + SE-107, `invariant_01_provider_reports_active_alone_never_verifies_an_install`; F2 reworded; F3 renamed; F5 below |
+| security-reviewer | PR #44 (`35bc7a5`, `d6b4784`) | **approve**; M1 = F1; L1 no gate test for this check's `CHECK_HAS_NO_ANSWERING_READ`; L2 any active version passes; I1 the replay test is clean; the tooling notes' items 1–3 rated Medium, Low, Low | M1 as F1; L1 the case added to `a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused`; L2 handed to H and K (SE-107); tooling items in the ledger's Needs the owner |
+
+**Mutation proof, S-2 second pull request** (subagent, isolated worktree at
+`d6b4784`, removed afterwards): (1) the arm moved to `VERIFY_REMOVAL` — killed
+by `provider_reports_active_is_evaluable_on_verify_destination_only`; (2) the
+check refused again — killed by the same and by the tripwire; (3)
+`PROVIDER_INTEGRITY_CHECK` also evaluable — killed by the tripwire and 13 more;
+(4) `linked_report` ignoring installed versions — survives the replay tests (no
+recording holds that shape), killed by `verification_json`'s unit tests; (5) a
+missing entry linked — killed by the replay tests; (6) `marked_active` dropping
+the `@` test — survives the replay tests, killed by
+`a_second_token_without_at_is_not_active`. The pairing rule added after the
+review is killed by removal: `invariant_01_provider_reports_active_alone_never_verifies_an_install`
+expects a halt where the unpaired rule verifies.
 
 ## Mutation proof
 
@@ -796,3 +811,14 @@ Cut from `origin/main` at `f6f3494`. No change to `data/`, `fixtures/`,
 - **Mutation proof for this delta:** listed in the Reviews table once run.
 - Part S is complete with this pull request. The `analytics_read_on` gap in the
   policy-version test stays a follow-up.
+- **From the PR #44 review** (spec-guardian not approved on F1; security-reviewer
+  approve, M1 the same gap): 04's pairing sentence was unenforced and the
+  planner omits `PACKAGE_NEWLY_PRESENT` for a consolidation (F-06). Fixed both
+  ways: 04 names the consolidation case, and `judge_reads` halts
+  `ACTIVE_ALONE_AFTER_AN_INSTALL` (absent before) or `PRESENCE_BEFORE_UNKNOWN`
+  when `PROVIDER_REPORTS_ACTIVE` stands without `PACKAGE_NEWLY_PRESENT`
+  (`invariant_01_provider_reports_active_alone_never_verifies_an_install`, both
+  directions; `migrate.v1.md`, both locales). L1: the gate's
+  `CHECK_HAS_NO_ANSWERING_READ` pinned for this check. F2: four stale comments
+  reworded. F3: the out-of-recording test is no longer named `invariant_15_*`.
+  L2 (version-agnostic "active") handed to H and K in SE-107.

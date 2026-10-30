@@ -338,6 +338,13 @@ pub enum Unevaluable {
     /// `PACKAGE_NEWLY_PRESENT`, but the destination package was already
     /// present before the run: presence now proves nothing happened.
     PresentBeforeTheRun,
+    /// `PROVIDER_REPORTS_ACTIVE` on a step that does not also carry
+    /// `PACKAGE_NEWLY_PRESENT`, while the snapshot before the run shows the
+    /// destination did not already hold the package: "active" is read from a
+    /// whole inventory and does not prove this run installed it (04, check 1;
+    /// SE-107). Only a consolidation — the package already held — is guarded
+    /// by "active" alone.
+    ActiveAloneAfterAnInstall,
     /// A `VERIFY_DESTINATION` handed to [`judge_step`]: it is certified only by
     /// [`certify_destination`], after a configuration re-check (SE-107 C1).
     NotCertifiedHere,
@@ -1054,6 +1061,27 @@ fn judge_reads(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Dis
                 unevaluable(Some(check), Unevaluable::NoPassingRead),
                 evidence,
             );
+        }
+        if *check == VerificationCheck::ProviderReportsActive
+            && !step
+                .verification
+                .contains(&VerificationCheck::PackageNewlyPresent)
+        {
+            match destination_before(plan, before) {
+                Before::Present => {}
+                Before::Absent => {
+                    return halted(
+                        unevaluable(Some(check), Unevaluable::ActiveAloneAfterAnInstall),
+                        evidence,
+                    )
+                }
+                Before::Unknown => {
+                    return halted(
+                        unevaluable(Some(check), Unevaluable::PresenceBeforeUnknown),
+                        evidence,
+                    )
+                }
+            }
         }
         if *check == VerificationCheck::PackageNewlyPresent {
             match destination_before(plan, before) {

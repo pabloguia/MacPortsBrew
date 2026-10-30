@@ -68,8 +68,14 @@ Homebrew records as linked (`linked_keg` in `brew info --json=v2 --installed`),
 equal to one of that formula's own installed versions. A cask has no such record
 and cannot pass, and an unlinked formula (keg-only ones included) does not pass.
 **Check 1 is satisfied only together with `PACKAGE_NEWLY_PRESENT` on the same
-step**: "active" is read from a whole inventory and does not by itself prove that
-this run installed the package. The reads and their semantics are built (work
+step, or for a consolidation**: "active" is read from a whole inventory and does
+not by itself prove that this run installed the package. For a package the
+snapshot before the run shows the destination already held, the planner writes
+no `PACKAGE_NEWLY_PRESENT` (this run installs nothing, F-06), and "active" is the
+guard. Any other step whose check 1 stands alone halts
+(`ACTIVE_ALONE_AFTER_AN_INSTALL`; unknown presence before the run halts too) —
+judged from the paired snapshot, never from the plan's own word
+(`invariant_01_provider_reports_active_alone_never_verifies_an_install`). The reads and their semantics are built (work
 order 16 part S-1), the commands table carries them, so the planner writes them
 on every `VERIFY_DESTINATION`, and the check is evaluated there, from the
 activation read alone, in both directions (S-2;

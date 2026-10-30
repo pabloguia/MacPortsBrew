@@ -179,6 +179,7 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
             | Unevaluable::MissingRead
             | Unevaluable::PresenceBeforeUnknown
             | Unevaluable::PresentBeforeTheRun
+            | Unevaluable::ActiveAloneAfterAnInstall
             // Given by `judge_step` whatever the reads, so possibly after one.
             | Unevaluable::NotCertifiedHere => true,
         },

@@ -8310,6 +8310,16 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     `homebrew-deprecated-and-tap-intel-macos26`; synthesised `macports-only-intel-macos12`). The replay tests are
     application-level judges over recorded text rather than `run_with` shell runs (S.md, As built (S-2) deviation 7):
     under `--replay` a certifying read halts before it is made (C1), so a shell run could not reach the judge.
+  - **Review of PR #44 (spec-guardian F1, security-reviewer M1):** 04's "check 1 only together with
+    `PACKAGE_NEWLY_PRESENT`" was unenforced, and the planner deliberately omits that check for a consolidation (F-06);
+    making check 1 evaluable made the gap reachable once part H lands. Resolved both ways: 04 now states the
+    consolidation case, and `judge_reads` enforces the rest — `PROVIDER_REPORTS_ACTIVE` on a step without
+    `PACKAGE_NEWLY_PRESENT` passes only when the paired snapshot shows the destination held the package; absent halts
+    with the new `Unevaluable::ACTIVE_ALONE_AFTER_AN_INSTALL` (both locales), unknown with `PRESENCE_BEFORE_UNKNOWN`
+    (`invariant_01_provider_reports_active_alone_never_verifies_an_install`, both directions). Also:
+    `CHECK_HAS_NO_ANSWERING_READ` pinned for this check (L1); the out-of-recording test lost its `invariant_15_`
+    prefix, since a text judge cannot reach a live read (F3). Noted for parts H and K (L2): "some version active" is
+    not "the version this run installed"; the plan carries no version.
   - Tests: `crates/domain/tests/verification_active.rs` (the row rule, `invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers`);
     `verification_json` unit tests; the executor's `certify_destination`, `reverify_for`, `destination_still_verified`
     and `invariant_01_*` tests; `planner_and_gate_share_one_verify_destination_rule`,
