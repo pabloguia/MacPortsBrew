@@ -35,12 +35,14 @@ describes the ones a user sees. (DP-045, ruled
   the read (`PRECONDITION_FAILED`, `CONFIGURATION_UNREADABLE` or
   `CONFIGURATION_DRIFT`). Under `--replay` the configuration cannot be read
   again, so such a step halts. The gate also refuses a check none of its step's
-  commands can answer (`CHECK_HAS_NO_ANSWERING_READ`). The commands a plan lists
-  are unchanged, and the gate still refuses every plan this build makes, so no
-  run reaches these steps yet. Behind the switch, which stays off: the destination is read
-  again immediately before each removal command (`DESTINATION_NOT_REVERIFIED`),
-  and the reads that will make "installed and active" checkable are built but
-  not yet in the commands table (work order 16 part S; SE-107).
+  commands can answer (`CHECK_HAS_NO_ANSWERING_READ`). The gate still refuses
+  every plan this build makes, so no run reaches these steps yet. Behind the
+  switch, which stays off: the destination is read again immediately before each
+  removal command (`DESTINATION_NOT_REVERIFIED`). Every `VERIFY_DESTINATION` in
+  `plan --json` now lists a second command, the read that shows the package
+  active (`brew info --json=v2 --installed`, `port -q installed`); the check it
+  answers, `PROVIDER_REPORTS_ACTIVE`, is not yet evaluable in this build (work
+  order 16 part S; SE-107). The policy data version is `2026.10.18-1`.
 - `doctor`: says, per provider, whether the reads this tool asks it for may
   reach the network on the provider's own account (its local metadata index is
   missing), are answered offline, or cannot be told from this input; and names
@@ -203,7 +205,7 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.12-4`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.10.18-1`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.
@@ -214,9 +216,9 @@ The detailed record of how 0.1.0 was built, kept for contributors. It uses the
 project's internal vocabulary (passes, slices, decision and specification
 identifiers); the summary above is the user-facing account.
 
-**Policy version: `2026.10.12-4`.** The provider facts it carries were read on
+**Policy version: `2026.10.18-1`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
-2026-10-03 and 2026-10-12 and are dated in `data/policy/*.toml`; the staleness threshold is
+2026-10-03, 2026-10-12 and 2026-10-18 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing
 to answer.
 

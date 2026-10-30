@@ -70,8 +70,9 @@ and cannot pass, and an unlinked formula (keg-only ones included) does not pass.
 **Check 1 is satisfied only together with `PACKAGE_NEWLY_PRESENT` on the same
 step**: "active" is read from a whole inventory and does not by itself prove that
 this run installed the package. The reads and their semantics are built (work
-order 16 part S-1); the commands-table cells that make the planner write them,
-and so make the check evaluable, are the owner's to apply (S-2).
+order 16 part S-1), and the commands table carries them, so the planner writes
+them on every `VERIFY_DESTINATION` (S-2); the check becomes evaluable when
+`evaluable_in_this_build` admits it, later in S-2.
 
 **MUST.** A failed verification means the source package is not touched (INV-01)
 and the run reports failure with the specific check that failed.

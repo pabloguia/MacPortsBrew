@@ -1236,7 +1236,7 @@ fn step_indices_that_are_not_one_to_n_in_order_are_refused() {
 
 /// The smallest plan this gate lets through, pinned so that any widening of
 /// what it accepts shows up in a diff: one `VERIFY_DESTINATION`, the
-/// planner's own read toward a detected destination, checked only by
+/// planner's own two reads toward a detected destination, checked only by
 /// `PACKAGE_NEWLY_PRESENT` (`PROVIDER_REPORTS_ACTIVE` until pass 08 slice 4,
 /// D11), nothing mutating, nothing elevating. With no
 /// mutating step it needs neither bracket of obligation 11, so it carries no
@@ -1253,8 +1253,11 @@ fn the_minimal_plan_the_gate_accepts() {
         elevated_steps: Vec::new(),
         ..base
     };
-    assert_eq!(plan.steps[0].commands.len(), 1);
-    assert_eq!(plan.steps[0].commands[0].elevation, Elevation::None);
+    // Presence and activation (work order 16 part S, S-2), neither elevating.
+    assert_eq!(plan.steps[0].commands.len(), 2);
+    for command in &plan.steps[0].commands {
+        assert_eq!(command.elevation, Elevation::None);
+    }
     let report = execution_refusals(&plan);
     assert!(report.may_execute(), "{:?}", report.refusals());
     assert_eq!(report.exit_code(), 0);
@@ -1391,7 +1394,8 @@ fn refused_as_not_the_planners(plan: &MigrationPlan, at: usize) -> bool {
 fn planner_and_gate_share_one_verify_destination_rule() {
     // V2: the planner's VERIFY_DESTINATION carries exactly what
     // `verify_destination_reads` derives, and the gate's pin compares by
-    // position and in number. With the shipped table the list is `[verify]`.
+    // position and in number. With the shipped table the list is
+    // `[verify, verify_active]` for every provider (S-2).
     let table = macportsbrew_application::provider_commands::load().expect("the table loads");
     for source in [HB, MP] {
         let (snap, package, to) = install_needed(source);
@@ -1407,8 +1411,8 @@ fn planner_and_gate_share_one_verify_destination_rule() {
             plan.destination.as_str(),
             &name,
         );
-        assert_eq!(derived.len(), 1, "{source}: S-1 is inert");
-        assert_eq!(derived[0].0, "verify", "{source}");
+        let operations: Vec<&str> = derived.iter().map(|(op, _, _)| *op).collect();
+        assert_eq!(operations, ["verify", "verify_active"], "{source}");
         let carried: Vec<(Vec<String>, SuccessSemantic)> = plan.steps[verify]
             .commands
             .iter()
@@ -1420,6 +1424,23 @@ fn planner_and_gate_share_one_verify_destination_rule() {
             .collect();
         assert_eq!(carried, expected, "{source}");
         assert!(!refused_as_not_the_planners(&plan, verify), "{source}");
+
+        // A shorter list: the activation read dropped. A zip that stops at the
+        // shorter list would let it by.
+        let mut shorter = plan.clone();
+        shorter.steps[verify].commands.truncate(1);
+        assert!(
+            refused_as_not_the_planners(&shorter, verify),
+            "{source}: shorter"
+        );
+
+        // The planner's two reads in the other order.
+        let mut flipped = plan.clone();
+        flipped.steps[verify].commands.swap(0, 1);
+        assert!(
+            refused_as_not_the_planners(&flipped, verify),
+            "{source}: flipped"
+        );
 
         // An extra command after it — the planner's own, repeated: the length
         // differs, so a zip that stops at the shorter list would let it by.

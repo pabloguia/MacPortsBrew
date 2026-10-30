@@ -293,8 +293,10 @@ comments:
    now refused wherever it appears, so a consolidation's `VERIFY_DESTINATION`,
    whose other checks are not evaluable either, asserts nothing. Its two reads,
    `STDOUT_MARKS_PACKAGE_ACTIVE` and `JSON_REPORTS_PACKAGE_LINKED`, exist since
-   work order 16 part S-1 and answer it alone; it becomes evaluable, on
-   `VERIFY_DESTINATION` only, when the commands table carries them (S-2).
+   work order 16 part S-1 and answer it alone. The commands table carries them
+   since S-2, so every `VERIFY_DESTINATION` lists the activation read second;
+   the check becomes evaluable, on `VERIFY_DESTINATION` only, when this build's
+   `evaluable_in_this_build` admits it, later in S-2.
    **Evaluable means evaluable by this plan:** a check this build evaluates on
    the step, that none of the step's commands carries a semantic to answer, is
    refused (`CHECK_HAS_NO_ANSWERING_READ`,
@@ -820,7 +822,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.10.12-4",
+  "policyVersion": "2026.10.18-1",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

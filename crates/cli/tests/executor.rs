@@ -30,7 +30,7 @@ use macportsbrew_domain::{
     HomeRedaction, InstalledPackage, Machine, MacosVersion, MigrationPlan, PackageIdentity,
     PackageKind, PackageMetadata, PlanCommand, Provenance, ProviderCapabilities,
     ProviderConfiguration, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
-    ProviderSnapshot, RequestedSet, Snapshot, StepKind, Translation, Version,
+    ProviderSnapshot, RequestedSet, Snapshot, StepKind, SuccessSemantic, Translation, Version,
     SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
@@ -98,7 +98,11 @@ fn recording_as_captured() -> Recording {
 
 /// The captured recording plus what it does not hold: each provider's
 /// destination read of the package a plan here moves, naming it, and the
-/// bare inventory where the recording has none, not naming it.
+/// bare inventory where the recording has none, not naming it. Then each named
+/// provider's activation read answers with the package active (S-2): that
+/// invocation is also the capture's inventory read, and for MacPorts its
+/// removal read, so a provider named here is one whose inventory now holds the
+/// package.
 fn recording(
     names: &[(&str, &str)],
     destination_output: impl Fn(&str, &str) -> String,
@@ -127,6 +131,32 @@ fn recording(
             "  unrelated 1.0\n".to_string(),
         );
     }
+    // The destination's activation read as it would answer after the plan
+    // happened: the captured answer with the package added, active (work order
+    // 16 part S, S-2). It replaces the captured one, which predates the plan.
+    for (id, name) in names {
+        let argv = verb(id, "verify_active");
+        let program = leaf(id);
+        let at = rec
+            .invocations
+            .iter()
+            .position(|r| r.invocation.program == program && r.invocation.argv == argv);
+        let captured = at.map_or(String::new(), |i| {
+            rec.invocations[i].invocation.stdout.clone()
+        });
+        let answered = RecordedInvocation {
+            invocation: invocation(
+                &program,
+                &argv,
+                ExitStatus::Exited { code: 0 },
+                &with_active(id, name, &captured),
+            ),
+        };
+        match at {
+            Some(i) => rec.invocations[i] = answered,
+            None => rec.invocations.push(answered),
+        }
+    }
     rec
 }
 
@@ -134,6 +164,52 @@ fn recording(
 /// line's first token, indented as one provider's inventory is.
 fn naming(_id: &str, name: &str) -> String {
     format!("  {name} 1.0\n")
+}
+
+/// `captured`, the activation read of provider `id`, with `name` added as the
+/// active record, in the shape that provider's semantic reads (R-20).
+fn with_active(id: &str, name: &str, captured: &str) -> String {
+    use std::fmt::Write as _;
+    let table = provider_commands::load().expect("the provider command table loads");
+    match table[id].success["verify_active"].as_str() {
+        "stdout_marks_package_active" => {
+            let mut text = captured.to_string();
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            let _ = writeln!(text, "  {name} @1.0_0 (active)");
+            text
+        }
+        "json_reports_package_linked" => {
+            let mut doc: serde_json::Value = if captured.is_empty() {
+                serde_json::json!({ "formulae": [], "casks": [] })
+            } else {
+                serde_json::from_str(captured).expect("the captured activation read parses")
+            };
+            doc["formulae"]
+                .as_array_mut()
+                .expect("a formulae list")
+                .push(serde_json::json!({
+                    "name": name,
+                    "linked_keg": "1.0",
+                    "installed": [{ "version": "1.0" }]
+                }));
+            doc.to_string()
+        }
+        other => panic!("{id}: {other} is not an activation semantic"),
+    }
+}
+
+/// What the destination's read `command` prints when the package is there and
+/// active: a presence read names it, an activation read marks it (S-2).
+fn destination_present(plan: &MigrationPlan, command: &PlanCommand) -> String {
+    let name = plan.destination_name().expect("a destination").as_str();
+    match command.success {
+        SuccessSemantic::StdoutMarksPackageActive | SuccessSemantic::JsonReportsPackageLinked => {
+            with_active(plan.destination.as_str(), name, "")
+        }
+        _ => naming("", name),
+    }
 }
 
 fn context(runner: &ReplayRunner) -> RegistryContext<'_> {
@@ -400,7 +476,7 @@ fn honest(
 ) -> impl Fn(&ProviderId, &PlanCommand) -> Result<Invocation, PlanReadError> + '_ {
     move |provider, command| {
         let stdout = if *provider == plan.destination {
-            naming("", plan.destination_name().expect("a destination").as_str())
+            destination_present(plan, command)
         } else {
             "  unrelated 1.0\n".to_string()
         };
@@ -840,7 +916,7 @@ fn a_verification_failure_halts_and_names_the_check() {
 #[test]
 fn a_truncated_or_killed_read_halts() {
     let run = install(MP, false);
-    let name = naming("", run.plan().destination_name().expect("name").as_str());
+    let plan = run.plan();
     for (status, truncated, cause) in [
         (
             ExitStatus::Exited { code: 0 },
@@ -855,7 +931,8 @@ fn a_truncated_or_killed_read_halts() {
         (ExitStatus::TimedOut, false, FailureCause::DidNotFinish),
     ] {
         let spy = Spy::new(|_: &ProviderId, command: &PlanCommand| {
-            let mut inv = invocation("x", &command.argv, status.clone(), &name);
+            let named = destination_present(plan, command);
+            let mut inv = invocation("x", &command.argv, status.clone(), &named);
             inv.truncated = truncated;
             Ok(inv)
         });
@@ -868,7 +945,9 @@ fn a_truncated_or_killed_read_halts() {
             "{:?}",
             report.outcome
         );
-        assert_eq!(spy.calls().len(), 1, "nothing read after the halt");
+        // The step's two reads (presence, activation) are both made before it
+        // is judged; nothing is read after the halt.
+        assert_eq!(spy.calls().len(), 2, "nothing read after the halt");
     }
 }
 
@@ -880,14 +959,18 @@ fn a_recorded_read_keeps_no_stdout() {
     let spy = Spy::new(|provider: &ProviderId, command: &PlanCommand| {
         let mut stdout = format!("{marker} 1.0\n");
         if *provider == plan.destination {
-            stdout.push_str(&naming("", plan.destination_name().expect("name").as_str()));
+            stdout.push_str(&destination_present(plan, command));
         }
         let mut inv = invocation("x", &command.argv, ExitStatus::Exited { code: 0 }, &stdout);
         inv.stderr = format!("{marker} on stderr\n");
         Ok(inv)
     });
     let report = spied(&run, &spy, &HomeRedaction::Recorded);
-    assert_eq!(spy.calls().len(), 2, "both reads ran");
+    assert_eq!(
+        spy.calls().len(),
+        3,
+        "the destination's two reads and the source's ran"
+    );
     let json = serde_json::to_string(&report).expect("a report serialises");
     assert!(!json.contains(marker), "{json}");
     assert!(!format!("{report:?}").contains(marker));
@@ -928,7 +1011,7 @@ fn invariant_03_partial_success_is_its_own_outcome_and_exit_code() {
     let source = plan.source_name().as_str().to_string();
     let spy = Spy::new(|provider: &ProviderId, command: &PlanCommand| {
         let stdout = if *provider == plan.destination {
-            naming("", plan.destination_name().expect("name").as_str())
+            destination_present(plan, command)
         } else {
             format!("{source} 1.0\n")
         };

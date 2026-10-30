@@ -8202,8 +8202,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: none; test code only.
 
 ## SE-107 — Pass 08 slice 6: an artifact the destination cannot supply is `MANUAL_REVIEW`; the plan review's rulings
-- Status: accepted (A built; B and C built inert, S-1, their cells staged for the owner; D superseded — amended
-  2026-10-28, work order 16 part S)
+- Status: accepted (A built; B and C built inert, S-1; B's cells in the commands table, S-2, check not yet
+  evaluable; D superseded — amended 2026-10-28 and 2026-10-30, work order 16 part S)
 - Date / Pass: 2026-10-26 / pass 08 slice 6 (`docs/passes/08-slice-6-plan.md`)
 - Original assumption: 04's MUST that a step whose artifact is no longer available becomes `MANUAL_REVIEW` was met by
   no plan (SE-092, slice 5 D8); the planner read a destination's availability only for the non-blocking
@@ -8294,9 +8294,11 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     application half (`reverify_for`, `destination_still_verified`, `invariant_01_*`) is tested in both directions.
   - **Handed to K (L6):** any elevation prompt for `REMOVE_SOURCE` must come before the re-read, or 04's residual
     sentence must name the prompt's duration; no credential caching.
-  - Still owed by S-2: the owner's commands-table hunk, the policy version bump to `2026.10.18-1` with every pinned
-    copy regenerated, `evaluable_in_this_build` true for `PROVIDER_REPORTS_ACTIVE` on `VERIFY_DESTINATION`, and the
-    replay tests over the recordings.
+  - S-2's first commit (2026-10-30, the armed variant of S.md §10): the commands-table hunk applied by `git apply`
+    and checked byte for byte, the policy version bump to `2026.10.18-1` with every pinned copy regenerated, and the
+    tests and fakes that pinned S-1's single-read `VERIFY_DESTINATION` updated in the same commit (S.md, As built
+    (S-2)). Still owed by S-2: `evaluable_in_this_build` true for `PROVIDER_REPORTS_ACTIVE` on
+    `VERIFY_DESTINATION`, and the replay tests over the recordings.
   - Tests: `crates/domain/tests/verification_active.rs` (the row rule, `invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers`);
     `verification_json` unit tests; the executor's `certify_destination`, `reverify_for`, `destination_still_verified`
     and `invariant_01_*` tests; `planner_and_gate_share_one_verify_destination_rule`,

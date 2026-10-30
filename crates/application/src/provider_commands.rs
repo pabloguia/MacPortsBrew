@@ -116,8 +116,9 @@ pub fn load() -> Result<BTreeMap<String, ProviderCommands>, DomainError> {
 /// **The one rule the planner and the execution gate share.** The planner
 /// builds the step's commands from it and the gate's pin derives the expected
 /// list from it, element by element and in length, so the two cannot drift.
-/// Without `verify_active` in the table — every table this build ships — the
-/// list is `[verify]`, which is exactly what both did before.
+/// Every table this build ships holds `verify_active` (S-2), so the list is
+/// `[verify, verify_active]`; an entry without it, or no entry, gives
+/// `[verify]`, which is what both did before S-2.
 #[must_use]
 pub fn verify_destination_operations(entry: Option<&ProviderCommands>) -> Vec<&'static str> {
     let mut operations = vec!["verify"];
@@ -586,12 +587,27 @@ mod tests {
         }
     }
 
-    /// The shipped table with a `verify_active` verb added to the MacPorts
-    /// entry: `verb` as its argv, `success` as its semantic, and the elevation
-    /// cells `elevation` (each a whole line). A test-only shape; no table this
-    /// build ships holds the verb (work order 16 part S, §10).
+    /// The shipped table without the MacPorts entry's `verify_active` cells
+    /// (its verb, its success semantic and both elevation cells). Their
+    /// provenance rows stay, so a test that puts a cell back keeps them valid.
+    fn without_macports_verify_active() -> String {
+        let mut text = SOURCE.to_string();
+        for cell in [
+            "verify_active = [\"-q\", \"installed\"]\n",
+            "verify_active = \"stdout_marks_package_active\"\n",
+            "verify_active = \"none\"\nverify_active_gui_app = \"unknown\"\n",
+        ] {
+            assert_eq!(text.matches(cell).count(), 1, "{cell}");
+            text = text.replacen(cell, "", 1);
+        }
+        text
+    }
+
+    /// The shipped table with the MacPorts entry's `verify_active` cells
+    /// replaced: `verb` as its argv, `success` as its semantic, and the
+    /// elevation cells `elevation` (each a whole line).
     fn with_verify_active(verb: &str, success: &str, elevation: &[&str]) -> String {
-        let text = SOURCE.replacen(
+        let text = without_macports_verify_active().replacen(
             "verify_absent = [\"-q\", \"installed\"]",
             &format!("verify_absent = [\"-q\", \"installed\"]\nverify_active = {verb}"),
             1,
@@ -702,14 +718,20 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_table_derives_verify_alone() {
-        // S-1 is inert: no shipped entry holds `verify_active`, so every
-        // VERIFY_DESTINATION reads exactly what it read before (§10).
+    fn the_shipped_table_holds_verify_active_for_every_provider() {
+        // S-2: every shipped entry holds `verify_active`, so every
+        // VERIFY_DESTINATION reads presence and then activation (§10, V2). An
+        // unknown provider still derives `verify` alone.
         let table = load().expect("the shipped table parses");
+        // Pinned, so an empty or shrunken table cannot pass this vacuously.
+        assert_eq!(
+            table.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["homebrew", "macports"]
+        );
         for (id, entry) in &table {
             assert_eq!(
                 verify_destination_operations(Some(entry)),
-                vec!["verify"],
+                vec!["verify", "verify_active"],
                 "{id}"
             );
         }
@@ -890,18 +912,28 @@ mod tests {
                     ("verify", "2026-09-04"),
                     ("verify_absent", "2026-09-04"),
                     ("verify_absent_gui_app", "2026-09-04"),
+                    ("verify_active", "2026-10-18"),
+                    ("verify_active_gui_app", "2026-10-18"),
                     ("verify_gui_app", "2026-09-04"),
                 ],
             ),
             (
                 "homebrew",
                 "success",
-                &[("verify", "2026-09-06"), ("verify_absent", "2026-09-19")],
+                &[
+                    ("verify", "2026-09-06"),
+                    ("verify_absent", "2026-09-19"),
+                    ("verify_active", "2026-10-18"),
+                ],
             ),
             (
                 "macports",
                 "elevation",
-                &[("verify", "2026-09-08"), ("verify_absent", "2026-09-08")],
+                &[
+                    ("verify", "2026-09-08"),
+                    ("verify_absent", "2026-09-08"),
+                    ("verify_active", "2026-10-18"),
+                ],
             ),
             (
                 "macports",
@@ -911,6 +943,7 @@ mod tests {
                     ("remove", "2026-09-02"),
                     ("verify", "2026-09-08"),
                     ("verify_absent", "2026-09-19"),
+                    ("verify_active", "2026-10-18"),
                 ],
             ),
         ];
@@ -1015,7 +1048,7 @@ mod tests {
         // The entry's `read_on` is the newest read in it, and `policy.toml`'s
         // version is built from the newest across the directory. A cell dated
         // after its entry would make both quietly wrong.
-        let text = with_homebrew_verify_read_on("2026-09-20");
+        let text = with_homebrew_verify_read_on("2026-10-19");
         let err = parse(&text).expect_err("a cell newer than its entry must be refused");
         assert!(err.detail.contains("after the entry"), "{}", err.detail);
     }
