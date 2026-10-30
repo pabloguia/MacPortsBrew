@@ -44,7 +44,12 @@ guards fail open on exit 1 without `onFailure: "block"`, and hooks read the main
 checkout in a worktree), and **2026-10-27** at the start of work order 16
 (`docs/research/tooling/2026-10-27-*.md`; memory/settings and subagents/skills
 re-read, no contract break; the hooks/permissions/CI group was refused by the
-auto-mode classifier and is an owner item in `docs/passes/16-progress.md`). The
+auto-mode classifier and is an owner item in `docs/passes/16-progress.md`), and
+**2026-10-30**, all three groups, during work order 16 part S
+(`docs/research/tooling/2026-10-30-*.md`; no contract break; new findings, all
+in guarded paths or the owner's files: the guard-edit escape does not filter a
+cross-session message envelope, and a mod can approve a call a deny rule or a
+`PreToolUse` hook refused unless managed settings or a Team login apply). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 
