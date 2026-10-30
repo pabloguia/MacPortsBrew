@@ -758,3 +758,41 @@ together with the policy version bump."
   `PROVIDER_REPORTS_ACTIVE`, the replay `invariant_15_*` tests, the samples, and
   SE-107's final amendment. The `analytics_read_on = "2026-10-27"` gap in the
   policy-version test stays a follow-up.
+
+## As built (S-2, second pull request, `wo16/S-2-evaluable`)
+
+Cut from `origin/main` at `f6f3494`. No change to `data/`, `fixtures/`,
+`crates/adapters/`, `Cargo.toml`, `Cargo.lock` or any guarded path;
+`THIS_BUILD_DISPATCHES_MUTATIONS` is `false`.
+
+- **`evaluable` true.** `evaluable_in_this_build` maps
+  `PROVIDER_REPORTS_ACTIVE` to `VERIFY_DESTINATION`, in the same arm as
+  `PACKAGE_NEWLY_PRESENT`. Tests: `provider_reports_active_is_evaluable_on_verify_destination_only`
+  (every step kind), and the `a_recognised_check_is_not_thereby_evaluable`
+  table's row moved to `true`. `answers` is unchanged, so an installed read still
+  never answers it (D11).
+- **The widened tripwire** names exactly DP-051's four checks as a set, and its
+  held half pins both destination checks evaluable whatever the switch is.
+- **Replay `invariant_15_*`** (`crates/application/tests/replay_active.rs`):
+  `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`,
+  `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`,
+  `invariant_15_a_package_the_recording_does_not_hold_is_never_active`. Counts
+  pinned literally (2026-10-30), recordings labelled by provenance.
+- **Docs:** 04's check-1 paragraph, `plan.v1.md` obligation 6, CHANGELOG,
+  SE-107 (status and the S-2 bullet).
+- **Deviation 7 (recorded in SE-107):** the replay tests judge the recorded text
+  with the product's judge (`expectation_for` + `evaluate_with` over
+  `linked_report`) at the application level, not through `run_with` as
+  deviation 3 anticipated: under `--replay` a certifying read halts before it is
+  made (C1), so a shell run never reaches the judge, and `run_with` with a clean
+  re-read would test the fake, not the recording.
+- **Deviation 8:** of each JSON inventory's linked formulae, one in sixteen is
+  judged (every unlinked formula and every cask is). Judging all of them took
+  84 s in a debug build, because each judgement parses the whole ~900 KB
+  document; the stride takes it to 18 s. The pinned count still covers every
+  entry.
+- **Samples:** no schema sample or golden lists `PROVIDER_REPORTS_ACTIVE` as
+  refused (checked by `grep`), so none moved.
+- **Mutation proof for this delta:** listed in the Reviews table once run.
+- Part S is complete with this pull request. The `analytics_read_on` gap in the
+  policy-version test stays a follow-up.

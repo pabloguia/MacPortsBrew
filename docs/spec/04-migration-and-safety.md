@@ -70,9 +70,13 @@ and cannot pass, and an unlinked formula (keg-only ones included) does not pass.
 **Check 1 is satisfied only together with `PACKAGE_NEWLY_PRESENT` on the same
 step**: "active" is read from a whole inventory and does not by itself prove that
 this run installed the package. The reads and their semantics are built (work
-order 16 part S-1), and the commands table carries them, so the planner writes
-them on every `VERIFY_DESTINATION` (S-2); the check becomes evaluable when
-`evaluable_in_this_build` admits it, later in S-2.
+order 16 part S-1), the commands table carries them, so the planner writes them
+on every `VERIFY_DESTINATION`, and the check is evaluated there, from the
+activation read alone, in both directions (S-2;
+`provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
+recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
+and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
+Checks 2 to 5 are DP-051's and stay unevaluable until work order 16 part H.
 
 **MUST.** A failed verification means the source package is not touched (INV-01)
 and the run reports failure with the specific check that failed.

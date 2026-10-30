@@ -282,21 +282,23 @@ comments:
    deferred rather than chosen is SE-015 and DP-030.
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
-   read while ignoring the rest. Two have an evaluation today —
-   `PACKAGE_NEWLY_PRESENT` and `PACKAGE_ABSENT` — and the gate refuses a step
-   carrying any other (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
+   read while ignoring the rest. Three have an evaluation today —
+   `PACKAGE_NEWLY_PRESENT`, `PROVIDER_REPORTS_ACTIVE` and `PACKAGE_ABSENT` —
+   and the gate refuses a step carrying any other
+   (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
    `a_recognised_check_is_not_thereby_evaluable`). Evaluability is per step
    kind and check, because a check is answered by its own step's read: the
-   first only on `VERIFY_DESTINATION`, the second only on `VERIFY_REMOVAL`.
-   `PROVIDER_REPORTS_ACTIVE` had one until pass 08 slice 4 (D11; SE-094): it
-   was answered by a read that establishes *installed*, not *active*, and is
-   now refused wherever it appears, so a consolidation's `VERIFY_DESTINATION`,
-   whose other checks are not evaluable either, asserts nothing. Its two reads,
-   `STDOUT_MARKS_PACKAGE_ACTIVE` and `JSON_REPORTS_PACKAGE_LINKED`, exist since
-   work order 16 part S-1 and answer it alone. The commands table carries them
-   since S-2, so every `VERIFY_DESTINATION` lists the activation read second;
-   the check becomes evaluable, on `VERIFY_DESTINATION` only, when this build's
-   `evaluable_in_this_build` admits it, later in S-2.
+   first two only on `VERIFY_DESTINATION`, the third only on `VERIFY_REMOVAL`
+   (`provider_reports_active_is_evaluable_on_verify_destination_only`).
+   `PROVIDER_REPORTS_ACTIVE` was refused wherever it appeared from pass 08
+   slice 4 (D11; SE-094) until work order 16 part S-2: it had been answered by
+   a read that establishes *installed*, not *active*. It is now answered by an
+   activation read alone — `STDOUT_MARKS_PACKAGE_ACTIVE` or
+   `JSON_REPORTS_PACKAGE_LINKED`, which every `VERIFY_DESTINATION` lists second
+   — and never by a presence read
+   (`an_installed_read_never_answers_provider_reports_active`). A
+   consolidation's `VERIFY_DESTINATION`, whose other checks are not evaluable,
+   still asserts nothing beyond that.
    **Evaluable means evaluable by this plan:** a check this build evaluates on
    the step, that none of the step's commands carries a semantic to answer, is
    refused (`CHECK_HAS_NO_ANSWERING_READ`,

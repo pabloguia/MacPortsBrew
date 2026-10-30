@@ -1548,15 +1548,25 @@ fn the_switch_needs_the_destination_contract_evaluable() {
         "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
          destination contract (04, Verification contract; SE-094): {not_evaluable:?}"
     );
-    assert!(
-        evaluable_in_this_build(
-            StepKind::VerifyDestination,
-            &VerificationCheck::PackageNewlyPresent
-        ),
-        "PACKAGE_NEWLY_PRESENT is evaluated on a VERIFY_DESTINATION"
-    );
-    // What the failure names in S-1: the five checks of 04's contract this
-    // build cannot evaluate yet (PROVIDER_REPORTS_ACTIVE lands in S-2, the
-    // other four are DP-051's, part H).
-    assert_eq!(not_evaluable.len(), 5, "{not_evaluable:?}");
+    for held in [
+        VerificationCheck::PackageNewlyPresent,
+        VerificationCheck::ProviderReportsActive,
+    ] {
+        assert!(
+            evaluable_in_this_build(StepKind::VerifyDestination, &held),
+            "{held:?} is evaluated on a VERIFY_DESTINATION"
+        );
+    }
+    // What the failure names after S-2: exactly DP-051's four checks of 04's
+    // contract, which part H makes evaluable.
+    let dp_051: BTreeSet<String> = [
+        "ProviderIntegrityCheck",
+        "ExecutablesOwnedByDestination",
+        "NoCrossProviderLinkage",
+        "LivenessProbe",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(not_evaluable, dp_051);
 }
