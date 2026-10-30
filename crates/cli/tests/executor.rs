@@ -405,9 +405,9 @@ fn planner_runs() -> Vec<PlannedRun> {
 
 /// The verification part of a planner plan, renumbered: the shape the gate
 /// passes in this build. `VERIFY_DESTINATION` keeps only the checks this build
-/// evaluates, and is dropped when none is left — a consolidation's, since
-/// pass 08 slice 4 made `PROVIDER_REPORTS_ACTIVE` unevaluable (D11), which the
-/// gate would refuse as asserting nothing; with `brackets` the snapshot and
+/// evaluates, and is dropped when none is left (the gate would refuse it as
+/// asserting nothing); a consolidation's now keeps `PROVIDER_REPORTS_ACTIVE`,
+/// evaluable since work order 16 part S-2; with `brackets` the snapshot and
 /// history steps stay. The snapshot the plan was built from is kept with it.
 fn read_only(run: PlannedRun, brackets: bool) -> PlannedRun {
     let run = run.map_plan(|out| {
@@ -1511,7 +1511,7 @@ fn a_certifying_read_follows_a_configuration_recheck() {
 /// this build before the switch goes on — a removal is otherwise guarded by
 /// fewer checks than 04's contract (INV-01; slice 4 review, spec 2). The
 /// failure names the checks that are not. Held whatever the switch is: the
-/// check this build does evaluate there stays evaluable.
+/// two checks this build does evaluate there stay evaluable.
 #[test]
 fn the_switch_needs_the_destination_contract_evaluable() {
     use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
@@ -1548,15 +1548,25 @@ fn the_switch_needs_the_destination_contract_evaluable() {
         "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
          destination contract (04, Verification contract; SE-094): {not_evaluable:?}"
     );
-    assert!(
-        evaluable_in_this_build(
-            StepKind::VerifyDestination,
-            &VerificationCheck::PackageNewlyPresent
-        ),
-        "PACKAGE_NEWLY_PRESENT is evaluated on a VERIFY_DESTINATION"
-    );
-    // What the failure names in S-1: the five checks of 04's contract this
-    // build cannot evaluate yet (PROVIDER_REPORTS_ACTIVE lands in S-2, the
-    // other four are DP-051's, part H).
-    assert_eq!(not_evaluable.len(), 5, "{not_evaluable:?}");
+    for held in [
+        VerificationCheck::PackageNewlyPresent,
+        VerificationCheck::ProviderReportsActive,
+    ] {
+        assert!(
+            evaluable_in_this_build(StepKind::VerifyDestination, &held),
+            "{held:?} is evaluated on a VERIFY_DESTINATION"
+        );
+    }
+    // What the failure names after S-2: exactly DP-051's four checks of 04's
+    // contract, which part H makes evaluable.
+    let dp_051: BTreeSet<String> = [
+        "ProviderIntegrityCheck",
+        "ExecutablesOwnedByDestination",
+        "NoCrossProviderLinkage",
+        "LivenessProbe",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(not_evaluable, dp_051);
 }

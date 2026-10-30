@@ -328,6 +328,30 @@ fn an_unrecognised_check_is_refused() {
     )));
 }
 
+/// Work order 16 part S-2: `PROVIDER_REPORTS_ACTIVE` is evaluable on the
+/// destination's verify step and on no other step kind.
+#[test]
+fn provider_reports_active_is_evaluable_on_verify_destination_only() {
+    for kind in [
+        StepKind::SnapshotBefore,
+        StepKind::AddDestination,
+        StepKind::VerifyDestination,
+        StepKind::SetPrimary,
+        StepKind::VerifyResolution,
+        StepKind::RemoveSource,
+        StepKind::VerifyRemoval,
+        StepKind::CleanupReview,
+        StepKind::RecordHistory,
+        StepKind::ManualReview,
+    ] {
+        assert_eq!(
+            evaluable_in_this_build(kind, &VerificationCheck::ProviderReportsActive),
+            kind == StepKind::VerifyDestination,
+            "{kind:?}"
+        );
+    }
+}
+
 #[test]
 fn a_recognised_check_is_not_thereby_evaluable() {
     let liveness = VerificationCheck::LivenessProbe {
@@ -342,9 +366,10 @@ fn a_recognised_check_is_not_thereby_evaluable() {
     let dest = StepKind::VerifyDestination;
     let removal = StepKind::VerifyRemoval;
     for (kind, check, evaluable) in [
-        // Pass 08 slice 4, D11: "installed" is not "active", so no read in
-        // this build answers it, on any step.
-        (dest, VerificationCheck::ProviderReportsActive, false),
+        // Work order 16 part S: an active read answers it, and only on the
+        // destination's verify step (pass 08 slice 4, D11: never a presence
+        // read; `answers` holds that half).
+        (dest, VerificationCheck::ProviderReportsActive, true),
         (dest, VerificationCheck::PackageNewlyPresent, true),
         (removal, VerificationCheck::PackageAbsent, true),
         // The evaluable checks, each on a step whose read does not answer it.
@@ -1516,6 +1541,29 @@ fn a_check_evaluable_but_unanswered_by_the_steps_reads_is_refused() {
     assert!(refused(&execution_refusals(&plan), |r| matches!(
         r,
         ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::PackageNewlyPresent }
+            if *s == step
+    )));
+
+    // And activation: a destination step whose reads include no activation
+    // read leaves `PROVIDER_REPORTS_ACTIVE` unanswered (security-reviewer L1 on
+    // PR #44); a presence read never stands in for it (D11).
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    let step = plan.steps[verify].index;
+    if !plan.steps[verify]
+        .verification
+        .contains(&VerificationCheck::ProviderReportsActive)
+    {
+        plan.steps[verify]
+            .verification
+            .push(VerificationCheck::ProviderReportsActive);
+    }
+    for command in &mut plan.steps[verify].commands {
+        command.success = SuccessSemantic::StdoutNamesPackage;
+    }
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckHasNoAnsweringRead { step: s, check: VerificationCheck::ProviderReportsActive }
             if *s == step
     )));
 }

@@ -505,16 +505,19 @@ pub fn clear(
 ///
 /// A check is answered by its step's own provider read through
 /// `verification::evaluate`, so evaluability is per (step kind, check), not
-/// per check. `true` for two pairs only: `PACKAGE_NEWLY_PRESENT` on
-/// `VERIFY_DESTINATION`, and `PACKAGE_ABSENT` on `VERIFY_REMOVAL`. The same
-/// check on any other step has no read to answer it.
+/// per check. `true` for three pairs only: `PACKAGE_NEWLY_PRESENT` and
+/// `PROVIDER_REPORTS_ACTIVE` on `VERIFY_DESTINATION`, and `PACKAGE_ABSENT` on
+/// `VERIFY_REMOVAL`. The same check on any other step has no read to answer
+/// it.
 ///
-/// **`PROVIDER_REPORTS_ACTIVE` is never evaluable** (pass 08 slice 4, D11;
-/// SE-094). It used to be answered by the destination's presence read, which
-/// establishes *installed*, not *active*: certifying one as the other is a
-/// false verification guarding INV-01. No read a plan carries establishes
-/// "active" for both providers, and answering it for one only would be a
-/// direction asymmetry (INV-17).
+/// **`PROVIDER_REPORTS_ACTIVE` is answered by an active read only** (work
+/// order 16 part S; SE-107). It used to be answered by the destination's
+/// presence read, which establishes *installed*, not *active* — certifying one
+/// as the other is a false verification guarding INV-01 (pass 08 slice 4, D11;
+/// SE-094). Both providers now carry a `verify_active` cell, so the check is
+/// evaluable in both directions under one rule (INV-17); a step whose reads
+/// include no active read is still refused, by
+/// [`ExecutionRefusal::CheckHasNoAnsweringRead`].
 ///
 /// The other checks need evidence this build does not gather — an integrity
 /// verb, an ownership query, a linkage scan — and `LIVENESS_PROBE` would run
@@ -527,10 +530,11 @@ pub fn clear(
 #[must_use]
 pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> bool {
     let reads = match check {
-        VerificationCheck::PackageNewlyPresent => StepKind::VerifyDestination,
+        VerificationCheck::PackageNewlyPresent | VerificationCheck::ProviderReportsActive => {
+            StepKind::VerifyDestination
+        }
         VerificationCheck::PackageAbsent => StepKind::VerifyRemoval,
-        VerificationCheck::ProviderReportsActive
-        | VerificationCheck::ProviderIntegrityCheck
+        VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
         | VerificationCheck::NoCrossProviderLinkage

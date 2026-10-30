@@ -7527,6 +7527,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
       there. Making the check evaluable is pass 08 slice 6's. A consequence: a
       consolidation's `VERIFY_DESTINATION`, which carried only this check
       among the evaluable ones, now asserts nothing and the gate refuses it.
+      (Superseded in part by SE-107, S-2: the check is evaluable again from an
+      activation read, and the gate now refuses that step for DP-051's four.)
     - 04 asks the plan for environment changes, cleanup policy and a rollback
       story; `MigrationPlan` carries cleanup review as a step, records
       environment changes in history (SE-092), and has no rollback field.
@@ -8202,8 +8204,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: none; test code only.
 
 ## SE-107 — Pass 08 slice 6: an artifact the destination cannot supply is `MANUAL_REVIEW`; the plan review's rulings
-- Status: accepted (A built; B and C built inert, S-1; B's cells in the commands table, S-2, check not yet
-  evaluable; D superseded — amended 2026-10-28 and 2026-10-30, work order 16 part S)
+- Status: accepted (A, B and C built — B evaluable in both directions since S-2; D superseded — amended
+  2026-10-28 and 2026-10-30, work order 16 part S)
 - Date / Pass: 2026-10-26 / pass 08 slice 6 (`docs/passes/08-slice-6-plan.md`)
 - Original assumption: 04's MUST that a step whose artifact is no longer available becomes `MANUAL_REVIEW` was met by
   no plan (SE-092, slice 5 D8); the planner read a destination's availability only for the non-blocking
@@ -8247,8 +8249,8 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
 - Compatibility impact: a plan can now carry a new risk id and stop at a new reason; both are additions to open sets
   (`plan.v1.md`), so no schema version moves. No fixture or documented sample changes: no recording carries the states.
 - **Amended 2026-10-28, work order 16 part S (`docs/passes/16-plans/S.md`, reviewed by both reviewers in two rounds).
-  Parts B and C built as inert code (S-1); the cells that make B evaluable are staged for the owner
-  (`docs/passes/16-staged/S/`, S-2); part D superseded, not built.**
+  Parts B and C built as inert code (S-1); the cells that make B evaluable applied from the owner's staged patch
+  and B made evaluable (S-2, 2026-10-30); part D superseded, not built.**
   - Part B's design. `PROVIDER_REPORTS_ACTIVE` is answered by one new read per provider, already on the process
     allowlist and naming no package: MacPorts `-q installed` judged by `STDOUT_MARKS_PACKAGE_ACTIVE`, Homebrew
     `info --json=v2 --installed` judged by `JSON_REPORTS_PACKAGE_LINKED` (R-20 findings 19, 20). **One INV-17 rule for
@@ -8297,8 +8299,29 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - S-2's first commit (2026-10-30, the armed variant of S.md §10): the commands-table hunk applied by `git apply`
     and checked byte for byte, the policy version bump to `2026.10.18-1` with every pinned copy regenerated, and the
     tests and fakes that pinned S-1's single-read `VERIFY_DESTINATION` updated in the same commit (S.md, As built
-    (S-2)). Still owed by S-2: `evaluable_in_this_build` true for `PROVIDER_REPORTS_ACTIVE` on
-    `VERIFY_DESTINATION`, and the replay tests over the recordings.
+    (S-2)).
+  - S-2's second pull request (2026-10-30): `evaluable_in_this_build` answers `PROVIDER_REPORTS_ACTIVE` on
+    `VERIFY_DESTINATION` only (`provider_reports_active_is_evaluable_on_verify_destination_only`), one arm shared with
+    `PACKAGE_NEWLY_PRESENT`, so both directions gain it at once (INV-17). The widened tripwire
+    `the_switch_needs_the_destination_contract_evaluable` now names exactly DP-051's four checks (part H), and its
+    held half pins both destination checks evaluable. Replay (INV-15):
+    `crates/application/tests/replay_active.rs` judges each recording's own activation reads with the product's
+    judge — every unlinked formula and every cask, a fixed stride of the linked ones (each judgement parses a
+    ~900 KB document), every MacPorts name — and pins each recording's counts literally, labelled by provenance
+    (captured `both-providers-intel-macos26`, `homebrew-only-intel-macos26`; derived `both-providers-arm64-macos15`,
+    `homebrew-deprecated-and-tap-intel-macos26`; synthesised `macports-only-intel-macos12`). The replay tests are
+    application-level judges over recorded text rather than `run_with` shell runs (S.md, As built (S-2) deviation 7):
+    under `--replay` a certifying read halts before it is made (C1), so a shell run could not reach the judge.
+  - **Review of PR #44 (spec-guardian F1, security-reviewer M1):** 04's "check 1 only together with
+    `PACKAGE_NEWLY_PRESENT`" was unenforced, and the planner deliberately omits that check for a consolidation (F-06);
+    making check 1 evaluable made the gap reachable once part H lands. Resolved both ways: 04 now states the
+    consolidation case, and `judge_reads` enforces the rest — `PROVIDER_REPORTS_ACTIVE` on a step without
+    `PACKAGE_NEWLY_PRESENT` passes only when the paired snapshot shows the destination held the package; absent halts
+    with the new `Unevaluable::ActiveAloneAfterAnInstall` (`ACTIVE_ALONE_AFTER_AN_INSTALL`) (both locales), unknown with `PRESENCE_BEFORE_UNKNOWN`
+    (`invariant_01_provider_reports_active_alone_never_verifies_an_install`, both directions). Also:
+    `CHECK_HAS_NO_ANSWERING_READ` pinned for this check (L1); the out-of-recording test lost its `invariant_15_`
+    prefix, since a text judge cannot reach a live read (F3). Noted for parts H and K (L2): "some version active" is
+    not "the version this run installed"; the plan carries no version.
   - Tests: `crates/domain/tests/verification_active.rs` (the row rule, `invariant_17_exactly_one_record_marked_active_is_the_rule_for_both_providers`);
     `verification_json` unit tests; the executor's `certify_destination`, `reverify_for`, `destination_still_verified`
     and `invariant_01_*` tests; `planner_and_gate_share_one_verify_destination_rule`,

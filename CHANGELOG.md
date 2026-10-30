@@ -40,9 +40,14 @@ describes the ones a user sees. (DP-045, ruled
   switch, which stays off: the destination is read again immediately before each
   removal command (`DESTINATION_NOT_REVERIFIED`). Every `VERIFY_DESTINATION` in
   `plan --json` now lists a second command, the read that shows the package
-  active (`brew info --json=v2 --installed`, `port -q installed`); the check it
-  answers, `PROVIDER_REPORTS_ACTIVE`, is not yet evaluable in this build (work
-  order 16 part S; SE-107). The policy data version is `2026.10.18-1`.
+  active (`brew info --json=v2 --installed`, `port -q installed`), and the
+  check it answers, `PROVIDER_REPORTS_ACTIVE`, is evaluated from that read, in
+  both directions. Without `PACKAGE_NEWLY_PRESENT` on the same step it certifies
+  only a package the destination already held before the run; otherwise the
+  step halts `UNEVALUABLE` (`ACTIVE_ALONE_AFTER_AN_INSTALL`, or
+  `PRESENCE_BEFORE_UNKNOWN` when that cannot be told). A Homebrew cask, which
+  records no linked keg, never passes it (work order 16 part S; SE-107). The policy data version is
+  `2026.10.18-1`.
 - `doctor`: says, per provider, whether the reads this tool asks it for may
   reach the network on the provider's own account (its local metadata index is
   missing), are answered offline, or cannot be told from this input; and names

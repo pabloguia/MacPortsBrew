@@ -1135,6 +1135,9 @@ fn unevaluable_key(value: Unevaluable) -> &'static str {
         Unevaluable::MissingRead => "migrate.unevaluable.missing_read",
         Unevaluable::PresenceBeforeUnknown => "migrate.unevaluable.presence_before_unknown",
         Unevaluable::PresentBeforeTheRun => "migrate.unevaluable.present_before_the_run",
+        Unevaluable::ActiveAloneAfterAnInstall => {
+            "migrate.unevaluable.active_alone_after_an_install"
+        }
         Unevaluable::NotCertifiedHere => "migrate.unevaluable.not_certified_here",
     }
 }
@@ -1534,6 +1537,7 @@ mod tests {
             Unevaluable::MissingRead,
             Unevaluable::PresenceBeforeUnknown,
             Unevaluable::PresentBeforeTheRun,
+            Unevaluable::ActiveAloneAfterAnInstall,
         ];
         let checks = [
             CheckKind::ProviderReportsActive,

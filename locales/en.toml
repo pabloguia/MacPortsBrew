@@ -453,6 +453,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "migrate.unevaluable.missing_read" = "fewer reads came back than the step has commands"
 "migrate.unevaluable.presence_before_unknown" = "whether the package was absent before the run is not known"
 "migrate.unevaluable.present_before_the_run" = "the package was already there before the run, so finding it proves nothing"
+"migrate.unevaluable.active_alone_after_an_install" = "the package is reported active, but the step does not check that this run installed it"
 "migrate.unevaluable.not_certified_here" = "a check of the destination is certified only right after its provider's configuration is checked again"
 "migrate.check.provider_reports_active" = "the provider reports it installed and active"
 "migrate.check.provider_integrity_check" = "the provider's own integrity check passes"
