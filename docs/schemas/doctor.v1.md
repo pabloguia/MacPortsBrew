@@ -242,7 +242,7 @@ deliberate way to deal with a marker.
 {
   "schemaVersion": 1,
   "toolVersion": "0.1.0",
-  "policyVersion": "2026.10.12-4",
+  "policyVersion": "2026.10.18-1",
   "findings": [
     {
       "id": "path_unknown",

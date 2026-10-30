@@ -16,7 +16,7 @@
 provider = "homebrew"
 executable = "bin/brew"
 source = "https://docs.brew.sh/Manpage (install, uninstall, link, list); Library/Homebrew/brew.sh check-run-command-as-root @ 560147012b9678b42ef5e83b690f0895552d1366 (list, and so verify); docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md. The `[entry.success]` cells are two observations on this machine, Homebrew 6.0.21: the verify verb on an installed formula exits 0 with the name and version (R-5a E1, 2026-09-04), and on a name that is not installed exits 1 with no output (2026-09-06, recorded in the F-33 section of docs/passes/02-ARCHITECTURE-REVIEW-findings.md). `add` and `remove` are cited to the Manpage, not re-observed, because running them would mutate this machine (INV-05). The `verify_absent` cells are a third observation, 2026-09-19, Homebrew 6.0.21: `brew list --versions <installed>` exits 0 naming it, a real-but-uninstalled formula (`cowsay`) and a name that is not a formula both exit 1 with no output, and the bare inventory exits 0 with 201 lines, listing casks as well as formulae (all nine installed casks appear, matched on the first token) and emitting no section headers - so absence is the name missing from a complete non-empty inventory, and never an empty answer"
-read_on = "2026-09-19"
+read_on = "2026-10-18"
 elevation_reason = "Homebrew refuses to run as root; its prefix subdirectories are owned by the user (docs.brew.sh/FAQ, read 2026-09-02)."
 
 [entry.verbs]
@@ -28,6 +28,12 @@ verify = ["list", "--versions"]
 # being missing from it. See `[entry.success]` below for why asking about one
 # name cannot answer this question on either provider.
 verify_absent = ["list", "--versions"]
+# Whether the destination provider records the package as the active
+# installation (04, check 1; R-20). Names no package: the planner appends
+# nothing, and the answer is the one `formulae[]` entry of that name whose
+# `linked_keg` equals one of its own `installed[].version`. A cask has no
+# such record and never passes (R-20 finding 13).
+verify_active = ["info", "--json=v2", "--installed"]
 
 # How an executor establishes that each command succeeded. Exit status is not
 # the universal answer - see the MacPorts entry, where for one verb it carries
@@ -69,6 +75,7 @@ verify = "exit_status"
 # So this asks for the inventory and requires the name to be missing from a
 # *non-empty* answer. A provider that failed produces nothing and is refused.
 verify_absent = "stdout_omits_package"
+verify_active = "json_reports_package_linked"
 
 [entry.elevation]
 add = "none"
@@ -99,6 +106,10 @@ verify = "none"
 # no name.
 verify_absent = "none"
 verify_absent_gui_app = "none"
+# The capture read, unelevated (R-20 E7). Kind-agnostic: it reports casks too,
+# and a cask then fails the check rather than the elevation.
+verify_active = "none"
+verify_active_gui_app = "none"
 # Same command, same answer. Verifying a cask does not elevate either - but see
 # finding F-22: `brew list --versions` is formula-only once a name is given, so
 # the *verb* is wrong for a cask even though the elevation is right.
@@ -166,11 +177,23 @@ read_on = "2026-09-06"
 source = "Observed on this machine 2026-09-19, Homebrew 6.0.21: `brew list --versions actionlint` exit 0 naming it; `cowsay` (real, not installed) and `definitely-not-a-formula-xyz` both exit 1 with no output; bare `brew list --versions` exit 0 with 201 lines"
 read_on = "2026-09-19"
 
+[entry.provenance.elevation.verify_active]
+source = "`brew info --json=v2 --installed` run unelevated as uid 501 by capture on this machine exits 0 with the whole document, Homebrew 7.0.4, macOS 26 (docs/research/R-20-what-a-read-shows-as-active.md E0, E7)"
+read_on = "2026-10-18"
+
+[entry.provenance.elevation.verify_active_gui_app]
+source = "Same read as elevation.verify_active: it names no package and lists casks beside formulae, unelevated as uid 501 (docs/research/R-20-what-a-read-shows-as-active.md E7, finding 13)"
+read_on = "2026-10-18"
+
+[entry.provenance.success.verify_active]
+source = "Observed on this machine 2026-10-18, Homebrew 7.0.4: `linked_keg` is the version `var/homebrew/linked/<name>` resolves to or null; every string equals one `installed[].version` including the revision suffix; keg_only does not predict it (openssl@3 keg-only and linked, curl keg-only and unlinked, pydantic not keg-only and unlinked); casks carry no linked field (docs/research/R-20-what-a-read-shows-as-active.md E7, E8, findings 8-13, 20-21)"
+read_on = "2026-10-18"
+
 [[entry]]
 provider = "macports"
 executable = "bin/port"
 source = "https://guide.macports.org (using.port.install, using.port.uninstall, section 6.5 Registry Files); macports.conf(5) portdbpath; docs/research/R-5-privilege-requirements.md; docs/research/R-5a-verify-command-elevation.md; the `verify` elevation cell carries its own provenance, in `[entry.provenance.elevation.verify]`. Observed 2026-09-08 with 18 ports installed, three requested (R-5 E24): `port -q installed` exits 0 for an installed port, an absent one, and a name that is not a port at all (R-5 E22, F-33). Re-observed again 2026-09-19 for the `verify_absent` cells, MacPorts 2.12.6 with 18 ports installed: the three-cases-one-answer result is confirmed with a real inventory behind it, `port installed <name>` without `-q` prints its own not-installed sentence for an absent port *and* for a name that is not a port, and the bare `port -q installed` exits 0 with 18 lines"
-read_on = "2026-09-19"
+read_on = "2026-10-18"
 elevation_reason = "The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02)."
 # Words `port` reads as a *set of ports* wherever a portname goes, so a package
 # called one of these is not a package: removing the set named `installed` is
@@ -202,6 +225,11 @@ remove = ["uninstall"]
 verify = ["-q", "installed"]
 # No package is appended to this one; see `[entry.success]`.
 verify_absent = ["-q", "installed"]
+# Whether the registry records the port as the active image (04, check 1;
+# R-20). Names no package: the answer is exactly one row of the name marked
+# ` (active)`; an inactive sibling (two tokens) is ignored, and any other
+# row of the name fails the check.
+verify_active = ["-q", "installed"]
 
 # `verify` is the one cell in this file where exit status is not the answer,
 # and it is why this table exists (F-33). Observed on this machine 2026-09-08,
@@ -246,6 +274,7 @@ verify = "stdout_names_package"
 #
 # So: the inventory, and the name missing from a non-empty answer.
 verify_absent = "stdout_omits_package"
+verify_active = "stdout_marks_package_active"
 
 [entry.elevation]
 add = "required"
@@ -307,6 +336,10 @@ verify_absent = "none"
 # records. Stated so the planner never reaches a value by omission.
 verify_absent_gui_app = "unknown"
 verify_gui_app = "unknown"
+# As verify_absent: the bare registry read is unelevated (R-5 E22-E24, R-20
+# E3); a GUI app's cell stays `unknown`, so the gate refuses it.
+verify_active = "none"
+verify_active_gui_app = "unknown"
 # Cross-provider primary goes through the MacPortsBrew-managed directory
 # (SE-036); the provider's own intra-provider selection mechanism needs
 # elevation and is proposed to the user, not run.
@@ -345,3 +378,11 @@ read_on = "2026-09-08"
 [entry.provenance.success.verify_absent]
 source = "Observed on this machine 2026-09-19, MacPorts 2.12.6 with 18 ports installed: `port -q installed autoconf` exit 0 naming it; `wireshark` (real, absent) and `definitely-not-a-port-xyz` exit 0 with no output; bare `port -q installed` exit 0 with 18 lines"
 read_on = "2026-09-19"
+
+[entry.provenance.elevation.verify_active]
+source = "Bare `port -q installed` run unelevated as uid 501 exits 0 with one row per registered image, MacPorts 2.12.6 (docs/research/R-20-what-a-read-shows-as-active.md E0, E3); the registry is readable and not writable by that user (docs/research/R-5-privilege-requirements.md E22-E24)"
+read_on = "2026-10-18"
+
+[entry.provenance.success.verify_active]
+source = "Observed on this machine 2026-10-18, MacPorts 2.12.6: each row is two spaces, the name, one space, @version_revision+variants, then \" (active)\" if and only if the registry state is installed, no trailing whitespace; no (inactive) marker exists (read from port.tcl and portimage.tcl at v2.12.6, not observed); -q changes no row; -v would append text after (active) and is never passed (docs/research/R-20-what-a-read-shows-as-active.md E3, E4, E5, findings 1-7, 19)"
+read_on = "2026-10-18"

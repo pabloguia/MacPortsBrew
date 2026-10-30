@@ -194,6 +194,35 @@ fn naming_destination(plan: &MigrationPlan) -> String {
     )
 }
 
+/// What each command of a plan's `VERIFY_DESTINATION` prints when the package
+/// is there and active: the presence read names it, and the activation read
+/// marks it in its provider's own shape (R-20; `verification_json`'s shape for
+/// Homebrew).
+fn destination_outputs(plan: &MigrationPlan) -> Vec<String> {
+    use macportsbrew_domain::SuccessSemantic;
+    let verify = position(plan, StepKind::VerifyDestination);
+    let name = plan.destination_name().expect("a destination").as_str();
+    plan.steps[verify]
+        .commands
+        .iter()
+        .map(|c| match c.success {
+            SuccessSemantic::StdoutMarksPackageActive => format!("  {name} @1.0_0 (active)\n"),
+            SuccessSemantic::JsonReportsPackageLinked => format!(
+                r#"{{"formulae": [{{"name": "{name}", "linked_keg": "1.0", "installed": [{{"version": "1.0"}}]}}], "casks": []}}"#
+            ),
+            _ => naming_destination(plan),
+        })
+        .collect()
+}
+
+/// Each of `outputs` as a read that finished.
+fn passing(outputs: &[String]) -> Vec<StepRead<'_>> {
+    outputs
+        .iter()
+        .map(|o| StepRead::Output(finished(o)))
+        .collect()
+}
+
 /// The real-install plan from Homebrew, narrowed to its read steps, paired
 /// with the snapshot it was planned from.
 fn full_run() -> PlannedRun {
@@ -310,11 +339,24 @@ fn every_check_must_be_backed_by_a_passing_read() {
     let run = full_run();
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let named = naming_destination(run.plan());
-    let passed = judge(&run, verify, &[StepRead::Output(finished(&named))]);
+    let outputs = destination_outputs(run.plan());
+    assert_eq!(outputs.len(), 2, "presence and activation (S-2)");
+    let passed = judge(&run, verify, &passing(&outputs));
     assert!(
-        matches!(passed, Disposition::Verified { ref evidence } if evidence.len() == 1),
+        matches!(passed, Disposition::Verified { ref evidence } if evidence.len() == 2),
         "{passed:?}"
     );
+    // One read for two commands: never a pass.
+    assert!(matches!(
+        judge(&run, verify, &[StepRead::Output(finished(&named))]),
+        Disposition::Halted {
+            reason: HaltReason::Unevaluable {
+                why: Unevaluable::MissingRead,
+                ..
+            },
+            ..
+        }
+    ));
     // Fewer reads than commands: never a pass.
     assert_eq!(
         judge(&run, verify, &[]),
@@ -346,7 +388,7 @@ fn every_check_must_be_backed_by_a_passing_read() {
             .push(VerificationCheck::ProviderIntegrityCheck);
     });
     assert!(matches!(
-        judge(&extra, verify, &[StepRead::Output(finished(&named))]),
+        judge(&extra, verify, &passing(&outputs)),
         Disposition::Halted {
             reason: HaltReason::Unevaluable {
                 why: Unevaluable::CheckHasNoEvaluation,
@@ -360,7 +402,7 @@ fn every_check_must_be_backed_by_a_passing_read() {
         p.steps[verify].verification = vec![VerificationCheck::PackageAbsent];
     });
     assert!(matches!(
-        judge(&misplaced, verify, &[StepRead::Output(finished(&named))]),
+        judge(&misplaced, verify, &passing(&outputs)),
         Disposition::Halted {
             reason: HaltReason::Unevaluable { .. },
             ..
@@ -387,8 +429,8 @@ fn newly_present_from(edit: impl FnOnce(&mut Snapshot)) -> Option<Unevaluable> {
         }
     });
     let verify = position(run.plan(), StepKind::VerifyDestination);
-    let named = naming_destination(run.plan());
-    match judge(&run, verify, &[StepRead::Output(finished(&named))]) {
+    let outputs = destination_outputs(run.plan());
+    match judge(&run, verify, &passing(&outputs)) {
         Disposition::Halted {
             reason:
                 HaltReason::Unevaluable {
@@ -1434,8 +1476,8 @@ fn judge_step_never_verifies_a_verify_destination_even_with_passing_reads() {
     // `judge_step` answers `NOT_CERTIFIED_HERE` before looking at them.
     let run = full_run();
     let verify = position(run.plan(), StepKind::VerifyDestination);
-    let named = naming_destination(run.plan());
-    let reads = [StepRead::Output(finished(&named))];
+    let outputs = destination_outputs(run.plan());
+    let reads = passing(&outputs);
     assert!(matches!(
         certify_destination(&run, verify, token(&run), &reads),
         Disposition::Verified { .. }
@@ -1538,14 +1580,9 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
         let plan = run.plan();
         let remove = position(plan, StepKind::RemoveSource);
         let reverify = reverify_for(plan, remove).expect("a removal is re-read");
-        let named = naming_destination(plan);
+        let outputs = destination_outputs(plan);
         assert_eq!(
-            destination_still_verified(
-                &run,
-                &reverify,
-                token(&run),
-                &[StepRead::Output(finished(&named))]
-            ),
+            destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
             Ok(()),
             "{from}: the control"
         );
@@ -1555,8 +1592,16 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
             stdout: "",
             truncated: false,
         };
+        // Each beside a passing activation read, so the refusal is the presence
+        // read's and not a missing read's.
+        let active = StepRead::Output(finished(&outputs[1]));
         assert_eq!(
-            destination_still_verified(&run, &reverify, token(&run), &[StepRead::Output(gone)]),
+            destination_still_verified(
+                &run,
+                &reverify,
+                token(&run),
+                &[StepRead::Output(gone), active]
+            ),
             Err(Precondition::DestinationNotReverified),
             "{from}"
         );
@@ -1569,12 +1614,37 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
                     &run,
                     &reverify,
                     token(&run),
-                    &[StepRead::Output(finished("  unrelated 1.0\n"))]
+                    &[StepRead::Output(finished("  unrelated 1.0\n")), active]
                 ),
                 Err(Precondition::DestinationNotReverified),
                 "{from}"
             );
         }
+        // Still there, no longer active: presence passes and activation does
+        // not (S-2, `PROVIDER_REPORTS_ACTIVE`), in each provider's own shape.
+        let name = plan.destination_name().expect("a destination").as_str();
+        let inactive = match plan.steps[reverify.verify_position()].commands[1].success {
+            macportsbrew_domain::SuccessSemantic::StdoutMarksPackageActive => {
+                format!("  {name} @1.0_0\n")
+            }
+            macportsbrew_domain::SuccessSemantic::JsonReportsPackageLinked => format!(
+                r#"{{"formulae": [{{"name": "{name}", "linked_keg": null, "installed": [{{"version": "1.0"}}]}}], "casks": []}}"#
+            ),
+            other => panic!("{from}: {other:?} is not an activation read"),
+        };
+        assert_eq!(
+            destination_still_verified(
+                &run,
+                &reverify,
+                token(&run),
+                &[
+                    StepRead::Output(finished(&outputs[0])),
+                    StepRead::Output(finished(&inactive))
+                ]
+            ),
+            Err(Precondition::DestinationNotReverified),
+            "{from}: present but inactive"
+        );
     }
 }
 
@@ -1585,25 +1655,42 @@ fn invariant_01_removal_refused_when_the_reread_is_truncated_failed_or_unjudged(
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
     let named = naming_destination(plan);
+    let outputs = destination_outputs(plan);
+    let active = || StepRead::Output(finished(&outputs[1]));
+    // Each bad presence read beside a passing activation read; the last two
+    // are a read missing (the second) and none at all.
     let reads: Vec<Vec<StepRead<'_>>> = vec![
-        vec![StepRead::Output(ReadOutput {
-            end: ProcessEnd::Exited { code: 0 },
-            stdout: &named,
-            truncated: true,
-        })],
-        vec![StepRead::Output(ReadOutput {
-            end: ProcessEnd::DidNotFinish,
-            stdout: &named,
-            truncated: false,
-        })],
-        vec![StepRead::Output(ReadOutput {
-            end: ProcessEnd::Exited { code: 1 },
-            stdout: &named,
-            truncated: false,
-        })],
-        vec![StepRead::SiteRefused],
-        vec![StepRead::SiteUnavailable],
-        vec![StepRead::TransportFailed(ErrorId::ProviderTimeout)],
+        vec![
+            StepRead::Output(ReadOutput {
+                end: ProcessEnd::Exited { code: 0 },
+                stdout: &named,
+                truncated: true,
+            }),
+            active(),
+        ],
+        vec![
+            StepRead::Output(ReadOutput {
+                end: ProcessEnd::DidNotFinish,
+                stdout: &named,
+                truncated: false,
+            }),
+            active(),
+        ],
+        vec![
+            StepRead::Output(ReadOutput {
+                end: ProcessEnd::Exited { code: 1 },
+                stdout: &named,
+                truncated: false,
+            }),
+            active(),
+        ],
+        vec![StepRead::SiteRefused, active()],
+        vec![StepRead::SiteUnavailable, active()],
+        vec![
+            StepRead::TransportFailed(ErrorId::ProviderTimeout),
+            active(),
+        ],
+        vec![StepRead::Output(finished(&named))],
         vec![],
     ];
     for read in &reads {
@@ -1626,23 +1713,18 @@ fn invariant_01_destination_still_verified_requires_exactly_verified() {
     let plan = run.plan();
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
-    let named = naming_destination(plan);
+    let outputs = destination_outputs(plan);
     assert!(matches!(
         certify_destination(
             &run,
             reverify.verify_position(),
             token(&run),
-            &[StepRead::Output(finished(&named))]
+            &passing(&outputs)
         ),
         Disposition::Halted { .. }
     ));
     assert_eq!(
-        destination_still_verified(
-            &run,
-            &reverify,
-            token(&run),
-            &[StepRead::Output(finished(&named))]
-        ),
+        destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
         Err(Precondition::DestinationNotReverified)
     );
 }
@@ -1653,14 +1735,14 @@ fn invariant_01_a_destination_token_for_the_wrong_provider_is_refused() {
     let plan = run.plan();
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
-    let named = naming_destination(plan);
+    let outputs = destination_outputs(plan);
     let source = plan.source.clone();
     assert_eq!(
         destination_still_verified(
             &run,
             &reverify,
             token_for(&run, &source),
-            &[StepRead::Output(finished(&named))]
+            &passing(&outputs)
         ),
         Err(Precondition::WrongProviderToken)
     );
@@ -1679,13 +1761,27 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     let plan = run.plan();
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
-    let named = naming_destination(plan);
+    let outputs = destination_outputs(plan);
+    assert_eq!(
+        destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
+        Err(Precondition::DestinationNotReverified)
+    );
+    // The activation read alone needing a prompt is refused as well: the
+    // check covers every command, not the first.
+    let second_only = forced_run(MP).map_plan(|p| {
+        let verify = position(p, StepKind::VerifyDestination);
+        p.steps[verify].commands[1].elevation = Elevation::Required { reason: "x".into() };
+    });
+    let plan = second_only.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let outputs = destination_outputs(plan);
     assert_eq!(
         destination_still_verified(
-            &run,
+            &second_only,
             &reverify,
-            token(&run),
-            &[StepRead::Output(finished(&named))]
+            token(&second_only),
+            &passing(&outputs)
         ),
         Err(Precondition::DestinationNotReverified)
     );
@@ -1703,15 +1799,10 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     // The control: with the GUI app's reads present, everything but the
     // re-derived elevation would certify.
     let verify = position(gui.plan(), StepKind::VerifyDestination);
-    let named_gui = naming_destination(gui.plan());
+    let outputs_gui = destination_outputs(gui.plan());
     assert!(
         matches!(
-            certify_destination(
-                &gui,
-                verify,
-                token(&gui),
-                &[StepRead::Output(finished(&named_gui))]
-            ),
+            certify_destination(&gui, verify, token(&gui), &passing(&outputs_gui)),
             Disposition::Verified { .. }
         ),
         "the GUI-app control certifies"
@@ -1719,14 +1810,8 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     let plan = gui.plan();
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
-    let named = naming_destination(plan);
     assert_eq!(
-        destination_still_verified(
-            &gui,
-            &reverify,
-            token(&gui),
-            &[StepRead::Output(finished(&named))]
-        ),
+        destination_still_verified(&gui, &reverify, token(&gui), &passing(&outputs_gui)),
         Err(Precondition::DestinationNotReverified)
     );
 }

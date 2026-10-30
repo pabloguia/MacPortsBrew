@@ -47,7 +47,7 @@ use macportsbrew_domain::{
     MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata, PlanCommand,
     Provenance, ProviderCapabilities, ProviderConfiguration, ProviderDetection, ProviderId,
     ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, RunStart, Snapshot,
-    StepKind, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    StepKind, SuccessSemantic, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -433,8 +433,22 @@ impl Seen {
     }
 }
 
+/// What the destination's read `command` prints when the package is there and
+/// active: a presence read names it, an activation read marks it in its
+/// provider's own shape (R-20) — work order 16 part S, S-2.
+fn destination_present(plan: &MigrationPlan, command: &PlanCommand) -> String {
+    let name = plan.destination_name().expect("a destination").as_str();
+    match command.success {
+        SuccessSemantic::StdoutMarksPackageActive => format!("  {name} @1.0_0 (active)\n"),
+        SuccessSemantic::JsonReportsPackageLinked => format!(
+            r#"{{"formulae": [{{"name": "{name}", "linked_keg": "1.0", "installed": [{{"version": "1.0"}}]}}], "casks": []}}"#
+        ),
+        _ => format!("  {name} 1.0\n"),
+    }
+}
+
 /// Answers every read as the provider would after the plan happened: the
-/// destination named, the source missing from the inventory.
+/// destination named and active, the source missing from the inventory.
 struct Reads<'p>(&'p MigrationPlan);
 
 impl ReadSite for Reads<'_> {
@@ -444,10 +458,7 @@ impl ReadSite for Reads<'_> {
         command: &PlanCommand,
     ) -> Result<Invocation, PlanReadError> {
         let stdout = if *provider == self.0.destination {
-            format!(
-                "  {} 1.0\n",
-                self.0.destination_name().expect("a destination").as_str()
-            )
+            destination_present(self.0, command)
         } else {
             "  unrelated 1.0\n".to_string()
         };
@@ -1508,16 +1519,7 @@ impl ReadSite for &Vanishing<'_> {
             .count();
         let (code, stdout) = if *provider == self.plan.destination {
             if earlier <= self.present_for {
-                (
-                    0,
-                    format!(
-                        "  {} 1.0\n",
-                        self.plan
-                            .destination_name()
-                            .expect("a destination")
-                            .as_str()
-                    ),
-                )
+                (0, destination_present(self.plan, command))
             } else {
                 (1, String::new())
             }

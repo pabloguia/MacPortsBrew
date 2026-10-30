@@ -40,7 +40,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -142,7 +142,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -242,7 +242,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -337,7 +337,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -432,7 +432,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -527,7 +527,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -635,7 +635,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -734,7 +734,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -835,7 +835,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -943,7 +943,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1038,7 +1038,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1134,7 +1134,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1229,7 +1229,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1337,7 +1337,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1436,7 +1436,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1545,7 +1545,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1646,7 +1646,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1748,7 +1748,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1848,7 +1848,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -1943,7 +1943,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2044,7 +2044,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2139,7 +2139,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2234,7 +2234,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2374,7 +2374,7 @@
           "kind": "KEEP_BOTH",
           "primary": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -2517,7 +2517,7 @@
           "kind": "KEEP",
           "provider": "macports"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2618,7 +2618,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2720,7 +2720,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2821,7 +2821,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -2924,7 +2924,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3024,7 +3024,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3137,7 +3137,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3232,7 +3232,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3334,7 +3334,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3449,7 +3449,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3544,7 +3544,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3639,7 +3639,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3741,7 +3741,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3841,7 +3841,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -3936,7 +3936,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4031,7 +4031,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4127,7 +4127,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4270,7 +4270,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4448,7 +4448,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4591,7 +4591,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4692,7 +4692,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4793,7 +4793,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4888,7 +4888,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -4989,7 +4989,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5084,7 +5084,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5224,7 +5224,7 @@
           "kind": "KEEP_BOTH",
           "primary": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.present_under_both_providers",
@@ -5367,7 +5367,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5463,7 +5463,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5571,7 +5571,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5678,7 +5678,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5778,7 +5778,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5873,7 +5873,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -5968,7 +5968,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6070,7 +6070,7 @@
         "outcome": {
           "kind": "MANUAL_REVIEW"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6170,7 +6170,7 @@
           "kind": "KEEP",
           "provider": "homebrew"
         },
-        "policyVersion": "2026.10.12-4",
+        "policyVersion": "2026.10.18-1",
         "reasons": [
           {
             "id": "reason.keep_source_default",
@@ -6245,7 +6245,7 @@
   ],
   "policyReadOn": "2026-09-17",
   "policyStale": false,
-  "policyVersion": "2026.10.12-4",
+  "policyVersion": "2026.10.18-1",
   "providers": {
     "homebrew": {
       "capabilities": {
