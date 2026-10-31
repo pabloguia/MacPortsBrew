@@ -138,7 +138,10 @@ pub fn ask(
             "{} ",
             messages.render(
                 "consent.type_to_allow",
-                &params(&[("phrase", confirmation_phrase(request, &code))]),
+                &params(&[(
+                    "phrase",
+                    escape_hostile(&confirmation_phrase(request, &code))
+                )]),
             )
         );
         let _ = out.flush();
@@ -375,6 +378,149 @@ mod tests {
         assert!(
             prompt.contains(&format!("allow step 3 {}", nth_code(0))),
             "the phrase with its code is shown"
+        );
+    }
+
+    /// What happened, in order, across the seam, the prompt and the input.
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    enum Event {
+        Draw,
+        Wrote(String),
+        Read,
+    }
+
+    type Log = std::rc::Rc<std::cell::RefCell<Vec<Event>>>;
+
+    struct LoggedPrompt(Log);
+
+    impl Write for LoggedPrompt {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .borrow_mut()
+                .push(Event::Wrote(String::from_utf8_lossy(buf).into_owned()));
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LoggedInput(Log, Cursor<Vec<u8>>);
+
+    impl Read for LoggedInput {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.borrow_mut().push(Event::Read);
+            self.1.read(buf)
+        }
+    }
+
+    impl BufRead for LoggedInput {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            self.0.borrow_mut().push(Event::Read);
+            self.1.fill_buf()
+        }
+        fn consume(&mut self, amount: usize) {
+            self.1.consume(amount);
+        }
+    }
+
+    #[test]
+    fn each_code_is_drawn_before_its_question_and_shown_before_the_answer_is_read() {
+        let log: Log = Log::default();
+        let typed = format!(
+            "allow step 3 {}\nallow step 5 {}\n",
+            nth_code(0),
+            nth_code(1)
+        );
+        let mut input = LoggedInput(log.clone(), Cursor::new(typed.into_bytes()));
+        let mut prompt = LoggedPrompt(log.clone());
+        let mut n = 0u8;
+        let draw_log = log.clone();
+        let mut code = move || {
+            draw_log.borrow_mut().push(Event::Draw);
+            n += 1;
+            Some([0xab, 0xcd, n - 1])
+        };
+        let decision = ask(
+            &[request(3), request(5)],
+            ConsentStreams {
+                input_is_terminal: true,
+                prompt_is_terminal: true,
+                input: &mut input,
+                prompt: &mut prompt,
+                code: &mut code,
+            },
+            &messages(),
+            &home(),
+        );
+        assert!(
+            matches!(decision, ConsentDecision::Given(_)),
+            "{decision:?}"
+        );
+        let events = log.borrow().clone();
+        let at = |p: &dyn Fn(&Event) -> bool, from: usize| {
+            events[from..]
+                .iter()
+                .position(p)
+                .map(|i| i + from)
+                .expect("the event happens")
+        };
+        let mut from = 0;
+        for (step, k) in [(3u32, 0u8), (5, 1)] {
+            let draw = at(&|e| *e == Event::Draw, from);
+            let first_write = at(&|e| matches!(e, Event::Wrote(_)), from);
+            let phrase = format!("allow step {step} {}", nth_code(k));
+            let shown = at(
+                &|e| matches!(e, Event::Wrote(t) if t.contains(&phrase)),
+                from,
+            );
+            let read = at(&|e| *e == Event::Read, from);
+            assert!(
+                draw < first_write,
+                "step {step}: drawn before anything of it is written"
+            );
+            assert!(
+                shown < read,
+                "step {step}: the phrase is shown before the answer is read"
+            );
+            from = read + 1;
+        }
+    }
+
+    #[test]
+    fn a_code_that_fails_mid_run_gives_no_partial_consent() {
+        let mut input = Cursor::new(format!("allow step 3 {}\n", nth_code(0)).into_bytes());
+        let mut prompt = Vec::new();
+        let mut draws = 0u8;
+        let mut code = || {
+            draws += 1;
+            (draws == 1).then_some([0xab, 0xcd, 0])
+        };
+        let decision = ask(
+            &[request(3), request(5)],
+            ConsentStreams {
+                input_is_terminal: true,
+                prompt_is_terminal: true,
+                input: &mut input,
+                prompt: &mut prompt,
+                code: &mut code,
+            },
+            &messages(),
+            &home(),
+        );
+        assert_eq!(
+            decision,
+            ConsentDecision::Refused(ConsentRefusal::CodeUnavailable)
+        );
+        let prompt = String::from_utf8(prompt).expect("utf-8");
+        assert!(
+            !prompt.contains("Step 5"),
+            "the second question is never asked: {prompt}"
+        );
+        assert_eq!(
+            input.position(),
+            u64::try_from(format!("allow step 3 {}\n", nth_code(0)).len()).expect("small"),
+            "only the first answer was read"
         );
     }
 }

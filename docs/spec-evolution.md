@@ -1642,7 +1642,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   command is refused the same way, by the shell before any re-read and by the two destination sites.
   Change (E-1, SR 10): the consent phrase is `allow step N <code>`, `<code>` an `application::ConsentCode` of three
   bytes written as six lowercase hex characters, drawn for each question before it is written, through a seam
-  (`ConsentStreams::code`) whose product source is `adapters::entropy::fresh_bytes` (the random device, opened
+  (`ConsentStreams::code`) whose product source will be `adapters::entropy::fresh_bytes` when part B (E-3) wires
+  the prompt, with a structural test that no other source and no fallback is passed (the random device, opened
   read-only, checked with `fstat` to be a character device, three bytes by `read_exact`). No code: nothing is asked
   and the answer is `ConsentRefusal::CodeUnavailable`, never a person's refusal. 24 bits suffice: a line typed
   before the question matches with probability 2⁻²⁴ and a miss is `Declined`, which halts the run, so there is no
@@ -1669,9 +1670,13 @@ change is made. Silent deviation remains the one unrecoverable error.
   `a_line_typed_before_the_question_is_never_consent`, `each_question_has_its_own_code`,
   `without_a_code_nothing_is_asked`, `confirm_requires_the_code_and_the_step`,
   `a_code_is_six_lowercase_hex_and_nothing_else`, `entropy_reads_three_bytes_or_answers_none`.
-- User impact: none in this build (no command is dispatched); one new precondition key in both locales.
-- Architectural impact: none beyond the token's field; SE-092's split holds (the shell plumbs, the application
-  decides).
+- User impact: none in this build (no command is dispatched, and the prompt has no product caller yet). Two keys in
+  both locales (`migrate.precondition.wrong_program_token`, `consent.code_unavailable`); once wired, the consent
+  phrase a person types carries a six-character code.
+- Architectural impact: the token's `program` field; `application::ConsentCode` and `ConsentRefusal::CodeUnavailable`;
+  a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn). SE-092's split
+  holds: the shell plumbs, the application decides; the shell's three empty-program guards are defence in depth
+  behind the gate.
 - Compatibility impact: `migrate.v1` additive (an open set gains a value).
 
 # Policy, output and quality

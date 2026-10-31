@@ -46,6 +46,8 @@ mod tests {
         let regular = std::env::temp_dir().join(format!("mpb-regular-{}", std::process::id()));
         std::fs::write(&regular, [1u8, 2, 3, 4]).expect("scratch");
         assert_eq!(bytes_from(&regular), None, "a regular file");
+        // A character device that gives no bytes: three are required.
+        assert_eq!(bytes_from(Path::new("/dev/null")), None, "an empty device");
         std::fs::remove_file(&regular).ok();
     }
 
