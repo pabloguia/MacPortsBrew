@@ -450,7 +450,16 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             ])
         )
     );
-    let _ = writeln!(out, "  {}", label(ctx, "plan.dry_run_only"));
+    // The plan's own field decides the banner, never the rendering: the same
+    // text is the screen a person confirms a run on (work order 16 part E-2,
+    // security review 1), so it must not say "nothing changes" of a plan that
+    // will change the machine.
+    let banner = if plan.dry_run_only {
+        "plan.dry_run_only"
+    } else {
+        "plan.will_run"
+    };
+    let _ = writeln!(out, "  {}", label(ctx, banner));
     if let Some(o) = &plan.overrode {
         let _ = writeln!(
             out,

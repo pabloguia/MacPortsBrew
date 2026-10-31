@@ -200,6 +200,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plano: mover {package} de {source} para {destination}"
+"plan.will_run" = "Estas etapas serão executadas nesta máquina, em ordem, assim que você confirmar abaixo; cada uma é verificada antes da próxima."
 "plan.dry_run_only" = "Esta versão não altera nada na sua máquina. Estas etapas são o que uma migração faria; se você mesmo as executar, execute cada comando na ordem, confira a verificação dele antes de continuar e mantenha a origem com --retain-source até ter certeza. Você as executa por sua conta e risco."
 "plan.overrides" = "Este plano vai contra a recomendação ({recommendation})."
 "plan.risks_heading" = "Riscos detectados"

@@ -973,9 +973,12 @@ the run on the reviewers' advice
   test.
 - **The terminal checks** read the process's own standard input and error;
   `run_inner` hands `migrate` its real standard error as the prompt stream.
-- **The security review of `ad850cb`** was refused by the auto-mode
-  classifier on 2026-10-31 (ledger, Needs the owner); E-2 does not merge
-  without it.
+- **The security review** was first refused by the auto-mode classifier
+  (2026-10-31); the owner then asked for it, and it ran over
+  `187f02b..58af1ef`. Its finding 1: the screen a person confirms on printed
+  `plan.dry_run_only` ("this version changes nothing") whatever the plan
+  said; `human::plan` now takes the banner from the plan's own field, and a
+  plan that will run says so (`plan.will_run`).
 
 ### Mutation proof (E-2, at `ad850cb`, isolated worktree, removed)
 
@@ -986,7 +989,9 @@ the run on the reviewers' advice
 | 19 the tie after the probe and lock | killed | the not-shown run test, the tie tripwire |
 | 20 the tie removed | killed | the same two |
 | 22 asked at one terminal | killed | `the_plan_question_is_asked_only_at_two_terminals` |
-| 33 the plan not rendered | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 41 the plan not rendered (numbered 33 in the run, which R13 had already used) | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 33 (R13) the confirmation minted from the pre-history plan | not applicable | impossible by construction: `confirm_shown` takes the `GateClear`, and `migrate_with` builds the run it clears after the `--retain-source` re-plan, so the witness and the run are one value |
+| 34 the product code source a constant | killed, by construction of the test | `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` pins `fresh_bytes` with no fallback (added after the run, security review 2) |
 | 37 asked after the state directory | killed | the tie tripwire, `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` |
 | 38 the plan written after the answer is read | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
 | 39 a failed draw falls back to a fixed code | killed | the declined-question test |
@@ -1006,4 +1011,5 @@ the run on the reviewers' advice
 | security-reviewer | `013025d` (and `e1d6aae`) | approve: L1–L2, I1–I3 | L1, L2 tests added; I1 owed to E-3 (As built); I2 accepted (root needed to plant a link at the device); I3 As built |
 | spec-guardian | `013025d` (and `e1d6aae`) | approve with changes: D1–D4, R1–R3 | D1 SE-111 future tense and As built (owed to E-3, named `invariant_06_*` there); D2 phrase escaped; D3 impact lines; D4 As built; R1 `/dev/null` case; R2 E-3; R3 accepted |
 | spec-guardian | `ad850cb` | approve with changes: 1–9 | 1 R1 test; 2 INV-17 test, fixtures owed to E-4; 3 `plan_question_error` and its test; 4–6 As built (E-2); 5 SE-111 fields; 7 docs; 8 doc comment; 9 As built and SE-111 |
-| security-reviewer | `ad850cb` | not run: the launch was refused by the auto-mode classifier | owner item |
+| security-reviewer | `ad850cb` | not run at first: the launch was refused by the auto-mode classifier | owner item, then run at the owner's request |
+| security-reviewer | `187f02b..58af1ef` | approve with changes: 1 medium, 2 low | 1 banner from the plan's field, pinned; 2 the code source pinned, mutant 34; 3 mutants renumbered, R13's 33 argued |

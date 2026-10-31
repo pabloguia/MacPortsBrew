@@ -1658,6 +1658,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   history probe (`ErrorId::PlanNotShown`, exit 4). `--yes` means "execute" and never answers a question (R4); with
   no terminal it is `USAGE` (exit 2), a declined question `ErrorId::UserAborted` (exit 6), and stdout is empty for
   all three, the identifier telling them from the planner's own exit 4 (R2; `migrate.rs` rule 5 amended).
+  The rendering a person confirms on takes its banner from the plan's own `dry_run_only` field: a plan that will run
+  says so (`plan.will_run`) instead of "this version changes nothing" (security review of E-2).
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both

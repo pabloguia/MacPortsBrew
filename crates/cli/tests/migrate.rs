@@ -1046,6 +1046,27 @@ fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
         source.contains("fn confirm_the_plan(") && source.contains("crate::consent::confirm_plan("),
         "the witness comes from the consent prompt"
     );
+    // The product code source is the random device, with no fallback (R7;
+    // security review of E-2, 2): a constant code would let a line typed
+    // ahead confirm the plan.
+    let confirm = &source[source
+        .find("fn confirm_the_plan(")
+        .expect("confirm_the_plan")..];
+    let confirm = &confirm[..confirm.find("\n}\n").expect("its end")];
+    assert!(confirm.contains("let mut code = macportsbrew_adapters::entropy::fresh_bytes;\n"));
+    assert_eq!(confirm.matches("code:").count(), 1, "one code source");
+    assert!(confirm.contains("code: &mut code,"));
+    for banned in [".or(", "unwrap_or", "Some([", "from_bytes("] {
+        assert!(
+            !confirm.contains(banned),
+            "a fallback code source: {banned}"
+        );
+    }
+    // The screen a person confirms on carries the plan's own banner, never
+    // the dry-run sentence for a plan that will run (review 1).
+    let human =
+        std::fs::read_to_string(root().join("crates/cli/src/app/human.rs")).expect("human.rs");
+    assert!(human.contains("let banner = if plan.dry_run_only {"));
 }
 
 #[test]

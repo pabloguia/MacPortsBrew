@@ -313,6 +313,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plan: move {package} from {source} to {destination}"
+"plan.will_run" = "These steps will be run on this machine, in order, once you confirm below; each is verified before the next."
 "plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk."
 "plan.overrides" = "This plan goes against the recommendation ({recommendation})."
 "plan.risks_heading" = "Risks detected"
