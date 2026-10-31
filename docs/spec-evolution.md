@@ -1650,6 +1650,16 @@ change is made. Silent deviation remains the one unrecoverable error.
   retry; a program that drives a pseudo-terminal can read and answer the code, which is the user's own automation
   and outside SR 10. Rejected: `RandomState` (its seeding is a `std` detail, not a documented randomness source) and
   `tcflush` (a paste can still follow the flush, and it needs `libc`).
+  Change (E-2, DP-049 (b), the interactive route): `application::ShownPlan` holds the plan the person confirmed,
+  minted only by `confirm_shown(&GateClear, &ConsentCode, typed)` for `run plan <code>`; `cli::consent::confirm_plan`
+  renders the cleared plan on standard error from that same value, then asks. `migrate --yes` asks only after the
+  live-scope check and the gate (a plan the gate refuses is never asked about, R1) and before the state directory;
+  `MutatingRun.shown` carries the witness, and `run_with_mutations` refuses a plan it does not cover before the
+  history probe (`ErrorId::PlanNotShown`, exit 4). `--yes` means "execute" and never answers a question (R4); with
+  no terminal it is `USAGE` (exit 2), a declined question `ErrorId::UserAborted` (exit 6), and stdout is empty for
+  all three, the identifier telling them from the planner's own exit 4 (R2; `migrate.rs` rule 5 amended).
+  The rendering a person confirms on takes its banner from the plan's own `dry_run_only` field: a plan that will run
+  says so (`plan.will_run`) instead of "this version changes nothing" (security review of E-2).
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both
@@ -1669,12 +1679,24 @@ change is made. Silent deviation remains the one unrecoverable error.
   `each_re_check_is_made_for_the_program_it_is_spent_on` (both directions), and for SR 10
   `a_line_typed_before_the_question_is_never_consent`, `each_question_has_its_own_code`,
   `without_a_code_nothing_is_asked`, `confirm_requires_the_code_and_the_step`,
-  `a_code_is_six_lowercase_hex_and_nothing_else`, `entropy_reads_three_bytes_or_answers_none`.
-- User impact: none in this build (no command is dispatched, and the prompt has no product caller yet). Two keys in
-  both locales (`migrate.precondition.wrong_program_token`, `consent.code_unavailable`); once wired, the consent
-  phrase a person types carries a six-character code.
+  `a_code_is_six_lowercase_hex_and_nothing_else`, `entropy_reads_three_bytes_or_answers_none`; for E-2
+  `invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_lock`,
+  `invariant_02_a_plan_the_gate_refuses_is_never_asked_about`,
+  `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`,
+  `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed`,
+  `invariant_17_the_tie_behaves_alike_in_both_directions`,
+  `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown`.
+- User impact: none in this build (no command is dispatched, and `migrate --yes` asks nothing without a mutation
+  allowance). Once a build dispatches: the plan is shown on standard error and `run plan <code>` confirms it, and an
+  elevation phrase carries a six-character code. Keys in both locales: `migrate.precondition.wrong_program_token`,
+  `consent.code_unavailable`, `consent.type_to_run_plan`, `error.plan_not_shown`, `error.user_aborted`; error ids
+  `PLAN_NOT_SHOWN` (exit 4) and `USER_ABORTED` (exit 6) in `error.rs`'s contract.
 - Architectural impact: the token's `program` field; `application::ConsentCode` and `ConsentRefusal::CodeUnavailable`;
-  a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn). SE-092's split
+  a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn);
+  `application::plan_tie` (`ShownPlan`, `confirm_shown`, `plan_question_error`), `MutatingRun.shown`, and
+  `ErrorId::PlanNotShown` and `ErrorId::UserAborted`. The witness covers the whole `MigrationPlan` value while the
+  person reads `human::plan`'s rendering, which does not show each command's sanitised environment; that field is
+  derived, never read by the spawn site (obligation 10), so confirming it unseen adds no risk. SE-092's split
   holds: the shell plumbs, the application decides; the shell's three empty-program guards are defence in depth
   behind the gate.
 - Compatibility impact: `migrate.v1` additive (an open set gains a value).

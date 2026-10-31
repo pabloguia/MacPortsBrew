@@ -2,10 +2,14 @@
 
 //! Asking a person for elevation consent (pass 08 slice 4, D10; INV-06).
 //!
-//! **Built, not wired.** No caller exists outside this module's tests: the
-//! execution gate refuses every elevated step in this build, and a flip
-//! tripwire (`crates/cli/tests/history_preconditions.rs`) fails the build that
-//! turns mutations on while nothing calls [`ask`].
+//! **Elevation: built, not wired.** No caller of [`ask`] exists outside this
+//! module's tests: the execution gate refuses every elevated step in this
+//! build, and a flip tripwire (`crates/cli/tests/history_preconditions.rs`)
+//! fails the build that turns mutations on while nothing calls it.
+//!
+//! **The plan: wired** (work order 16 part E-2). [`confirm_plan`] is called by
+//! `migrate --yes` under a mutation allowance, which this build never grants,
+//! so it is unreachable in a shipped build until the switch is flipped.
 //!
 //! The rules, each a review finding of the slice 4 plan (M3):
 //!
@@ -30,8 +34,10 @@
 
 use crate::i18n::Messages;
 use macportsbrew_application::{
-    confirm, confirmation_phrase, ConsentCode, ConsentDecision, ConsentRefusal, ElevationRequest,
+    confirm, confirm_shown, confirmation_phrase, plan_phrase, ConsentCode, ConsentDecision,
+    ConsentRefusal, ElevationRequest, GateClear, ShownPlan,
 };
+use macportsbrew_domain::MigrationPlan;
 use macportsbrew_domain::{escape_hostile, redact_home, HomeRedaction};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Read, Write};
@@ -162,6 +168,64 @@ pub fn ask(
         given.push(token);
     }
     ConsentDecision::Given(given)
+}
+
+/// Shows the plan the gate cleared and asks a person to confirm it (work order
+/// 16 part E, DP-049 (b)): the interactive route to a [`ShownPlan`].
+///
+/// The plan is rendered here, by `render`, from the very value the witness is
+/// minted from, so what is shown and what is confirmed cannot be two plans.
+/// Both streams must be terminals (otherwise nothing is read or written); a
+/// fresh code is drawn before anything is written (none: nothing is asked);
+/// the plan goes to the prompt stream, never stdout; one bounded line is read.
+///
+/// # Errors
+/// [`ConsentRefusal::NotATerminal`], [`ConsentRefusal::CodeUnavailable`], or
+/// [`ConsentRefusal::Declined`] for anything but the exact phrase.
+pub fn confirm_plan(
+    cleared: &GateClear,
+    render: &dyn Fn(&MigrationPlan) -> String,
+    streams: ConsentStreams<'_>,
+    messages: &Messages,
+) -> Result<ShownPlan, ConsentRefusal> {
+    if !(streams.input_is_terminal && streams.prompt_is_terminal) {
+        return Err(ConsentRefusal::NotATerminal);
+    }
+    let out = streams.prompt;
+    let Some(code) = (streams.code)().map(ConsentCode::from_bytes) else {
+        let _ = writeln!(
+            out,
+            "{}",
+            messages.render("consent.code_unavailable", &BTreeMap::new())
+        );
+        return Err(ConsentRefusal::CodeUnavailable);
+    };
+    let _ = write!(out, "{}", render(cleared.run().plan()));
+    let _ = write!(
+        out,
+        "{} ",
+        messages.render(
+            "consent.type_to_run_plan",
+            &params(&[("phrase", escape_hostile(&plan_phrase(&code)))]),
+        )
+    );
+    let _ = out.flush();
+    let mut line = String::new();
+    let read = (&mut *streams.input)
+        .take(MAX_LINE_BYTES)
+        .read_line(&mut line);
+    let shown = match read {
+        Ok(0) | Err(_) => None,
+        Ok(_) => confirm_shown(cleared, &code, &line),
+    };
+    shown.ok_or_else(|| {
+        let _ = writeln!(
+            out,
+            "{}",
+            messages.render("consent.declined", &BTreeMap::new())
+        );
+        ConsentRefusal::Declined
+    })
 }
 
 #[cfg(test)]

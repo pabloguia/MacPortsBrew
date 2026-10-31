@@ -1240,15 +1240,102 @@ fn the_switch_needs_manual_review_for_an_unavailable_artifact() {
     );
 }
 
-/// No structural fact yet: an unconditional failure while the switch is on.
+/// A positive structural check, held whatever the switch is (work order 16
+/// part E, §6, E-2): the run loop refuses a plan the confirmation does not
+/// cover before it probes the history store or takes the lock; `migrate`
+/// confirms the plan after the gate and before the state directory, and hands
+/// the witness to the loop; and a `ShownPlan` is built in one file only. Until
+/// part E-4 one assertion still fails on a flip: DP-049 ruled both routes in,
+/// and the digest route (a) is not built.
 #[test]
 fn the_switch_needs_the_executed_plan_tied_to_the_one_shown() {
+    let violations = tie_violations(&executor_files());
+    assert!(violations.is_empty(), "{violations:?}");
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
     assert!(
         !switch,
-        "plan.v1.md obligation 8 (the executed plan tied to the plan shown) is not built; \
-         remove this only in the change that builds it, with its test"
+        "DP-049 (a), `migrate --yes --plan-digest <d>`, is not built (work order 16 part E-4); \
+         remove this assertion in the change that builds it"
     );
+}
+
+fn tie_violations(executor: &[SourceFile]) -> Vec<String> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut violations = Vec::new();
+    let locking: Vec<String> = executor
+        .iter()
+        .map(|(_, t)| code_of(t))
+        .filter(|c| c.contains("history_store::probe("))
+        .collect();
+    match locking.as_slice() {
+        [code] => match (
+            code.find("io.shown.covers("),
+            code.find("history_store::probe("),
+        ) {
+            (Some(tie), Some(probe)) if tie < probe => {}
+            _ => violations.push("the tie is not checked before the history probe".to_string()),
+        },
+        _ => violations.push(format!(
+            "{} files probe the history store; one must",
+            locking.len()
+        )),
+    }
+    let migrate = code_of(
+        &std::fs::read_to_string(root.join("crates/cli/src/app/migrate.rs")).expect("migrate.rs"),
+    );
+    let body = migrate
+        .find("fn execute_mutating(")
+        .map_or("", |i| &migrate[i..]);
+    let body = &body[..body.find("\nfn ").unwrap_or(body.len())];
+    let order = ["clear(planned", "confirm_the_plan(", "state_and_user("];
+    let at: Vec<Option<usize>> = order.iter().map(|t| body.find(t)).collect();
+    if !at
+        .windows(2)
+        .all(|w| matches!(w, [Some(a), Some(b)] if a < b))
+    {
+        violations.push(format!(
+            "migrate does not run {order:?} in that order: {at:?}"
+        ));
+    }
+    if !migrate.contains("crate::consent::confirm_plan(") {
+        violations.push("migrate does not ask through consent::confirm_plan".to_string());
+    }
+    match body.find("executor::MutatingRun {") {
+        Some(i) => {
+            let rest = &body[i..];
+            let literal = &rest[..rest.find("&ctx.redaction").unwrap_or(rest.len())];
+            if !literal.contains("shown") {
+                violations.push("migrate's MutatingRun carries no shown plan".to_string());
+            }
+        }
+        None => violations.push("migrate builds no MutatingRun".to_string()),
+    }
+    let mut builders = Vec::new();
+    for krate in ["domain", "policy", "application", "adapters", "cli"] {
+        let mut stack = vec![root.join("crates").join(krate).join("src")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("sources") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let code = code_of(&std::fs::read_to_string(&path).expect("source"));
+                    if code
+                        .replace("pub struct ShownPlan {", "")
+                        .contains("ShownPlan {")
+                    {
+                        builders.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+    }
+    if builders.len() != 1 || !builders[0].ends_with("application/src/plan_tie.rs") {
+        violations.push(format!(
+            "a ShownPlan is built outside plan_tie.rs: {builders:?}"
+        ));
+    }
+    violations
 }
 
 /// A positive structural check, held whatever the switch is (work order 16

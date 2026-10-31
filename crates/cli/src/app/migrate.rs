@@ -31,11 +31,19 @@
 //!    code is the run's.
 //! 5. Whenever a plan was built, stdout carries it, so an exit 4 with a
 //!    document (a refusal or a manual review) is distinguishable from the
-//!    planner's own exit 4 with empty stdout.
+//!    planner's own exit 4 with empty stdout. **Except** a refusal before
+//!    anything ran that is about the plan's confirmation (work order 16 part
+//!    E, R2): the plan not confirmed (`USER_ABORTED`, exit 6), no terminal to
+//!    confirm it at (`USAGE`, exit 2), or the plan to run not the one
+//!    confirmed (`PLAN_NOT_SHOWN`, exit 4). Stdout is empty for each, and the
+//!    error's identifier, not stdout, tells them from the planner's.
 //!
-//! **INV-02, and only in this build.** The plan executed is the plan built
-//! in this process, not one a human saw first; that is compatible with INV-02
-//! only because nothing destructive is dispatched (`plan.v1.md`, obligation 8).
+//! **INV-02.** Under a mutation allowance, the plan executed is the plan a
+//! person was shown and confirmed (`plan.v1.md`, obligation 8): after the
+//! gate clears it, the plan is shown on standard error and `run plan <code>`
+//! is asked for; the run loop refuses a plan the confirmation does not cover.
+//! `--yes` means "execute" and never answers a question. Without an
+//! allowance (this build) the read-only loop runs and nobody is asked.
 //!
 //! **Rules for this file** (they are the run loop's, and the loop's word scans
 //! read it): it names no provider; it never holds a read site, a runner or a
@@ -50,9 +58,9 @@ use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    clear, migration_key, migration_start, mutation_allowance, AnalysisOptions,
-    HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanRequest, PlannedRun,
-    RunOutcome, StepRecord,
+    clear, migration_key, migration_start, mutation_allowance, plan_question_error,
+    AnalysisOptions, GateClear, HistoryConsultation, MigrationStart, MutationAllowance,
+    NotRecognised, PlanRequest, PlannedRun, RunOutcome, ShownPlan, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
@@ -215,6 +223,7 @@ fn execute_mutating(
     planned: PlannedRun,
     allowance: MutationAllowance,
     registry: &macportsbrew_adapters::registry::RegistryContext<'_>,
+    stderr: &mut dyn Write,
 ) -> Result<RunReport, DomainError> {
     // The live-scope refusal first, before the state directory is resolved
     // (D13; INV-15): a replay must not fail on a missing home instead.
@@ -231,6 +240,9 @@ fn execute_mutating(
         // review, security 5).
         Err((_, report)) => return Ok(executor::refused_report(&report, &ctx.redaction)),
     };
+    // Only a plan the gate cleared is shown and confirmed (E plan, R1), and
+    // before the state directory is touched.
+    let shown = confirm_the_plan(ctx, &cleared, stderr)?;
     let (state, euid) = state_and_user(ctx)?;
     let ids = macportsbrew_adapters::registry::known_provider_ids();
     let recapture = Box::new(|| {
@@ -276,9 +288,41 @@ fn execute_mutating(
             reread: &reread,
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
+            shown,
         },
         &ctx.redaction,
     )
+}
+
+/// Shows the cleared plan on standard error and asks for `run plan <code>`,
+/// the interactive route of DP-049 (b); each refusal is its own error, so a
+/// script tells it from the planner's (R2).
+fn confirm_the_plan(
+    ctx: &Context,
+    cleared: &GateClear,
+    stderr: &mut dyn Write,
+) -> Result<ShownPlan, DomainError> {
+    use std::io::IsTerminal;
+    // The prompt is the caller's standard error; both terminal answers are
+    // the process's own two streams, which are the ones a person reads and
+    // types at (`run_inner` hands `migrate` its real standard error).
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    let mut code = macportsbrew_adapters::entropy::fresh_bytes;
+    let render = |plan: &MigrationPlan| human::plan(ctx, plan);
+    let shown = crate::consent::confirm_plan(
+        cleared,
+        &render,
+        crate::consent::ConsentStreams {
+            input_is_terminal: std::io::stdin().is_terminal(),
+            prompt_is_terminal: std::io::stderr().is_terminal(),
+            input: &mut input,
+            prompt: stderr,
+            code: &mut code,
+        },
+        &ctx.messages,
+    );
+    shown.map_err(plan_question_error)
 }
 
 /// What the run loop returned, as the document carries it: no read output and
@@ -514,6 +558,7 @@ fn migrate_with(
                     (*planned).clone(),
                     allowance,
                     &registry,
+                    stderr,
                 )?,
             })
         }

@@ -1412,6 +1412,43 @@ fn consent_is_minted_only_by_confirm_and_asked_only_by_the_consent_module() {
 }
 
 #[test]
+fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_module() {
+    // Work order 16 part E, R9: `confirm_shown` is called only by the
+    // command-line crate's consent prompt, nothing outside `plan_tie.rs`
+    // builds or implements a trait for `ShownPlan`, and it derives `Debug`
+    // alone — no `Clone`, no `Default`, never read from a file.
+    let crates = root().join("crates");
+    let home = crates.join("application/src/plan_tie.rs");
+    let prompt = crates.join("cli/src/consent.rs");
+    for (path, text) in product_sources() {
+        let file = path.display();
+        if path != home {
+            for banned in ["ShownPlan {", "for ShownPlan"] {
+                assert!(!text.contains(banned), "{file}: {banned}");
+            }
+            if path != prompt {
+                assert!(
+                    !text.contains("confirm_shown("),
+                    "{file} calls confirm_shown"
+                );
+            }
+        }
+    }
+    let text = std::fs::read_to_string(&home).expect("plan_tie.rs");
+    let derives: Vec<String> = attributes_above(&text, "pub struct ShownPlan {")
+        .iter()
+        .filter(|l| l.trim().starts_with("#[derive"))
+        .map(|l| l.trim().to_string())
+        .collect();
+    assert_eq!(
+        derives,
+        ["#[derive(Debug)]"],
+        "ShownPlan derives Debug alone"
+    );
+    assert!(!text.contains("for ShownPlan"), "no trait implementation");
+}
+
+#[test]
 fn there_is_exactly_one_mutation_site_and_it_refuses() {
     // D7: the product mutation site refuses every command, so no mutating
     // command spec is built anywhere in shipped source. One implementation

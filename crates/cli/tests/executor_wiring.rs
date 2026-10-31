@@ -37,8 +37,9 @@ use macportsbrew_adapters::persistence::{snapshot_file_name, snapshot_store};
 use macportsbrew_adapters::process::{ExitStatus, Invocation};
 use macportsbrew_adapters::registry::{self, PlanReadError};
 use macportsbrew_application::{
-    clear, evaluable_in_this_build, plan_run, AnalysisOptions, ConfigurationRechecked, Disposition,
-    GateClear, HaltReason, MutationAllowance, PlanRequest, PlannedRun, Precondition, RunOutcome,
+    clear, confirm_shown, evaluable_in_this_build, plan_run, AnalysisOptions,
+    ConfigurationRechecked, ConsentCode, Disposition, GateClear, HaltReason, MutationAllowance,
+    PlanRequest, PlannedRun, Precondition, RunOutcome, ShownPlan,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -526,6 +527,17 @@ fn unchanged<'a>(direction: &'a Direction, scratch: &'a Scratch) -> Setup<'a> {
     }
 }
 
+/// The witness that `cleared`'s plan was shown and confirmed, minted the only
+/// way there is: the exact phrase with its code.
+fn shown(cleared: &GateClear) -> ShownPlan {
+    confirm_shown(
+        cleared,
+        &ConsentCode::from_bytes([0, 0, 0]),
+        "run plan 000000",
+    )
+    .expect("the exact phrase confirms the plan shown")
+}
+
 fn run<M: MutationSite>(
     cleared: &GateClear,
     scratch: &Scratch,
@@ -538,6 +550,7 @@ fn run<M: MutationSite>(
         cleared,
         || Reads(Box::leak(Box::new(plan))),
         MutatingRun {
+            shown: shown(cleared),
             live: setup.live,
             state: &scratch.state,
             euid: scratch.euid,
@@ -727,6 +740,7 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
         &cleared,
         || Absent,
         MutatingRun {
+            shown: shown(&cleared),
             live: true,
             state: &scratch.state,
             euid: scratch.euid,
@@ -968,6 +982,7 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             &direction.cleared(),
             || Reads(Box::leak(Box::new(plan.clone()))),
             MutatingRun {
+                shown: shown(&direction.cleared()),
                 live: setup.live,
                 state: &scratch.state,
                 euid: scratch.euid,
@@ -1614,6 +1629,7 @@ fn run_reading<'s, S: ReadSite + 's>(
         cleared,
         move || reads,
         MutatingRun {
+            shown: shown(cleared),
             live: true,
             state: &scratch.state,
             euid: scratch.euid,
@@ -1767,6 +1783,7 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
             &cleared,
             || &reads,
             MutatingRun {
+                shown: shown(&cleared),
                 live: true,
                 state: &scratch.state,
                 euid: scratch.euid,
@@ -1803,5 +1820,230 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
             verify.commands.len(),
             "{what}: the destination was read again after its configuration failed"
         );
+    }
+}
+
+// --- work order 16 part E-2: the executed plan tied to the one shown ---------
+
+#[test]
+fn a_shown_plan_covers_only_the_plan_shown() {
+    let cleared = Direction::toward_homebrew().cleared();
+    let witness = shown(&cleared);
+    assert!(witness.covers(cleared.run().plan()));
+    let mut other = cleared.run().plan().clone();
+    other.steps[0].index += 100;
+    assert!(!witness.covers(&other), "one field changed");
+    let elsewhere = Direction::toward_macports().cleared();
+    assert!(!witness.covers(elsewhere.run().plan()), "another plan");
+}
+
+#[test]
+fn confirm_shown_mints_only_on_the_exact_phrase_with_its_code() {
+    let cleared = Direction::toward_homebrew().cleared();
+    let code = ConsentCode::from_bytes([0x12, 0x34, 0x56]);
+    for typed in [
+        "run plan 123456",
+        "run plan 123456\n",
+        "run plan 123456\r\n",
+    ] {
+        assert!(confirm_shown(&cleared, &code, typed).is_some(), "{typed:?}");
+    }
+    for typed in [
+        "",
+        "y\n",
+        "run plan\n",
+        "run plan 654321\n",
+        "RUN PLAN 123456\n",
+        "run plan 123456 \n",
+        " run plan 123456\n",
+        "run plan 123456\n\n",
+        "allow step 1 123456\n",
+    ] {
+        assert!(confirm_shown(&cleared, &code, typed).is_none(), "{typed:?}");
+    }
+}
+
+#[test]
+fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_lock() {
+    // A witness for one plan, a cleared run of another: refused before the
+    // history probe, so nothing is locked, written or dispatched.
+    let shown_for = Direction::toward_homebrew();
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("not-shown");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let setup = unchanged(&direction, &scratch);
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let result = run_with_mutations(
+        &cleared,
+        || Reads(Box::leak(Box::new(plan))),
+        MutatingRun {
+            live: setup.live,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: setup.recapture,
+            reread: setup.reread,
+            read_back: setup.read_back,
+            observer: &seen,
+            shown: shown(&shown_for.cleared()),
+        },
+        &HomeRedaction::Recorded,
+    );
+    assert_eq!(
+        result.as_ref().map_err(|e| e.id),
+        Err(macportsbrew_domain::ErrorId::PlanNotShown),
+        "{result:?}"
+    );
+    assert!(
+        seen.all().is_empty(),
+        "no boundary was reached: {:?}",
+        seen.all()
+    );
+    assert!(site.handed.borrow().is_empty());
+    assert!(!scratch.locked_by_someone(), "no lock is held");
+    assert!(!scratch.marker().exists());
+    assert_eq!(scratch.records(), 0);
+}
+
+fn confirm_with(
+    cleared: &GateClear,
+    terminals: (bool, bool),
+    typed: &str,
+    code: Option<[u8; 3]>,
+) -> (
+    Result<ShownPlan, macportsbrew_application::ConsentRefusal>,
+    String,
+    u64,
+) {
+    let mut input = std::io::Cursor::new(typed.as_bytes().to_vec());
+    let mut prompt = Vec::new();
+    let mut draw = || code;
+    let render = |p: &MigrationPlan| format!("THE PLAN ({} steps)\n", p.steps.len());
+    let result = macportsbrew::consent::confirm_plan(
+        cleared,
+        &render,
+        macportsbrew::consent::ConsentStreams {
+            input_is_terminal: terminals.0,
+            prompt_is_terminal: terminals.1,
+            input: &mut input,
+            prompt: &mut prompt,
+            code: &mut draw,
+        },
+        &macportsbrew::i18n::Messages::english(),
+    );
+    (
+        result,
+        String::from_utf8(prompt).expect("utf-8"),
+        input.position(),
+    )
+}
+
+#[test]
+fn invariant_02_a_declined_plan_question_mints_nothing_and_the_right_answer_does() {
+    use macportsbrew_application::ConsentRefusal;
+    let cleared = Direction::toward_homebrew().cleared();
+    let code = Some([0xab, 0xcd, 0xef]);
+    let (result, prompt, _) = confirm_with(&cleared, (true, true), "run plan abcdef\n", code);
+    assert!(result.expect("confirmed").covers(cleared.run().plan()));
+    assert!(prompt.contains("run plan abcdef"), "{prompt}");
+    for typed in ["y\n", "run plan\n", "run plan 000000\n", ""] {
+        let (result, prompt, _) = confirm_with(&cleared, (true, true), typed, code);
+        assert_eq!(
+            result.map(|_| ()),
+            Err(ConsentRefusal::Declined),
+            "{typed:?}"
+        );
+        assert!(prompt.contains("Not allowed"), "{prompt}");
+    }
+    let (result, prompt, read) = confirm_with(&cleared, (true, true), "run plan abcdef\n", None);
+    assert_eq!(result.map(|_| ()), Err(ConsentRefusal::CodeUnavailable));
+    assert_eq!(read, 0);
+    assert!(!prompt.contains("THE PLAN"), "nothing was asked: {prompt}");
+}
+
+#[test]
+fn the_plan_question_is_asked_only_at_two_terminals() {
+    use macportsbrew_application::ConsentRefusal;
+    let cleared = Direction::toward_homebrew().cleared();
+    for terminals in [(false, true), (true, false), (false, false)] {
+        let (result, prompt, read) = confirm_with(
+            &cleared,
+            terminals,
+            "run plan abcdef\n",
+            Some([0xab, 0xcd, 0xef]),
+        );
+        assert_eq!(result.map(|_| ()), Err(ConsentRefusal::NotATerminal));
+        assert!(prompt.is_empty(), "nothing written");
+        assert_eq!(read, 0, "nothing read");
+    }
+}
+
+#[test]
+fn invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed() {
+    let cleared = Direction::toward_homebrew().cleared();
+    let (result, prompt, _) = confirm_with(
+        &cleared,
+        (true, true),
+        "run plan abcdef\n",
+        Some([0xab, 0xcd, 0xef]),
+    );
+    assert!(result.is_ok());
+    let plan_at = prompt.find("THE PLAN").expect("the plan is shown");
+    let question_at = prompt.find("run plan abcdef").expect("then the question");
+    assert!(plan_at < question_at, "{prompt}");
+    assert!(
+        prompt.contains(&format!(
+            "THE PLAN ({} steps)",
+            cleared.run().plan().steps.len()
+        )),
+        "the plan shown is the plan cleared"
+    );
+}
+
+#[test]
+fn invariant_17_the_tie_behaves_alike_in_both_directions() {
+    // The witness of one direction's plan never covers the other's, either
+    // way round, and each direction's own witness lets its run past the tie.
+    // The program-token half is `each_re_check_is_made_for_the_program_it_is_spent_on`;
+    // the tie over every recording's plan is owed to E-4, with the digest.
+    let orientations = [
+        (Direction::toward_homebrew(), Direction::toward_macports()),
+        (Direction::toward_macports(), Direction::toward_homebrew()),
+    ];
+    for (witnessed, direction) in orientations {
+        for (witness, refused) in [(&witnessed, true), (&direction, false)] {
+            let scratch = Scratch::new("tie-both");
+            let site = Site::exits(&scratch, 0);
+            let seen = Seen::default();
+            let setup = unchanged(&direction, &scratch);
+            let cleared = direction.cleared();
+            let plan = cleared.run().plan().clone();
+            let result = run_with_mutations(
+                &cleared,
+                || Reads(Box::leak(Box::new(plan))),
+                MutatingRun {
+                    live: setup.live,
+                    state: &scratch.state,
+                    euid: scratch.euid,
+                    start: scratch.start(),
+                    site: &site,
+                    recapture: setup.recapture,
+                    reread: setup.reread,
+                    read_back: setup.read_back,
+                    observer: &seen,
+                    shown: shown(&witness.cleared()),
+                },
+                &HomeRedaction::Recorded,
+            );
+            let not_shown = matches!(
+                &result,
+                Err(e) if e.id == macportsbrew_domain::ErrorId::PlanNotShown
+            );
+            assert_eq!(not_shown, refused, "{result:?}");
+            assert_eq!(seen.all().contains(&Boundary::Probed), !refused);
+        }
     }
 }

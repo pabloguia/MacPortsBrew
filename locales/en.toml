@@ -75,6 +75,8 @@ error.run_interrupted = "An earlier run was interrupted and has not been looked 
 error.safety_unverifiable = "A safety rule could not be evaluated from this input, so no plan was built and nothing was changed: {detail}. This does not necessarily mean anything is wrong on your machine — the fact is absent from the input, or could not be read where it lives. `analyze`, `status` and `explain` do not depend on it and still work."
 error.provider_presence_unproven = "Nothing was changed, and this is not reported as already done: {detail}. Detection looks only where a provider is documented to live. If that provider is installed somewhere else, check it with that provider's own tools; if it is not installed at all, the package is under the provider you asked for and there is nothing to migrate."
 error.safety_blocked = "A safety check stopped this operation and nothing was changed: {detail}. Read the finding, resolve it, and run the command again."
+error.plan_not_shown = "The plan about to run is not the one you were shown and confirmed, so nothing was changed: {detail}. Review the plan again and confirm the one that is shown."
+error.user_aborted = "You declined, so nothing was changed: {detail}. Run the command again when you want to go ahead."
 error.not_implemented_in_this_pass = "This build does not carry that operation yet: {detail}. It is specified but not shipped; the read-only commands are available now."
 error.io = "A file could not be read or written: {detail}. Check that the path exists and that you have permission to it."
 error.internal = "An internal error occurred: {detail}. This is a defect. Please report it with `macportsbrew doctor --report`."
@@ -311,6 +313,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plan: move {package} from {source} to {destination}"
+"plan.will_run" = "These steps will be run on this machine, in order, once you confirm below; each is verified before the next."
 "plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk."
 "plan.overrides" = "This plan goes against the recommendation ({recommendation})."
 "plan.risks_heading" = "Risks detected"
@@ -410,6 +413,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "consent.program" = "runs {program} with these arguments, one per line:"
 "consent.type_to_allow" = "To allow this step, type exactly \"{phrase}\" (always in English) and press Return:"
 "consent.declined" = "Not allowed. Nothing further was changed."
+"consent.type_to_run_plan" = "That is the whole plan. To run it, type exactly \"{phrase}\" (always in English) and press Return:"
 "consent.code_unavailable" = "A confirmation code could not be drawn, so nothing was asked and nothing further was changed."
 "migrate.precondition.no_provider" = "the step names no provider"
 "migrate.precondition.lock_lost" = "this run no longer holds its lock"
