@@ -381,7 +381,17 @@ comments:
     whose only product implementation refuses every command, so no mutating
     command spec is built; the configuration re-read before each one
     (`registry::reread_configuration`) re-detects the prefix and refuses
-    unless it derives the step's planned program.
+    unless it derives the step's planned program. The re-check's token
+    records the program it was made for, and each consumer compares it with
+    the commands it is spent on (work order 16 part E, SR 9, SE-111):
+    `mutation_dispatch` and the `MutationSite` refuse a token for another
+    program (`WRONG_PROGRAM_TOKEN`), and so do `certify_destination` and
+    `destination_still_verified` for any command of the verify step, or a
+    step with none. Tests:
+    `a_token_for_another_program_is_refused_and_nothing_is_handed_over`,
+    `invariant_01_certify_destination_refuses_a_token_for_another_program`,
+    `invariant_01_a_destination_token_for_another_program_is_refused`,
+    `each_re_check_is_made_for_the_program_it_is_spent_on`.
 11. **Mutating steps are bracketed: a `SNAPSHOT_BEFORE` precedes the first,
     and the plan ends with `RECORD_HISTORY`.** The snapshot is what a failed
     migration is restored from and what the run is compared against, and the

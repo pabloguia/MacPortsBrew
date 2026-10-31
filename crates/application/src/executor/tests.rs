@@ -369,10 +369,12 @@ fn every_check_must_be_backed_by_a_passing_read() {
             evidence: Vec::new()
         }
     );
-    // A step whose checks no command answers: no command, nothing passed.
+    // A step whose checks no command answers: no command, nothing passed. Judged
+    // directly: `certify_destination` refuses such a step before its reads,
+    // since it names no program to re-check for (SR 9; tested below).
     let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
     assert!(matches!(
-        judge(&bare, verify, &[]),
+        judge_reads(&bare, verify, &[]),
         Disposition::Halted {
             reason: HaltReason::Unevaluable {
                 why: Unevaluable::NoPassingRead,
@@ -615,6 +617,18 @@ use crate::execution_gate::{clear, execution_refusals_for, ExecutionRefusal, Mut
 use crate::history::run_record;
 use macportsbrew_domain::{RunStart, RunStatus};
 
+/// The program the plan's first `VERIFY_DESTINATION` names, which the shell
+/// re-reads the destination for (SR 9); empty when there is none.
+fn verify_program(run: &PlannedRun) -> String {
+    run.plan()
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyDestination)
+        .and_then(|s| s.commands.first())
+        .map(|c| c.program.clone())
+        .unwrap_or_default()
+}
+
 /// A snapshot whose providers' configuration was read and found empty, so the
 /// planner raises no configuration risk (DP-027 (b)) and the gate's
 /// configuration refusal does not stand between a test and the mutating path.
@@ -625,6 +639,7 @@ use macportsbrew_domain::{RunStart, RunStatus};
 fn token(run: &PlannedRun) -> ConfigurationRechecked {
     crate::configuration_recheck::recheck_provider_configuration(
         &run.plan().destination,
+        &verify_program(run),
         &configured(run.before().clone()),
         &macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
     )
@@ -1546,6 +1561,7 @@ fn a_snapshot_that_could_not_be_taken_halts_the_run_and_records_nothing_was_disp
 fn token_for(run: &PlannedRun, provider: &ProviderId) -> ConfigurationRechecked {
     crate::configuration_recheck::recheck_provider_configuration(
         provider,
+        &verify_program(run),
         &configured(run.before().clone()),
         &macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
     )
@@ -1584,6 +1600,85 @@ fn judge_step_never_verifies_a_verify_destination_even_with_passing_reads() {
         })
         .collect();
     assert_eq!(next_action(run.plan(), verify, &records), Action::Certify);
+}
+
+/// A re-check's token for `provider`, re-read for `program`.
+fn token_program(run: &PlannedRun, provider: &ProviderId, program: &str) -> ConfigurationRechecked {
+    crate::configuration_recheck::recheck_provider_configuration(
+        provider,
+        program,
+        &configured(run.before().clone()),
+        &macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() },
+    )
+    .expect("an empty configuration outranks nothing")
+}
+
+fn wrong_program(command: usize) -> Disposition {
+    Disposition::Halted {
+        reason: HaltReason::PreconditionFailed {
+            command,
+            why: Precondition::WrongProgramToken,
+        },
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    }
+}
+
+#[test]
+fn invariant_01_certify_destination_refuses_a_token_for_another_program() {
+    // SR 9: a re-check made for one program certifies nothing a command of
+    // another program reads.
+    let run = full_run();
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let named = naming_destination(run.plan());
+    let destination = run.plan().destination.clone();
+    assert_eq!(
+        certify_destination(
+            &run,
+            verify,
+            token_program(&run, &destination, "another-program"),
+            &[StepRead::Output(finished(&named))]
+        ),
+        wrong_program(0)
+    );
+    // Every command, not only the first: a later command naming another
+    // program is refused at its own index.
+    let last = run.plan().steps[verify].commands.len();
+    assert!(last >= 1);
+    let more = run.clone().map_plan(|p| {
+        let mut other = p.steps[verify].commands[0].clone();
+        other.program = "another-program".into();
+        p.steps[verify].commands.push(other);
+    });
+    assert_eq!(
+        certify_destination(&more, verify, token(&more), &[]),
+        wrong_program(last)
+    );
+    // A step with no command names no program: nothing is certified.
+    let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
+    assert_eq!(
+        certify_destination(&bare, verify, token(&run), &[]),
+        wrong_program(0)
+    );
+}
+
+#[test]
+fn invariant_01_a_destination_token_for_another_program_is_refused() {
+    let run = forced_run(MP);
+    let plan = run.plan();
+    let reverify =
+        reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
+    let outputs = destination_outputs(plan);
+    let destination = plan.destination.clone();
+    assert_eq!(
+        destination_still_verified(
+            &run,
+            &reverify,
+            token_program(&run, &destination, "another-program"),
+            &passing(&outputs)
+        ),
+        Err(Precondition::WrongProgramToken)
+    );
 }
 
 #[test]

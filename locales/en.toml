@@ -415,6 +415,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "migrate.precondition.configuration_unreadable" = "the provider's configuration could not be read again, or the provider found now is not the one the plan was made for"
 "migrate.precondition.configuration_drift" = "the provider's configuration can change how it runs, or could not be shown not to"
 "migrate.precondition.wrong_provider_token" = "the configuration check was for another provider"
+"migrate.precondition.wrong_program_token" = "the configuration check was for another program"
 "migrate.precondition.destination_not_reverified" = "the destination was checked again just before the removal and the check did not pass, so the source was not removed"
 "migrate.state_fact.provider_state" = "a provider's presence or health"
 "migrate.state_fact.provider_location" = "a provider's location or executable"

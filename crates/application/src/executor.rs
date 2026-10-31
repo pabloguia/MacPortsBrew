@@ -72,8 +72,9 @@ use crate::provider_commands;
 use crate::verification_json::linked_report;
 use macportsbrew_domain::{
     evaluate_with, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget,
-    Elevation, ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, ProviderId,
-    ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, Verdict, VerificationCheck,
+    Elevation, ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, PlanCommand,
+    ProviderId, ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, Verdict,
+    VerificationCheck,
 };
 use serde::Serialize;
 
@@ -250,6 +251,10 @@ pub enum Precondition {
     /// or could not be judged, or a re-read command's elevation, re-derived
     /// from the command table, is not `NONE` (work order 16 part S, §6, D5).
     DestinationNotReverified,
+    /// The configuration token was re-checked for another program than the
+    /// command it is spent on names, or the step has no command to name one
+    /// (work order 16 part E, SR 9).
+    WrongProgramToken,
 }
 
 /// Which fact moved between the capture a plan was built from and the one
@@ -942,7 +947,26 @@ pub fn certify_destination(
             why: Precondition::WrongProviderToken,
         });
     }
+    if let Err(command) = names_only(&plan.steps[position].commands, checked.program()) {
+        return halted(HaltReason::PreconditionFailed {
+            command,
+            why: Precondition::WrongProgramToken,
+        });
+    }
     judge_reads(run, position, reads)
+}
+
+/// `Ok` when `commands` is not empty and every one names `program`; otherwise
+/// the index of the first that does not (0 for an empty step), for the
+/// precondition the token fails (SR 9).
+fn names_only(commands: &[PlanCommand], program: &str) -> Result<(), usize> {
+    if commands.is_empty() {
+        return Err(0);
+    }
+    match commands.iter().position(|c| c.program != program) {
+        Some(i) => Err(i),
+        None => Ok(()),
+    }
 }
 
 /// Whether the destination, read again immediately before a removal command,
@@ -974,6 +998,9 @@ pub fn destination_still_verified(
     let Some(step) = plan.steps.get(reverify.verify_position()) else {
         return Err(Precondition::DestinationNotReverified);
     };
+    if names_only(&step.commands, checked.program()).is_err() {
+        return Err(Precondition::WrongProgramToken);
+    }
     let table = provider_commands::load().unwrap_or_default();
     let entry = table.get(plan.destination.as_str());
     let operations = provider_commands::verify_destination_operations(entry);
@@ -998,6 +1025,14 @@ pub fn destination_still_verified(
                 },
             ..
         } => Err(Precondition::WrongProviderToken),
+        Disposition::Halted {
+            reason:
+                HaltReason::PreconditionFailed {
+                    why: Precondition::WrongProgramToken,
+                    ..
+                },
+            ..
+        } => Err(Precondition::WrongProgramToken),
         Disposition::NotPerformedInThisBuild
         | Disposition::SnapshotTaken
         | Disposition::RecordPendingReadBack

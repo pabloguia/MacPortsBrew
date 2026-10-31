@@ -323,8 +323,10 @@ pub fn run_with<S: ReadSite>(
 /// the day one is written: the program is re-derived from the provider's
 /// detected prefix, which must be the prefix the run re-planned under, and the
 /// call is refused otherwise; the argv is checked against an allowlist; and
-/// `PlanCommand::program` and `PlanCommand::environment` are never spawned. A
-/// word scan allows exactly one implementation under `crates/*/src`.
+/// `PlanCommand::program` and `PlanCommand::environment` are never spawned; and
+/// the site compares `checked.program()` with the program it derived itself,
+/// refusing on a difference (SR 9). A word scan allows exactly one
+/// implementation under `crates/*/src`.
 pub trait MutationSite {
     /// Performs `command` against `provider`. Takes the configuration
     /// re-check's token **by value** and the run lock, so a command cannot be
@@ -607,6 +609,14 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                             .get(reverify.verify_position())
                             .map_or(&[][..], |s| s.commands.as_slice());
                         let program = verify.first().map_or("", |c| c.program.as_str());
+                        // A verify step with no command names no program to
+                        // re-check for (SR 9): never re-read for "".
+                        if program.is_empty() {
+                            results.push(MutationResult::PreconditionFailed(
+                                Precondition::WrongProgramToken,
+                            ));
+                            break;
+                        }
                         let Ok(configuration) = (io.reread)(destination, program) else {
                             results.push(MutationResult::PreconditionFailed(
                                 Precondition::ConfigurationUnreadable,
@@ -615,6 +625,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                         };
                         let destination_checked = recheck_provider_configuration(
                             destination,
+                            program,
                             planned.before(),
                             &configuration,
                         );
@@ -654,8 +665,12 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                         ));
                         break;
                     };
-                    let checked =
-                        recheck_provider_configuration(provider, planned.before(), &configuration);
+                    let checked = recheck_provider_configuration(
+                        provider,
+                        &command.program,
+                        planned.before(),
+                        &configuration,
+                    );
                     let Ok(checked) = checked else {
                         results.push(MutationResult::PreconditionFailed(
                             Precondition::ConfigurationDrift,
@@ -799,10 +814,15 @@ fn certify(
         return halted(Precondition::NoProvider);
     };
     let program = step.commands.first().map_or("", |c| c.program.as_str());
+    // A step with no command names no program to re-check for (SR 9).
+    if program.is_empty() {
+        return halted(Precondition::WrongProgramToken);
+    }
     let Ok(configuration) = reread(provider, program) else {
         return halted(Precondition::ConfigurationUnreadable);
     };
-    let checked = recheck_provider_configuration(provider, planned.before(), &configuration);
+    let checked =
+        recheck_provider_configuration(provider, program, planned.before(), &configuration);
     let Ok(checked) = checked else {
         return halted(Precondition::ConfigurationDrift);
     };
@@ -833,7 +853,8 @@ fn take_snapshot(state: &StateDir, snapshot: &Snapshot, euid: u32) -> Option<Str
 
 /// Hands one mutating command to the mutation site with its re-check token —
 /// the only place [`MutationSite::perform`] is called. A token for another
-/// provider is refused here and nothing is handed over.
+/// provider, or re-checked for another program than the command names, is
+/// refused here and nothing is handed over (SR 9).
 fn mutation_dispatch(
     site: &dyn MutationSite,
     provider: &ProviderId,
@@ -843,6 +864,9 @@ fn mutation_dispatch(
 ) -> MutationResult {
     if checked.provider() != provider {
         return MutationResult::PreconditionFailed(Precondition::WrongProviderToken);
+    }
+    if checked.program() != command.program {
+        return MutationResult::PreconditionFailed(Precondition::WrongProgramToken);
     }
     match site.perform(provider, command, checked, lock) {
         Ok(end) => MutationResult::Ended(end),
@@ -1012,6 +1036,96 @@ pub(crate) fn escape_controls(value: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// A snapshot holding `provider` with a configuration read and empty, so a
+    /// re-check for it passes.
+    fn configured(provider: &ProviderId) -> Snapshot {
+        use macportsbrew_domain::{
+            Architecture, CommandLineTools, EnvironmentSnapshot, Machine, MacosVersion, Provenance,
+            ProviderCapabilities, ProviderConfiguration, ProviderDetection, ProviderInventory,
+            ProviderPresence, ProviderSnapshot, Translation, SNAPSHOT_SCHEMA_VERSION,
+        };
+        let held = ProviderSnapshot {
+            detection: ProviderDetection {
+                provider: provider.clone(),
+                presence: ProviderPresence::Present,
+                version: None,
+                prefix: None,
+                executable: None,
+                architecture: None,
+                prefix_redacted: false,
+            },
+            capabilities: ProviderCapabilities::default(),
+            inventory: ProviderInventory::default(),
+            environment: BTreeMap::new(),
+            invocation_environment: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+            configuration: ProviderConfiguration::Read { files: Vec::new() },
+        };
+        Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            tool_version: "test".into(),
+            policy_version: "test".into(),
+            provenance: Provenance {
+                captured_at: "2026-10-31T00:00:00Z".into(),
+                captured_by: "executor/mod.rs".into(),
+                origin: "synthesised".into(),
+                note: None,
+            },
+            machine: Machine {
+                macos: MacosVersion::new(26, 0, 0),
+                architecture: Architecture::Arm64,
+                translation: Translation::Native,
+                command_line_tools: CommandLineTools::Missing,
+            },
+            environment: EnvironmentSnapshot::default(),
+            providers: [(provider.clone(), held)].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn a_token_for_another_program_is_refused_and_nothing_is_handed_over() {
+        // SR 9: a re-check made for one program is never spent on a command
+        // of another, and the site never sees such a command.
+        let provider = ProviderId::new("alpha");
+        let snapshot = configured(&provider);
+        let fresh = macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() };
+        let command = PlanCommand {
+            target: macportsbrew_domain::CommandTarget::default(),
+            program: "/opt/alpha/bin/alpha".into(),
+            argv: vec!["verb".into()],
+            environment: BTreeMap::new(),
+            elevation: macportsbrew_domain::Elevation::None,
+            success: macportsbrew_domain::SuccessSemantic::default(),
+            placeholder: false,
+        };
+        let base = std::env::temp_dir().join(format!("mpb-dispatch-token-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).expect("scratch");
+        let euid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&base).expect("scratch"));
+        let state = StateDir::resolve(None, Some(base.join("state").to_str().expect("utf-8")))
+            .expect("a state directory");
+        let lock = run_lock::acquire(&state, euid).expect("the lock");
+        // The product site, the only one a word scan allows: it refuses what it
+        // is handed, so `Refused` means it was handed the command and
+        // `PreconditionFailed` that it was not.
+        let site = NotInThisBuild;
+        let other =
+            recheck_provider_configuration(&provider, "/opt/alpha/bin/other", &snapshot, &fresh)
+                .expect("an empty configuration outranks nothing");
+        assert!(matches!(
+            mutation_dispatch(&site, &provider, &command, other, &lock),
+            MutationResult::PreconditionFailed(Precondition::WrongProgramToken)
+        ));
+        let own = recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
+            .expect("an empty configuration outranks nothing");
+        assert!(matches!(
+            mutation_dispatch(&site, &provider, &command, own, &lock),
+            MutationResult::Refused
+        ));
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn a_zero_never_hides_an_unwritten_record_or_a_marker_left_behind() {

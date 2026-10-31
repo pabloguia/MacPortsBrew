@@ -292,6 +292,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "migrate.precondition.configuration_unreadable" = "não foi possível ler de novo a configuração do gerenciador de pacotes, ou o gerenciador encontrado agora não é aquele para o qual o plano foi feito"
 "migrate.precondition.configuration_drift" = "a configuração do gerenciador de pacotes pode mudar como ele é executado, ou não foi possível mostrar que não muda"
 "migrate.precondition.wrong_provider_token" = "a verificação de configuração era de outro gerenciador de pacotes"
+"migrate.precondition.wrong_program_token" = "a verificação de configuração era de outro programa"
 "migrate.precondition.destination_not_reverified" = "o destino foi verificado de novo logo antes da remoção e a verificação não passou, então a origem não foi removida"
 "migrate.state_fact.provider_state" = "a presença ou a saúde de um gerenciador de pacotes"
 "migrate.state_fact.provider_location" = "o local ou o executável de um gerenciador de pacotes"

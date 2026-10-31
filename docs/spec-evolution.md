@@ -1630,6 +1630,26 @@ change is made. Silent deviation remains the one unrecoverable error.
   `MigrationPlan::check_ordering`, which is INV-01's home and should not grow an
   unrelated rule.
 
+## SE-111 — Pass 08 slice 7: the configuration token names its program, a code in the consent phrase, the executed plan tied to the one shown, consent wired
+- Status: experimental — built across work order 16 part E's pull requests E-1 to E-4; this entry is completed by
+  each (SE-032: one topic, one entry), and becomes accepted with E-4.
+- Date / Pass: 2026-10-31 / 16-complete-mutating-product, part E
+- Original assumption: `ConfigurationRechecked` held only the provider, and its consumers compared only that
+  (slice 3); the slice 7 work order and `docs/passes/08-pre-flip-design-notes.md`.
+- Change (E-1, SR 9): the token records the program it was re-checked for. `mutation_dispatch` (and the
+  `MutationSite` contract), `certify_destination` and `destination_still_verified` refuse a token for another program
+  with `Precondition::WrongProgramToken` (`WRONG_PROGRAM_TOKEN`, in `migrate.v1`'s open set); a verify step with no
+  command is refused the same way, by the shell before any re-read and by the two destination sites.
+- Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
+  command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
+  checked against the derived prefix, and a wiring test pins that the token carries that same program.
+- Evidence: design judgement; the plan `docs/passes/16-plans/E.md` §1 and R6, reviewed by spec-guardian and
+  security-reviewer.
+- User impact: none in this build (no command is dispatched); one new precondition key in both locales.
+- Architectural impact: none beyond the token's field; SE-092's split holds (the shell plumbs, the application
+  decides).
+- Compatibility impact: `migrate.v1` additive (an open set gains a value).
+
 # Policy, output and quality
 
 ## SE-009 — Machine-readable output contract, exit codes and error taxonomy
