@@ -977,6 +977,21 @@ the run on the reviewers' advice
   classifier on 2026-10-31 (ledger, Needs the owner); E-2 does not merge
   without it.
 
+### Mutation proof (E-2, at `ad850cb`, isolated worktree, removed)
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 17 `covers` always true | killed | `a_shown_plan_covers_only_the_plan_shown`, the not-shown run test |
+| 18a, 18b `confirm_shown` on any line, or without the code | killed | `confirm_shown_mints_only_on_the_exact_phrase_with_its_code` |
+| 19 the tie after the probe and lock | killed | the not-shown run test, the tie tripwire |
+| 20 the tie removed | killed | the same two |
+| 22 asked at one terminal | killed | `the_plan_question_is_asked_only_at_two_terminals` |
+| 33 the plan not rendered | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 37 asked after the state directory | killed | the tie tripwire, `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` |
+| 38 the plan written after the answer is read | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 39 a failed draw falls back to a fixed code | killed | the declined-question test |
+| 40 `Declined` mapped to `SAFETY_BLOCKED` | survived at `ad850cb`; closed by `c7dbcbb` | `invariant_02_a_declined_plan_question_exits_6_before_anything_runs` (the mapping is `plan_question_error`) |
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
