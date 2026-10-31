@@ -659,6 +659,13 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                         break;
                     }
                     io.observer.at(Boundary::StillCurrent, Some(step.index));
+                    // A command naming no program has none to re-check for (SR 9).
+                    if command.program.is_empty() {
+                        results.push(MutationResult::PreconditionFailed(
+                            Precondition::WrongProgramToken,
+                        ));
+                        break;
+                    }
                     let Ok(configuration) = (io.reread)(provider, &command.program) else {
                         results.push(MutationResult::PreconditionFailed(
                             Precondition::ConfigurationUnreadable,

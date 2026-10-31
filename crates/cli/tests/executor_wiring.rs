@@ -1190,46 +1190,56 @@ fn each_re_check_is_made_for_the_program_it_is_spent_on() {
     // SR 9: the shell re-reads for the program of the command (or of the
     // verify step it re-reads) and records that program in the token; the
     // fake site asserts the token's program equals the command's.
-    let direction = Direction::toward_homebrew_completable();
-    let scratch = Scratch::new("program-token");
-    let site = Site::exits(&scratch, 0);
-    let seen = Seen::default();
-    let plan = direction.cleared().run().plan().clone();
-    let asked: &'static RefCell<Vec<(ProviderId, String)>> =
-        Box::leak(Box::new(RefCell::new(Vec::new())));
-    let mut setup = unchanged(&direction, &scratch);
-    setup.reread = &*Box::leak(Box::new(move |provider: &ProviderId, program: &str| {
-        asked
-            .borrow_mut()
-            .push((provider.clone(), program.to_string()));
-        Ok(ProviderConfiguration::Read { files: Vec::new() })
-    }));
-    let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
-    assert_eq!(report.outcome, RunOutcome::Completed, "{report:?}");
-    let asked = asked.borrow().clone();
-    assert!(!asked.is_empty());
-    for (provider, program) in &asked {
-        assert!(!program.is_empty(), "never re-read for no program");
+    // Both directions: toward MacPorts the source's program and the verify
+    // step's differ, so a shell re-checking the source's removal with the
+    // verify program is refused at dispatch (mutant 6).
+    for (name, direction) in [
+        ("toward homebrew", Direction::toward_homebrew_completable()),
+        ("toward macports", Direction::toward_macports()),
+    ] {
+        let scratch = Scratch::new("program-token");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let plan = direction.cleared().run().plan().clone();
+        let asked: &'static RefCell<Vec<(ProviderId, String)>> =
+            Box::leak(Box::new(RefCell::new(Vec::new())));
+        let mut setup = unchanged(&direction, &scratch);
+        setup.reread = &*Box::leak(Box::new(move |provider: &ProviderId, program: &str| {
+            asked
+                .borrow_mut()
+                .push((provider.clone(), program.to_string()));
+            Ok(ProviderConfiguration::Read { files: Vec::new() })
+        }));
+        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
         assert!(
-            plan.steps
+            !site.handed.borrow().is_empty(),
+            "{name}: a command was dispatched: {report:?}"
+        );
+        let asked = asked.borrow().clone();
+        assert!(!asked.is_empty());
+        for (provider, program) in &asked {
+            assert!(!program.is_empty(), "never re-read for no program");
+            assert!(
+                plan.steps
+                    .iter()
+                    .any(|s| s.provider.as_ref() == Some(provider)
+                        && s.commands.iter().any(|c| &c.program == program)),
+                "{provider:?} re-read for a program no step of it names: {program}"
+            );
+        }
+        for (provider, argv) in site.handed.borrow().iter() {
+            let command = plan
+                .steps
                 .iter()
-                .any(|s| s.provider.as_ref() == Some(provider)
-                    && s.commands.iter().any(|c| &c.program == program)),
-            "{provider:?} re-read for a program no step of it names: {program}"
-        );
-    }
-    for (provider, argv) in site.handed.borrow().iter() {
-        let command = plan
-            .steps
-            .iter()
-            .filter(|s| s.provider.as_ref() == Some(provider))
-            .flat_map(|s| &s.commands)
-            .find(|c| &c.argv == argv)
-            .expect("a handed command is the plan's");
-        assert!(
-            asked.contains(&(provider.clone(), command.program.clone())),
-            "the command's own program was re-read: {asked:?}"
-        );
+                .filter(|s| s.provider.as_ref() == Some(provider))
+                .flat_map(|s| &s.commands)
+                .find(|c| &c.argv == argv)
+                .expect("a handed command is the plan's");
+            assert!(
+                asked.contains(&(provider.clone(), command.program.clone())),
+                "{name}: the command's own program was re-read: {asked:?}"
+            );
+        }
     }
 }
 

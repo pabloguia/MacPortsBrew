@@ -890,6 +890,32 @@ planted `unsafe {}` and a planted `#[allow(dead_code, unsafe_code)]` are caught.
 **R14 — G's dependency on E (SG L8).** G waits on P/01 and on E-4 (ADR-0007
 accepted). The ledger says so.
 
+## As built (E-1)
+
+- **SR 9** (`9c9dbbd` and its review fixes). The plan's
+  `certify_destination_refuses_a_token_for_another_program` is named
+  `invariant_01_certify_destination_refuses_a_token_for_another_program`
+  (R11). The shell unit test uses the product site `NotInThisBuild` instead
+  of a recording fake: the word scan
+  `there_is_exactly_one_mutation_site_and_it_refuses` allows one
+  `MutationSite` implementation under `crates/*/src`, and `Refused` versus
+  `PreconditionFailed` shows whether the site was handed the command.
+- **The `Reread` seam** (R6's last sentence): it could return the program with
+  the configuration, but the token is built from the same local variable the
+  shell passes to `reread`, `recheck_provider_configuration` stays a public
+  pure function, and SE-092 keeps the shell to sequencing; recorded in SE-111.
+- **The shell's empty-program guards** (all three paths). On the two verify
+  paths they sit behind the gate (a verify step's commands must be the table's
+  operations) and `plan_still_holds`, so no wiring test reaches them; the
+  destination sites refuse the same step themselves, tested.
+- **Mutant 3** (`destination_still_verified` drops the comparison): its early
+  check is killed by the cleared-step case (`DestinationNotReverified`
+  without it); the match arm mapping the inner `WrongProgramToken` is
+  equivalent while the early check stands, and is kept as defence in depth,
+  as the `WrongProviderToken` arm is.
+- **SR 10.** `ConsentRefusal::CodeUnavailable` (R5) is added in E-1; its exit
+  mapping lands with `consent_for` in E-3.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -899,3 +925,5 @@ accepted). The ledger says so.
 | spec-guardian | `7313df2` | approve; N1–N4 (low) | N1 in R6, N2 in R10, N3 ADR-0004 sentence qualified, N4 superseded markers in the body |
 | security-reviewer | `7313df2` | approve; N1–N2 (low, for G) | N1 in R10 and R15, N2 in R15 |
 | docs-auditor | `3efe24c` | 4 medium, 5 low (dates, an unsourced `EINVAL`, ADR-0004's count, tense, status wording, stale lines) | all fixed in the next commit |
+| security-reviewer | `9c9dbbd` | approve with changes: M1–M2, L1–L3, info | M1 cleared-step case; M2 argued (As built); L1 SE-111; L2 both directions; L3 guard on the mutating path |
+| spec-guardian | `9c9dbbd` | approve with changes: F1–F8 | F1 argued as M2; F2 and F3 cleared-step case and As built; F4 both directions; F5 SE-111; F6 Evidence; F7, F8 As built |

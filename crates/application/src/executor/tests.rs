@@ -1679,6 +1679,14 @@ fn invariant_01_a_destination_token_for_another_program_is_refused() {
         ),
         Err(Precondition::WrongProgramToken)
     );
+    // A verify step with no command names no program: refused as such here,
+    // before the operation count would refuse it otherwise (mutant 3).
+    let verify = reverify.verify_position();
+    let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
+    assert_eq!(
+        destination_still_verified(&bare, &reverify, token(&run), &[]),
+        Err(Precondition::WrongProgramToken)
+    );
 }
 
 #[test]
