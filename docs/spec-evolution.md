@@ -8531,3 +8531,20 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   (SE-070, amended); `crates/cli/tests/execution_gate_fixtures.rs` now runs the gate over `fixtures/snapshots/` as
   well as the recordings, because a replay reaches only `MANUAL_REVIEW` plans, and asserts that plans which do not
   stop reach it and that both directions are planned.
+
+## SE-110 — ADR-0007: `sha2` for the plan digest; part G's lock probe calls `fcntl(F_GETLK)` through `libc`
+- Status: proposed (work order 16 part E, step E-0); accepted in E-4, the change that adds `sha2`. Amended by part G
+  when `unsafe_code` is lowered.
+- Date / Pass: 2026-10-30 / 16-complete-mutating-product, part E
+- Original assumption: ADR-0006 (no `libc`, no `unsafe`), and R-22 F-2's recommendation that G use `libc` for
+  constants only, keeping `unsafe_code = "forbid"`.
+- Change: [ADR-0007](adr/0007-sha2-and-the-lock-probe-mechanism.md). `sha2` 0.11.1, `default-features = false`,
+  enters under ADR-0004 for DP-049 (a)'s digest; it brings `libc` transitively, whose build script P/01 admits. The
+  probe's held-lock test is `fcntl(F_GETLK)` (R-17 findings 4–5), which `std` does not expose and which R-22 F-2
+  does not cover; G calls it through `libc` in one reviewed `unsafe` call in one module, lowers `unsafe_code` from
+  `forbid` to `deny` in the same change (`#[allow]` does not compile under `forbid`), and adds a scan that fails on
+  `unsafe` or `libc::` anywhere else. `rustix` and `nix` were rejected: each adds a build-script crate, a second
+  owner patch, and more `unsafe` outside this project's review. ADR-0007 supersedes ADR-0006 for these two
+  purposes only; the timeout still kills one process, and `process/` uses no `libc`.
+- Reason: DP-049 (a) and (c), DP-030 (b), R-17, R-22.
+- Plan: `docs/passes/16-plans/E.md` §0.

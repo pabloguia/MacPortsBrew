@@ -506,14 +506,14 @@ gains 6. First used by the interactive route (E-2), reused by B (E-3).
 
 ### 9. The record
 
-- **SE-110** (next free number at writing; re-checked at commit): slice 7 —
+- **SE-111** (re-checked at commit): slice 7 —
   the token's program (SR 9), the coded phrase (SR 10), the tie (both routes;
   `ShownPlan` holds the plan, the digest crosses processes), consent wired with
   the recapture re-run, `USER_ABORTED`; cross-references SE-092 (the shell
   sequences, the application decides) and SE-016 (the check-then-use window;
   consent per operation). Lands with E-1 and is completed by each later PR
   (SE-032: one topic, one entry).
-- **SE-111**: ADR-0007 — `sha2` admitted, `libc` transitive through it, G's
+- **SE-110**: ADR-0007 — `sha2` admitted, `libc` transitive through it, G's
   probe uses `libc` with one `unsafe` call, and **`unsafe_code` is lowered from
   `forbid` to `deny` by G** with the single-site scan; R-22 F-2's "no `unsafe`"
   recommendation corrected (it covers the open and `fstat`, not `F_GETLK`).
@@ -530,11 +530,11 @@ see the consent wiring (B) in the executor alone.
 
 | Step | Branch / PR | Contents | Gate |
 |---|---|---|---|
-| E-0 | `wo16/E-plan`, docs only | this plan; `docs/adr/0007-sha2-and-the-lock-probe-mechanism.md` as **Proposed**; SE-111 as proposed; the ledger | both reviewers approve the plan |
-| E-1 | `wo16/E-1-tokens` | commit 1, part D (§1); commit 2, part C (§2, with `adapters::entropy`); SE-110 started; obligation 10, locales | reviewers per commit |
+| E-0 | `wo16/E-plan`, docs only | this plan; `docs/adr/0007-sha2-and-the-lock-probe-mechanism.md` as **Proposed**; SE-110 as proposed; the ledger | both reviewers approve the plan |
+| E-1 | `wo16/E-1-tokens` | commit 1, part D (§1); commit 2, part C (§2, with `adapters::entropy`); SE-111 started; obligation 10, locales | reviewers per commit |
 | E-2 | `wo16/E-2-shown` | `plan_tie.rs` with `ShownPlan`, `confirm_shown`, `covers`; `cli::consent::confirm_plan`; `MutatingRun.shown` and the check before the probe; `UserAborted`; the tripwire and obligation-8 test rewritten (§6); obligation 8 (interactive) | — |
 | E-3 | `wo16/E-3-consent` | part B (§4): `consent_for`, the seam, the order, the second recapture, the token plumbing, the guard pin; `the_switch_needs_consent_wired` positive; obligation 9; 04 "Privilege" | — |
-| E-4 | `wo16/E-4-digest` | **waits on the owner applying P/01.** `sha2` in `Cargo.toml`/`Cargo.lock`; `PlanDigest`, `tie`, `--plan-digest`, `planDigest`; the digest on the interactive prompt; the DP-049 (a) assertion removed; ADR-0007 accepted, ADR-0006's status; SE-110 and SE-111 final; `no_workspace_crate_depends_on_libc_directly`; 06, migrate.v1, CHANGELOG, wiki | `git apply --reverse --check docs/passes/16-staged/P/01-licences-libc.patch` succeeds on `origin/main` before the branch is cut |
+| E-4 | `wo16/E-4-digest` | **waits on the owner applying P/01.** `sha2` in `Cargo.toml`/`Cargo.lock`; `PlanDigest`, `tie`, `--plan-digest`, `planDigest`; the digest on the interactive prompt; the DP-049 (a) assertion removed; ADR-0007 accepted, ADR-0006's status; SE-111 and SE-110 final; `no_workspace_crate_depends_on_libc_directly`; 06, migrate.v1, CHANGELOG, wiki | `git apply --reverse --check docs/passes/16-staged/P/01-licences-libc.patch` succeeds on `origin/main` before the branch is cut |
 
 - **What waits, exactly:** E-4 only. E-1 to E-3 merge on green checks as they
   come. The ledger sets E to `waiting on owner` after E-3, "resume as
@@ -713,7 +713,7 @@ file.
 
 - **G:** the probe as ADR-0007 §0.2 decides — `libc` as a direct dependency of
   `crates/adapters` only, the one `unsafe` call in one module, `unsafe_code`
-  lowered to `deny` in the same change with SE-111 amended, the single-site
+  lowered to `deny` in the same change with SE-110 amended, the single-site
   scan, `no_workspace_crate_depends_on_libc_directly` edited to admit the
   adapters, and the staged one-line fix of `scripts/check-licences.sh:10`'s
   `forbid` comment.
