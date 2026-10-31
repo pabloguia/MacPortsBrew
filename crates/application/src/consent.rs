@@ -19,6 +19,9 @@
 //!   [`confirm`], which checks the typed phrase itself: consent cannot exist
 //!   without the phrase. It is neither `Clone` nor `Copy`, and holds the
 //!   operation it covers, so it is never cached and never inherited (INV-06).
+//! - **A fresh code per question** (work order 16 part E, SR 10). The phrase
+//!   carries a [`ConsentCode`] drawn for that question alone, so a line typed
+//!   before the question was written cannot be its answer.
 //! - **What `--yes` is.** Nothing here: no function takes it.
 //!
 //! The prompt itself — terminal checks, where it is written, how input is
@@ -62,6 +65,30 @@ pub enum ConsentRefusal {
     /// The plan's command is not what the table and the detected prefix give
     /// for that step, so it is not shown as something to approve.
     PlanDisagrees,
+    /// No fresh code could be drawn for the question, so it was not asked
+    /// (SR 10): never a person's refusal.
+    CodeUnavailable,
+}
+
+/// The code a confirmation phrase carries: three bytes, written as six
+/// lowercase hexadecimal ASCII characters, drawn fresh for one question
+/// (SR 10). Built only from bytes, so it is never empty or malformed.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ConsentCode([u8; 3]);
+
+impl ConsentCode {
+    /// The code these three bytes write.
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; 3]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl std::fmt::Display for ConsentCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [a, b, c] = self.0;
+        write!(f, "{a:02x}{b:02x}{c:02x}")
+    }
 }
 
 /// What asking produced.
@@ -97,23 +124,29 @@ impl ConsentGiven {
 }
 
 /// The phrase a person types to approve `request`: ASCII, never translated,
-/// naming the step, so an approval cannot be pasted onto another operation.
+/// naming the step, so an approval cannot be pasted onto another operation,
+/// and carrying `code`, drawn for this question, so no line typed before it
+/// was shown can be its answer (SR 10).
 #[must_use]
-pub fn confirmation_phrase(request: &ElevationRequest) -> String {
-    format!("allow step {}", request.step)
+pub fn confirmation_phrase(request: &ElevationRequest, code: &ConsentCode) -> String {
+    format!("allow step {} {code}", request.step)
 }
 
-/// Consent for `request` when `typed` is exactly its phrase, after removing a
+/// Consent for `request` when `typed` is exactly its phrase with `code`, after removing a
 /// single trailing `\n` or `\r\n` and nothing else. The only way a
 /// [`ConsentGiven`] is made; a word scan holds its callers to the command-line
 /// crate's consent module.
 #[must_use]
-pub fn confirm(request: &ElevationRequest, typed: &str) -> Option<ConsentGiven> {
+pub fn confirm(
+    request: &ElevationRequest,
+    code: &ConsentCode,
+    typed: &str,
+) -> Option<ConsentGiven> {
     let typed = typed
         .strip_suffix("\r\n")
         .or_else(|| typed.strip_suffix('\n'))
         .unwrap_or(typed);
-    (typed == confirmation_phrase(request)).then(|| ConsentGiven {
+    (typed == confirmation_phrase(request, code)).then(|| ConsentGiven {
         step: request.step,
         program: request.program.clone(),
         argv: request.argv.clone(),
