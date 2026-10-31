@@ -735,7 +735,149 @@ relaxed; no lock probe, no `libc` direct dependency, no lint change (G); no
 guarded file; no stronger confirmation levels (K); `01-invariants.md` not
 edited.
 
+## Changes from review round 1 (binding)
+
+Both reviewers approved the plan with changes on `e6556e2`. Each change below
+overrides the text above where they differ; the body is left as written so the
+review can be read against it. Identifiers: `SG` spec-guardian, `SR`
+security-reviewer.
+
+**R1 — Where the interactive plan is minted (SG M1, SR L4).** The interactive
+`ShownPlan` is minted only **after** the live-scope check (`migrate.rs:221`) and
+after `clear(planned, Some(allowance))` succeeds (:228–233): `confirm_shown` and
+`cli::consent::confirm_plan` take the `GateClear`, and are called inside
+`execute_mutating` after the gate. A plan the gate or the live check refuses is
+never asked about; test
+`invariant_02_a_plan_the_gate_refuses_is_never_asked_about`. The digest route's
+`tie` stays "whatever the allowance" (testable in this build).
+`confirm_plan` renders the plan from the value it mints from, so what is shown
+and what is minted cannot be two variables (SG L5).
+
+**R2 — Stdout and error ids on a refusal before execution (SG M2, SR L8).**
+Stdout is empty on each, and each has its own error id, so a script tells them
+from the planner's own exit 4 by the id, never by stdout:
+- digest mismatch → new `ErrorId::PlanNotShown` (`PLAN_NOT_SHOWN`), exit 4;
+- plan question declined → `USER_ABORTED`, exit 6 (the plan was shown on
+  standard error);
+- `--yes` without a terminal and without `--plan-digest` → `USAGE`, exit 2.
+
+`migrate.rs`'s module rule 5 (:32–34), `docs/schemas/README.md:95–97` and
+`migrate.v1.md` "Exit codes" are amended in the same change (E-2 for the
+interactive cases, E-4 for the mismatch), and SE-111 records it.
+
+**R3 — When consent is asked (SG M3).** 04 "Privilege" says elevation is
+requested per operation at the moment it is needed. The reading recorded in
+SE-111 and written into 04 (E-3): the **question** is asked once per elevated
+operation, up front under the lock and before anything is written, so a refusal
+leaves nothing half-done; the **credential** is requested by part J's spawn at
+the moment that operation runs, and a token covers exactly one operation.
+
+**R4 — What `--yes` means (SG M4).** `--yes` means "execute"; it never means
+"do not ask", and it never answers a question (`application/src/consent.rs:22`,
+04 :437). Recorded in SE-111; `plan.v1.md` obligation 8 (:330–332) and 06's
+`migrate` line are reworded in E-2. `--plan-digest` is a `migrate` flag, not a
+global one (SG L4): §8's "global flags (:61)" is wrong.
+
+**R5 — Exit 6 only for a person's refusal (SG L1, SG L2, SR L6).**
+- No code available → `ConsentRefusal::CodeUnavailable`, mapped to
+  `SAFETY_BLOCKED` (exit 4, fail closed); nothing asked, nothing read.
+- `consent_for` maps every `ConsentDecision` arm by name: `Given` checked
+  token by token — each token's `step()` and `covers(step, program, argv)` must
+  match its request, in order, one per request; any other shape is `Internal`;
+  `Refused(Declined)` → `UserAborted` (6); `Refused(NotATerminal)`,
+  `Refused(NoRequests)`, `Refused(PlanDisagrees)` and `CodeUnavailable` →
+  `SafetyBlocked` (4). `NoRequests` is never read as empty tokens. Test
+  `consent_for_maps_every_decision_by_name`.
+
+**R6 — The token's program is checked, not only carried (SR L1).** The
+`executor_wiring.rs` test that the fake `Reread` records its argument and the
+token carries that same program is mandatory. `recheck_provider_configuration`
+refuses an empty program (a verify step with no commands at `mod.rs:609`/:801
+no longer reaches the destination checks with `""`): the destination sites
+answer `WrongProgramToken` for a step with no command. If E-1 finds the seam's
+result type can carry the program it was re-read for, the token is built from it.
+
+**R7 — The entropy source (SR L2).** `adapters::entropy::fresh_bytes` opens
+`/dev/urandom` read-only, checks with `fstat` on the handle that it is a
+character device (anything else is `None`), and `read_exact`s three bytes, never
+`fs::read`. The path seam is private to the module's tests. A structural test
+pins that `migrate.rs` passes `adapters::entropy::fresh_bytes` as the code
+source with no fallback (SG L5). `ask` draws the first request's code before it
+writes the heading (`cli/src/consent.rs:79`), so `without_a_code_nothing_is_asked`
+holds. SE-111 records why 24 bits is enough: a pre-typed line matches with
+probability 2⁻²⁴ and a miss halts the run, so there is no retry; a program
+driving a pseudo-terminal can read and answer the code, which is the user's own
+automation, outside SR 10.
+
+**R8 — The digest's disclosure (SR L3).** `migrate.v1.md` says `planDigest` is
+a fingerprint of unredacted data and is to be removed before publishing a
+document; a test pins that `doctor --report` never contains it; ADR-0007's
+"Revisit when" gains a keyed digest. "Valid only for the build that printed it"
+reads "only for builds with the same version string and plan serialisation".
+
+**R9 — Who may mint (SR L5, SG L5).** The `confirm(` caller scan
+(`crates/cli/tests/executor.rs:1385`) gains `confirm_shown(` (callers:
+`cli::consent` only) and `tie(` (callers: `migrate.rs` only). `ShownPlan`
+derives `Debug` only (a scan fails on any other derive, `Deserialize` in
+particular); `PlanDigest` has no public byte constructor (only `of` and `parse`).
+
+**R10 — Dependencies and the lint (SR M1, SR M2, SR M3, SG M6, SG L3, SR L7).**
+ADR-0007 is revised: the workspace table goes to `deny`, the four crates other
+than `adapters` restore `#![forbid(unsafe_code)]` at their roots (compiler
+enforced, no guarded file), and the scan is code-aware over every `.rs` under
+`crates/`, matching the keyword `unsafe`, the identifier `unsafe_code`, and the
+identifier `libc`; a leaf `-sys` crate is considered and rejected; the
+`F_GETLK` query is specified (`F_WRLCK`, held iff `l_type != F_UNLCK`, −1 is
+unknown) with G's two extra mutants; the dependencies' `unsafe` surface is
+reviewed; ADR-0004's table carries the `libc` row; "first build-script
+dependency" is corrected; nine crates. E-4 runs
+`scripts/check-deployment-target.sh` for both targets and records both minimum
+OS versions. SE-110 is reformatted and filed under "Platform, toolchain,
+licence and distribution". This supersedes §0.2's lint bullets.
+
+**R11 — Tests renamed and added (SG L6, SG L7).**
+- `certify_destination_refuses_a_token_for_another_program` →
+  `invariant_01_certify_destination_refuses_a_token_for_another_program`;
+  `the_plan_is_shown_on_standard_error_before_it_is_confirmed` →
+  `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed`.
+- INV-17: `consent_for`'s tests include an elevated step in the other direction
+  (a cask whose cell is `unknown`); `invariant_17_the_tie_and_the_program_token_behave_alike_in_both_directions`
+  runs the tie and the program-token checks over planner-built plans from
+  `fixtures/`, both directions, and no honest `VERIFY_DESTINATION` trips
+  `WRONG_PROGRAM_TOKEN`.
+- INV-15: the digest test also runs over `fixtures/snapshots/` through
+  `--from-snapshot`; `invariant_15_the_consent_code_never_enters_a_document_or_a_record`.
+- `plan_digest_is_stable_and_covers_every_field` destructures each struct
+  without `..`.
+- Tripwires: the consent checks carry a named tag asserted by `violations_with`'s
+  caller; a self-test `the_consent_tripwire_fires_on_its_mutants` (after
+  `run_marker::write(`, `let _ =`, the second recapture missing). The textual
+  "`io.shown.covers(` precedes the probe" check passes `let _ =`; that mutant
+  is killed by the behavioural `invariant_02_a_plan_other_than_the_one_shown_…`
+  test, which is why the textual check is enough. In
+  `08-pre-flip-design-notes.md`'s table the consent row is marked done in E-3,
+  the tie row "interactive built; digest owed" until E-4.
+
+**R12 — Docs (SG L4).** `docs/schemas/README.md`'s exit-code table row 6 gains
+`USER_ABORTED` (E-2); its 4 row names `PLAN_NOT_SHOWN` (E-4).
+
+**R13 — Mutants added (SR question 7).**
+30. The plan question's code reused for the first elevation question.
+31. `covers` comparing a subset of fields.
+32. The second recapture's result discarded (the pre-consent capture written).
+33. The interactive confirmation minted from the pre-history plan
+    (`migrate.rs:375`, not after :405) — needs a `--retain-source` case.
+34. The product code source returning a constant.
+35. `consent_for` mapping `NoRequests` to empty tokens.
+36. The program comparison in `mutation_dispatch` moved after `perform`.
+37. The interactive question asked before the gate (R1).
+
+**R14 — G's dependency on E (SG L8).** G waits on P/01 and on E-4 (ADR-0007
+accepted). The ledger says so.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
 |---|---|---|---|
+| spec-guardian | `e6556e2` | approve with changes: M1–M6, L1–L8 | R1–R6, R9–R12, R14 |
+| security-reviewer | `e6556e2` | approve with changes: M1–M3, L1–L8 | R1, R2, R5–R10, R13 |

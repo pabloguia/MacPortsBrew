@@ -40,6 +40,7 @@ redistribution. No copyleft licence of any kind is in the graph
 | `thiserror` 2.0.20 (dev only, via `ratatui`) | 195 | Same probe pattern. |
 | `rustversion` 1.0.23 (dev only) | 119 | Same; writes one file under `OUT_DIR`. |
 | `instability` 0.3.13 (dev only) | 3 | Emits one `rustc-check-cfg` line. |
+| `libc` 0.2.191 (through `sha2` → `cpufeatures`, arm64; ADR-0007, admitted by P/01) | 630 | Runs `$RUSTC --version` (through `RUSTC_WRAPPER` if set, like the others), reads `CARGO_CFG_*` and `RUST_LIBC_UNSTABLE_*`, emits `rustc-cfg`/`rustc-check-cfg`; spawns `freebsd-version` or `emcc` only on those targets; writes no file. |
 
 Every one is the same idiom: a compiler-capability probe that emits `cfg`
 flags. None reads the network, none writes outside `OUT_DIR`, none reads

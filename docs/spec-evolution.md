@@ -2444,6 +2444,33 @@ change is made. Silent deviation remains the one unrecoverable error.
   dependency through ADR-0004's gate or record an `ignore` with its reason and a
   date. Nobody had that written down before this entry.
 
+## SE-110 — ADR-0007: `sha2` for the plan digest; part G's lock probe calls `fcntl(F_GETLK)` through `libc`
+- Status: experimental — ADR-0007 is proposed in work order 16 part E's step E-0 and becomes accepted in E-4, the
+  change that adds `sha2`; part G amends this entry when the lint changes.
+- Date / Pass: 2026-10-30 / 16-complete-mutating-product, part E
+- Original assumption: ADR-0006 (no `libc`, no `unsafe`); R-22 F-2's recommendation that G use `libc` for
+  constants only and keep `unsafe_code = "forbid"`.
+- Change: [ADR-0007](adr/0007-sha2-and-the-lock-probe-mechanism.md). `sha2` 0.11.1, `default-features = false`,
+  enters under ADR-0004 for DP-049 (a)'s digest; it brings `libc` transitively (built for arm64 only), whose build
+  script P/01 admits and whose row ADR-0004's table now carries. G calls `fcntl(F_GETLK)` through `libc` in one
+  reviewed `unsafe` call in one module, with the query `F_WRLCK`/`SEEK_SET`/`0`/`0` and "held iff the returned
+  `l_type != F_UNLCK`"; it lowers the workspace's `unsafe_code` to `deny` and restores `#![forbid(unsafe_code)]` at
+  the roots of `domain`, `policy`, `application` and `cli`, and a code-aware scan over every `.rs` file under
+  `crates/` keeps `unsafe` and `libc` to that module. ADR-0007 supersedes ADR-0006 for these two purposes only.
+- Rationale: R-17 requires `F_GETLK` (a shared `flock` breaks a concurrent Homebrew taker), which `std` does not
+  expose and R-22 F-2 did not cover; `libc` is already in the graph through `sha2`, so the call adds no crate, build
+  script or owner patch. `rustix`, `nix` and a leaf `-sys` crate were rejected (more build scripts or a guarded
+  layering-script change, and more `unsafe` outside this project's review).
+- Evidence: R-22 F-1 to F-4 (2026-10-28, `cargo metadata`/`cargo tree -e normal,build --target <t>` on scratch
+  crates); R-17 findings 4–5 and E4 observations B and C (2026-10-04); registry reads 2026-10-30:
+  `rustix-1.1.6/src/process/fcntl_getlk.rs:21`, `nix-0.31.3/src/fcntl.rs:752`, the per-crate `unsafe` counts in
+  ADR-0007.
+- User impact: none until E-4 (a `--plan-digest` flag) and G (the probe's refusal).
+- Architectural impact: the first build-time `libc` and, in G, the first `unsafe` in the workspace's own code,
+  confined to one `adapters` module; four crates keep `forbid` by the compiler.
+- Compatibility impact: deployment floors re-checked on both targets in E-4 and G
+  (`scripts/check-deployment-target.sh`); every added crate `MIT OR Apache-2.0`.
+
 # Process: the agentic SDLC
 
 ## SE-001 — Specification lives in versioned repository documents, not in a session prompt
@@ -8531,20 +8558,3 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   (SE-070, amended); `crates/cli/tests/execution_gate_fixtures.rs` now runs the gate over `fixtures/snapshots/` as
   well as the recordings, because a replay reaches only `MANUAL_REVIEW` plans, and asserts that plans which do not
   stop reach it and that both directions are planned.
-
-## SE-110 — ADR-0007: `sha2` for the plan digest; part G's lock probe calls `fcntl(F_GETLK)` through `libc`
-- Status: proposed (work order 16 part E, step E-0); accepted in E-4, the change that adds `sha2`. Amended by part G
-  when `unsafe_code` is lowered.
-- Date / Pass: 2026-10-30 / 16-complete-mutating-product, part E
-- Original assumption: ADR-0006 (no `libc`, no `unsafe`), and R-22 F-2's recommendation that G use `libc` for
-  constants only, keeping `unsafe_code = "forbid"`.
-- Change: [ADR-0007](adr/0007-sha2-and-the-lock-probe-mechanism.md). `sha2` 0.11.1, `default-features = false`,
-  enters under ADR-0004 for DP-049 (a)'s digest; it brings `libc` transitively, whose build script P/01 admits. The
-  probe's held-lock test is `fcntl(F_GETLK)` (R-17 findings 4–5), which `std` does not expose and which R-22 F-2
-  does not cover; G calls it through `libc` in one reviewed `unsafe` call in one module, lowers `unsafe_code` from
-  `forbid` to `deny` in the same change (`#[allow]` does not compile under `forbid`), and adds a scan that fails on
-  `unsafe` or `libc::` anywhere else. `rustix` and `nix` were rejected: each adds a build-script crate, a second
-  owner patch, and more `unsafe` outside this project's review. ADR-0007 supersedes ADR-0006 for these two
-  purposes only; the timeout still kills one process, and `process/` uses no `libc`.
-- Reason: DP-049 (a) and (c), DP-030 (b), R-17, R-22.
-- Plan: `docs/passes/16-plans/E.md` §0.

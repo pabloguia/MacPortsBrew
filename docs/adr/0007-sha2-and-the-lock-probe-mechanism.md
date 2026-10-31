@@ -24,9 +24,9 @@ someone who controls an inventory could craft. `std` has no cryptographic hash.
 
 **DP-030 (b): part G probes the providers' own locks before a mutation.** What
 the probe must call is fixed by R-17 (`docs/research/R-17-provider-mutation-locks.md`,
-findings 4 and 5, observation B, 2026-10-04): the held-lock test is
-`fcntl(F_GETLK)` on an `O_RDONLY` descriptor. A shared `flock(LOCK_SH|LOCK_NB)`
-is refused because the probe's own hold makes a concurrent Homebrew
+findings 4 and 5; E4 observations B and C; 2026-10-04): the held-lock test
+is `fcntl(F_GETLK)` on an `O_RDONLY` descriptor (observation C). A shared
+`flock(LOCK_SH|LOCK_NB)` is refused (observation B) because the probe's own hold makes a concurrent Homebrew
 `LOCK_EX|LOCK_NB` taker fail, which aborts the user's `brew install`. `std`
 offers `File::try_lock_shared` (the `flock` shape R-17 rejects) and no
 `F_GETLK`.
@@ -66,7 +66,8 @@ release build, and a raised floor rejects this record (see Compatibility).
 ### For the digest
 
 **`sha2`, `default-features = false`.** RustCrypto's SHA-256, the reference
-implementation in the ecosystem; eight small crates and one build script.
+implementation in the ecosystem; nine small crates including `sha2`, and one
+build script.
 Makes the script route possible and a pinned digest testable. Costs one
 dependency set under ADR-0004 and `libc` in the graph. Forecloses nothing: the
 digest's format carries a version prefix, so another hash later is a new
@@ -83,11 +84,12 @@ which is part of the ruling for v0.2.0.
 **`libc`, one reviewed `unsafe` call in one module.** `libc` is already in the
 graph through `sha2` and admitted by P/01's single `build_scripts_allowed`
 entry. G adds it as a direct dependency of `crates/adapters` only. The `unsafe`
-is one `fcntl(fd, F_GETLK, &mut flock)` on a zero-initialised stack
-`libc::flock`, the descriptor borrowed from a live `File` for the call, the
-return value checked. Adds no crate, no build script and no owner patch. Costs
-the lint: `#[allow(unsafe_code)]` does not compile under `forbid`, so
-`unsafe_code` is lowered to `deny`. Makes the whole new `unsafe` surface a few
+is one `fcntl(fd, F_GETLK, &mut query)` on a stack `libc::flock` the module
+fills itself, the descriptor borrowed from a live `File` for the call, the
+return value checked (the query's exact form is in the Decision). Adds no crate, no build script and no owner patch. Costs
+the lint: `#[allow(unsafe_code)]` does not compile under `forbid`, so the
+workspace table's `unsafe_code` is lowered to `deny` and the four crates that
+need no `unsafe` restore `forbid` at their roots (Decision). Makes the whole new `unsafe` surface a few
 lines this project reads line by line. Makes harder: every later `unsafe` is a
 `deny` away instead of a `forbid` away, which the single-site scan below
 compensates for.
@@ -101,6 +103,16 @@ our review.
 **`nix` 0.31.3, `fcntl` with `F_GETLK` (safe).** As `rustix`: `nix` (build
 script), `cfg_aliases`, `bitflags`, plus `libc`; the same staging cost.
 
+**A leaf crate for the one call** (for example `crates/lock-probe-sys`, its
+own `[lints]` table, `adapters` depending on it). Every layer crate, `adapters`
+included, keeps `forbid` by the compiler. Costs a sixth crate for one call and
+a new edge in `scripts/check-layering.sh`, a guarded file, so one more owner
+patch; and the crate would be one `adapters` alone may use, which the layering
+script would have to learn. Rejected: the crate-root `forbid` below gives the
+same compiler guarantee to the four crates above the machine boundary, and
+`adapters` is already the one layer allowed to touch the machine, under the
+scan.
+
 **`flock(LOCK_SH|LOCK_NB)` through `std`.** No dependency, no `unsafe`.
 Rejected by R-17: the probe would break the user's concurrent Homebrew run.
 
@@ -108,7 +120,34 @@ Rejected by R-17: the probe would break the user's concurrent Homebrew run.
 
 Add `sha2` 0.11.1 with `default-features = false` for the plan digest, and let
 part G call `fcntl(F_GETLK)` through `libc` in one reviewed `unsafe` call in a
-single module, lowering `unsafe_code` from `forbid` to `deny` in that change.
+single module, lowering the workspace's `unsafe_code` from `forbid` to `deny`
+in that change and restoring `forbid` at the roots of every crate but
+`adapters`.
+
+**The query, exactly** (R-17 observation C): `l_type = F_WRLCK`,
+`l_whence = SEEK_SET`, `l_start = 0`, `l_len = 0`. The lock is held if and only
+if the returned `l_type != F_UNLCK`. `l_pid` is never relied on (it is −1 for a
+`flock` holder). A return of −1, whatever `errno`, is unknown. `F_RDLCK` is
+wrong: it misses a shared holder (observation C), and a zero `l_type` is not a
+lock type on macOS (`EINVAL`).
+
+**The single site, by the compiler where it can be.**
+
+- `Cargo.toml`'s `[workspace.lints.rust] unsafe_code = "deny"`; the crate
+  roots of `domain`, `policy`, `application` and `cli` carry
+  `#![forbid(unsafe_code)]`, so an `allow` there does not compile. A test
+  asserts those four attributes and that every crate's `Cargo.toml` keeps
+  `[lints] workspace = true`.
+- In `adapters`, the call lives in one module (proposed
+  `crates/adapters/src/lock_probe/getlk.rs`) with the crate's only
+  `#[allow(unsafe_code)]`, a `// SAFETY:` comment, and
+  `#![deny(unsafe_op_in_unsafe_fn, clippy::undocumented_unsafe_blocks)]`.
+- A scan over every `.rs` file under `crates/` (sources, tests, build scripts),
+  on comment- and string-stripped code: the keyword `unsafe` and the identifier
+  `unsafe_code` appear only in that module; the identifier `libc` (which catches
+  `use libc as c` and `extern crate libc`) only under
+  `crates/adapters/src/lock_probe/`. That keeps ADR-0006's process decision
+  intact: `process/` never signals a group.
 
 ## Consequences
 
@@ -116,21 +155,19 @@ single module, lowering `unsafe_code` from `forbid` to `deny` in that change.
   `crates/application` only (`crates/domain` stays `serde`-only), and a test,
   `no_workspace_crate_depends_on_libc_directly`, that G edits on purpose to
   admit `crates/adapters` alone. Until G, `libc` is only transitive.
-- **G's obligations.** `libc` direct in `crates/adapters` only; the call in one
-  module (proposed `crates/adapters/src/lock_probe/getlk.rs`) with the
-  workspace's only `#[allow(unsafe_code)]`, a `// SAFETY:` comment, and
-  `#![deny(unsafe_op_in_unsafe_fn, clippy::undocumented_unsafe_blocks)]`; a
-  word-scan test that fails on `unsafe` or `allow(unsafe_code)` in any other
-  file under `crates/*/src`, and on `libc::` outside
-  `crates/adapters/src/lock_probe/`, which keeps ADR-0006's process decision
-  intact; `security-reviewer` reads the call line by line; the lint change and
-  this record's SE entry amended in the same change; and a staged one-line fix
-  of `scripts/check-licences.sh`'s comment that says `forbid` (a guarded file).
+- **G's obligations.** `libc` direct in `crates/adapters` only; the query, the
+  lint split, the crate-root attributes, and the scan exactly as the Decision
+  states; `security-reviewer` reads the call line by line; mutants include a
+  query with `F_RDLCK` and `EINVAL` read as not held; SE-110 amended in the
+  same change; ADR-0004's sentence "The workspace's own code is
+  `unsafe_code = "forbid"`" corrected; and a staged one-line fix of
+  `scripts/check-licences.sh`'s comment that says `forbid` (a guarded file).
+  G also waits on this record being accepted (E-4) and on P/01.
 - **Owner action.** P/01 (`docs/passes/16-staged/P/01-licences-libc.patch`)
   admits `libc`'s build script. Until the owner applies it, a commit adding
   `sha2` fails `check-licences.sh`, so E-4 waits; nothing else in E does.
-- **Negative.** The workspace gains its first build-script dependency and, in
-  G, its first `unsafe`. A future `unsafe` needs only a reviewer's attention to
+- **Negative.** The workspace's own code gains its first `unsafe` (in G), and
+  `adapters` loses the compiler's `forbid`. A future `unsafe` needs only a reviewer's attention to
   slip in under `deny`; the scan is what makes that a test failure rather than
   a review question.
 - **Expensive later.** Removing `sha2` changes the digest format, so a digest
@@ -139,14 +176,29 @@ single module, lowering `unsafe_code` from `forbid` to `deny` in that change.
   needs either `std` gaining `F_GETLK` or a wrapper crate, each a change to
   this record.
 
+## The `unsafe` surface of the new dependencies
+
+ADR-0004's gate reviews the dependencies' `unsafe` in the record that admits
+them (`scripts/check-licences.sh`'s header). Counts of the word `unsafe` in each
+crate's source (registry, 2026-10-30): `sha2` 0.11.1, 39 — the SIMD and
+`aarch64` SHA intrinsics, selected at run time through `cpufeatures`;
+`hybrid-array` 0.4.15, 43 — array reinterpretation behind safe constructors;
+`block-buffer` 0.12.1, 22 — buffer handling; `cpufeatures` 0.3.1, 11 — the
+`sysctlbyname` call on Apple arm64; `libc` 0.2.191 — foreign-function
+declarations only, no bodies. `digest`, `crypto-common`, `typenum` and `cfg-if`
+are reviewed as RustCrypto/ecosystem staples with no platform calls on our
+path. All of it is RustCrypto's or the Rust project's maintained code; none of it
+runs in a process this tool spawns, and none touches the filesystem.
+
 ## Compatibility impact
 
 - **macOS 10.12 x86_64 / 11.0 arm64 (ADR-0002).** `sha2`'s set uses no
   platform API on x86_64; on arm64, `cpufeatures` reads CPU features through
   `sysctlbyname`, present on every arm64 macOS. `fcntl(F_GETLK)` is POSIX and
-  present on both floors. The release build's floor is asserted by
-  `check-deployment-target.sh` in E-4 (and again in G); a raised floor rejects
-  this record rather than the floor.
+  present on both floors. This machine is x86_64 and `libc` builds only for
+  arm64 until G, so E-4 runs `scripts/check-deployment-target.sh` (both
+  targets) and records both minimum OS versions in the report; G runs it again.
+  A raised floor rejects this record rather than the floor.
 - **Licences (ADR-0001).** Every crate added is `MIT OR Apache-2.0` (R-22 F-1,
   2026-10-28); none is GPL. `deny.toml` bans none of them.
 - **Architectures.** `libc` is compiled for arm64 only until G makes it a
@@ -161,3 +213,6 @@ single module, lowering `unsafe_code` from `forbid` to `deny` in that change.
   `forbid` restored;
 - `sha2`'s major version changes its dependency graph, or a crate in it starts
   shipping a build script.
+- a published `planDigest` turns out to matter as a fingerprint of unredacted
+  data (a guessed home path can be confirmed against it): then a keyed digest,
+  at the cost of the two-process replay determinism test.
