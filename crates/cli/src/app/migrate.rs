@@ -58,9 +58,9 @@ use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    clear, migration_key, migration_start, mutation_allowance, AnalysisOptions, ConsentRefusal,
-    GateClear, HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanRequest,
-    PlannedRun, RunOutcome, ShownPlan, StepRecord,
+    clear, migration_key, migration_start, mutation_allowance, plan_question_error,
+    AnalysisOptions, GateClear, HistoryConsultation, MigrationStart, MutationAllowance,
+    NotRecognised, PlanRequest, PlannedRun, RunOutcome, ShownPlan, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
@@ -303,6 +303,9 @@ fn confirm_the_plan(
     stderr: &mut dyn Write,
 ) -> Result<ShownPlan, DomainError> {
     use std::io::IsTerminal;
+    // The prompt is the caller's standard error; both terminal answers are
+    // the process's own two streams, which are the ones a person reads and
+    // types at (`run_inner` hands `migrate` its real standard error).
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut code = macportsbrew_adapters::entropy::fresh_bytes;
@@ -319,23 +322,7 @@ fn confirm_the_plan(
         },
         &ctx.messages,
     );
-    shown.map_err(|why| match why {
-        ConsentRefusal::Declined => {
-            DomainError::new(ErrorId::UserAborted, "the plan was not confirmed")
-        }
-        ConsentRefusal::NotATerminal => DomainError::new(
-            ErrorId::Usage,
-            "--yes needs a terminal to confirm the plan it shows",
-        ),
-        ConsentRefusal::CodeUnavailable => DomainError::new(
-            ErrorId::SafetyBlocked,
-            "no confirmation code could be drawn, so the plan was not asked about",
-        ),
-        ConsentRefusal::NoRequests | ConsentRefusal::PlanDisagrees => DomainError::new(
-            ErrorId::Internal,
-            "the plan question answered with an elevation refusal",
-        ),
-    })
+    shown.map_err(plan_question_error)
 }
 
 /// What the run loop returned, as the document carries it: no read output and

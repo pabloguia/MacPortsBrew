@@ -2002,3 +2002,48 @@ fn invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed() {
         "the plan shown is the plan cleared"
     );
 }
+
+#[test]
+fn invariant_17_the_tie_behaves_alike_in_both_directions() {
+    // The witness of one direction's plan never covers the other's, either
+    // way round, and each direction's own witness lets its run past the tie.
+    // The program-token half is `each_re_check_is_made_for_the_program_it_is_spent_on`;
+    // the tie over every recording's plan is owed to E-4, with the digest.
+    let orientations = [
+        (Direction::toward_homebrew(), Direction::toward_macports()),
+        (Direction::toward_macports(), Direction::toward_homebrew()),
+    ];
+    for (witnessed, direction) in orientations {
+        for (witness, refused) in [(&witnessed, true), (&direction, false)] {
+            let scratch = Scratch::new("tie-both");
+            let site = Site::exits(&scratch, 0);
+            let seen = Seen::default();
+            let setup = unchanged(&direction, &scratch);
+            let cleared = direction.cleared();
+            let plan = cleared.run().plan().clone();
+            let result = run_with_mutations(
+                &cleared,
+                || Reads(Box::leak(Box::new(plan))),
+                MutatingRun {
+                    live: setup.live,
+                    state: &scratch.state,
+                    euid: scratch.euid,
+                    start: scratch.start(),
+                    site: &site,
+                    recapture: setup.recapture,
+                    reread: setup.reread,
+                    read_back: setup.read_back,
+                    observer: &seen,
+                    shown: shown(&witness.cleared()),
+                },
+                &HomeRedaction::Recorded,
+            );
+            let not_shown = matches!(
+                &result,
+                Err(e) if e.id == macportsbrew_domain::ErrorId::PlanNotShown
+            );
+            assert_eq!(not_shown, refused, "{result:?}");
+            assert_eq!(seen.all().contains(&Boundary::Probed), !refused);
+        }
+    }
+}

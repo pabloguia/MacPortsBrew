@@ -86,8 +86,8 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 ```
 
 Exit 6 (`USER_ABORTED`) is a person declining a question that must be
-answered before anything runs: the plan's confirmation, and once part J wires
-it, an elevated step's. A plan about to run that is not the one confirmed is a
+answered before anything runs: the plan's confirmation, and an elevated step's
+once part E-3 wires consent (reachable after part J). A plan about to run that is not the one confirmed is a
 safety stop (`PLAN_NOT_SHOWN`, exit 4), and `migrate --yes` with no terminal to
 confirm at is a usage error (exit 2); stdout is empty in all three (work order
 16 part E, SE-111).

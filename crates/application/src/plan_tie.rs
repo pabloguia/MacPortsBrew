@@ -19,9 +19,9 @@
 //!   drawn fresh for the question (SR 10), so a line typed before the plan was
 //!   shown cannot confirm it.
 
-use crate::consent::ConsentCode;
+use crate::consent::{ConsentCode, ConsentRefusal};
 use crate::execution_gate::GateClear;
-use macportsbrew_domain::MigrationPlan;
+use macportsbrew_domain::{DomainError, ErrorId, MigrationPlan};
 
 /// The witness that this plan was shown to a person and confirmed.
 #[derive(Debug)]
@@ -79,4 +79,51 @@ pub fn confirm_shown(cleared: &GateClear, code: &ConsentCode, typed: &str) -> Op
     (typed == plan_phrase(code)).then(|| ShownPlan {
         plan: cleared.run().plan().clone(),
     })
+}
+
+/// The error a refused plan question ends the run with (work order 16 part E,
+/// R2 and R5): each refusal its own identifier, so a script tells a person's
+/// refusal (exit 6) from a missing terminal (2) and from a safety stop (4),
+/// none of which writes to stdout. The application decides; the shell only
+/// returns it (SE-092).
+#[must_use]
+pub fn plan_question_error(why: ConsentRefusal) -> DomainError {
+    match why {
+        ConsentRefusal::Declined => {
+            DomainError::new(ErrorId::UserAborted, "the plan was not confirmed")
+        }
+        ConsentRefusal::NotATerminal => DomainError::new(
+            ErrorId::Usage,
+            "--yes needs a terminal to confirm the plan it shows",
+        ),
+        ConsentRefusal::CodeUnavailable => DomainError::new(
+            ErrorId::SafetyBlocked,
+            "no confirmation code could be drawn, so the plan was not asked about",
+        ),
+        ConsentRefusal::NoRequests | ConsentRefusal::PlanDisagrees => DomainError::new(
+            ErrorId::Internal,
+            "the plan question answered with an elevation refusal",
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invariant_02_a_declined_plan_question_exits_6_before_anything_runs() {
+        // Every refusal by name: only a person's refusal is exit 6.
+        let cases = [
+            (ConsentRefusal::Declined, ErrorId::UserAborted, 6),
+            (ConsentRefusal::NotATerminal, ErrorId::Usage, 2),
+            (ConsentRefusal::CodeUnavailable, ErrorId::SafetyBlocked, 4),
+            (ConsentRefusal::NoRequests, ErrorId::Internal, 1),
+            (ConsentRefusal::PlanDisagrees, ErrorId::Internal, 1),
+        ];
+        for (why, id, code) in cases {
+            let error = plan_question_error(why);
+            assert_eq!((error.id, error.exit_code()), (id, code), "{why:?}");
+        }
+    }
 }

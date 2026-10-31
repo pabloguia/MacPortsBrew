@@ -1049,6 +1049,36 @@ fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
 }
 
 #[test]
+fn invariant_02_a_plan_the_gate_refuses_is_never_asked_about() {
+    // R1, structurally: the witness can only be minted from a `GateClear`
+    // (`confirm_shown` and `confirm_plan` take one), `clear` is the only
+    // producer of one, and in `execute_mutating` the gate's refusal arm
+    // returns before the question is asked, with the cleared run the only
+    // thing the question is about. A behavioural case needs a dispatching
+    // build, which this one is not.
+    let plan_tie = std::fs::read_to_string(root().join("crates/application/src/plan_tie.rs"))
+        .expect("plan_tie.rs");
+    assert!(plan_tie.contains("pub fn confirm_shown(cleared: &GateClear,"));
+    let consent =
+        std::fs::read_to_string(root().join("crates/cli/src/consent.rs")).expect("consent.rs");
+    assert!(consent.contains("pub fn confirm_plan(\n    cleared: &GateClear,"));
+    let source =
+        std::fs::read_to_string(root().join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
+    let body = &source[source
+        .find("fn execute_mutating(")
+        .expect("execute_mutating")..];
+    let body = &body[..body.find("\n}\n").expect("its end")];
+    let refused = body
+        .find("Err((_, report)) => return Ok(executor::refused_report(")
+        .expect("the gate's refusal returns");
+    let asked = body
+        .find("let shown = confirm_the_plan(ctx, &cleared, stderr)?;")
+        .expect("the question is about the cleared run");
+    assert!(refused < asked);
+    assert_eq!(body.matches("confirm_the_plan(").count(), 1, "asked once");
+}
+
+#[test]
 fn migrate_shows_a_plan_that_stops_at_manual_review_and_refuses_to_execute_it() {
     // `node` has no strong counterpart among the ports and dependents of its
     // own, so its plan is MANUAL_REVIEW throughout (INV-19): shown, exit 4, from

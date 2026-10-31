@@ -81,6 +81,14 @@ Remove a line when the owner has done it, citing the commit.
   the same run (spec 11 and `.claude/README.md`: the memory note's items 3–5
   and 8–10) are a session follow-up, not the owner's.
 
+- **Allow the security review of part E-2** (blocks E-2's merge, PR #47).
+  On 2026-10-31 the auto-mode permission classifier refused the session's
+  launch of the `security-reviewer` subagent for commit `ad850cb` ("Auto-Mode
+  Bypass"); the session did not reword or retry it. Action: in an interactive
+  session, ask for the review of `ad850cb` against the plan
+  (`docs/passes/16-plans/E.md` §3, R1, R2, R4, R9, R11) and approve the
+  subagent launch when prompted, or run the session in a mode that permits it.
+
 ## Disclosures
 
 Things a session or its subagents did that a reader must know, recorded rather

@@ -99,7 +99,8 @@ pub enum ErrorId {
     /// never by stdout, which is empty for both. Exit 4.
     PlanNotShown,
     /// The person declined a question that had to be answered before anything
-    /// ran: the plan, or an elevated step (`06-cli-and-ux.md`: exit 6).
+    /// ran: the plan, and once consent is wired (work order 16 part E-3) an
+    /// elevated step (`06-cli-and-ux.md`: exit 6).
     UserAborted,
     /// A safety rule could not be evaluated, because the input does not carry
     /// the fact it needs.

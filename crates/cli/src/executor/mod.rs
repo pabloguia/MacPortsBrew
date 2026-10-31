@@ -474,7 +474,8 @@ pub fn run_mutating<M: MutationSite>(
 }
 
 /// Runs a plan the gate cleared **under a mutation allowance** (pass 08
-/// slice 4): the live-scope check; the history probe; the lock; the machine
+/// slice 4): the live-scope check; the plan tied to the one confirmed
+/// (`io.shown`, work order 16 part E-2); the history probe; the lock; the machine
 /// captured again and re-planned under it, refusing on any difference; the
 /// marker looked for; the read steps; and, before the first mutating command,
 /// the marker written — then per mutating command the lock confirmed, the
@@ -488,7 +489,8 @@ pub fn run_mutating<M: MutationSite>(
 ///
 /// # Errors
 /// A refusal before anything was dispatched: a witness without an allowance,
-/// a run that is not live, the probe, the lock, the recapture, an interrupted
+/// a run that is not live, a plan the confirmation does not cover
+/// (`PLAN_NOT_SHOWN`), the probe, the lock, the recapture, an interrupted
 /// run's marker, or a marker that could not be written. Nothing mutating ran.
 pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     cleared: &GateClear,
