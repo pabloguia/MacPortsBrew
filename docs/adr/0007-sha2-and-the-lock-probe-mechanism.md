@@ -134,8 +134,8 @@ lock type on macOS (`EINVAL`).
 **The single site, by the compiler where it can be.**
 
 - `Cargo.toml`'s `[workspace.lints.rust] unsafe_code = "deny"`; the crate
-  roots of `domain`, `policy`, `application` and `cli` carry
-  `#![forbid(unsafe_code)]`, so an `allow` there does not compile. A test
+  roots of `domain`, `policy`, `application` and `cli` (`cli`'s `lib.rs` and
+  `main.rs`) carry `#![forbid(unsafe_code)]`, so an `allow` there does not compile. A test
   asserts those four attributes and that every crate's `Cargo.toml` keeps
   `[lints] workspace = true`.
 - In `adapters`, the call lives in one module (proposed
@@ -147,7 +147,11 @@ lock type on macOS (`EINVAL`).
   `unsafe_code` appear only in that module; the identifier `libc` (which catches
   `use libc as c` and `extern crate libc`) only under
   `crates/adapters/src/lock_probe/`. That keeps ADR-0006's process decision
-  intact: `process/` never signals a group.
+  intact: `process/` never signals a group. The stripper is a real lexer or
+  carries its own tests (raw strings, nested block comments, a `'"'` literal),
+  and a self-test plants an `unsafe {}` and a lint-list `allow` and expects both
+  caught; the root-attribute test reads every lib and bin target from
+  `cargo metadata`.
 
 ## Consequences
 

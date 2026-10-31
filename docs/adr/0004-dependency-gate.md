@@ -44,7 +44,8 @@ redistribution. No copyleft licence of any kind is in the graph
 
 Every one is the same idiom: a compiler-capability probe that emits `cfg`
 flags. None reads the network, none writes outside `OUT_DIR`, none reads
-user files, and none runs anything but the compiler it was invoked by. The
+user files, and, on the macOS targets this project builds, none runs anything but the
+compiler it was invoked by (`libc`'s spawns are FreeBSD and Emscripten only). The
 `unsafe` surface of the graph is the standard library's and `serde_json`'s
 (which is `#![deny(unsafe_code)]` except audited SIMD paths), plus
 `unicode-width` (none). The workspace's own code is `unsafe_code = "forbid"`.

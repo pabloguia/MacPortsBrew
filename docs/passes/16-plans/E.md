@@ -194,6 +194,8 @@ The options, measured:
   `nix` (build script), `cfg_aliases`, `bitflags`, plus `libc`; same staging
   cost as `rustix`.
 
+*(The lint and scan bullets below are superseded by R10.)*
+
 **Chosen: `libc`, one `unsafe` call.** It adds nothing to the graph beyond what
 `sha2` already brings and P/01 already admits; the whole of the new `unsafe`
 surface is a few lines this project reviews line by line, instead of a crate's
@@ -277,7 +279,7 @@ program in hand (:609, :651, :801).
   `tcflush` (still races a paste after the flush, and needs `libc`).
 - **The seam:** `ConsentStreams` gains `code: &'a mut dyn FnMut() -> Option<[u8; 3]>`.
   `ask` calls it once per request **before writing that request's question**;
-  `None` → `Refused(Declined)` with nothing further read and the
+  *(superseded by R5: `None` → `CodeUnavailable`)* `None` → `Refused(Declined)` with nothing further read and the
   `consent.code_unavailable` line written. The product closure (part B) is
   `adapters::entropy::fresh_bytes`.
 - **Why it closes SR 10:** a line typed before the question cannot contain a
@@ -340,7 +342,8 @@ order or the clock:
   `--retain-source`, `migrate` re-plans against history (`migrate.rs:385–405`)
   and `plan` does not, so only `migrate`'s plan is the one `--yes` executes.
 
-**How `migrate` uses it** (`crates/cli/src/app/migrate.rs`):
+**How `migrate` uses it** (`crates/cli/src/app/migrate.rs`; *where the
+interactive plan is minted is superseded by R1, the stdout and ids by R2*):
 
 - `Render` mode (E-4): the document gains a root `planDigest` (additive;
   `migrate.v1.md`), and the human output a line naming it.
@@ -431,7 +434,8 @@ plan validated. A future `restore --run` inherits the field.
 
 `USER_ABORTED`, exit 6, `error.user_aborted` in both locales;
 `exit_codes_follow_the_contract` (`crates/domain/src/error.rs:250`) gains the
-row; every schema listing exit codes (`migrate.v1.md` "Exit codes", :179)
+row; every schema listing exit codes (`migrate.v1.md` "Exit codes", :179, and
+`docs/schemas/README.md`'s table, R12)
 gains 6. First used by the interactive route (E-2), reused by B (E-3).
 
 ### 6. Tripwires, as positive structural checks
@@ -491,8 +495,8 @@ gains 6. First used by the interactive route (E-2), reused by B (E-3).
 - `docs/spec/04-migration-and-safety.md` "Privilege" (:393–): "built and not
   wired" becomes "wired; unreachable in a shipped build until part J"; the
   coded phrase.
-- `docs/spec/06-cli-and-ux.md`: the `migrate` line (:32) and global flags
-  (:61) gain `--plan-digest`; exit 6 (:83) gets its cases (a declined plan or
+- `docs/spec/06-cli-and-ux.md`: the `migrate` line (:32) gains `--plan-digest`
+  (a `migrate` flag, not a global one: R4); exit 6 (:83) gets its cases (a declined plan or
   elevation question).
 - `CHANGELOG.md` (Unreleased), `wiki/CLI-Reference.md`,
   `wiki/Dependencies-and-Safety.md` (`sha2`, and that `libc` is transitive),
@@ -789,12 +793,14 @@ global one (SG L4): §8's "global flags (:61)" is wrong.
   `SafetyBlocked` (4). `NoRequests` is never read as empty tokens. Test
   `consent_for_maps_every_decision_by_name`.
 
-**R6 — The token's program is checked, not only carried (SR L1).** The
+**R6 — The token's program is checked, not only carried (SR L1; round 2 SG N1).** The
 `executor_wiring.rs` test that the fake `Reread` records its argument and the
 token carries that same program is mandatory. `recheck_provider_configuration`
-refuses an empty program (a verify step with no commands at `mod.rs:609`/:801
-no longer reaches the destination checks with `""`): the destination sites
-answer `WrongProgramToken` for a step with no command. If E-1 finds the seam's
+is never called with an empty program: the **shell** checks first, and a
+verify step with no commands (`mod.rs:609`/:801 fall back to `""` today)
+answers `WrongProgramToken` without a re-check; the destination sites likewise
+answer `WrongProgramToken` for a step with no command. E-1 first checks that no
+existing test depends on how a `VERIFY_DESTINATION` with no commands behaves. If E-1 finds the seam's
 result type can carry the program it was re-read for, the token is built from it.
 
 **R7 — The entropy source (SR L2).** `adapters::entropy::fresh_bytes` opens
@@ -823,8 +829,9 @@ particular); `PlanDigest` has no public byte constructor (only `of` and `parse`)
 
 **R10 — Dependencies and the lint (SR M1, SR M2, SR M3, SG M6, SG L3, SR L7).**
 ADR-0007 is revised: the workspace table goes to `deny`, the four crates other
-than `adapters` restore `#![forbid(unsafe_code)]` at their roots (compiler
-enforced, no guarded file), and the scan is code-aware over every `.rs` under
+than `adapters` restore `#![forbid(unsafe_code)]` at their roots — for `cli`
+both `src/lib.rs` and `src/main.rs`, the binaries' root (round 2 SG N2) —
+(compiler enforced, no guarded file), and the scan is code-aware over every `.rs` under
 `crates/`, matching the keyword `unsafe`, the identifier `unsafe_code`, and the
 identifier `libc`; a leaf `-sys` crate is considered and rejected; the
 `F_GETLK` query is specified (`F_WRLCK`, held iff `l_type != F_UNLCK`, −1 is
@@ -872,6 +879,12 @@ licence and distribution". This supersedes §0.2's lint bullets.
 36. The program comparison in `mutation_dispatch` moved after `perform`.
 37. The interactive question asked before the gate (R1).
 
+**R15 — For G (round 2 SR N1, N2).** The root-attribute test lists every lib
+and bin target from `cargo metadata`, not a fixed file list. The scan's comment
+and string stripper is a real lexer or carries its own tests for raw strings
+(`r#"…"#`), nested block comments and a `'"'` literal, plus a self-test that a
+planted `unsafe {}` and a planted `#[allow(dead_code, unsafe_code)]` are caught.
+
 **R14 — G's dependency on E (SG L8).** G waits on P/01 and on E-4 (ADR-0007
 accepted). The ledger says so.
 
@@ -881,3 +894,5 @@ accepted). The ledger says so.
 |---|---|---|---|
 | spec-guardian | `e6556e2` | approve with changes: M1–M6, L1–L8 | R1–R6, R9–R12, R14 |
 | security-reviewer | `e6556e2` | approve with changes: M1–M3, L1–L8 | R1, R2, R5–R10, R13 |
+| spec-guardian | `7313df2` | approve; N1–N4 (low) | N1 in R6, N2 in R10, N3 ADR-0004 sentence qualified, N4 superseded markers in the body |
+| security-reviewer | `7313df2` | approve; N1–N2 (low, for G) | N1 in R10 and R15, N2 in R15 |
