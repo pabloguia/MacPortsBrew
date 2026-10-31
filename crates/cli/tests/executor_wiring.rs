@@ -38,8 +38,9 @@ use macportsbrew_adapters::process::{ExitStatus, Invocation};
 use macportsbrew_adapters::registry::{self, PlanReadError};
 use macportsbrew_application::{
     clear, confirm_shown, evaluable_in_this_build, plan_run, AnalysisOptions,
-    ConfigurationRechecked, ConsentCode, Disposition, GateClear, HaltReason, MutationAllowance,
-    PlanRequest, PlannedRun, Precondition, RunOutcome, ShownPlan,
+    ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
+    ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanRequest, PlannedRun,
+    Precondition, RunOutcome, ShownPlan,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -400,8 +401,13 @@ impl MutationSite for Site<'_> {
         provider: &ProviderId,
         command: &PlanCommand,
         checked: ConfigurationRechecked,
+        consent: Option<ConsentGiven>,
         _lock: &RunLock,
     ) -> Result<CommandEnd, MutationRefusal> {
+        assert!(
+            consent.is_none(),
+            "no consent reaches a site while the guard halts every elevated command"
+        );
         assert_eq!(checked.provider(), provider, "the token is this step's");
         assert_eq!(
             checked.program(),
@@ -490,7 +496,7 @@ fn clean_reread(_: &ProviderId, _: &str) -> Result<ProviderConfiguration, Domain
 /// How the test configures one run.
 struct Setup<'a> {
     live: bool,
-    recapture: Box<dyn FnOnce() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>,
+    recapture: Box<dyn Fn() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>,
     reread: &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>,
     read_back: &'a dyn Fn(&StateDir, &str, u32) -> Result<String, DomainError>,
 }
@@ -527,6 +533,13 @@ fn unchanged<'a>(direction: &'a Direction, scratch: &'a Scratch) -> Setup<'a> {
     }
 }
 
+/// The consent seam of a run that has nothing to ask about: every run the gate
+/// clears in this build, since it refuses every elevated step. Asked at all,
+/// it fails the test.
+fn never_asked(requests: &[ElevationRequest]) -> ConsentDecision {
+    panic!("a cleared run asked for consent: {requests:?}")
+}
+
 /// The witness that `cleared`'s plan was shown and confirmed, minted the only
 /// way there is: the exact phrase with its code.
 fn shown(cleared: &GateClear) -> ShownPlan {
@@ -542,7 +555,7 @@ fn run<M: MutationSite>(
     cleared: &GateClear,
     scratch: &Scratch,
     site: &M,
-    setup: Setup<'_>,
+    setup: &Setup<'_>,
     seen: &Seen,
 ) -> Result<RunReport, DomainError> {
     let plan = cleared.run().plan().clone();
@@ -556,7 +569,8 @@ fn run<M: MutationSite>(
             euid: scratch.euid,
             start: scratch.start(),
             site,
-            recapture: setup.recapture,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
             reread: setup.reread,
             read_back: setup.read_back,
             observer: seen,
@@ -586,7 +600,7 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
             &direction.cleared(),
             &scratch,
             &site,
-            unchanged(&direction, &scratch),
+            &unchanged(&direction, &scratch),
             &seen,
         )
         .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -655,7 +669,7 @@ fn a_run_that_is_not_live_is_refused_before_the_state_directory_is_touched() {
     let seen = Seen::default();
     let mut setup = unchanged(&direction, &scratch);
     setup.live = false;
-    let error = run(&direction.cleared(), &scratch, &site, setup, &seen).expect_err("refused");
+    let error = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect_err("refused");
     assert_eq!(error.id, ErrorId::SafetyBlocked);
     assert!(seen.all().is_empty());
     assert!(!scratch.state.root().exists(), "nothing was created");
@@ -684,7 +698,7 @@ fn without_an_allowance_the_mutating_run_is_not_entered() {
         &cleared,
         &scratch,
         &site,
-        unchanged(&direction, &scratch),
+        &unchanged(&direction, &scratch),
         &seen,
     )
     .expect_err("refused");
@@ -707,7 +721,7 @@ fn invariant_02_the_mutation_site_is_handed_exactly_the_plans_command() {
             &cleared,
             &scratch,
             &site,
-            unchanged(&direction, &scratch),
+            &unchanged(&direction, &scratch),
             &seen,
         )
         .expect("a report");
@@ -746,7 +760,8 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
             euid: scratch.euid,
             start: scratch.start(),
             site: &site,
-            recapture: unchanged(&direction, &scratch).recapture,
+            recapture: &*unchanged(&direction, &scratch).recapture,
+            consent: &never_asked,
             reread: unchanged(&direction, &scratch).reread,
             read_back: &history_store::read_back,
             observer: &seen,
@@ -797,7 +812,7 @@ fn a_held_lock_refuses_and_nothing_is_dispatched() {
         &direction.cleared(),
         &scratch,
         &site,
-        unchanged(&direction, &scratch),
+        &unchanged(&direction, &scratch),
         &seen,
     )
     .expect_err("refused");
@@ -832,7 +847,7 @@ fn an_earlier_runs_marker_refuses_and_nothing_is_dispatched() {
         let plan = d.plan_of(&snap).plan().clone();
         Ok((snap, plan))
     });
-    let error = run(&direction.cleared(), &scratch, &site, setup, &seen).expect_err("refused");
+    let error = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect_err("refused");
     assert_eq!(error.id, ErrorId::RunInterrupted);
     assert_eq!(error.detail, earlier);
     assert!(site.handed.borrow().is_empty());
@@ -858,7 +873,7 @@ fn a_machine_that_changed_under_the_lock_refuses_and_nothing_is_dispatched() {
             fresh.policy_version.push('x');
             Ok((snap, fresh))
         });
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         assert!(
             matches!(
                 report.outcome,
@@ -921,7 +936,7 @@ fn a_configuration_that_drifted_or_could_not_be_read_stops_the_step_before_its_c
         let seen = Seen::default();
         let mut setup = unchanged(&direction, &scratch);
         setup.reread = &*Box::leak(reread);
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         let halt = report.records.iter().find_map(|r| match &r.disposition {
             Disposition::Halted { reason, .. } => Some(reason.clone()),
             _ => None,
@@ -988,7 +1003,8 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
                 euid: scratch.euid,
                 start: scratch.start(),
                 site: &site,
-                recapture: setup.recapture,
+                recapture: &*setup.recapture,
+                consent: &never_asked,
                 reread: setup.reread,
                 read_back: setup.read_back,
                 observer: &observer,
@@ -1068,7 +1084,7 @@ fn a_refused_or_failed_command_is_recorded_as_dispatched() {
                 &direction.cleared(),
                 &scratch,
                 &site,
-                unchanged(&direction, &scratch),
+                &unchanged(&direction, &scratch),
                 &seen,
             )
             .expect("a report");
@@ -1103,7 +1119,7 @@ fn a_record_that_cannot_be_written_keeps_the_marker_and_never_exits_zero() {
         &direction.cleared(),
         &scratch,
         &site,
-        unchanged(&direction, &scratch),
+        &unchanged(&direction, &scratch),
         &seen,
     )
     .expect("a report");
@@ -1152,7 +1168,7 @@ fn a_marker_gone_or_another_runs_after_the_record_is_an_error_and_stays() {
         // under the lock check, so this re-read does not assert it.
         let mut setup = unchanged(&direction, &scratch);
         setup.reread = &clean_reread;
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         assert_eq!(
             report.history_error,
             Some(ErrorId::HistoryUnusable),
@@ -1225,7 +1241,7 @@ fn each_re_check_is_made_for_the_program_it_is_spent_on() {
                 .push((provider.clone(), program.to_string()));
             Ok(ProviderConfiguration::Read { files: Vec::new() })
         }));
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         assert!(
             !site.handed.borrow().is_empty(),
             "{name}: a command was dispatched: {report:?}"
@@ -1270,7 +1286,7 @@ fn a_forced_run_toward_homebrew_reaches_success_with_its_snapshot_written_and_na
         &direction.cleared(),
         &scratch,
         &site,
-        unchanged(&direction, &scratch),
+        &unchanged(&direction, &scratch),
         &seen,
     )
     .expect("a report");
@@ -1334,7 +1350,7 @@ fn the_snapshot_is_the_capture_taken_under_the_lock_not_the_first_one() {
         &direction.cleared(),
         &scratch,
         &site,
-        unchanged(&direction, &scratch),
+        &unchanged(&direction, &scratch),
         &Seen::default(),
     )
     .expect("a report");
@@ -1371,7 +1387,7 @@ fn a_snapshot_that_cannot_be_written_halts_before_anything_changes() {
             std::fs::write(&squat, "mine").expect("squatter");
             result
         });
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         assert!(
             matches!(
                 report.outcome,
@@ -1434,7 +1450,7 @@ fn a_snapshot_the_reader_refuses_halts_before_the_marker_is_written() {
         }
         Ok((snap, plan))
     });
-    let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+    let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
     assert!(
         matches!(
             report.outcome,
@@ -1475,7 +1491,7 @@ fn a_record_that_cannot_be_read_back_or_differs_keeps_the_marker_and_never_exits
         let seen = Seen::default();
         let mut setup = unchanged(&direction, &scratch);
         setup.read_back = reader;
-        let report = run(&direction.cleared(), &scratch, &site, setup, &seen).expect("a report");
+        let report = run(&direction.cleared(), &scratch, &site, &setup, &seen).expect("a report");
         // The run did all its steps; its record is what could not be confirmed.
         assert_eq!(report.outcome, RunOutcome::Completed, "{what}");
         assert_eq!(report.receipt.record_read_back, Some(expected), "{what}");
@@ -1539,7 +1555,7 @@ fn nothing_is_read_back_after_a_write_that_was_not_known_to_be_durable() {
         &direction.cleared(),
         &scratch,
         &site,
-        setup,
+        &setup,
         &Seen::default(),
     )
     .expect("a report");
@@ -1635,7 +1651,8 @@ fn run_reading<'s, S: ReadSite + 's>(
             euid: scratch.euid,
             start: scratch.start(),
             site,
-            recapture: unchanged(direction, scratch).recapture,
+            recapture: &*unchanged(direction, scratch).recapture,
+            consent: &never_asked,
             reread: unchanged(direction, scratch).reread,
             read_back: &history_store::read_back,
             observer: seen,
@@ -1789,7 +1806,8 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
                 euid: scratch.euid,
                 start: scratch.start(),
                 site: &site,
-                recapture: unchanged(&direction, &scratch).recapture,
+                recapture: &*unchanged(&direction, &scratch).recapture,
+                consent: &never_asked,
                 reread: &reread,
                 read_back: &history_store::read_back,
                 observer: &seen,
@@ -1884,7 +1902,8 @@ fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_
             euid: scratch.euid,
             start: scratch.start(),
             site: &site,
-            recapture: setup.recapture,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
             reread: setup.reread,
             read_back: setup.read_back,
             observer: &seen,
@@ -2030,7 +2049,8 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
                     euid: scratch.euid,
                     start: scratch.start(),
                     site: &site,
-                    recapture: setup.recapture,
+                    recapture: &*setup.recapture,
+                    consent: &never_asked,
                     reread: setup.reread,
                     read_back: setup.read_back,
                     observer: &seen,

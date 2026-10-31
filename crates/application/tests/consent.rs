@@ -3,13 +3,16 @@
 //! Elevation consent's decisions (`crates/application/src/consent.rs`, pass 08
 //! slice 4, D10): which operations ask, from the command table and never the
 //! plan's field (obligation 9), and that consent exists only for the exact
-//! phrase. Built, not wired: the gate still refuses elevation, which the last
-//! test pins.
+//! phrase; and `consent_for`, the run's decision of when to ask (work order 16
+//! part E-3). Wired into the run loop, still unreachable: the gate refuses
+//! elevation until part J, which the last test pins.
 
 use macportsbrew_application::{
-    build_plan, confirm, confirmation_phrase, elevation_requests, execution_refusals,
-    AnalysisOptions, ConsentCode, ConsentRefusal, ExecutionRefusal, PlanRequest,
+    build_plan, confirm, confirmation_phrase, consent_for, elevation_requests, execution_refusals,
+    plan_run, AnalysisOptions, ConsentCode, ConsentDecision, ConsentGiven, ConsentHalt,
+    ConsentRefusal, ElevationRequest, ExecutionRefusal, PlanRequest, PlannedRun,
 };
+use macportsbrew_domain::ErrorId;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
     CapabilityState, CommandLineTools, Elevation, EnvironmentSnapshot, InstalledPackage, Machine,
@@ -164,6 +167,65 @@ fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> Migration
     .expect("the planner builds this plan")
 }
 
+fn run_for(snap: &Snapshot, package: &str, to: &str, retain_source: bool) -> PlannedRun {
+    plan_run(
+        snap,
+        &PolicyData::load_embedded().expect("the embedded policy data loads"),
+        &AnalysisOptions {
+            today: "2026-09-30".into(),
+            advanced: false,
+            only: BTreeSet::new(),
+        },
+        &PlanRequest {
+            package: package.into(),
+            to: ProviderId::new(to),
+            retain_source,
+        },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
+    )
+    .expect("the planner builds this run")
+}
+
+/// A planned run whose plan elevates: toward MacPorts its add does (the
+/// table says so). Uncleared — no cleared run reaches consent in this build —
+/// so the application's decision is testable today (E plan, part B).
+fn elevating_run() -> PlannedRun {
+    let (snap, package, to) = install_needed(HB);
+    run_for(&snap, package, to, true)
+}
+
+/// An elevating run in each direction (INV-17): toward MacPorts its add
+/// elevates; toward Homebrew, with the source removed, MacPorts' removal does.
+/// Data, not code: the command table decides both.
+fn elevating_runs() -> [PlannedRun; 2] {
+    let (snap, package, to) = install_needed(MP);
+    let toward_homebrew = run_for(&snap, package, to, false);
+    let remove = toward_homebrew
+        .plan()
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::RemoveSource)
+        .expect("a removal")
+        .index;
+    assert!(
+        elevation_requests(toward_homebrew.plan(), toward_homebrew.before())
+            .expect("requests")
+            .iter()
+            .any(|r| r.step == remove),
+        "toward Homebrew, the removal from MacPorts asks"
+    );
+    [elevating_run(), toward_homebrew]
+}
+
+/// Every request confirmed with its exact phrase.
+fn confirm_all(requests: &[ElevationRequest]) -> Vec<ConsentGiven> {
+    let code = ConsentCode::from_bytes([1, 2, 3]);
+    requests
+        .iter()
+        .map(|r| confirm(r, &code, &confirmation_phrase(r, &code)).expect("the exact phrase"))
+        .collect()
+}
+
 fn add_position(plan: &MigrationPlan) -> usize {
     plan.steps
         .iter()
@@ -303,7 +365,137 @@ fn a_code_is_six_lowercase_hex_and_nothing_else() {
 }
 
 #[test]
-fn the_gate_still_refuses_elevation_while_consent_is_not_wired() {
+fn consent_for_asks_only_when_there_is_something_to_ask() {
+    // Toward Homebrew with the source kept nothing elevates: the question is
+    // never put.
+    let (snap, package, to) = install_needed(MP);
+    let run = run_for(&snap, package, to, true);
+    let mut tokens = consent_for(&run, |_| panic!("asked with nothing to ask")).expect("tokens");
+    assert!(!tokens.asked());
+    for step in &run.plan().steps {
+        assert!(tokens.take(step.index).is_none());
+    }
+    // When something elevates, in either direction, the person is asked about
+    // exactly that.
+    for run in elevating_runs() {
+        let expected = elevation_requests(run.plan(), run.before()).expect("requests");
+        assert!(!expected.is_empty());
+        let asked = std::cell::Cell::new(0);
+        let tokens = consent_for(&run, |requests| {
+            asked.set(asked.get() + 1);
+            assert_eq!(requests, expected.as_slice());
+            ConsentDecision::Given(confirm_all(requests))
+        })
+        .expect("given");
+        assert_eq!(
+            asked.get(),
+            1,
+            "one question per run, one line per operation"
+        );
+        assert!(tokens.asked());
+    }
+}
+
+#[test]
+fn consent_for_maps_every_decision_by_name() {
+    // A person's refusal is exit 6; a question nobody could see and a missing
+    // code are safety stops, exit 4; a refusal the prompt never gives for a
+    // non-empty list is a defect, exit 1 (E plan, R2 and R5). Both directions
+    // (INV-17).
+    for run in elevating_runs() {
+        for (why, halt, id, code) in [
+            (
+                ConsentRefusal::Declined,
+                ConsentHalt::Declined,
+                ErrorId::UserAborted,
+                6,
+            ),
+            (
+                ConsentRefusal::NotATerminal,
+                ConsentHalt::Unseen,
+                ErrorId::SafetyBlocked,
+                4,
+            ),
+            (
+                ConsentRefusal::CodeUnavailable,
+                ConsentHalt::CodeUnavailable,
+                ErrorId::SafetyBlocked,
+                4,
+            ),
+            (
+                ConsentRefusal::PlanDisagrees,
+                ConsentHalt::Malformed,
+                ErrorId::Internal,
+                1,
+            ),
+            (
+                ConsentRefusal::NoRequests,
+                ConsentHalt::Malformed,
+                ErrorId::Internal,
+                1,
+            ),
+        ] {
+            let got = consent_for(&run, |_| ConsentDecision::Refused(why)).expect_err("halted");
+            assert_eq!(got, halt, "{why:?}");
+            let error = got.error();
+            assert_eq!((error.id, error.exit_code()), (id, code), "{why:?}");
+        }
+    }
+}
+
+#[test]
+fn consent_for_refuses_a_token_count_that_is_not_one_per_request() {
+    for run in elevating_runs() {
+        let requests = elevation_requests(run.plan(), run.before()).expect("requests");
+        // None, one too many, and the right count for the wrong operation.
+        let other = {
+            let mut r = requests[0].clone();
+            r.step += 100;
+            r
+        };
+        let cases: Vec<Vec<ConsentGiven>> = vec![
+            Vec::new(),
+            confirm_all(&[requests.as_slice(), &requests[..1]].concat()),
+            {
+                let mut tokens = confirm_all(&requests);
+                tokens[0] = confirm_all(std::slice::from_ref(&other)).remove(0);
+                tokens
+            },
+        ];
+        for tokens in cases {
+            let count = tokens.len();
+            let halt =
+                consent_for(&run, move |_| ConsentDecision::Given(tokens)).expect_err("refused");
+            assert_eq!(halt, ConsentHalt::Malformed, "{count} tokens");
+            assert_eq!(halt.error().exit_code(), 1, "never a person's refusal (R5)");
+        }
+    }
+    let run = elevating_run();
+    let requests = elevation_requests(run.plan(), run.before()).expect("requests");
+    // One token per request: each step's taken once, never another's.
+    let mut tokens = consent_for(&run, |r| ConsentDecision::Given(confirm_all(r))).expect("given");
+    let step = requests[0].step;
+    assert!(tokens.take(step + 100).is_none());
+    let token = tokens.take(step).expect("its token");
+    assert!(token.covers(step, &requests[0].program, &requests[0].argv));
+    assert!(tokens.take(step).is_none(), "spent once");
+}
+
+#[test]
+fn invariant_06_a_declined_or_unseen_question_halts_before_the_marker() {
+    // The application half (E plan, part B): a refusal is a halt, never an
+    // empty grant, so the shell's `?` returns before the marker is written.
+    // The shell half is structural (`the_switch_needs_consent_wired`); the
+    // end-to-end case needs a cleared elevated run, which part J's gate makes.
+    for run in elevating_runs() {
+        for why in [ConsentRefusal::Declined, ConsentRefusal::NotATerminal] {
+            assert!(consent_for(&run, |_| ConsentDecision::Refused(why)).is_err());
+        }
+    }
+}
+
+#[test]
+fn the_gate_still_refuses_elevation_until_part_j() {
     let (snap, package, to) = install_needed(HB);
     let plan = plan_for(&snap, package, to, true);
     assert!(execution_refusals(&plan)

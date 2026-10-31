@@ -2,10 +2,13 @@
 
 //! Asking a person for elevation consent (pass 08 slice 4, D10; INV-06).
 //!
-//! **Elevation: built, not wired.** No caller of [`ask`] exists outside this
-//! module's tests: the execution gate refuses every elevated step in this
-//! build, and a flip tripwire (`crates/cli/tests/history_preconditions.rs`)
-//! fails the build that turns mutations on while nothing calls it.
+//! **Elevation: wired, unreachable** (work order 16 part E-3). [`ask`] has one
+//! product caller, `migrate`'s consent seam, which the run loop calls only
+//! through the application's `consent_for`, after the lock and before anything
+//! is written. The execution gate refuses every elevated step in this build,
+//! so a cleared run has nothing to ask about until part J; a positive
+//! structural check (`crates/cli/tests/history_preconditions.rs`) holds the
+//! wiring's order.
 //!
 //! **The plan: wired** (work order 16 part E-2). [`confirm_plan`] is called by
 //! `migrate --yes` under a mutation allowance, which this build never grants,

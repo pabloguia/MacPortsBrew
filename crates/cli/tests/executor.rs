@@ -1412,6 +1412,81 @@ fn consent_is_minted_only_by_confirm_and_asked_only_by_the_consent_module() {
 }
 
 #[test]
+fn invariant_15_the_consent_code_never_enters_a_document_or_a_record() {
+    // Work order 16 part E, R11: a code, a token and a request are values of
+    // one process. None can be serialised or read back, and outside the
+    // modules that make and spend them no file names them, so no document,
+    // record, snapshot or marker can carry one (the history's outputs are
+    // built from plan and run types alone).
+    let crates = root().join("crates");
+    let home = crates.join("application/src/consent.rs");
+    for marker in [
+        "pub struct ConsentCode(",
+        "pub struct ConsentGiven {",
+        "pub struct ConsentTokens {",
+        "pub struct ElevationRequest {",
+    ] {
+        let text = std::fs::read_to_string(&home).expect("consent.rs");
+        assert!(text.contains(marker), "{marker}");
+        for line in attributes_above(&text, marker) {
+            assert!(
+                !line.contains("Serialize") && !line.contains("Deserialize"),
+                "{marker}: {line}"
+            );
+        }
+    }
+    let allowed = [
+        "application/src/consent.rs",
+        "application/src/lib.rs",
+        "application/src/plan_tie.rs",
+        "cli/src/consent.rs",
+        "cli/src/executor/mod.rs",
+    ];
+    for (path, text) in product_sources() {
+        let named = ["ConsentCode", "ConsentGiven", "ConsentTokens"]
+            .iter()
+            .any(|t| text.contains(t));
+        if named {
+            assert!(
+                allowed.iter().any(|a| path.ends_with(a)),
+                "{} names a consent value",
+                path.display()
+            );
+        }
+    }
+    // The shell spends tokens; none of its reported types holds one.
+    let shell = std::fs::read_to_string(crates.join("cli/src/executor/mod.rs")).expect("shell");
+    for report in [
+        "pub struct RunReport {",
+        "pub struct RunReceipt {",
+        "pub struct RenderedRefusal {",
+    ] {
+        let body = &shell[shell.find(report).expect(report)..];
+        let body = &body[..body.find("\n}").expect("ends")];
+        assert!(!body.contains("Consent"), "{report} holds consent");
+    }
+}
+
+#[test]
+fn a_consent_code_is_made_only_from_fresh_bytes_in_the_consent_modules() {
+    // E-1 review, I1: the code's only producer is the prompt, which draws its
+    // bytes through the seam; nothing else in shipped source builds one, so
+    // no fixed code can stand in for a fresh one.
+    let crates = root().join("crates");
+    let home = crates.join("application/src/consent.rs");
+    let prompt = crates.join("cli/src/consent.rs");
+    for (path, text) in product_sources() {
+        if path != home && path != prompt {
+            assert!(
+                !text.contains("ConsentCode::from_bytes") && !text.contains("ConsentCode("),
+                "{} makes a consent code",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
 fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_module() {
     // Work order 16 part E, R9: `confirm_shown` is called only by the
     // command-line crate's consent prompt, nothing outside `plan_tie.rs`
@@ -1453,9 +1528,43 @@ fn there_is_exactly_one_mutation_site_and_it_refuses() {
     // D7: the product mutation site refuses every command, so no mutating
     // command spec is built anywhere in shipped source. One implementation
     // under `crates/*/src`, naming no runner, registry or process item.
-    // Any `impl`, generic or not, whose trait is `MutationSite`.
+    // Any `impl`, generic or not, whose trait is `MutationSite`. A fake in the
+    // shell's own test module is not shipped and is allowed there alone, so
+    // the token's carriage to a site can be observed (work order 16 part
+    // E-3). Its range is found by brace matching from the last marker, and
+    // nothing but whitespace may follow it, so a marker hidden in a string or
+    // comment cannot open a range over product code (security review of E-3,
+    // L3). Everywhere else counts, and the fake passes the same body check.
+    let shell = root().join("crates/cli/src/executor/mod.rs");
     let mut impls = Vec::new();
+    let mut fakes = Vec::new();
     for (path, text) in product_sources() {
+        let tests = (path == shell)
+            .then(|| text.rfind("#[cfg(test)]\nmod tests {"))
+            .flatten()
+            .map(|start| {
+                let open = start + text[start..].find('{').expect("the module opens");
+                let mut depth = 0usize;
+                let mut end = text.len();
+                for (i, c) in text[open..].char_indices() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = open + i;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(
+                    text[end + 1..].trim().is_empty(),
+                    "the shell's test module is its last item"
+                );
+                (start, end)
+            });
         for (at, _) in text.match_indices("impl") {
             let head = &text[at..];
             let header = &head[..head.find(['{', ';']).unwrap_or(head.len())];
@@ -1464,7 +1573,11 @@ fn there_is_exactly_one_mutation_site_and_it_refuses() {
                 .next_back()
                 .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
             if word_start && header.contains("MutationSite for") {
-                impls.push((path.clone(), head.to_string()));
+                if tests.is_some_and(|(start, end)| at > start && at < end) {
+                    fakes.push(head.to_string());
+                } else {
+                    impls.push((path.clone(), head.to_string()));
+                }
             }
         }
     }
@@ -1474,6 +1587,14 @@ fn there_is_exactly_one_mutation_site_and_it_refuses() {
         "{:?}",
         impls.iter().map(|(p, _)| p).collect::<Vec<_>>()
     );
+    assert_eq!(fakes.len(), 1, "one test fake, in the shell's test module");
+    let fake = &fakes[0][..fakes[0].find("\n    }\n").expect("the fake ends")];
+    for banned in ["runner", "registry", "process::", "CommandSpec", "spawn"] {
+        assert!(
+            !fake.contains(banned),
+            "the test fake names {banned}: {fake}"
+        );
+    }
     let (path, from) = &impls[0];
     assert!(
         path.ends_with("crates/cli/src/executor/mod.rs"),

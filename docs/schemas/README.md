@@ -81,7 +81,7 @@ Documented once, in
 | 3 | partial success | — (execution only; not reachable in this build) |
 | 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed; execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
-| 6 | user aborted | `USER_ABORTED` (a declined plan question, and once part E-3 wires consent a declined elevation question; interactive only, not reachable in this build) |
+| 6 | user aborted | `USER_ABORTED` (a declined plan question, or a declined elevation question, which part E-3 wired and part J makes reachable; interactive only, not reachable in this build) |
 | 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |
 | 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE`, `RUN_NOT_FOUND` (a valid run id with no record, `history show`; pass 08 slice 5) |
 
@@ -97,5 +97,11 @@ with a document is a refusal or a manual review, and an exit 4 with empty stdout
 is the planner's own refusal (`SAFETY_BLOCKED` or `SAFETY_UNVERIFIABLE`, on
 stderr). Under a mutation allowance, a refusal about the plan's confirmation
 also leaves stdout empty, and its identifier tells it apart: `USER_ABORTED`
-(6), `USAGE` (2, no terminal) or `PLAN_NOT_SHOWN` (4). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
+(6), `USAGE` (2, no terminal) or `PLAN_NOT_SHOWN` (4). So does a stop at the
+elevation question (E-3): `USER_ABORTED` (6) for a person's refusal,
+`INTERNAL` (1) for an answer the prompt never gives, and `SAFETY_BLOCKED` (4)
+when nobody could see the question, no code could be drawn, or the plan's
+command is not the table's — the one case whose identifier is the planner's
+own, told apart only by its message on stderr. A missing code at the plan
+question is the same (`SAFETY_BLOCKED`). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
 to move* exits **0** (INV-16).

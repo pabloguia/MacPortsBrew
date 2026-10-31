@@ -255,6 +255,10 @@ pub enum Precondition {
     /// command it is spent on names, or the step has no command to name one
     /// (work order 16 part E, SR 9).
     WrongProgramToken,
+    /// A person's consent token does not cover the command it would be
+    /// handed over with: another step, program or argv (work order 16 part
+    /// E-3, security review L1).
+    WrongConsentToken,
 }
 
 /// Which fact moved between the capture a plan was built from and the one
