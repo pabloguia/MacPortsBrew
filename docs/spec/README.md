@@ -32,6 +32,7 @@ Related:
   - [0004 — Dependency gate](../adr/0004-dependency-gate.md)
   - [0005 — Release signing and distribution artifacts](../adr/0005-release-signing-and-artifacts.md)
   - [0006 — No `libc`, and the timeout kills one process rather than a group](../adr/0006-no-libc-and-the-timeout-kills-one-process.md)
+  - [0007 — `sha2` for the plan digest, and `libc` with one reviewed `unsafe` call for the lock probe](../adr/0007-sha2-and-the-lock-probe-mechanism.md) (proposed)
 
 ## Authority
 
