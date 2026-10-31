@@ -29,6 +29,10 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `migrate --yes`, once a build dispatches mutations: the plan the gate cleared
+  is shown on standard error and runs only after a person types
+  `run plan <code>`; `--yes` never answers that question. New error
+  identifiers `USER_ABORTED` (exit 6) and `PLAN_NOT_SHOWN` (exit 4) (SE-111).
 - `migrate --json`: a configuration re-check now records the program it was
   made for, and a step it would be spent on that names another program, or no
   program, halts with the precondition `WRONG_PROGRAM_TOKEN`. The elevation

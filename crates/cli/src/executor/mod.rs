@@ -79,7 +79,7 @@ use macportsbrew_application::{
     judge_step, must_record, next_action, next_action_with, outcome_of, plan_still_holds,
     read_back_matches, recheck_provider_configuration, refused, run_record, Action,
     ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
-    Precondition, RunOutcome, StepRead, StepRecord,
+    Precondition, RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
@@ -453,6 +453,10 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub read_back: ReadBack<'a>,
     /// Told of each boundary.
     pub observer: &'a dyn Observer,
+    /// The witness that the plan to run was shown to a person and confirmed
+    /// (work order 16 part E, DP-049). The run refuses, before the history
+    /// probe and the lock, a plan it does not cover.
+    pub shown: ShownPlan,
 }
 
 /// [`run_with_mutations`] with the read sites `ctx` detects, built only after
@@ -470,7 +474,8 @@ pub fn run_mutating<M: MutationSite>(
 }
 
 /// Runs a plan the gate cleared **under a mutation allowance** (pass 08
-/// slice 4): the live-scope check; the history probe; the lock; the machine
+/// slice 4): the live-scope check; the plan tied to the one confirmed
+/// (`io.shown`, work order 16 part E-2); the history probe; the lock; the machine
 /// captured again and re-planned under it, refusing on any difference; the
 /// marker looked for; the read steps; and, before the first mutating command,
 /// the marker written — then per mutating command the lock confirmed, the
@@ -484,7 +489,8 @@ pub fn run_mutating<M: MutationSite>(
 ///
 /// # Errors
 /// A refusal before anything was dispatched: a witness without an allowance,
-/// a run that is not live, the probe, the lock, the recapture, an interrupted
+/// a run that is not live, a plan the confirmation does not cover
+/// (`PLAN_NOT_SHOWN`), the probe, the lock, the recapture, an interrupted
 /// run's marker, or a marker that could not be written. Nothing mutating ran.
 pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     cleared: &GateClear,
@@ -507,6 +513,15 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     }
     let planned = cleared.run();
     let plan = planned.plan();
+    // The plan that runs is the plan shown, before anything is probed, locked
+    // or written (DP-049; INV-02). Under the lock `plan_still_holds` is plan
+    // equality too, so what runs equals what was confirmed.
+    if !io.shown.covers(plan) {
+        return Err(DomainError::new(
+            ErrorId::PlanNotShown,
+            "the plan cleared for this run differs from the plan that was confirmed",
+        ));
+    }
     let (state, euid) = (io.state, io.euid);
     history_store::probe(state, euid)?;
     io.observer.at(Boundary::Probed, None);

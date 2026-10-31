@@ -951,6 +951,47 @@ the run on the reviewers' advice
 (`each_code_is_drawn_before_its_question_and_shown_before_the_answer_is_read`,
 `a_code_that_fails_mid_run_gives_no_partial_consent`).
 
+## As built (E-2)
+
+- **The run loop's tie refusal is `PLAN_NOT_SHOWN`**, not §3's
+  `SAFETY_BLOCKED`, and `PLAN_NOT_SHOWN` lands now rather than in E-4 (R12):
+  one identifier for "the plan to run is not the one confirmed", whichever
+  route minted the witness.
+- **Where the witness is minted** follows R1: `confirm_the_plan` in
+  `execute_mutating`, after the gate, so §3's "`execute_mutating` takes the
+  `ShownPlan`" is superseded; the mapping of a refused question to an error is
+  the application's `plan_question_error` (SE-092).
+- **Test names.** §Tests' `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`
+  tests the mapping, every arm by name; the prompt-level behaviour is
+  `invariant_02_a_declined_plan_question_mints_nothing_and_the_right_answer_does`.
+  `invariant_02_a_plan_the_gate_refuses_is_never_asked_about` (R1) is
+  structural: a behavioural case needs a dispatching build.
+- **INV-17 (R11).** `invariant_17_the_tie_behaves_alike_in_both_directions`
+  runs the tie in both orientations; the program-token half is
+  `each_re_check_is_made_for_the_program_it_is_spent_on`. The tie over every
+  recording's plan is owed to E-4, where the digest makes it a two-process
+  test.
+- **The terminal checks** read the process's own standard input and error;
+  `run_inner` hands `migrate` its real standard error as the prompt stream.
+- **The security review of `ad850cb`** was refused by the auto-mode
+  classifier on 2026-10-31 (ledger, Needs the owner); E-2 does not merge
+  without it.
+
+### Mutation proof (E-2, at `ad850cb`, isolated worktree, removed)
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 17 `covers` always true | killed | `a_shown_plan_covers_only_the_plan_shown`, the not-shown run test |
+| 18a, 18b `confirm_shown` on any line, or without the code | killed | `confirm_shown_mints_only_on_the_exact_phrase_with_its_code` |
+| 19 the tie after the probe and lock | killed | the not-shown run test, the tie tripwire |
+| 20 the tie removed | killed | the same two |
+| 22 asked at one terminal | killed | `the_plan_question_is_asked_only_at_two_terminals` |
+| 33 the plan not rendered | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 37 asked after the state directory | killed | the tie tripwire, `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` |
+| 38 the plan written after the answer is read | killed | `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed` |
+| 39 a failed draw falls back to a fixed code | killed | the declined-question test |
+| 40 `Declined` mapped to `SAFETY_BLOCKED` | survived at `ad850cb`; closed by `c7dbcbb` | `invariant_02_a_declined_plan_question_exits_6_before_anything_runs` (the mapping is `plan_question_error`) |
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -964,3 +1005,5 @@ the run on the reviewers' advice
 | spec-guardian | `9c9dbbd` | approve with changes: F1–F8 | F1 argued as M2; F2 and F3 cleared-step case and As built; F4 both directions; F5 SE-111; F6 Evidence; F7, F8 As built |
 | security-reviewer | `013025d` (and `e1d6aae`) | approve: L1–L2, I1–I3 | L1, L2 tests added; I1 owed to E-3 (As built); I2 accepted (root needed to plant a link at the device); I3 As built |
 | spec-guardian | `013025d` (and `e1d6aae`) | approve with changes: D1–D4, R1–R3 | D1 SE-111 future tense and As built (owed to E-3, named `invariant_06_*` there); D2 phrase escaped; D3 impact lines; D4 As built; R1 `/dev/null` case; R2 E-3; R3 accepted |
+| spec-guardian | `ad850cb` | approve with changes: 1–9 | 1 R1 test; 2 INV-17 test, fixtures owed to E-4; 3 `plan_question_error` and its test; 4–6 As built (E-2); 5 SE-111 fields; 7 docs; 8 doc comment; 9 As built and SE-111 |
+| security-reviewer | `ad850cb` | not run: the launch was refused by the auto-mode classifier | owner item |
