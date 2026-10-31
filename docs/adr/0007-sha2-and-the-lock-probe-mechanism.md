@@ -24,7 +24,7 @@ someone who controls an inventory could craft. `std` has no cryptographic hash.
 
 **DP-030 (b): part G probes the providers' own locks before a mutation.** What
 the probe must call is fixed by R-17 (`docs/research/R-17-provider-mutation-locks.md`,
-findings 4 and 5; E4 observations B and C; 2026-10-04): the held-lock test
+findings 4 and 5; E4 observations B and C; 2026-10-05): the held-lock test
 is `fcntl(F_GETLK)` on an `O_RDONLY` descriptor (observation C). A shared
 `flock(LOCK_SH|LOCK_NB)` is refused (observation B) because the probe's own hold makes a concurrent Homebrew
 `LOCK_EX|LOCK_NB` taker fail, which aborts the user's `brew install`. `std`
@@ -128,8 +128,10 @@ in that change and restoring `forbid` at the roots of every crate but
 `l_whence = SEEK_SET`, `l_start = 0`, `l_len = 0`. The lock is held if and only
 if the returned `l_type != F_UNLCK`. `l_pid` is never relied on (it is −1 for a
 `flock` holder). A return of −1, whatever `errno`, is unknown. `F_RDLCK` is
-wrong: it misses a shared holder (observation C), and a zero `l_type` is not a
-lock type on macOS (`EINVAL`).
+wrong: it misses a shared holder (observation C). A zero `l_type` is not one of
+the lock types (`F_RDLCK`, `F_UNLCK`, `F_WRLCK`), so the call is expected to
+fail, presumably with `EINVAL`; G confirms it by observation and records it in
+R-17. Whatever it returns, −1 is unknown.
 
 **The single site, by the compiler where it can be.**
 
@@ -198,8 +200,10 @@ runs in a process this tool spawns, and none touches the filesystem.
 
 - **macOS 10.12 x86_64 / 11.0 arm64 (ADR-0002).** `sha2`'s set uses no
   platform API on x86_64; on arm64, `cpufeatures` reads CPU features through
-  `sysctlbyname`, present on every arm64 macOS. `fcntl(F_GETLK)` is POSIX and
-  present on both floors. This machine is x86_64 and `libc` builds only for
+  `sysctlbyname`, which macOS has offered since well before 11.0 (to be
+  confirmed by E-4's floor check below). `fcntl(F_GETLK)` is POSIX and
+  present on both floors; the same query serves MacPorts' registry lock
+  (R-17 finding 2) and Homebrew's lock files. This machine is x86_64 and `libc` builds only for
   arm64 until G, so E-4 runs `scripts/check-deployment-target.sh` (both
   targets) and records both minimum OS versions in the report; G runs it again.
   A raised floor rejects this record rather than the floor.

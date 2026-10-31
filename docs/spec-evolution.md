@@ -2445,7 +2445,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   date. Nobody had that written down before this entry.
 
 ## SE-110 — ADR-0007: `sha2` for the plan digest; part G's lock probe calls `fcntl(F_GETLK)` through `libc`
-- Status: experimental — ADR-0007 is proposed in work order 16 part E's step E-0 and becomes accepted in E-4, the
+- Status: experimental (ADR-0007 proposed) — ADR-0007 is proposed in work order 16 part E's step E-0 and becomes accepted in E-4, the
   change that adds `sha2`; part G amends this entry when the lint changes.
 - Date / Pass: 2026-10-30 / 16-complete-mutating-product, part E
 - Original assumption: ADR-0006 (no `libc`, no `unsafe`); R-22 F-2's recommendation that G use `libc` for
@@ -2462,7 +2462,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   script or owner patch. `rustix`, `nix` and a leaf `-sys` crate were rejected (more build scripts or a guarded
   layering-script change, and more `unsafe` outside this project's review).
 - Evidence: R-22 F-1 to F-4 (2026-10-28, `cargo metadata`/`cargo tree -e normal,build --target <t>` on scratch
-  crates); R-17 findings 4–5 and E4 observations B and C (2026-10-04); registry reads 2026-10-30:
+  crates); R-17 findings 4–5 and E4 observations B and C (2026-10-05); registry reads 2026-10-30:
   `rustix-1.1.6/src/process/fcntl_getlk.rs:21`, `nix-0.31.3/src/fcntl.rs:752`, the per-crate `unsafe` counts in
   ADR-0007.
 - User impact: none until E-4 (a `--plan-digest` flag) and G (the probe's refusal).

@@ -194,7 +194,9 @@ The options, measured:
   `nix` (build script), `cfg_aliases`, `bitflags`, plus `libc`; same staging
   cost as `rustix`.
 
-*(The lint and scan bullets below are superseded by R10.)*
+*(The lint and scan bullets below, and "no new staged patch", are superseded by
+R10 and ADR-0007's Decision: four crate roots keep `forbid`, and the scan is
+code-aware over every `.rs` under `crates/`.)*
 
 **Chosen: `libc`, one `unsafe` call.** It adds nothing to the graph beyond what
 `sha2` already brings and P/01 already admits; the whole of the new `unsafe`
@@ -896,3 +898,4 @@ accepted). The ledger says so.
 | security-reviewer | `e6556e2` | approve with changes: M1–M3, L1–L8 | R1, R2, R5–R10, R13 |
 | spec-guardian | `7313df2` | approve; N1–N4 (low) | N1 in R6, N2 in R10, N3 ADR-0004 sentence qualified, N4 superseded markers in the body |
 | security-reviewer | `7313df2` | approve; N1–N2 (low, for G) | N1 in R10 and R15, N2 in R15 |
+| docs-auditor | `3efe24c` | 4 medium, 5 low (dates, an unsourced `EINVAL`, ADR-0004's count, tense, status wording, stale lines) | all fixed in the next commit |
