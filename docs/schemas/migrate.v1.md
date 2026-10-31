@@ -133,7 +133,7 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 written durably and read back; nothing was changed), `MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
 `MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
 `NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
-`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
+`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED`, `WRONG_PROGRAM_TOKEN` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
 `PROVIDER_STATE`, `PROVIDER_LOCATION`, `PROVIDER_CAPABILITY`, `SOURCE_PACKAGE`,
 `DESTINATION_PACKAGE`, `REVERSE_DEPENDENCY`, `CLASSIFICATION`, `PLAN_DIFFERS`).
 `command` counts from 0 within the step. A `check` here is the check's kind

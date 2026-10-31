@@ -1630,6 +1630,55 @@ change is made. Silent deviation remains the one unrecoverable error.
   `MigrationPlan::check_ordering`, which is INV-01's home and should not grow an
   unrelated rule.
 
+## SE-111 — Pass 08 slice 7: the configuration token names its program, a code in the consent phrase, the executed plan tied to the one shown, consent wired
+- Status: experimental — built across work order 16 part E's pull requests E-1 to E-4; this entry is completed by
+  each (SE-032: one topic, one entry), and becomes accepted with E-4.
+- Date / Pass: 2026-10-31 / 16-complete-mutating-product, part E
+- Original assumption: `ConfigurationRechecked` held only the provider, and its consumers compared only that
+  (slice 3); the slice 7 work order and `docs/passes/08-pre-flip-design-notes.md`.
+- Change (E-1, SR 9): the token records the program it was re-checked for. `mutation_dispatch` (and the
+  `MutationSite` contract), `certify_destination` and `destination_still_verified` refuse a token for another program
+  with `Precondition::WrongProgramToken` (`WRONG_PROGRAM_TOKEN`, in `migrate.v1`'s open set); a verify step with no
+  command is refused the same way, by the shell before any re-read and by the two destination sites.
+  Change (E-1, SR 10): the consent phrase is `allow step N <code>`, `<code>` an `application::ConsentCode` of three
+  bytes written as six lowercase hex characters, drawn for each question before it is written, through a seam
+  (`ConsentStreams::code`) whose product source will be `adapters::entropy::fresh_bytes` when part B (E-3) wires
+  the prompt, with a structural test that no other source and no fallback is passed (the random device, opened
+  read-only, checked with `fstat` to be a character device, three bytes by `read_exact`). No code: nothing is asked
+  and the answer is `ConsentRefusal::CodeUnavailable`, never a person's refusal. 24 bits suffice: a line typed
+  before the question matches with probability 2⁻²⁴ and a miss is `Declined`, which halts the run, so there is no
+  retry; a program that drives a pseudo-terminal can read and answer the code, which is the user's own automation
+  and outside SR 10. Rejected: `RandomState` (its seeding is a `std` detail, not a documented randomness source) and
+  `tcflush` (a paste can still follow the flush, and it needs `libc`).
+- Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
+  command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
+  checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both
+  directions, that each dispatched command's own program was re-read and that the token handed to the site names
+  it. The binding is by the shell's sequencing, not by type: the `Reread` seam could return the program with the
+  configuration, but `recheck_provider_configuration` stays a public pure function (as it was for the provider), and
+  SE-092 keeps the shell's choices to sequencing, so the seam is unchanged. The shell refuses an empty program before
+  any re-read on all three paths; on the two verify paths that guard sits behind the gate (which refuses a verify
+  step whose commands are not the table's operations) and `plan_still_holds`, so a wiring test cannot reach it, and
+  the destination sites refuse the same step themselves (`invariant_01_*`). The match arm in
+  `destination_still_verified` that maps a `WrongProgramToken` halt is defence in depth behind its own early check.
+- Evidence: the plan `docs/passes/16-plans/E.md` §1, §2, R5–R7, reviewed by spec-guardian and security-reviewer;
+  tests `a_recheck_records_the_program_it_was_made_for`,
+  `a_token_for_another_program_is_refused_and_nothing_is_handed_over`,
+  `invariant_01_certify_destination_refuses_a_token_for_another_program`,
+  `invariant_01_a_destination_token_for_another_program_is_refused`,
+  `each_re_check_is_made_for_the_program_it_is_spent_on` (both directions), and for SR 10
+  `a_line_typed_before_the_question_is_never_consent`, `each_question_has_its_own_code`,
+  `without_a_code_nothing_is_asked`, `confirm_requires_the_code_and_the_step`,
+  `a_code_is_six_lowercase_hex_and_nothing_else`, `entropy_reads_three_bytes_or_answers_none`.
+- User impact: none in this build (no command is dispatched, and the prompt has no product caller yet). Two keys in
+  both locales (`migrate.precondition.wrong_program_token`, `consent.code_unavailable`); once wired, the consent
+  phrase a person types carries a six-character code.
+- Architectural impact: the token's `program` field; `application::ConsentCode` and `ConsentRefusal::CodeUnavailable`;
+  a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn). SE-092's split
+  holds: the shell plumbs, the application decides; the shell's three empty-program guards are defence in depth
+  behind the gate.
+- Compatibility impact: `migrate.v1` additive (an open set gains a value).
+
 # Policy, output and quality
 
 ## SE-009 — Machine-readable output contract, exit codes and error taxonomy

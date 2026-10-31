@@ -35,7 +35,7 @@ pub use configuration_recheck::{
     recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
 };
 pub use consent::{
-    confirm, confirmation_phrase, elevation_requests, ConsentDecision, ConsentGiven,
+    confirm, confirmation_phrase, elevation_requests, ConsentCode, ConsentDecision, ConsentGiven,
     ConsentRefusal, ElevationRequest,
 };
 pub use doctor::{

@@ -61,11 +61,14 @@ impl ConfigurationDrift {
     }
 }
 
-/// Proof that a provider's configuration was re-checked and outranks nothing.
-/// Neither `Clone` nor `Copy`, so one re-check cannot be spent on two steps.
+/// Proof that a provider's configuration was re-checked and outranks nothing,
+/// for one program of it. Neither `Clone` nor `Copy`, so one re-check cannot be
+/// spent on two steps; every consumer compares both the provider and the
+/// program against the commands it is spent on (work order 16 part E, SR 9).
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConfigurationRechecked {
     provider: ProviderId,
+    program: String,
 }
 
 impl ConfigurationRechecked {
@@ -74,10 +77,18 @@ impl ConfigurationRechecked {
     pub fn provider(&self) -> &ProviderId {
         &self.provider
     }
+
+    /// The program the configuration was re-read for.
+    #[must_use]
+    pub fn program(&self) -> &str {
+        &self.program
+    }
 }
 
 /// Whether a mutating step may run against `provider`, given the snapshot the
-/// plan was built from and the provider's configuration as re-read just now.
+/// plan was built from and the provider's configuration as re-read just now for
+/// `program`. The token records `program`; it compares nothing new, and the
+/// consumers refuse it for any command that names another program.
 ///
 /// The captured reading is looked up here, by `provider`, rather than handed
 /// in: a caller cannot pair one provider's capture with another's id (security
@@ -85,6 +96,7 @@ impl ConfigurationRechecked {
 /// [`ConfigurationDrift::Unknown`].
 pub fn recheck_provider_configuration(
     provider: &ProviderId,
+    program: &str,
     snapshot: &Snapshot,
     fresh: &ProviderConfiguration,
 ) -> Result<ConfigurationRechecked, ConfigurationDrift> {
@@ -101,6 +113,7 @@ pub fn recheck_provider_configuration(
     match fresh.outranks() {
         Some(false) => Ok(ConfigurationRechecked {
             provider: provider.clone(),
+            program: program.to_owned(),
         }),
         Some(true) => Err(ConfigurationDrift::Outranks),
         None => Err(ConfigurationDrift::Unknown),
@@ -183,25 +196,29 @@ mod tests {
     #[test]
     fn a_configuration_that_outranks_nothing_then_and_now_passes_and_names_its_provider() {
         let token =
-            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &read(vec![])).unwrap();
+            recheck_provider_configuration(&id(), "port", &snapshot(read(vec![])), &read(vec![]))
+                .unwrap();
         assert_eq!(token.provider(), &id());
         // A file that exists, is readable and sets nothing outranks nothing,
         // and the labels need not agree (redacted against raw).
         let captured = read(vec![file("~/.cfg", true, &[])]);
         let fresh = read(vec![file("/Users/someone/.cfg", true, &[])]);
-        assert!(recheck_provider_configuration(&id(), &snapshot(captured.clone()), &fresh).is_ok());
+        assert!(
+            recheck_provider_configuration(&id(), "port", &snapshot(captured.clone()), &fresh)
+                .is_ok()
+        );
     }
 
     #[test]
     fn a_file_that_appeared_since_the_capture_refuses_the_step() {
         let fresh = read(vec![file("~/.cfg", true, &["SOME_KEY"])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &fresh),
+            recheck_provider_configuration(&id(), "port", &snapshot(read(vec![])), &fresh),
             Err(ConfigurationDrift::Outranks)
         );
         let unreadable = read(vec![file("~/.cfg", false, &[])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &snapshot(read(vec![])), &unreadable),
+            recheck_provider_configuration(&id(), "port", &snapshot(read(vec![])), &unreadable),
             Err(ConfigurationDrift::Outranks)
         );
     }
@@ -213,11 +230,16 @@ mod tests {
             ProviderConfiguration::NotRecorded,
         ] {
             assert_eq!(
-                recheck_provider_configuration(&id(), &snapshot(read(vec![])), &unknown),
+                recheck_provider_configuration(&id(), "port", &snapshot(read(vec![])), &unknown),
                 Err(ConfigurationDrift::Unknown)
             );
             assert_eq!(
-                recheck_provider_configuration(&id(), &snapshot(unknown.clone()), &read(vec![])),
+                recheck_provider_configuration(
+                    &id(),
+                    "port",
+                    &snapshot(unknown.clone()),
+                    &read(vec![])
+                ),
                 Err(ConfigurationDrift::Unknown)
             );
         }
@@ -229,7 +251,7 @@ mod tests {
         let held = other.providers.remove(&id()).expect("alpha");
         other.providers.insert(ProviderId::new("beta"), held);
         assert_eq!(
-            recheck_provider_configuration(&id(), &other, &read(vec![])),
+            recheck_provider_configuration(&id(), "port", &other, &read(vec![])),
             Err(ConfigurationDrift::Unknown)
         );
     }
@@ -238,7 +260,12 @@ mod tests {
     fn a_capture_that_already_outranked_is_refused_even_if_it_is_clean_now() {
         let captured = read(vec![file("~/.cfg", true, &["SOME_KEY"])]);
         assert_eq!(
-            recheck_provider_configuration(&id(), &snapshot(captured.clone()), &read(vec![])),
+            recheck_provider_configuration(
+                &id(),
+                "port",
+                &snapshot(captured.clone()),
+                &read(vec![])
+            ),
             Err(ConfigurationDrift::CapturedOutranks)
         );
     }
@@ -259,5 +286,18 @@ mod tests {
                 error.detail
             );
         }
+    }
+
+    #[test]
+    fn a_recheck_records_the_program_it_was_made_for() {
+        let checked = recheck_provider_configuration(
+            &id(),
+            "the-program",
+            &snapshot(read(vec![])),
+            &read(vec![]),
+        )
+        .unwrap();
+        assert_eq!(checked.provider(), &id());
+        assert_eq!(checked.program(), "the-program");
     }
 }

@@ -29,6 +29,11 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `migrate --json`: a configuration re-check now records the program it was
+  made for, and a step it would be spent on that names another program, or no
+  program, halts with the precondition `WRONG_PROGRAM_TOKEN`. The elevation
+  consent prompt (not yet reachable) asks for `allow step N <code>`, with a
+  code drawn fresh for each question (SE-111).
 - `migrate --json`: a destination check (`VERIFY_DESTINATION`) is now read only
   after its provider's configuration was read again and re-checked; a
   configuration that cannot be read again, or has changed, halts the step before

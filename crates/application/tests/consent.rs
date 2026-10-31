@@ -8,7 +8,7 @@
 
 use macportsbrew_application::{
     build_plan, confirm, confirmation_phrase, elevation_requests, execution_refusals,
-    AnalysisOptions, ConsentRefusal, ExecutionRefusal, PlanRequest,
+    AnalysisOptions, ConsentCode, ConsentRefusal, ExecutionRefusal, PlanRequest,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -234,34 +234,71 @@ fn consent_exists_only_for_the_exact_phrase_and_covers_only_its_operation() {
     let plan = plan_for(&snap, package, to, true);
     let requests = elevation_requests(&plan, &snap).expect("requests");
     let request = &requests[0];
-    let phrase = confirmation_phrase(request);
+    let code = ConsentCode::from_bytes([0x0a, 0xbc, 0xde]);
+    let phrase = confirmation_phrase(request, &code);
     assert!(phrase.is_ascii() && phrase.contains(&request.step.to_string()));
+    assert!(phrase.ends_with(" 0abcde"), "{phrase}");
     for typed in [
         "y",
         "",
         "\n",
         "yes",
         " allow step",
+        &format!("allow step {}", request.step),
         &format!(" {phrase}"),
         &format!("{phrase} "),
         &format!("{phrase}\n\n"),
         &phrase.to_uppercase(),
-        "allow step 999",
+        "allow step 999 0abcde",
     ] {
-        assert!(confirm(request, typed).is_none(), "{typed:?}");
+        assert!(confirm(request, &code, typed).is_none(), "{typed:?}");
     }
     for typed in [
         phrase.clone(),
         format!("{phrase}\n"),
         format!("{phrase}\r\n"),
     ] {
-        let given = confirm(request, &typed).expect("the exact phrase");
+        let given = confirm(request, &code, &typed).expect("the exact phrase");
         assert_eq!(given.step(), request.step);
         assert!(given.covers(request.step, &request.program, &request.argv));
         assert!(!given.covers(request.step + 1, &request.program, &request.argv));
         let mut other = request.argv.clone();
         other.push("--x".into());
         assert!(!given.covers(request.step, &request.program, &other));
+    }
+}
+
+#[test]
+fn confirm_requires_the_code_and_the_step() {
+    let (snap, package, to) = install_needed(HB);
+    let plan = plan_for(&snap, package, to, true);
+    let requests = elevation_requests(&plan, &snap).expect("requests");
+    let request = &requests[0];
+    let code = ConsentCode::from_bytes([1, 2, 3]);
+    let other = ConsentCode::from_bytes([1, 2, 4]);
+    let typed = confirmation_phrase(request, &code);
+    assert!(confirm(request, &code, &typed).is_some());
+    assert!(confirm(request, &other, &typed).is_none(), "another code");
+    let mut later = request.clone();
+    later.step += 1;
+    assert!(confirm(&later, &code, &typed).is_none(), "another step");
+}
+
+#[test]
+fn a_code_is_six_lowercase_hex_and_nothing_else() {
+    for (bytes, written) in [
+        ([0u8, 0, 0], "000000"),
+        ([0xff, 0xff, 0xff], "ffffff"),
+        ([0x0a, 0xb0, 0x0c], "0ab00c"),
+    ] {
+        let code = ConsentCode::from_bytes(bytes).to_string();
+        assert_eq!(code, written);
+        assert!(
+            code.len() == 6
+                && code
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        );
     }
 }
 

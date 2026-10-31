@@ -890,6 +890,67 @@ planted `unsafe {}` and a planted `#[allow(dead_code, unsafe_code)]` are caught.
 **R14 — G's dependency on E (SG L8).** G waits on P/01 and on E-4 (ADR-0007
 accepted). The ledger says so.
 
+## As built (E-1)
+
+- **SR 9** (`9c9dbbd` and its review fixes). The plan's
+  `certify_destination_refuses_a_token_for_another_program` is named
+  `invariant_01_certify_destination_refuses_a_token_for_another_program`
+  (R11). The shell unit test uses the product site `NotInThisBuild` instead
+  of a recording fake: the word scan
+  `there_is_exactly_one_mutation_site_and_it_refuses` allows one
+  `MutationSite` implementation under `crates/*/src`, and `Refused` versus
+  `PreconditionFailed` shows whether the site was handed the command.
+- **The `Reread` seam** (R6's last sentence): it could return the program with
+  the configuration, but the token is built from the same local variable the
+  shell passes to `reread`, `recheck_provider_configuration` stays a public
+  pure function, and SE-092 keeps the shell to sequencing; recorded in SE-111.
+- **The shell's empty-program guards** (all three paths). On the two verify
+  paths they sit behind the gate (a verify step's commands must be the table's
+  operations) and `plan_still_holds`, so no wiring test reaches them; the
+  destination sites refuse the same step themselves, tested.
+- **Mutant 3** (`destination_still_verified` drops the comparison): its early
+  check is killed by the cleared-step case (`DestinationNotReverified`
+  without it); the match arm mapping the inner `WrongProgramToken` is
+  equivalent while the early check stands, and is kept as defence in depth,
+  as the `WrongProviderToken` arm is.
+- **SR 10.** `ConsentRefusal::CodeUnavailable` (R5) is added in E-1; its exit
+  mapping lands with `consent_for` in E-3.
+- **The mutating path's empty-program guard** (SR review L3) is defence in
+  depth too: no plan the gate passes has a mutating command with no program,
+  and `registry::reread_configuration` refuses `""` anyway; no test reaches it.
+- **Owed to E-3** (SR review of `013025d`, I1): the structural pin that
+  `migrate.rs` passes `adapters::entropy::fresh_bytes` with no fallback, a
+  caller scan that refuses `ConsentCode::from_bytes(` outside the consent
+  module and its tests, and a check that `--replay` and `--from-snapshot`
+  never reach `ask`.
+
+### Mutation proof (E-1, at `013025d`, isolated worktree, removed)
+
+Fourteen mutants, each against `cargo test --workspace --no-fail-fast`: twelve
+killed, two survived and are argued here.
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 1 dispatch drops the program check | killed | `a_token_for_another_program_is_refused_and_nothing_is_handed_over` |
+| 2 `certify_destination` drops it | killed | `invariant_01_certify_destination_refuses_a_token_for_another_program` |
+| 3a `destination_still_verified`'s early check removed | killed | `invariant_01_a_destination_token_for_another_program_is_refused` |
+| 3b its `WrongProgramToken` arm removed | survived | equivalent while the early check stands (As built) |
+| 4 command 0 only | killed | `invariant_01_certify_destination_refuses_a_token_for_another_program` |
+| 5 an empty program stored | killed | the dispatch test and ten `executor.rs` tests |
+| 6 another program re-checked for the command | killed | `each_re_check_is_made_for_the_program_it_is_spent_on` and eleven others |
+| 6b the mutating path's empty-program guard removed | survived | unreachable: a plan whose command names no program differs from the plan re-built under the lock (`plan_still_holds`), and `registry::reread_configuration` refuses `""`; defence in depth (As built) |
+| 7 code dropped from the phrase | killed | six consent tests |
+| 8 one code reused | killed | `each_question_has_its_own_code` |
+| 9 a failed draw falls back to a fixed code | killed | `without_a_code_nothing_is_asked` |
+| 10 heading before the first draw | killed | `without_a_code_nothing_is_asked` |
+| 11 case-insensitive confirm | killed | two consent tests |
+| 12 no character-device check | killed | `entropy_reads_three_bytes_or_answers_none` |
+
+The order of write, draw and read, and a draw failing mid-run, were added after
+the run on the reviewers' advice
+(`each_code_is_drawn_before_its_question_and_shown_before_the_answer_is_read`,
+`a_code_that_fails_mid_run_gives_no_partial_consent`).
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -899,3 +960,7 @@ accepted). The ledger says so.
 | spec-guardian | `7313df2` | approve; N1–N4 (low) | N1 in R6, N2 in R10, N3 ADR-0004 sentence qualified, N4 superseded markers in the body |
 | security-reviewer | `7313df2` | approve; N1–N2 (low, for G) | N1 in R10 and R15, N2 in R15 |
 | docs-auditor | `3efe24c` | 4 medium, 5 low (dates, an unsourced `EINVAL`, ADR-0004's count, tense, status wording, stale lines) | all fixed in the next commit |
+| security-reviewer | `9c9dbbd` | approve with changes: M1–M2, L1–L3, info | M1 cleared-step case; M2 argued (As built); L1 SE-111; L2 both directions; L3 guard on the mutating path |
+| spec-guardian | `9c9dbbd` | approve with changes: F1–F8 | F1 argued as M2; F2 and F3 cleared-step case and As built; F4 both directions; F5 SE-111; F6 Evidence; F7, F8 As built |
+| security-reviewer | `013025d` (and `e1d6aae`) | approve: L1–L2, I1–I3 | L1, L2 tests added; I1 owed to E-3 (As built); I2 accepted (root needed to plant a link at the device); I3 As built |
+| spec-guardian | `013025d` (and `e1d6aae`) | approve with changes: D1–D4, R1–R3 | D1 SE-111 future tense and As built (owed to E-3, named `invariant_06_*` there); D2 phrase escaped; D3 impact lines; D4 As built; R1 `/dev/null` case; R2 E-3; R3 accepted |

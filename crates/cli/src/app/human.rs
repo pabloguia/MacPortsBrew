@@ -1074,6 +1074,7 @@ fn precondition_key(why: Precondition) -> &'static str {
         Precondition::ConfigurationDrift => "migrate.precondition.configuration_drift",
         Precondition::WrongProviderToken => "migrate.precondition.wrong_provider_token",
         Precondition::DestinationNotReverified => "migrate.precondition.destination_not_reverified",
+        Precondition::WrongProgramToken => "migrate.precondition.wrong_program_token",
     }
 }
 
