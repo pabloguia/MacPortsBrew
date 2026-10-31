@@ -30,7 +30,9 @@ macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
 macportsbrew plan <pkg> --to <provider> [--retain-source]   build a migration plan (no mutation)
 macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes]
-                                  show a plan; --yes executes it [this build: the gate refuses every plan]
+                                  show a plan; --yes executes it once a person at a terminal has
+                                  confirmed the plan shown (--yes never answers a question)
+                                  [this build: the gate refuses every plan]
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)
@@ -82,6 +84,13 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 4 blocked by a safety check · 5 provider unavailable/unhealthy
 6 user aborted · 7 lock held by another instance · 8 stale/unusable input
 ```
+
+Exit 6 (`USER_ABORTED`) is a person declining a question that must be
+answered before anything runs: the plan's confirmation, and once part J wires
+it, an elevated step's. A plan about to run that is not the one confirmed is a
+safety stop (`PLAN_NOT_SHOWN`, exit 4), and `migrate --yes` with no terminal to
+confirm at is a usage error (exit 2); stdout is empty in all three (work order
+16 part E, SE-111).
 
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits

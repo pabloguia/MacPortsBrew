@@ -330,10 +330,22 @@ comments:
    while nothing destructive is dispatched. The mutating pass owes the tie —
    the same in-memory object shown and then confirmed, or under `--yes` a
    digest of a previously rendered plan that must match — before it dispatches
-   a single mutating step. **Still owed after pass 08 slice 4**, which re-plans
-   under the lock and refuses on any difference from the validated plan (D6) —
-   that ties the run to the machine, not to what the human saw. A flip tripwire
-   fails the build that turns mutations on while this is unbuilt.
+   a single mutating step. **Built: the interactive route** (work order 16
+   part E-2, DP-049 (b), SE-111): under a mutation allowance `migrate --yes`
+   shows the plan the gate cleared on standard error and asks for
+   `run plan <code>` (a code drawn for the question); only that mints an
+   `application::ShownPlan`, which holds the plan itself, and the run loop
+   refuses, before the history probe and the lock, a plan the witness does not
+   cover (`PLAN_NOT_SHOWN`, exit 4). Under the lock `plan_still_holds` is plan
+   equality, so what runs is what was confirmed. `--yes` means "execute"; it
+   never answers the question, and without a terminal the run is refused
+   (`USAGE`, exit 2); a declined question is `USER_ABORTED`, exit 6. **Still
+   owed: the digest route** (DP-049 (a), part E-4); a flip tripwire fails the
+   build that turns mutations on while it is unbuilt. Tests:
+   `invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_lock`,
+   `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed`,
+   `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown`,
+   `the_switch_needs_the_executed_plan_tied_to_the_one_shown`.
 9. **When a consent path lands, the decision to ask comes from the provider
    command table plus the live capability probe, never from the plan's
    `elevation` field.** The field is what the user is *shown*; the question

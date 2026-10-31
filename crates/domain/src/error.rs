@@ -93,6 +93,14 @@ pub enum ErrorId {
     RunInterrupted,
     /// A safety check blocked the operation (INV-01, INV-04, INV-19).
     SafetyBlocked,
+    /// The plan about to run is not the one the person was shown and confirmed
+    /// (work order 16 part E, DP-049). Separate from [`ErrorId::SafetyBlocked`]
+    /// so a script tells it from the planner's own refusal by the identifier,
+    /// never by stdout, which is empty for both. Exit 4.
+    PlanNotShown,
+    /// The person declined a question that had to be answered before anything
+    /// ran: the plan, or an elevated step (`06-cli-and-ux.md`: exit 6).
+    UserAborted,
     /// A safety rule could not be evaluated, because the input does not carry
     /// the fact it needs.
     ///
@@ -133,7 +141,9 @@ impl ErrorId {
             ErrorId::SafetyBlocked
             | ErrorId::SafetyUnverifiable
             | ErrorId::ProviderPresenceUnproven
-            | ErrorId::RunInterrupted => 4,
+            | ErrorId::RunInterrupted
+            | ErrorId::PlanNotShown => 4,
+            ErrorId::UserAborted => 6,
             ErrorId::RunLockHeld => 7,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
@@ -172,6 +182,8 @@ impl ErrorId {
             ErrorId::RunLockHeld => "error.run_lock_held",
             ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
+            ErrorId::PlanNotShown => "error.plan_not_shown",
+            ErrorId::UserAborted => "error.user_aborted",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
             ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
             ErrorId::NotImplementedInThisPass => "error.not_implemented_in_this_pass",
@@ -199,6 +211,8 @@ impl ErrorId {
             ErrorId::RunLockHeld,
             ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
+            ErrorId::PlanNotShown,
+            ErrorId::UserAborted,
             ErrorId::SafetyUnverifiable,
             ErrorId::ProviderPresenceUnproven,
             ErrorId::NotImplementedInThisPass,
@@ -271,6 +285,10 @@ mod tests {
         assert_eq!(ErrorId::RunNotFound.exit_code(), 8);
         assert_eq!(ErrorId::RunLockHeld.exit_code(), 7);
         assert_eq!(ErrorId::RunInterrupted.exit_code(), 4);
+        // A plan that is not the one shown is a safety stop; a declined
+        // question is the user's abort (work order 16 part E).
+        assert_eq!(ErrorId::PlanNotShown.exit_code(), 4);
+        assert_eq!(ErrorId::UserAborted.exit_code(), 6);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 
@@ -304,7 +322,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 21;
+    const NUMBER_OF_ERROR_IDS: usize = 23;
 
     #[test]
     fn every_id_has_a_distinct_message() {

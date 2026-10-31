@@ -79,9 +79,9 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed; execution only), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
-| 6 | user aborted | — (interactive only; not reachable in this build) |
+| 6 | user aborted | `USER_ABORTED` (a declined plan or elevation question; interactive only, not reachable in this build) |
 | 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |
 | 8 | stale or unusable input | `SNAPSHOT_UNUSABLE`, `RECORDING_UNUSABLE`, `INPUT_UNUSABLE`, `POLICY_DATA_INVALID`, `HISTORY_UNUSABLE`, `RUN_NOT_FOUND` (a valid run id with no record, `history show`; pass 08 slice 5) |
 
@@ -95,5 +95,7 @@ gate refuses, which in this build it does for every plan — and prints the
 document either way. Whenever a plan was built, stdout carries it, so an exit 4
 with a document is a refusal or a manual review, and an exit 4 with empty stdout
 is the planner's own refusal (`SAFETY_BLOCKED` or `SAFETY_UNVERIFIABLE`, on
-stderr). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
+stderr). Under a mutation allowance, a refusal about the plan's confirmation
+also leaves stdout empty, and its identifier tells it apart: `USER_ABORTED`
+(6), `USAGE` (2, no terminal) or `PLAN_NOT_SHOWN` (4). `migrate --yes --from-snapshot` exits **2** before any output. *Nothing
 to move* exits **0** (INV-16).

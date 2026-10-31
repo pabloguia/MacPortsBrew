@@ -1020,26 +1020,31 @@ fn the_context_runner_and_the_run_loop_are_reached_from_migrate_alone() {
 }
 
 #[test]
-fn invariant_02_migrate_executes_a_plan_built_in_process_only_while_nothing_destructive_is_dispatched(
-) {
-    // INV-02 wants a plan object a human has seen. `migrate --yes` builds and
-    // executes the plan in one process, which is compatible with it only
-    // while nothing destructive is dispatched (SE-092; `plan.v1.md`,
-    // obligation 8). This fails the day both hold at once: a build that can
-    // dispatch a mutating step, and `migrate` still executing the plan it
-    // built itself rather than one tied to what was shown.
+fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
+    // INV-02 wants the plan a human has seen (`plan.v1.md`, obligation 8). In
+    // `execute_mutating`, the plan is confirmed after the gate cleared it and
+    // before the state directory is resolved, and the witness is what the
+    // `MutatingRun` carries; the loop refuses a plan it does not cover
+    // (`invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_lock`).
     let source =
         std::fs::read_to_string(root().join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
-    let builds_its_own_plan = source.contains("migration_start(");
+    let body = &source[source
+        .find("fn execute_mutating(")
+        .expect("execute_mutating")..];
+    let body = &body[..body.find("\n}\n").expect("its end")];
+    let at = |t: &str| {
+        body.find(t)
+            .unwrap_or_else(|| panic!("execute_mutating calls {t}"))
+    };
+    assert!(at("clear(planned") < at("let shown = confirm_the_plan("));
+    assert!(at("let shown = confirm_the_plan(") < at("state_and_user("));
     assert!(
-        !(macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS && builds_its_own_plan),
-        "a build that dispatches mutations must tie the executed plan to the one a human \
-         saw (plan.v1.md obligation 8) before `migrate --yes` may run a plan it built itself"
+        body.contains("            shown,\n"),
+        "the MutatingRun carries the witness"
     );
     assert!(
-        builds_its_own_plan,
-        "migrate no longer builds the plan it executes: revisit this tripwire and \
-         obligation 8 together"
+        source.contains("fn confirm_the_plan(") && source.contains("crate::consent::confirm_plan("),
+        "the witness comes from the consent prompt"
     );
 }
 

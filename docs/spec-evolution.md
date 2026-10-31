@@ -1650,6 +1650,14 @@ change is made. Silent deviation remains the one unrecoverable error.
   retry; a program that drives a pseudo-terminal can read and answer the code, which is the user's own automation
   and outside SR 10. Rejected: `RandomState` (its seeding is a `std` detail, not a documented randomness source) and
   `tcflush` (a paste can still follow the flush, and it needs `libc`).
+  Change (E-2, DP-049 (b), the interactive route): `application::ShownPlan` holds the plan the person confirmed,
+  minted only by `confirm_shown(&GateClear, &ConsentCode, typed)` for `run plan <code>`; `cli::consent::confirm_plan`
+  renders the cleared plan on standard error from that same value, then asks. `migrate --yes` asks only after the
+  live-scope check and the gate (a plan the gate refuses is never asked about, R1) and before the state directory;
+  `MutatingRun.shown` carries the witness, and `run_with_mutations` refuses a plan it does not cover before the
+  history probe (`ErrorId::PlanNotShown`, exit 4). `--yes` means "execute" and never answers a question (R4); with
+  no terminal it is `USAGE` (exit 2), a declined question `ErrorId::UserAborted` (exit 6), and stdout is empty for
+  all three, the identifier telling them from the planner's own exit 4 (R2; `migrate.rs` rule 5 amended).
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both

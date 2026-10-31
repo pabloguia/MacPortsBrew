@@ -181,7 +181,11 @@ re-run is planned again with `PRIMARY_IS_SHIM` until shims record their target.
 As `plan` in `RENDER` mode: 0, or **4** when the plan stops at
 `MANUAL_REVIEW`. In `EXECUTE` mode, the outcome's code above. A planner refusal
 (no plan built) exits with its own code and writes nothing to stdout, so an exit
-4 with a document is distinguishable from one without.
+4 with a document is distinguishable from one without. Under a mutation
+allowance, the plan's confirmation is asked before anything runs, and a refusal
+there writes nothing to stdout either: `USER_ABORTED` (6, declined), `USAGE`
+(2, no terminal to confirm at), `PLAN_NOT_SHOWN` (4, the plan to run is not the
+one confirmed); the error's identifier, on stderr, tells them apart.
 
 ## Samples
 

@@ -79,7 +79,7 @@ use macportsbrew_application::{
     judge_step, must_record, next_action, next_action_with, outcome_of, plan_still_holds,
     read_back_matches, recheck_provider_configuration, refused, run_record, Action,
     ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
-    Precondition, RunOutcome, StepRead, StepRecord,
+    Precondition, RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
@@ -453,6 +453,10 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub read_back: ReadBack<'a>,
     /// Told of each boundary.
     pub observer: &'a dyn Observer,
+    /// The witness that the plan to run was shown to a person and confirmed
+    /// (work order 16 part E, DP-049). The run refuses, before the history
+    /// probe and the lock, a plan it does not cover.
+    pub shown: ShownPlan,
 }
 
 /// [`run_with_mutations`] with the read sites `ctx` detects, built only after
@@ -507,6 +511,15 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     }
     let planned = cleared.run();
     let plan = planned.plan();
+    // The plan that runs is the plan shown, before anything is probed, locked
+    // or written (DP-049; INV-02). Under the lock `plan_still_holds` is plan
+    // equality too, so what runs equals what was confirmed.
+    if !io.shown.covers(plan) {
+        return Err(DomainError::new(
+            ErrorId::PlanNotShown,
+            "the plan cleared for this run differs from the plan that was confirmed",
+        ));
+    }
     let (state, euid) = (io.state, io.euid);
     history_store::probe(state, euid)?;
     io.observer.at(Boundary::Probed, None);
