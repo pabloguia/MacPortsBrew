@@ -37,9 +37,13 @@ macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes [--plan-dige
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)
-macportsbrew snapshot [--out <file>]        capture both providers' state
+macportsbrew snapshot [--out <file>] [<package>...]
+                                            capture both providers' state
                                             (--out required under --replay
-                                            and --from-snapshot)
+                                            and --from-snapshot); each named
+                                            package's executable list is read
+                                            too [part F, work order 16,
+                                            not built; SE-112]
 macportsbrew restore --plan (--run <id> | --snapshot <file>)
                                   reviewable plan back to that state; the undo path
 macportsbrew restore --run <id>   plan, review, confirm, execute   [later pass, with migrate]
@@ -184,6 +188,23 @@ attach to an issue: versions, architecture, macOS version, provider prefixes,
 package names, findings. Never: usernames, home paths, environment variable
 values, tokens, or anything outside the two providers' scope. The user sees the
 file and chooses to share it; MacPortsBrew never uploads it.
+
+**The limit of a plan's `PATH`** (part F, work order 16, not built; SE-112). A
+plan, and the run record built from it, will carry the `PATH` the primary
+decision read, with the home directory and the account name redacted and every
+other entry kept: the decision reads each entry ahead of the destination's and
+the winner's, so a reader must be able to check all of them. Directory names under `/opt`, `/pkg` or
+an application's folder can therefore appear in a plan a user shares, as they
+already do in a snapshot. That value never enters `doctor --report`, whose MUST
+above stands. A package name or executable name echoed in a refusal is escaped
+like any other provider-derived text.
+
+**MUST** (part F, work order 16, not built; SE-112). `snapshot <package>...`
+uses each name only to select an installed row; the read is sent with the name the inventory
+recorded, a name no inventory holds sends nothing and is reported, and an
+argument that begins with `-` is never taken as a package. Naming a package to
+`snapshot` does not enter advanced mode: it is a capture, not a view or a
+destructive workflow (INV-13).
 
 ## Advanced mode
 

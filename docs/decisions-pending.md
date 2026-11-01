@@ -44,6 +44,74 @@ Raised 2026-10-28, work order 16 part D; narrowed the same day after
 - **Recommendation: (a).** Nothing waits on this: part D proceeds on (a), and (c)
   would be an addition on top.
 
+### DP-055 — Setting a primary when the destination is not installed yet: refuse, or install and let `VERIFY_RESOLUTION` decide?
+
+Raised 2026-11-01, work order 16 part F, by `spec-guardian` reviewing the plan
+(`docs/passes/16-plans/F.md`, finding SG-1). DP-047 — ruled 2026-10-27 and
+confirmed by the owner the same day — settles how a primary is set when the
+planner can tell whether the destination will win `PATH`; it does not settle what
+happens when it cannot.
+
+- **The gap.** Both reads that give a package's executables and where they land
+  need the package installed: `port -q contents` and `brew list --formula`
+  (R-21 findings 1–2). So before an install the planner does not know, for
+  either provider, (i) whether the destination places each executable in its
+  `bin`/`sbin` (a Homebrew keg-only formula does not; a MacPorts port is only
+  observed doing so once installed), or (ii) whether the destination ships each
+  executable the source ships at all. R-24
+  (`docs/spec/09-research-checklist.md`, "R-24", open) asks whether any
+  read-only form answers either question for an uninstalled package; none is
+  known.
+- **(a) Refuse in both directions while the destination is uninstalled**
+  (`PRIMARY_DESTINATION_NOT_INSTALLED`). Nothing is installed on a guess. Cost:
+  F's `COMPLETED` path is reachable only when the destination already holds the
+  package and already wins. A migration exists to move a package to a provider
+  that does not have it yet, so for most requests a user would make, the primary
+  half of a run stays refused until R-24 answers or a later part closes the gap.
+- **(b) Plan both directions, and let `VERIFY_RESOLUTION` decide after the
+  install.** A known "needs a shim" or "a non-provider entry wins" is still
+  refused before any install; only the unknown placement or the unknown "ships
+  this executable" goes ahead. A wrong guess ends `PARTIAL` with the source kept:
+  `REMOVE_SOURCE` is ordered after `VERIFY_RESOLUTION` (F's `check_ordering`
+  change) and removal is opt-in (DP-048 (c)), so INV-01 and INV-03 hold; the
+  machine is left with both providers' copies, which INV-18 makes a supported end
+  state. Cost: a run can install something that then does not become the primary,
+  and the user learns it after the install, not before. **And the install itself
+  has side effects nothing verifies first** (added 2026-11-01 after
+  `spec-guardian`'s and `security-reviewer`'s second review, finding D1): an
+  uninstalled destination links every `bin`/`sbin` entry it ships at its own
+  `PATH` position. On the captured machine
+  (`fixtures/snapshots/both-providers-intel-macos26-live.json`, captured
+  2026-10-28), Homebrew's `/usr/local/bin` and `/usr/local/sbin` sit at indices
+  6 and 7, ahead of `/usr/bin` at 10, so a Homebrew install can newly shadow
+  system tools. MacPorts links at `/opt/local/bin`, index 25 there: behind
+  `/usr/bin`, but ahead of every entry after it (`~/Library/pnpm` and others), so a
+  MacPorts install can newly shadow those names — and on a machine where
+  MacPorts' installer put `/opt/local/bin` first, system tools too. Either way the
+  install can shadow names that are not on the source's list at all. That is spec 05's MUST ("never shadow a macOS system tool
+  without saying so explicitly and requiring confirmation"), it is a change to
+  resolution for packages the user did not name (INV-12's concern), and halting
+  afterwards does not restore the prior resolution (INV-03). Nothing is written
+  outside the providers, but the provider's own linking is the write that matters.
+  A variant **(b′)** adds a post-install check that halts before `SET_PRIMARY`
+  when the destination's now-readable list shadows a system entry; it reports the
+  harm honestly and cannot undo it.
+- **Recommendation: (a)** (changed 2026-11-01 from (b), after D1). (b)'s
+  appeal was that its only failure is one the verification contract catches with
+  the source intact; D1 shows a second failure — new shadowing by the install —
+  that no check in this release can prevent and none can reverse, since removing
+  what was just installed is not a plan step. (a) costs reach, not safety: F's
+  `COMPLETED` path is then reachable only where the destination already holds the
+  package. Revisit when R-24, or a later part, gives the destination's executable
+  list before the install: that turns the unknown into a known, pre-install
+  shadowing check, and (b) without the side-effect cost. A one-provider (b) would
+  be an INV-17 shape and is not offered.
+- **What it blocks:** nothing in part F's code; it decides how much of F's
+  planned path is reachable on a real machine, and therefore part L's proposal.
+- **Reversible default taken: (a).** Refusing installs nothing, and switching to
+  (b) or (b′) is one planner rule plus tests F already writes for the `PARTIAL`
+  path; the reverse switch, after (b) shipped, could not un-install anything.
+
 ---
 
 ## Resolved
