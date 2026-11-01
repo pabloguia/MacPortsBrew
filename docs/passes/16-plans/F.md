@@ -1363,6 +1363,9 @@ Not done here, and why:
   preview echo go through `escape_hostile` (SR2-N6).
 - A surviving `ON_PATH_DIR` is the adapter's statement, not an observation
   (security review L-4): the decision rule reads it so.
+- A `Resolution.path` from `resolution_of` on a document without the PATH map
+  may be relative or contain `..`; F-3 must not use it as a path without
+  `is_safe_path` and must not predict from it (security re-review).
 
 **CHANGELOG: deferred to F-4** (docs-auditor L-4), as the phasing table
 places it. The F-4 entry must cover, for F-2b: `snapshot [<package>...]` and
@@ -1466,6 +1469,34 @@ on `1061877`, both "approve with changes"). Fixed on this branch:
 - **DA Info.** `snapshot.v1.md` cites SE-112 rather than review identifiers.
 - **DA L-4.** The CHANGELOG deferral and what it must cover, above.
 
+**Third round** (the security re-review, "approve", and an independent
+mutation proof of the fix round at `7bd0443`: 17 mutants, 12 killed, 1
+equivalent, 4 gaps). Fixed on this branch:
+
+- **M1-canonical, M1-owner (gaps).**
+  `a_hit_with_a_canonical_path_that_is_not_printable_is_left_out` and
+  `a_hit_whose_owner_package_is_not_a_name_is_left_out` (`-rf`, `a b`; a new
+  stub knob): the capture completes, `xz` is `NOT_OBSERVED` and absent from
+  the per-provider map, and the snapshot passes the whole load check.
+- **L2 notice-differs and never-not-read (gaps).** The per-name decision is
+  `executables_notices` (`capture.rs`, beside `executables_selection`, with
+  `NoticeKey`); the command only renders it. Test:
+  `every_name_not_read_gets_the_notice_its_case_calls_for` (a broken provider
+  still listing the name and a row with no metadata → not read; a name nobody
+  holds → not installed; a selected name → none).
+- **E7-no-len (equivalent).** `is_safe_captured_path` already bounds the
+  length; the comment now calls the explicit bound belt-and-braces.
+- **Security I-4.** The placement rule is one function, `placement_holds`
+  (`snapshot.rs`, public); `check_executables` refuses with it and capture asks
+  it after redaction, recording a placement it would refuse as
+  `UNKNOWN { PROVIDER_OUTPUT_CHANGED }` so `snapshot <package>` cannot fail on
+  an adapter's unkeepable statement. Test:
+  `a_placement_the_load_rule_would_refuse_is_recorded_as_unknown`.
+- **Security I-5** (a name installed under two providers, a cosmetic
+  difference): accepted, no change.
+- **Security hand-off** to F-3 on `Resolution.path` from an older document:
+  above.
+
 **Independent mutation proof** (a subagent, at `1061877`): 73 mutants, 47
 killed, 6 equivalent (15, R3, S7, L2, L4; argued, and 15 moves to F-3 as above),
 20 survivors that were real gaps. Each now has a test that kills it:
@@ -1516,4 +1547,6 @@ rule now also checks the raw text's length and refuses a `.` component.
 | `security-reviewer`, F-2b | `wo16/F-2b-capture` at `45ff537` | Approve with changes: L-1 a `FOUND`'s own fields barely checked; L-2 map keys no capture writes; L-3 unbounded searches; L-4 contradiction, not confirmation; Info-1 names under `--from-snapshot`; Info-2 no `NOT_LINKED` redaction test. `process/` untouched | All resolved in "As built (F-2b)", review round |
 | `security-reviewer` (independent), F-2b | `wo16/F-2b-capture` at `1061877` | Approve with changes: M-1 a `..` PATH entry fails every live capture; L-1 an older document's per-provider entries skip the shape rule; L-2 the not-installed notice decided apart from the reads; I-1 a redaction collision can refuse a correct index; I-2, I-3 | M-1, I-1, L-2 resolved; L-1 resolved with the per-provider path under the display rule, not the no-`..` one (an existing contract test; recorded in "Second review round"); I-2, I-3 already handed on or accepted |
 | `docs-auditor`, F-2b | `wo16/F-2b-capture` at `1061877` | Approve with changes: M-1 the not-installed notice overclaims with a broken provider; L-1 the `PACKAGE` help; L-2 06 silent on `--from-snapshot`; L-3 the placement row reads as fact; L-4 the CHANGELOG deferral unstated; Info review identifiers in `snapshot.v1.md` | All resolved in "As built (F-2b)", second review round |
+| `security-reviewer`, F-2b re-review | `wo16/F-2b-capture` at `7bd0443` | Approve; I-4 a placement the load rule refuses makes `snapshot <pkg>` fail; I-5 a name in two providers, cosmetic; a hand-off on an older document's `Resolution.path` | I-4 resolved (`placement_holds`, unknown at capture); I-5 accepted; the hand-off added to "Handed to F-3" |
+| Independent mutation proof of the fix round (subagent) | `wo16/F-2b-capture` at `7bd0443` | 17 mutants, 12 killed, 1 equivalent (E7-no-len), 4 gaps (M1-canonical, M1-owner, L2 notice-differs, L2 never-not-read) | 4 gaps closed by tests; the equivalent one's comment corrected ("As built (F-2b)", third round) |
 | Independent mutation proof, F-2b (subagent) | `wo16/F-2b-capture` at `1061877` | 73 mutants, 47 killed, 6 equivalent (15, R3, S7, L2, L4, argued), 20 gaps | 20 gaps closed by tests (E7 also a code fix); the mutant 15 argument stands and 15 moves to F-3 ("As built (F-2b)") |

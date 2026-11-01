@@ -40,6 +40,8 @@ struct Stub {
     claims_all: bool,
     /// Reports this directory joined with the leaf as the canonical path.
     canonical_in: Option<PathBuf>,
+    /// Names this package as the owner, instead of the leaf.
+    owner_package: Option<String>,
 }
 
 impl Stub {
@@ -86,6 +88,7 @@ impl Stub {
             silent: false,
             claims_all: false,
             canonical_in: None,
+            owner_package: None,
         }
     }
 
@@ -128,7 +131,7 @@ impl ProviderRead for Stub {
         let owner = if self.claims_all || executable.starts_with(&self.prefix) {
             ExecutableOwner::Provider {
                 provider: self.id.clone(),
-                package: Some(leaf.clone()),
+                package: Some(self.owner_package.clone().unwrap_or_else(|| leaf.clone())),
             }
         } else {
             ExecutableOwner::Unknown
@@ -824,4 +827,102 @@ fn an_absent_provider_gets_no_read() {
     let machine = Machine2::live(PATH, &[]);
     let _ = run(&machine, &[&first], &["xz"]);
     assert!(first.asked.borrow().is_empty());
+}
+
+// --- the independent mutation proof of the fix round, and security I-4 ------
+
+/// Capture completes, `xz` is unobserved and in neither map, and the
+/// snapshot passes the whole load check.
+fn left_out_and_loadable(first: &Stub) {
+    let machine = Machine2::live(PATH, &[("xz", "/opt/first/bin/xz")]);
+    let snapshot = run(&machine, &[first], &[]).expect("the capture completes");
+    assert_eq!(
+        snapshot.resolution_of(&name("xz")),
+        ResolutionState::NotObserved
+    );
+    assert!(!snapshot.providers[&ProviderId::new("first")]
+        .resolutions
+        .contains_key("xz"));
+    snapshot
+        .check(&BTreeMap::new())
+        .expect("the snapshot loads");
+}
+
+#[test]
+fn a_hit_with_a_canonical_path_that_is_not_printable_is_left_out() {
+    // M1-canonical.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.canonical_in = Some(PathBuf::from("/opt/first/x\u{1b}[2J"));
+    left_out_and_loadable(&first);
+}
+
+#[test]
+fn a_hit_whose_owner_package_is_not_a_name_is_left_out() {
+    // M1-owner.
+    for package in ["-rf", "a b"] {
+        let mut first = Stub::new("first", "/opt/first", &["xz"]);
+        first.owner_package = Some(package.into());
+        left_out_and_loadable(&first);
+    }
+}
+
+#[test]
+fn a_placement_the_load_rule_would_refuse_is_recorded_as_unknown() {
+    // Security I-4: a directory with a `.` component cannot be kept, so the
+    // placement is unknown and `snapshot <package>` still completes.
+    let first = Stub::new("first", "/opt/first", &["xz"]).with_list(
+        "xz",
+        ExecutableList::from_leaves(["xz"]),
+        Placement::OnPathDir {
+            dirs: [(name("xz"), "/opt/first/./bin".to_string())]
+                .into_iter()
+                .collect(),
+        },
+    );
+    // The directory is not on this PATH, so the resolution settles nothing and
+    // only the shape rule decides.
+    let machine = Machine2::live(&["/usr/bin"], &[]);
+    let snapshot = run(&machine, &[&first], &["xz"]).expect("the capture completes");
+    assert_eq!(
+        placement_of(&snapshot, "first", "xz"),
+        Placement::unknown(ErrorId::ProviderOutputChanged)
+    );
+    snapshot
+        .check(&BTreeMap::new())
+        .expect("the snapshot loads");
+}
+
+#[test]
+fn every_name_not_read_gets_the_notice_its_case_calls_for() {
+    // L2: decided beside the selection, from the same facts.
+    use macportsbrew_application::{executables_notices, NoticeKey};
+    let present = Stub::new("first", "/opt/first", &["xz", "m4"]);
+    let mut gone = Stub::new("second", "/opt/second", &["tree"]);
+    gone.snap.detection.presence = macportsbrew_domain::ProviderPresence::Broken {
+        reason: "error.provider_output_changed".into(),
+    };
+    let mut bare = Stub::new("third", "/opt/third", &["htop"]);
+    bare.snap.inventory.metadata.clear();
+    let providers: BTreeMap<ProviderId, ProviderSnapshot> = [&present, &gone, &bare]
+        .iter()
+        .map(|p| (p.id.clone(), p.snap.clone()))
+        .collect();
+    let names: BTreeSet<String> = ["xz", "tree", "htop", "nosuch"].map(String::from).into();
+    assert_eq!(
+        executables_notices(&providers, &names),
+        vec![
+            ("htop".to_string(), NoticeKey::PackageNotRead),
+            ("nosuch".to_string(), NoticeKey::PackageNotInstalled),
+            ("tree".to_string(), NoticeKey::PackageNotRead),
+        ],
+        "a selected name (xz) gets none"
+    );
+    assert_eq!(
+        NoticeKey::PackageNotInstalled.message_id(),
+        "snapshot.package_not_installed"
+    );
+    assert_eq!(
+        NoticeKey::PackageNotRead.message_id(),
+        "snapshot.package_not_read"
+    );
 }

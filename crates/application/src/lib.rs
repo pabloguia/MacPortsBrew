@@ -31,7 +31,7 @@ pub mod restore;
 pub mod verification_json;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
-pub use capture::{capture, executables_selection, CaptureContext};
+pub use capture::{capture, executables_notices, executables_selection, CaptureContext, NoticeKey};
 pub use configuration_recheck::{
     recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
 };

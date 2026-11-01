@@ -584,31 +584,17 @@ fn run_inner(
             // that is installed but was not read. Escaped: the string is the
             // user's, and it reaches the terminal.
             let named: BTreeSet<String> = packages.iter().cloned().collect();
-            let selected =
-                macportsbrew_application::executables_selection(&ctx.snapshot.providers, &named);
-            let installed: BTreeSet<String> = ctx
-                .snapshot
-                .providers
-                .values()
-                .flat_map(|p| p.inventory.installed_names())
-                .collect();
-            for name in &named {
-                if selected.iter().any(|(_, read)| read == name) {
-                    continue;
-                }
-                let key = if installed.contains(name) {
-                    "snapshot.package_not_read"
-                } else {
-                    "snapshot.package_not_installed"
-                };
+            for (name, key) in
+                macportsbrew_application::executables_notices(&ctx.snapshot.providers, &named)
+            {
                 let _ = writeln!(
                     stderr,
                     "{}",
                     ctx.messages.render(
-                        key,
+                        key.message_id(),
                         &[(
                             "package".to_string(),
-                            macportsbrew_domain::escape_hostile(name)
+                            macportsbrew_domain::escape_hostile(&name)
                         )]
                         .into_iter()
                         .collect()

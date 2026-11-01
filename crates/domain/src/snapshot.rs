@@ -373,6 +373,67 @@ pub fn is_safe_captured_path(text: &str) -> bool {
     (text.starts_with('/') || text == "~" || text.starts_with("~/")) && path_is_sane(text)
 }
 
+/// The placement load rule (F.md §1; SE-112), as one function so capture can
+/// ask it of a placement before writing it (security review of F-2b, I-4) and
+/// the loader refuses exactly what capture would not keep.
+///
+/// `ON_PATH_DIR` needs a known list holding every placed name and a stated
+/// prefix, and each directory is a captured path with no `.` component, equal,
+/// component by component, to `prefix/bin` or `prefix/sbin`; a `NOT_LINKED`
+/// reason is bounded printable text. The error says why, after the package.
+pub fn placement_holds(
+    placement: &Placement,
+    known: Option<&BTreeSet<ExecutableName>>,
+    prefix: Option<&Path>,
+) -> Result<(), String> {
+    match placement {
+        Placement::OnPathDir { dirs } => {
+            let Some(names) = known else {
+                return Err("places executables without a known list of them".into());
+            };
+            let Some(prefix) = prefix else {
+                return Err("places executables, and its provider states no prefix".into());
+            };
+            let allowed = [prefix.join("bin"), prefix.join("sbin")];
+            for (executable, dir) in dirs {
+                if !names.contains(executable) {
+                    return Err(format!(
+                        "places {executable:?}, which its list does not hold"
+                    ));
+                }
+                // No `.` component, checked on the raw text: `Path::components`
+                // drops an interior `/.`, so `prefix/./bin` compares equal to
+                // `prefix/bin` (the independent mutation proof of F-2b, E7).
+                // `is_safe_captured_path` already bounds the length, which also
+                // stops a directory padded with `/.`; the explicit bound is
+                // belt-and-braces.
+                let shaped = is_safe_captured_path(dir)
+                    && dir.len() <= MAX_PATH_LEN
+                    && !dir.split('/').any(|c| c == ".");
+                let under = allowed
+                    .iter()
+                    .any(|a| Path::new(dir).components().eq(a.components()));
+                if !shaped || !under {
+                    return Err(format!(
+                        "places {executable:?} in {:?}, which is not its provider's detected \
+                         bin or sbin",
+                        crate::text::escape_hostile(dir)
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Placement::NotLinked { reason } => {
+            if is_safe_provider_text(reason) {
+                Ok(())
+            } else {
+                Err("gives a reason for not linking that no provider could have stated".into())
+            }
+        }
+        Placement::Unknown { .. } => Ok(()),
+    }
+}
+
 /// Whether `index` is where a search of the recorded (redacted) `PATH`
 /// `entries` would have found `path`: the entry at `index` is `path`'s
 /// parent, component by component, and no earlier entry is that parent,
@@ -962,58 +1023,8 @@ impl Snapshot {
                          its executable list; a capture writes one from the other"
                     ));
                 }
-                match &meta.placement {
-                    Placement::OnPathDir { dirs } => {
-                        let Some(names) = known else {
-                            return refuse(format!(
-                                "{id} package {name:?} places executables without a known \
-                                 list of them"
-                            ));
-                        };
-                        let Some(prefix) = prefix else {
-                            return refuse(format!(
-                                "{id} package {name:?} places executables, and {id} states \
-                                 no prefix for them to be under"
-                            ));
-                        };
-                        let allowed = [prefix.join("bin"), prefix.join("sbin")];
-                        for (executable, dir) in dirs {
-                            if !names.contains(executable) {
-                                return refuse(format!(
-                                    "{id} package {name:?} places {executable:?}, which its \
-                                     list does not hold"
-                                ));
-                            }
-                            // The raw string, bounded, with no `.` component:
-                            // `Path::components` drops an interior `/.`, so a
-                            // directory padded with them compares equal to
-                            // `bin` while its text is far longer than any
-                            // captured path (the independent mutation proof
-                            // of F-2b, E7). An adapter writes `prefix/bin`.
-                            let shaped = is_safe_captured_path(dir)
-                                && dir.len() <= MAX_PATH_LEN
-                                && !dir.split('/').any(|c| c == ".");
-                            let under = allowed
-                                .iter()
-                                .any(|a| Path::new(dir).components().eq(a.components()));
-                            if !shaped || !under {
-                                return refuse(format!(
-                                    "{id} package {name:?} places {executable:?} in {:?}, \
-                                     which is not {id}'s detected bin or sbin",
-                                    crate::text::escape_hostile(dir)
-                                ));
-                            }
-                        }
-                    }
-                    Placement::NotLinked { reason } => {
-                        if !is_safe_provider_text(reason) {
-                            return refuse(format!(
-                                "{id} package {name:?} gives a reason for not linking that \
-                                 no provider could have stated"
-                            ));
-                        }
-                    }
-                    Placement::Unknown { .. } => {}
+                if let Err(why) = placement_holds(&meta.placement, known, prefix) {
+                    return refuse(format!("{id} package {name:?} {why}"));
                 }
             }
         }

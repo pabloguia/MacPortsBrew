@@ -228,7 +228,8 @@ and never read to decide while the environment map is present. A reader asks
   captured-path rule (a `PATH` entry such as `/opt/x/libexec/../bin`) is
   recorded in neither map, and an index that redaction would make ambiguous
   (two homes that read alike once redacted) is recorded as absent. A machine's
-  own `PATH` shape never makes its capture refuse itself.
+  own `PATH` shape never makes its capture refuse itself. A placement this
+  rule would refuse is recorded as `UNKNOWN { PROVIDER_OUTPUT_CHANGED }`.
 - **Without it** - a document from before the field, or a capture that
   observed nothing - the per-provider answers are read with a fixed precedence
   per name: an authoritative provider owner, then a non-authoritative one, then

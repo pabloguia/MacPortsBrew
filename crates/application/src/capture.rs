@@ -8,10 +8,10 @@ use crate::TOOL_VERSION;
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::ProviderPresence;
 use macportsbrew_domain::{
-    is_safe_captured_path, is_safe_provider_name, is_safe_provider_text, recorded_index_holds,
-    redact_home, DomainError, EnvironmentSnapshot, ErrorId, ExecutableList, ExecutableName,
-    ExecutableOwner, HomeRedaction, ListReason, MachineRead, PathSearch, Placement, Provenance,
-    ProviderId, ProviderRead, ProviderSnapshot, Resolution, ResolutionState, Snapshot,
+    is_safe_captured_path, is_safe_provider_name, is_safe_provider_text, placement_holds,
+    recorded_index_holds, redact_home, DomainError, EnvironmentSnapshot, ErrorId, ExecutableList,
+    ExecutableName, ExecutableOwner, HomeRedaction, ListReason, MachineRead, PathSearch, Placement,
+    Provenance, ProviderId, ProviderRead, ProviderSnapshot, Resolution, ResolutionState, Snapshot,
     MAX_EXECUTABLES, SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -116,6 +116,58 @@ pub fn executables_selection(
         }
     }
     selected
+}
+
+/// What `snapshot <package>...` tells the user about a name the capture did
+/// not read the list of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeKey {
+    /// No provider this run could read has it installed.
+    PackageNotInstalled,
+    /// A provider lists it as installed, and no read was made for it: the
+    /// provider is not present, or the row has no metadata to file a list on.
+    PackageNotRead,
+}
+
+impl NoticeKey {
+    /// The catalogue key the command renders.
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            NoticeKey::PackageNotInstalled => "snapshot.package_not_installed",
+            NoticeKey::PackageNotRead => "snapshot.package_not_read",
+        }
+    }
+}
+
+/// The notice for every name in `names` that [`executables_selection`] did
+/// not select, in name order; a selected name gets none. Pure, beside the
+/// selection it is decided from, so what the user is told cannot drift from
+/// what was read (security review of F-2b, L-2).
+#[must_use]
+pub fn executables_notices(
+    providers: &BTreeMap<ProviderId, ProviderSnapshot>,
+    names: &BTreeSet<String>,
+) -> Vec<(String, NoticeKey)> {
+    let selected = executables_selection(providers, names);
+    names
+        .iter()
+        .filter(|name| !selected.iter().any(|(_, read)| read == *name))
+        .map(|name| {
+            let listed = providers.values().any(|p| {
+                p.inventory
+                    .installed
+                    .iter()
+                    .any(|r| &r.identity.name == name)
+            });
+            let key = if listed {
+                NoticeKey::PackageNotRead
+            } else {
+                NoticeKey::PackageNotInstalled
+            };
+            (name.clone(), key)
+        })
+        .collect()
 }
 
 /// Whether a hit at `path`, answered `r`, is one the snapshot's load rule
@@ -339,6 +391,23 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     // needed to canonicalise them and compare them with a prefix.
     for snap in providers.values_mut() {
         redact_provider(snap, &ctx.home);
+        // A placement the load rule would refuse - built, say, from a prefix
+        // with a `.` component - is the adapter's statement in a shape this
+        // build cannot keep, so it is recorded as unknown rather than making
+        // `snapshot <package>` refuse itself (security review of F-2b, I-4).
+        // Checked after redaction, on exactly what the loader will read.
+        let prefix = snap.detection.prefix.clone();
+        for meta in snap.inventory.metadata.values_mut() {
+            if placement_holds(
+                &meta.placement,
+                meta.executable_list.known(),
+                prefix.as_deref(),
+            )
+            .is_err()
+            {
+                meta.placement = Placement::unknown(ErrorId::ProviderOutputChanged);
+            }
+        }
     }
     // The PATH map's paths by the same function as the per-provider map's,
     // so the two copies of one resolution stay byte-equal (SG2-Q3).
