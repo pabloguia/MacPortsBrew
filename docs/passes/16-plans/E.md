@@ -1063,6 +1063,45 @@ the run on the reviewers' advice
   widened by E-3; security review Info). MacPortsBrew never caches a
   credential; the elevation tool's own timestamp cache is J's to address.
 
+### Mutation proof (E-3, at `d511415`, isolated worktree, removed)
+
+`cargo test --workspace --no-fail-fast` per mutant, baseline green, every
+mutant compiled; all eighteen killed.
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 23 `next_action_with` takes the tokens, `Some` skips the elevation halt | killed | `invariant_06_the_guard_halts_an_elevated_command_whatever_the_tokens` (signature scan) |
+| 24a `consent_for`'s result discarded, tokens from a second empty call | killed | `consent_violations_fire_on_each_mutant`, `the_switch_needs_consent_wired` (structural) |
+| 24b `consent_for` after the marker write | killed | the same two (structural) |
+| 25 the empty-request early return removed | killed | `consent_for_asks_only_when_there_is_something_to_ask` and about twenty mutating-run tests |
+| 25b `PlanDisagrees` swallowed (`unwrap_or_default`) | killed | `consent_for_never_asks_about_a_plan_that_disagrees_with_the_table` |
+| 26a `Declined` → `SAFETY_BLOCKED` | killed | `consent_for_maps_every_decision_by_name` |
+| 26b `Unseen` → `USER_ABORTED` | killed | the same |
+| 27 the second recapture and its `plan_still_holds` removed | killed | the two tripwires (structural) |
+| 27b the second recapture made unconditional | killed | `a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear`, `a_forced_run_toward_homebrew_reaches_success_with_its_snapshot_written_and_named` |
+| 28 `None` handed to `mutation_dispatch` | killed | the two tripwires (structural) |
+| 28b `tokens.take(step.index)` replaced by `None` | killed | the two tripwires (structural) |
+| 29 `ConsentTokens::take` returns the first token whatever the step | killed | `consent_for_refuses_a_token_count_that_is_not_one_per_request` |
+| 30 the `WrongConsentToken` check removed | killed | `a_consent_token_is_carried_to_the_site` |
+| 31 the one-per-request length check dropped | killed | `consent_for_refuses_a_token_count_that_is_not_one_per_request` |
+| 32 `now = again;` deleted | killed | the two tripwires (structural) |
+| 33 the seam claims standard input is a terminal | killed | the two tripwires (structural) |
+| 34 a second `impl MutationSite` in product code | killed | `there_is_exactly_one_mutation_site_and_it_refuses` |
+
+The structural-only kills (24a, 24b, 27, 28, 28b, 32, 33) are the declared gap
+above: with the gate refusing every elevated step, no run in this build issues
+a token, so the run loop's consent path cannot be driven end to end. Mutant 29
+as run sits inside `take` and is killed behaviourally; the run-loop form (the
+token taken for another step) stays structural. `a_consent_token_is_carried_to_the_site`
+calls `mutation_dispatch` directly, so it does not cover the call site in
+`run_with_mutations`; part J's end-to-end test does.
+
+**The switch.** With `THIS_BUILD_DISPATCHES_MUTATIONS = true`,
+`the_switch_needs_consent_wired` passes (absent from every failure list; `-q`
+prints no pass lines). Twenty-five other tests fail, wider than the flip
+tripwires alone: the gate-refusal tests, the documented-sample check and the
+replay invariants also pin the switch. Part J flips it and owns that list.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
