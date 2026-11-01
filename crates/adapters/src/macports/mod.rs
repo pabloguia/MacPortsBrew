@@ -385,6 +385,18 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         self.run_argv(argv.iter().map(|s| (*s).to_string()).collect())
     }
 
+    /// The listing read, through the checked path. The allowlist is checked
+    /// here first, so the adapter's own refusal propagates as a defect and is
+    /// never mapped to the per-package unknown a replayed `Internal` from the
+    /// runner becomes (SR2-N4); [`Self::run_argv`] checks it again.
+    fn read_listing(
+        &self,
+        argv: Vec<String>,
+    ) -> Result<Result<String, UnknownReason>, DomainError> {
+        check_allowed(&argv)?;
+        crate::listing::stdout_of(self.run_argv(argv), self.runner.is_replay())
+    }
+
     /// Runs one `info` invocation over `names`, refusing any name that could
     /// be read as an option.
     fn run_info(&self, fields: &[&str], names: &BTreeSet<String>) -> Result<String, DomainError> {
@@ -1055,23 +1067,32 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             return neither(ListReason::NotInstalled.into());
         }
         let inventory = self.inventory()?;
-        let Some(row) = inventory
+        let rows: Vec<&InstalledPackage> = inventory
             .installed
             .iter()
             .filter(|p| p.identity.name == pkg.name)
-            .max_by_key(|p| p.active)
-        else {
+            .collect();
+        let Some(row) = rows.iter().find(|p| p.active).or(rows.first()) else {
             return neither(ListReason::NotInstalled.into());
         };
         if !row.active {
             return neither(ListReason::Inactive.into());
         }
+        // Several installed versions: which one `port -q contents` lists has
+        // not been observed (R-24), so no read is made (SG F-6).
+        if rows.len() > 1 {
+            return neither(ListReason::AmbiguousInstalledVersion.into());
+        }
+        // A name the provider reported that is not of the spawn site's class
+        // is this package's unknown, not a defect here (SR L-3). Checked
+        // before the vector is built, so the allowlist refusal stays reserved
+        // for a vector this adapter got wrong.
+        if !crate::process::is_port_name(&row.identity.name) {
+            return neither(ErrorId::ProviderOutputChanged.into());
+        }
         let mut argv: Vec<String> = ARGV_CONTENTS.iter().map(|s| (*s).to_string()).collect();
         argv.push(row.identity.name.clone());
-        // The adapter's own refusal propagates, live or replayed (SR2-N4).
-        check_allowed(&argv)?;
-        let run = self.runner.run(&self.spec(argv));
-        match crate::listing::stdout_of(run, self.runner.is_replay())? {
+        match self.read_listing(argv)? {
             Ok(stdout) => Ok(contents_outcome(&stdout, &self.prefix)),
             Err(reason) => neither(reason),
         }
@@ -1339,8 +1360,9 @@ mod tests {
             adapter.runner().consulted().is_empty(),
             "nothing was asked about an inactive port"
         );
-        // An active version beside an inactive one is an active port, and is
-        // read (here: no recorded answer, so the replayed unknown).
+        // A single active version is read (here: no recorded answer, so the
+        // replayed unknown).
+        let adapter = with_rows(empty_runner(), &[("jq", true)]);
         assert_eq!(
             adapter.executables(&port("jq")).unwrap().0,
             ExecutableList::unknown(ErrorId::Internal)
@@ -1348,29 +1370,89 @@ mod tests {
     }
 
     #[test]
+    fn several_installed_versions_are_ambiguous_without_a_read() {
+        // SG F-6: which entry `port -q contents` lists when several versions
+        // are installed is not observed (R-24), so none is assumed.
+        let adapter = with_rows(empty_runner(), &[("jq", true), ("jq", false)]);
+        let ambiguous = UnknownReason::Listed(ListReason::AmbiguousInstalledVersion);
+        assert_eq!(
+            adapter.executables(&port("jq")).unwrap(),
+            (
+                ExecutableList::unknown(ambiguous),
+                Placement::unknown(ambiguous)
+            )
+        );
+        assert!(adapter.runner().consulted().is_empty(), "no read");
+    }
+
+    fn contents_argv(names: &[&str]) -> Vec<String> {
+        ARGV_CONTENTS
+            .iter()
+            .chain(names)
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
+    #[test]
     fn a_replayed_allowlist_refusal_is_a_capture_error() {
-        // `installed` is a pseudo-portname, not a port: the adapter's own
-        // allowlist refuses the vector, and that is a defect even under
-        // replay - never the per-package unknown a missing recording is
-        // (SR2-N4).
-        let adapter = with_rows(empty_runner(), &[("installed", true)]);
-        let error = adapter.executables(&port("installed")).unwrap_err();
+        // A vector this adapter got wrong (two names) is refused by its own
+        // allowlist, and that is a defect even under replay - never the
+        // per-package unknown a missing recording is (SR2-N4).
+        let adapter = with_rows(empty_runner(), &[("xz", true)]);
+        let error = adapter
+            .read_listing(contents_argv(&["xz", "gettext"]))
+            .unwrap_err();
         assert_eq!(error.id, ErrorId::Internal);
         assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // The runner's own `Internal` under replay is the unknown.
+        assert_eq!(
+            adapter.read_listing(contents_argv(&["xz"])).unwrap(),
+            Err(UnknownReason::Read(ErrorId::Internal))
+        );
     }
 
     #[test]
     fn a_live_allowlist_refusal_is_a_capture_error() {
-        let adapter = with_rows(
-            LiveFlagged(empty_runner()),
-            &[("installed", true), ("xz", true)],
-        );
-        let error = adapter.executables(&port("installed")).unwrap_err();
+        let adapter = with_rows(LiveFlagged(empty_runner()), &[("xz", true)]);
+        let error = adapter
+            .read_listing(contents_argv(&["xz", "gettext"]))
+            .unwrap_err();
         assert!(error.detail.contains("allow-listed"), "{}", error.detail);
         // And a live runner's `Internal` is a defect too, not an unknown.
         let error = adapter.executables(&port("xz")).unwrap_err();
         assert_eq!(error.id, ErrorId::Internal);
         assert!(!error.detail.contains("allow-listed"), "{}", error.detail);
+    }
+
+    #[test]
+    fn a_replayed_inventory_name_outside_the_class_is_that_packages_unknown() {
+        // SR L-3: `installed` is a pseudo-portname the provider somehow
+        // reported as a port. That is this package's unknown, nothing is sent,
+        // and the capture goes on.
+        let adapter = with_rows(empty_runner(), &[("installed", true), ("xz", true)]);
+        let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+        assert_eq!(
+            adapter.executables(&port("installed")).unwrap(),
+            (
+                ExecutableList::unknown(changed),
+                Placement::unknown(changed)
+            )
+        );
+        assert!(adapter.runner().consulted().is_empty(), "nothing was sent");
+        assert!(adapter.executables(&port("xz")).is_ok());
+    }
+
+    #[test]
+    fn a_live_inventory_name_outside_the_class_is_that_packages_unknown() {
+        let adapter = with_rows(LiveFlagged(empty_runner()), &[("installed", true)]);
+        let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+        assert_eq!(
+            adapter.executables(&port("installed")).unwrap(),
+            (
+                ExecutableList::unknown(changed),
+                Placement::unknown(changed)
+            )
+        );
     }
 
     #[test]

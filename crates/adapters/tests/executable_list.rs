@@ -232,6 +232,68 @@ fn invariant_20_bin_sbin_and_cellar_come_from_detection_and_the_keg_from_linked_
     let (_, placement) = m.executables(&port("xz")).unwrap();
     assert_eq!(dirs(&placement)["xzd"], "/opt/local/sbin");
 
+    // The prefix is the detected one, for both providers (SG F-2): build each
+    // adapter on a prefix no literal names, and the placement directories and
+    // the MacPorts prefix filter follow it. A hard-coded `/usr/local` or
+    // `/opt/local` fails here.
+    let elsewhere = PathBuf::from("/opt/elsewhere");
+    let r = runner(vec![listing(
+        "brew",
+        &["list", "--formula", "xz"],
+        0,
+        "/usr/local/Cellar/xz/5.8.3/bin/xz\n/usr/local/Cellar/xz/5.8.3/sbin/xzd\n",
+    )]);
+    let adapter = HomebrewAdapter::new(
+        &r,
+        elsewhere.clone(),
+        None,
+        vec!["tahoe".into(), "all".into()],
+        FilesystemScope::Elsewhere,
+    );
+    let (_, placement) = adapter.executables(&brew("xz")).unwrap();
+    assert_eq!(
+        dirs(&placement),
+        [
+            ("xz".into(), "/opt/elsewhere/bin".into()),
+            ("xzd".into(), "/opt/elsewhere/sbin".into())
+        ]
+        .into_iter()
+        .collect()
+    );
+    let m = MacPortsAdapter::new(
+        runner(vec![listing(
+            "port",
+            &["-q", "contents", "xz"],
+            0,
+            "  /opt/elsewhere/bin/xz\n  /opt/elsewhere/sbin/xzd\n",
+        )]),
+        elsewhere.clone(),
+        None,
+        FilesystemScope::Elsewhere,
+    );
+    let (_, placement) = m.executables(&port("xz")).unwrap();
+    assert_eq!(
+        dirs(&placement),
+        [
+            ("xz".into(), "/opt/elsewhere/bin".into()),
+            ("xzd".into(), "/opt/elsewhere/sbin".into())
+        ]
+        .into_iter()
+        .collect()
+    );
+    let m = MacPortsAdapter::new(
+        runner(vec![listing("port", &["-q", "contents", "xz"], 0, PORT_XZ)]),
+        elsewhere,
+        None,
+        FilesystemScope::Elsewhere,
+    );
+    let nothing = UnknownReason::Listed(ListReason::NothingUnderPrefix);
+    assert_eq!(
+        m.executables(&port("xz")).unwrap().0,
+        ExecutableList::unknown(nothing),
+        "a listing under `/opt/local` is not under the detected prefix"
+    );
+
     // The keg is the one `linked_keg` names. A listing of `htop`'s keg that
     // is not 3.5.3 (the linked one) is a different keg's listing.
     let r = runner(vec![listing(
@@ -375,6 +437,47 @@ fn a_listing_with_nothing_under_the_prefix_is_unknown_nothing_under_prefix() {
         (
             ExecutableList::unknown(nothing),
             Placement::unknown(nothing)
+        )
+    );
+}
+
+#[test]
+fn a_sibling_named_prefix_is_not_under_the_prefix() {
+    // `/opt/localx` starts with the string `/opt/local` but is not under it,
+    // component by component: a string-prefix `is_under` would read these
+    // as the port's own executables.
+    let m = macports(runner(vec![listing(
+        "port",
+        &["-q", "contents", "xz"],
+        0,
+        "  /opt/localx/bin/xz\n  /opt/localx/share/doc/xz/README\n",
+    )]));
+    let nothing = UnknownReason::Listed(ListReason::NothingUnderPrefix);
+    assert_eq!(
+        m.executables(&port("xz")).unwrap(),
+        (
+            ExecutableList::unknown(nothing),
+            Placement::unknown(nothing)
+        )
+    );
+}
+
+#[test]
+fn a_sibling_keg_version_is_outside_the_keg() {
+    // `5.8.3x` starts with the string `5.8.3` but is another keg: a
+    // string-prefix `is_under` would accept a listing of it.
+    let r = runner(vec![listing(
+        "brew",
+        &["list", "--formula", "xz"],
+        0,
+        "/usr/local/Cellar/xz/5.8.3x/bin/xz\n",
+    )]);
+    let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+    assert_eq!(
+        homebrew(&r).executables(&brew("xz")).unwrap(),
+        (
+            ExecutableList::unknown(changed),
+            Placement::unknown(changed)
         )
     );
 }

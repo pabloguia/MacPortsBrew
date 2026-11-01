@@ -405,13 +405,6 @@ impl<'r> HomebrewAdapter<'r> {
     /// run, live or replayed.
     fn run_argv(&self, key: Vec<String>) -> Result<Invocation, DomainError> {
         check_allowed(&key)?;
-        self.dispatch(key)
-    }
-
-    /// Hands an already-checked vector to the runner, at most once per
-    /// analysis. Only [`Self::run_argv`] and the listing read call it, each
-    /// after [`check_allowed`].
-    fn dispatch(&self, key: Vec<String>) -> Result<Invocation, DomainError> {
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
         }
@@ -424,6 +417,18 @@ impl<'r> HomebrewAdapter<'r> {
         let invocation = self.runner.run(&spec)?;
         self.runs.borrow_mut().insert(key, invocation.clone());
         Ok(invocation)
+    }
+
+    /// The listing read, through the checked path. The allowlist is checked
+    /// here first, so the adapter's own refusal propagates as a defect and is
+    /// never mapped to the per-package unknown a replayed `Internal` from the
+    /// runner becomes (SR2-N4); [`Self::run_argv`] checks it again.
+    fn read_listing(
+        &self,
+        argv: Vec<String>,
+    ) -> Result<Result<String, UnknownReason>, DomainError> {
+        check_allowed(&argv)?;
+        crate::listing::stdout_of(self.run_argv(argv), self.runner.is_replay())
     }
 
     /// Runs a command that answers with one line, and requires it to succeed.
@@ -1032,7 +1037,7 @@ fn keg_outcome(
             reason: why.clone(),
         },
         (None, Some(unknown)) => unknown,
-        (None, None) => Placement::unknown(ListReason::NoLinkedKeg),
+        (None, None) => Placement::unknown(ListReason::NotLinkedUnestablished),
     };
     (list, placement)
 }
@@ -1257,13 +1262,22 @@ impl ProviderRead for HomebrewAdapter<'_> {
                 ))
             }
         };
+        // A name the provider reported that is not of the spawn site's class
+        // is a fact about this package's output, not a defect here: that
+        // package is unknown and the capture goes on (SR L-3). Checked before
+        // the vector is built, so the allowlist refusal below stays reserved
+        // for a vector this adapter got wrong.
+        if !crate::process::is_brew_name(&pkg.name) {
+            let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+            return Ok((
+                ExecutableList::unknown(changed),
+                facts.placement_without_list(changed),
+            ));
+        }
         let keg = self.cellar()?.join(&pkg.name).join(version);
         let mut argv: Vec<String> = ARGV_LIST_FORMULA.iter().map(|a| (*a).to_string()).collect();
         argv.push(pkg.name.clone());
-        // The adapter's own refusal propagates, live or replayed (SR2-N4).
-        check_allowed(&argv)?;
-        let stdout = match crate::listing::stdout_of(self.dispatch(argv), self.runner.is_replay())?
-        {
+        let stdout = match self.read_listing(argv)? {
             Ok(stdout) => stdout,
             Err(reason) => {
                 return Ok((
@@ -1662,14 +1676,22 @@ mod tests {
         PackageIdentity::new(ProviderId::new(PROVIDER_ID), name)
     }
 
+    fn list_argv(names: &[&str]) -> Vec<String> {
+        ARGV_LIST_FORMULA
+            .iter()
+            .chain(names)
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
     #[test]
     fn a_replayed_allowlist_refusal_is_a_capture_error() {
-        // `x.rb` is a name Homebrew's loaders would read as a file: the
-        // adapter's own allowlist refuses it, and under replay that is still
-        // a defect, never the per-package unknown (SR2-N4).
+        // A vector this adapter got wrong (two names) is refused by its own
+        // allowlist, and under replay that is still a defect, never the
+        // per-package unknown (SR2-N4).
         let runner = cellar_only(true);
-        let adapter = with_formulae(&runner, &["x.rb", "xz"]);
-        let error = adapter.executables(&formula("x.rb")).unwrap_err();
+        let adapter = with_formulae(&runner, &["xz"]);
+        let error = adapter.read_listing(list_argv(&["xz", "jq"])).unwrap_err();
         assert_eq!(error.id, ErrorId::Internal);
         assert!(error.detail.contains("allow-listed"), "{}", error.detail);
         // Whereas the runner's own `Internal` (no recorded listing) is.
@@ -1682,13 +1704,42 @@ mod tests {
     #[test]
     fn a_live_allowlist_refusal_is_a_capture_error() {
         let runner = cellar_only(false);
-        let adapter = with_formulae(&runner, &["x.rb", "xz"]);
-        let error = adapter.executables(&formula("x.rb")).unwrap_err();
+        let adapter = with_formulae(&runner, &["xz"]);
+        let error = adapter.read_listing(list_argv(&["xz", "jq"])).unwrap_err();
         assert!(error.detail.contains("allow-listed"), "{}", error.detail);
         // Live, a runner `Internal` is a defect too.
         let error = adapter.executables(&formula("xz")).unwrap_err();
         assert_eq!(error.id, ErrorId::Internal);
         assert!(!error.detail.contains("allow-listed"), "{}", error.detail);
+    }
+
+    #[test]
+    fn a_replayed_inventory_name_outside_the_class_is_that_packages_unknown() {
+        // SR L-3: `x.rb` is a name Homebrew's loaders would read as a file.
+        // Reported by the provider, it is that package's unknown; nothing is
+        // sent and the capture goes on.
+        let runner = cellar_only(true);
+        let adapter = with_formulae(&runner, &["x.rb", "xz"]);
+        assert_eq!(
+            adapter.executables(&formula("x.rb")).unwrap().0,
+            ExecutableList::unknown(ErrorId::ProviderOutputChanged)
+        );
+        assert!(
+            runner.inner.consulted().is_empty(),
+            "nothing was sent: {:?}",
+            runner.inner.consulted()
+        );
+        assert!(adapter.executables(&formula("xz")).is_ok());
+    }
+
+    #[test]
+    fn a_live_inventory_name_outside_the_class_is_that_packages_unknown() {
+        let runner = cellar_only(false);
+        let adapter = with_formulae(&runner, &["x.rb"]);
+        assert_eq!(
+            adapter.executables(&formula("x.rb")).unwrap().0,
+            ExecutableList::unknown(ErrorId::ProviderOutputChanged)
+        );
     }
 
     #[test]

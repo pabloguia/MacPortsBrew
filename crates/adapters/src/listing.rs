@@ -12,10 +12,13 @@
 //!   `..` component, no trailing `/` and no NUL; anything else is
 //!   `ProviderOutputChanged`, and so is an empty answer, because an installed
 //!   package lists at least one file (SR2-N1);
+//! * lines are split on `\n` alone; a line carrying `\r`, U+FFFD or any
+//!   [`macportsbrew_domain::HostileClass`] character is
+//!   `ProviderOutputChanged`, and so is a listing in which one entry is the
+//!   parent of another (both reads list files, never directories);
 //! * an executable is a path whose parent equals `<root>/bin` or `<root>/sbin`
 //!   **component-wise**, never by string prefix (SR-10); deeper paths are
-//!   ignored, and so is an entry that is itself the parent of another entry
-//!   (a directory, not a file);
+//!   ignored;
 //! * nothing is stat-ed or followed.
 //!
 //! The failure mapping (SR-8, SR2-N4) is here too, so both adapters degrade the
@@ -23,7 +26,8 @@
 
 use crate::process::Invocation;
 use macportsbrew_domain::{
-    DomainError, ErrorId, ExecutableList, ListReason, Placement, UnknownReason,
+    escape_hostile, hostile_class, DomainError, ErrorId, ExecutableList, ListReason, Placement,
+    UnknownReason,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -43,10 +47,27 @@ pub(crate) fn parse(stdout: &str, indent: &str, read: &str) -> Result<Vec<PathBu
             "exit 0 with nothing on stdout; an installed package lists at least one file",
         ));
     }
-    stdout
-        .lines()
+    // Split on `\n` alone, allowing one final newline: `str::lines` would also
+    // accept `\r\n` and so hide a carriage return, which is a control character
+    // and refused below with every other hostile one.
+    let body = stdout.strip_suffix('\n').unwrap_or(stdout);
+    let paths: Vec<PathBuf> = body
+        .split('\n')
         .enumerate()
         .map(|(index, line)| {
+            if line
+                .chars()
+                .any(|c| c == char::REPLACEMENT_CHARACTER || hostile_class(c).is_some())
+            {
+                return Err(changed(
+                    read,
+                    format!(
+                        "line {} carries a control, format, line-separator or replacement \
+                         character",
+                        index + 1
+                    ),
+                ));
+            }
             let path = line
                 .strip_prefix(indent)
                 .filter(|rest| rest.starts_with('/'))
@@ -67,7 +88,21 @@ pub(crate) fn parse(stdout: &str, indent: &str, read: &str) -> Result<Vec<PathBu
             }
             Ok(PathBuf::from(path))
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    // Both reads list files, not directories (`find -not -type d`, R-21 E-8;
+    // the registry's file map, E-3). An entry that is the parent of another
+    // entry says otherwise, so the listing is not the shape this parser knows.
+    let parents: BTreeSet<&Path> = paths.iter().filter_map(|p| p.parent()).collect();
+    if let Some(dir) = paths.iter().find(|p| parents.contains(p.as_path())) {
+        return Err(changed(
+            read,
+            format!(
+                "`{}` is listed and is also the parent of another entry",
+                escape_hostile(&dir.display().to_string())
+            ),
+        ));
+    }
+    Ok(paths)
 }
 
 /// An absolute path every component of which is a real name.
@@ -87,18 +122,14 @@ pub(crate) fn is_under(path: &Path, root: &Path) -> bool {
 
 /// The leaf names directly under each of `roots`, with the indices of the
 /// roots each was found under. A path's parent is compared with a root
-/// component-wise; an entry that is the parent of another entry is a directory
-/// and is skipped.
+/// component-wise. [`parse`] has already refused a listing that names a
+/// directory.
 pub(crate) fn direct_children(
     paths: &[PathBuf],
     roots: &[PathBuf],
 ) -> BTreeMap<String, BTreeSet<usize>> {
-    let parents: BTreeSet<&Path> = paths.iter().filter_map(|p| p.parent()).collect();
     let mut found: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
     for path in paths {
-        if parents.contains(path.as_path()) {
-            continue;
-        }
         let (Some(parent), Some(Component::Normal(leaf))) =
             (path.parent(), path.components().next_back())
         else {
@@ -222,6 +253,64 @@ mod tests {
     }
 
     #[test]
+    fn a_carriage_return_a_replacement_or_any_hostile_character_is_refused() {
+        // SG F-1 / SR L-2: `str::lines` would strip a `\r` before `\n` and
+        // hide it; the split is on `\n` alone, so it is seen and refused.
+        for bad in [
+            "/opt/local/bin/xz\r\n",
+            "/opt/local/bin/x\rz\n",
+            "/opt/local/bin/x\u{fffd}z\n",
+            "/opt/local/bin/x\u{1b}z\n",
+            "/opt/local/bin/x\u{202e}z\n",
+            "/opt/local/bin/x\u{200b}z\n",
+            "/opt/local/bin/x\u{2028}z\n",
+            "/opt/local/bin/x\tz\n",
+        ] {
+            assert_eq!(
+                parse(bad, "", "test").unwrap_err().id,
+                ErrorId::ProviderOutputChanged,
+                "{:?}",
+                bad.escape_unicode().to_string()
+            );
+        }
+        // One final newline, or none, is the same listing; two is an empty
+        // line.
+        assert_eq!(
+            parse("/opt/local/bin/xz\n", "", "test").unwrap(),
+            parse("/opt/local/bin/xz", "", "test").unwrap()
+        );
+        assert_eq!(
+            parse("/opt/local/bin/xz\n\n", "", "test").unwrap_err().id,
+            ErrorId::ProviderOutputChanged
+        );
+        assert_eq!(
+            parse("\n", "", "test").unwrap_err().id,
+            ErrorId::ProviderOutputChanged
+        );
+    }
+
+    #[test]
+    fn a_listed_directory_is_provider_output_changed() {
+        // SG F-5: both reads list files. An entry that is the parent of
+        // another is a directory, and the listing is not the known shape.
+        let error = parse(
+            "  /opt/local/bin/x\n  /opt/local/bin/x/deeper\n",
+            "  ",
+            "test",
+        )
+        .unwrap_err();
+        assert_eq!(error.id, ErrorId::ProviderOutputChanged);
+        assert!(error.detail.contains("parent"), "{}", error.detail);
+        // A file beside a sibling directory's file is fine.
+        assert!(parse(
+            "  /opt/local/bin/x\n  /opt/local/bin/y/deeper\n",
+            "  ",
+            "test"
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn the_indent_is_exactly_the_indent() {
         assert!(parse("  /opt/local/bin/xz\n", "  ", "test").is_ok());
         for bad in [
@@ -283,7 +372,7 @@ mod tests {
             ]),
             &roots("/opt/local"),
         );
-        // `x` is a directory (it has entries), not an executable.
+        // `bin/x/deeper` is two levels down: not a direct entry.
         assert_eq!(found.keys().collect::<Vec<_>>(), vec!["daemon", "xz"]);
     }
 

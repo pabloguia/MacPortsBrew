@@ -59,6 +59,9 @@ pub enum NameRefusal {
     TooLong,
     /// Carries a character of a [`crate::HostileClass`] (NUL included).
     Hostile,
+    /// Carries U+FFFD: what a lossy decoding put where the provider's bytes
+    /// were not UTF-8, so the name on disk is not this one.
+    Replacement,
 }
 
 impl fmt::Display for NameRefusal {
@@ -70,6 +73,7 @@ impl fmt::Display for NameRefusal {
             NameRefusal::LeadingDash => "starts with `-`",
             NameRefusal::TooLong => "is longer than 255 bytes",
             NameRefusal::Hostile => "carries a control, format or line-separator character",
+            NameRefusal::Replacement => "carries U+FFFD, the mark of bytes that were not UTF-8",
         };
         f.write_str(text)
     }
@@ -95,6 +99,9 @@ impl ExecutableName {
         }
         if name.chars().any(|c| hostile_class(c).is_some()) {
             return Err(NameRefusal::Hostile);
+        }
+        if name.contains(char::REPLACEMENT_CHARACTER) {
+            return Err(NameRefusal::Replacement);
         }
         Ok(Self(name.to_string()))
     }
@@ -164,7 +171,48 @@ pub enum ListReason {
     /// Installed, not kept off the linked directories by the provider, and
     /// not linked either: whether its names reach `PATH` is not established
     /// (a placement reason only).
-    NoLinkedKeg,
+    NotLinkedUnestablished,
+    /// Several installed versions of one package, and which one the
+    /// provider's listing read would describe has not been observed
+    /// (`docs/spec/09-research-checklist.md`, R-24). No read is made. The
+    /// provider-neutral counterpart of [`ListReason::AmbiguousKeg`].
+    AmbiguousInstalledVersion,
+}
+
+impl ListReason {
+    /// Every reason. The `match` below has no wildcard, so adding a variant
+    /// fails to compile here until the array is extended too.
+    pub fn all() -> &'static [ListReason] {
+        const fn exhaustive(reason: ListReason) {
+            match reason {
+                ListReason::NotRecorded
+                | ListReason::NotInstalled
+                | ListReason::Inactive
+                | ListReason::CaskNotCovered
+                | ListReason::AmbiguousKeg
+                | ListReason::TooLarge
+                | ListReason::NameClass
+                | ListReason::NothingUnderPrefix
+                | ListReason::AmbiguousDirectory
+                | ListReason::NotLinkedUnestablished
+                | ListReason::AmbiguousInstalledVersion => {}
+            }
+        }
+        exhaustive(ListReason::NotRecorded);
+        &[
+            ListReason::NotRecorded,
+            ListReason::NotInstalled,
+            ListReason::Inactive,
+            ListReason::CaskNotCovered,
+            ListReason::AmbiguousKeg,
+            ListReason::TooLarge,
+            ListReason::NameClass,
+            ListReason::NothingUnderPrefix,
+            ListReason::AmbiguousDirectory,
+            ListReason::NotLinkedUnestablished,
+            ListReason::AmbiguousInstalledVersion,
+        ]
+    }
 }
 
 /// Why an [`ExecutableList`] or a [`Placement`] is unknown: a reason the
@@ -309,6 +357,7 @@ mod tests {
             ("r\u{202e}g", NameRefusal::Hostile),
             ("r\u{200b}g", NameRefusal::Hostile),
             ("r\u{2028}g", NameRefusal::Hostile),
+            ("r\u{fffd}g", NameRefusal::Replacement),
         ] {
             assert_eq!(ExecutableName::parse(bad), Err(why), "{bad:?}");
         }
@@ -470,20 +519,42 @@ mod tests {
             .iter()
             .map(|id| serde_json::to_string(id).unwrap())
             .collect();
-        for reason in [
-            ListReason::NotRecorded,
-            ListReason::NotInstalled,
-            ListReason::Inactive,
-            ListReason::CaskNotCovered,
-            ListReason::AmbiguousKeg,
-            ListReason::TooLarge,
-            ListReason::NameClass,
-            ListReason::NothingUnderPrefix,
-            ListReason::AmbiguousDirectory,
-            ListReason::NoLinkedKeg,
-        ] {
-            let text = serde_json::to_string(&reason).unwrap();
+        // From `all()`, which an exhaustive `match` keeps whole, so a reason
+        // added later is checked without editing this test.
+        for reason in ListReason::all() {
+            let text = serde_json::to_string(reason).unwrap();
             assert!(!ids.contains(&text), "{text} is also an error id");
+            assert_eq!(
+                serde_json::from_str::<UnknownReason>(&text).unwrap(),
+                UnknownReason::Listed(*reason)
+            );
         }
+    }
+
+    #[test]
+    fn known_is_none_for_unknown_and_not_recorded() {
+        // An unknown list answered as an empty set would read as "ships no
+        // executable" - the vacuous NoExecutables (SR2-N1).
+        assert_eq!(ExecutableList::unknown(ListReason::Inactive).known(), None);
+        assert_eq!(
+            ExecutableList::unknown(ErrorId::ProviderTimeout).known(),
+            None
+        );
+        assert_eq!(ExecutableList::NotRecorded.known(), None);
+        assert_eq!(
+            ExecutableList::from_leaves(std::iter::empty()).known(),
+            Some(&BTreeSet::new())
+        );
+    }
+
+    /// Update this **and** `all()` when adding a reason; the exhaustive match
+    /// inside `all()` will already have refused to compile.
+    const NUMBER_OF_REASONS: usize = 11;
+
+    #[test]
+    fn list_reason_all_is_the_whole_enum_without_duplicates() {
+        assert_eq!(ListReason::all().len(), NUMBER_OF_REASONS);
+        let distinct: BTreeSet<_> = ListReason::all().iter().collect();
+        assert_eq!(distinct.len(), ListReason::all().len());
     }
 }
