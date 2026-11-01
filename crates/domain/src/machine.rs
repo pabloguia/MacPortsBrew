@@ -199,6 +199,37 @@ pub enum PathSearch {
 mod tests {
     use super::*;
 
+    /// A reader that does not say how it searches: only `which`.
+    struct WhichOnly(Option<PathBuf>);
+
+    impl MachineRead for WhichOnly {
+        fn machine(&self) -> Result<Machine, DomainError> {
+            Err(DomainError::new(crate::ErrorId::Internal, "not asked"))
+        }
+        fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
+            Err(DomainError::new(crate::ErrorId::Internal, "not asked"))
+        }
+        fn which(&self, _executable: &str) -> Option<PathBuf> {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn the_default_search_never_reads_a_miss_as_not_found() {
+        // P1 (independent mutation proof of F-2b): a `None` from `which` that
+        // cannot be told from "never looked" is NotSearched; a hit carries no
+        // index.
+        let name = crate::ExecutableName::parse("xz").unwrap();
+        assert_eq!(WhichOnly(None).search_path(&name), PathSearch::NotSearched);
+        assert_eq!(
+            WhichOnly(Some("/usr/bin/xz".into())).search_path(&name),
+            PathSearch::Found {
+                path: "/usr/bin/xz".into(),
+                path_index: None
+            }
+        );
+    }
+
     #[test]
     fn macos_versions_parse_and_order() {
         let a = MacosVersion::parse("10.12.6").unwrap();

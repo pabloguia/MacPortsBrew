@@ -984,7 +984,15 @@ impl Snapshot {
                                      list does not hold"
                                 ));
                             }
-                            let shaped = is_safe_captured_path(dir);
+                            // The raw string, bounded, with no `.` component:
+                            // `Path::components` drops an interior `/.`, so a
+                            // directory padded with them compares equal to
+                            // `bin` while its text is far longer than any
+                            // captured path (the independent mutation proof
+                            // of F-2b, E7). An adapter writes `prefix/bin`.
+                            let shaped = is_safe_captured_path(dir)
+                                && dir.len() <= MAX_PATH_LEN
+                                && !dir.split('/').any(|c| c == ".");
                             let under = allowed
                                 .iter()
                                 .any(|a| Path::new(dir).components().eq(a.components()));
@@ -2679,6 +2687,169 @@ mod tests {
                 ),
             );
         assert!(snapshot.check_resolutions().is_ok(), "listed, so searched");
+    }
+
+    // --- the independent mutation proof at `1061877`: one test per gap ----
+
+    /// `agreeing` plus `lzcat`, a name only `tool`'s list holds, FOUND as `r`.
+    fn lzcat_found(r: Resolution) -> Snapshot {
+        let mut s = agreeing(two_providers());
+        s.providers
+            .get_mut(&ProviderId::new("first"))
+            .unwrap()
+            .inventory
+            .metadata
+            .insert(
+                "tool".into(),
+                crate::PackageMetadata::default().with_executables(
+                    ExecutableList::from_leaves(["tool", "lzcat"]),
+                    Placement::default(),
+                ),
+            );
+        s.environment.resolutions.insert(
+            name("lzcat"),
+            ResolutionState::Found {
+                resolution: r,
+                path_index: Some(0),
+            },
+        );
+        s
+    }
+
+    fn lzcat() -> Resolution {
+        Resolution {
+            executable: "lzcat".into(),
+            ..found("first", "/opt/first/bin/lzcat", true)
+        }
+    }
+
+    fn with_tool_row(meta: crate::PackageMetadata) -> Snapshot {
+        let mut s = two_providers();
+        s.providers
+            .get_mut(&ProviderId::new("first"))
+            .unwrap()
+            .inventory
+            .metadata
+            .insert("tool".into(), meta);
+        s
+    }
+
+    #[test]
+    fn a_list_of_exactly_the_cap_loads() {
+        // E2: the boundary is inclusive.
+        let meta = crate::PackageMetadata {
+            executable_list: ExecutableList::Known {
+                executables: (0..MAX_EXECUTABLES)
+                    .map(|i| name(&format!("t{i}")))
+                    .collect(),
+            },
+            executables: (0..MAX_EXECUTABLES).map(|i| format!("t{i}")).collect(),
+            ..crate::PackageMetadata::default()
+        };
+        assert!(with_tool_row(meta).check_executables().is_ok());
+    }
+
+    #[test]
+    fn an_empty_placement_beside_an_unknown_list_is_refused() {
+        // E4: `ON_PATH_DIR` needs a known list even with nothing in `dirs`.
+        let meta = crate::PackageMetadata::default().with_executables(
+            ExecutableList::unknown(ListReason::Inactive),
+            Placement::OnPathDir {
+                dirs: BTreeMap::new(),
+            },
+        );
+        assert!(with_tool_row(meta).check_executables().is_err());
+    }
+
+    #[test]
+    fn a_placed_directory_padded_with_dot_components_is_refused() {
+        // E7: `components()` drops `/.`, so both an over-long padded directory
+        // and a short one with a `.` component compare equal to `bin`; the raw
+        // text is what is refused.
+        for dir in [
+            format!("/opt/first{}/bin", "/.".repeat(2100)),
+            "/opt/first/./bin".to_string(),
+        ] {
+            let meta = crate::PackageMetadata::default().with_executables(
+                ExecutableList::from_leaves(["tool"]),
+                Placement::OnPathDir {
+                    dirs: [(name("tool"), dir.clone())].into_iter().collect(),
+                },
+            );
+            assert!(
+                with_tool_row(meta).check_executables().is_err(),
+                "{} loaded",
+                &dir[..dir.len().min(40)]
+            );
+        }
+    }
+
+    #[test]
+    fn agreeing_maps_on_a_resolution_of_another_name_are_refused() {
+        // R4: equal in both maps, and still of `other` at a `tool` leaf.
+        let r = Resolution {
+            executable: "other".into(),
+            ..found("first", "/opt/first/bin/tool", true)
+        };
+        let mut s = agreeing(two_providers());
+        s.providers
+            .get_mut(&ProviderId::new("first"))
+            .unwrap()
+            .resolutions
+            .insert("tool".into(), r.clone());
+        s.environment.resolutions.insert(
+            name("tool"),
+            ResolutionState::Found {
+                resolution: r,
+                path_index: Some(0),
+            },
+        );
+        assert!(s.check_resolutions().is_err());
+    }
+
+    #[test]
+    fn a_listed_name_is_held_to_every_field_rule() {
+        assert!(
+            lzcat_found(lzcat()).check_resolutions().is_ok(),
+            "the control"
+        );
+        // R7: a hostile canonical path.
+        let hostile = Resolution {
+            canonical_path: Some("/opt/first/x\u{1b}[2J".into()),
+            ..lzcat()
+        };
+        assert!(lzcat_found(hostile).check_resolutions().is_err());
+        // R12: an owner provider the snapshot does not carry.
+        let ghost = Resolution {
+            executable: "lzcat".into(),
+            ..found("ghost", "/opt/first/bin/lzcat", true)
+        };
+        assert!(lzcat_found(ghost).check_resolutions().is_err());
+        // R16: a list-only name also in a provider map.
+        let mut s = lzcat_found(lzcat());
+        s.providers
+            .get_mut(&ProviderId::new("first"))
+            .unwrap()
+            .resolutions
+            .insert("lzcat".into(), lzcat());
+        assert!(s.check_resolutions().is_err());
+    }
+
+    #[test]
+    fn a_provider_entry_the_path_map_does_not_hold_is_refused() {
+        // R18: `other` is installed; its entry is in a provider map only.
+        let mut s = agreeing(two_providers());
+        s.environment.resolutions.remove(&name("other"));
+        let extra = Resolution {
+            executable: "other".into(),
+            ..found("second", "/opt/second/bin/other", true)
+        };
+        s.providers
+            .get_mut(&ProviderId::new("second"))
+            .unwrap()
+            .resolutions
+            .insert("other".into(), extra);
+        assert!(s.check_resolutions().is_err());
     }
 
     #[test]

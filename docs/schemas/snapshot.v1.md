@@ -196,8 +196,9 @@ spelled the same by every build that wrote one.
 - A `KNOWN` list holds at most 4096 names.
 - `executables` equals the `KNOWN` list, and is empty beside any other state.
 - `ON_PATH_DIR` appears only beside a `KNOWN` list holding every name it
-  places, and each directory is a captured path equal, component by component,
-  to the provider's `detection.prefix` joined with `bin` or `sbin`.
+  places, and each directory is a captured path with no `.` component, equal,
+  component by component, to the provider's `detection.prefix` joined with
+  `bin` or `sbin`.
 - A `NOT_LINKED` reason is bounded and free of control characters. Like every
   provider text it is escaped wherever it is shown.
 

@@ -34,6 +34,12 @@ struct Stub {
     lists: BTreeMap<String, (ExecutableList, Placement)>,
     fail: bool,
     asked: RefCell<Vec<PackageIdentity>>,
+    /// Answers no resolution at all (an `Err`).
+    silent: bool,
+    /// Claims to own every path, wherever it is.
+    claims_all: bool,
+    /// Reports this directory joined with the leaf as the canonical path.
+    canonical_in: Option<PathBuf>,
 }
 
 impl Stub {
@@ -77,6 +83,9 @@ impl Stub {
             lists: BTreeMap::new(),
             fail: false,
             asked: RefCell::new(Vec::new()),
+            silent: false,
+            claims_all: false,
+            canonical_in: None,
         }
     }
 
@@ -113,7 +122,10 @@ impl ProviderRead for Stub {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let owner = if executable.starts_with(&self.prefix) {
+        if self.silent {
+            return Err(DomainError::new(ErrorId::Internal, "says nothing"));
+        }
+        let owner = if self.claims_all || executable.starts_with(&self.prefix) {
             ExecutableOwner::Provider {
                 provider: self.id.clone(),
                 package: Some(leaf.clone()),
@@ -121,10 +133,11 @@ impl ProviderRead for Stub {
         } else {
             ExecutableOwner::Unknown
         };
+        let canonical_path = self.canonical_in.as_ref().map(|d| d.join(&leaf));
         Ok(Resolution {
             executable: leaf,
             path: Some(executable.to_path_buf()),
-            canonical_path: None,
+            canonical_path,
             authoritative: matches!(owner, ExecutableOwner::Provider { .. }),
             owner,
         })
@@ -640,4 +653,175 @@ fn the_selection_is_present_providers_installed_rows_with_metadata() {
         macportsbrew_application::executables_selection(&providers, &names),
         [(ProviderId::new("first"), "xz".to_string())].into()
     );
+}
+
+// --- the independent mutation proof at `1061877`: one test per surviving gap ---
+
+fn placement_of(snapshot: &Snapshot, id: &str, pkg: &str) -> Placement {
+    snapshot.providers[&ProviderId::new(id)].inventory.metadata[pkg]
+        .placement
+        .clone()
+}
+
+fn contradicted() -> Placement {
+    Placement::unknown(ListReason::ContradictedByResolution)
+}
+
+#[test]
+fn one_executable_found_only_further_along_contradicts_the_placement() {
+    // CR2: `lzcat` at the placed entry does not save `xz`, found later.
+    let (list, placement) = xz_list();
+    let first = Stub::new("first", "/opt/first", &["xz"]).with_list("xz", list, placement);
+    let machine = Machine2::live(
+        PATH,
+        &[
+            ("xz", "/opt/second/bin/xz"),
+            ("lzcat", "/opt/first/bin/lzcat"),
+        ],
+    );
+    let snapshot = run(&machine, &[&first], &["xz"]).unwrap();
+    assert_eq!(placement_of(&snapshot, "first", "xz"), contradicted());
+}
+
+#[test]
+fn every_placed_executable_is_checked_not_only_the_first() {
+    // CR7: `lzcat` (first in order) confirmed, `xz` not on PATH.
+    let (list, placement) = xz_list();
+    let first = Stub::new("first", "/opt/first", &["xz"]).with_list("xz", list, placement);
+    let machine = Machine2::live(PATH, &[("lzcat", "/opt/first/bin/lzcat")]);
+    let snapshot = run(&machine, &[&first], &["xz"]).unwrap();
+    assert_eq!(placement_of(&snapshot, "first", "xz"), contradicted());
+}
+
+#[test]
+fn a_path_entry_with_a_trailing_slash_is_the_placed_directory() {
+    // CR6: compared by component, so `/opt/first/bin/` is the entry.
+    let (list, placement) = xz_list();
+    let first = Stub::new("first", "/opt/first", &["xz"]).with_list("xz", list, placement);
+    let machine = Machine2::live(&["/opt/first/bin/", "/usr/bin"], &[]);
+    let snapshot = run(&machine, &[&first], &["xz"]).unwrap();
+    assert_eq!(placement_of(&snapshot, "first", "xz"), contradicted());
+}
+
+#[test]
+fn a_placed_directory_under_the_home_is_found_on_the_redacted_path() {
+    // CR5: the directory is redacted the same way as the recorded PATH before
+    // they are compared, so a home prefix's `bin` is still found on it.
+    let prefix = format!("{HOME}/tool");
+    let dir = format!("{prefix}/bin");
+    let first = Stub::new("first", &prefix, &["xz"]).with_list(
+        "xz",
+        ExecutableList::from_leaves(["xz"]),
+        Placement::OnPathDir {
+            dirs: [(name("xz"), dir.clone())].into_iter().collect(),
+        },
+    );
+    let machine = Machine2::live(&[dir.as_str(), "/usr/bin"], &[]);
+    let snapshot = run(&machine, &[&first], &["xz"]).unwrap();
+    assert_eq!(placement_of(&snapshot, "first", "xz"), contradicted());
+}
+
+#[test]
+fn an_owner_is_preferred_over_an_earlier_unknown_answer() {
+    // C6: `first` answers UNKNOWN, `second` owns: filed under `second`.
+    let first = Stub::new("first", "/opt/first", &["xz"]);
+    let second = Stub::new("second", "/opt/second", &["xz"]);
+    let machine = Machine2::live(PATH, &[("xz", "/opt/second/bin/xz")]);
+    let snapshot = run(&machine, &[&first, &second], &[]).unwrap();
+    assert!(snapshot.providers[&ProviderId::new("second")]
+        .resolutions
+        .contains_key("xz"));
+    assert!(!snapshot.providers[&ProviderId::new("first")]
+        .resolutions
+        .contains_key("xz"));
+}
+
+#[test]
+fn the_first_owner_in_registry_order_wins() {
+    // C5: both claim the path; the first in the order the registry gives wins.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.claims_all = true;
+    let mut second = Stub::new("second", "/opt/second", &["xz"]);
+    second.claims_all = true;
+    let machine = Machine2::live(PATH, &[("xz", "/opt/second/bin/xz")]);
+    let snapshot = run(&machine, &[&first, &second], &[]).unwrap();
+    assert!(snapshot.providers[&ProviderId::new("first")]
+        .resolutions
+        .contains_key("xz"));
+    assert!(!snapshot.providers[&ProviderId::new("second")]
+        .resolutions
+        .contains_key("xz"));
+}
+
+#[test]
+fn package_names_do_not_spend_the_listed_name_budget() {
+    // C3: `xz` and `m4` are package names, searched anyway; only the 4095
+    // `a…` names and `b0` spend the budget, so `b0` is still searched.
+    let mut a: Vec<String> = vec!["xz".into()];
+    a.extend((0..4095).map(|i| format!("a{i}")));
+    let first = Stub::new("first", "/opt/first", &["xz", "m4"])
+        .with_list(
+            "xz",
+            ExecutableList::from_leaves(a.iter().map(String::as_str)),
+            Placement::default(),
+        )
+        .with_list(
+            "m4",
+            ExecutableList::from_leaves(["m4", "b0"]),
+            Placement::default(),
+        );
+    let machine = Machine2::live(PATH, &[]);
+    let snapshot = run(&machine, &[&first], &["xz", "m4"]).unwrap();
+    assert_eq!(
+        snapshot.resolution_of(&name("b0")),
+        ResolutionState::NotOnPath
+    );
+}
+
+#[test]
+fn two_rows_of_one_name_in_one_provider_are_read_once() {
+    // S2.
+    let first = Stub::new("first", "/opt/first", &["xz", "xz"]);
+    let machine = Machine2::live(PATH, &[]);
+    let _ = run(&machine, &[&first], &["xz"]);
+    assert_eq!(first.asked.borrow().len(), 1);
+}
+
+#[test]
+fn a_name_found_that_no_provider_answers_about_is_left_out() {
+    // C7 (deviation 3): found, and every provider is silent: absent from the
+    // map - NOT_OBSERVED - never NOT_ON_PATH, and in neither map.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.silent = true;
+    let machine = Machine2::live(PATH, &[("xz", "/opt/first/bin/xz")]);
+    let snapshot = run(&machine, &[&first], &[]).unwrap();
+    assert!(!snapshot.environment.resolutions.contains_key(&name("xz")));
+    assert!(snapshot.providers[&ProviderId::new("first")]
+        .resolutions
+        .is_empty());
+}
+
+#[test]
+fn a_canonical_path_under_the_home_is_redacted_in_the_path_map() {
+    // X4.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.canonical_in = Some(PathBuf::from(format!("{HOME}/real")));
+    let machine = Machine2::live(PATH, &[("xz", "/opt/first/bin/xz")]);
+    let snapshot = run(&machine, &[&first], &[]).unwrap();
+    let ResolutionState::Found { resolution, .. } = snapshot.resolution_of(&name("xz")) else {
+        panic!("xz was found");
+    };
+    let canonical = resolution.canonical_path.expect("a canonical path");
+    assert_eq!(canonical, PathBuf::from("~/real/xz"));
+}
+
+#[test]
+fn an_absent_provider_gets_no_read() {
+    // S4: a named installed row under a provider that is not present.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.snap.detection.presence = macportsbrew_domain::ProviderPresence::Absent;
+    first.snap.invocation_environment.clear();
+    let machine = Machine2::live(PATH, &[]);
+    let _ = run(&machine, &[&first], &["xz"]);
+    assert!(first.asked.borrow().is_empty());
 }
