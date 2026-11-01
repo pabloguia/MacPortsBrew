@@ -1631,8 +1631,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   unrelated rule.
 
 ## SE-111 — Pass 08 slice 7: the configuration token names its program, a code in the consent phrase, the executed plan tied to the one shown, consent wired
-- Status: experimental — built across work order 16 part E's pull requests E-1 to E-4; this entry is completed by
-  each (SE-032: one topic, one entry), and becomes accepted with E-4.
+- Status: accepted — built across work order 16 part E's pull requests E-1 to E-4 (SE-032: one topic, one entry);
+  accepted with E-4, which completes DP-049's two routes. Reachable once a build dispatches mutations (part J).
 - Date / Pass: 2026-10-31 / 16-complete-mutating-product, part E
 - Original assumption: `ConfigurationRechecked` held only the provider, and its consumers compared only that
   (slice 3); the slice 7 work order and `docs/passes/08-pre-flip-design-notes.md`.
@@ -1680,6 +1680,22 @@ change is made. Silent deviation remains the one unrecoverable error.
   one-mutation-site scan now admits exactly one fake, inside the brace-matched extent of the shell's own test module,
   which must be the file's last item, and holds the fake to the product site's body rules (reversing E-1's "one
   implementation under `crates/*/src`", so the token's carriage is observed; security review L3).
+  Change (E-4, part A, the digest route, DP-049 (a)): `application::PlanDigest` is SHA-256 (`sha2`, ADR-0007) over
+  `"macportsbrew-plan-digest/1 " ‖ <version> ‖ "\n" ‖ serde_json::to_vec(&plan)` — the in-memory plan serialised as a
+  struct, never through `serde_json::Value` and never the redacted document — written `sha256:<64 lowercase hex>`,
+  parsed strictly, with no public constructor from bytes. `migrate` writes it as the root `planDigest` and prints it
+  after a rendered plan and on the interactive confirmation screen. `migrate --yes --plan-digest <d>` calls
+  `plan_tie::tie` on the plan it would run — after the `--retain-source` re-plan, whatever the allowance, so the
+  check runs in this build — and a mismatch is `PLAN_NOT_SHOWN` (exit 4) with stdout empty; the witness it mints is
+  handed to `execute_mutating` in place of the interactive question. A malformed digest, or one without `--yes`, is
+  `USAGE` (exit 2) before anything is printed; with `--yes --dry-run` it is checked for form only. The interactive
+  route's no-terminal refusal now names `--plan-digest`. `the_switch_needs_the_executed_plan_tied_to_the_one_shown`
+  lost its failing-on-flip assertion and checks that `migrate` ties before it executes; the minting scan holds the
+  callers of `tie(` to `migrate`. The digest certifies that this exact plan was printed, not that a person read it:
+  `migrate --json | jq -r .planDigest` piped into `--yes --plan-digest` runs with nobody reading, as DP-049 (a)
+  ruled, and an identical plan on another machine or weeks later is accepted, `plan_still_holds` under the lock still
+  guarding the machine's state; part K must therefore gate this route as well as `confirm_plan` (E-4 reviews). A
+  digest given with nothing to run is not consulted (exit 0, INV-16), and `--yes --dry-run` checks its form only.
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both
@@ -1713,12 +1729,24 @@ change is made. Silent deviation remains the one unrecoverable error.
   `invariant_06_a_declined_or_unseen_question_halts_before_the_marker`,
   `invariant_06_the_guard_halts_an_elevated_command_whatever_the_tokens`, `a_consent_token_is_carried_to_the_site`,
   `a_consent_code_is_made_only_from_fresh_bytes_in_the_consent_modules`, `the_switch_needs_consent_wired`,
-  `consent_violations_fire_on_each_mutant`, `invariant_15_the_consent_code_never_enters_a_document_or_a_record`.
+  `consent_violations_fire_on_each_mutant`, `invariant_15_the_consent_code_never_enters_a_document_or_a_record`; for
+  E-4 `plan_digest_is_stable_and_covers_every_field` (every field of the plan, a step and a command, destructured
+  without `..`), `plan_digest_is_pinned_for_a_fixed_plan`, `a_plan_digest_reads_back_as_written_and_nothing_else`,
+  `the_digest_is_of_the_plan_not_of_the_redacted_document`, `a_shown_plan_cannot_be_minted_from_another_digest`,
+  `invariant_17_a_digest_tie_behaves_alike_in_both_directions`,
+  `invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock`,
+  `the_digest_migrate_shows_is_the_one_yes_checks`, `a_malformed_plan_digest_is_a_usage_error`,
+  `plan_digest_needs_yes`, `invariant_15_the_same_recording_gives_the_same_plan_digest` (every recording, and a
+  snapshot file both ways, two processes each), `the_plan_holds_no_unordered_collection`,
+  `a_doctor_report_never_carries_a_plan_digest`, `no_workspace_crate_depends_on_libc_directly`.
 - User impact: none in this build (no command is dispatched, and `migrate --yes` asks nothing without a mutation
   allowance). Once a build dispatches: the plan is shown on standard error and `run plan <code>` confirms it, and an
   elevation phrase carries a six-character code. Keys in both locales: `migrate.precondition.wrong_program_token`,
   `consent.code_unavailable`, `consent.type_to_run_plan`, `error.plan_not_shown`, `error.user_aborted`; error ids
-  `PLAN_NOT_SHOWN` (exit 4) and `USER_ABORTED` (exit 6) in `error.rs`'s contract.
+  `PLAN_NOT_SHOWN` (exit 4) and `USER_ABORTED` (exit 6) in `error.rs`'s contract. In this build already (E-4):
+  `migrate` prints a plan digest (`migrate.plan_digest` in both locales) and `--json` writes `planDigest`, and
+  `migrate --yes --plan-digest` refuses a digest that is not the plan's. The digest fingerprints unredacted data;
+  `migrate.v1.md` says to remove it before publishing, and `doctor --report` never contains it (SR L3).
 - Architectural impact: the token's `program` field; `application::ConsentCode` and `ConsentRefusal::CodeUnavailable`;
   a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn);
   `application::plan_tie` (`ShownPlan`, `confirm_shown`, `plan_question_error`), `MutatingRun.shown`, and
@@ -1729,8 +1757,11 @@ change is made. Silent deviation remains the one unrecoverable error.
   person reads `human::plan`'s rendering, which does not show each command's sanitised environment; that field is
   derived, never read by the spawn site (obligation 10), so confirming it unseen adds no risk. SE-092's split
   holds: the shell plumbs, the application decides; the shell's three empty-program guards are defence in depth
-  behind the gate.
-- Compatibility impact: `migrate.v1` additive (an open set gains a value).
+  behind the gate. E-4: `PlanDigest` and `tie` in `application::plan_tie`, `sha2` a dependency of
+  `crates/application` alone, `--plan-digest` a `migrate` flag (not global, R4), and `execute_mutating` takes the
+  digest's witness when there is one.
+- Compatibility impact: `migrate.v1` additive (an open set gains a value; `planDigest` at the root). A digest is
+  valid only for builds with the same version string and plan serialisation; across versions it fails closed.
 
 # Policy, output and quality
 
@@ -2547,8 +2578,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   date. Nobody had that written down before this entry.
 
 ## SE-110 — ADR-0007: `sha2` for the plan digest; part G's lock probe calls `fcntl(F_GETLK)` through `libc`
-- Status: experimental (ADR-0007 proposed) — ADR-0007 is proposed in work order 16 part E's step E-0 and becomes accepted in E-4, the
-  change that adds `sha2`; part G amends this entry when the lint changes.
+- Status: accepted — ADR-0007 accepted 2026-11-01 in work order 16 part E's step E-4, the change that adds `sha2`;
+  part G amends this entry when the lint changes.
 - Date / Pass: 2026-10-30 / 16-complete-mutating-product, part E
 - Original assumption: ADR-0006 (no `libc`, no `unsafe`); R-22 F-2's recommendation that G use `libc` for
   constants only and keep `unsafe_code = "forbid"`.
@@ -2567,11 +2598,12 @@ change is made. Silent deviation remains the one unrecoverable error.
   crates); R-17 findings 4–5 and E4 observations B and C (2026-10-05); registry reads 2026-10-30:
   `rustix-1.1.6/src/process/fcntl_getlk.rs:21`, `nix-0.31.3/src/fcntl.rs:752`, the per-crate `unsafe` counts in
   ADR-0007.
-- User impact: none until E-4 (a `--plan-digest` flag) and G (the probe's refusal).
+- User impact: since E-4, `migrate` prints a plan digest and takes `--plan-digest` (SE-111); G adds the probe's
+  refusal.
 - Architectural impact: the first build-time `libc` and, in G, the first `unsafe` in the workspace's own code,
   confined to one `adapters` module; four crates keep `forbid` by the compiler.
-- Compatibility impact: deployment floors re-checked on both targets in E-4 and G
-  (`scripts/check-deployment-target.sh`); every added crate `MIT OR Apache-2.0`.
+- Compatibility impact: deployment floors re-checked on both targets in E-4 (2026-11-01: 10.12 x86_64, 11.0 arm64,
+  unchanged) and again in G (`scripts/check-deployment-target.sh`); every added crate `MIT OR Apache-2.0`.
 
 # Process: the agentic SDLC
 

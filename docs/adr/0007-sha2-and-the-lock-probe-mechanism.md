@@ -1,15 +1,16 @@
 # ADR-0007 — `sha2` for the plan digest, and `libc` with one reviewed `unsafe` call for the lock probe
 
-- **Status:** proposed. It becomes accepted in work order 16 part E's step E-4,
-  the change that adds `sha2` to `Cargo.toml`; the choice is the session's to
-  make under work order 16 §4.3, and the plan's reviewers approve it
-  (`docs/passes/16-plans/E.md`, Reviews).
+- **Status:** accepted, 2026-11-01, in work order 16 part E's step E-4, the
+  change that adds `sha2` to `Cargo.toml`. The choice is the session's to make
+  under work order 16 §4.3; the plan's reviewers approved it
+  (`docs/passes/16-plans/E.md`, Reviews), and the owner applied P/01 first
+  (`4a64aa0`, PR #50).
 - **Date:** 2026-10-30
 - **Pass:** 16-complete-mutating-product, part E
 - **Supersedes:** ADR-0006, **for the `sha2` dependency and the lock probe
   only**. Every other part of ADR-0006 stands: the timeout kills one process,
   and nothing in `crates/adapters/src/process/` uses `libc`. ADR-0006's status
-  line is updated in E-4, when this record is accepted.
+  line says so.
 
 ## Context
 
@@ -57,9 +58,12 @@ registry reads on 2026-10-30, recorded in the plan §0.2):
   build script, plus `bitflags` and one or two more, and still pulls `libc`
   (R-22 F-3; registry reads 2026-10-30).
 
-**What is not known yet.** That the release build with `sha2` keeps the
-deployment floor; `scripts/check-deployment-target.sh` checks it on E-4's
-release build, and a raised floor rejects this record (see Compatibility).
+**Measured again in E-4** (2026-11-01, `cargo tree -e normal,build --target <t>`
+in the workspace): the set is as above, with `cfg-if` resolved at 1.0.4, the
+version already in the lock file; `libc` 0.2.191 appears under `cpufeatures`
+for `aarch64-apple-darwin` only. `scripts/check-deployment-target.sh` on the
+release build: `x86_64-apple-darwin` records 10.12 and `aarch64-apple-darwin`
+11.0 for both binaries — the floors hold.
 
 ## Options considered
 
@@ -200,12 +204,12 @@ runs in a process this tool spawns, and none touches the filesystem.
 
 - **macOS 10.12 x86_64 / 11.0 arm64 (ADR-0002).** `sha2`'s set uses no
   platform API on x86_64; on arm64, `cpufeatures` reads CPU features through
-  `sysctlbyname`, which macOS has offered since well before 11.0 (to be
-  confirmed by E-4's floor check below). `fcntl(F_GETLK)` is POSIX and
+  `sysctlbyname`, which macOS has offered since well before 11.0 (confirmed:
+  E-4's floor check records 11.0 on arm64 and 10.12 on x86_64, 2026-11-01). `fcntl(F_GETLK)` is POSIX and
   present on both floors; the same query serves MacPorts' registry lock
   (R-17 finding 2) and Homebrew's lock files. This machine is x86_64 and `libc` builds only for
-  arm64 until G, so E-4 runs `scripts/check-deployment-target.sh` (both
-  targets) and records both minimum OS versions in the report; G runs it again.
+  arm64 until G, so E-4 ran `scripts/check-deployment-target.sh` (both
+  targets: 10.12 and 11.0, unchanged); G runs it again.
   A raised floor rejects this record rather than the floor.
 - **Licences (ADR-0001).** Every crate added is `MIT OR Apache-2.0` (R-22 F-1,
   2026-10-28); none is GPL. `deny.toml` bans none of them.

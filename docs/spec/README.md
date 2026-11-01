@@ -31,8 +31,8 @@ Related:
   - [0003 — Product name and CLI alias](../adr/0003-name-and-cli-alias.md)
   - [0004 — Dependency gate](../adr/0004-dependency-gate.md)
   - [0005 — Release signing and distribution artifacts](../adr/0005-release-signing-and-artifacts.md)
-  - [0006 — No `libc`, and the timeout kills one process rather than a group](../adr/0006-no-libc-and-the-timeout-kills-one-process.md)
-  - [0007 — `sha2` for the plan digest, and `libc` with one reviewed `unsafe` call for the lock probe](../adr/0007-sha2-and-the-lock-probe-mechanism.md) (proposed)
+  - [0006 — No `libc`, and the timeout kills one process rather than a group](../adr/0006-no-libc-and-the-timeout-kills-one-process.md) (superseded by 0007 for `sha2` and the lock probe only)
+  - [0007 — `sha2` for the plan digest, and `libc` with one reviewed `unsafe` call for the lock probe](../adr/0007-sha2-and-the-lock-probe-mechanism.md)
 
 ## Authority
 

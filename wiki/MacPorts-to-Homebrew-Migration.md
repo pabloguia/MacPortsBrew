@@ -80,7 +80,8 @@ matters: in 0.1.0 a package is matched only against what the destination already
 has installed, or the small curated table, so a port Homebrew has not installed
 stops at *Needs a human decision* with "no equivalent found" (see
 [Package Mapping](Package-Mapping.md)). The command and its complete output,
-which exits 0:
+which exits 0 (the plan digest is shortened here: its 64 digits change with each
+version, and a digest is not something to publish):
 
 ```sh
 macportsbrew --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew
@@ -96,6 +97,7 @@ Steps, in order
   2. Add under the destination - htop is already installed under homebrew; nothing to add.
   3. Verify the destination - Check that the destination reports it installed and active, that its own integrity check passes, that the expected executables belong to it, that each one starts, and that nothing links across the two package managers.
        $ /usr/local/bin/brew list --versions htop
+       $ /usr/local/bin/brew info --json=v2 --installed  [passes when this whole list marks exactly one installation of the package as the active one; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the provider reports it installed and active
        ? the provider's own integrity check passes
        ? the expected executables belong to the destination: htop
@@ -114,6 +116,8 @@ Steps, in order
   9. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
 
 Steps that need administrator rights: 6.
+
+Plan digest: sha256:…
 
 Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces.
 

@@ -728,7 +728,10 @@ file.
   end-to-end shell test of a declined or unseen elevation question; the second
   recapture exercised; DP-046's sudoers disclosure before the question.
 - **K:** DP-037's stronger confirmation builds on `confirm_plan` (the named-entry
-  notice already precedes it); removal opt-in.
+  notice already precedes it) **and must gate the digest route too**:
+  `--yes --plan-digest` mints the witness without `confirm_plan`, so a plan
+  that needs the stronger confirmation cannot rely on it (E-4 spec review,
+  R-a); removal opt-in.
 - **L:** the flip proposal lists that both routes are built and the elevation
   prompt is reachable only after J.
 
@@ -1102,6 +1105,131 @@ prints no pass lines). Twenty-five other tests fail, wider than the flip
 tripwires alone: the gate-refusal tests, the documented-sample check and the
 replay invariants also pin the switch. Part J flips it and owns that list.
 
+## As built (E-4)
+
+- **P/01 first.** The owner applied it (`4a64aa0`, PR #50); `git apply --reverse
+  --check docs/passes/16-staged/P/01-licences-libc.patch` succeeds on
+  `origin/main`, §10's gate.
+- **The dependency.** `sha2 = { version = "0.11.1", default-features = false }`
+  in `[workspace.dependencies]`, used by `crates/application` alone. Measured
+  again with `cargo tree -e normal,build --target <t>`: §0.1's set, with
+  `cfg-if` at 1.0.4 (already in the lock file) rather than 1.0.5; `libc`
+  0.2.191 only under `cpufeatures` on `aarch64-apple-darwin`.
+  `scripts/check-deployment-target.sh`: 10.12 (x86_64) and 11.0 (arm64) for
+  both binaries, unchanged. ADR-0007 accepted, ADR-0006's status line and the
+  spec index updated, SE-110 accepted.
+- **`PlanDigest`** in `plan_tie.rs` as §3 specifies, with `Display` and a
+  `Serialize` that writes the string; no public constructor from bytes (R9).
+  `tie(run, echoed) -> Result<ShownPlan, DomainError>` answers
+  `PLAN_NOT_SHOWN` itself, so §3's `PlanNotShown` error type is folded into
+  the `DomainError` the E-2 run loop already uses.
+- **`migrate`.** `--plan-digest <DIGEST>` on the `migrate` subcommand;
+  `check_plan_digest` runs in `run_inner` before the context is built, so a
+  malformed digest or one without `--yes` is `USAGE` with nothing printed,
+  in every mode. `migrate_with` calls `tie` on the plan after the
+  `--retain-source` re-plan, in `EXECUTE` mode, whatever the allowance; the
+  witness goes to `execute_mutating`, which uses it instead of
+  `confirm_the_plan`. `planDigest` is written whenever `plan` is (both modes,
+  not only `RENDER`: the matched `EXECUTE` document carries the digest it was
+  matched against), and the human rendering prints it in `RENDER` mode and on
+  the interactive confirmation screen (`migrate.plan_digest`, both locales).
+  The no-terminal refusal now names `--plan-digest`.
+- **Tripwires.** `the_switch_needs_the_executed_plan_tied_to_the_one_shown`
+  lost its failing-on-flip assertion and gained "`migrate` ties, with `?`,
+  before `execute_mutating(`"; the minting scan
+  (`a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_module`)
+  holds `tie(` to `migrate.rs` and `PlanDigest(` to `plan_tie.rs`.
+- **Tests** as §Tests' E-4 list, with these differences:
+  `plan_digest_is_stable_and_covers_every_field` covers `PlanCommand.placeholder`,
+  which §Tests did not list (the exhaustive destructuring found it);
+  `the_digest_is_of_the_plan_not_of_the_redacted_document` was dropped in the
+  review round: its premise was false (spec review M1, security review L2) —
+  the document's `plan` is the same in-memory value, redaction happens at
+  capture — and it proved only what the field table proves. In its place
+  `the_digest_is_taken_of_the_plan_migrate_shows_and_runs` pins that
+  `migrate`'s only `PlanDigest::of(` arguments are the plan it writes and runs
+  and the plan the confirmation screen mints from; added
+  `a_plan_digest_reads_back_as_written_and_nothing_else` and
+  `invariant_17_a_digest_tie_behaves_alike_in_both_directions`, which closes
+  E-2's owed INV-17 item over the digest; R8's doctor check is
+  `a_doctor_report_never_carries_a_plan_digest`. The INV-15 test runs every
+  recording's every listed package toward the other provider, in parallel
+  processes, then the planned ones again; over a recording only rows that
+  declare a service plan (part D), so its planned set is small, and the
+  snapshot-file half covers both directions with commands.
+  `yes_requires_a_well_formed_plan_digest_when_mutations_dispatch` and
+  `yes_without_a_digest_asks_at_a_terminal_and_refuses_elsewhere` are switch-on
+  tests, run by the mutation subagent and never committed.
+- **Not done, declared.** No `fixtures/golden/` file and no documented sample
+  shows `planDigest` (§7): its value moves with every version and policy
+  bump, and a published digest is what R8 advises against; the pinned literal
+  and the binary tests hold it instead. `wiki/Dependencies-and-Safety.md` (§8)
+  is about package dependencies, not crates; the crate facts are in ADR-0007,
+  ADR-0004 and the CHANGELOG. The binary-level digest tests run Homebrew →
+  MacPorts only: under `--replay` only a row that declares a service plans
+  (part D), and the recordings' MacPorts rows declare none; both directions run
+  at unit level and through `--from-snapshot`.
+- **Review round (E-4).** The digest line ends with the digest (no
+  punctuation to copy), and the "put it to the gate" hint is printed only where
+  the input could be (`migrate.plan_digest_hint`, not for a snapshot file);
+  `error.plan_not_shown` no longer tells a script user to confirm anything; the
+  `--help` text says "go on to the execution gate". A digest with nothing to
+  run is not consulted (exit 0, INV-16), declared and pinned
+  (`a_digest_is_not_consulted_when_there_is_nothing_to_run`). The libc fence
+  reads `cargo metadata`. The domain scan also bans a skipped field, a custom
+  serialiser and a hand-written `Serialize`. The MacPorts → Homebrew guide's
+  sample was regenerated (it also lacked part S's second read). Owed, not
+  built: a test that the digest is equal whether history was consulted or not
+  (the planner changes only the outcome, never the plan, `planner.rs`); and a
+  check that history records never carry a digest, which holds by layering
+  (`adapters` cannot name `PlanDigest`).
+
+### Mutation proof (E-4, at `26f439a`, isolated worktree, removed)
+
+Baseline green (70 test binaries). Every mutant compiled, was confirmed by
+`git diff`, run with `cargo test --workspace --no-fail-fast` and restored.
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 12 `tie` always `Ok` | killed | `a_shown_plan_cannot_be_minted_from_another_digest`; `invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock` |
+| 13a `#[serde(skip)]` on `PlanCommand::argv` | killed | `plan_digest_is_stable_and_covers_every_field`, the pinned digest, the minting test, documented-sample tests |
+| 13b `#[serde(skip)]` on `retain_source` | killed | the same three, documented-sample tests |
+| 13c only `steps` digested | killed | the same three |
+| 13d `argv` cleared inside `PlanDigest::of` only | killed | the same three |
+| 14 `/Users/<x>/` rewritten to `~/` before hashing | killed | at `26f439a`, the redacted-document test the review round dropped; since, `plan_digest_tells_apart_plans_that_differ_only_in_a_home_directory`, added for it |
+| 15a domain prefix removed | killed | `plan_digest_is_pinned_for_a_fixed_plan` |
+| 15b version removed from the prefix | killed | `plan_digest_is_pinned_for_a_fixed_plan` |
+| 16a/b/c `parse` accepts upper case / trims / short | killed | `a_plan_digest_reads_back_as_written_and_nothing_else`, `a_malformed_plan_digest_is_a_usage_error` |
+| 21 `tied` always `None` | killed | `invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock` |
+| 21b `tie` before the `--retain-source` re-plan | **survived**, argued below | — |
+| 21c `execute_mutating` ignores `tied` | killed | `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` (structural) |
+| E4-a `--plan-digest` without `--yes` accepted | killed | `plan_digest_needs_yes` |
+| E4-b mismatch raised as `SAFETY_BLOCKED` | killed | the minting test, the binary INV-02 test |
+| E4-c1 `planDigest` omitted / E4-c2 digest of another plan | killed | `the_digest_migrate_shows_is_the_one_yes_checks`, the binary INV-02 test |
+| E4-d upper-case hex written | killed | `the_digest_migrate_shows_is_the_one_yes_checks`, `a_malformed_plan_digest_is_a_usage_error` |
+
+**21b, argued equivalent for what may run.** `migration_start`
+(`planner.rs`) builds the plan from the same snapshot and policy before it
+looks at history; a consulted history only returns `RetainedRunDone` (nothing
+runs) or adds a note, never a different plan. So whenever the re-plan yields
+`Run`, tying before or after accepts exactly the same digests. The mutant
+differs only in which refusal a mismatched digest meets when history says the
+retained run is done (exit 4 instead of 0) or is unusable (`PLAN_NOT_SHOWN`
+instead of `HISTORY_UNUSABLE`), and it is the stricter of the two. A test that
+pins the order would guard a refusal's wording, not safety; not added.
+
+**Switch on (worktree only).** `the_switch_needs_the_executed_plan_tied_to_the_one_shown`
+passes. The two switch-on tests §Tests named cannot be built in this build:
+under `--replay` `execute_mutating` refuses the live scope first, and at unit
+level (a replay context with history on this machine) every product plan is
+refused by the gate (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
+`VERIFICATION_ASSERTS_NOTHING`), so `confirm_the_plan` is unreachable and the
+no-terminal case answers exit 4, not `USAGE`. What does hold switch-on:
+malformed or `--yes`-less `--plan-digest` is `USAGE`; a mismatched digest is
+`PLAN_NOT_SHOWN` with stdout empty and no history written. Both tests are
+handed to the part that makes the destination contract evaluable
+(`the_switch_needs_the_destination_contract_evaluable`), with part K.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -1120,3 +1248,6 @@ replay invariants also pin the switch. Part J flips it and owns that list.
 | security-reviewer | `187f02b..58af1ef` | approve with changes: 1 medium, 2 low | 1 banner from the plan's field, pinned; 2 the code source pinned, mutant 34; 3 mutants renumbered, R13's 33 argued |
 | security-reviewer | E-3 working tree (on `8866341`) | approve: L1–L3, Info ×3 | L1 `WrongConsentToken` at dispatch; L2 `[order]` snapshot and `[carried]` rules, mutants; L3 brace-matched test-module extent, exactly one fake; doc comment moved; snapshot time and multi-command steps As built |
 | spec-guardian | E-3 working tree (on `8866341`) | approve with changes: 1–10 | 1 `Malformed` → `INTERNAL` (R5); 2 both directions; 3 `[holds]`, `[replaced]`, `[terminal]`, shadow rules; 4 As built; 5 scan tightened, As built; 6 stale texts and exit-4 honesty; 7 doc comment; 8 folded into 1; 9 As built; 10 `invariant_15_*` added |
+| spec-guardian | `26f439a` | approve with changes: M1–M2, L1–L8, R-a, R-b | M1 structural pin, test dropped; M2 mutation proof above; L4 libc fence by `cargo metadata`; R-a part K gates both routes (SE-111); R-b declared and tested; the rest As built (E-4) |
+| security-reviewer | `26f439a` | approve: L1–L3, I1–I2 | L1 declared and tested; L2 wording; L3 documented; serde scan added; two items owed (As built) |
+| docs-auditor | `26f439a` | M1–M5, L1–L6 | all fixed in `753e462`; L4 kept "digest" in pt-BR to match the flag |

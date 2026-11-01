@@ -30,6 +30,9 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 toml = "0.9"
 unicode-width = "0.2"
 clap = { version = "4.5", features = ["derive"] }
+# ADR-0007: the plan digest (work order 16 part E-4). Default features off;
+# `Sha256::digest` needs none. Used by `crates/application` only.
+sha2 = { version = "0.11.1", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

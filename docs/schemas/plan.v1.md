@@ -339,10 +339,20 @@ comments:
    cover (`PLAN_NOT_SHOWN`, exit 4). Under the lock `plan_still_holds` is plan
    equality, so what runs is what was confirmed. `--yes` means "execute"; it
    never answers the question, and without a terminal the run is refused
-   (`USAGE`, exit 2); a declined question is `USER_ABORTED`, exit 6. **Still
-   owed: the digest route** (DP-049 (a), part E-4); a flip tripwire fails the
-   build that turns mutations on while it is unbuilt. Tests:
+   (`USAGE`, exit 2, unless `--plan-digest` is given); a declined question is
+   `USER_ABORTED`, exit 6. **Built: the digest route** (part E-4, DP-049 (a)):
+   `migrate` prints `planDigest`, SHA-256 over a domain-separated, versioned
+   prefix and the in-memory plan's serialisation (never the redacted
+   document), and `migrate --yes --plan-digest <d>` mints the same witness only
+   when `<d>` is the digest of the plan it would run — after the
+   `--retain-source` re-plan, whatever the allowance. Any other digest is
+   `PLAN_NOT_SHOWN` (exit 4) with stdout empty; a malformed digest, or one
+   without `--yes`, is `USAGE` (exit 2). A digest is valid only for builds with
+   the same version string and plan serialisation. Tests:
    `invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_lock`,
+   `invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock`,
+   `plan_digest_is_stable_and_covers_every_field`,
+   `invariant_15_the_same_recording_gives_the_same_plan_digest`,
    `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed`,
    `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown`,
    `the_switch_needs_the_executed_plan_tied_to_the_one_shown`.

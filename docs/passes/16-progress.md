@@ -25,9 +25,9 @@ Branches are named `wo16/<part>-<slug>`. The status values are listed in §4.2.
 | P — stage the owner items, once | 0 | 02–04 applied by the owner (`12220fe`, merged `d30cd3e`); 01 waits for part E's ADR | PR #30, PR #37, PR #38 | Staged: `docs/passes/16-staged/P/` (four patches, security-reviewed). 01's staged comment broke `check-licences.sh` (an apostrophe inside the single-quoted Python); the owner reverted it, and PR #37 (`12df3ab`) corrects it. Research: R-21, R-22, R-23 |
 | M — harden the Claude workflows | 0 | done; the Claude reviewer is deferred by the owner (staged `bc52b3c`; applied by the owner, merged `91d7720`) | PR #31, PR #35 | Staged: `docs/passes/16-staged/M/` (three security reviews, final approve). Applied as `22b7fdf`. The owner decided (2026-10-28) not to run the Claude reviewer for now, so no key and no `claude` environment are set up. If it is ever enabled: create the `claude` environment (required reviewer, `main` only) before any key exists, and store the key there only |
 | S — slice 6 parts B and C | 0 | merged `8e7e01b` | PR #44; S-0 merged `0f64d9d` (PR #32); S-1 merged `8040e1c` (PR #33); S-2 part 1 merged `e7bc174` (PR #42) | S-1 is inert code, approved by both reviewers; 38 of 40 mutants killed, 2 argued equivalent (`16-plans/S.md`). S-2 part 1 (`073678c`): the staged table patch applied by the armed variant, the bump to `2026.10.18-1`, the test updates. S-2 part 2 (PR #44): `PROVIDER_REPORTS_ACTIVE` evaluable, the tripwire naming DP-051's four, the replay `invariant_15_*` tests, SE-107 final (S.md, As built (S-2, second pull request)). Follow-up: the policy-version invariant does not count `analytics_read_on` (part A's 2026-10-27) |
-| E — slice 7 + the dependency ADR | S, P | waiting on owner | E-0 merged `db7d519` (PR #45); E-1 merged `187f02b` (PR #46); E-2 merged `47b72df` (PR #47); E-3 merged `09157a3` (PR #48) | E-3 built, mutation proof 18 of 18 killed (seven only structurally, the declared gap handed to J; E.md). Resume as `wo16/E-4-digest` from §10's E-4 row once the owner has applied P/01 (counted as applied when `git apply --reverse --check docs/passes/16-staged/P/01-licences-libc.patch` succeeds on `origin/main`). F and H's P/02 and J's P/03 are applied |
+| E — slice 7 + the dependency ADR | S, P | in progress | E-0 merged `db7d519` (PR #45); E-1 merged `187f02b` (PR #46); E-2 merged `47b72df` (PR #47); E-3 merged `09157a3` (PR #48); E-4 on `wo16/E-4-digest` | P/01 applied by the owner (`4a64aa0`, PR #50). E-4 on `wo16/E-4-digest`: `sha2`, `PlanDigest`, `--plan-digest`, ADR-0007 accepted. F and H's P/02 and J's P/03 are applied |
 | F — slice 8 | E, P | todo | | P's allowlist growth must be applied |
-| G — lock probe | F | todo | | Also waits on P/01 applied and on E-4 (ADR-0007 accepted); the mechanism is ADR-0007's Decision (query, lint split, scan) |
+| G — lock probe | F | todo | | Also waits on E-4 merged (ADR-0007 accepted there); P/01 is applied (`4a64aa0`); the mechanism is ADR-0007's Decision (query, lint split, scan) |
 | H — four destination checks | G, P | todo | | From part S's PR #44 review (security-reviewer): when the four become evaluable, the gate must refuse a `VERIFY_DESTINATION` missing any of them (the plan-only analogue of V2); and L2, "some version active" is not "the version this run installed" (SE-107) |
 | K — removal opt-in | H, C, A | todo | | **Blocking:** C's confirmation half and the contract in `16-plans/C.md` §9 (absent `enteredBy` = strictest; level derived, never trusted; `UNKNOWN` ownership a deliberate choice) |
 | I — layer 4, consented | K | todo | | |
@@ -57,17 +57,6 @@ Remove a line when the owner has done it, citing the commit.
   on a machine with MacPorts `nginx` or `dbus` installed, run
   `scripts/capture-fixture.sh` and commit the recording under
   `fixtures/recordings/`.
-
-- **Apply part P's corrected patch 01** (blocks part E's dependency). 02 to 04
-  are applied (`12220fe`, PR #38). Staged:
-  `docs/passes/16-staged/P/01-licences-libc.patch`, corrected in PR #37.
-  Action: with or after part E's ADR, on a topic branch, `git apply` it, run
-  `scripts/validate.sh`, commit.
-
-- **Delete the merged remote branch `wo16/ledger-s2-merged`** (PR #43; blocks
-  nothing). The push guard refuses delete forms, so a session cannot. Action:
-  the Delete branch button on PR #43's page on GitHub. (`wo16/S-2-active`, the
-  item that stood here, is already deleted.)
 
 - **Tooling recheck 2026-10-30: recommendations in guarded paths** (blocks
   nothing; `docs/research/tooling/2026-10-30-*.md`). The hooks group, the
@@ -134,3 +123,4 @@ session stopped and why.
 - 2026-10-31, later: at the owner's request the security review of E-2 ran (approve with changes: the confirmation screen's banner now follows the plan's own field; the code source is pinned). PR #47 readied for merge.
 - 2026-10-31, later: E-2 merged (PR #47, `47b72df`) after a rerun of one macOS 26 Intel job whose runner was lost (no log, no test failure; the same job passed on the pull-request run). E-3 started on `wo16/E-3-consent`.
 - 2026-10-31, later still: E-3 merged (PR #48, `09157a3`) after a rerun of both Intel jobs, which had failed one `scripts/test-gates.sh` case ("a commented build line with a flag") with no guarded file changed; it passes locally and on the rerun, so it is intermittent on the Intel runners (an owner item, the script is guarded). E is waiting on the owner for P/01; every later part (F, G, H, K, I, J, L) depends on E, so the pass stops here.
+- 2026-11-01: the owner applied P/01 (PR #50, `4a64aa0`) and deleted the merged remote branches, `wo16/ledger-s2-merged` among them; both owner items leave Needs the owner. E resumed as `wo16/E-4-digest`. `/tooling-recheck` not re-run: the third session ran all three groups on 2026-10-30 with no drift, and E-4 touches nothing under `.claude/`.

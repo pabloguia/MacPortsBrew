@@ -1036,8 +1036,16 @@ fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
         body.find(t)
             .unwrap_or_else(|| panic!("execute_mutating calls {t}"))
     };
-    assert!(at("clear(planned") < at("let shown = confirm_the_plan("));
-    assert!(at("let shown = confirm_the_plan(") < at("state_and_user("));
+    // The witness is the digest's, minted by `tie` before the gate (E-4), or
+    // the interactive confirmation of the cleared plan; either way it exists
+    // before the state directory is resolved.
+    assert!(at("clear(planned") < at("let shown = match tied {"));
+    assert!(at("Some(shown) => shown,") < at("None => confirm_the_plan("));
+    assert!(at("None => confirm_the_plan(") < at("state_and_user("));
+    assert!(
+        source.contains("Some(tie(&planned, &echoed)?)"),
+        "the script route's witness comes from `tie`, and a mismatch stops the run"
+    );
     assert!(
         body.contains("            shown,\n"),
         "the MutatingRun carries the witness"
@@ -1093,7 +1101,7 @@ fn invariant_02_a_plan_the_gate_refuses_is_never_asked_about() {
         .find("Err((_, report)) => return Ok(executor::refused_report(")
         .expect("the gate's refusal returns");
     let asked = body
-        .find("let shown = confirm_the_plan(ctx, &cleared, stderr)?;")
+        .find("None => confirm_the_plan(ctx, &cleared, stderr)?,")
         .expect("the question is about the cleared run");
     assert!(refused < asked);
     assert_eq!(body.matches("confirm_the_plan(").count(), 1, "asked once");
@@ -1564,4 +1572,422 @@ fn invariant_17_a_macports_to_homebrew_plan_is_built_from_a_live_capture() {
         .collect();
     assert_eq!(to_homebrew, mirrored);
     assert_eq!(to_homebrew[remove].1, MP);
+}
+
+// --- work order 16 part E-4: `--plan-digest` (DP-049 (a)) -------------------
+
+/// `migrate` over `recording`, with `flags` after the subcommand's arguments.
+fn migrate_with_flags(
+    scratch: &Scratch,
+    recording: &Path,
+    global: &[&str],
+    package: &str,
+    to: &str,
+    flags: &[&str],
+) -> Output {
+    let recording = recording.to_str().expect("UTF-8 path");
+    let mut argv = vec!["--replay", recording];
+    argv.extend_from_slice(global);
+    argv.extend_from_slice(&["migrate", package, "--to", to, "--today", TODAY]);
+    argv.extend_from_slice(flags);
+    run(scratch, &argv)
+}
+
+fn digest_of(out: &Output) -> String {
+    document(out)["planDigest"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no planDigest: {}", stdout(out)))
+        .to_string()
+}
+
+#[test]
+fn invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock() {
+    // A digest that is not the plan's: refused before the gate with stdout
+    // empty and its own identifier (R2), whatever the allowance, so a script
+    // tells it from the planner's exit 4. The plan's own digest goes on to the
+    // gate, which refuses this build's plans with the document on stdout.
+    let scratch = Scratch::new("digest-mismatch");
+    let file = fixture(BOTH);
+    let shown = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, &[]);
+    let digest = digest_of(&shown);
+    let mut other = digest.clone();
+    let last = other.pop().expect("a digit");
+    other.push(if last == '0' { '1' } else { '0' });
+    for global in [&[][..], &["--json"][..]] {
+        let refused = migrate_with_flags(
+            &scratch,
+            &file,
+            global,
+            REPLAYED_SERVICE,
+            MP,
+            &["--yes", "--plan-digest", &other],
+        );
+        assert_eq!(refused.status.code(), Some(4), "{}", stderr(&refused));
+        assert!(refused.stdout.is_empty(), "{}", stdout(&refused));
+        assert!(
+            stderr(&refused).contains("The plan about to run is not the one that was shown"),
+            "{}",
+            stderr(&refused)
+        );
+    }
+    let matched = migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        REPLAYED_SERVICE,
+        MP,
+        &["--yes", "--plan-digest", &digest],
+    );
+    assert_eq!(matched.status.code(), Some(4), "{}", stderr(&matched));
+    let doc = document(&matched);
+    assert_eq!(doc["mode"], "EXECUTE");
+    assert_eq!(doc["planDigest"], digest.as_str());
+    assert_eq!(doc["execution"]["outcome"]["outcome"], "REFUSED");
+    assert!(
+        doc["execution"].get("steps").is_none(),
+        "{}",
+        doc["execution"]
+    );
+    // Neither run reaches the state directory: true of every replay, so this
+    // is not what proves "no lock". That is structural — `tie(…)?` runs
+    // before `execute_mutating(` (`tie_violations`) — and the run loop's own
+    // refusal before the probe (`invariant_02_a_plan_other_than_the_one_shown_…`).
+    assert!(
+        !scratch.state_dir().exists()
+            || std::fs::read_dir(scratch.state_dir())
+                .expect("state")
+                .next()
+                .is_none(),
+        "the state directory was written"
+    );
+}
+
+#[test]
+fn the_digest_migrate_shows_is_the_one_yes_checks() {
+    // Two processes: the digest one prints is the digest the next accepts,
+    // with and without --retain-source, in both renderings.
+    let scratch = Scratch::new("digest-roundtrip");
+    let file = fixture(BOTH);
+    for retain in [&[][..], &["--retain-source"][..]] {
+        let shown = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, retain);
+        let digest = digest_of(&shown);
+        let human = migrate_with_flags(&scratch, &file, &[], REPLAYED_SERVICE, MP, retain);
+        assert!(
+            stdout(&human).contains(&format!("Plan digest: {digest}\nTo put exactly this plan")),
+            "{}",
+            stdout(&human)
+        );
+        let mut flags = retain.to_vec();
+        flags.extend_from_slice(&["--yes", "--plan-digest", &digest]);
+        let run = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, &flags);
+        assert_eq!(
+            document(&run)["execution"]["outcome"]["outcome"],
+            "REFUSED",
+            "{retain:?}: the matching digest reached the gate"
+        );
+        assert_eq!(document(&run)["plan"], document(&shown)["plan"]);
+    }
+    let kept = digest_of(&migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        REPLAYED_SERVICE,
+        MP,
+        &["--retain-source"],
+    ));
+    let removed = digest_of(&migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        REPLAYED_SERVICE,
+        MP,
+        &[],
+    ));
+    assert_ne!(kept, removed, "retaining the source is another plan");
+}
+
+#[test]
+fn a_malformed_plan_digest_is_a_usage_error() {
+    let scratch = Scratch::new("digest-malformed");
+    let file = fixture(BOTH);
+    let good = digest_of(&migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        REPLAYED_SERVICE,
+        MP,
+        &[],
+    ));
+    let hex = &good["sha256:".len()..];
+    for bad in [
+        String::new(),
+        hex.to_string(),
+        format!("SHA256:{hex}"),
+        format!("sha256:{}", hex.to_uppercase()),
+        format!("sha256:{}", &hex[1..]),
+        format!("{good}0"),
+        format!(" {good}"),
+        format!("{good} "),
+    ] {
+        for flags in [
+            &["--yes", "--plan-digest", bad.as_str()][..],
+            &["--yes", "--dry-run", "--plan-digest", bad.as_str()][..],
+        ] {
+            let out = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, flags);
+            assert_eq!(out.status.code(), Some(2), "{bad:?}: {}", stderr(&out));
+            assert!(out.stdout.is_empty(), "{bad:?}: {}", stdout(&out));
+            assert!(
+                stderr(&out).contains("--plan-digest takes the digest"),
+                "{}",
+                stderr(&out)
+            );
+        }
+    }
+    // Well formed with --yes --dry-run: parsed, otherwise unused (--dry-run wins).
+    let dry = migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        REPLAYED_SERVICE,
+        MP,
+        &["--yes", "--dry-run", "--plan-digest", &good],
+    );
+    assert_eq!(document(&dry)["mode"], "RENDER");
+}
+
+#[test]
+fn plan_digest_needs_yes() {
+    let scratch = Scratch::new("digest-needs-yes");
+    let file = fixture(BOTH);
+    let digest = format!("sha256:{}", "0".repeat(64));
+    for flags in [
+        &["--plan-digest", digest.as_str()][..],
+        &["--dry-run", "--plan-digest", digest.as_str()][..],
+    ] {
+        let out = migrate_with_flags(&scratch, &file, &[], REPLAYED_SERVICE, MP, flags);
+        assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+        assert!(out.stdout.is_empty(), "{}", stdout(&out));
+        assert!(
+            stderr(&out).contains("--plan-digest is used only with --yes"),
+            "{}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn invariant_15_the_same_recording_gives_the_same_plan_digest() {
+    // Every recording, every listed package toward the other provider: each
+    // plan a recording yields is digested alike by two processes. The same
+    // over a snapshot file, both directions (`--from-snapshot`).
+    let scratch = Scratch::new("digest-inv15");
+    let mut pairs: Vec<(PathBuf, String, &'static str)> = Vec::new();
+    for entry in std::fs::read_dir(root().join("fixtures/recordings")).expect("recordings") {
+        let path = entry.expect("entry").path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let listed = run(
+            &scratch,
+            &[
+                "--replay",
+                path.to_str().expect("UTF-8"),
+                "--json",
+                "list",
+                "--today",
+                TODAY,
+            ],
+        );
+        let Ok(doc) = serde_json::from_slice::<Value>(&listed.stdout) else {
+            continue;
+        };
+        for unit in doc["packages"].as_array().into_iter().flatten() {
+            let (Some(name), Some(source)) = (unit["name"].as_str(), unit["source"].as_str())
+            else {
+                continue;
+            };
+            let to = if source == HB { MP } else { HB };
+            pairs.push((path.clone(), name.to_string(), to));
+        }
+    }
+    let digests = |pairs: &[(PathBuf, String, &'static str)]| -> Vec<Option<String>> {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = pairs
+                .chunks(pairs.len().div_ceil(8).max(1))
+                .map(|chunk| {
+                    let scratch = &scratch;
+                    scope.spawn(move || {
+                        chunk
+                            .iter()
+                            .map(|(file, name, to)| {
+                                let out =
+                                    migrate_with_flags(scratch, file, &["--json"], name, to, &[]);
+                                serde_json::from_slice::<Value>(&out.stdout)
+                                    .ok()
+                                    .and_then(|d| d["planDigest"].as_str().map(str::to_string))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().expect("a worker"))
+                .collect()
+        })
+    };
+    let first = digests(&pairs);
+    let planned: Vec<_> = pairs
+        .iter()
+        .zip(&first)
+        .filter(|(_, d)| d.is_some())
+        .map(|(p, _)| p.clone())
+        .collect();
+    assert!(!planned.is_empty(), "no recording yields a plan");
+    let wanted: Vec<_> = first.iter().flatten().cloned().map(Some).collect();
+    assert_eq!(
+        digests(&planned),
+        wanted,
+        "a second process digested a plan differently"
+    );
+    // A snapshot file, both directions.
+    let file = live_snapshot();
+    for to in [MP, HB] {
+        let [a, b] =
+            [0, 1].map(|_| document(&from_snapshot(&scratch, &file, &["--json"], "htop", to)));
+        assert_eq!(a["plan"]["destination"], to, "{a}");
+        assert!(a["planDigest"].is_string(), "{a}");
+        assert_eq!(a["planDigest"], b["planDigest"], "htop toward {to}");
+    }
+}
+
+#[test]
+fn the_plan_holds_no_unordered_collection() {
+    // INV-15 for the digest: nothing in the domain iterates in hash order or
+    // carries a float, so its serialisation is canonical for a build.
+    let mut stack = vec![root().join("crates/domain/src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("domain sources") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).expect("source");
+                // Nor anything that would let two different values serialise
+                // alike: a skipped field, a custom serialiser, a hand-written
+                // `Serialize` (security review of E-4). `skip_serializing_if`
+                // skips only an empty or absent value, which serialises apart.
+                let squeezed: String = text.split_whitespace().collect();
+                for banned in [
+                    "serde(skip)",
+                    "serde(skip,",
+                    "serde(skip_serializing)",
+                    ",skip_serializing)",
+                    ",skip)",
+                    "serialize_with",
+                    "implSerializefor",
+                    "implserde::Serializefor",
+                ] {
+                    assert!(!squeezed.contains(banned), "{}: {banned}", path.display());
+                }
+                for word in words(&text) {
+                    assert!(
+                        !["HashMap", "HashSet", "f32", "f64"].contains(&word.as_str()),
+                        "{}: {word}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_doctor_report_never_carries_a_plan_digest() {
+    // SR L3 (R8): the digest is a fingerprint of unredacted data, so the one
+    // document made to be published leaves it out.
+    let scratch = Scratch::new("digest-doctor");
+    let report = scratch.path().join("report.json");
+    let out = run(
+        &scratch,
+        &[
+            "--replay",
+            fixture(BOTH).to_str().expect("UTF-8"),
+            "doctor",
+            "--report",
+            report.to_str().expect("UTF-8"),
+            "--today",
+            TODAY,
+        ],
+    );
+    assert!(report.exists(), "{}", stderr(&out));
+    let text = std::fs::read_to_string(&report).expect("the report");
+    assert!(
+        !text.contains("sha256:") && !text.contains("planDigest"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_digest_is_taken_of_the_plan_migrate_shows_and_runs() {
+    // E-4 review (mutant 14): `migrate` digests exactly two values — the
+    // plan it writes and runs (`planned.plan()`), and on the confirmation
+    // screen the plan it mints the witness from — and nothing derived from
+    // either. The document carries that same value; redaction is at capture.
+    let source =
+        std::fs::read_to_string(root().join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
+    let calls: Vec<&str> = source
+        .match_indices("PlanDigest::of(")
+        .map(|(i, t)| {
+            let rest = &source[i + t.len()..];
+            &rest[..rest.find(')').expect("its argument ends")]
+        })
+        .collect();
+    assert_eq!(calls, ["plan", "plan"], "{calls:?}");
+    assert!(
+        source.contains("    let plan = planned.plan();\n    let digest = PlanDigest::of(plan);\n")
+    );
+    let confirm = &source[source
+        .find("fn confirm_the_plan(")
+        .expect("confirm_the_plan")..];
+    let confirm = &confirm[..confirm.find("\n}\n").expect("its end")];
+    assert!(
+        confirm.contains("let render = |plan: &MigrationPlan| {")
+            && confirm.contains(
+                "human::plan(ctx, plan) + &human::plan_digest(ctx, &PlanDigest::of(plan), false)"
+            ),
+        "the confirmation screen shows the digest of the plan it renders"
+    );
+}
+
+#[test]
+fn a_digest_is_not_consulted_when_there_is_nothing_to_run() {
+    // Security review L1 of E-4: with nothing to move there is no plan to tie,
+    // and nothing runs either way (INV-16). The answer stays exit 0 and the
+    // digest is not consulted, as `migrate.v1.md` says.
+    let scratch = Scratch::new("digest-nothing");
+    let file = fixture(BOTH);
+    let digest = format!("sha256:{}", "0".repeat(64));
+    let out = migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        "nginx",
+        MP,
+        &["--yes", "--plan-digest", &digest],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(document(&out).get("nothingToMove").is_some());
+    assert!(document(&out).get("planDigest").is_none());
+}
+
+#[test]
+fn the_digest_hint_is_given_only_where_the_plan_could_be_put_to_the_gate() {
+    let scratch = Scratch::new("digest-hint");
+    let replayed = migrate_with_flags(&scratch, &fixture(BOTH), &[], REPLAYED_SERVICE, MP, &[]);
+    assert!(stdout(&replayed).contains("To put exactly this plan to the execution gate"));
+    let snap = from_snapshot(&scratch, &live_snapshot(), &[], "htop", MP);
+    let text = stdout(&snap);
+    assert!(text.contains("Plan digest: sha256:"), "{text}");
+    assert!(!text.contains("To put exactly this plan"), "{text}");
 }

@@ -29,9 +29,10 @@ macportsbrew analyze [pkg...]     inventory + mapping + assessment + recommendat
 macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
 macportsbrew plan <pkg> --to <provider> [--retain-source]   build a migration plan (no mutation)
-macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes]
+macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes [--plan-digest <d>]]
                                   show a plan; --yes executes it once a person at a terminal has
-                                  confirmed the plan shown (--yes never answers a question)
+                                  confirmed the plan shown, or --plan-digest names the plan a
+                                  script was shown (--yes never answers a question)
                                   [this build: the gate refuses every plan]
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
@@ -88,9 +89,12 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 Exit 6 (`USER_ABORTED`) is a person declining a question that must be
 answered before anything runs: the plan's confirmation, and an elevated step's,
 wired in part E-3 and reachable after part J. A plan about to run that is not the one confirmed is a
-safety stop (`PLAN_NOT_SHOWN`, exit 4), and `migrate --yes` with no terminal to
-confirm at is a usage error (exit 2); stdout is empty in all three (work order
-16 part E, SE-111).
+safety stop (`PLAN_NOT_SHOWN`, exit 4) — under `--plan-digest`, a digest that is
+not the plan's, in every build — and `migrate --yes` with no terminal to
+confirm at and no `--plan-digest` is a usage error (exit 2); stdout is empty in
+all three (work order 16 part E, SE-111). `--plan-digest` is a `migrate` flag:
+the digest `migrate` printed as `planDigest`, so a script runs exactly the plan
+it was shown; malformed, or without `--yes`, it is a usage error.
 
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits

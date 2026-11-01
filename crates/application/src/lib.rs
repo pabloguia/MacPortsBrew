@@ -58,7 +58,7 @@ pub use history::{
     migration_key, must_record, read_back_matches, recognise_retained_run, restorability,
     run_record, HistoryConsultation, NotRecognised, Recognition, SnapshotLook,
 };
-pub use plan_tie::{confirm_shown, plan_phrase, plan_question_error, ShownPlan};
+pub use plan_tie::{confirm_shown, plan_phrase, plan_question_error, tie, PlanDigest, ShownPlan};
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
 };

@@ -26,7 +26,7 @@ and who closes each:
 | `the_switch_needs_the_destination_contract_evaluable` (≈1269) — today it asks only about `PROVIDER_REPORTS_ACTIVE` | slice 6 part B makes that check evaluable **and widens the tripwire to every check a planner-built `VERIFY_DESTINATION` carries**; it then stays failing until DP-051 is settled |
 | `the_switch_needs_the_window_before_removal_closed_or_accepted` (≈1244) | slice 6, part C (+ DP-048) — **done** (work order 16 part S-1): replaced by the positive `the_destination_is_reread_before_removal`, and the widened destination tripwire moved to `crates/cli/tests/executor.rs` |
 | `the_switch_needs_manual_review_for_an_unavailable_artifact` (≈1221) | slice 6, part A |
-| `the_switch_needs_the_executed_plan_tied_to_the_one_shown` (now a positive check), and `crates/cli/tests/migrate.rs`'s `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` | slice 7, part A (+ DP-049): **interactive route built** (work order 16 E-2); digest route owed (E-4), one failing-on-flip assertion kept |
+| `the_switch_needs_the_executed_plan_tied_to_the_one_shown` (now a positive check), and `crates/cli/tests/migrate.rs`'s `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` | slice 7, part A (+ DP-049): **done** — the interactive route (work order 16 E-2) and the digest route (E-4); the failing-on-flip assertion removed in E-4 |
 | `the_switch_needs_consent_wired` (now a positive check) | slice 7, part B: **done** (work order 16 E-3); unreachable until part J admits elevation |
 | `the_switch_needs_release_builds_free_of_the_test_support_feature` (≈1256) | work order 15 (a guarded-script check) |
 | `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked` (≈482) | slice 9 (DP-030) |

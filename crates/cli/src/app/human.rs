@@ -808,6 +808,29 @@ pub fn retained_run_not_recognised(ctx: &Context, why: &NotRecognised) -> String
     out
 }
 
+/// `migrate`: the plan's digest, which `--yes --plan-digest` takes back to run
+/// exactly this plan (work order 16 part E-4, DP-049 (a)). The digest ends its
+/// line, so nothing copied with it is punctuation. The hint is for an input
+/// that can be put to the gate at all (a recording or this machine, never a
+/// snapshot file): `hint` says whether to add it.
+pub fn plan_digest(
+    ctx: &Context,
+    digest: &macportsbrew_application::PlanDigest,
+    hint: bool,
+) -> String {
+    let mut out = format!(
+        "\n{}\n",
+        ctx.messages.render(
+            "migrate.plan_digest",
+            &params(&[("digest", digest.to_string())])
+        )
+    );
+    if hint {
+        let _ = writeln!(out, "{}", label(ctx, "migrate.plan_digest_hint"));
+    }
+    out
+}
+
 /// `migrate` in render mode, after the plan: what would put it to the gate.
 pub fn render_only(ctx: &Context) -> String {
     format!("\n{}\n", label(ctx, "migrate.render_only"))
