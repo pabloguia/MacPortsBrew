@@ -72,6 +72,7 @@ pub mod parse;
 pub mod portfile;
 pub mod service;
 
+use crate::argv::{is_head_and_one_name, strip_head};
 use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
@@ -117,9 +118,9 @@ const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
 pub(crate) const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
 /// A port's installed file list, `-q contents <port>`: part F's executable
 /// list reads it (R-21 finding 1). Held here so the spawn-site allowlist entry
-/// is tied to an adapter in both directions; part F adds the read that extends
-/// it, with exactly one name that has passed [`names::is_safe_name`] - never
-/// none, which `port` would answer from the Portfile in the working directory.
+/// is tied to an adapter in both directions. [`is_allowed_argv`] binds it to
+/// exactly one name of [`crate::process::is_port_name`]'s class - never none,
+/// which `port` would answer from the Portfile in the working directory.
 pub(crate) const ARGV_CONTENTS: &[&str] = &["-q", "contents"];
 
 /// Every field tail [`INFO_BASE`] may be extended with, one entry per `info`
@@ -167,6 +168,13 @@ pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES, ARGV_C
 /// prefix - and, for `info`, extends [`INFO_BASE`] with exactly one
 /// [`INFO_FIELDS`] tail followed by nothing option-shaped, so the fields an
 /// `info` read asks for are a list here and not whatever a caller appended.
+///
+/// `contents` is bound to exactly one name of the spawn site's own port-name
+/// class, [`crate::process::is_port_name`] - never none, which `port` would
+/// answer from the Portfile in its working directory, and never two
+/// (`docs/passes/16-plans/F.md` §2, SR-7). `provides`' tail rule is unchanged
+/// and is out of part F (SG2-N1): the spawn site's path class is private to the
+/// frozen `process/mod.rs`.
 fn is_allowed_argv(argv: &[String]) -> bool {
     let after = |head: &[&str]| strip_head(argv, head);
     let info_tail = |rest: &[String]| {
@@ -179,15 +187,12 @@ fn is_allowed_argv(argv: &[String]) -> bool {
         .any(|allowed| allowed.len() == argv.len() && after(allowed).is_some())
         || ALLOWED_ARGV_PREFIXES.iter().any(|head| match after(head) {
             Some(rest) if *head == INFO_BASE => info_tail(rest),
+            Some(_) if *head == ARGV_CONTENTS => {
+                is_head_and_one_name(argv, ARGV_CONTENTS, crate::process::is_port_name)
+            }
             Some(_) => true,
             None => false,
         })
-}
-
-/// What follows `head` in `argv`, when `argv` starts with exactly `head`.
-fn strip_head<'a>(argv: &'a [String], head: &[&str]) -> Option<&'a [String]> {
-    (argv.len() >= head.len() && head.iter().zip(argv).all(|(a, b)| *a == b.as_str()))
-        .then(|| &argv[head.len()..])
 }
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
@@ -1169,6 +1174,51 @@ mod tests {
         assert!(!is_allowed_argv(&argv(&["-q"])));
         assert!(!is_allowed_argv(&argv(&["version", "extra"])));
         assert!(!is_allowed_argv(&argv(&[])));
+    }
+
+    #[test]
+    fn macports_contents_is_bound_to_exactly_one_port_name() {
+        // F.md §2, SR-7: the spawn site's own class, exactly one name.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        assert!(is_allowed_argv(&argv(&["-q", "contents", "xz"])));
+        assert!(is_allowed_argv(&argv(&["-q", "contents", "py313-pip"])));
+        for refused in [
+            // None: `port` would read the Portfile in its working directory.
+            &["-q", "contents"][..],
+            &["-q", "contents", "xz", "gettext"][..],
+            &["-q", "contents", "--size"][..],
+            &["-q", "contents", "-v"][..],
+            // Reserved words `port` reads as pseudo-portnames.
+            &["-q", "contents", "installed"][..],
+            &["-q", "contents", "all"][..],
+            &["-q", "contents", "../x"][..],
+            &["-q", "contents", "/opt/local/bin/xz"][..],
+            &["-q", "contents", ""][..],
+        ] {
+            assert!(!is_allowed_argv(&argv(refused)), "{refused:?} was allowed");
+        }
+    }
+
+    #[test]
+    fn macports_provides_tail_is_unchanged() {
+        // SG2-N1: `provides` keeps the rule it had before part F. The tail is
+        // validated by `names::is_safe_path` at the call site, not here, and
+        // tightening it needs the frozen spawn site's private path class.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "provides",
+            "/opt/local/bin/xz"
+        ])));
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "provides",
+            "/opt/local/bin/xz",
+            "/opt/local/bin/lzcat"
+        ])));
+        assert!(is_allowed_argv(&argv(&["-q", "provides"])));
     }
 
     #[test]

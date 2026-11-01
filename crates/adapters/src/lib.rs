@@ -12,6 +12,7 @@
 //!
 //! The provider names appear here and nowhere above this layer.
 
+mod argv;
 pub mod configuration;
 pub mod entropy;
 pub mod filesystem;

@@ -32,6 +32,7 @@
 pub mod json;
 pub mod keg;
 
+use crate::argv::is_head_and_one_name;
 use crate::filesystem::FilesystemScope;
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
@@ -99,11 +100,23 @@ pub(crate) const ARGV_LIST_FORMULA: &[&str] = &["list", "--formula"];
 /// The argument vectors this adapter will extend with exactly one validated
 /// formula name - the Homebrew counterpart of
 /// [`crate::macports::ALLOWED_ARGV_PREFIXES`]. Held here so the spawn-site
-/// allowlist entry is tied to an adapter in both directions; nothing in this
-/// build runs it yet, and [`ALLOWED_ARGV`] still refuses it at
-/// `HomebrewAdapter::run`. Part F is the consumer: it adds the read, and the
-/// prefix match with one name of `is_brew_name`'s class, to that check.
+/// allowlist entry is tied to an adapter in both directions; [`is_allowed_argv`]
+/// admits each only with exactly one name of the spawn site's own class.
 pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[ARGV_LIST_FORMULA];
+
+/// True when `argv` is exactly an [`ALLOWED_ARGV`] entry, or exactly
+/// [`ARGV_LIST_FORMULA`] followed by one name passing
+/// [`crate::process::is_brew_name`] - the spawn site's function, not a copy
+/// (`docs/passes/16-plans/F.md` §2, SR-7). Zero names, two names, or `list`
+/// without `--formula` (which lets a name reach the cask loader, R-21 E-8) are
+/// all refused.
+fn is_allowed_argv(argv: &[String]) -> bool {
+    ALLOWED_ARGV.iter().any(|allowed| {
+        allowed.len() == argv.len() && allowed.iter().zip(argv).all(|(a, b)| *a == b.as_str())
+    }) || ALLOWED_ARGV_PREFIXES
+        .iter()
+        .any(|head| is_head_and_one_name(argv, head, crate::process::is_brew_name))
+}
 
 fn changed(detail: impl Into<String>) -> DomainError {
     DomainError::new(ErrorId::ProviderOutputChanged, detail)
@@ -310,13 +323,19 @@ impl<'r> HomebrewAdapter<'r> {
     /// execution"). Reaching this with something else is a programming error,
     /// so it is `Internal` rather than a provider fault.
     fn run(&self, argv: &[&str]) -> Result<Invocation, DomainError> {
-        if !ALLOWED_ARGV.contains(&argv) {
+        self.run_argv(argv.iter().map(|a| (*a).to_string()).collect())
+    }
+
+    /// [`Self::run`] over an owned vector, for the one read that carries a
+    /// name: the allowlist check is [`is_allowed_argv`], and it holds on every
+    /// run, live or replayed.
+    fn run_argv(&self, key: Vec<String>) -> Result<Invocation, DomainError> {
+        if !is_allowed_argv(&key) {
             return Err(DomainError::new(
                 ErrorId::Internal,
-                format!("homebrew: {argv:?} is not an allow-listed argument vector"),
+                format!("homebrew: {key:?} is not an allow-listed argument vector"),
             ));
         }
-        let key: Vec<String> = argv.iter().map(|a| (*a).to_string()).collect();
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
         }
@@ -1365,6 +1384,36 @@ mod tests {
             "an allow-listed vector must not be refused here: {}",
             error.detail
         );
+    }
+
+    #[test]
+    fn homebrew_run_admits_list_formula_with_exactly_one_name() {
+        // F.md §2, SR-7: `ALLOWED_ARGV` exactly, or `list --formula` and one
+        // name of the spawn site's class - nothing else.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        for allowed in ALLOWED_ARGV {
+            assert!(is_allowed_argv(&argv(allowed)), "{allowed:?}");
+        }
+        assert!(is_allowed_argv(&argv(&["list", "--formula", "pkgconf"])));
+        assert!(is_allowed_argv(&argv(&["list", "--formula", "openssl@3"])));
+        for refused in [
+            &["list", "--formula"][..],
+            &["list", "--formula", "pkgconf", "xz"][..],
+            &["list", "pkgconf"][..],
+            &["list", "--cask", "pkgconf"][..],
+            &["list", "--formula", "--versions"][..],
+            &["list", "--formula", "-v"][..],
+            &["list", "--formula", "x.rb"][..],
+            &["list", "--formula", "a/b"][..],
+            &["list", "--formula", ""][..],
+            &["list", "--pinned", "x"][..],
+            &["--version", "x"][..],
+            &["outdated"][..],
+            &[][..],
+        ] {
+            assert!(!is_allowed_argv(&argv(refused)), "{refused:?} was allowed");
+        }
     }
 
     #[test]
