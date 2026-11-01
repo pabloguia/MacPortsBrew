@@ -161,6 +161,10 @@ pub enum ListReason {
     /// shell reaches depends on the `PATH` order of the two, and a single
     /// directory cannot be stated for it.
     AmbiguousDirectory,
+    /// Installed, not kept off the linked directories by the provider, and
+    /// not linked either: whether its names reach `PATH` is not established
+    /// (a placement reason only).
+    NoLinkedKeg,
 }
 
 /// Why an [`ExecutableList`] or a [`Placement`] is unknown: a reason the
@@ -476,6 +480,7 @@ mod tests {
             ListReason::NameClass,
             ListReason::NothingUnderPrefix,
             ListReason::AmbiguousDirectory,
+            ListReason::NoLinkedKeg,
         ] {
             let text = serde_json::to_string(&reason).unwrap();
             assert!(!ids.contains(&text), "{text} is also an error id");

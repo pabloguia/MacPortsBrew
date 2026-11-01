@@ -77,10 +77,11 @@ use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
     Answer, ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState,
-    DependencyEdge, DomainError, ErrorId, ExecutableOwner, InstalledPackage, Machine,
-    PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities, ProviderDetection,
-    ProviderId, ProviderInventory, ProviderPresence, ProviderRead, ProviderSnapshot, RequestedSet,
-    Resolution, ServiceDefinition, Version,
+    DependencyEdge, DomainError, ErrorId, ExecutableList, ExecutableOwner, InstalledPackage,
+    ListReason, Machine, PackageIdentity, PackageKind, PackageMetadata, Placement,
+    ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
+    ProviderRead, ProviderSnapshot, RequestedSet, Resolution, ServiceDefinition, UnknownReason,
+    Version,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -193,6 +194,46 @@ fn is_allowed_argv(argv: &[String]) -> bool {
             Some(_) => true,
             None => false,
         })
+}
+
+/// The adapter's own refusal of a vector outside the allowlist: a programming
+/// error, so `Internal`, and it always propagates (F.md SR2-N4).
+fn check_allowed(argv: &[String]) -> Result<(), DomainError> {
+    if is_allowed_argv(argv) {
+        Ok(())
+    } else {
+        Err(DomainError::new(
+            ErrorId::Internal,
+            format!("macports: {argv:?} is not an allow-listed argument vector"),
+        ))
+    }
+}
+
+/// A `-q contents` listing, parsed against the detected prefix (F.md §2).
+///
+/// Each line is two spaces then an absolute path (R-21 E-4). A port may also
+/// install outside the prefix (an application bundle), so such lines are
+/// valid, but a listing with **no** line under the prefix is
+/// [`ListReason::NothingUnderPrefix`] (SR2-N2), never an empty list. The
+/// executables are the direct entries of `<prefix>/bin` and `<prefix>/sbin`,
+/// and that is also where they land: the placement is observed from the
+/// listing, not inferred.
+fn contents_outcome(stdout: &str, prefix: &Path) -> (ExecutableList, Placement) {
+    let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+    let Ok(paths) = crate::listing::parse(stdout, "  ", "macports: `-q contents`") else {
+        return (
+            ExecutableList::unknown(changed),
+            Placement::unknown(changed),
+        );
+    };
+    if !paths.iter().any(|p| crate::listing::is_under(p, prefix)) {
+        let reason = UnknownReason::Listed(ListReason::NothingUnderPrefix);
+        return (ExecutableList::unknown(reason), Placement::unknown(reason));
+    }
+    let dirs = [prefix.join("bin"), prefix.join("sbin")];
+    let found = crate::listing::direct_children(&paths, &dirs);
+    let (list, placement) = crate::listing::outcome(&found, Some(&dirs));
+    (list, placement.unwrap_or_default())
 }
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
@@ -336,12 +377,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// Checked at run time rather than with a `debug_assert!`, so the shipped
     /// binary makes the same guarantee the tests do.
     fn run_argv(&self, argv: Vec<String>) -> Result<Invocation, DomainError> {
-        if !is_allowed_argv(&argv) {
-            return Err(DomainError::new(
-                ErrorId::Internal,
-                format!("macports: {argv:?} is not an allow-listed argument vector"),
-            ));
-        }
+        check_allowed(&argv)?;
         self.runner.run(&self.spec(argv))
     }
 
@@ -1004,6 +1040,43 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         )
     }
 
+    /// `port -q contents <port>`, only for a port the inventory shows
+    /// **active**, by the inventory's own name (`docs/passes/16-plans/F.md`
+    /// §2). An inactive port is [`ListReason::Inactive`] with no read
+    /// (SR2-N5).
+    fn executables(
+        &self,
+        pkg: &PackageIdentity,
+    ) -> Result<(ExecutableList, Placement), DomainError> {
+        let neither = |reason: UnknownReason| {
+            Ok((ExecutableList::unknown(reason), Placement::unknown(reason)))
+        };
+        if pkg.provider != self.id {
+            return neither(ListReason::NotInstalled.into());
+        }
+        let inventory = self.inventory()?;
+        let Some(row) = inventory
+            .installed
+            .iter()
+            .filter(|p| p.identity.name == pkg.name)
+            .max_by_key(|p| p.active)
+        else {
+            return neither(ListReason::NotInstalled.into());
+        };
+        if !row.active {
+            return neither(ListReason::Inactive.into());
+        }
+        let mut argv: Vec<String> = ARGV_CONTENTS.iter().map(|s| (*s).to_string()).collect();
+        argv.push(row.identity.name.clone());
+        // The adapter's own refusal propagates, live or replayed (SR2-N4).
+        check_allowed(&argv)?;
+        let run = self.runner.run(&self.spec(argv));
+        match crate::listing::stdout_of(run, self.runner.is_replay())? {
+            Ok(stdout) => Ok(contents_outcome(&stdout, &self.prefix)),
+            Err(reason) => neither(reason),
+        }
+    }
+
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
         let detection = self.detect()?;
         // Only for a provider that is here, as the Homebrew adapter does: an
@@ -1198,6 +1271,106 @@ mod tests {
         ] {
             assert!(!is_allowed_argv(&argv(refused)), "{refused:?} was allowed");
         }
+    }
+
+    /// A runner that answers from an empty recording but says it is live, so
+    /// the live branch of the failure mapping can be reached without running
+    /// anything: it refuses every invocation as the recorded runner would.
+    struct LiveFlagged(ReplayRunner);
+
+    impl ProcessRunner for LiveFlagged {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.0.run(spec)
+        }
+        fn is_replay(&self) -> bool {
+            false
+        }
+    }
+
+    /// An adapter whose inventory is these rows, so a test reaches the
+    /// listing read without an `installed` recording.
+    fn with_rows<R: ProcessRunner>(runner: R, rows: &[(&str, bool)]) -> MacPortsAdapter<R> {
+        let adapter = MacPortsAdapter::new(
+            runner,
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::Elsewhere,
+        );
+        let installed = rows
+            .iter()
+            .map(|(name, active)| InstalledPackage {
+                identity: PackageIdentity::new(ProviderId::new(PROVIDER_ID), *name),
+                kind: PackageKind::Package,
+                version: Version::new("1.0"),
+                revision: None,
+                variants: BTreeSet::new(),
+                active: *active,
+                requested: None,
+                installed_from_prebuilt: None,
+                install_path: None,
+            })
+            .collect();
+        *adapter.inventory.borrow_mut() = Some(ProviderInventory {
+            installed,
+            ..ProviderInventory::default()
+        });
+        adapter
+    }
+
+    fn port(name: &str) -> PackageIdentity {
+        PackageIdentity::new(ProviderId::new(PROVIDER_ID), name)
+    }
+
+    #[test]
+    fn an_inactive_port_is_unknown_inactive_with_no_read() {
+        let adapter = with_rows(
+            empty_runner(),
+            &[("xz", false), ("jq", true), ("jq", false)],
+        );
+        let inactive = UnknownReason::Listed(ListReason::Inactive);
+        assert_eq!(
+            adapter.executables(&port("xz")).unwrap(),
+            (
+                ExecutableList::unknown(inactive),
+                Placement::unknown(inactive)
+            )
+        );
+        assert!(
+            adapter.runner().consulted().is_empty(),
+            "nothing was asked about an inactive port"
+        );
+        // An active version beside an inactive one is an active port, and is
+        // read (here: no recorded answer, so the replayed unknown).
+        assert_eq!(
+            adapter.executables(&port("jq")).unwrap().0,
+            ExecutableList::unknown(ErrorId::Internal)
+        );
+    }
+
+    #[test]
+    fn a_replayed_allowlist_refusal_is_a_capture_error() {
+        // `installed` is a pseudo-portname, not a port: the adapter's own
+        // allowlist refuses the vector, and that is a defect even under
+        // replay - never the per-package unknown a missing recording is
+        // (SR2-N4).
+        let adapter = with_rows(empty_runner(), &[("installed", true)]);
+        let error = adapter.executables(&port("installed")).unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+    }
+
+    #[test]
+    fn a_live_allowlist_refusal_is_a_capture_error() {
+        let adapter = with_rows(
+            LiveFlagged(empty_runner()),
+            &[("installed", true), ("xz", true)],
+        );
+        let error = adapter.executables(&port("installed")).unwrap_err();
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // And a live runner's `Internal` is a defect too, not an unknown.
+        let error = adapter.executables(&port("xz")).unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(!error.detail.contains("allow-listed"), "{}", error.detail);
     }
 
     #[test]
