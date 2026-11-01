@@ -15,6 +15,7 @@ pub mod availability;
 pub mod class;
 pub mod concurrency;
 pub mod error;
+pub mod executable;
 pub mod history;
 pub mod interrupted_run;
 pub mod machine;
@@ -38,6 +39,10 @@ pub use availability::{
 pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
+pub use executable::{
+    ExecutableList, ExecutableName, ListReason, NameRefusal, Placement, UnknownReason,
+    MAX_EXECUTABLES, MAX_EXECUTABLE_NAME_BYTES,
+};
 pub use history::{
     is_run_id, CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,
     NotRestorable, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
