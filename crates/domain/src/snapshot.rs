@@ -986,6 +986,29 @@ impl Snapshot {
         Ok(())
     }
 
+    /// Whether `index` is where a search of the recorded `PATH` would have
+    /// found `path` ([`crate::resolution::path_index`]'s rule, over the
+    /// redacted entries): the entry at `index` is `path`'s parent, component by
+    /// component, and no earlier entry is that parent, empty, or relative. A
+    /// home entry is `~/…` here, redacted from an absolute one, so it counts
+    /// as absolute; redaction keeps every entry's position.
+    fn index_is_the_first_entry_of(&self, index: u32, path: &Path) -> bool {
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let entries = &self.environment.path;
+        let Some(at) = entries.get(index as usize) else {
+            return false;
+        };
+        let same = |entry: &str| Path::new(entry).components().eq(parent.components());
+        let absolute =
+            |entry: &str| entry.starts_with('/') || entry == "~" || entry.starts_with("~/");
+        same(at)
+            && entries[..index as usize]
+                .iter()
+                .all(|e| absolute(e) && !same(e))
+    }
+
     /// The resolution-map load rules (F.md §3, SG2-Q3): a document carrying
     /// [`EnvironmentSnapshot::resolutions`] is refused unless it agrees with
     /// the per-provider maps written beside it.
@@ -1015,7 +1038,23 @@ impl Snapshot {
             .values()
             .flat_map(|p| p.inventory.installed_names())
             .collect();
+        // The names a capture searches: installed package names and the
+        // names in a known list. Nothing else is ever in the map.
+        let listed: BTreeSet<&str> = self
+            .providers
+            .values()
+            .flat_map(|p| p.inventory.metadata.values())
+            .filter_map(|m| m.executable_list.known())
+            .flatten()
+            .map(ExecutableName::as_str)
+            .collect();
         for (name, state) in map {
+            if !installed.contains(name.as_str()) && !listed.contains(name.as_str()) {
+                return refuse(format!(
+                    "the PATH map records {name}, which is neither an installed package nor \
+                     in a known executable list; a capture searches only those"
+                ));
+            }
             let filed: Vec<(&ProviderId, &Resolution)> = self
                 .providers
                 .iter()
@@ -1045,29 +1084,47 @@ impl Snapshot {
                             crate::text::escape_hostile(&resolution.executable)
                         ));
                     }
-                    for value in [&resolution.path, &resolution.canonical_path]
-                        .into_iter()
-                        .flatten()
-                    {
-                        if !is_safe_provider_text(&value.to_string_lossy()) {
+                    // What `PATH` produced: a captured path whose leaf is the
+                    // name searched for, as a search writes it.
+                    let Some(path) = resolution.path.as_deref() else {
+                        return refuse(format!("the resolution of {name} is found at no path"));
+                    };
+                    let shaped = is_safe_captured_path(&path.to_string_lossy())
+                        && path.file_name().is_some_and(|leaf| leaf == name.as_str());
+                    let canonical = resolution
+                        .canonical_path
+                        .as_deref()
+                        .is_none_or(|c| is_safe_provider_text(&c.to_string_lossy()));
+                    if !shaped || !canonical {
+                        return refuse(format!(
+                            "the resolution of {name} names a path no search of PATH writes"
+                        ));
+                    }
+                    if let Some(index) = path_index {
+                        if !self.index_is_the_first_entry_of(*index, path) {
                             return refuse(format!(
-                                "the resolution of {name} names a path no capture writes"
+                                "the resolution of {name} gives a PATH index the recorded PATH \
+                                 does not bear out"
                             ));
                         }
                     }
-                    if path_index.is_some_and(|i| i as usize >= self.environment.path.len()) {
-                        return refuse(format!(
-                            "the resolution of {name} points past the recorded PATH"
-                        ));
-                    }
+                    let owner = match &resolution.owner {
+                        crate::resolution::ExecutableOwner::Provider { provider, package } => {
+                            if !self.providers.contains_key(provider)
+                                || package
+                                    .as_deref()
+                                    .is_some_and(|p| !is_safe_provider_name(p))
+                            {
+                                return refuse(format!(
+                                    "the resolution of {name} names an owner this snapshot does \
+                                     not carry"
+                                ));
+                            }
+                            Some(provider)
+                        }
+                        _ => None,
+                    };
                     let agrees = if installed.contains(name.as_str()) {
-                        let owner =
-                            match &resolution.owner {
-                                crate::resolution::ExecutableOwner::Provider {
-                                    provider, ..
-                                } if self.providers.contains_key(provider) => Some(provider),
-                                _ => None,
-                            };
                         matches!(filed.as_slice(), [(id, r)]
                             if *r == resolution && owner.is_none_or(|o| o == *id))
                     } else {
@@ -1540,6 +1597,19 @@ impl Snapshot {
                     &format!("an executable {id} resolved"),
                     &resolution.executable,
                 )?;
+                // The owner package names a migration subject once the planner
+                // reads it (F-3), so it is a name like any other (security
+                // review of F-2b, L-1; the gap predates F).
+                if let crate::resolution::ExecutableOwner::Provider {
+                    package: Some(package),
+                    ..
+                } = &resolution.owner
+                {
+                    name(
+                        &format!("the owner of an executable {id} resolved"),
+                        package,
+                    )?;
+                }
                 for (what, value) in [
                     ("the path of", resolution.path.as_deref()),
                     (
@@ -2327,7 +2397,7 @@ mod tests {
         snapshot
             .environment
             .resolutions
-            .insert(name("absent"), ResolutionState::NotOnPath);
+            .insert(name("other"), ResolutionState::NotOnPath);
         snapshot
     }
 
@@ -2339,7 +2409,7 @@ mod tests {
             "the agreeing control passes the whole check"
         );
         assert_eq!(
-            good.resolution_of(&name("absent")),
+            good.resolution_of(&name("other")),
             ResolutionState::NotOnPath,
             "a searched miss is not an unobserved name"
         );
@@ -2416,7 +2486,7 @@ mod tests {
         let mut s = good.clone();
         s.environment
             .resolutions
-            .insert(name("absent"), ResolutionState::NotObserved);
+            .insert(name("other"), ResolutionState::NotObserved);
         cases.push(("a stored NOT_OBSERVED", s));
         let mut s = good.clone();
         s.environment.resolutions.insert(
@@ -2440,6 +2510,74 @@ mod tests {
             },
         );
         cases.push(("filed under a name that is not its executable", s));
+        // A FOUND's own fields (security review SR L-1, spec-guardian M-2):
+        // each forged in both maps at once, so only the field rule refuses it.
+        let both = |r: Resolution, index: Option<u32>| {
+            let mut s = good.clone();
+            s.providers
+                .get_mut(&first)
+                .unwrap()
+                .resolutions
+                .insert("tool".into(), r.clone());
+            s.environment.resolutions.insert(
+                tool.clone(),
+                ResolutionState::Found {
+                    resolution: r,
+                    path_index: index,
+                },
+            );
+            s
+        };
+        let ok = found("first", "/opt/first/bin/tool", true);
+        cases.push((
+            "an index naming an entry that is not the hit's parent",
+            both(ok.clone(), Some(1)),
+        ));
+        let mut doubled = both(ok.clone(), Some(1));
+        doubled.environment.path = vec!["/opt/first/bin".into(), "/opt/first/bin/".into()];
+        cases.push(("an index after an earlier copy of the same entry", doubled));
+        let mut relative = both(ok.clone(), Some(1));
+        relative.environment.path = vec!["bin".into(), "/opt/first/bin".into()];
+        cases.push(("an index after a relative entry", relative));
+        cases.push((
+            "a path whose leaf is another name",
+            both(found("first", "/opt/first/bin/other", true), Some(0)),
+        ));
+        cases.push((
+            "a relative path",
+            both(found("first", "opt/first/bin/tool", true), None),
+        ));
+        cases.push((
+            "no path at all",
+            both(
+                Resolution {
+                    path: None,
+                    ..ok.clone()
+                },
+                None,
+            ),
+        ));
+        cases.push((
+            "an owner provider the snapshot does not carry",
+            both(found("ghost", "/opt/first/bin/tool", true), Some(0)),
+        ));
+        let mut flag = ok.clone();
+        flag.owner = ExecutableOwner::Provider {
+            provider: first.clone(),
+            package: Some("--force".into()),
+        };
+        cases.push(("an owner package that is a flag", both(flag, Some(0))));
+        let mut stray = good.clone();
+        stray
+            .environment
+            .resolutions
+            .insert(name("stray"), ResolutionState::NotOnPath);
+        cases.push(("a name neither installed nor listed", stray));
+        // The control for the field rules: the index of a later entry, with a
+        // home entry (`~/…`, absolute before redaction) ahead of it, loads.
+        let mut later = both(found("first", "/opt/first/bin/tool", true), Some(1));
+        later.environment.path = vec!["~/bin".into(), "/opt/first/bin".into()];
+        assert!(later.check_resolutions().is_ok(), "a later, correct index");
         for (what, snapshot) in cases {
             let error = snapshot
                 .check_resolutions()
@@ -2464,7 +2602,24 @@ mod tests {
                 path_index: Some(0),
             },
         );
-        assert!(snapshot.check_resolutions().is_ok());
+        assert!(
+            snapshot.check_resolutions().is_err(),
+            "a name in no known list is not one a capture searched"
+        );
+        snapshot
+            .providers
+            .get_mut(&ProviderId::new("first"))
+            .unwrap()
+            .inventory
+            .metadata
+            .insert(
+                "tool".into(),
+                crate::PackageMetadata::default().with_executables(
+                    ExecutableList::from_leaves(["tool", "lzcat"]),
+                    Placement::default(),
+                ),
+            );
+        assert!(snapshot.check_resolutions().is_ok(), "listed, so searched");
     }
 
     #[test]

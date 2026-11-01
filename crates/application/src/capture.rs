@@ -11,7 +11,7 @@ use macportsbrew_domain::{
     redact_home, DomainError, EnvironmentSnapshot, ErrorId, ExecutableList, ExecutableName,
     ExecutableOwner, HomeRedaction, ListReason, MachineRead, PathSearch, Placement, Provenance,
     ProviderId, ProviderRead, ProviderSnapshot, Resolution, ResolutionState, Snapshot,
-    SNAPSHOT_SCHEMA_VERSION,
+    MAX_EXECUTABLES, SNAPSHOT_SCHEMA_VERSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -82,6 +82,12 @@ fn read_executables(
             if !ctx.executables_for.contains(name) || !seen.insert(name.clone()) {
                 continue;
             }
+            // A list is filed on the row's metadata, so a row without one
+            // could not keep it: no read is sent for it (spec-guardian L-4).
+            // Every installed row any adapter writes has one.
+            if !snap.inventory.metadata.contains_key(name) {
+                continue;
+            }
             let (list, placement) = provider.executables(&row.identity)?;
             lists.push((provider.id().clone(), name.clone(), list, placement));
         }
@@ -114,10 +120,15 @@ fn owner_of(ctx: &CaptureContext<'_>, path: &Path) -> Option<(ProviderId, Resolu
 /// searching `PATH` reaches `dir/e` no later than `k`. So the search must have
 /// found `e` at an index of at most `k`. Found nowhere, or found only further
 /// along, contradicts the placement, which becomes
-/// `UNKNOWN { CONTRADICTED_BY_RESOLUTION }` - an inference (for Homebrew, that
-/// a linked keg's names are linked) is never trusted over an observation. A
-/// hit with no index, a name not observed, and a `dir` not on `PATH` settle
-/// nothing and leave the placement as the adapter stated it.
+/// `UNKNOWN { CONTRADICTED_BY_RESOLUTION }` - an inference (an adapter's
+/// "this package's linked names are linked") is never trusted over an
+/// observation. A hit with no index, a name not observed, and a `dir` not on
+/// `PATH` settle nothing and leave the placement as the adapter stated it.
+///
+/// **A contradiction check, not a confirmation** (security review of F-2b,
+/// L-4): a hit at an earlier entry is consistent with the placement and says
+/// nothing about whether `dir/e` exists. A surviving `ON_PATH_DIR` is the
+/// adapter's statement, not observed fact, and F-3 must read it so.
 ///
 /// `environment.path` is already redacted here and `dir` not yet, so `dir` is
 /// redacted the same way before the two are compared; positions are the same
@@ -197,9 +208,23 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
         .flat_map(|p| p.inventory.installed_names())
         .collect();
     let mut names = package_names.clone();
+    // Bounded (security review of F-2b, L-3): each hit can ask a provider who
+    // owns it, which for some providers is a subprocess. Listed names beyond
+    // the budget are not searched and stay NOT_OBSERVED - unknown, never
+    // NOT_ON_PATH - in list order, so the same capture keeps the same names.
+    let mut budget = MAX_EXECUTABLES;
     for (_, _, list, _) in &lists {
         if let Some(known) = list.known() {
-            names.extend(known.iter().map(|n| n.as_str().to_string()));
+            for listed in known {
+                if names.contains(listed.as_str()) {
+                    continue;
+                }
+                if budget == 0 {
+                    break;
+                }
+                budget -= 1;
+                names.insert(listed.as_str().to_string());
+            }
         }
     }
     for name in names {

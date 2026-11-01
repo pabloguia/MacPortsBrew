@@ -98,13 +98,15 @@ pub fn map_package(
                         add(&candidate, "homepage", b.clone(), 30);
                     }
                 }
-                if !sm.executables.is_empty() && sm.executables == cm.executables {
-                    add(
-                        &candidate,
-                        "executables",
-                        sm.executables.len().to_string(),
-                        20,
-                    );
+                // The list, never the older set beside it (F.md §1): equal
+                // non-empty `KNOWN` lists are evidence. Only a capture that
+                // named the package reads a list (F-2b), so for every other
+                // snapshot this adds nothing, as before.
+                if let (Some(a), Some(b)) = (sm.executable_list.known(), cm.executable_list.known())
+                {
+                    if !a.is_empty() && a == b {
+                        add(&candidate, "executables", a.len().to_string(), 20);
+                    }
                 }
             }
         }

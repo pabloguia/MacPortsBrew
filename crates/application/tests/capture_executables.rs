@@ -494,3 +494,70 @@ fn the_path_map_and_a_placement_under_the_home_are_redacted() {
         "the index was taken before redaction"
     );
 }
+
+#[test]
+fn the_names_searched_from_lists_are_bounded() {
+    // Security review of F-2b, L-3: every hit can cost a provider call, so the
+    // listed names searched in one capture are capped at MAX_EXECUTABLES; the
+    // rest stay NOT_OBSERVED.
+    let many = |prefix: &str| -> ExecutableList {
+        let names: Vec<String> = (0..3000).map(|i| format!("{prefix}{i}")).collect();
+        ExecutableList::from_leaves(names.iter().map(String::as_str))
+    };
+    let first = Stub::new("first", "/opt/first", &["a", "b"])
+        .with_list("a", many("a"), Placement::unknown(ListReason::NotRecorded))
+        .with_list("b", many("b"), Placement::unknown(ListReason::NotRecorded));
+    let machine = Machine2::live(PATH, &[]);
+    let snapshot = run(&machine, &[&first], &["a", "b"]).expect("the capture completes");
+    let listed = machine
+        .searched
+        .borrow()
+        .iter()
+        .filter(|n| n.len() > 1)
+        .count();
+    assert_eq!(listed, macportsbrew_domain::MAX_EXECUTABLES);
+    assert_eq!(
+        snapshot.resolution_of(&name("b2999")),
+        ResolutionState::NotObserved,
+        "past the budget: unknown, not a miss"
+    );
+    assert_eq!(
+        snapshot.resolution_of(&name("a0")),
+        ResolutionState::NotOnPath
+    );
+}
+
+#[test]
+fn a_row_without_metadata_is_not_read() {
+    // spec-guardian L-4: the list could not be filed, so nothing is sent.
+    let mut first = Stub::new("first", "/opt/first", &["xz"]);
+    first.snap.inventory.metadata.clear();
+    let machine = Machine2::live(PATH, &[]);
+    let _ = run(&machine, &[&first], &["xz"]);
+    assert!(first.asked.borrow().is_empty());
+}
+
+#[test]
+fn a_not_linked_reason_under_the_home_is_redacted() {
+    // Security review of F-2b, Info-2: the provider's free text is redacted
+    // like every other, the user name with the home.
+    let first = Stub::new("first", "/opt/first", &["xz"]).with_list(
+        "xz",
+        ExecutableList::from_leaves(["xz"]),
+        Placement::NotLinked {
+            reason: format!("keg-only: shadows {HOME}/bin/xz"),
+        },
+    );
+    let machine = Machine2::live(PATH, &[]);
+    let snapshot = run(&machine, &[&first], &["xz"]).expect("the capture completes");
+    let Placement::NotLinked { reason } = &snapshot.providers[&ProviderId::new("first")]
+        .inventory
+        .metadata["xz"]
+        .placement
+    else {
+        panic!("the placement kept its kind");
+    };
+    assert!(!reason.contains(HOME), "{reason}");
+    assert!(!reason.contains("someone"), "{reason}");
+    assert!(reason.contains("~/bin/xz"), "{reason}");
+}

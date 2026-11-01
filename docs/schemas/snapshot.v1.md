@@ -148,8 +148,8 @@ the same as false.
 | `notOnDefaultPathReason` | string | Why the package's executables are not on the default `PATH` |
 | `definesService` | boolean | Kept for older readers: `true` exactly when `service`'s answer is `YES`. Decides nothing in this build |
 | `service` | `ServiceDefinition` | The service question (DP-032), below. Absent from a document written before work order 16 part D |
-| `executables` | array of string | Kept for older readers: written from `executableList` when that is `KNOWN`, empty otherwise, and never read to decide - an empty array cannot tell "ships none" from "never asked". Mapping evidence |
-| `executableList` | `ExecutableList` | Since work order 16 part F-2b (2026-11-01); additive. Below |
+| `executables` | array of string | Kept for older readers: written from `executableList` when that is `KNOWN`, empty otherwise, and never read to decide - an empty array cannot tell "ships none" from "never asked" |
+| `executableList` | `ExecutableList` | Since work order 16 part F-2b (2026-11-01); additive. Below. Two rows (one per provider) with equal non-empty `KNOWN` lists are mapping evidence (`executables`, weight 20), and the analysis looks a row's resolution up by its list; both happen only in a snapshot that named the package |
 | `placement` | `Placement` | Since part F-2b; additive. Below |
 | `aliases` | array of string | |
 | `versionedSiblings` | array of string | The rest of a versioned family, e.g. the other `python@3.x` |
@@ -180,7 +180,11 @@ names - `NOT_RECORDED`, `NOT_INSTALLED`, `INACTIVE`, `CASK_NOT_COVERED`,
 never collide (`no_reason_collides_with_an_error_id`), so the spelling alone
 says which. `CONTRADICTED_BY_RESOLUTION` is a placement reason only: the
 adapter placed an executable in a `PATH` entry and the capture's own search of
-`PATH` found it nowhere, or only further along (SR L-1).
+`PATH` found it nowhere, or only further along (SR L-1). That is a
+contradiction check, not a confirmation: a surviving `ON_PATH_DIR` is the
+adapter's statement. **Unlike `pathFindings`, a `REASON` this build does not
+know is refused on load** (the union has no catch-all); every value above is
+spelled the same by every build that wrote one.
 
 **Load rules** (`SnapshotUnusable`, exit 8), on capture and on load:
 
@@ -211,8 +215,14 @@ and never read to decide while the environment map is present. A reader asks
   for an installed package name has exactly one per-provider entry, equal to
   it and filed under its owner when a provider owns it; a list-only name and a
   `NOT_ON_PATH` name have none; every per-provider entry has its `FOUND`; a
-  stored `NOT_OBSERVED` is refused (absence is its spelling); and `pathIndex`
-  lies inside `path`.
+  stored `NOT_OBSERVED` is refused (absence is its spelling); a key is an
+  installed package name or a name in some `KNOWN` list (nothing else is
+  searched); a `FOUND`'s `path` is a captured path whose leaf is the key; an
+  owner provider is one the snapshot carries and an owner package a provider
+  name; and a `pathIndex` names the entry equal, component by component, to
+  the path's parent, with no earlier entry equal to it, empty or relative (a
+  `~/...` entry counts as absolute: it was redacted from one). The
+  per-provider map's owner package is held to the name rule too.
 - **Without it** - a document from before the field, or a capture that
   observed nothing - the per-provider answers are read with a fixed precedence
   per name: an authoritative provider owner, then a non-authoritative one, then
@@ -228,6 +238,11 @@ No capture before part F-2b wrote any of those fields except `executables`,
 which every adapter left empty; every file under `fixtures/snapshots/` and every
 snapshot the fixture matrix writes from `fixtures/recordings/` loads under them
 (`every_committed_snapshot_loads_under_the_fail_closed_rule`).
+
+**Cost.** A capture searches every name in a named package's list, and a hit
+can cost a provider call; the listed names searched in one capture are capped
+at 4096, and any beyond stay not observed. `snapshot --from-snapshot <file>
+<package>...` is a usage error: a file is read, not captured.
 
 ### `ServiceDefinition`
 

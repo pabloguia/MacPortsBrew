@@ -196,6 +196,17 @@ pub(crate) fn named_packages(cli: &Cli) -> Result<BTreeSet<String>, DomainError>
     let Some(super::Command::Snapshot { packages, .. }) = &cli.command else {
         return Ok(BTreeSet::new());
     };
+    // A snapshot file is read, not captured, so no list could be read for a
+    // named package; saying nothing would let the 06 synopsis ("each named
+    // package's executable list is read too") be silently untrue (review of
+    // F-2b: spec-guardian L-2, security-reviewer Info-1).
+    if cli.from_snapshot.is_some() && !packages.is_empty() {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            "snapshot cannot read a named package's executables from a snapshot file; \
+             name packages only when capturing a machine or replaying a recording",
+        ));
+    }
     if let Some(flag) = packages.iter().find(|p| p.starts_with('-')) {
         return Err(DomainError::new(
             ErrorId::Usage,

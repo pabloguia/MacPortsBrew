@@ -527,7 +527,7 @@ impl MachineRead for SystemMachine {
     /// not the captured machine's, and letting a host fact into a replayed
     /// analysis is exactly the INV-15 break `analyze --from-snapshot` exists
     /// to catch. A caller working from a snapshot reads
-    /// `ProviderSnapshot::resolutions`, which is where the captured answers
+    /// `Snapshot::resolution_of`, which is where the captured answers
     /// live.
     fn which(&self, executable: &str) -> Option<PathBuf> {
         if self.runner.is_replay() || !is_plain_executable_name(executable) {

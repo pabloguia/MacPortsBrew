@@ -80,7 +80,9 @@ fn two_packages_installing_the_same_executables_are_evidence_of_one_package() {
     let dest = destination_with(
         "the-silver-searcher",
         PackageMetadata {
-            executables: exes.clone(),
+            executable_list: macportsbrew_domain::ExecutableList::from_leaves(
+                exes.iter().map(String::as_str),
+            ),
             homepage: home.clone(),
             ..PackageMetadata::default()
         },
@@ -88,7 +90,9 @@ fn two_packages_installing_the_same_executables_are_evidence_of_one_package() {
     let kinds = kinds_of(
         "ag",
         &PackageMetadata {
-            executables: exes,
+            executable_list: macportsbrew_domain::ExecutableList::from_leaves(
+                exes.iter().map(String::as_str),
+            ),
             homepage: home,
             ..PackageMetadata::default()
         },

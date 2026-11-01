@@ -253,5 +253,85 @@ fn snapshot_sends_the_inventory_name_and_nothing_for_an_unknown_one() {
     let said = String::from_utf8_lossy(&refused.stderr);
     assert_ne!(refused.status.code(), Some(0), "{said}");
     assert!(said.contains("begins with `-`"), "{said}");
+
+    // A name echoed back is escaped (SR2-N6): no raw escape sequence reaches
+    // the terminal, from the not-installed notice or from the refusal.
+    for args in [&["x\u{1b}[2J"][..], &["--", "-\u{1b}[2J"][..]] {
+        let (_, output) = snapshot_of(&recording, args, &dir);
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !said.contains('\u{1b}'),
+            "a raw ESC reached stderr: {said:?}"
+        );
+        assert!(
+            said.contains("\\u{1b}"),
+            "the name is shown escaped: {said:?}"
+        );
+    }
+
+    // Under `--from-snapshot` nothing is captured, so naming a package is a
+    // usage error rather than a list silently not read.
+    let (_, from_file) = {
+        let target = dir.join("again.json");
+        let output = run(
+            &dir,
+            &[
+                "--from-snapshot",
+                out.to_str().unwrap(),
+                "snapshot",
+                "--out",
+                target.to_str().unwrap(),
+                "xz",
+            ],
+        );
+        (target, output)
+    };
+    let said = String::from_utf8_lossy(&from_file.stderr);
+    assert_ne!(from_file.status.code(), Some(0), "{said}");
+    assert!(said.contains("snapshot file"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Whether any object in `value` has `"kind": "executables"`.
+fn has_executables_evidence(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.get("kind").and_then(|k| k.as_str()) == Some("executables")
+                || map.values().any(has_executables_evidence)
+        }
+        serde_json::Value::Array(items) => items.iter().any(has_executables_evidence),
+        _ => false,
+    }
+}
+
+#[test]
+fn a_named_snapshot_adds_executables_evidence_to_the_mapping() {
+    // What naming a package changes in an analysis (spec-guardian M-1): the
+    // two `xz` rows carry equal known lists, which is mapping evidence. `xz` is
+    // a dependency, so the rows are shown under `--advanced`. A
+    // snapshot that names nothing carries none, as before F-2b.
+    let dir = scratch("evidence");
+    let recording = recording_with_listings(&dir);
+    let analysed = |packages: &[&str]| -> serde_json::Value {
+        let sub = dir.join(packages.join("-") + "x");
+        std::fs::create_dir_all(&sub).unwrap();
+        let (file, output) = snapshot_of(&recording, packages, &sub);
+        assert_eq!(output.status.code(), Some(0));
+        let analysis = run(
+            &sub,
+            &[
+                "--from-snapshot",
+                file.to_str().unwrap(),
+                "--json",
+                "--advanced",
+                "analyze",
+                "--today",
+                TODAY,
+            ],
+        );
+        serde_json::from_slice(&analysis.stdout).expect("analyze --json")
+    };
+    assert!(has_executables_evidence(&analysed(&["xz"])));
+    assert!(!has_executables_evidence(&analysed(&[])));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1872,7 +1872,19 @@ change is made. Silent deviation remains the one unrecoverable error.
     is a `PATH` entry at index `k`, the executable must have been found at an index of at most `k`. Found nowhere, or
     only further along, the placement becomes `UNKNOWN { CONTRADICTED_BY_RESOLUTION }`, a new placement reason. A hit
     with no index, a name not observed, or a directory not on `PATH` settle nothing and leave the adapter's placement.
-    F-3's decision rule reads the result; it never trusts the inference over the observation.
+    F-3's decision rule reads the result; it never trusts the inference over the observation. **It is a
+    contradiction check, not a confirmation:** a hit at an earlier entry is consistent and proves nothing about
+    `dir/e`, so a surviving `ON_PATH_DIR` stays the adapter's statement.
+  - **A named snapshot changes two analysis inputs.** Mapping reads equal non-empty `KNOWN` lists as `executables`
+    evidence (weight 20), and the analysis looks a row's resolution up by its list's names, first resolving name
+    first; both read the list, never the older set. Before F-2b no list existed, so a snapshot that names nothing
+    analyses byte-identically; one that names a package can show the extra evidence
+    (`a_named_snapshot_adds_executables_evidence_to_the_mapping`).
+  - **Bounded and honest at the surface.** The listed names searched per capture are capped at 4096 (each hit can
+    cost a provider call); beyond it a name stays not observed. Naming a package to `snapshot --from-snapshot` is a
+    usage error, since a file is read, not captured. The load rule also binds a `FOUND`'s own fields - its path's
+    leaf, its owner, and a `pathIndex` re-checked against the recorded `PATH` - and refuses a map key no capture
+    searches, so a hand-edited index cannot steer F-3's comparison.
   - **A name `PATH` resolves but no provider will answer about** is recorded as not observed rather than `FOUND`
     with an invented owner, as the per-provider map has always left it out; so the two maps agree by construction.
   - **The older-document precedence** is `Resolution::rank`, the analysis's existing ranking (authoritative
@@ -1881,8 +1893,10 @@ change is made. Silent deviation remains the one unrecoverable error.
   - **`migrate` reads no list yet.** Its destination name is known only after mapping, which needs the snapshot;
     reading both sides is wired in F-3 with the planner that consumes them. Until then only `snapshot` names
     packages, and every other capture is unchanged.
-  - **The live recapture is not in F-2b.** It needs the owner-staged `docs/passes/16-staged/F/05` (and `F/06` if
-    R-24 calls for it) applied first; F.md, "As built (F-2b)".
+  - **The recapture is not in F-2b.** The recording recapture needs the owner-staged
+    `docs/passes/16-staged/F/05` and `F/06` applied first; the live snapshot is the binary's own `snapshot`, whose
+    reads are allow-listed, but it runs `brew` and `port`, which the session that built F-2b was not permitted to do.
+    Both are handed to F-3 (F.md, "As built (F-2b)").
 
 # Policy, output and quality
 
