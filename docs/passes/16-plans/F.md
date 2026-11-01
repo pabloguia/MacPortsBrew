@@ -970,6 +970,126 @@ SE-112, the 04/05/06 edits, DP-055, the ledger). Each item overrides earlier tex
     own id; **DA-14** `crates/application/src/executor/tests.rs`, 674 and 1483;
     **DA-17** the design notes' path.
 
+## As built (F-2a)
+
+Branch `wo16/F-2a-reads`, cut from `origin/main` at `caf8799`. Three code
+commits: the domain types and the shared name class; **the argv tightening on
+its own** (SR-7); the two reads. `git diff --stat origin/main --
+crates/adapters/src/process/` is empty, and nothing under
+`data/policy/provider-commands.toml`, `scripts/`, `.claude/` or
+`.github/workflows/` changed. No `brew` or `port` command was run.
+
+- **Domain** (`crates/domain/src/executable.rs`): `ExecutableName::parse` is §1's
+  class, and deserialising goes through it, so a document with a bad name fails
+  to load. `ExecutableList::from_leaves` is all or nothing (`NAME_CLASS`,
+  `TOO_LARGE` above 4096). `ProviderRead::executables` defaults to
+  `(NOT_RECORDED, UNKNOWN { NOT_RECORDED })`. `machine.rs`'s
+  `is_plain_executable_name` calls `ExecutableName::parse`; `which` is now
+  stricter than before by the hostile classes and the 255-byte bound.
+- **Argv** (SR-7): Homebrew's `run` admits `ALLOWED_ARGV` exactly, or
+  `ARGV_LIST_FORMULA` and exactly one `process::is_brew_name`; MacPorts binds
+  `ARGV_CONTENTS` to exactly one `process::is_port_name`; `ARGV_PROVIDES` is
+  unchanged (SG2-N1). `strip_head` moved to `crates/adapters/src/argv.rs`.
+- **Reads**: one parser for both providers, `crates/adapters/src/listing.rs`
+  (line rules, component-wise parents, the SR-8/SR2-N4 failure mapping), so the
+  INV-17 shape is one rule. The adapter's allowlist check runs before the runner
+  is called, so its own refusal can never be mistaken for the runner's
+  replayed `Internal`.
+
+Deviations from the plan, and why:
+
+1. **`executables` returns `Result<(ExecutableList, Placement), DomainError>`**,
+   not the bare pair §1 writes. §2's failure rules need an error path: the
+   adapter's own argv refusal and `ProviderNotFound` must abort the capture, and
+   a bare pair cannot carry that.
+2. **`Placement::ON_PATH_DIR` carries `dirs: BTreeMap<ExecutableName, String>`**,
+   one directory per executable, not one `dir`. A package can ship into both
+   `bin` and `sbin`, and Design 4 step 6 needs "the destination's detected `bin`
+   or `sbin` **for `e`**"; a single `dir` cannot say which. A leaf found
+   directly under both is `UNKNOWN { AMBIGUOUS_DIRECTORY }` for the placement
+   while the list keeps the name.
+3. **Two reasons not in the plan**: `AMBIGUOUS_DIRECTORY` (above) and
+   `NO_LINKED_KEG`, the placement of an installed Homebrew formula that is
+   neither keg-only nor linked (§1's "otherwise `UNKNOWN`" needed a reason).
+   `UNKNOWN`'s `reason` serialises as either one of these identifiers or an
+   `ErrorId`, untagged; `no_reason_collides_with_an_error_id` holds the two
+   spellings apart.
+4. **Directories in a listing are skipped**: an entry that is itself the parent
+   of another listed entry is not an executable. `brew list` already omits
+   directories (`find -not -type d`, R-21 E-8); `port -q contents` was not
+   observed to list one, and this costs nothing if it never does.
+5. **A Homebrew `linked_keg` naming no installed keg** is
+   `UNKNOWN { PROVIDER_OUTPUT_CHANGED }` with no read; the keg path is built
+   only from the validated installed versions, never from `linked_keg` itself.
+6. **Placed in F-2b, per the phasing table and its test list**: the snapshot
+   fields (`PackageMetadata.executable_list` / `placement`), the fail-closed
+   load rule and `a_snapshot_with_a_bad_executable_name_fails_to_load`, and
+   Homebrew `environment_info`'s `sbin` (the F-2b row names "Homebrew `sbin`";
+   adding it changes snapshot output, which F-2b's goldens own). The Homebrew
+   placement already uses the detected prefix's `sbin` directly. Nothing calls
+   `executables` yet, so no snapshot, golden or user-visible output changes in
+   F-2a, and F.md places the CHANGELOG line in F-4.
+
+Tests added (all against captured fixtures plus, where a read is needed, one
+listing invocation appended **in memory** to
+`both-providers-intel-macos26.json`, shaped after R-21 E-4/E-9 - nothing under
+`fixtures/` is new or changed):
+
+- `crates/domain/src/executable.rs`:
+  `executable_name_refuses_a_slash_a_dot_dot_a_leading_dash_and_every_hostile_class`,
+  `one_bad_entry_makes_the_whole_list_unknown`,
+  `an_empty_known_list_and_not_recorded_are_different_answers`, plus
+  `a_bad_name_fails_to_deserialise_rather_than_loading`,
+  `more_than_the_cap_is_too_large`, `the_serialised_shapes_are_tagged_by_state`,
+  `no_reason_collides_with_an_error_id`.
+- `crates/adapters/src/system/machine.rs`: `which_and_the_list_share_one_name_class`.
+- `crates/adapters/src/argv.rs`, `listing.rs`: the head match;
+  `a_path_with_an_empty_dot_or_dot_dot_component_or_a_trailing_slash_is_refused`,
+  `the_parent_is_compared_by_component`,
+  `only_direct_entries_of_bin_and_sbin_are_executables`, the indent, the
+  failure mapping.
+- `crates/adapters/src/{homebrew,macports}/mod.rs`:
+  `homebrew_run_admits_list_formula_with_exactly_one_name`,
+  `macports_contents_is_bound_to_exactly_one_port_name`,
+  `macports_provides_tail_is_unchanged`,
+  `an_inactive_port_is_unknown_inactive_with_no_read`, and
+  `a_live_allowlist_refusal_is_a_capture_error` with its replay twin
+  `a_replayed_allowlist_refusal_is_a_capture_error`, in **both** adapters.
+- `crates/adapters/tests/executable_list.rs`:
+  `placement_is_filled_from_detection_for_both_providers`,
+  `invariant_20_bin_sbin_and_cellar_come_from_detection_and_the_keg_from_linked_keg`,
+  `a_keg_path_outside_the_linked_keg_is_provider_output_changed`,
+  `several_kegs_without_a_linked_keg_is_ambiguous_without_a_read`,
+  `a_cask_answers_unknown_without_a_read`,
+  `homebrew_exit_0_with_empty_stdout_is_provider_output_changed`,
+  `macports_exit_0_with_empty_stdout_is_provider_output_changed`,
+  `no_executables_only_from_a_non_empty_listing_with_no_bin_children` (both),
+  `a_listing_with_nothing_under_the_prefix_is_unknown_nothing_under_prefix`,
+  `a_contents_line_without_the_indent_is_provider_output_changed`,
+  `only_direct_entries_of_bin_and_sbin_are_executables_for_both_adapters`,
+  `a_provider_that_answered_badly_is_unknown_for_that_package_and_says_why`,
+  `a_replayed_missing_invocation_is_unknown_and_the_capture_completes` (at the
+  adapter: the next package is still answered; the capture loop itself is F-2b).
+
+Left to F-2b, as their names say they test capture or loading:
+`a_name_failing_the_class_is_never_resolved_and_stays_not_observed` and
+`a_snapshot_with_a_bad_executable_name_fails_to_load`.
+
+**Mutation proof, 7–13c** (run in this worktree by a script that applied each
+mutant to the committed sources, ran `cargo test -p macportsbrew-domain` and/or
+`-p macportsbrew-adapters`, and restored the file; not yet repeated by a
+subagent in a separate worktree as §"Mutants" asks). Nineteen mutants, all
+killed: 7 (`parse` admitting `/`, `..`, a leading `-`, a format character); 8
+(a bad entry dropped); 9 (an unknown list made empty `KNOWN`; its "then as the
+package name" half is a planner mutant, F-3); 10 (a failed read made empty
+`KNOWN`; a live `Internal` made `UNKNOWN`; the adapter's own argv refusal made
+`UNKNOWN` under replay, in each adapter); 11 (Homebrew admitting zero or two
+names, `list` without `--formula`; `contents` admitting any tail); 12 (a path
+under `bin/x/` counted; the parent compared by string); 13 (nothing under the
+prefix made `KNOWN{}`); 13b (empty stdout accepted); 13c (an inactive port
+read; answered `KNOWN`). 13c's second half, a failing name recorded
+`NOT_ON_PATH`, is a capture mutant and moves to F-2b.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
