@@ -27,8 +27,12 @@ allowed = {"Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC",
            "Unicode-3.0"}
 # Crates whose build.rs was reviewed; ADR-0004 holds the review. All are
 # compiler-capability probes that emit cfg flags and write only to OUT_DIR.
+# libc: reached by sha2 0.11 -> cpufeatures on aarch64-apple; cargo metadata
+# is not filtered by target, so it counts here on every host. Its build.rs
+# (0.2.191) runs RUSTC --version and emits cfg flags, writing no file. Part
+# E ADR (pass 16) holds that review.
 build_scripts_allowed = {"proc-macro2", "quote", "serde", "serde_core", "serde_json",
-                         "zmij", "thiserror", "rustversion", "instability"}
+                         "zmij", "thiserror", "rustversion", "instability", "libc"}
 bad = 0
 for p in meta["packages"]:
     if p["id"] in workspace:
