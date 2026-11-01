@@ -491,6 +491,30 @@ Left open:
 - Network traffic: not captured.
 - Third-party taps, and other machines, architectures and provider versions.
 
+### R-24 · What a read can say about a package's executables before it is installed, and about an inactive or file-less port
+*Open — raised 2026-11-01 by work order 16 part F (`docs/passes/16-plans/F.md`,
+"R-24"); note to be written at `docs/research/R-24-…` by `provider-researcher`.*
+Blocks narrowing DP-055: part F refuses every destination that is not installed
+(`PRIMARY_DESTINATION_NOT_INSTALLED`) because both reads R-21 established need an
+installed package.
+
+Questions, for both providers (INV-17):
+- **Before install.** Does any read-only form give, for a package that is not
+  installed, its executable list and where it would link them — for Homebrew,
+  `keg_only` and the keg's `bin`/`sbin` entries (candidate
+  `brew info --json=v2 --formula <name>`; R-21 traced only the installed branch,
+  and a name without `--formula` can reach the cask loader); for MacPorts, the
+  files a port would install (`port contents` answers installed ports only)?
+- **Inactive ports.** What `port -q contents` prints for an inactive port (R-21
+  Cannot determine: `action_contents` reads `imagefiles` for it, never observed).
+- **File-less ports.** What it prints, and with what exit status, for an installed
+  port that registers no files — the case that decides whether an empty listing
+  is `NOTHING_UNDER_PREFIX` or a changed output format.
+
+A form that can write is refused, whatever it would answer (the
+`PERMITTED_SUBCOMMANDS` comment, AGENTS.md). A positive answer on one side only
+is recorded and not acted on without the owner.
+
 ---
 
 ## Non-blocking research

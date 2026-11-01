@@ -813,6 +813,11 @@ change is made. Silent deviation remains the one unrecoverable error.
   mechanism self-heals — `port select` never checks that its target exists.
 - Compatibility impact: Tier 5 → Tier 3/4 for this section; nothing shipped
   depends on it yet.
+- **Addendum, 2026-11-01 (work order 16 part F-0).** Layer 1 stops being only
+  a report: the first mutating release performs it as a run's outcome, with no
+  write outside the providers, and refuses before any install what would need
+  layer 4. The executables a primary concerns come from provider metadata.
+  SE-112 holds the change; layer 4 stays part I's.
 
 ---
 
@@ -1762,6 +1767,98 @@ change is made. Silent deviation remains the one unrecoverable error.
   digest's witness when there is one.
 - Compatibility impact: `migrate.v1` additive (an open set gains a value; `planDigest` at the root). A digest is
   valid only for builds with the same version string and plan serialisation; across versions it fails closed.
+
+## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
+- Status: experimental — proposed: the specification edits below land in work order 16 part F-0, marked "part F,
+  not built"; the code is F-2a, F-2b and F-3 (`docs/passes/16-plans/F.md`, reviewed by `spec-guardian` and
+  `security-reviewer` in two rounds, and the F-0 diff by `spec-guardian` and `docs-auditor`). This entry is completed
+  by each of those pull requests (SE-032: one topic, one entry) and becomes accepted with F-3.
+- Date / Pass: 2026-11-01 / 16-complete-mutating-product, part F
+- Original assumption: SE-036 deferred every layer's implementation. The planner gives `SET_PRIMARY` a `TOOL`
+  command, `macportsbrew primary <name> <to>`, which does not exist, and `PROVIDER_REPORTS_ACTIVE`, which nothing can
+  evaluate on that step; `VERIFY_RESOLUTION` carries nothing; `primaryAfter` is the requested provider; checks 3
+  and 4 of 04's contract name the package as its own executable (`crates/application/src/planner.rs` ≈922–980,
+  ≈1063). **In the current build the gate refuses every planner-built plan before its first step**
+  (`CheckNotEvaluableInThisBuild`, `crates/application/src/execution_gate.rs:684-693`, for that check and for
+  DP-051's four); no real plan reaches `SET_PRIMARY`. Slice 8's work order refused any package whose executable is
+  not named after it.
+- Change (planned, F-0 to F-3):
+  - **Layer 1 inside the run** (DP-047 (b)): `SET_PRIMARY` keeps its kind, carries **no command**, and carries a
+    decision — nothing to change, no executables, or refused with a reason per executable. The `TOOL` command and
+    `SET_PRIMARY`'s `PROVIDER_REPORTS_ACTIVE` are removed; the check is not dropped from the contract, it stays on
+    `VERIFY_DESTINATION`, where it is evaluable. `VERIFY_RESOLUTION` carries one `RESOLVES_TO` per executable,
+    naming the destination provider and package, evaluated by the executor from a fresh resolution (no new program,
+    no new spawn site) and unevaluable under `--replay` or `--from-snapshot` (INV-15). A removal is ordered after it.
+    Every refusal is before any install; `PRIMARY_NEEDS_SHIM` is a new `ErrorId`, exit 4. 05 "Layer 1 inside a run"
+    and 04 "Verification contract" are amended.
+  - **The executable list comes from provider metadata**, for formulae and active ports, through the two reads part
+    P staged and the owner applied (`port -q contents <port>`, `brew list --formula <formula>`; R-21, 2026-10-28):
+    the direct entries of the detected `bin` and `sbin`. The slice 8 refusal of a package not named after its
+    executable is **lifted for formulae and ports** and **kept for casks**, whose listing is not established
+    read-only (R-21, Cannot determine). An unknown list is refused `EXECUTABLES_UNKNOWN`, never replaced by the
+    package name; a name outside work order 16 §3 item 10's class makes the whole list unknown. Only a one-to-one
+    mapping is planned.
+  - **Check 3's expected executables are the source package's list** (04 amended): the executables the user runs
+    today. The destination's own list cannot be read before it is installed.
+  - **The decision rule is a MUST in 05** (Tier 3, this entry): per executable, from the captured resolution and
+    the snapshot's one `PATH`, steps 1–6 with a named reason for each refusal. Directory indices are compared
+    **only against the captured winner's**, the destination's directory from detection, relative or empty entries
+    ahead of it making the answer unpredictable, a different run-time `PATH` stated in the run record. This is not
+    the comparison of the two providers' `bin` indices the design notes rejected
+    (`docs/passes/08-pre-flip-design-notes.md`, "Slice 8 — Design"): the winner is read, so a system or user entry
+    that shadows a name is a refusal, not a misprediction. One refused executable refuses the package. **The one
+    Tier 4 choice inside it:** a system-won executable refuses the package although the user runs the system tool
+    today; leaving such executables out of the primary set is the recorded alternative.
+  - **`pathUsed`:** the plan carries the home-redacted `PATH` its decision read, so the plan the person confirms
+    covers it — the shown plan, or under `--yes` its digest (work order 16 part E-4, SE-111).
+    Its privacy limit is stated in 06: only the home directory and account name are redacted, every other entry is
+    kept because the rule reads them, and the value never enters `doctor --report`.
+  - **History, `history.v3`:** `primaryAfter` is what was observed to resolve, and `primaryExecutables` lists what
+    recognition checks; a v2 record still reads and is never recognised.
+- Rationale: DP-047 (b), confirmed by the owner on 2026-10-27, makes `COMPLETED` mean that the destination now
+  runs, with nothing written outside the providers.
+  - **Declared, not closed — the shadowing gap** (05): a source-list executable never newly shadows anything,
+    because a predicted win only displaces a provider's winner. An executable the destination ships beyond that list
+    is named where the destination is installed; where it is not, the install itself links everything it ships at
+    its own `PATH` position and can shadow system tools and other packages' names before anything verifies it.
+  - **Declared — `authoritative` means two things:** the registry's answer for MacPorts (`port -q provides`), and
+    for Homebrew the rule Homebrew itself applies, a path's real location inside a keg of its Cellar, because no
+    Homebrew read answers which keg owns a path (R-21 E-14). Both are treated as authoritative in part F; making
+    Homebrew's an owner query is part H's (`EXECUTABLES_OWNED_BY_DESTINATION`).
+  - **Declared — what part F reaches.** Under DP-055 (a) an uninstalled destination is refused
+    `PRIMARY_DESTINATION_NOT_INSTALLED`, and an installed, linked destination ahead of the winner would already be
+    the winner, so the predicted-win branch (`d < w`) is effectively unreachable. `COMPLETED` comes only where the
+    destination already holds the package and already wins; part F does not migrate a primary to a destination it
+    installs. A real plan's `COMPLETED` also waits on part H (DP-051): until then it halts at
+    `VERIFY_DESTINATION`.
+  - **INV-17.** One type, one pair of reads, one planner rule and one refusal set for both providers. On the captured
+    machine (`fixtures/snapshots/both-providers-intel-macos26-live.json`, 2026-10-28), the expected combined outcome
+    is: toward Homebrew, a package Homebrew already holds and wins (`htop`) completes with nothing to change; toward
+    MacPorts the same package is refused `PRIMARY_NEEDS_SHIM`, because `/usr/local/bin` (index 6) precedes
+    `/opt/local/bin` (25); a name `/usr/bin` wins (`m4`) is refused `NON_PROVIDER_ENTRY_WINS` both ways; and a
+    destination not yet installed is refused `PRIMARY_DESTINATION_NOT_INSTALLED` both ways. The `PATH`-order
+    asymmetry is **DP-047's, a ruling confirmed by the owner**, answered by consented layer 4 in part I; the
+    uninstalled-destination refusal is **DP-055's**, open, default (a). Neither is settled by the agent;
+    `spec-guardian`'s view is advisory.
+- Evidence: R-21 (2026-10-28) findings 1–2 and 5, the Refused and Cannot determine tables; the captured
+  `fixtures/snapshots/both-providers-intel-macos26-live.json` (`PATH` index 6 for `/usr/local/bin`, 10 for
+  `/usr/bin`, 25 for `/opt/local/bin`; `m4` resolving to `/usr/bin/m4` with owner `UNKNOWN`); Homebrew `m4` and
+  `ncurses` `keg_only: true` in `fixtures/recordings/both-providers-intel-macos26.json` (captured 2026-09-07);
+  `docs/passes/16-plans/F.md` and its Reviews; R-24 (`docs/spec/09-research-checklist.md`, open).
+- User impact: a plan that needs a shim, whose name a non-provider entry wins, or whose destination is not installed
+  is refused before anything is installed, with the executable and the reason; the user is told to check
+  `command -v` and `hash -r` in their own shell.
+- Architectural impact: a provider-neutral `ExecutableList`, `Placement` and `ExecutableName` in `domain`; a
+  `ProviderRead` method; capture keeps today's per-provider resolution map and adds an environment-level one with an
+  explicit state per name; a `PrimaryDecision` on `SET_PRIMARY`; `VerificationCheck::ResolvesTo`;
+  `Disposition::NothingToChange`; a `ResolutionSite` in the shell; four gate refusals, one narrow change to
+  `VerificationAssertsNothing`, and `SET_PRIMARY` leaving the steps the planner writes commands on.
+- Compatibility impact: `snapshot.v1` additive (two metadata fields and an environment map), with one tightening — a
+  snapshot whose executable names fail the name class, or whose two resolution maps disagree, no longer loads;
+  `plan.v1` additive (the `primary` decision) with one tightening — a `SET_PRIMARY` with a command, or a plan with no
+  decision, is refused, and the refusal reasons above join its open set; `history.v3`; `migrate.v1.md` gains the
+  refusal values and the new exit-4 `PRIMARY_NEEDS_SHIM`, which also joins `docs/schemas/README.md`'s exit-code
+  table; 06's `snapshot` synopsis gains positionals.
 
 # Policy, output and quality
 
@@ -7523,6 +7620,13 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
     `VERIFY_RESOLUTION`, which this build does not perform (SE-036 layer 4 does
     not exist; no evaluation), so a real run ends `PARTIAL` and only a narrowed
     plan reaches `COMPLETED`; the flip proposal inherits it.
+- **Addendum, 2026-11-01 (work order 16 part F-0).** SE-112 plans the closure,
+  for plans that use **no shim**, of S6's "Not closed" (2) — re-run recognition
+  after a retained-source run — and of S8 D3 (`PRIMARY_IS_SHIM` on every real
+  re-run): `SET_PRIMARY` loses its command, `VERIFY_RESOLUTION` gains
+  `RESOLVES_TO` per executable, and recognition checks every recorded executable
+  (`history.v3`). Both stay open for shim plans until part I. The "Carried,
+  declared" item above is closed by part F-3 when it lands; until then it stands.
 
 ## SE-093 — Fewer prompts for the ordinary work of a pass; the controls unchanged
 - Status: accepted — the permission change built in-session; the three changes the harness refused applied by the owner from a terminal the same day (below)

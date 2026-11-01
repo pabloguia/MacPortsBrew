@@ -84,6 +84,35 @@ recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
 Checks 2 to 5 are DP-051's and stay unevaluable until work order 16 part H.
 
+**MUST** (part F, work order 16, not built; SE-112). **Check 3's "expected
+executables" are the source package's executable list** — the executables the
+user runs from the source today, read from the provider's own file list of the
+installed package, never assumed from the package's name. Check 4's "each
+primary executable" is the same list: one probe per executable, or a recorded
+skip. A package whose list is unknown is refused `EXECUTABLES_UNKNOWN` before any
+install. A package whose list was read and holds no executable has no primary to
+set: `SET_PRIMARY` then carries that decision and no command, and no
+`VERIFY_RESOLUTION` follows. An executable the destination does not ship is
+refused before any install: `DESTINATION_LACKS_EXECUTABLE` where the destination
+is installed and its list is read, `PRIMARY_DESTINATION_NOT_INSTALLED` where it
+is not (DP-055 (a)). `VERIFY_RESOLUTION`, and check 3 once part H evaluates it,
+are the backstop: a miss either finds ends the run partial with the source kept
+(INV-03). Until part F is built, the planner still names the package where
+checks 3 and 4 mean executables.
+
+**MUST** (part F, work order 16, not built; SE-112). **`VERIFY_RESOLUTION`
+asserts, for every executable on that list, that a fresh resolution of the name
+is owned by the destination provider's destination package, and the owner
+answer is authoritative.** "Authoritative" is the provider's registry answer for
+MacPorts (`port -q provides`), and for Homebrew the rule Homebrew itself applies
+— the path's real location inside a keg of its Cellar — because no Homebrew read
+answers which formula owns a path (R-21, 2026-10-28, E-14); replacing that rule
+with an owner query is part H's. It is evaluated by the executor from a
+resolution of the name and the owning provider's answer — no new program and no
+new spawn site — and is unevaluable, never a pass, under `--replay` or
+`--from-snapshot` (INV-15). A removal is never ordered before it. A run that
+changes no primary has none to revert on restore.
+
 **MUST.** A failed verification means the source package is not touched (INV-01)
 and the run reports failure with the specific check that failed.
 
