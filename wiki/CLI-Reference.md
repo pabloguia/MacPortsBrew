@@ -83,8 +83,14 @@ provider command is run.
 | `--retain-source` | Keep the source package after migration |
 | `--yes` | Put the plan to the execution gate instead of only showing it. Nothing in this build prompts |
 | `--dry-run` | Show the plan and run nothing. Wins over `--yes` |
+| `--plan-digest <DIGEST>` | With `--yes`: go on only if `<DIGEST>` is the digest of the plan about to run, as `migrate` printed it. Any other digest stops before the gate (exit **4**, nothing on stdout); a malformed one, or one without `--yes`, is a usage error (exit **2**) |
 
-Without `--yes` it prints the plan as `plan` does. With `--yes` it prints the
+Without `--yes` it prints the plan as `plan` does, followed by the plan's
+digest (`sha256:` and 64 hexadecimal digits; `planDigest` in `--json`). A
+script that wants to run exactly the plan it showed passes that digest back with
+`--yes --plan-digest`; a plan that changed in between is refused. The digest is
+valid only for the same version of MacPortsBrew, and it fingerprints the plan
+before home paths are hidden, so leave it out of anything you publish. With `--yes` it prints the
 plan and the gate's refusals, one line per reason the gate refuses, and exits
 **4** — for every plan this build produces. `--yes` with `--from-snapshot`
 exits **2** before any output: a snapshot file records nothing an execution

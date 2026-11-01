@@ -29,6 +29,17 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- `migrate --json` now writes `planDigest`, and `migrate` (rendered) prints
+  it after the plan: `sha256:` and 64 lowercase hexadecimal digits, taken over
+  the plan itself with the build's version in the input. `migrate --yes
+  --plan-digest <d>` runs only the plan whose digest is `<d>`, so a script
+  runs exactly the plan it was shown; any other digest stops before the gate
+  with `PLAN_NOT_SHOWN` (exit 4) and nothing on stdout, in every build. A
+  malformed digest, or `--plan-digest` without `--yes`, is a usage error
+  (exit 2). The digest fingerprints unredacted data: remove it before
+  publishing a document. New dependency: `sha2` (RustCrypto, `MIT OR
+  Apache-2.0`), which brings eight small crates, `libc` among them on Apple
+  Silicon only (ADR-0007, SE-110, SE-111).
 - `migrate --yes`, once a build dispatches mutations: the plan the gate cleared
   is shown on standard error and runs only after a person types
   `run plan <code>`; `--yes` never answers that question. New error

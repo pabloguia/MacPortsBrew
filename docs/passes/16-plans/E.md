@@ -1102,6 +1102,58 @@ prints no pass lines). Twenty-five other tests fail, wider than the flip
 tripwires alone: the gate-refusal tests, the documented-sample check and the
 replay invariants also pin the switch. Part J flips it and owns that list.
 
+## As built (E-4)
+
+- **P/01 first.** The owner applied it (`4a64aa0`, PR #50); `git apply --reverse
+  --check docs/passes/16-staged/P/01-licences-libc.patch` succeeds on
+  `origin/main`, §10's gate.
+- **The dependency.** `sha2 = { version = "0.11.1", default-features = false }`
+  in `[workspace.dependencies]`, used by `crates/application` alone. Measured
+  again with `cargo tree -e normal,build --target <t>`: §0.1's set, with
+  `cfg-if` at 1.0.4 (already in the lock file) rather than 1.0.5; `libc`
+  0.2.191 only under `cpufeatures` on `aarch64-apple-darwin`.
+  `scripts/check-deployment-target.sh`: 10.12 (x86_64) and 11.0 (arm64) for
+  both binaries, unchanged. ADR-0007 accepted, ADR-0006's status line and the
+  spec index updated, SE-110 accepted.
+- **`PlanDigest`** in `plan_tie.rs` as §3 specifies, with `Display` and a
+  `Serialize` that writes the string; no public constructor from bytes (R9).
+  `tie(run, echoed) -> Result<ShownPlan, DomainError>` answers
+  `PLAN_NOT_SHOWN` itself, so §3's `PlanNotShown` error type is folded into
+  the `DomainError` the E-2 run loop already uses.
+- **`migrate`.** `--plan-digest <DIGEST>` on the `migrate` subcommand;
+  `check_plan_digest` runs in `run_inner` before the context is built, so a
+  malformed digest or one without `--yes` is `USAGE` with nothing printed,
+  in every mode. `migrate_with` calls `tie` on the plan after the
+  `--retain-source` re-plan, in `EXECUTE` mode, whatever the allowance; the
+  witness goes to `execute_mutating`, which uses it instead of
+  `confirm_the_plan`. `planDigest` is written whenever `plan` is (both modes,
+  not only `RENDER`: the matched `EXECUTE` document carries the digest it was
+  matched against), and the human rendering prints it in `RENDER` mode and on
+  the interactive confirmation screen (`migrate.plan_digest`, both locales).
+  The no-terminal refusal now names `--plan-digest`.
+- **Tripwires.** `the_switch_needs_the_executed_plan_tied_to_the_one_shown`
+  lost its failing-on-flip assertion and gained "`migrate` ties, with `?`,
+  before `execute_mutating(`"; the minting scan
+  (`a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_module`)
+  holds `tie(` to `migrate.rs` and `PlanDigest(` to `plan_tie.rs`.
+- **Tests** as §Tests' E-4 list, with these differences:
+  `plan_digest_is_stable_and_covers_every_field` covers `PlanCommand.placeholder`,
+  which §Tests did not list (the exhaustive destructuring found it);
+  `the_digest_is_of_the_plan_not_of_the_redacted_document` shows two plans that
+  differ only under a home, which redaction would make one document, digest
+  apart (the test crate has no SHA-256 to hash a document with); added
+  `a_plan_digest_reads_back_as_written_and_nothing_else` and
+  `invariant_17_a_digest_tie_behaves_alike_in_both_directions`, which closes
+  E-2's owed INV-17 item over the digest; R8's doctor check is
+  `a_doctor_report_never_carries_a_plan_digest`. The INV-15 test runs every
+  recording's every listed package toward the other provider, in parallel
+  processes, then the planned ones again; over a recording only rows that
+  declare a service plan (part D), so its planned set is small, and the
+  snapshot-file half covers both directions with commands.
+  `yes_requires_a_well_formed_plan_digest_when_mutations_dispatch` and
+  `yes_without_a_digest_asks_at_a_terminal_and_refuses_elsewhere` are switch-on
+  tests, run by the mutation subagent and never committed.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |

@@ -37,10 +37,10 @@ use macportsbrew_adapters::persistence::{snapshot_file_name, snapshot_store};
 use macportsbrew_adapters::process::{ExitStatus, Invocation};
 use macportsbrew_adapters::registry::{self, PlanReadError};
 use macportsbrew_application::{
-    clear, confirm_shown, evaluable_in_this_build, plan_run, AnalysisOptions,
+    clear, confirm_shown, evaluable_in_this_build, plan_run, tie, AnalysisOptions,
     ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
-    ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanRequest, PlannedRun,
-    Precondition, RunOutcome, ShownPlan,
+    ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest,
+    PlannedRun, Precondition, RunOutcome, ShownPlan,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -2027,7 +2027,9 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
     // The witness of one direction's plan never covers the other's, either
     // way round, and each direction's own witness lets its run past the tie.
     // The program-token half is `each_re_check_is_made_for_the_program_it_is_spent_on`;
-    // the tie over every recording's plan is owed to E-4, with the digest.
+    // the tie over every recording's plan, by digest across two processes, is
+    // `invariant_15_the_same_recording_gives_the_same_plan_digest` and
+    // `invariant_17_a_digest_tie_behaves_alike_in_both_directions`.
     let orientations = [
         (Direction::toward_homebrew(), Direction::toward_macports()),
         (Direction::toward_macports(), Direction::toward_homebrew()),
@@ -2055,6 +2057,358 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
                     read_back: setup.read_back,
                     observer: &seen,
                     shown: shown(&witness.cleared()),
+                },
+                &HomeRedaction::Recorded,
+            );
+            let not_shown = matches!(
+                &result,
+                Err(e) if e.id == macportsbrew_domain::ErrorId::PlanNotShown
+            );
+            assert_eq!(not_shown, refused, "{result:?}");
+            assert_eq!(seen.all().contains(&Boundary::Probed), !refused);
+        }
+    }
+}
+
+// --- work order 16 part E-4: the plan digest (DP-049 (a)) --------------------
+
+/// One edit per field of the plan, of one of its steps and of one of that
+/// step's commands, each named. The structs are destructured without `..`, so
+/// a field added to any of them fails to compile here until it is given an
+/// edit — and with it a check that the digest covers it.
+fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)> {
+    use macportsbrew_domain::{
+        CommandTarget, Elevation, EntryMode, MigrationStep, Outcome, PlanRisk, Reason,
+        VerificationCheck,
+    };
+    let MigrationPlan {
+        schema_version: _,
+        package: _,
+        source: _,
+        destination: _,
+        destination_package: _,
+        retain_source: _,
+        entered_by: _,
+        primary_after: _,
+        recommendation: _,
+        overrode: _,
+        steps: _,
+        risks: _,
+        elevated_steps: _,
+        policy_version: _,
+        dry_run_only: _,
+    } = plan;
+    let step = plan
+        .steps
+        .iter()
+        .position(|s| !s.commands.is_empty())
+        .expect("a step with a command");
+    let MigrationStep {
+        index: _,
+        kind: _,
+        provider: _,
+        commands: _,
+        verification: _,
+        reason: _,
+    } = &plan.steps[step];
+    let PlanCommand {
+        target: _,
+        program: _,
+        argv: _,
+        environment: _,
+        elevation: _,
+        success: _,
+        placeholder: _,
+    } = &plan.steps[step].commands[0];
+    let edit = |f: &dyn Fn(&mut MigrationPlan)| {
+        let mut p = plan.clone();
+        f(&mut p);
+        p
+    };
+    let other = |id: &ProviderId| ProviderId::new(if id.as_str() == HB { MP } else { HB });
+    let a_reason = || Reason {
+        rule: Some("an-edit".into()),
+        ..plan.steps[step].reason.clone()
+    };
+    let cmd = |f: &dyn Fn(&mut PlanCommand)| edit(&|p| f(&mut p.steps[step].commands[0]));
+    vec![
+        ("schemaVersion", edit(&|p| p.schema_version += 1)),
+        ("package", edit(&|p| p.package.name.push('x'))),
+        ("source", edit(&|p| p.source = other(&p.source))),
+        (
+            "destination",
+            edit(&|p| p.destination = other(&p.destination)),
+        ),
+        (
+            "destinationPackage",
+            edit(&|p| p.destination_package = Some("an-edit".into())),
+        ),
+        (
+            "retainSource",
+            edit(&|p| p.retain_source = !p.retain_source),
+        ),
+        (
+            "enteredBy",
+            edit(&|p| {
+                p.entered_by = Some(if p.entered_by == Some(EntryMode::Named) {
+                    EntryMode::Advanced
+                } else {
+                    EntryMode::Named
+                });
+            }),
+        ),
+        (
+            "primaryAfter",
+            edit(&|p| p.primary_after = other(&p.primary_after)),
+        ),
+        (
+            "recommendation",
+            edit(&|p| {
+                p.recommendation = Outcome::Keep {
+                    provider: ProviderId::new("an-edit"),
+                };
+            }),
+        ),
+        (
+            "overrode",
+            edit(&|p| {
+                p.overrode = Some(Outcome::Keep {
+                    provider: ProviderId::new("an-edit"),
+                });
+            }),
+        ),
+        ("steps", edit(&|p| drop(p.steps.pop()))),
+        (
+            "risks",
+            edit(&|p| {
+                p.risks.push(PlanRisk {
+                    id: "an-edit".into(),
+                    reason: a_reason(),
+                    blocking: false,
+                });
+            }),
+        ),
+        ("elevatedSteps", edit(&|p| p.elevated_steps.push(99))),
+        ("policyVersion", edit(&|p| p.policy_version.push('x'))),
+        ("dryRunOnly", edit(&|p| p.dry_run_only = !p.dry_run_only)),
+        ("steps[].index", edit(&|p| p.steps[step].index += 100)),
+        (
+            "steps[].kind",
+            edit(&|p| {
+                p.steps[step].kind = if p.steps[step].kind == StepKind::RecordHistory {
+                    StepKind::SnapshotBefore
+                } else {
+                    StepKind::RecordHistory
+                };
+            }),
+        ),
+        (
+            "steps[].provider",
+            edit(&|p| p.steps[step].provider = Some(ProviderId::new("an-edit"))),
+        ),
+        (
+            "steps[].commands",
+            edit(&|p| p.steps[step].commands.clear()),
+        ),
+        (
+            "steps[].verification",
+            edit(&|p| {
+                p.steps[step]
+                    .verification
+                    .push(VerificationCheck::NoCrossProviderLinkage);
+            }),
+        ),
+        (
+            "steps[].reason",
+            edit(&|p| p.steps[step].reason = a_reason()),
+        ),
+        (
+            "steps[].commands[].target",
+            cmd(&|c| {
+                c.target = if c.target == CommandTarget::Tool {
+                    CommandTarget::Provider
+                } else {
+                    CommandTarget::Tool
+                };
+            }),
+        ),
+        ("steps[].commands[].program", cmd(&|c| c.program.push('x'))),
+        (
+            "steps[].commands[].argv",
+            cmd(&|c| c.argv.push("--an-edit".into())),
+        ),
+        (
+            "steps[].commands[].environment",
+            cmd(&|c| {
+                c.environment.insert("AN_EDIT".into(), "1".into());
+            }),
+        ),
+        (
+            "steps[].commands[].elevation",
+            cmd(&|c| {
+                c.elevation = Elevation::Required {
+                    reason: "an-edit".into(),
+                };
+            }),
+        ),
+        (
+            "steps[].commands[].success",
+            cmd(&|c| {
+                c.success = if c.success == SuccessSemantic::ExitStatus {
+                    SuccessSemantic::StdoutNamesPackage
+                } else {
+                    SuccessSemantic::ExitStatus
+                };
+            }),
+        ),
+        (
+            "steps[].commands[].placeholder",
+            cmd(&|c| c.placeholder = !c.placeholder),
+        ),
+    ]
+}
+
+#[test]
+fn plan_digest_is_stable_and_covers_every_field() {
+    for direction in [Direction::toward_homebrew(), Direction::toward_macports()] {
+        let plan = direction.plan_of(&direction.snapshot).plan().clone();
+        let digest = PlanDigest::of(&plan);
+        let again = direction.plan_of(&direction.snapshot).plan().clone();
+        assert_eq!(PlanDigest::of(&again), digest, "the same plan built twice");
+        for (field, edited) in every_field_edited(&plan) {
+            assert_ne!(edited, plan, "{field}: the edit changed nothing");
+            assert_ne!(PlanDigest::of(&edited), digest, "{field} is not digested");
+        }
+    }
+}
+
+#[test]
+fn plan_digest_is_pinned_for_a_fixed_plan() {
+    // The bytes of a fixed plan's digest: a `serde_json` or `sha2` bump, a
+    // dropped domain prefix or version, or a change to what is serialised
+    // fails here rather than in a script that saved a digest.
+    let direction = Direction::toward_homebrew();
+    let plan = direction.plan_of(&direction.snapshot).plan().clone();
+    assert_eq!(
+        PlanDigest::of(&plan).to_string(),
+        PINNED_DIGEST,
+        "the digest of a fixed plan moved (version {})",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+/// Taken from this build at version 0.1.0 and policy data as embedded on
+/// 2026-11-01. A version bump or a policy-data change moves it, deliberately:
+/// both are inside what is digested.
+const PINNED_DIGEST: &str =
+    "sha256:835d0640af49d8fb2b5eedddd11553aa5e6db5e0d47f3abd2cf1e100cd58e872";
+
+#[test]
+fn a_plan_digest_reads_back_as_written_and_nothing_else() {
+    let direction = Direction::toward_homebrew();
+    let digest = PlanDigest::of(direction.plan_of(&direction.snapshot).plan());
+    let written = digest.to_string();
+    assert_eq!(PlanDigest::parse(&written), Some(digest));
+    let hex = &written["sha256:".len()..];
+    for bad in [
+        String::new(),
+        hex.to_string(),
+        format!("SHA256:{hex}"),
+        format!("sha256:{}", hex.to_uppercase()),
+        format!("sha256:{}", &hex[1..]),
+        format!("sha256:{hex}0"),
+        format!(" {written}"),
+        format!("{written}\n"),
+        format!("sha256: {}", &hex[1..]),
+        format!("sha256:{}g", &hex[1..]),
+        format!("sha512:{hex}"),
+    ] {
+        assert_eq!(PlanDigest::parse(&bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn the_digest_is_of_the_plan_not_of_the_redacted_document() {
+    // Two plans that differ only under a home render the same document once
+    // the home is redacted; the digest, over the in-memory plan, tells them
+    // apart, so a digest can never vouch for a plan it was not taken of.
+    let direction = Direction::toward_homebrew();
+    let plan = direction.plan_of(&direction.snapshot).plan().clone();
+    let under = |user: &str| {
+        let mut p = plan.clone();
+        let step = p
+            .steps
+            .iter()
+            .position(|s| !s.commands.is_empty())
+            .expect("a command");
+        p.steps[step].commands[0]
+            .argv
+            .push(format!("/Users/{user}/file"));
+        p
+    };
+    assert_ne!(
+        PlanDigest::of(&under("alice")),
+        PlanDigest::of(&under("bob"))
+    );
+}
+
+#[test]
+fn a_shown_plan_cannot_be_minted_from_another_digest() {
+    for (direction, elsewhere) in [
+        (Direction::toward_homebrew(), Direction::toward_macports()),
+        (Direction::toward_macports(), Direction::toward_homebrew()),
+    ] {
+        let run = direction.plan_of(&direction.snapshot);
+        let own = PlanDigest::of(run.plan());
+        assert!(tie(&run, &own).expect("its own digest").covers(run.plan()));
+        let other = PlanDigest::of(elsewhere.plan_of(&elsewhere.snapshot).plan());
+        let refused = tie(&run, &other).expect_err("another plan's digest");
+        assert_eq!(refused.id, ErrorId::PlanNotShown);
+        assert_eq!(refused.exit_code(), 4);
+        for (field, edited) in every_field_edited(run.plan()) {
+            assert!(
+                tie(&run, &PlanDigest::of(&edited)).is_err(),
+                "a digest of the plan with {field} edited"
+            );
+        }
+    }
+}
+
+#[test]
+fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
+    // The digest route's witness lets its own run past the run loop's tie and
+    // no other, either way round — the same check the interactive witness
+    // passes in `invariant_17_the_tie_behaves_alike_in_both_directions`.
+    let orientations = [
+        (Direction::toward_homebrew(), Direction::toward_macports()),
+        (Direction::toward_macports(), Direction::toward_homebrew()),
+    ];
+    for (witnessed, direction) in orientations {
+        for (witness, refused) in [(&witnessed, true), (&direction, false)] {
+            let scratch = Scratch::new("digest-both");
+            let site = Site::exits(&scratch, 0);
+            let seen = Seen::default();
+            let setup = unchanged(&direction, &scratch);
+            let cleared = direction.cleared();
+            let witness_run = witness.cleared();
+            let digest = PlanDigest::of(witness_run.run().plan());
+            let tied = tie(witness_run.run(), &digest).expect("its own digest");
+            let plan = cleared.run().plan().clone();
+            let result = run_with_mutations(
+                &cleared,
+                || Reads(Box::leak(Box::new(plan))),
+                MutatingRun {
+                    live: setup.live,
+                    state: &scratch.state,
+                    euid: scratch.euid,
+                    start: scratch.start(),
+                    site: &site,
+                    recapture: &*setup.recapture,
+                    consent: &never_asked,
+                    reread: setup.reread,
+                    read_back: setup.read_back,
+                    observer: &seen,
+                    shown: tied,
                 },
                 &HomeRedaction::Recorded,
             );

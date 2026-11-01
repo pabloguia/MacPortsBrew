@@ -140,6 +140,10 @@ pub enum Command {
         /// Keep the source package after migration.
         #[arg(long)]
         retain_source: bool,
+        /// With --yes: run only the plan with this digest, as `migrate`
+        /// printed it (`sha256:` and 64 lowercase hex digits).
+        #[arg(long, value_name = "DIGEST")]
+        plan_digest: Option<String>,
     },
     /// Structural checks: prefixes, PATH order, leaked build variables.
     Doctor {
@@ -311,6 +315,15 @@ fn run_inner(
     {
         return Err(migrate::refuse_execution_from_a_snapshot_file());
     }
+    // A malformed or misplaced `--plan-digest` is a usage error in every mode,
+    // before anything is printed (work order 16 part E-4).
+    if let Some(Command::Migrate {
+        plan_digest: Some(digest),
+        ..
+    }) = &cli.command
+    {
+        migrate::check_plan_digest(cli, digest)?;
+    }
     // `history` reads this machine's own state directory and asks no provider,
     // so it takes no capture and builds no `Context`.
     if let Some(Command::History { action, limit }) = &cli.command {
@@ -472,6 +485,7 @@ fn run_inner(
             package,
             to,
             retain_source,
+            plan_digest,
         } => migrate::migrate(
             &ctx,
             cli,
@@ -480,6 +494,10 @@ fn run_inner(
                 to: macportsbrew_domain::ProviderId::new(to),
                 retain_source: *retain_source,
             },
+            plan_digest
+                .as_deref()
+                .map(|d| migrate::check_plan_digest(cli, d))
+                .transpose()?,
             &options(BTreeSet::new()),
             stdout,
             stderr,

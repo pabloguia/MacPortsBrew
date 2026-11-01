@@ -79,7 +79,7 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed; execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed: under `migrate --yes --plan-digest`, a digest that is not the plan's, in every build; otherwise execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | `USER_ABORTED` (a declined plan question, or a declined elevation question, which part E-3 wired and part J makes reachable; interactive only, not reachable in this build) |
 | 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |

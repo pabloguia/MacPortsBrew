@@ -808,6 +808,18 @@ pub fn retained_run_not_recognised(ctx: &Context, why: &NotRecognised) -> String
     out
 }
 
+/// `migrate`: the plan's digest, which `--yes --plan-digest` takes back to run
+/// exactly this plan (work order 16 part E-4, DP-049 (a)).
+pub fn plan_digest(ctx: &Context, digest: &macportsbrew_application::PlanDigest) -> String {
+    format!(
+        "\n{}\n",
+        ctx.messages.render(
+            "migrate.plan_digest",
+            &params(&[("digest", digest.to_string())])
+        )
+    )
+}
+
 /// `migrate` in render mode, after the plan: what would put it to the gate.
 pub fn render_only(ctx: &Context) -> String {
     format!("\n{}\n", label(ctx, "migrate.render_only"))

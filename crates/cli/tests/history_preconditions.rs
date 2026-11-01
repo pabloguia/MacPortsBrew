@@ -1524,19 +1524,14 @@ fn the_switch_needs_manual_review_for_an_unavailable_artifact() {
 /// part E, §6, E-2): the run loop refuses a plan the confirmation does not
 /// cover before it probes the history store or takes the lock; `migrate`
 /// confirms the plan after the gate and before the state directory, and hands
-/// the witness to the loop; and a `ShownPlan` is built in one file only. Until
-/// part E-4 one assertion still fails on a flip: DP-049 ruled both routes in,
-/// and the digest route (a) is not built.
+/// the witness to the loop; a `ShownPlan` is built in one file only; and both
+/// routes DP-049 ruled in are there: the interactive confirmation (b) and,
+/// since part E-4, the digest (a), tied in `migrate` before the plan reaches
+/// the run loop.
 #[test]
 fn the_switch_needs_the_executed_plan_tied_to_the_one_shown() {
     let violations = tie_violations(&executor_files());
     assert!(violations.is_empty(), "{violations:?}");
-    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
-    assert!(
-        !switch,
-        "DP-049 (a), `migrate --yes --plan-digest <d>`, is not built (work order 16 part E-4); \
-         remove this assertion in the change that builds it"
-    );
 }
 
 fn tie_violations(executor: &[SourceFile]) -> Vec<String> {
@@ -1579,6 +1574,16 @@ fn tie_violations(executor: &[SourceFile]) -> Vec<String> {
     }
     if !migrate.contains("crate::consent::confirm_plan(") {
         violations.push("migrate does not ask through consent::confirm_plan".to_string());
+    }
+    // DP-049 (a): the digest is tied, its failure propagated, before the plan
+    // is handed to the run loop.
+    match (
+        migrate.find("Some(tie(&planned, &echoed)?)"),
+        migrate.rfind("execute_mutating("),
+    ) {
+        (Some(tie), Some(run)) if tie < run => {}
+        _ => violations
+            .push("migrate does not tie --plan-digest to the plan before executing it".to_string()),
     }
     match body.find("executor::MutatingRun {") {
         Some(i) => {

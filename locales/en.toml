@@ -368,6 +368,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "migrate.history_not_recognised.destination_not_active" = "History shows run {run} completed this migration, but what was read now does not show the destination holding the package active, so it is planned again."
 "migrate.history_not_recognised.primary_is_shim" = "History shows run {run} completed this migration, but the command now runs through MacPortsBrew's own shim, and this version cannot yet tell which provider a shim points at. It is planned again rather than reported done."
 "migrate.history_not_recognised.primary_not_confirmed" = "History shows run {run} completed this migration, but what was read now does not show the command running from the provider that run made primary, so it is planned again."
+"migrate.plan_digest" = "Plan digest: {digest}. To run exactly this plan, add --yes --plan-digest {digest}; a plan that has changed since is refused."
 "migrate.render_only" = "Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces."
 "migrate.execution_heading" = "Execution"
 "migrate.outcome.completed" = "Every step was carried out and every check passed."

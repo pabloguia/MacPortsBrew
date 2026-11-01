@@ -1,6 +1,9 @@
 # ADR-0006 — No `libc`, and the timeout kills one process rather than a group
 
-- **Status:** accepted
+- **Status:** accepted; superseded **for the `sha2` dependency and the lock
+  probe only** by [ADR-0007](0007-sha2-and-the-lock-probe-mechanism.md)
+  (2026-11-01). Everything else here stands: the timeout kills one process, and
+  nothing in `crates/adapters/src/process/` uses `libc`.
 - **Date:** 2026-09-04
 - **Pass:** 02-ARCHITECTURE-REVIEW
 

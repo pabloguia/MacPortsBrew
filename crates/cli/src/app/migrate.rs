@@ -45,6 +45,9 @@
 //! person was shown and confirmed (`plan.v1.md`, obligation 8): after the
 //! gate clears it, the plan is shown on standard error and `run plan <code>`
 //! is asked for; the run loop refuses a plan the confirmation does not cover.
+//! A script names the plan it was shown instead, with `--plan-digest`: the
+//! digest `migrate` printed must be the plan's, checked in every build before
+//! the gate (work order 16 part E-4, DP-049 (a)), and then nobody is asked.
 //! `--yes` means "execute" and never answers a question. Without an
 //! allowance (this build) the read-only loop runs and nobody is asked.
 //!
@@ -61,10 +64,10 @@ use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    clear, migration_key, migration_start, mutation_allowance, plan_question_error,
+    clear, migration_key, migration_start, mutation_allowance, plan_question_error, tie,
     AnalysisOptions, ConsentDecision, ElevationRequest, GateClear, HistoryConsultation,
-    MigrationStart, MutationAllowance, NotRecognised, PlanRequest, PlannedRun, RunOutcome,
-    ShownPlan, StepRecord,
+    MigrationStart, MutationAllowance, NotRecognised, PlanDigest, PlanRequest, PlannedRun,
+    RunOutcome, ShownPlan, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
@@ -111,6 +114,25 @@ pub fn refuse_execution_from_a_snapshot_file() -> DomainError {
     )
 }
 
+/// `--plan-digest`, checked before anything is built or printed (work order 16
+/// part E-4): well formed, and given with `--yes`. With `--yes --dry-run` it is
+/// parsed and otherwise unused, as `--dry-run` wins.
+pub fn check_plan_digest(cli: &Cli, text: &str) -> Result<PlanDigest, DomainError> {
+    if !cli.yes {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            "--plan-digest is used only with --yes: it names the plan --yes may run",
+        ));
+    }
+    PlanDigest::parse(text).ok_or_else(|| {
+        DomainError::new(
+            ErrorId::Usage,
+            "--plan-digest takes the digest as migrate printed it: `sha256:` and 64 lowercase \
+             hexadecimal digits",
+        )
+    })
+}
+
 /// `migrate.v1`'s document.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -129,6 +151,10 @@ struct Document<'a> {
     retained_run_not_recognised: Option<NotRecognisedDoc<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     plan: Option<&'a MigrationPlan>,
+    /// The plan's digest, which `--yes --plan-digest` takes back (work order
+    /// 16 part E-4). A fingerprint of unredacted data. Additive to v1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plan_digest: Option<PlanDigest>,
     /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<super::PlanWarning>,
@@ -220,12 +246,16 @@ pub(super) fn state_and_user(ctx: &Context) -> Result<(StateDir, u32), DomainErr
 /// captured again and re-planned under the lock — history read again there too
 /// (slice 4 review, N9) — and the configuration re-read through the registry,
 /// whose re-detected prefix must derive each step's planned program (D7).
+// One parameter per thing the run is made of; bundling them into a struct
+// would only rename the list.
+#[allow(clippy::too_many_arguments)]
 fn execute_mutating(
     ctx: &Context,
     request: &PlanRequest,
     options: &AnalysisOptions,
     planned: PlannedRun,
     allowance: MutationAllowance,
+    tied: Option<ShownPlan>,
     registry: &macportsbrew_adapters::registry::RegistryContext<'_>,
     stderr: &mut dyn Write,
 ) -> Result<RunReport, DomainError> {
@@ -244,9 +274,13 @@ fn execute_mutating(
         // review, security 5).
         Err((_, report)) => return Ok(executor::refused_report(&report, &ctx.redaction)),
     };
-    // Only a plan the gate cleared is shown and confirmed (E plan, R1), and
-    // before the state directory is touched.
-    let shown = confirm_the_plan(ctx, &cleared, stderr)?;
+    // The script route's witness, minted from the digest before the gate; or
+    // else the interactive route, where only a plan the gate cleared is shown
+    // and confirmed (E plan, R1). Both before the state directory is touched.
+    let shown = match tied {
+        Some(shown) => shown,
+        None => confirm_the_plan(ctx, &cleared, stderr)?,
+    };
     let (state, euid) = state_and_user(ctx)?;
     let ids = macportsbrew_adapters::registry::known_provider_ids();
     let recapture = || {
@@ -315,7 +349,11 @@ fn confirm_the_plan(
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut code = macportsbrew_adapters::entropy::fresh_bytes;
-    let render = |plan: &MigrationPlan| human::plan(ctx, plan);
+    // The digest is shown with the plan, so what a person confirms here is
+    // what a script would pin (work order 16 part E-4).
+    let render = |plan: &MigrationPlan| {
+        human::plan(ctx, plan) + &human::plan_digest(ctx, &PlanDigest::of(plan))
+    };
     let shown = crate::consent::confirm_plan(
         cleared,
         &render,
@@ -414,11 +452,12 @@ pub fn migrate(
     ctx: &Context,
     cli: &Cli,
     request: &PlanRequest,
+    digest: Option<PlanDigest>,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
-    migrate_with(ctx, cli, request, options, stdout, stderr, &|key| {
+    migrate_with(ctx, cli, request, digest, options, stdout, stderr, &|key| {
         read_history(ctx, key)
     })
 }
@@ -434,10 +473,13 @@ pub fn migrate(
 /// refusal, a manual review and *nothing to move* never touch it, so a stray
 /// file in the store blocks nothing else (pass 08 plan, L5). A dry run does
 /// read it, so that what it shows is what `--yes` would do (D5, SE-092).
+// `migrate`'s own arguments plus the history seam its tests replace.
+#[allow(clippy::too_many_arguments)]
 fn migrate_with(
     ctx: &Context,
     cli: &Cli,
     request: &PlanRequest,
+    digest: Option<PlanDigest>,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -499,6 +541,7 @@ fn migrate_with(
                     retained_run_done: None,
                     retained_run_not_recognised: None,
                     plan: None,
+                    plan_digest: None,
                     warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
@@ -539,6 +582,7 @@ fn migrate_with(
                     }),
                     retained_run_not_recognised: None,
                     plan: None,
+                    plan_digest: None,
                     warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
@@ -561,6 +605,14 @@ fn migrate_with(
             return Ok(0);
         }
         MigrationStart::Run(planned, note) => (planned, note),
+    };
+    // The script route (DP-049 (a)): the digest is checked against the plan
+    // `--yes` would run — after the `--retain-source` re-plan — whatever the
+    // allowance, so a plan changed since it was shown stops here with stdout
+    // empty (R2), and the check is exercised in this build.
+    let tied = match (mode, digest) {
+        (Mode::Execute, Some(echoed)) => Some(tie(&planned, &echoed)?),
+        _ => None,
     };
     let note_doc = note.as_ref().map(not_recognised);
     // DP-037: shown before anything runs, never after (security-reviewer,
@@ -589,6 +641,7 @@ fn migrate_with(
                     options,
                     (*planned).clone(),
                     allowance,
+                    tied,
                     &registry,
                     stderr,
                 )?,
@@ -596,6 +649,7 @@ fn migrate_with(
         }
     };
     let plan = planned.plan();
+    let digest = PlanDigest::of(plan);
     if cli.json {
         let doc = Document {
             schema_version: MIGRATE_SCHEMA_VERSION,
@@ -604,6 +658,7 @@ fn migrate_with(
             retained_run_done: None,
             retained_run_not_recognised: note_doc,
             plan: Some(plan),
+            plan_digest: Some(digest),
             warnings: super::plan_warnings(plan),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
@@ -615,7 +670,10 @@ fn migrate_with(
         }
         write!(stdout, "{}", human::plan(ctx, plan)).map_err(io)?;
         match &report {
-            None => write!(stdout, "{}", human::render_only(ctx)).map_err(io)?,
+            None => {
+                write!(stdout, "{}", human::plan_digest(ctx, &digest)).map_err(io)?;
+                write!(stdout, "{}", human::render_only(ctx)).map_err(io)?;
+            }
             Some(report) => {
                 write!(stdout, "{}", human::run_report(ctx, plan, report)).map_err(io)?;
             }

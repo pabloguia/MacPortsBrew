@@ -1489,16 +1489,32 @@ fn a_consent_code_is_made_only_from_fresh_bytes_in_the_consent_modules() {
 #[test]
 fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_module() {
     // Work order 16 part E, R9: `confirm_shown` is called only by the
-    // command-line crate's consent prompt, nothing outside `plan_tie.rs`
-    // builds or implements a trait for `ShownPlan`, and it derives `Debug`
-    // alone — no `Clone`, no `Default`, never read from a file.
+    // command-line crate's consent prompt and `tie` (E-4) only by `migrate`;
+    // nothing outside `plan_tie.rs` builds or implements a trait for
+    // `ShownPlan` or builds a `PlanDigest` from bytes; and `ShownPlan` derives
+    // `Debug` alone — no `Clone`, no `Default`, never read from a file.
     let crates = root().join("crates");
     let home = crates.join("application/src/plan_tie.rs");
     let prompt = crates.join("cli/src/consent.rs");
+    let migrate = crates.join("cli/src/app/migrate.rs");
+    // `tie(` as a whole word: not the tail of another identifier.
+    let calls_tie = |text: &str| {
+        text.match_indices("tie(").any(|(i, _)| {
+            !text[..i]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+    };
     for (path, text) in product_sources() {
         let file = path.display();
         if path != home {
-            for banned in ["ShownPlan {", "for ShownPlan"] {
+            for banned in [
+                "ShownPlan {",
+                "for ShownPlan",
+                "PlanDigest(",
+                "for PlanDigest",
+            ] {
                 assert!(!text.contains(banned), "{file}: {banned}");
             }
             if path != prompt {
@@ -1507,8 +1523,15 @@ fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_mo
                     "{file} calls confirm_shown"
                 );
             }
+            if path != migrate {
+                assert!(!calls_tie(&text), "{file} calls tie");
+            }
         }
     }
+    assert!(
+        calls_tie(&std::fs::read_to_string(&migrate).expect("migrate.rs")),
+        "migrate ties --plan-digest"
+    );
     let text = std::fs::read_to_string(&home).expect("plan_tie.rs");
     let derives: Vec<String> = attributes_above(&text, "pub struct ShownPlan {")
         .iter()
@@ -1727,4 +1750,45 @@ fn the_switch_needs_the_destination_contract_evaluable() {
     .map(String::from)
     .collect();
     assert_eq!(not_evaluable, dp_051);
+}
+
+#[test]
+fn no_workspace_crate_depends_on_libc_directly() {
+    // ADR-0007 (work order 16 part E-4): `libc` reaches the build only
+    // transitively, through `sha2` on Apple Silicon; part G admits it for
+    // `crates/adapters` alone, editing this test on purpose. And `sha2` is the
+    // application crate's alone: the domain stays `serde`-only.
+    let crates = root().join("crates");
+    let mut manifests = vec![root().join("Cargo.toml")];
+    for entry in std::fs::read_dir(&crates).expect("crates") {
+        let manifest = entry.expect("entry").path().join("Cargo.toml");
+        if manifest.exists() {
+            manifests.push(manifest);
+        }
+    }
+    assert!(
+        manifests.len() > 5,
+        "the scan saw every crate: {manifests:?}"
+    );
+    let names = |text: &str, key: &str| {
+        text.lines().any(|line| {
+            let line = line.trim();
+            !line.starts_with('#')
+                && line
+                    .strip_prefix(key)
+                    .is_some_and(|rest| rest.starts_with([' ', '=', '.']))
+        })
+    };
+    for path in &manifests {
+        let text = std::fs::read_to_string(path).expect("manifest");
+        assert!(!names(&text, "libc"), "{} names libc", path.display());
+        let application = path.ends_with("application/Cargo.toml");
+        let workspace = *path == root().join("Cargo.toml");
+        assert_eq!(
+            names(&text, "sha2"),
+            application || workspace,
+            "{}: sha2 belongs to the workspace table and the application crate",
+            path.display()
+        );
+    }
 }
