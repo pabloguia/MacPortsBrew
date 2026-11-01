@@ -162,6 +162,8 @@ struct Machine2 {
     hits: BTreeMap<String, String>,
     replay: bool,
     searched: RefCell<Vec<String>>,
+    /// How this machine redacts, and the capture with it.
+    home: HomeRedaction,
 }
 
 impl Machine2 {
@@ -174,6 +176,7 @@ impl Machine2 {
                 .collect(),
             replay: false,
             searched: RefCell::new(Vec::new()),
+            home: HomeRedaction::Known(HOME.into()),
         }
     }
 }
@@ -189,12 +192,12 @@ impl MachineRead for Machine2 {
         })
     }
     fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
-        let home = HomeRedaction::Known(HOME.into());
+        let home = &self.home;
         Ok(EnvironmentSnapshot {
             path: self
                 .path
                 .iter()
-                .map(|e| macportsbrew_domain::redact_home(e, &home))
+                .map(|e| macportsbrew_domain::redact_home(e, home))
                 .collect(),
             ..EnvironmentSnapshot::default()
         })
@@ -222,18 +225,14 @@ impl MachineRead for Machine2 {
     }
 }
 
-fn run(
-    machine: &dyn MachineRead,
-    providers: &[&Stub],
-    named: &[&str],
-) -> Result<Snapshot, DomainError> {
+fn run(machine: &Machine2, providers: &[&Stub], named: &[&str]) -> Result<Snapshot, DomainError> {
     capture(&CaptureContext {
         machine,
         providers: providers.iter().map(|p| *p as &dyn ProviderRead).collect(),
         policy_version: "test".into(),
         captured_at: "2026-11-01T00:00:00Z".into(),
         captured_by: "capture_executables.rs".into(),
-        home: HomeRedaction::Known(HOME.into()),
+        home: machine.home.clone(),
         environment_contracts: BTreeMap::new(),
         executables_for: named.iter().map(|n| (*n).to_string()).collect(),
     })
@@ -560,4 +559,85 @@ fn a_not_linked_reason_under_the_home_is_redacted() {
     assert!(!reason.contains(HOME), "{reason}");
     assert!(!reason.contains("someone"), "{reason}");
     assert!(reason.contains("~/bin/xz"), "{reason}");
+}
+
+#[test]
+fn a_path_entry_through_dot_dot_never_makes_a_live_capture_refuse_itself() {
+    // Security review of F-2b, M-1: `which` keeps a `..` entry as written, and
+    // the load rule refuses such a FOUND. Capture records the hit in neither
+    // map, so the snapshot loads and the name reads NOT_OBSERVED.
+    let first = Stub::new("first", "/opt/first", &["xz", "m4"]);
+    let machine = Machine2::live(
+        &["/opt/first/libexec/../bin", "/usr/bin"],
+        &[
+            ("xz", "/opt/first/libexec/../bin/xz"),
+            ("m4", "/usr/bin/m4"),
+        ],
+    );
+    let snapshot = run(&machine, &[&first], &[]).expect("the capture completes");
+    assert_eq!(
+        snapshot.resolution_of(&name("xz")),
+        ResolutionState::NotObserved
+    );
+    assert!(!snapshot.providers[&ProviderId::new("first")]
+        .resolutions
+        .contains_key("xz"));
+    assert!(matches!(
+        snapshot.resolution_of(&name("m4")),
+        ResolutionState::Found {
+            path_index: Some(1),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn an_index_that_redaction_makes_ambiguous_is_dropped_not_fatal() {
+    // Security review of F-2b, I-1: with the home unresolved, every
+    // `/Users/<name>` reads alike once redacted, so a correct index into the
+    // second home's `bin` would fail the load rule against the redacted
+    // copy. Capture records the hit with no index instead of aborting.
+    let first = Stub::new("first", "/opt/first", &["xz"]);
+    let mut machine = Machine2::live(
+        &["/Users/ada/bin", "/Users/bob/bin"],
+        &[("xz", "/Users/bob/bin/xz")],
+    );
+    machine.home = HomeRedaction::Unresolved;
+    let snapshot = run(&machine, &[&first], &[]).expect("the capture completes");
+    let recorded = &snapshot.environment.path;
+    assert_eq!(
+        recorded[0], recorded[1],
+        "the two entries read alike: {recorded:?}"
+    );
+    assert!(
+        matches!(
+            snapshot.resolution_of(&name("xz")),
+            ResolutionState::Found {
+                path_index: None,
+                ..
+            }
+        ),
+        "{:?}",
+        snapshot.resolution_of(&name("xz"))
+    );
+}
+
+#[test]
+fn the_selection_is_present_providers_installed_rows_with_metadata() {
+    // Security review of F-2b, L-2: the `snapshot` report and the reads come
+    // from one selection.
+    let first = Stub::new("first", "/opt/first", &["xz", "m4"]);
+    let mut absent = Stub::new("second", "/opt/second", &["xz"]);
+    absent.snap.detection.presence = macportsbrew_domain::ProviderPresence::Absent;
+    let mut bare = Stub::new("third", "/opt/third", &["xz"]);
+    bare.snap.inventory.metadata.clear();
+    let providers: BTreeMap<ProviderId, ProviderSnapshot> = [&first, &absent, &bare]
+        .iter()
+        .map(|p| (p.id.clone(), p.snap.clone()))
+        .collect();
+    let names: BTreeSet<String> = ["xz", "nosuch"].map(String::from).into();
+    assert_eq!(
+        macportsbrew_application::executables_selection(&providers, &names),
+        [(ProviderId::new("first"), "xz".to_string())].into()
+    );
 }

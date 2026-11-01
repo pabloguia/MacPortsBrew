@@ -166,11 +166,11 @@ both, which reads as not recorded.
 | `ExecutableList` | `{"state": "NOT_RECORDED"}` | Never asked. The default, and what an absent field reads as |
 | | `{"state": "UNKNOWN", "reason": REASON}` | Asked, and not established |
 | | `{"state": "KNOWN", "executables": [name...]}` | Asked and answered. **An empty `KNOWN` is a real answer** - the package ships no executable - and only a non-empty, fully parsed listing produces it |
-| `Placement` | `{"state": "ON_PATH_DIR", "dirs": {name: directory}}` | Each executable lands in the named directory, the provider's detected prefix joined with `bin` or `sbin` |
+| `Placement` | `{"state": "ON_PATH_DIR", "dirs": {name: directory}}` | The adapter states each executable lands in the named directory, the provider's detected prefix joined with `bin` or `sbin`; capture refuses the statement only where its own search of `PATH` contradicts it |
 | | `{"state": "NOT_LINKED", "reason": string}` | The provider keeps the package off its linked directories, in its own words |
 | | `{"state": "UNKNOWN", "reason": REASON}` | Not established. `UNKNOWN` with reason `NOT_RECORDED` is the default, and what an absent field reads as |
 
-**`REASON` is a union, untagged** (SG F-7): either an identifier the adapter
+**`REASON` is a union, untagged** (SE-112): either an identifier the adapter
 names - `NOT_RECORDED`, `NOT_INSTALLED`, `INACTIVE`, `CASK_NOT_COVERED`,
 `AMBIGUOUS_KEG`, `TOO_LARGE`, `NAME_CLASS`, `NOTHING_UNDER_PREFIX`,
 `AMBIGUOUS_DIRECTORY`, `NOT_LINKED_UNESTABLISHED`,
@@ -180,7 +180,7 @@ names - `NOT_RECORDED`, `NOT_INSTALLED`, `INACTIVE`, `CASK_NOT_COVERED`,
 never collide (`no_reason_collides_with_an_error_id`), so the spelling alone
 says which. `CONTRADICTED_BY_RESOLUTION` is a placement reason only: the
 adapter placed an executable in a `PATH` entry and the capture's own search of
-`PATH` found it nowhere, or only further along (SR L-1). That is a
+`PATH` found it nowhere, or only further along (SE-112, F-2b addendum). That is a
 contradiction check, not a confirmation: a surviving `ON_PATH_DIR` is the
 adapter's statement. **Unlike `pathFindings`, a `REASON` this build does not
 know is refused on load** (the union has no catch-all); every value above is
@@ -223,14 +223,23 @@ and never read to decide while the environment map is present. A reader asks
   the path's parent, with no earlier entry equal to it, empty or relative (a
   `~/...` entry counts as absolute: it was redacted from one). The
   per-provider map's owner package is held to the name rule too.
+  **Capture never writes what this refuses:** a hit whose path fails the
+  captured-path rule (a `PATH` entry such as `/opt/x/libexec/../bin`) is
+  recorded in neither map, and an index that redaction would make ambiguous
+  (two homes that read alike once redacted) is recorded as absent. A machine's
+  own `PATH` shape never makes its capture refuse itself.
 - **Without it** - a document from before the field, or a capture that
   observed nothing - the per-provider answers are read with a fixed precedence
   per name: an authoritative provider owner, then a non-authoritative one, then
   a settled non-provider owner (`SYSTEM`, `EXTERNAL`, the shim), then
   `UNKNOWN`; ties by provider id. They carry no index, so they read as `FOUND`
-  with `pathIndex` absent.
+  with `pathIndex` absent. Each per-provider entry, with or without the PATH
+  map, is the resolution of its key, at a path whose leaf is the key, with an
+  owner provider the snapshot carries; its path is held to the display rule
+  (bounded, no control character), not the no-`..` one, because a build before
+  F-2b recorded a hit through a `.../bin/../bin` entry as `PATH` wrote it.
 
-**Compatibility (SG2-N6).** These rules tighten v1 for old documents: a v1
+**Compatibility (SE-112).** These rules tighten v1 for old documents: a v1
 snapshot that loaded before 2026-11-01 is now refused if it carries a bad
 executable name, an `executables` array no list backs, a placement no capture
 could write, or an environment map that disagrees with its per-provider one.

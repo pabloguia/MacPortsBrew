@@ -373,6 +373,32 @@ pub fn is_safe_captured_path(text: &str) -> bool {
     (text.starts_with('/') || text == "~" || text.starts_with("~/")) && path_is_sane(text)
 }
 
+/// Whether `index` is where a search of the recorded (redacted) `PATH`
+/// `entries` would have found `path`: the entry at `index` is `path`'s
+/// parent, component by component, and no earlier entry is that parent,
+/// empty, or relative. A home entry is `~/…` here, redacted from an absolute
+/// one, so it counts as absolute; redaction keeps every entry's position.
+///
+/// The load rule for `pathIndex` (F.md §3), and what capture checks before it
+/// records an index: two entries the machine kept apart can read alike once
+/// redacted, and capture then records no index rather than one this rule
+/// would refuse (security review of F-2b, I-1).
+#[must_use]
+pub fn recorded_index_holds(entries: &[String], index: u32, path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Some(at) = entries.get(index as usize) else {
+        return false;
+    };
+    let same = |entry: &str| Path::new(entry).components().eq(parent.components());
+    let absolute = |entry: &str| entry.starts_with('/') || entry == "~" || entry.starts_with("~/");
+    same(at)
+        && entries[..index as usize]
+            .iter()
+            .all(|e| absolute(e) && !same(e))
+}
+
 /// Cap on a name or version read out of a snapshot, matching what both
 /// adapters already impose on provider output.
 pub const MAX_COMPONENT_LEN: usize = 128;
@@ -993,20 +1019,75 @@ impl Snapshot {
     /// home entry is `~/…` here, redacted from an absolute one, so it counts
     /// as absolute; redaction keeps every entry's position.
     fn index_is_the_first_entry_of(&self, index: u32, path: &Path) -> bool {
-        let Some(parent) = path.parent() else {
-            return false;
+        recorded_index_holds(&self.environment.path, index, path)
+    }
+
+    /// The per-entry shape of a resolution, in either map (F.md §3; the
+    /// security review of F-2b, L-1): the path `PATH` produced is a captured
+    /// path whose leaf is `key`, the resolution is of `key`, and an owner
+    /// provider is one the snapshot carries, with a package that is a name.
+    /// Run on the per-provider map whether or not the PATH map is present, so
+    /// an older document that the precedence reads is held to it too.
+    ///
+    /// `path_rule` is the rule the path is held to. A PATH-map `FOUND` is held
+    /// to the captured-path rule (no `..`), because capture records no hit that
+    /// fails it. The per-provider map is held to the display rule only
+    /// (bounded, no control character): a build before F-2b recorded a hit
+    /// through a `.../bin/../bin` entry as `PATH` wrote it, and a snapshot that
+    /// build wrote must still load (`a_snapshot_cannot_turn_provider_metadata_into_a_flag_or_a_path`).
+    fn check_resolution_shape(
+        &self,
+        key: &str,
+        resolution: &Resolution,
+        path_rule: fn(&str) -> bool,
+    ) -> Result<(), crate::error::DomainError> {
+        let refuse = |detail: String| {
+            Err(crate::error::DomainError::new(
+                crate::error::ErrorId::SnapshotUnusable,
+                detail,
+            ))
         };
-        let entries = &self.environment.path;
-        let Some(at) = entries.get(index as usize) else {
-            return false;
+        let shown = || crate::text::escape_hostile(key);
+        if resolution.executable != key {
+            return refuse(format!(
+                "the resolution filed under {:?} is of {:?}",
+                shown(),
+                crate::text::escape_hostile(&resolution.executable)
+            ));
+        }
+        let Some(path) = resolution.path.as_deref() else {
+            return refuse(format!(
+                "the resolution of {:?} is found at no path",
+                shown()
+            ));
         };
-        let same = |entry: &str| Path::new(entry).components().eq(parent.components());
-        let absolute =
-            |entry: &str| entry.starts_with('/') || entry == "~" || entry.starts_with("~/");
-        same(at)
-            && entries[..index as usize]
-                .iter()
-                .all(|e| absolute(e) && !same(e))
+        let shaped =
+            path_rule(&path.to_string_lossy()) && path.file_name().is_some_and(|leaf| leaf == key);
+        let canonical = resolution
+            .canonical_path
+            .as_deref()
+            .is_none_or(|c| is_safe_provider_text(&c.to_string_lossy()));
+        if !shaped || !canonical {
+            return refuse(format!(
+                "the resolution of {:?} names a path no search of PATH writes",
+                shown()
+            ));
+        }
+        if let crate::resolution::ExecutableOwner::Provider { provider, package } =
+            &resolution.owner
+        {
+            if !self.providers.contains_key(provider)
+                || package
+                    .as_deref()
+                    .is_some_and(|p| !is_safe_provider_name(p))
+            {
+                return refuse(format!(
+                    "the resolution of {:?} names an owner this snapshot does not carry",
+                    shown()
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The resolution-map load rules (F.md §3, SG2-Q3): a document carrying
@@ -1029,6 +1110,13 @@ impl Snapshot {
                 detail,
             ))
         };
+        // The per-provider map's own entries, whether or not the PATH map is
+        // present: an older document is read through them by the precedence.
+        for provider in self.providers.values() {
+            for (key, resolution) in &provider.resolutions {
+                self.check_resolution_shape(key, resolution, is_safe_provider_text)?;
+            }
+        }
         let map = &self.environment.resolutions;
         if map.is_empty() {
             return Ok(());
@@ -1078,28 +1166,9 @@ impl Snapshot {
                     resolution,
                     path_index,
                 } => {
-                    if resolution.executable != name.as_str() {
-                        return refuse(format!(
-                            "the resolution filed under {name} is of {:?}",
-                            crate::text::escape_hostile(&resolution.executable)
-                        ));
-                    }
-                    // What `PATH` produced: a captured path whose leaf is the
-                    // name searched for, as a search writes it.
-                    let Some(path) = resolution.path.as_deref() else {
-                        return refuse(format!("the resolution of {name} is found at no path"));
-                    };
-                    let shaped = is_safe_captured_path(&path.to_string_lossy())
-                        && path.file_name().is_some_and(|leaf| leaf == name.as_str());
-                    let canonical = resolution
-                        .canonical_path
-                        .as_deref()
-                        .is_none_or(|c| is_safe_provider_text(&c.to_string_lossy()));
-                    if !shaped || !canonical {
-                        return refuse(format!(
-                            "the resolution of {name} names a path no search of PATH writes"
-                        ));
-                    }
+                    self.check_resolution_shape(name.as_str(), resolution, is_safe_captured_path)?;
+                    // Checked by the shape rule above: a path exists.
+                    let path = resolution.path.as_deref().unwrap_or(Path::new(""));
                     if let Some(index) = path_index {
                         if !self.index_is_the_first_entry_of(*index, path) {
                             return refuse(format!(
@@ -1109,17 +1178,7 @@ impl Snapshot {
                         }
                     }
                     let owner = match &resolution.owner {
-                        crate::resolution::ExecutableOwner::Provider { provider, package } => {
-                            if !self.providers.contains_key(provider)
-                                || package
-                                    .as_deref()
-                                    .is_some_and(|p| !is_safe_provider_name(p))
-                            {
-                                return refuse(format!(
-                                    "the resolution of {name} names an owner this snapshot does \
-                                     not carry"
-                                ));
-                            }
+                        crate::resolution::ExecutableOwner::Provider { provider, .. } => {
                             Some(provider)
                         }
                         _ => None,
@@ -2620,6 +2679,60 @@ mod tests {
                 ),
             );
         assert!(snapshot.check_resolutions().is_ok(), "listed, so searched");
+    }
+
+    #[test]
+    fn an_old_snapshots_resolutions_keep_their_shape_rule() {
+        // Security review of F-2b, L-1: with no PATH map the precedence reads
+        // the per-provider entries, so they are held to the shape rule too -
+        // the resolution is of its key, at a path whose leaf is the key, owned
+        // by a provider the snapshot carries. The path is held to the display
+        // rule, not the no-`..` one: a build before F-2b recorded a hit through
+        // a `.../bin/../bin` entry as PATH wrote it.
+        let with = |key: &str, r: Resolution| {
+            let mut s = two_providers();
+            s.providers
+                .get_mut(&ProviderId::new("first"))
+                .unwrap()
+                .resolutions
+                .insert(key.into(), r);
+            s
+        };
+        assert!(with("tool", found("first", "/opt/first/bin/tool", true))
+            .check_resolutions()
+            .is_ok());
+        assert!(
+            with("tool", found("first", "/opt/first/bin/../bin/tool", true))
+                .check_resolutions()
+                .is_ok(),
+            "an older capture through a `..` entry still loads"
+        );
+        for (what, snapshot) in [
+            (
+                "a resolution of another name",
+                with("other", found("first", "/opt/first/bin/other", true)),
+            ),
+            (
+                "a path whose leaf is another name",
+                with("tool", found("first", "/opt/first/bin/other", true)),
+            ),
+            (
+                "an owner provider the snapshot does not carry",
+                with("tool", found("ghost", "/opt/first/bin/tool", true)),
+            ),
+            (
+                "no path",
+                with(
+                    "tool",
+                    Resolution {
+                        path: None,
+                        ..found("first", "/x", true)
+                    },
+                ),
+            ),
+        ] {
+            assert!(snapshot.check_resolutions().is_err(), "{what} loaded");
+        }
     }
 
     #[test]

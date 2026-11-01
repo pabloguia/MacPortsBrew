@@ -187,9 +187,9 @@ pub enum Command {
         /// Where to write; defaults to the state directory.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
-        /// Installed packages whose executable lists to read as well. A name
-        /// only selects an installed row; one no provider holds is reported
-        /// and sends nothing.
+        /// Also read the executables these installed packages provide. A name
+        /// no provider has installed is reported and skipped. Not allowed with
+        /// --from-snapshot.
         #[arg(value_name = "PACKAGE")]
         packages: Vec<String>,
     },
@@ -578,21 +578,34 @@ fn run_inner(
             stderr,
         ),
         Command::Snapshot { out, packages } => {
-            // A name no inventory holds selected nothing, so nothing was sent
-            // for it; saying so is the 06 MUST (F.md §3, SR-13). Escaped: the
-            // string is the user's, and it reaches the terminal.
+            // Every name the capture did not read is reported, from the same
+            // selection the capture made (06 MUST, F.md SR-13; security review
+            // of F-2b, L-2): one no provider this run could read holds, and one
+            // that is installed but was not read. Escaped: the string is the
+            // user's, and it reaches the terminal.
+            let named: BTreeSet<String> = packages.iter().cloned().collect();
+            let selected =
+                macportsbrew_application::executables_selection(&ctx.snapshot.providers, &named);
             let installed: BTreeSet<String> = ctx
                 .snapshot
                 .providers
                 .values()
                 .flat_map(|p| p.inventory.installed_names())
                 .collect();
-            for name in packages.iter().filter(|n| !installed.contains(*n)) {
+            for name in &named {
+                if selected.iter().any(|(_, read)| read == name) {
+                    continue;
+                }
+                let key = if installed.contains(name) {
+                    "snapshot.package_not_read"
+                } else {
+                    "snapshot.package_not_installed"
+                };
                 let _ = writeln!(
                     stderr,
                     "{}",
                     ctx.messages.render(
-                        "snapshot.package_not_installed",
+                        key,
                         &[(
                             "package".to_string(),
                             macportsbrew_domain::escape_hostile(name)

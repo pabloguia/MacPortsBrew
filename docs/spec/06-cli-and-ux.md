@@ -202,7 +202,9 @@ like any other provider-derived text.
 **MUST** (part F-2b, work order 16, built; SE-112). `snapshot <package>...`
 uses each name only to select an installed row; the read is sent with the name the inventory
 recorded, a name no inventory holds sends nothing and is reported, and an
-argument that begins with `-` is never taken as a package. Naming a package to
+argument that begins with `-` is never taken as a package. Naming a package
+with `--from-snapshot` is refused: a snapshot file is read, not captured, so
+no list could be read for it. Naming a package to
 `snapshot` does not enter advanced mode: it is a capture, not a view or a
 destructive workflow (INV-13).
 

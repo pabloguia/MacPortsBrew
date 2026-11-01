@@ -1885,6 +1885,12 @@ change is made. Silent deviation remains the one unrecoverable error.
     usage error, since a file is read, not captured. The load rule also binds a `FOUND`'s own fields - its path's
     leaf, its owner, and a `pathIndex` re-checked against the recorded `PATH` - and refuses a map key no capture
     searches, so a hand-edited index cannot steer F-3's comparison.
+  - **A live capture never refuses its own machine.** Capture records no hit the load rule would refuse (a path
+    through a `..` entry, an over-long one, an owner package that is not a name) in either map, and drops an index
+    that redaction makes ambiguous rather than recording one the rule would refuse. The per-provider map's entries
+    are held to the shape rule whether or not the PATH map is present - of their key, at a path whose leaf is the
+    key, owned by a provider the snapshot carries - with the path under the display rule, not the no-`..` one,
+    because a build before F-2b wrote such a path and its snapshots must still load.
   - **A name `PATH` resolves but no provider will answer about** is recorded as not observed rather than `FOUND`
     with an invented owner, as the per-provider map has always left it out; so the two maps agree by construction.
   - **The older-document precedence** is `Resolution::rank`, the analysis's existing ranking (authoritative

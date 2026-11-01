@@ -8,6 +8,7 @@ use crate::TOOL_VERSION;
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::ProviderPresence;
 use macportsbrew_domain::{
+    is_safe_captured_path, is_safe_provider_name, is_safe_provider_text, recorded_index_holds,
     redact_home, DomainError, EnvironmentSnapshot, ErrorId, ExecutableList, ExecutableName,
     ExecutableOwner, HomeRedaction, ListReason, MachineRead, PathSearch, Placement, Provenance,
     ProviderId, ProviderRead, ProviderSnapshot, Resolution, ResolutionState, Snapshot,
@@ -66,26 +67,17 @@ fn read_executables(
     providers: &BTreeMap<ProviderId, ProviderSnapshot>,
 ) -> Result<Vec<ReadList>, DomainError> {
     let mut lists = Vec::new();
-    if ctx.executables_for.is_empty() {
-        return Ok(lists);
-    }
+    let selected = executables_selection(providers, &ctx.executables_for);
     for provider in &ctx.providers {
         let Some(snap) = providers.get(provider.id()) else {
             continue;
         };
-        if !matches!(snap.detection.presence, ProviderPresence::Present) {
-            continue;
-        }
         let mut seen = BTreeSet::new();
         for row in &snap.inventory.installed {
             let name = &row.identity.name;
-            if !ctx.executables_for.contains(name) || !seen.insert(name.clone()) {
-                continue;
-            }
-            // A list is filed on the row's metadata, so a row without one
-            // could not keep it: no read is sent for it (spec-guardian L-4).
-            // Every installed row any adapter writes has one.
-            if !snap.inventory.metadata.contains_key(name) {
+            if !selected.contains(&(provider.id().clone(), name.clone()))
+                || !seen.insert(name.clone())
+            {
                 continue;
             }
             let (list, placement) = provider.executables(&row.identity)?;
@@ -93,6 +85,59 @@ fn read_executables(
         }
     }
     Ok(lists)
+}
+
+/// The rows a capture reads the executable list of, for `names`: per
+/// provider that is present, each installed row of a named package that has a
+/// metadata entry to file the list on (a row without one could not keep it, so
+/// no read is sent for it; every installed row any adapter writes has one).
+///
+/// Public because the `snapshot` command reports what it did with each name
+/// from this same selection, so the report cannot drift from the reads
+/// (security review of F-2b, L-2).
+#[must_use]
+pub fn executables_selection(
+    providers: &BTreeMap<ProviderId, ProviderSnapshot>,
+    names: &BTreeSet<String>,
+) -> BTreeSet<(ProviderId, String)> {
+    let mut selected = BTreeSet::new();
+    if names.is_empty() {
+        return selected;
+    }
+    for (id, snap) in providers {
+        if !matches!(snap.detection.presence, ProviderPresence::Present) {
+            continue;
+        }
+        for row in &snap.inventory.installed {
+            let name = &row.identity.name;
+            if names.contains(name) && snap.inventory.metadata.contains_key(name) {
+                selected.insert((id.clone(), name.clone()));
+            }
+        }
+    }
+    selected
+}
+
+/// Whether a hit at `path`, answered `r`, is one the snapshot's load rule
+/// accepts once redacted: the path a captured path (absolute or `~/`-rooted,
+/// bounded, no `..`, no control character), a canonical path printable, and an
+/// owner package a provider name. A hit that fails is recorded in neither map
+/// (security review of F-2b, M-1), so a machine's own `PATH` shape - an entry
+/// such as `/opt/x/libexec/../bin` - can never make its capture refuse itself.
+fn recordable(r: &Resolution, path: &Path, home: &HomeRedaction) -> bool {
+    let shown = redact_home(&path.to_string_lossy(), home);
+    let canonical = r
+        .canonical_path
+        .as_deref()
+        .is_none_or(|c| is_safe_provider_text(&redact_home(&c.to_string_lossy(), home)));
+    let owner = match &r.owner {
+        ExecutableOwner::Provider {
+            package: Some(package),
+            ..
+        } => is_safe_provider_name(package),
+        _ => true,
+    };
+    is_safe_captured_path(&shown) && canonical && owner
 }
 
 /// The best answer any provider gives about `path`, by the rule capture has
@@ -249,6 +294,16 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
             // same as the per-provider map, which has never recorded one.
             continue;
         };
+        // A live capture never aborts on its own machine's PATH shape
+        // (security review of F-2b, M-1): a hit the load rule would refuse - a
+        // path through a `..` entry, one over MAX_PATH_LEN, a canonical path
+        // with a control character, an owner package that is not a name - is
+        // recorded in neither map, so it reads as NOT_OBSERVED and the
+        // agreement between the maps stays exact. Judged on what the snapshot
+        // will hold: the redacted form.
+        if !recordable(&r, &path, &ctx.home) {
+            continue;
+        }
         r.executable.clone_from(&name);
         // The per-provider map keeps the earlier rule exactly - installed
         // package names only, filed under the provider that answered best -
@@ -288,9 +343,24 @@ pub fn capture(ctx: &CaptureContext<'_>) -> Result<Snapshot, DomainError> {
     // The PATH map's paths by the same function as the per-provider map's,
     // so the two copies of one resolution stay byte-equal (SG2-Q3).
     for state in environment.resolutions.values_mut() {
-        if let ResolutionState::Found { resolution, .. } = state {
+        if let ResolutionState::Found {
+            resolution,
+            path_index,
+        } = state
+        {
             redact_option_path(&mut resolution.path, &ctx.home);
             redact_option_path(&mut resolution.canonical_path, &ctx.home);
+            // The index was right on the unredacted PATH; two entries the
+            // machine kept apart can read alike once redacted (two homes
+            // redacted by shape, say), and the load rule checks the redacted
+            // copy. Then no index is recorded - unpredictable, the safe
+            // reading - rather than one the rule would refuse (security
+            // review of F-2b, I-1).
+            if let (Some(index), Some(path)) = (*path_index, resolution.path.as_deref()) {
+                if !recorded_index_holds(&environment.path, index, path) {
+                    *path_index = None;
+                }
+            }
         }
     }
     let snapshot = Snapshot {

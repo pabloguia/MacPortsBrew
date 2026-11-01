@@ -561,7 +561,8 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "doctor.deep_not_in_this_build" = "Deep inspection of binaries for cross-prefix links (--deep) is not part of this build."
 "snapshot.written" = "Snapshot written to {path}."
 "snapshot.would_write" = "Dry run: no snapshot was written; it would have gone to {path}."
-"snapshot.package_not_installed" = "No provider has {package} installed, so its executables were not read."
+"snapshot.package_not_installed" = "No provider this run could read has {package} installed, so its executables were not read."
+"snapshot.package_not_read" = "{package} is installed, but its executables could not be read in this run."
 "doctor.provider_support_ending" = "{provider} has announced the end of support for this machine in or after {endDate} (source: {source}, read {readOn}). This is dated data; re-check it before relying on it."
 reason.source_withdrawn = "{provider} marks {package} {state}: it still works today, but {provider} no longer updates it. Decide whether to move it or keep it deliberately."
 

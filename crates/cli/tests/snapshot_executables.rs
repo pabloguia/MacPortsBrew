@@ -235,10 +235,13 @@ fn snapshot_sends_the_inventory_name_and_nothing_for_an_unknown_one() {
     // A name no inventory holds selected nothing (no invocation for it is
     // recorded, and nothing failed), and the user is told.
     assert!(
-        stderr.contains("No provider has nosuch installed"),
+        stderr.contains("No provider this run could read has nosuch installed"),
         "{stderr}"
     );
-    assert!(!stderr.contains("No provider has xz installed"), "{stderr}");
+    assert!(
+        !stderr.contains("No provider this run could read has xz installed"),
+        "{stderr}"
+    );
     // Every other row is as before: nobody asked.
     let other = &snapshot.providers[&ProviderId::new("homebrew")]
         .inventory
@@ -333,5 +336,30 @@ fn a_named_snapshot_adds_executables_evidence_to_the_mapping() {
     };
     assert!(has_executables_evidence(&analysed(&["xz"])));
     assert!(!has_executables_evidence(&analysed(&[])));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_not_installed_notice_is_true_when_a_provider_could_not_be_read() {
+    // docs-auditor M-1: with a broken provider, "no provider has it" would be
+    // a claim about a provider this run never read. The notice says what was
+    // read, so it holds here too.
+    let dir = scratch("broken");
+    let recording = root().join("fixtures/recordings/macports-broken.json");
+    let (_, output) = snapshot_of(&recording, &["nosuch"], &dir);
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{said}");
+    let snapshot = load_snapshot(&dir.join("snapshot.json")).expect("the snapshot loads");
+    assert!(
+        snapshot.providers.values().any(|p| matches!(
+            p.detection.presence,
+            macportsbrew_domain::ProviderPresence::Broken { .. }
+        )),
+        "the fixture has a broken provider, or this proves nothing"
+    );
+    assert!(
+        said.contains("No provider this run could read has nosuch installed"),
+        "{said}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
