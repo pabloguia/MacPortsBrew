@@ -2,6 +2,7 @@
 
 //! Packages as installed and as described by a provider.
 
+use crate::executable::{ExecutableList, Placement};
 use crate::provider::ProviderId;
 use crate::version::Version;
 use serde::{Deserialize, Serialize};
@@ -140,9 +141,24 @@ pub struct PackageMetadata {
     /// the bool beside it says: that bool was one half only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<ServiceDefinition>,
-    /// Executables the package provides, sorted, when known.
+    /// Executables the package provides, sorted, **as a set for older
+    /// readers**. Written from [`Self::executable_list`] when that is
+    /// [`ExecutableList::Known`] (empty otherwise) by [`Self::with_executables`],
+    /// and never read to decide: an empty set here cannot tell "ships none"
+    /// from "never asked" (F.md §1, the defect DP-032 fixed for the service
+    /// bool). A loaded document whose set disagrees with its list is refused.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub executables: BTreeSet<String>,
+    /// The executables the package ships, from its provider's own file list,
+    /// with the three answers kept apart (F.md §1). Absent from a document
+    /// written before it existed, and from every row capture was not asked to
+    /// read: [`ExecutableList::NotRecorded`].
+    #[serde(default, skip_serializing_if = "ExecutableList::is_not_recorded")]
+    pub executable_list: ExecutableList,
+    /// Where those executables land, filled by the adapter from detection
+    /// (F.md §1, SG-1). Absent means not recorded, never "on `PATH`".
+    #[serde(default, skip_serializing_if = "Placement::is_not_recorded")]
+    pub placement: Placement,
     /// Alternative names the provider accepts, sorted.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub aliases: BTreeSet<String>,
@@ -170,6 +186,25 @@ impl PackageMetadata {
     pub fn with_service(mut self, service: ServiceDefinition) -> Self {
         self.defines_service = service.defines_service() == Answer::Yes;
         self.service = Some(service);
+        self
+    }
+
+    /// Records the executable list and its placement, and writes the older
+    /// set from the list, so the two cannot disagree in anything this build
+    /// produces.
+    pub fn set_executables(&mut self, list: ExecutableList, placement: Placement) {
+        self.executables = list
+            .known()
+            .map(|names| names.iter().map(|n| n.as_str().to_string()).collect())
+            .unwrap_or_default();
+        self.executable_list = list;
+        self.placement = placement;
+    }
+
+    /// [`Self::set_executables`], by value.
+    #[must_use]
+    pub fn with_executables(mut self, list: ExecutableList, placement: Placement) -> Self {
+        self.set_executables(list, placement);
         self
     }
 }

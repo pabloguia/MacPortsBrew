@@ -187,6 +187,11 @@ pub enum Command {
         /// Where to write; defaults to the state directory.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
+        /// Installed packages whose executable lists to read as well. A name
+        /// only selects an installed row; one no provider holds is reported
+        /// and sends nothing.
+        #[arg(value_name = "PACKAGE")]
+        packages: Vec<String>,
     },
 }
 
@@ -572,7 +577,31 @@ fn run_inner(
             stdout,
             stderr,
         ),
-        Command::Snapshot { out } => {
+        Command::Snapshot { out, packages } => {
+            // A name no inventory holds selected nothing, so nothing was sent
+            // for it; saying so is the 06 MUST (F.md §3, SR-13). Escaped: the
+            // string is the user's, and it reaches the terminal.
+            let installed: BTreeSet<String> = ctx
+                .snapshot
+                .providers
+                .values()
+                .flat_map(|p| p.inventory.installed_names())
+                .collect();
+            for name in packages.iter().filter(|n| !installed.contains(*n)) {
+                let _ = writeln!(
+                    stderr,
+                    "{}",
+                    ctx.messages.render(
+                        "snapshot.package_not_installed",
+                        &[(
+                            "package".to_string(),
+                            macportsbrew_domain::escape_hostile(name)
+                        )]
+                        .into_iter()
+                        .collect()
+                    )
+                );
+            }
             let (key, path) = match context::save_snapshot(&ctx, out.as_deref(), cli.dry_run)? {
                 context::Saved::Written(path) => ("snapshot.written", path),
                 context::Saved::WouldWrite(path) => ("snapshot.would_write", path),

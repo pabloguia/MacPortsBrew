@@ -23,6 +23,7 @@ use macportsbrew_domain::{
     DomainError, ErrorId, HomeRedaction, Machine, MachineRead, ProviderId, Snapshot,
 };
 use macportsbrew_policy::PolicyData;
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -113,6 +114,10 @@ struct Registry {
     variables: std::collections::BTreeMap<String, String>,
     redaction: HomeRedaction,
     replay: bool,
+    /// The packages the command named, whose executable lists the capture
+    /// reads (F.md, Design 3 (B)); kept so a capture under the run lock reads
+    /// the same.
+    executables_for: BTreeSet<String>,
 }
 
 impl Registry {
@@ -156,6 +161,7 @@ impl Registry {
             ),
             home: self.redaction.clone(),
             environment_contracts: registry::environment_contracts(),
+            executables_for: self.executables_for.clone(),
         })
     }
 
@@ -178,9 +184,35 @@ pub fn env_language() -> Option<String> {
         .map(str::to_string)
 }
 
+/// The packages the command names for capture to read the executable lists
+/// of (F.md, Design 3 (B)): `snapshot [<package>...]`'s positionals. Every other
+/// command names none here - `migrate` reads its two sides once the planner
+/// consumes the lists (part F-3).
+///
+/// An argument that begins with `-` is never taken as a package (06, SR-13),
+/// even after `--`, where the parser would hand it over as one: it is refused
+/// before anything is captured.
+pub(crate) fn named_packages(cli: &Cli) -> Result<BTreeSet<String>, DomainError> {
+    let Some(super::Command::Snapshot { packages, .. }) = &cli.command else {
+        return Ok(BTreeSet::new());
+    };
+    if let Some(flag) = packages.iter().find(|p| p.starts_with('-')) {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            format!(
+                "`{}` begins with `-`, and a package name never does; snapshot takes \
+                 installed package names",
+                macportsbrew_domain::escape_hostile(flag)
+            ),
+        ));
+    }
+    Ok(packages.iter().cloned().collect())
+}
+
 impl Context {
     /// Builds the context per the flags.
     pub fn build(cli: &Cli, stderr: &mut dyn Write) -> Result<Self, DomainError> {
+        let executables_for = named_packages(cli)?;
         let policy = PolicyData::load_embedded()?;
         let messages =
             Messages::for_locale(&resolve(cli.language.as_deref(), env_language().as_deref()));
@@ -260,6 +292,7 @@ impl Context {
             variables,
             redaction: home_redaction.clone(),
             replay,
+            executables_for,
         };
         let snapshot = parts.capture(
             &machine,

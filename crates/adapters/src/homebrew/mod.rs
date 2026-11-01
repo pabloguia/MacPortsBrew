@@ -971,6 +971,8 @@ fn formula_metadata(
         defines_service: false,
         service: None,
         executables: BTreeSet::new(),
+        executable_list: macportsbrew_domain::ExecutableList::NotRecorded,
+        placement: macportsbrew_domain::Placement::default(),
         aliases: formula.aliases.iter().cloned().collect(),
         versioned_siblings: formula.versioned_formulae.iter().cloned().collect(),
         notes: formula.caveats.clone(),
@@ -1061,6 +1063,8 @@ fn cask_metadata(cask: &Cask) -> PackageMetadata {
         defines_service: false,
         service: None,
         executables: BTreeSet::new(),
+        executable_list: macportsbrew_domain::ExecutableList::NotRecorded,
+        placement: macportsbrew_domain::Placement::default(),
         aliases: BTreeSet::new(),
         versioned_siblings: BTreeSet::new(),
         notes,
@@ -1214,6 +1218,14 @@ impl ProviderRead for HomebrewAdapter<'_> {
         info.insert(
             "bin".to_string(),
             self.prefix.join("bin").display().to_string(),
+        );
+        // R-21: executables are direct entries of a keg's `bin/` and `sbin/`,
+        // linked into the prefix's own, so both are where they land (F.md §2).
+        // The MacPorts adapter has reported its `sbin` all along; the two now
+        // say the same thing about the same fact (INV-17).
+        info.insert(
+            "sbin".to_string(),
+            self.prefix.join("sbin").display().to_string(),
         );
         Ok(info)
     }

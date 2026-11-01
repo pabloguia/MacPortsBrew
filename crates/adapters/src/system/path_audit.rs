@@ -138,6 +138,7 @@ mod tests {
     fn environment(entries: &[&str]) -> EnvironmentSnapshot {
         EnvironmentSnapshot {
             installations: std::collections::BTreeMap::default(),
+            resolutions: std::collections::BTreeMap::default(),
             path: entries.iter().map(|e| (*e).to_string()).collect(),
             reported: BTreeMap::new(),
             path_findings: Vec::new(),

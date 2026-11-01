@@ -119,6 +119,7 @@ impl MachineRead for HomeMachine {
         // Already redacted, as the system adapter delivers it.
         Ok(EnvironmentSnapshot {
             installations: std::collections::BTreeMap::default(),
+            resolutions: std::collections::BTreeMap::default(),
             path: vec!["~/homebrew/bin".into(), "/usr/bin".into()],
             reported: BTreeMap::from([(
                 "CPPFLAGS".to_string(),
@@ -161,6 +162,7 @@ fn a_capture_carries_no_home_path_and_no_user_name() {
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Known(PathBuf::from(HOME)),
         environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
     .expect("the machine answers, so the capture succeeds");
 
@@ -274,6 +276,7 @@ fn a_resolution_taken_from_path_is_redacted_too() {
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Known(PathBuf::from(HOME)),
         environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
     .expect("the machine answers");
 
@@ -317,6 +320,7 @@ fn a_recorded_capture_is_not_rewritten() {
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Recorded,
         environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
     .expect("the machine answers");
     let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
@@ -363,6 +367,7 @@ fn a_live_capture_whose_home_is_unresolvable_still_carries_no_home_path() {
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Unresolved,
         environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
     .expect("the machine answers");
     let homebrew = &snapshot.providers[&ProviderId::new("homebrew")];
@@ -416,6 +421,7 @@ fn a_replayed_capture_says_installations_are_unknowable_only_for_a_present_provi
         captured_by: "capture_redaction.rs".into(),
         home: HomeRedaction::Known(PathBuf::from(HOME)),
         environment_contracts: macportsbrew_adapters::registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
     .expect("the capture succeeds");
 

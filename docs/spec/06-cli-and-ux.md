@@ -42,8 +42,8 @@ macportsbrew snapshot [--out <file>] [<package>...]
                                             (--out required under --replay
                                             and --from-snapshot); each named
                                             package's executable list is read
-                                            too [part F, work order 16,
-                                            not built; SE-112]
+                                            too [part F-2b, work order 16;
+                                            SE-112]
 macportsbrew restore --plan (--run <id> | --snapshot <file>)
                                   reviewable plan back to that state; the undo path
 macportsbrew restore --run <id>   plan, review, confirm, execute   [later pass, with migrate]
@@ -199,7 +199,7 @@ already do in a snapshot. That value never enters `doctor --report`, whose MUST
 above stands. A package name or executable name echoed in a refusal is escaped
 like any other provider-derived text.
 
-**MUST** (part F, work order 16, not built; SE-112). `snapshot <package>...`
+**MUST** (part F-2b, work order 16, built; SE-112). `snapshot <package>...`
 uses each name only to select an installed row; the read is sent with the name the inventory
 recorded, a name no inventory holds sends nothing and is reported, and an
 argument that begins with `-` is never taken as a package. Naming a package to

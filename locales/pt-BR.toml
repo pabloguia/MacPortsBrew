@@ -423,6 +423,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "doctor.deep_not_in_this_build" = "A inspeção profunda de binários em busca de vínculos entre prefixos (--deep) não faz parte desta versão."
 "snapshot.written" = "Snapshot gravado em {path}."
 "snapshot.would_write" = "Simulação: nenhum snapshot foi gravado; ele iria para {path}."
+"snapshot.package_not_installed" = "Nenhum gerenciador de pacotes tem {package} instalado, então seus executáveis não foram lidos."
 "doctor.provider_support_ending" = "{provider} anunciou que o suporte para esta máquina termina em {endDate} ou depois (fonte: {source}, lido em {readOn}). Esta informação tem data; confira-a de novo antes de confiar nela."
 reason.source_withdrawn = "{provider} marca {package} como {state}: ele ainda funciona hoje, mas {provider} não o atualiza mais. Decida se vai movê-lo ou mantê-lo de propósito."
 

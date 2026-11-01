@@ -10,9 +10,9 @@ use crate::mapping::map_package;
 use crate::report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 use crate::{ANALYSIS_SCHEMA_VERSION, TOOL_VERSION};
 use macportsbrew_domain::{
-    classify_ownership_for, ConcurrencyFlag, ConcurrentProviderActivity, ExecutableOwner, Machine,
-    Ownership, PackageIdentity, PackageKind, ProviderId, ProviderPresence, ProviderSnapshot,
-    Resolution, Snapshot,
+    classify_ownership_for, ConcurrencyFlag, ConcurrentProviderActivity, ExecutableName,
+    ExecutableOwner, Machine, Ownership, PackageIdentity, PackageKind, ProviderId,
+    ProviderPresence, ProviderSnapshot, Resolution, ResolutionState, Snapshot,
 };
 use macportsbrew_policy::{recommend, PolicyData};
 use serde::{Deserialize, Serialize};
@@ -490,14 +490,18 @@ fn resolution_for(snapshot: &Snapshot, provider: &ProviderId, name: &str) -> Opt
     // metadata says otherwise. Absence is not an error: many packages are
     // libraries.
     let p = &snapshot.providers[provider];
+    // The list, never the older set beside it, which is not read to decide
+    // (F.md §1). A loaded document's set equals its list, so on every
+    // document this build has written before F the two choices are one.
     let candidates: Vec<&str> = p
         .inventory
         .metadata
         .get(name)
-        .filter(|m| !m.executables.is_empty())
+        .and_then(|m| m.executable_list.known())
+        .filter(|names| !names.is_empty())
         .map_or_else(
             || vec![name],
-            |m| m.executables.iter().map(String::as_str).collect(),
+            |names| names.iter().map(ExecutableName::as_str).collect(),
         );
     // Ask every provider, and rank the answers by how much each one settles.
     //
@@ -529,34 +533,20 @@ fn resolution_for(snapshot: &Snapshot, provider: &ProviderId, name: &str) -> Opt
     // a later name that would have been settled. The candidate order is the
     // package's own metadata, so no provider name enters it - which is why this
     // is a note and not the defect above.
+    //
+    // The ranking itself is `Resolution::rank`, and the per-provider reading
+    // is `Snapshot::resolution_of`'s rule for a document without the PATH map
+    // (F-2b, SG2-Q3): the one accessor every reader goes through. A document
+    // with the map files each name under one provider, so the map's answer is
+    // the one this ranking picked, and the output is byte-identical.
     for exe in candidates {
-        let mut best: Option<(u8, &Resolution)> = None;
-        for ps in snapshot.providers.values() {
-            let Some(r) = ps.resolutions.get(exe) else {
-                continue;
-            };
-            let rank = match (&r.owner, r.authoritative) {
-                // The provider named the package, from its own records.
-                (ExecutableOwner::Provider { .. }, true) => 4,
-                // The provider claims it by prefix, and says the claim is a
-                // heuristic (`.claude/rules/adapters.md`).
-                (ExecutableOwner::Provider { .. }, false) => 3,
-                // Settled, and not a provider's package.
-                (
-                    ExecutableOwner::System
-                    | ExecutableOwner::External
-                    | ExecutableOwner::MacportsbrewShim,
-                    _,
-                ) => 2,
-                // An unknown is never a yes (`.claude/rules/domain.md`).
-                (ExecutableOwner::Unknown, _) => 1,
-            };
-            if best.is_none_or(|(seen, _)| rank > seen) {
-                best = Some((rank, r));
-            }
-        }
-        if let Some((_, r)) = best {
-            return Some(r.clone());
+        let Ok(exe) = ExecutableName::parse(exe) else {
+            // No capture ever resolved a name outside the class.
+            continue;
+        };
+        match snapshot.resolution_of(&exe) {
+            ResolutionState::Found { resolution, .. } => return Some(resolution),
+            ResolutionState::NotOnPath | ResolutionState::NotObserved => {}
         }
     }
     None

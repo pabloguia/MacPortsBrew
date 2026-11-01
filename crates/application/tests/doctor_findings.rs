@@ -79,6 +79,7 @@ fn snapshot(
         },
         environment: EnvironmentSnapshot {
             installations: std::collections::BTreeMap::default(),
+            resolutions: std::collections::BTreeMap::default(),
             path: path.iter().map(|e| (*e).to_string()).collect(),
             reported: BTreeMap::new(),
             path_findings: Vec::new(),

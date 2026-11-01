@@ -682,6 +682,8 @@ fn the_reported_environment_is_the_provider_prefix_layout() {
     assert_eq!(info["cellar"], "/usr/local/Cellar");
     assert_eq!(info["caskroom"], "/usr/local/Caskroom");
     assert_eq!(info["bin"], "/usr/local/bin");
+    // F-2b: `sbin` beside `bin`, as the MacPorts adapter reports it.
+    assert_eq!(info["sbin"], "/usr/local/sbin");
     assert!(info["cache"].ends_with("Library/Caches/Homebrew"));
 }
 

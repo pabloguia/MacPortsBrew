@@ -162,6 +162,57 @@ fn invariant_15_a_replayed_reader_never_consults_the_live_filesystem() {
         None,
         "a replayed reader answered from the replaying host's filesystem"
     );
+    // F-2b: the search capture records per name. Under replay it never ran,
+    // which is NOT_OBSERVED - not a miss, and not this host's hit.
+    assert_eq!(
+        replayed.search_path(&macportsbrew_domain::ExecutableName::parse("tool").unwrap()),
+        macportsbrew_domain::PathSearch::NotSearched,
+        "a replayed search answered, or reported a miss it never looked for"
+    );
+    // And the executable-list reads: a keg and a MacPorts `bin` that would
+    // answer are on this disk under the prefixes the adapters are given, and
+    // the recording holds no listing. The answer is the recording's (a
+    // missing invocation, so that package's unknown), never this disk's.
+    let homebrew_prefix = dir.join("brew");
+    let keg_bin = homebrew_prefix.join("Cellar/xz/5.8.3/bin");
+    std::fs::create_dir_all(&keg_bin).unwrap();
+    std::fs::write(keg_bin.join("xz"), b"#!/bin/sh\n").unwrap();
+    std::fs::create_dir_all(homebrew_prefix.join("bin")).unwrap();
+    let both = workspace().join("fixtures/recordings/both-providers-intel-macos26.json");
+    let load = || macportsbrew_adapters::persistence::load_recording(&both).expect("fixture");
+    let brew_runner = ReplayRunner::new(load());
+    let brew = HomebrewAdapter::new(
+        &brew_runner,
+        homebrew_prefix.clone(),
+        None,
+        vec!["tahoe".into(), "all".into()],
+        FilesystemScope::Elsewhere,
+    );
+    let xz = |provider: &str| {
+        macportsbrew_domain::PackageIdentity::new(
+            macportsbrew_domain::ProviderId::new(provider),
+            "xz",
+        )
+    };
+    let ports_prefix = dir.join("ports");
+    std::fs::create_dir_all(ports_prefix.join("bin")).unwrap();
+    std::fs::write(ports_prefix.join("bin/xz"), b"#!/bin/sh\n").unwrap();
+    let ports = MacPortsAdapter::new(
+        ReplayRunner::new(load()),
+        ports_prefix,
+        None,
+        FilesystemScope::Elsewhere,
+    );
+    for (who, answer) in [
+        ("homebrew", brew.executables(&xz("homebrew"))),
+        ("macports", ports.executables(&xz("macports"))),
+    ] {
+        let (list, _) = answer.unwrap_or_else(|e| panic!("{who}: {e:?}"));
+        assert!(
+            matches!(list, macportsbrew_domain::ExecutableList::Unknown { .. }),
+            "{who}: a replayed list came from somewhere other than the recording: {list:?}"
+        );
+    }
 
     // --- the service question's disk-backed halves (DP-032, part D §6) -----
     // A tree that would answer every one of them: a `macports.conf` keeping the

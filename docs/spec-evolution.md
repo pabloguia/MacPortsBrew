@@ -1859,6 +1859,30 @@ change is made. Silent deviation remains the one unrecoverable error.
   decision, is refused, and the refusal reasons above join its open set; `history.v3`; `migrate.v1.md` gains the
   refusal values and the new exit-4 `PRIMARY_NEEDS_SHIM`, which also joins `docs/schemas/README.md`'s exit-code
   table; 06's `snapshot` synopsis gains positionals.
+- **Addendum, 2026-11-01 (work order 16 part F-2b, capture).** Built on `wo16/F-2b-capture`: capture reads the lists
+  for the packages `snapshot <package>...` names (the user's string only selects an installed row; a name no
+  inventory holds is reported and sends nothing; an argument beginning with `-` is refused), writes them with their
+  placement on the row, and keeps both resolution maps; the fail-closed load rules of `snapshot.v1.md`; the analysis
+  reads `Snapshot::resolution_of`, its output byte-identical; Homebrew reports its `sbin`. Recorded here because each
+  is a choice inside the entry rather than a new topic:
+  - **Homebrew's placement is an inference, now checked against an observation** (SR L-1). The adapter says a
+    linked keg's `bin`/`sbin` entries land in the prefix's `bin`/`sbin` because `linked_keg` names that keg; R-21
+    leaves open whether `linked_keg` can disagree with the symlinks themselves. So capture checks every
+    `ON_PATH_DIR` placement - both providers', one rule (INV-17) - against its own search: where the placed directory
+    is a `PATH` entry at index `k`, the executable must have been found at an index of at most `k`. Found nowhere, or
+    only further along, the placement becomes `UNKNOWN { CONTRADICTED_BY_RESOLUTION }`, a new placement reason. A hit
+    with no index, a name not observed, or a directory not on `PATH` settle nothing and leave the adapter's placement.
+    F-3's decision rule reads the result; it never trusts the inference over the observation.
+  - **A name `PATH` resolves but no provider will answer about** is recorded as not observed rather than `FOUND`
+    with an invented owner, as the per-provider map has always left it out; so the two maps agree by construction.
+  - **The older-document precedence** is `Resolution::rank`, the analysis's existing ranking (authoritative
+    provider owner, non-authoritative provider owner, settled non-provider owner, unknown; ties by provider id),
+    moved into the domain so `resolution_of` and the analysis cannot diverge.
+  - **`migrate` reads no list yet.** Its destination name is known only after mapping, which needs the snapshot;
+    reading both sides is wired in F-3 with the planner that consumes them. Until then only `snapshot` names
+    packages, and every other capture is unchanged.
+  - **The live recapture is not in F-2b.** It needs the owner-staged `docs/passes/16-staged/F/05` (and `F/06` if
+    R-24 calls for it) applied first; F.md, "As built (F-2b)".
 
 # Policy, output and quality
 
