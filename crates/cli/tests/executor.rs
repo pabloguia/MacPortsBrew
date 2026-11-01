@@ -1757,38 +1757,41 @@ fn no_workspace_crate_depends_on_libc_directly() {
     // ADR-0007 (work order 16 part E-4): `libc` reaches the build only
     // transitively, through `sha2` on Apple Silicon; part G admits it for
     // `crates/adapters` alone, editing this test on purpose. And `sha2` is the
-    // application crate's alone: the domain stays `serde`-only.
-    let crates = root().join("crates");
-    let mut manifests = vec![root().join("Cargo.toml")];
-    for entry in std::fs::read_dir(&crates).expect("crates") {
-        let manifest = entry.expect("entry").path().join("Cargo.toml");
-        if manifest.exists() {
-            manifests.push(manifest);
-        }
-    }
+    // application crate's alone: the domain stays `serde`-only. Read from
+    // `cargo metadata`, so a `[dependencies.libc]` table, a target-specific
+    // table or a renamed dependency is seen as what it is (E-4 review, L4).
+    let out = std::process::Command::new(env!("CARGO"))
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+        ])
+        .current_dir(root())
+        .output()
+        .expect("cargo metadata runs");
     assert!(
-        manifests.len() > 5,
-        "the scan saw every crate: {manifests:?}"
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    let names = |text: &str, key: &str| {
-        text.lines().any(|line| {
-            let line = line.trim();
-            !line.starts_with('#')
-                && line
-                    .strip_prefix(key)
-                    .is_some_and(|rest| rest.starts_with([' ', '=', '.']))
-        })
-    };
-    for path in &manifests {
-        let text = std::fs::read_to_string(path).expect("manifest");
-        assert!(!names(&text, "libc"), "{} names libc", path.display());
-        let application = path.ends_with("application/Cargo.toml");
-        let workspace = *path == root().join("Cargo.toml");
+    let metadata: serde_json::Value = serde_json::from_slice(&out.stdout).expect("metadata");
+    let packages = metadata["packages"].as_array().expect("packages");
+    assert!(packages.len() >= 5, "the scan saw every crate");
+    for package in packages {
+        let name = package["name"].as_str().expect("a name");
+        let deps: Vec<&str> = package["dependencies"]
+            .as_array()
+            .expect("dependencies")
+            .iter()
+            .map(|d| d["name"].as_str().expect("a dependency name"))
+            .collect();
+        assert!(!deps.contains(&"libc"), "{name} depends on libc directly");
         assert_eq!(
-            names(&text, "sha2"),
-            application || workspace,
-            "{}: sha2 belongs to the workspace table and the application crate",
-            path.display()
+            deps.contains(&"sha2"),
+            name == "macportsbrew-application",
+            "{name}: sha2 is the application crate's alone"
         );
     }
 }

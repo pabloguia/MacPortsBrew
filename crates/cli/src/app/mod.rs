@@ -140,8 +140,9 @@ pub enum Command {
         /// Keep the source package after migration.
         #[arg(long)]
         retain_source: bool,
-        /// With --yes: run only the plan with this digest, as `migrate`
-        /// printed it (`sha256:` and 64 lowercase hex digits).
+        /// With --yes: go on to the execution gate only if the plan's digest
+        /// is this one, as `migrate` printed it (`sha256:` and 64 lowercase
+        /// hex digits).
         #[arg(long, value_name = "DIGEST")]
         plan_digest: Option<String>,
     },

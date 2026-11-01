@@ -40,7 +40,7 @@ redistribution. No copyleft licence of any kind is in the graph
 | `thiserror` 2.0.20 (dev only, via `ratatui`) | 195 | Same probe pattern. |
 | `rustversion` 1.0.23 (dev only) | 119 | Same; writes one file under `OUT_DIR`. |
 | `instability` 0.3.13 (dev only) | 3 | Emits one `rustc-check-cfg` line. |
-| `libc` 0.2.191 (through `sha2` → `cpufeatures`, arm64; ADR-0007; to be admitted by P/01, staged and not yet applied on 2026-10-30) | 630 | Runs `$RUSTC --version` (through `RUSTC_WRAPPER` if set, like the others), reads `CARGO_CFG_*` and `RUST_LIBC_UNSTABLE_*`, emits `rustc-cfg`/`rustc-check-cfg`; spawns `freebsd-version` or `emcc` only on those targets; writes no file. |
+| `libc` 0.2.191 (through `sha2` → `cpufeatures`, arm64; ADR-0007; admitted by P/01, applied `4a64aa0`, PR #50, 2026-11-01) | 630 | Runs `$RUSTC --version` (through `RUSTC_WRAPPER` if set, like the others), reads `CARGO_CFG_*` and `RUST_LIBC_UNSTABLE_*`, emits `rustc-cfg`/`rustc-check-cfg`; spawns `freebsd-version` or `emcc` only on those targets; writes no file. |
 
 Every one is the same idiom: a compiler-capability probe that emits `cfg`
 flags. None reads the network, none writes outside `OUT_DIR`, none reads
@@ -66,7 +66,7 @@ compiler it was invoked by (`libc`'s spawns are FreeBSD and Emscripten only). Th
 1. `Unicode-3.0` joins the licence allow-list in `scripts/check-licences.sh`
    and `deny.toml`. The list is otherwise the one in
    `08-distribution-and-project.md`.
-2. The crates in the table above (the tenth, `libc`, admitted by ADR-0007 once P/01 is applied) are allowed to carry a build script. The
+2. The crates in the table above (the tenth, `libc`, admitted by ADR-0007 through P/01, applied `4a64aa0`) are allowed to carry a build script. The
    allow-list in `scripts/check-licences.sh` names them; a version bump
    within the same major that keeps the script in the same idiom does not
    need a new review, a new crate does.

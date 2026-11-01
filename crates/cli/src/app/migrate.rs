@@ -352,7 +352,7 @@ fn confirm_the_plan(
     // The digest is shown with the plan, so what a person confirms here is
     // what a script would pin (work order 16 part E-4).
     let render = |plan: &MigrationPlan| {
-        human::plan(ctx, plan) + &human::plan_digest(ctx, &PlanDigest::of(plan))
+        human::plan(ctx, plan) + &human::plan_digest(ctx, &PlanDigest::of(plan), false)
     };
     let shown = crate::consent::confirm_plan(
         cleared,
@@ -671,7 +671,10 @@ fn migrate_with(
         write!(stdout, "{}", human::plan(ctx, plan)).map_err(io)?;
         match &report {
             None => {
-                write!(stdout, "{}", human::plan_digest(ctx, &digest)).map_err(io)?;
+                // The hint only where the input could be put to the gate: a
+                // snapshot file cannot (`refuse_execution_from_a_snapshot_file`).
+                let hint = ctx.execution_registry().is_some();
+                write!(stdout, "{}", human::plan_digest(ctx, &digest, hint)).map_err(io)?;
                 write!(stdout, "{}", human::render_only(ctx)).map_err(io)?;
             }
             Some(report) => {

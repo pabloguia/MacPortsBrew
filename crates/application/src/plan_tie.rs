@@ -99,8 +99,10 @@ const DIGEST_DOMAIN: &str = concat!(
 /// over [`DIGEST_DOMAIN`] and the plan's own serialisation, written
 /// `sha256:<64 lowercase hex>`.
 ///
-/// Over the **in-memory** plan, never the redacted document: redaction is
-/// lossy, so two plans could share a document. The serialisation is
+/// Over the in-memory plan — the same value the `migrate` document carries:
+/// redaction happens at capture, not when the document is written, so
+/// anyone who edits a document's `plan` must drop its digest too. The
+/// serialisation is
 /// `serde_json::to_vec` of the struct, never through `serde_json::Value`
 /// (whose `preserve_order` maps would make order a matter of insertion); the
 /// plan holds no unordered collection and no float, and carries no timestamp

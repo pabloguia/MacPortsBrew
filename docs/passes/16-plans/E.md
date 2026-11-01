@@ -728,7 +728,10 @@ file.
   end-to-end shell test of a declined or unseen elevation question; the second
   recapture exercised; DP-046's sudoers disclosure before the question.
 - **K:** DP-037's stronger confirmation builds on `confirm_plan` (the named-entry
-  notice already precedes it); removal opt-in.
+  notice already precedes it) **and must gate the digest route too**:
+  `--yes --plan-digest` mints the witness without `confirm_plan`, so a plan
+  that needs the stronger confirmation cannot rely on it (E-4 spec review,
+  R-a); removal opt-in.
 - **L:** the flip proposal lists that both routes are built and the elevation
   prompt is reachable only after J.
 
@@ -1139,9 +1142,13 @@ replay invariants also pin the switch. Part J flips it and owns that list.
 - **Tests** as §Tests' E-4 list, with these differences:
   `plan_digest_is_stable_and_covers_every_field` covers `PlanCommand.placeholder`,
   which §Tests did not list (the exhaustive destructuring found it);
-  `the_digest_is_of_the_plan_not_of_the_redacted_document` shows two plans that
-  differ only under a home, which redaction would make one document, digest
-  apart (the test crate has no SHA-256 to hash a document with); added
+  `the_digest_is_of_the_plan_not_of_the_redacted_document` was dropped in the
+  review round: its premise was false (spec review M1, security review L2) —
+  the document's `plan` is the same in-memory value, redaction happens at
+  capture — and it proved only what the field table proves. In its place
+  `the_digest_is_taken_of_the_plan_migrate_shows_and_runs` pins that
+  `migrate`'s only `PlanDigest::of(` arguments are the plan it writes and runs
+  and the plan the confirmation screen mints from; added
   `a_plan_digest_reads_back_as_written_and_nothing_else` and
   `invariant_17_a_digest_tie_behaves_alike_in_both_directions`, which closes
   E-2's owed INV-17 item over the digest; R8's doctor check is
@@ -1153,6 +1160,29 @@ replay invariants also pin the switch. Part J flips it and owns that list.
   `yes_requires_a_well_formed_plan_digest_when_mutations_dispatch` and
   `yes_without_a_digest_asks_at_a_terminal_and_refuses_elsewhere` are switch-on
   tests, run by the mutation subagent and never committed.
+- **Not done, declared.** No `fixtures/golden/` file and no documented sample
+  shows `planDigest` (§7): its value moves with every version and policy
+  bump, and a published digest is what R8 advises against; the pinned literal
+  and the binary tests hold it instead. `wiki/Dependencies-and-Safety.md` (§8)
+  is about package dependencies, not crates; the crate facts are in ADR-0007,
+  ADR-0004 and the CHANGELOG. The binary-level digest tests run Homebrew →
+  MacPorts only: under `--replay` only a row that declares a service plans
+  (part D), and the recordings' MacPorts rows declare none; both directions run
+  at unit level and through `--from-snapshot`.
+- **Review round (E-4).** The digest line ends with the digest (no
+  punctuation to copy), and the "put it to the gate" hint is printed only where
+  the input could be (`migrate.plan_digest_hint`, not for a snapshot file);
+  `error.plan_not_shown` no longer tells a script user to confirm anything; the
+  `--help` text says "go on to the execution gate". A digest with nothing to
+  run is not consulted (exit 0, INV-16), declared and pinned
+  (`a_digest_is_not_consulted_when_there_is_nothing_to_run`). The libc fence
+  reads `cargo metadata`. The domain scan also bans a skipped field, a custom
+  serialiser and a hand-written `Serialize`. The MacPorts → Homebrew guide's
+  sample was regenerated (it also lacked part S's second read). Owed, not
+  built: a test that the digest is equal whether history was consulted or not
+  (the planner changes only the outcome, never the plan, `planner.rs`); and a
+  check that history records never carry a digest, which holds by layering
+  (`adapters` cannot name `PlanDigest`).
 
 ## Reviews
 

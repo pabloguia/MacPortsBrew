@@ -1691,7 +1691,11 @@ change is made. Silent deviation remains the one unrecoverable error.
   `USAGE` (exit 2) before anything is printed; with `--yes --dry-run` it is checked for form only. The interactive
   route's no-terminal refusal now names `--plan-digest`. `the_switch_needs_the_executed_plan_tied_to_the_one_shown`
   lost its failing-on-flip assertion and checks that `migrate` ties before it executes; the minting scan holds the
-  callers of `tie(` to `migrate`.
+  callers of `tie(` to `migrate`. The digest certifies that this exact plan was printed, not that a person read it:
+  `migrate --json | jq -r .planDigest` piped into `--yes --plan-digest` runs with nobody reading, as DP-049 (a)
+  ruled, and an identical plan on another machine or weeks later is accepted, `plan_still_holds` under the lock still
+  guarding the machine's state; part K must therefore gate this route as well as `confirm_plan` (E-4 reviews). A
+  digest given with nothing to run is not consulted (exit 0, INV-16), and `--yes --dry-run` checks its form only.
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both

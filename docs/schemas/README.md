@@ -95,7 +95,8 @@ gate refuses, which in this build it does for every plan — and prints the
 document either way. Whenever a plan was built, stdout carries it, so an exit 4
 with a document is a refusal or a manual review, and an exit 4 with empty stdout
 is the planner's own refusal (`SAFETY_BLOCKED` or `SAFETY_UNVERIFIABLE`, on
-stderr). Under a mutation allowance, a refusal about the plan's confirmation
+stderr) or, under `--yes --plan-digest`, a digest that is not the plan's
+(`PLAN_NOT_SHOWN`), in every build. Under a mutation allowance, a refusal about the plan's confirmation
 also leaves stdout empty, and its identifier tells it apart: `USER_ABORTED`
 (6), `USAGE` (2, no terminal) or `PLAN_NOT_SHOWN` (4). So does a stop at the
 elevation question (E-3): `USER_ABORTED` (6) for a person's refusal,

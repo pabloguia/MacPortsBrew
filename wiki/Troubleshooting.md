@@ -182,6 +182,11 @@ useful output.
 plan is put to the execution gate, which refuses every plan this build produces
 and lists why; nothing runs and nothing changes.
 
+**Exit 4 with nothing on stdout from `migrate --yes --plan-digest`** means the
+plan built now is not the one that digest names (`PLAN_NOT_SHOWN`): something
+changed since you ran `migrate`. Run `migrate` again, review the plan, and pass
+the digest it prints now.
+
 `"error: exit status 1"` is never acceptable output from this tool. If you see
 something like it, that is a bug worth reporting.
 

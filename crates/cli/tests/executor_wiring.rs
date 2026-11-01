@@ -2328,31 +2328,6 @@ fn a_plan_digest_reads_back_as_written_and_nothing_else() {
 }
 
 #[test]
-fn the_digest_is_of_the_plan_not_of_the_redacted_document() {
-    // Two plans that differ only under a home render the same document once
-    // the home is redacted; the digest, over the in-memory plan, tells them
-    // apart, so a digest can never vouch for a plan it was not taken of.
-    let direction = Direction::toward_homebrew();
-    let plan = direction.plan_of(&direction.snapshot).plan().clone();
-    let under = |user: &str| {
-        let mut p = plan.clone();
-        let step = p
-            .steps
-            .iter()
-            .position(|s| !s.commands.is_empty())
-            .expect("a command");
-        p.steps[step].commands[0]
-            .argv
-            .push(format!("/Users/{user}/file"));
-        p
-    };
-    assert_ne!(
-        PlanDigest::of(&under("alice")),
-        PlanDigest::of(&under("bob"))
-    );
-}
-
-#[test]
 fn a_shown_plan_cannot_be_minted_from_another_digest() {
     for (direction, elsewhere) in [
         (Direction::toward_homebrew(), Direction::toward_macports()),

@@ -1625,8 +1625,7 @@ fn invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock() 
         assert_eq!(refused.status.code(), Some(4), "{}", stderr(&refused));
         assert!(refused.stdout.is_empty(), "{}", stdout(&refused));
         assert!(
-            stderr(&refused)
-                .contains("The plan about to run is not the one you were shown and confirmed"),
+            stderr(&refused).contains("The plan about to run is not the one that was shown"),
             "{}",
             stderr(&refused)
         );
@@ -1649,7 +1648,10 @@ fn invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock() 
         "{}",
         doc["execution"]
     );
-    // A replay never reaches the state directory, matched or not.
+    // Neither run reaches the state directory: true of every replay, so this
+    // is not what proves "no lock". That is structural — `tie(…)?` runs
+    // before `execute_mutating(` (`tie_violations`) — and the run loop's own
+    // refusal before the probe (`invariant_02_a_plan_other_than_the_one_shown_…`).
     assert!(
         !scratch.state_dir().exists()
             || std::fs::read_dir(scratch.state_dir())
@@ -1671,7 +1673,7 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
         let digest = digest_of(&shown);
         let human = migrate_with_flags(&scratch, &file, &[], REPLAYED_SERVICE, MP, retain);
         assert!(
-            stdout(&human).contains(&format!("Plan digest: {digest}.")),
+            stdout(&human).contains(&format!("Plan digest: {digest}\nTo put exactly this plan")),
             "{}",
             stdout(&human)
         );
@@ -1871,6 +1873,23 @@ fn the_plan_holds_no_unordered_collection() {
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = std::fs::read_to_string(&path).expect("source");
+                // Nor anything that would let two different values serialise
+                // alike: a skipped field, a custom serialiser, a hand-written
+                // `Serialize` (security review of E-4). `skip_serializing_if`
+                // skips only an empty or absent value, which serialises apart.
+                let squeezed: String = text.split_whitespace().collect();
+                for banned in [
+                    "serde(skip)",
+                    "serde(skip,",
+                    "serde(skip_serializing)",
+                    ",skip_serializing)",
+                    ",skip)",
+                    "serialize_with",
+                    "implSerializefor",
+                    "implserde::Serializefor",
+                ] {
+                    assert!(!squeezed.contains(banned), "{}: {banned}", path.display());
+                }
                 for word in words(&text) {
                     assert!(
                         !["HashMap", "HashSet", "f32", "f64"].contains(&word.as_str()),
@@ -1907,4 +1926,68 @@ fn a_doctor_report_never_carries_a_plan_digest() {
         !text.contains("sha256:") && !text.contains("planDigest"),
         "{text}"
     );
+}
+
+#[test]
+fn the_digest_is_taken_of_the_plan_migrate_shows_and_runs() {
+    // E-4 review (mutant 14): `migrate` digests exactly two values — the
+    // plan it writes and runs (`planned.plan()`), and on the confirmation
+    // screen the plan it mints the witness from — and nothing derived from
+    // either. The document carries that same value; redaction is at capture.
+    let source =
+        std::fs::read_to_string(root().join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
+    let calls: Vec<&str> = source
+        .match_indices("PlanDigest::of(")
+        .map(|(i, t)| {
+            let rest = &source[i + t.len()..];
+            &rest[..rest.find(')').expect("its argument ends")]
+        })
+        .collect();
+    assert_eq!(calls, ["plan", "plan"], "{calls:?}");
+    assert!(
+        source.contains("    let plan = planned.plan();\n    let digest = PlanDigest::of(plan);\n")
+    );
+    let confirm = &source[source
+        .find("fn confirm_the_plan(")
+        .expect("confirm_the_plan")..];
+    let confirm = &confirm[..confirm.find("\n}\n").expect("its end")];
+    assert!(
+        confirm.contains("let render = |plan: &MigrationPlan| {")
+            && confirm.contains(
+                "human::plan(ctx, plan) + &human::plan_digest(ctx, &PlanDigest::of(plan), false)"
+            ),
+        "the confirmation screen shows the digest of the plan it renders"
+    );
+}
+
+#[test]
+fn a_digest_is_not_consulted_when_there_is_nothing_to_run() {
+    // Security review L1 of E-4: with nothing to move there is no plan to tie,
+    // and nothing runs either way (INV-16). The answer stays exit 0 and the
+    // digest is not consulted, as `migrate.v1.md` says.
+    let scratch = Scratch::new("digest-nothing");
+    let file = fixture(BOTH);
+    let digest = format!("sha256:{}", "0".repeat(64));
+    let out = migrate_with_flags(
+        &scratch,
+        &file,
+        &["--json"],
+        "nginx",
+        MP,
+        &["--yes", "--plan-digest", &digest],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(document(&out).get("nothingToMove").is_some());
+    assert!(document(&out).get("planDigest").is_none());
+}
+
+#[test]
+fn the_digest_hint_is_given_only_where_the_plan_could_be_put_to_the_gate() {
+    let scratch = Scratch::new("digest-hint");
+    let replayed = migrate_with_flags(&scratch, &fixture(BOTH), &[], REPLAYED_SERVICE, MP, &[]);
+    assert!(stdout(&replayed).contains("To put exactly this plan to the execution gate"));
+    let snap = from_snapshot(&scratch, &live_snapshot(), &[], "htop", MP);
+    let text = stdout(&snap);
+    assert!(text.contains("Plan digest: sha256:"), "{text}");
+    assert!(!text.contains("To put exactly this plan"), "{text}");
 }
