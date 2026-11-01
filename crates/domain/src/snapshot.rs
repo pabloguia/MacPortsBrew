@@ -2278,6 +2278,12 @@ mod tests {
                 "detection": {"provider": id, "presence": {"state": "PRESENT"}, "prefix": format!("/opt/{id}")},
                 "capabilities": {"capabilities": {}},
                 "inventory": {"installed": installed, "requested": {"names": [], "mechanism": "test"}, "dependencies": [], "metadata": {}, "availability": {}},
+                // What an adapter builds, so the whole `check` passes on the
+                // control and every refusal below is the one under test.
+                "invocationEnvironment": {
+                    "PATH": format!("/opt/{id}/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
+                    "LANG": "C", "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1"
+                },
             }))
             .unwrap_or_else(|e| panic!("the constructed {id} row parses: {e}"));
             snapshot.providers.insert(ProviderId::new(id), provider);
@@ -2329,8 +2335,8 @@ mod tests {
     fn a_snapshot_whose_two_resolution_maps_disagree_fails_to_load() {
         let good = agreeing(two_providers());
         assert!(
-            good.check_resolutions().is_ok(),
-            "the agreeing control loads"
+            good.check(&BTreeMap::new()).is_ok(),
+            "the agreeing control passes the whole check"
         );
         assert_eq!(
             good.resolution_of(&name("absent")),
@@ -2436,7 +2442,7 @@ mod tests {
         cases.push(("filed under a name that is not its executable", s));
         for (what, snapshot) in cases {
             let error = snapshot
-                .check(&BTreeMap::new())
+                .check_resolutions()
                 .expect_err(&format!("{what}: loaded"));
             assert_eq!(error.id, crate::ErrorId::SnapshotUnusable, "{what}");
         }
