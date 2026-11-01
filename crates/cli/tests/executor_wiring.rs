@@ -2283,6 +2283,31 @@ fn plan_digest_is_stable_and_covers_every_field() {
 }
 
 #[test]
+fn plan_digest_tells_apart_plans_that_differ_only_in_a_home_directory() {
+    // The digest is of the plan as it will run, not of a redacted rendering:
+    // two plans that name different users' files are two plans (E-4 mutant 14).
+    let direction = Direction::toward_homebrew();
+    let plan = direction.plan_of(&direction.snapshot).plan().clone();
+    let step = plan
+        .steps
+        .iter()
+        .position(|s| !s.commands.is_empty())
+        .expect("a step with a command");
+    let with_path = |user: &str| {
+        let mut p = plan.clone();
+        p.steps[step].commands[0]
+            .argv
+            .push(format!("/Users/{user}/Library/an-edit"));
+        p
+    };
+    assert_ne!(
+        PlanDigest::of(&with_path("alice")),
+        PlanDigest::of(&with_path("bob")),
+        "a home directory in a command is not digested as written"
+    );
+}
+
+#[test]
 fn plan_digest_is_pinned_for_a_fixed_plan() {
     // The bytes of a fixed plan's digest: a `serde_json` or `sha2` bump, a
     // dropped domain prefix or version, or a change to what is serialised
