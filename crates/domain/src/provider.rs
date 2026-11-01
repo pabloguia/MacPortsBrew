@@ -9,6 +9,7 @@
 
 use crate::availability::AvailabilityAssessment;
 use crate::error::DomainError;
+use crate::executable::{ExecutableList, Placement};
 use crate::machine::Machine;
 use crate::package::{DependencyEdge, InstalledPackage, PackageIdentity, PackageMetadata};
 use crate::resolution::Resolution;
@@ -404,6 +405,21 @@ pub trait ProviderRead {
     /// which a reader must not take for "one".
     fn installations(&self) -> Installations {
         Installations::NotRecorded
+    }
+
+    /// The executables an installed package ships and where they land, from
+    /// the provider's own file list (`docs/passes/16-plans/F.md`, Design §1).
+    ///
+    /// A read that answered badly is an `Ok` with an
+    /// [`ExecutableList::Unknown`] for that package; an `Err` is a defect or a
+    /// provider that vanished, and aborts the capture. The default says
+    /// nothing was recorded, which a reader must not take for "none".
+    fn executables(
+        &self,
+        pkg: &PackageIdentity,
+    ) -> Result<(ExecutableList, Placement), DomainError> {
+        let _ = pkg;
+        Ok((ExecutableList::NotRecorded, Placement::default()))
     }
 }
 

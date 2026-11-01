@@ -12,11 +12,13 @@
 //!
 //! The provider names appear here and nowhere above this layer.
 
+mod argv;
 pub mod configuration;
 pub mod entropy;
 pub mod filesystem;
 pub mod homebrew;
 pub mod installations;
+mod listing;
 pub mod macports;
 pub mod persistence;
 pub mod prefixes;

@@ -37,8 +37,8 @@ use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
 };
 use macportsbrew_domain::{
-    Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, ErrorId, Machine,
-    MachineRead, MacosVersion, PathFinding, Translation,
+    Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, ErrorId, ExecutableName,
+    Machine, MachineRead, MacosVersion, PathFinding, Translation,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -574,16 +574,14 @@ fn split_path(path: &str) -> Vec<String> {
     path.split(':').map(ToString::to_string).collect()
 }
 
-/// A name `which` will look up: no separator, no leading dash, not empty.
-/// A name that could become a path or a flag is exactly what the threat model
-/// forbids letting through.
+/// A name `which` will look up. A name that could become a path or a flag is
+/// exactly what the threat model forbids letting through.
+///
+/// The class is [`ExecutableName::parse`]'s, the one every reader of an
+/// executable name shares (`docs/passes/16-plans/F.md` §1, SR-11), so `which`
+/// and a provider's executable list can never disagree about what a name is.
 fn is_plain_executable_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.contains('/')
-        && !name.starts_with('-')
-        && !name.contains('\0')
-        && name != "."
-        && name != ".."
+    ExecutableName::parse(name).is_ok()
 }
 
 #[cfg(test)]
@@ -1249,6 +1247,50 @@ mod tests {
         assert_eq!(reader.which("-rf"), None);
         assert_eq!(reader.which(""), None);
         assert_eq!(reader.which("."), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn which_and_the_list_share_one_name_class() {
+        // `which` refuses exactly what an executable list refuses (F.md §1,
+        // SR-11). A format character is a legal file name, so a real file
+        // carrying one is on disk here and must still never be resolved: the
+        // pre-F rule (separator, dash, NUL, dots) would have found it.
+        let dir = scratch("which-class");
+        let hidden = "t\u{200b}x";
+        std::fs::write(dir.join(hidden), b"#!/bin/sh\n").unwrap();
+        std::fs::write(dir.join("tx"), b"#!/bin/sh\n").unwrap();
+        for name in [hidden, "tx"] {
+            std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let reader = SystemMachine::new(
+            Box::new(crate::process::SystemRunner::new()),
+            Some(dir.to_string_lossy().into_owned()),
+            BTreeMap::new(),
+            HomeRedaction::Recorded,
+        );
+        assert_eq!(reader.which("tx"), Some(dir.join("tx")));
+        assert_eq!(reader.which(hidden), None);
+        for name in [
+            "tx",
+            hidden,
+            "",
+            ".",
+            "..",
+            "-x",
+            "a/b",
+            "a\0b",
+            "a\u{2028}b",
+            &"a".repeat(256),
+        ] {
+            assert_eq!(
+                is_plain_executable_name(name),
+                ExecutableName::parse(name).is_ok(),
+                "{:?}",
+                name.escape_unicode().to_string()
+            );
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

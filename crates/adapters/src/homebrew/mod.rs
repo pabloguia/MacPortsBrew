@@ -32,6 +32,7 @@
 pub mod json;
 pub mod keg;
 
+use crate::argv::is_head_and_one_name;
 use crate::filesystem::FilesystemScope;
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
@@ -40,10 +41,11 @@ use json::{checked_name, parse_installed_json, Cask, Formula, Observed, Parsed};
 use macportsbrew_domain::availability::SourceBuildReason;
 use macportsbrew_domain::{
     Answer, Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
-    Capability, CapabilityState, DependencyEdge, DomainError, ErrorId, ExecutableOwner,
-    InstalledPackage, Machine, PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities,
-    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderRead,
-    ProviderSnapshot, RequestedSet, Resolution, ServiceDefinition, Version,
+    Capability, CapabilityState, DependencyEdge, DomainError, ErrorId, ExecutableList,
+    ExecutableOwner, InstalledPackage, ListReason, Machine, PackageIdentity, PackageKind,
+    PackageMetadata, Placement, ProviderCapabilities, ProviderDetection, ProviderId,
+    ProviderInventory, ProviderPresence, ProviderRead, ProviderSnapshot, RequestedSet, Resolution,
+    ServiceDefinition, UnknownReason, Version,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -99,11 +101,36 @@ pub(crate) const ARGV_LIST_FORMULA: &[&str] = &["list", "--formula"];
 /// The argument vectors this adapter will extend with exactly one validated
 /// formula name - the Homebrew counterpart of
 /// [`crate::macports::ALLOWED_ARGV_PREFIXES`]. Held here so the spawn-site
-/// allowlist entry is tied to an adapter in both directions; nothing in this
-/// build runs it yet, and [`ALLOWED_ARGV`] still refuses it at
-/// `HomebrewAdapter::run`. Part F is the consumer: it adds the read, and the
-/// prefix match with one name of `is_brew_name`'s class, to that check.
+/// allowlist entry is tied to an adapter in both directions; [`is_allowed_argv`]
+/// admits each only with exactly one name of the spawn site's own class.
 pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[ARGV_LIST_FORMULA];
+
+/// True when `argv` is exactly an [`ALLOWED_ARGV`] entry, or exactly
+/// [`ARGV_LIST_FORMULA`] followed by one name passing
+/// [`crate::process::is_brew_name`] - the spawn site's function, not a copy
+/// (`docs/passes/16-plans/F.md` §2, SR-7). Zero names, two names, or `list`
+/// without `--formula` (which lets a name reach the cask loader, R-21 E-8) are
+/// all refused.
+fn is_allowed_argv(argv: &[String]) -> bool {
+    ALLOWED_ARGV.iter().any(|allowed| {
+        allowed.len() == argv.len() && allowed.iter().zip(argv).all(|(a, b)| *a == b.as_str())
+    }) || ALLOWED_ARGV_PREFIXES
+        .iter()
+        .any(|head| is_head_and_one_name(argv, head, crate::process::is_brew_name))
+}
+
+/// The adapter's own refusal of a vector outside the allowlist: a programming
+/// error, so `Internal`, and it always propagates (F.md SR2-N4).
+fn check_allowed(argv: &[String]) -> Result<(), DomainError> {
+    if is_allowed_argv(argv) {
+        Ok(())
+    } else {
+        Err(DomainError::new(
+            ErrorId::Internal,
+            format!("homebrew: {argv:?} is not an allow-listed argument vector"),
+        ))
+    }
+}
 
 fn changed(detail: impl Into<String>) -> DomainError {
     DomainError::new(ErrorId::ProviderOutputChanged, detail)
@@ -226,6 +253,66 @@ fn architecture_from_config(
 struct Analysis {
     inventory: Result<ProviderInventory, DomainError>,
     capabilities: ProviderCapabilities,
+    /// What the executable-list read needs of each installed formula, from
+    /// the same parse (empty when the document did not parse).
+    kegs: BTreeMap<String, KegFacts>,
+    /// The installed casks' tokens: no allow-listed read lists their files.
+    casks: BTreeSet<String>,
+}
+
+/// The facts about one formula's kegs that decide which keg a `list
+/// --formula` read describes, and whether its executables are linked.
+#[derive(Clone, Debug)]
+struct KegFacts {
+    /// Installed keg versions, each already validated as a path component.
+    versions: Vec<String>,
+    /// `linked_keg`, as the document reports it (not validated: it is only
+    /// ever compared with `versions`).
+    linked_keg: Option<String>,
+    /// The provider's keg-only reason, when the formula is keg-only.
+    keg_only: Option<String>,
+}
+
+impl KegFacts {
+    fn of(formula: &Formula) -> Self {
+        Self {
+            versions: formula
+                .installed
+                .iter()
+                .map(|k| k.version.clone())
+                .collect(),
+            linked_keg: formula.linked_keg.clone(),
+            keg_only: keg_only_reason(formula),
+        }
+    }
+
+    /// The keg `brew list --formula` lists (R-21 E-8, E-9: the `opt`-linked
+    /// one): the one `linked_keg` names, or the only one there is. Several
+    /// and none linked is [`ListReason::AmbiguousKeg`]; a `linked_keg` naming
+    /// no installed keg is a document that contradicts itself.
+    fn listed(&self) -> Result<&str, UnknownReason> {
+        match (&self.linked_keg, self.versions.as_slice()) {
+            (Some(linked), versions) => versions
+                .iter()
+                .find(|v| *v == linked)
+                .map(String::as_str)
+                .ok_or(UnknownReason::Read(ErrorId::ProviderOutputChanged)),
+            (None, []) => Err(UnknownReason::Listed(ListReason::NotInstalled)),
+            (None, [only]) => Ok(only),
+            (None, _) => Err(UnknownReason::Listed(ListReason::AmbiguousKeg)),
+        }
+    }
+
+    /// The placement known without the listing: a keg-only formula with no
+    /// linked keg is kept off the linked directories by Homebrew.
+    fn placement_without_list(&self, reason: UnknownReason) -> Placement {
+        match (&self.keg_only, &self.linked_keg) {
+            (Some(why), None) => Placement::NotLinked {
+                reason: why.clone(),
+            },
+            _ => Placement::unknown(reason),
+        }
+    }
 }
 
 /// The Homebrew read adapter.
@@ -310,13 +397,14 @@ impl<'r> HomebrewAdapter<'r> {
     /// execution"). Reaching this with something else is a programming error,
     /// so it is `Internal` rather than a provider fault.
     fn run(&self, argv: &[&str]) -> Result<Invocation, DomainError> {
-        if !ALLOWED_ARGV.contains(&argv) {
-            return Err(DomainError::new(
-                ErrorId::Internal,
-                format!("homebrew: {argv:?} is not an allow-listed argument vector"),
-            ));
-        }
-        let key: Vec<String> = argv.iter().map(|a| (*a).to_string()).collect();
+        self.run_argv(argv.iter().map(|a| (*a).to_string()).collect())
+    }
+
+    /// [`Self::run`] over an owned vector, for the one read that carries a
+    /// name: the allowlist check is [`is_allowed_argv`], and it holds on every
+    /// run, live or replayed.
+    fn run_argv(&self, key: Vec<String>) -> Result<Invocation, DomainError> {
+        check_allowed(&key)?;
         if let Some(hit) = self.runs.borrow().get(&key) {
             return Ok(hit.clone());
         }
@@ -329,6 +417,18 @@ impl<'r> HomebrewAdapter<'r> {
         let invocation = self.runner.run(&spec)?;
         self.runs.borrow_mut().insert(key, invocation.clone());
         Ok(invocation)
+    }
+
+    /// The listing read, through the checked path. The allowlist is checked
+    /// here first, so the adapter's own refusal propagates as a defect and is
+    /// never mapped to the per-package unknown a replayed `Internal` from the
+    /// runner becomes (SR2-N4); [`Self::run_argv`] checks it again.
+    fn read_listing(
+        &self,
+        argv: Vec<String>,
+    ) -> Result<Result<String, UnknownReason>, DomainError> {
+        check_allowed(&argv)?;
+        crate::listing::stdout_of(self.run_argv(argv), self.runner.is_replay())
     }
 
     /// Runs a command that answers with one line, and requires it to succeed.
@@ -425,9 +525,22 @@ impl<'r> HomebrewAdapter<'r> {
                 .capabilities
                 .insert(Capability::ServiceMetadata, CapabilityState::Unknown);
         }
+        let (kegs, casks) = match &parsed {
+            Ok(document) => (
+                document
+                    .formulae
+                    .iter()
+                    .map(|f| (f.name.clone(), KegFacts::of(f)))
+                    .collect(),
+                document.casks.iter().map(|c| c.token.clone()).collect(),
+            ),
+            Err(_) => (BTreeMap::new(), BTreeSet::new()),
+        };
         let analysis = Analysis {
             inventory,
             capabilities,
+            kegs,
+            casks,
         };
         *self.analysis.borrow_mut() = Some(analysis.clone());
         Ok(analysis)
@@ -886,6 +999,49 @@ fn keg_only_reason(formula: &Formula) -> Option<String> {
     })
 }
 
+/// A `list --formula` listing of `keg`, parsed. Lines carry no indent (R-21
+/// E-9). Every line must lie inside the keg the read was for - the linked one,
+/// or the only one - and anything else is a listing of a different keg, so
+/// `ProviderOutputChanged` (SR-10). Executables are the direct entries of
+/// `<keg>/bin` and `<keg>/sbin`; they are linked into `<prefix>/bin` and
+/// `<prefix>/sbin` exactly when the formula has a linked keg.
+fn keg_outcome(
+    stdout: &str,
+    keg: &Path,
+    prefix: &Path,
+    facts: &KegFacts,
+) -> (ExecutableList, Placement) {
+    let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+    let Ok(paths) = crate::listing::parse(stdout, "", "homebrew: `list --formula`") else {
+        return (
+            ExecutableList::unknown(changed),
+            facts.placement_without_list(changed),
+        );
+    };
+    if !paths.iter().all(|p| crate::listing::is_under(p, keg)) {
+        return (
+            ExecutableList::unknown(changed),
+            facts.placement_without_list(changed),
+        );
+    }
+    let found = crate::listing::direct_children(&paths, &[keg.join("bin"), keg.join("sbin")]);
+    let linked = [prefix.join("bin"), prefix.join("sbin")];
+    if facts.linked_keg.is_some() {
+        let (list, placement) = crate::listing::outcome(&found, Some(&linked));
+        let placement = placement.unwrap_or_default();
+        return (list, placement);
+    }
+    let (list, unknown) = crate::listing::outcome(&found, None);
+    let placement = match (&facts.keg_only, unknown) {
+        (Some(why), _) => Placement::NotLinked {
+            reason: why.clone(),
+        },
+        (None, Some(unknown)) => unknown,
+        (None, None) => Placement::unknown(ListReason::NotLinkedUnestablished),
+    };
+    (list, placement)
+}
+
 fn cask_metadata(cask: &Cask) -> PackageMetadata {
     let notes = match cask.auto_updates {
         Some(true) => Some("the vendor updates this application itself".to_string()),
@@ -1068,6 +1224,69 @@ impl ProviderRead for HomebrewAdapter<'_> {
             EXECUTABLE_RELATIVE,
             self.filesystem,
         )
+    }
+
+    /// `brew list --formula <formula>`, for an installed formula only
+    /// (`docs/passes/16-plans/F.md` §2). A cask is
+    /// [`ListReason::CaskNotCovered`] and several kegs with none linked
+    /// [`ListReason::AmbiguousKeg`], both without a read. The Cellar is
+    /// `brew --cellar`'s answer, never a literal (INV-20).
+    fn executables(
+        &self,
+        pkg: &PackageIdentity,
+    ) -> Result<(ExecutableList, Placement), DomainError> {
+        let neither = |reason: UnknownReason| {
+            Ok((ExecutableList::unknown(reason), Placement::unknown(reason)))
+        };
+        let not_installed = UnknownReason::Listed(ListReason::NotInstalled);
+        if pkg.provider != self.id || !matches!(self.detect()?.presence, ProviderPresence::Present)
+        {
+            return neither(not_installed);
+        }
+        let analysis = self.analysis()?;
+        if let Err(error) = &analysis.inventory {
+            return Err(error.clone());
+        }
+        let Some(facts) = analysis.kegs.get(&pkg.name) else {
+            if analysis.casks.contains(&pkg.name) {
+                return neither(ListReason::CaskNotCovered.into());
+            }
+            return neither(not_installed);
+        };
+        let version = match facts.listed() {
+            Ok(version) => version,
+            Err(reason) => {
+                return Ok((
+                    ExecutableList::unknown(reason),
+                    facts.placement_without_list(reason),
+                ))
+            }
+        };
+        // A name the provider reported that is not of the spawn site's class
+        // is a fact about this package's output, not a defect here: that
+        // package is unknown and the capture goes on (SR L-3). Checked before
+        // the vector is built, so the allowlist refusal below stays reserved
+        // for a vector this adapter got wrong.
+        if !crate::process::is_brew_name(&pkg.name) {
+            let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+            return Ok((
+                ExecutableList::unknown(changed),
+                facts.placement_without_list(changed),
+            ));
+        }
+        let keg = self.cellar()?.join(&pkg.name).join(version);
+        let mut argv: Vec<String> = ARGV_LIST_FORMULA.iter().map(|a| (*a).to_string()).collect();
+        argv.push(pkg.name.clone());
+        let stdout = match self.read_listing(argv)? {
+            Ok(stdout) => stdout,
+            Err(reason) => {
+                return Ok((
+                    ExecutableList::unknown(reason),
+                    facts.placement_without_list(reason),
+                ))
+            }
+        };
+        Ok(keg_outcome(&stdout, &keg, &self.prefix, facts))
     }
 
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
@@ -1365,6 +1584,192 @@ mod tests {
             "an allow-listed vector must not be refused here: {}",
             error.detail
         );
+    }
+
+    /// A recording that answers `--cellar` only, flagged live or replayed.
+    struct Flagged {
+        inner: crate::process::ReplayRunner,
+        replay: bool,
+    }
+
+    impl ProcessRunner for Flagged {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.inner.run(spec)
+        }
+        fn is_replay(&self) -> bool {
+            self.replay
+        }
+    }
+
+    fn cellar_only(replay: bool) -> Flagged {
+        use crate::process::{RecordedInvocation, Recording, RecordingProvenance, ReplayRunner};
+        Flagged {
+            inner: ReplayRunner::new(Recording {
+                schema_version: 1,
+                provenance: RecordingProvenance {
+                    macos: "26.0.0".into(),
+                    architecture: "x86_64".into(),
+                    provider_versions: Vec::new(),
+                    captured_at: "2026-11-01T00:00:00Z".into(),
+                    captured_by: "unit test".into(),
+                    origin: "synthesised".into(),
+                    note: None,
+                },
+                invocations: vec![RecordedInvocation {
+                    invocation: Invocation {
+                        program: "brew".into(),
+                        argv: vec!["--cellar".into()],
+                        environment: BTreeMap::new(),
+                        status: ExitStatus::Exited { code: 0 },
+                        stdout: "/usr/local/Cellar\n".into(),
+                        stderr: String::new(),
+                        truncated: false,
+                        duration_ms: 0,
+                    },
+                }],
+            }),
+            replay,
+        }
+    }
+
+    /// An adapter that believes it is present and has these formulae, one
+    /// keg each, so a test reaches the listing read without an `info` record.
+    fn with_formulae<'r>(runner: &'r dyn ProcessRunner, names: &[&str]) -> HomebrewAdapter<'r> {
+        let adapter = HomebrewAdapter::new(
+            runner,
+            PathBuf::from("/usr/local"),
+            None,
+            Vec::new(),
+            FilesystemScope::Elsewhere,
+        );
+        *adapter.detection.borrow_mut() = Some(ProviderDetection {
+            provider: adapter.id.clone(),
+            presence: ProviderPresence::Present,
+            version: None,
+            prefix: Some(PathBuf::from("/usr/local")),
+            executable: None,
+            architecture: None,
+            prefix_redacted: false,
+        });
+        *adapter.analysis.borrow_mut() = Some(Analysis {
+            inventory: Ok(ProviderInventory::default()),
+            capabilities: ProviderCapabilities::default(),
+            kegs: names
+                .iter()
+                .map(|n| {
+                    (
+                        (*n).to_string(),
+                        KegFacts {
+                            versions: vec!["1.0".into()],
+                            linked_keg: Some("1.0".into()),
+                            keg_only: None,
+                        },
+                    )
+                })
+                .collect(),
+            casks: BTreeSet::new(),
+        });
+        adapter
+    }
+
+    fn formula(name: &str) -> PackageIdentity {
+        PackageIdentity::new(ProviderId::new(PROVIDER_ID), name)
+    }
+
+    fn list_argv(names: &[&str]) -> Vec<String> {
+        ARGV_LIST_FORMULA
+            .iter()
+            .chain(names)
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_replayed_allowlist_refusal_is_a_capture_error() {
+        // A vector this adapter got wrong (two names) is refused by its own
+        // allowlist, and under replay that is still a defect, never the
+        // per-package unknown (SR2-N4).
+        let runner = cellar_only(true);
+        let adapter = with_formulae(&runner, &["xz"]);
+        let error = adapter.read_listing(list_argv(&["xz", "jq"])).unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // Whereas the runner's own `Internal` (no recorded listing) is.
+        assert_eq!(
+            adapter.executables(&formula("xz")).unwrap().0,
+            ExecutableList::unknown(ErrorId::Internal)
+        );
+    }
+
+    #[test]
+    fn a_live_allowlist_refusal_is_a_capture_error() {
+        let runner = cellar_only(false);
+        let adapter = with_formulae(&runner, &["xz"]);
+        let error = adapter.read_listing(list_argv(&["xz", "jq"])).unwrap_err();
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // Live, a runner `Internal` is a defect too.
+        let error = adapter.executables(&formula("xz")).unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(!error.detail.contains("allow-listed"), "{}", error.detail);
+    }
+
+    #[test]
+    fn a_replayed_inventory_name_outside_the_class_is_that_packages_unknown() {
+        // SR L-3: `x.rb` is a name Homebrew's loaders would read as a file.
+        // Reported by the provider, it is that package's unknown; nothing is
+        // sent and the capture goes on.
+        let runner = cellar_only(true);
+        let adapter = with_formulae(&runner, &["x.rb", "xz"]);
+        assert_eq!(
+            adapter.executables(&formula("x.rb")).unwrap().0,
+            ExecutableList::unknown(ErrorId::ProviderOutputChanged)
+        );
+        assert!(
+            runner.inner.consulted().is_empty(),
+            "nothing was sent: {:?}",
+            runner.inner.consulted()
+        );
+        assert!(adapter.executables(&formula("xz")).is_ok());
+    }
+
+    #[test]
+    fn a_live_inventory_name_outside_the_class_is_that_packages_unknown() {
+        let runner = cellar_only(false);
+        let adapter = with_formulae(&runner, &["x.rb"]);
+        assert_eq!(
+            adapter.executables(&formula("x.rb")).unwrap().0,
+            ExecutableList::unknown(ErrorId::ProviderOutputChanged)
+        );
+    }
+
+    #[test]
+    fn homebrew_run_admits_list_formula_with_exactly_one_name() {
+        // F.md §2, SR-7: `ALLOWED_ARGV` exactly, or `list --formula` and one
+        // name of the spawn site's class - nothing else.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        for allowed in ALLOWED_ARGV {
+            assert!(is_allowed_argv(&argv(allowed)), "{allowed:?}");
+        }
+        assert!(is_allowed_argv(&argv(&["list", "--formula", "pkgconf"])));
+        assert!(is_allowed_argv(&argv(&["list", "--formula", "openssl@3"])));
+        for refused in [
+            &["list", "--formula"][..],
+            &["list", "--formula", "pkgconf", "xz"][..],
+            &["list", "pkgconf"][..],
+            &["list", "--cask", "pkgconf"][..],
+            &["list", "--formula", "--versions"][..],
+            &["list", "--formula", "-v"][..],
+            &["list", "--formula", "x.rb"][..],
+            &["list", "--formula", "a/b"][..],
+            &["list", "--formula", ""][..],
+            &["list", "--pinned", "x"][..],
+            &["--version", "x"][..],
+            &["outdated"][..],
+            &[][..],
+        ] {
+            assert!(!is_allowed_argv(&argv(refused)), "{refused:?} was allowed");
+        }
     }
 
     #[test]

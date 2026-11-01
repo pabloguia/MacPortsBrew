@@ -72,14 +72,16 @@ pub mod parse;
 pub mod portfile;
 pub mod service;
 
+use crate::argv::{is_head_and_one_name, strip_head};
 use crate::filesystem::FilesystemScope;
 use crate::process::{CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner};
 use macportsbrew_domain::{
     Answer, ArtifactAvailability, AvailabilityAssessment, Capability, CapabilityState,
-    DependencyEdge, DomainError, ErrorId, ExecutableOwner, InstalledPackage, Machine,
-    PackageIdentity, PackageKind, PackageMetadata, ProviderCapabilities, ProviderDetection,
-    ProviderId, ProviderInventory, ProviderPresence, ProviderRead, ProviderSnapshot, RequestedSet,
-    Resolution, ServiceDefinition, Version,
+    DependencyEdge, DomainError, ErrorId, ExecutableList, ExecutableOwner, InstalledPackage,
+    ListReason, Machine, PackageIdentity, PackageKind, PackageMetadata, Placement,
+    ProviderCapabilities, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
+    ProviderRead, ProviderSnapshot, RequestedSet, Resolution, ServiceDefinition, UnknownReason,
+    Version,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -117,9 +119,9 @@ const INFO_FIELDS_DEPENDS_BUILD: &[&str] = &["--depends_build"];
 pub(crate) const ARGV_PROVIDES: &[&str] = &["-q", "provides"];
 /// A port's installed file list, `-q contents <port>`: part F's executable
 /// list reads it (R-21 finding 1). Held here so the spawn-site allowlist entry
-/// is tied to an adapter in both directions; part F adds the read that extends
-/// it, with exactly one name that has passed [`names::is_safe_name`] - never
-/// none, which `port` would answer from the Portfile in the working directory.
+/// is tied to an adapter in both directions. [`is_allowed_argv`] binds it to
+/// exactly one name of [`crate::process::is_port_name`]'s class - never none,
+/// which `port` would answer from the Portfile in the working directory.
 pub(crate) const ARGV_CONTENTS: &[&str] = &["-q", "contents"];
 
 /// Every field tail [`INFO_BASE`] may be extended with, one entry per `info`
@@ -167,6 +169,13 @@ pub const ALLOWED_ARGV_PREFIXES: &[&[&str]] = &[INFO_BASE, ARGV_PROVIDES, ARGV_C
 /// prefix - and, for `info`, extends [`INFO_BASE`] with exactly one
 /// [`INFO_FIELDS`] tail followed by nothing option-shaped, so the fields an
 /// `info` read asks for are a list here and not whatever a caller appended.
+///
+/// `contents` is bound to exactly one name of the spawn site's own port-name
+/// class, [`crate::process::is_port_name`] - never none, which `port` would
+/// answer from the Portfile in its working directory, and never two
+/// (`docs/passes/16-plans/F.md` §2, SR-7). `provides`' tail rule is unchanged
+/// and is out of part F (SG2-N1): the spawn site's path class is private to the
+/// frozen `process/mod.rs`.
 fn is_allowed_argv(argv: &[String]) -> bool {
     let after = |head: &[&str]| strip_head(argv, head);
     let info_tail = |rest: &[String]| {
@@ -179,15 +188,52 @@ fn is_allowed_argv(argv: &[String]) -> bool {
         .any(|allowed| allowed.len() == argv.len() && after(allowed).is_some())
         || ALLOWED_ARGV_PREFIXES.iter().any(|head| match after(head) {
             Some(rest) if *head == INFO_BASE => info_tail(rest),
+            Some(_) if *head == ARGV_CONTENTS => {
+                is_head_and_one_name(argv, ARGV_CONTENTS, crate::process::is_port_name)
+            }
             Some(_) => true,
             None => false,
         })
 }
 
-/// What follows `head` in `argv`, when `argv` starts with exactly `head`.
-fn strip_head<'a>(argv: &'a [String], head: &[&str]) -> Option<&'a [String]> {
-    (argv.len() >= head.len() && head.iter().zip(argv).all(|(a, b)| *a == b.as_str()))
-        .then(|| &argv[head.len()..])
+/// The adapter's own refusal of a vector outside the allowlist: a programming
+/// error, so `Internal`, and it always propagates (F.md SR2-N4).
+fn check_allowed(argv: &[String]) -> Result<(), DomainError> {
+    if is_allowed_argv(argv) {
+        Ok(())
+    } else {
+        Err(DomainError::new(
+            ErrorId::Internal,
+            format!("macports: {argv:?} is not an allow-listed argument vector"),
+        ))
+    }
+}
+
+/// A `-q contents` listing, parsed against the detected prefix (F.md §2).
+///
+/// Each line is two spaces then an absolute path (R-21 E-4). A port may also
+/// install outside the prefix (an application bundle), so such lines are
+/// valid, but a listing with **no** line under the prefix is
+/// [`ListReason::NothingUnderPrefix`] (SR2-N2), never an empty list. The
+/// executables are the direct entries of `<prefix>/bin` and `<prefix>/sbin`,
+/// and that is also where they land: the placement is observed from the
+/// listing, not inferred.
+fn contents_outcome(stdout: &str, prefix: &Path) -> (ExecutableList, Placement) {
+    let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+    let Ok(paths) = crate::listing::parse(stdout, "  ", "macports: `-q contents`") else {
+        return (
+            ExecutableList::unknown(changed),
+            Placement::unknown(changed),
+        );
+    };
+    if !paths.iter().any(|p| crate::listing::is_under(p, prefix)) {
+        let reason = UnknownReason::Listed(ListReason::NothingUnderPrefix);
+        return (ExecutableList::unknown(reason), Placement::unknown(reason));
+    }
+    let dirs = [prefix.join("bin"), prefix.join("sbin")];
+    let found = crate::listing::direct_children(&paths, &dirs);
+    let (list, placement) = crate::listing::outcome(&found, Some(&dirs));
+    (list, placement.unwrap_or_default())
 }
 
 /// The MacPorts read adapter over any [`ProcessRunner`] - the live machine or
@@ -331,17 +377,24 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// Checked at run time rather than with a `debug_assert!`, so the shipped
     /// binary makes the same guarantee the tests do.
     fn run_argv(&self, argv: Vec<String>) -> Result<Invocation, DomainError> {
-        if !is_allowed_argv(&argv) {
-            return Err(DomainError::new(
-                ErrorId::Internal,
-                format!("macports: {argv:?} is not an allow-listed argument vector"),
-            ));
-        }
+        check_allowed(&argv)?;
         self.runner.run(&self.spec(argv))
     }
 
     fn run(&self, argv: &[&str]) -> Result<Invocation, DomainError> {
         self.run_argv(argv.iter().map(|s| (*s).to_string()).collect())
+    }
+
+    /// The listing read, through the checked path. The allowlist is checked
+    /// here first, so the adapter's own refusal propagates as a defect and is
+    /// never mapped to the per-package unknown a replayed `Internal` from the
+    /// runner becomes (SR2-N4); [`Self::run_argv`] checks it again.
+    fn read_listing(
+        &self,
+        argv: Vec<String>,
+    ) -> Result<Result<String, UnknownReason>, DomainError> {
+        check_allowed(&argv)?;
+        crate::listing::stdout_of(self.run_argv(argv), self.runner.is_replay())
     }
 
     /// Runs one `info` invocation over `names`, refusing any name that could
@@ -999,6 +1052,52 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
         )
     }
 
+    /// `port -q contents <port>`, only for a port the inventory shows
+    /// **active**, by the inventory's own name (`docs/passes/16-plans/F.md`
+    /// §2). An inactive port is [`ListReason::Inactive`] with no read
+    /// (SR2-N5).
+    fn executables(
+        &self,
+        pkg: &PackageIdentity,
+    ) -> Result<(ExecutableList, Placement), DomainError> {
+        let neither = |reason: UnknownReason| {
+            Ok((ExecutableList::unknown(reason), Placement::unknown(reason)))
+        };
+        if pkg.provider != self.id {
+            return neither(ListReason::NotInstalled.into());
+        }
+        let inventory = self.inventory()?;
+        let rows: Vec<&InstalledPackage> = inventory
+            .installed
+            .iter()
+            .filter(|p| p.identity.name == pkg.name)
+            .collect();
+        let Some(row) = rows.iter().find(|p| p.active).or(rows.first()) else {
+            return neither(ListReason::NotInstalled.into());
+        };
+        if !row.active {
+            return neither(ListReason::Inactive.into());
+        }
+        // Several installed versions: which one `port -q contents` lists has
+        // not been observed (R-24), so no read is made (SG F-6).
+        if rows.len() > 1 {
+            return neither(ListReason::AmbiguousInstalledVersion.into());
+        }
+        // A name the provider reported that is not of the spawn site's class
+        // is this package's unknown, not a defect here (SR L-3). Checked
+        // before the vector is built, so the allowlist refusal stays reserved
+        // for a vector this adapter got wrong.
+        if !crate::process::is_port_name(&row.identity.name) {
+            return neither(ErrorId::ProviderOutputChanged.into());
+        }
+        let mut argv: Vec<String> = ARGV_CONTENTS.iter().map(|s| (*s).to_string()).collect();
+        argv.push(row.identity.name.clone());
+        match self.read_listing(argv)? {
+            Ok(stdout) => Ok(contents_outcome(&stdout, &self.prefix)),
+            Err(reason) => neither(reason),
+        }
+    }
+
     fn snapshot(&self) -> Result<ProviderSnapshot, DomainError> {
         let detection = self.detect()?;
         // Only for a provider that is here, as the Homebrew adapter does: an
@@ -1169,6 +1268,212 @@ mod tests {
         assert!(!is_allowed_argv(&argv(&["-q"])));
         assert!(!is_allowed_argv(&argv(&["version", "extra"])));
         assert!(!is_allowed_argv(&argv(&[])));
+    }
+
+    #[test]
+    fn macports_contents_is_bound_to_exactly_one_port_name() {
+        // F.md §2, SR-7: the spawn site's own class, exactly one name.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        assert!(is_allowed_argv(&argv(&["-q", "contents", "xz"])));
+        assert!(is_allowed_argv(&argv(&["-q", "contents", "py313-pip"])));
+        for refused in [
+            // None: `port` would read the Portfile in its working directory.
+            &["-q", "contents"][..],
+            &["-q", "contents", "xz", "gettext"][..],
+            &["-q", "contents", "--size"][..],
+            &["-q", "contents", "-v"][..],
+            // Reserved words `port` reads as pseudo-portnames.
+            &["-q", "contents", "installed"][..],
+            &["-q", "contents", "all"][..],
+            &["-q", "contents", "../x"][..],
+            &["-q", "contents", "/opt/local/bin/xz"][..],
+            &["-q", "contents", ""][..],
+        ] {
+            assert!(!is_allowed_argv(&argv(refused)), "{refused:?} was allowed");
+        }
+    }
+
+    /// A runner that answers from an empty recording but says it is live, so
+    /// the live branch of the failure mapping can be reached without running
+    /// anything: it refuses every invocation as the recorded runner would.
+    struct LiveFlagged(ReplayRunner);
+
+    impl ProcessRunner for LiveFlagged {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.0.run(spec)
+        }
+        fn is_replay(&self) -> bool {
+            false
+        }
+    }
+
+    /// An adapter whose inventory is these rows, so a test reaches the
+    /// listing read without an `installed` recording.
+    fn with_rows<R: ProcessRunner>(runner: R, rows: &[(&str, bool)]) -> MacPortsAdapter<R> {
+        let adapter = MacPortsAdapter::new(
+            runner,
+            PathBuf::from("/opt/local"),
+            None,
+            FilesystemScope::Elsewhere,
+        );
+        let installed = rows
+            .iter()
+            .map(|(name, active)| InstalledPackage {
+                identity: PackageIdentity::new(ProviderId::new(PROVIDER_ID), *name),
+                kind: PackageKind::Package,
+                version: Version::new("1.0"),
+                revision: None,
+                variants: BTreeSet::new(),
+                active: *active,
+                requested: None,
+                installed_from_prebuilt: None,
+                install_path: None,
+            })
+            .collect();
+        *adapter.inventory.borrow_mut() = Some(ProviderInventory {
+            installed,
+            ..ProviderInventory::default()
+        });
+        adapter
+    }
+
+    fn port(name: &str) -> PackageIdentity {
+        PackageIdentity::new(ProviderId::new(PROVIDER_ID), name)
+    }
+
+    #[test]
+    fn an_inactive_port_is_unknown_inactive_with_no_read() {
+        let adapter = with_rows(
+            empty_runner(),
+            &[("xz", false), ("jq", true), ("jq", false)],
+        );
+        let inactive = UnknownReason::Listed(ListReason::Inactive);
+        assert_eq!(
+            adapter.executables(&port("xz")).unwrap(),
+            (
+                ExecutableList::unknown(inactive),
+                Placement::unknown(inactive)
+            )
+        );
+        assert!(
+            adapter.runner().consulted().is_empty(),
+            "nothing was asked about an inactive port"
+        );
+        // A single active version is read (here: no recorded answer, so the
+        // replayed unknown).
+        let adapter = with_rows(empty_runner(), &[("jq", true)]);
+        assert_eq!(
+            adapter.executables(&port("jq")).unwrap().0,
+            ExecutableList::unknown(ErrorId::Internal)
+        );
+    }
+
+    #[test]
+    fn several_installed_versions_are_ambiguous_without_a_read() {
+        // SG F-6: which entry `port -q contents` lists when several versions
+        // are installed is not observed (R-24), so none is assumed.
+        let adapter = with_rows(empty_runner(), &[("jq", true), ("jq", false)]);
+        let ambiguous = UnknownReason::Listed(ListReason::AmbiguousInstalledVersion);
+        assert_eq!(
+            adapter.executables(&port("jq")).unwrap(),
+            (
+                ExecutableList::unknown(ambiguous),
+                Placement::unknown(ambiguous)
+            )
+        );
+        assert!(adapter.runner().consulted().is_empty(), "no read");
+    }
+
+    fn contents_argv(names: &[&str]) -> Vec<String> {
+        ARGV_CONTENTS
+            .iter()
+            .chain(names)
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_replayed_allowlist_refusal_is_a_capture_error() {
+        // A vector this adapter got wrong (two names) is refused by its own
+        // allowlist, and that is a defect even under replay - never the
+        // per-package unknown a missing recording is (SR2-N4).
+        let adapter = with_rows(empty_runner(), &[("xz", true)]);
+        let error = adapter
+            .read_listing(contents_argv(&["xz", "gettext"]))
+            .unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // The runner's own `Internal` under replay is the unknown.
+        assert_eq!(
+            adapter.read_listing(contents_argv(&["xz"])).unwrap(),
+            Err(UnknownReason::Read(ErrorId::Internal))
+        );
+    }
+
+    #[test]
+    fn a_live_allowlist_refusal_is_a_capture_error() {
+        let adapter = with_rows(LiveFlagged(empty_runner()), &[("xz", true)]);
+        let error = adapter
+            .read_listing(contents_argv(&["xz", "gettext"]))
+            .unwrap_err();
+        assert!(error.detail.contains("allow-listed"), "{}", error.detail);
+        // And a live runner's `Internal` is a defect too, not an unknown.
+        let error = adapter.executables(&port("xz")).unwrap_err();
+        assert_eq!(error.id, ErrorId::Internal);
+        assert!(!error.detail.contains("allow-listed"), "{}", error.detail);
+    }
+
+    #[test]
+    fn a_replayed_inventory_name_outside_the_class_is_that_packages_unknown() {
+        // SR L-3: `installed` is a pseudo-portname the provider somehow
+        // reported as a port. That is this package's unknown, nothing is sent,
+        // and the capture goes on.
+        let adapter = with_rows(empty_runner(), &[("installed", true), ("xz", true)]);
+        let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+        assert_eq!(
+            adapter.executables(&port("installed")).unwrap(),
+            (
+                ExecutableList::unknown(changed),
+                Placement::unknown(changed)
+            )
+        );
+        assert!(adapter.runner().consulted().is_empty(), "nothing was sent");
+        assert!(adapter.executables(&port("xz")).is_ok());
+    }
+
+    #[test]
+    fn a_live_inventory_name_outside_the_class_is_that_packages_unknown() {
+        let adapter = with_rows(LiveFlagged(empty_runner()), &[("installed", true)]);
+        let changed = UnknownReason::Read(ErrorId::ProviderOutputChanged);
+        assert_eq!(
+            adapter.executables(&port("installed")).unwrap(),
+            (
+                ExecutableList::unknown(changed),
+                Placement::unknown(changed)
+            )
+        );
+    }
+
+    #[test]
+    fn macports_provides_tail_is_unchanged() {
+        // SG2-N1: `provides` keeps the rule it had before part F. The tail is
+        // validated by `names::is_safe_path` at the call site, not here, and
+        // tightening it needs the frozen spawn site's private path class.
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| (*s).to_string()).collect() };
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "provides",
+            "/opt/local/bin/xz"
+        ])));
+        assert!(is_allowed_argv(&argv(&[
+            "-q",
+            "provides",
+            "/opt/local/bin/xz",
+            "/opt/local/bin/lzcat"
+        ])));
+        assert!(is_allowed_argv(&argv(&["-q", "provides"])));
     }
 
     #[test]
