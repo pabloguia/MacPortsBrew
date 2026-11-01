@@ -1124,9 +1124,15 @@ changes").** Fixed on this branch:
   no read; which entry `port -q contents` picks then is added to R-24 in
   `docs/spec/09-research-checklist.md`. Test:
   `several_installed_versions_are_ambiguous_without_a_read`.
-- **SG F-7.** `ListReason::all()` is kept whole by a wildcard-free `match`;
-  `no_reason_collides_with_an_error_id` derives its cases from it, and
-  `list_reason_all_is_the_whole_enum_without_duplicates` pins the count.
+- **SG F-7.** `ListReason` and `ListReason::all()` are generated from one list
+  by a `list_reasons!` macro in `executable.rs` (final round: the first version,
+  a wildcard-free `match` beside a hand-kept slice, let a new variant stay out
+  of the slice, the survivor of the `ec16100` mutation proof). A variant cannot
+  exist without being in `all()`; `no_reason_collides_with_an_error_id` derives
+  its cases from it, and `list_reason_all_is_the_whole_enum_without_duplicates`
+  pins every serialised spelling, which the macro left byte-identical. The
+  hand-kept `NUMBER_OF_REASONS` is gone. Checked by hand: a variant added to the
+  macro appears in `all()`.
 - **SG F-9.** `NO_LINKED_KEG` renamed `NOT_LINKED_UNESTABLISHED`.
 - **SR L-3 (an inventory name outside the class).** Checked before the argv is
   built, in both adapters: the package is
@@ -1138,7 +1144,8 @@ changes").** Fixed on this branch:
   `a_live_inventory_name_outside_the_class_is_that_packages_unknown`.
 
 - **Independent mutation proof (at `ebd57f5`, 30 mutants, all killed at crate
-  level).** Two gaps closed: mutant 9a (`known()` answering an unknown list as
+  level).** One gap closed (9a) and one end-to-end strengthening (sibling
+  paths): mutant 9a (`known()` answering an unknown list as
   an empty set) was killed only above the domain crate, so
   `known_is_none_for_unknown_and_not_recorded` now kills it in
   `crates/domain/src/executable.rs`; and a string-prefix `is_under` is now
@@ -1155,7 +1162,11 @@ changes").** Fixed on this branch:
   `bin` or `sbin`; `NotLinked.reason` under the bounded no-Control free-text rule
   (`is_safe_provider_text`); a `Known` list above `MAX_EXECUTABLES` refused.
   `a_snapshot_with_a_bad_executable_name_fails_to_load` is extended to cover all
-  three.
+  three. And `NotLinked.reason` is echoed only through `escape_hostile`
+  (SR2-N6), since `is_safe_provider_text` refuses only Control-class
+  characters.
+- **SR Info 2.** Any surfacing of a listing error detail in `doctor --report` or
+  history goes through the home redaction.
 - **SR L-1.** Homebrew's placement rests on an inference from `linked_keg` (R-21
   lists "whether `linked_keg` can disagree with the `bin/` symlinks" as open).
   F-2b and F-3 check it against the captured resolution, and the inference is
@@ -1173,6 +1184,9 @@ changes").** Fixed on this branch:
 | `security-reviewer`, round 2 | revised uncommitted draft on `c974d33` | Approve with changes. N1 MED-HIGH empty stdout must not yield `NoExecutables`; N2 receipt claim unverified; N3 (= SG2-D1); N4 only the runner's `Internal` under replay; N5 inactive ports, name class before `which`; N6 `pathUsed` privacy limit, `escape_hostile`; N7 predicted-win unreachable under (a), indices before redaction; SR-10 residual for I; `F/05` (b) revised, (h)–(k) | All resolved: N1 → Design 2, Tests, mutant 13b; N2 → Design 2, R-24 (3), mutant 13; N3 → DP-055; N4 → Design 2, Tests (replay twin), mutant 10; N5 → Design 1, 2, 3, mutant 13c; N6 → Design 0, F-2b; N7 → Design 0, 3; SR-10 → Handed to I; `F/05` → Needs the owner 2 |
 | `spec-guardian`, F-0 diff | uncommitted F-0 on `wo16/F-0-plan` (from `origin/main`) | Approve with changes, 11 findings: held until E-4; 05 step list and tier; current build; digest conditional; 04 refusals before install and the backstop; 06 placement; SE-112 format; compatibility; R-24 stub; INV-17 wording | All resolved: see "Changes from the F-0 diff review (binding)" items 1–10 |
 | `docs-auditor`, F-0 diff | uncommitted F-0 on `wo16/F-0-plan` (from `origin/main`) | 18 findings: ledger and header (2, 18); 05 (3, 4, 6); current build (7); 04 (1, 5, 16); R-24 (8); keg-only citation (9); unreachability wording (10); INV-17 (12); own id for not installed (13); test path (14); compatibility (15); design-notes path (17) | All resolved: same section, items 1–11 |
-| `spec-guardian`, F-2a | `wo16/F-2a-reads` at `ebd57f5` | Approve with changes, F-1..F-9: F-1 line splitting and U+FFFD; F-2 INV-20 test on a non-default prefix; F-4 the unchecked runner entry; F-5 a listed directory skipped; F-6 several MacPorts versions; F-7 an exhaustive reason list, and the schema note; F-8 snapshot-load validation; F-9 a provider-named reason | Resolved in "As built (F-2a)", review round: F-1, F-2, F-4, F-5 (deviation 4 reversed), F-6 (with R-24), F-7's test half, F-9. Handed to F-2b: F-7's `snapshot.v1.md` note, F-8 (with SR M-1). F-3 required no change in this round |
+| `spec-guardian`, F-2a | `wo16/F-2a-reads` at `ebd57f5` | Approve with changes, F-1..F-9: F-1 line splitting and U+FFFD; F-2 INV-20 test on a non-default prefix; F-4 the unchecked runner entry; F-5 a listed directory skipped; F-6 several MacPorts versions; F-7 an exhaustive reason list, and the schema note; F-8 snapshot-load validation; F-9 a provider-named reason | Resolved in "As built (F-2a)", review round: F-1, F-2, F-4, F-5 (deviation 4 reversed), F-6 (with R-24), F-7's test half, F-9. Handed to F-2b: F-7's `snapshot.v1.md` note, F-8 (with SR M-1). F-3 resolved by the independent mutation proof at `ebd57f5` (row below); 9a's domain-level gap closed by `known_is_none_for_unknown_and_not_recorded`. |
 | `security-reviewer`, F-2a | `wo16/F-2a-reads` at `ebd57f5` | Approve with changes: M-1 snapshot-load validation of `dirs`, `NotLinked.reason`, list size; L-1 Homebrew placement rests on a `linked_keg` inference; L-2 line splitting (= SG F-1); L-3 an inventory name outside the class should be that package's unknown; Info `-q provides`' tail rule, tracked | L-2, L-3 resolved in "As built (F-2a)", review round. M-1, L-1 handed to F-2b (same section). Info: unchanged and out of F (SG2-N1), still tracked under "Handed to later parts" |
 | Mutation proof, F-2a (subagent, separate worktree) | `wo16/F-2a-reads` at `ebd57f5` | Independent mutation proof at `ebd57f5`, 30/30 killed at crate level; 9a was killed only above the domain crate | 9a domain-level gap closed by `known_is_none_for_unknown_and_not_recorded`; a string-prefix `is_under` also now dies end to end (`a_sibling_named_prefix_is_not_under_the_prefix`, `a_sibling_keg_version_is_outside_the_keg`) |
+| Mutation proof of the fix round (subagent) | `wo16/F-2a-reads` at `ec16100` | Independent mutation proof of the fix round at `ec16100`: 18 mutants, 17 killed | The survivor (`ListReason::all()` missing a new variant) fixed by generating the enum and `all()` from one macro (`list_reasons!`) |
+| `spec-guardian`, re-review | `wo16/F-2a-reads` at `ec16100` | Approve with changes: wording in "As built" and this table | Resolved: the F-3 row text, "one gap closed (9a) and one end-to-end strengthening", the `escape_hostile` and redaction hand-ons to F-2b, these rows |
+| `security-reviewer`, re-review | `wo16/F-2a-reads` at `ec16100` | Approve; Info 2: a listing error detail surfaced in `doctor --report` or history goes through the home redaction | Info 2 handed to F-2b |
