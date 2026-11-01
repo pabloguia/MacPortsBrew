@@ -1,0 +1,381 @@
+diff --git a/scripts/capture-fixture.sh b/scripts/capture-fixture.sh
+index da24a67..aa18da5 100755
+--- a/scripts/capture-fixture.sh
++++ b/scripts/capture-fixture.sh
+@@ -14,16 +14,56 @@
+ # builds: no inherited variables, the provider quieting variables set.
+ # Output is redacted: the home directory becomes `~` and the user name is
+ # never written. Needs jq.
++#
++# Every provider and system command runs through `record`, never directly:
++# under `env -i`, in the working directory `/` (as the process executor runs
++# its children), with stdin from /dev/null and a per-invocation timeout of
++# DEFAULT_TIMEOUT (crates/adapters/src/process/mod.rs), enforced by the
++# python3 this script already needs - macOS ships no `timeout` command. A
++# name the script passes to a provider comes only from stdout `record` has
++# already captured, and is checked against the adapter's own name class first
++# (work order 16 part F, staged patch F/05).
+ 
+ set -euo pipefail
++# No word this script expands is meant as a pattern, and a name a provider
++# reported must never become one.
++set -f
+ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+ 
+ name="${1:?fixture name}"
+ out="${2:-fixtures/recordings/${name}.json}"
+-{ command -v jq >/dev/null && command -v python3 >/dev/null; } || { echo "capture-fixture: jq and python3 are required" >&2; exit 2; }
++# Children run in `/`, so the output path is made absolute before any runs.
++case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
++# /usr/bin/python3 when it is a real interpreter: it forwards to the active
++# developer directory's, and without one it is the stub that offers to install
++# the Command Line Tools. Otherwise the first python3 on PATH.
++PY=""
++dev_dir="$(/usr/bin/xcode-select -p 2>/dev/null || true)"
++if [ -x /usr/bin/python3 ] && [ -n "$dev_dir" ] && [ -x "$dev_dir/usr/bin/python3" ]; then
++  PY=/usr/bin/python3
++else
++  PY="$(command -v python3 || true)"
++fi
++{ command -v jq >/dev/null && [ -n "$PY" ]; } || { echo "capture-fixture: jq and python3 are required" >&2; exit 2; }
++echo "capture-fixture: python3 is $PY" >&2
+ 
+ HOME_DIR="${HOME:-}"
+ USER_NAME="$(id -un)"
++# Each environment pair is one line on its way into `record`, so a home path
++# with a newline in it would split into two pairs.
++case "$HOME_DIR" in *$'\n'*) echo "capture-fixture: HOME contains a newline; refusing" >&2; exit 2 ;; esac
++# Redaction replaces the home path by `~` wherever it appears, so it must be
++# one: absolute, and not `/`, which would turn every path into `~`.
++case "$HOME_DIR" in /) echo "capture-fixture: HOME is /; refusing" >&2; exit 2 ;; /*) ;; *) echo "capture-fixture: HOME is not an absolute path; refusing" >&2; exit 2 ;; esac
++[ -n "$USER_NAME" ] || { echo "capture-fixture: no user name to redact" >&2; exit 2; }
++
++# One private directory for every temporary file, removed however the script
++# ends. A signal makes it exit, so the EXIT trap runs.
++work_dir="$(mktemp -d)"
++trap 'rm -rf "$work_dir"' EXIT
++trap 'exit 129' HUP
++trap 'exit 130' INT
++trap 'exit 143' TERM
+ redact() {
+   # Home path and user name never enter a fixture.
+   local s="$1"
+@@ -46,28 +86,132 @@ mk_env() { # <leading-path-or-empty> <extra key=value...>
+   printf '%s' "$json"
+ }
+ 
++# The executor's default, in seconds (process::DEFAULT_TIMEOUT).
++TIMEOUT_SECS=120
++
++# Runs its argv in `/`, in a process group of its own, stdin closed; kills the
++# whole group once the timeout passes, and also when the supervisor itself is
++# interrupted, hung up or terminated, so no provider outlives it. Writes how
++# the child ended to the file its second argument names; an interrupted
++# supervisor writes nothing and exits 128 plus the signal. No single quote and
++# no dollar sign may appear in this program: it is one single-quoted shell word.
++SUPERVISE='
++import os, signal, subprocess, sys
++class Stop(Exception):
++    pass
++def stop(signum, frame):
++    raise Stop(signum)
++STOPS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
++for s in STOPS:
++    signal.signal(s, stop)
++limit, status_file, argv = float(sys.argv[1]), sys.argv[2], sys.argv[3:]
++child = None
++reaped = False
++try:
++    try:
++        # Blocked across the fork, so no signal can land after the child
++        # exists and before the name child is bound to it; the child unblocks them before
++        # it runs the provider, so the provider starts with an empty mask.
++        signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
++        try:
++            child = subprocess.Popen(argv, cwd="/", stdin=subprocess.DEVNULL, start_new_session=True,
++                                     preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS))
++        finally:
++            signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS)
++        try:
++            rc = child.wait(timeout=limit)
++            reaped = True
++            result = "EXITED %d" % rc if rc >= 0 else "SIGNALLED %d" % -rc
++        except subprocess.TimeoutExpired:
++            # One call, so no signal can arrive between the first and last.
++            signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
++            for s in STOPS:
++                signal.signal(s, signal.SIG_IGN)
++            result = "TIMED_OUT"
++    finally:
++        signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
++        for s in STOPS:
++            signal.signal(s, signal.SIG_IGN)
++        if child is not None and not reaped:
++            try:
++                os.killpg(child.pid, signal.SIGKILL)
++            except ProcessLookupError:
++                pass
++            child.wait()
++except Stop as interrupted:
++    sys.exit(128 + interrupted.args[0])
++with open(status_file, "w") as f:
++    f.write(result)
++'
++
++# Whether the user name survives in a text once the home path is replaced, as
++# `redact` replaces it. It would then be rewritten to `USER` inside a name, a
++# path or a listing, and the recording would no longer be what was observed.
++user_name_survives() {
++  local s="$1"
++  [ -n "$HOME_DIR" ] && s="${s//$HOME_DIR/~}"
++  case "$s" in *"$USER_NAME"*) return 0 ;; esac
++  return 1
++}
++# Whether the home path appears in a text as the prefix of a longer name - its
++# next character is not `/`, a newline, a quote or the end - which `redact`
++# would turn into `~` plus a fragment that names nothing.
++home_ends_badly() {
++  local s="$1" rest
++  while :; do
++    case "$s" in *"$HOME_DIR"*) ;; *) return 1 ;; esac
++    rest="${s#*"$HOME_DIR"}"
++    case "$rest" in ''|/*|$'\n'*|\"*|\'*) s="$rest" ;; *) return 0 ;; esac
++  done
++}
++refuse_home_prefix() { # <what> <text>
++  if home_ends_badly "$2"; then
++    echo "capture-fixture: $1 contains the home path as part of a longer name; redaction would change it, refusing" >&2
++    exit 4
++  fi
++}
++refuse_user_name() { # <what> <text>
++  if user_name_survives "$2"; then
++    echo "capture-fixture: $1 contains the user name outside the home path; redaction would change it, refusing" >&2
++    exit 4
++  fi
++}
++
+ invocations='[]'
++# The raw (unredacted) stdout and the status of the most recent `record`. A
++# name passed to a provider is only ever read out of these.
++last_stdout=""
++last_status='{"status":"NOT_STARTED"}'
+ record() { # <env-json> <program-path> <args...>
+   local envj="$1" prog="$2"; shift 2
+   local name; name="$(basename "$prog")"
+   local start end ms stdout stderr status
+-  start=$(python3 -c 'import time; print(int(time.time() * 1000))')
++  start=$("$PY" -I -c 'import time; print(int(time.time() * 1000))')
+   if [ ! -x "$prog" ]; then
+     status='{"status":"NOT_STARTED","error":"No such file or directory (os error 2)"}'
+     stdout=""; stderr=""
+   else
+-    local so se envpairs=()
+-    so="$(mktemp)"; se="$(mktemp)"
++    local so="$work_dir/stdout" se="$work_dir/stderr" sf="$work_dir/status" ended envpairs=()
++    rm -f "$so" "$se" "$sf"
+     while IFS= read -r kv; do envpairs+=("$kv"); done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$envj")
+     set +e
+-    env -i "${envpairs[@]}" "$prog" "$@" >"$so" 2>"$se" </dev/null
++    "$PY" -I -c "$SUPERVISE" "$TIMEOUT_SECS" "$sf" /usr/bin/env -i "${envpairs[@]}" "$prog" "$@" >"$so" 2>"$se" </dev/null
+     rc=$?
+     set -e
++    ended=""; [ -f "$sf" ] && ended="$(cat "$sf")"
+     stdout="$(cat "$so")"; stderr="$(cat "$se")"
+-    rm -f "$so" "$se"
+-    status="$(jq -n --argjson c "$rc" '{status:"EXITED",code:$c}')"
++    rm -f "$so" "$se" "$sf"
++    case "$ended" in
++      "EXITED "*) status="$(jq -n --argjson c "${ended#EXITED }" '{status:"EXITED",code:$c}')" ;;
++      "SIGNALLED "*) status="$(jq -n --argjson s "${ended#SIGNALLED }" '{status:"SIGNALLED",signal:$s}')" ;;
++      TIMED_OUT) status='{"status":"TIMED_OUT"}' ;;
++      *) echo "capture-fixture: the supervisor exited $rc without saying how $name $* ended (interrupted, or an internal error)" >&2; exit 3 ;;
++    esac
+   fi
+-  end=$(python3 -c 'import time; print(int(time.time() * 1000))')
++  refuse_home_prefix "the stdout of $name $*" "$stdout"
++  refuse_user_name "the stdout of $name $*" "$stdout"
++  refuse_user_name "the stderr of $name $*" "$stderr"
++  end=$("$PY" -I -c 'import time; print(int(time.time() * 1000))')
+   ms=$(( end - start ))
+   local argv; argv="$(printf -- '%s\n' "$@" | jq -R . | jq -s .)"
+   local envr; envr="$(redact "$envj")"
+@@ -79,9 +223,42 @@ record() { # <env-json> <program-path> <args...>
+     --argjson ms "$ms" \
+     '. + [{program:$n, argv:$a, environment:$e, status:$s, stdout:$o, stderr:$r, truncated:false, durationMs:$ms}]' \
+     <<<"$invocations")"
++  last_stdout="$stdout"; last_status="$status"
+   echo "capture-fixture: $name $* -> $(jq -r '.status' <<<"$status")" >&2
+ }
+ 
++# Whether the most recent `record` exited 0. Names are taken only from such.
++last_succeeded() { jq -e '.status == "EXITED" and .code == 0' <<<"$last_status" >/dev/null; }
++
++# The adapters' name classes, the letters written out so no locale can widen a
++# range. `macports::names::is_safe_name`: 1-128 bytes of [A-Za-z0-9_.+-], no
++# leading `-`, not `.` or `..`.
++NAME_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
++is_safe_name() {
++  case "$1" in ''|-*|.|..|*[!"$NAME_CHARS"_.+-]*) return 1 ;; esac
++  [ "${#1}" -le 128 ]
++}
++# `process::is_port_name`: starts with a letter or a digit, passes
++# is_safe_name, and is none of PORT_RESERVED_WORDS in any case.
++is_port_name() {
++  case "$1" in ["$NAME_CHARS"]*) ;; *) return 1 ;; esac
++  is_safe_name "$1" || return 1
++  local lower; lower="$(printf '%s' "$1" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
++  case "$lower" in
++    all|current|active|inactive|actinact|installed|uninstalled|outdated|obsolete|requested|unrequested|leaves|rleaves|and|or|not) return 1 ;;
++  esac
++}
++# `process::is_brew_name`: starts with a letter or a digit, passes
++# `is_safe_provider_name` (1-128 bytes of [A-Za-z0-9@+._-], no leading `-`,
++# not `.` or `..`), and does not end in `.rb`, `.json` or `.tar.gz` in any case.
++is_brew_name() {
++  case "$1" in ["$NAME_CHARS"]*) ;; *) return 1 ;; esac
++  case "$1" in *[!"$NAME_CHARS"@+._-]*) return 1 ;; esac
++  [ "${#1}" -le 128 ] || return 1
++  local lower; lower="$(printf '%s' "$1" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
++  case "$lower" in *.rb|*.json|*.tar.gz) return 1 ;; esac
++}
++
+ sys_env="$(mk_env "")"
+ record "$sys_env" /usr/bin/sw_vers -productVersion
+ record "$sys_env" /usr/bin/sw_vers -buildVersion
+@@ -100,23 +277,62 @@ brew_env="$(mk_env "$(dirname "${brew_bin:-/usr/local/bin/brew}")" \
+   HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_COLOR=1 HOMEBREW_NO_EMOJI=1)"
+ brew_prog="${brew_bin:-/usr/local/bin/brew}"
+ record "$brew_env" "$brew_prog" --version
++brew_version_out="$last_stdout"
+ record "$brew_env" "$brew_prog" --prefix
+ record "$brew_env" "$brew_prog" --cellar
+ record "$brew_env" "$brew_prog" --caskroom
+ record "$brew_env" "$brew_prog" --cache
+ record "$brew_env" "$brew_prog" config
+ record "$brew_env" "$brew_prog" info --json=v2 --installed
++brew_info_ok=0; last_succeeded && brew_info_ok=1
++[ "$brew_info_ok" = 1 ] || echo "capture-fixture: warning: info --json=v2 --installed did not exit 0; no list --formula is recorded" >&2
++brew_info_out="$last_stdout"
+ record "$brew_env" "$brew_prog" list --pinned
+ 
++# The executable list (part F): `list --formula <name>`, one formula per
++# invocation, exactly `homebrew::ARGV_LIST_FORMULA` and one name. The names
++# are `formulae[].name` of the `info` stdout recorded above - never
++# `full_name`, never a cask - each printed as a JSON string so a name cannot
++# hide a newline, and each checked against `is_brew_name`: the spawn site
++# refuses any other, so the adapter cannot send it either.
++formula_names=()
++if [ "$brew_info_ok" = 1 ]; then
++  formula_lines="$(jq -r '.formulae[].name | @json' <<<"$brew_info_out")" \
++    || { echo "capture-fixture: info --json=v2 --installed did not parse as Homebrew's v2 JSON" >&2; exit 4; }
++  while IFS= read -r quoted; do
++    [ -n "$quoted" ] || continue
++    case "$quoted" in \"*\") ;; *) echo "capture-fixture: a formulae[].name is not a string: $quoted" >&2; exit 4 ;; esac
++    formula="${quoted#\"}"; formula="${formula%\"}"
++    if is_brew_name "$formula"; then
++      refuse_user_name "the formula name $formula" "$formula"
++      formula_names+=("$formula")
++    else
++      echo "capture-fixture: skipping a formula name outside the adapter's class: $quoted" >&2
++    fi
++  done <<<"$formula_lines"
++fi
++if [ "${#formula_names[@]}" -gt 0 ]; then
++  for formula in "${formula_names[@]}"; do
++    record "$brew_env" "$brew_prog" list --formula "$formula"
++  done
++fi
++
+ # MacPorts: likewise from its prefix.
+ port_bin=""
+ [ -x /opt/local/bin/port ] && port_bin=/opt/local/bin/port
+ port_env="$(mk_env "/opt/local/bin:/opt/local/sbin")"
+ port_prog="${port_bin:-/opt/local/bin/port}"
+ record "$port_env" "$port_prog" version
++port_version_out="$last_stdout"
+ record "$port_env" "$port_prog" -q installed
++port_installed_ok=0; last_succeeded && port_installed_ok=1
++[ "$port_installed_ok" = 1 ] || echo "capture-fixture: warning: -q installed did not exit 0; no -q info is recorded" >&2
++port_installed_out="$last_stdout"
+ record "$port_env" "$port_prog" -q echo requested
+ record "$port_env" "$port_prog" -q echo active
++port_active_ok=0; last_succeeded && port_active_ok=1
++[ "$port_active_ok" = 1 ] || echo "capture-fixture: warning: -q echo active did not exit 0; no -q contents is recorded" >&2
++port_active_out="$last_stdout"
+ record "$port_env" "$port_prog" -q echo leaves
+ record "$port_env" "$port_prog" dir
+ 
+@@ -124,24 +340,62 @@ record "$port_env" "$port_prog" dir
+ # installed name. `port info --line` documents its separator only as "Fields
+ # are separated by spaces" and the one official example shows a field that
+ # itself contains a space (R-3 E-8), so each invocation below carries at most
+-# one variable-width field and that field is last. The names come from the
+-# registry, which is why this runs after `-q installed`.
+-port_names=""
+-[ -n "$port_bin" ] && port_names="$("$port_bin" -q installed 2>/dev/null \
+-  | sed -E 's/^[[:space:]]*//; s/[[:space:]].*$//' | sort -u | tr '\n' ' ')"
+-if [ -n "$port_names" ]; then
++# one variable-width field and that field is last. The names are the first
++# field of each row of the `-q installed` stdout recorded above, in byte order
++# as the adapter's set holds them, each checked against
++# `macports::names::is_safe_name` as the adapter's `run_info` checks it.
++port_names=()
++if [ "$port_installed_ok" = 1 ]; then
++  while IFS= read -r port; do
++    [ -n "$port" ] || continue
++    is_safe_name "$port" || { echo "capture-fixture: an installed port name is outside the adapter's class: $port" >&2; exit 4; }
++    refuse_user_name "the port name $port" "$port"
++    port_names+=("$port")
++  done < <(printf '%s\n' "$port_installed_out" \
++    | sed -E 's/^[[:space:]]*//; s/[[:space:]].*$//' | LC_ALL=C sort -u)
++fi
++if [ "${#port_names[@]}" -gt 0 ]; then
+   for fields in "--version --revision --replaced_by" "--homepage --license" \
+                 "--description" "--depends_lib" "--depends_run" "--depends_build"; do
+-    # Word splitting is intended: port names match [A-Za-z0-9_.+-] only.
++    # Word splitting of $fields is intended: each is a fixed list of options
++    # written above, and `set -f` is on. Each name is one array element.
+     # shellcheck disable=SC2086
+-    record "$port_env" "$port_prog" -q info --index --line --name $fields $port_names
++    record "$port_env" "$port_prog" -q info --index --line --name $fields "${port_names[@]}"
++  done
++fi
++
++# The executable list (part F): `-q contents <name>`, one active port per
++# invocation, exactly `macports::ARGV_CONTENTS` and one name. The names are
++# the `-q echo active` stdout recorded above, one name field per line; a line
++# carrying a second field is output this script does not recognise. Each is
++# checked against `is_port_name`: the spawn site refuses any other, so the
++# adapter cannot send it either.
++active_ports=()
++if [ "$port_active_ok" = 1 ]; then
++  while IFS= read -r line; do
++    port=""; extra=""
++    read -r port extra <<<"$line" || true
++    [ -n "$port" ] || continue
++    [ -z "$extra" ] || { echo "capture-fixture: echo active printed more than a name on one line: $line" >&2; exit 4; }
++    is_safe_name "$port" || { echo "capture-fixture: an active port name is outside the adapter's class: $port" >&2; exit 4; }
++    if is_port_name "$port"; then
++      refuse_user_name "the port name $port" "$port"
++      active_ports+=("$port")
++    else
++      echo "capture-fixture: skipping an active port name the spawn site refuses: $port" >&2
++    fi
++  done < <(printf '%s\n' "$port_active_out" | LC_ALL=C sort -u)
++fi
++if [ "${#active_ports[@]}" -gt 0 ]; then
++  for port in "${active_ports[@]}"; do
++    record "$port_env" "$port_prog" -q contents "$port"
+   done
+ fi
+ 
+ macos="$(sw_vers -productVersion)"; arch="$(uname -m)"
+ versions='[]'
+-[ -n "$brew_bin" ] && versions="$(jq --arg v "homebrew $("$brew_bin" --version 2>/dev/null | head -1)" '. + [$v]' <<<"$versions")"
+-[ -n "$port_bin" ] && versions="$(jq --arg v "macports $("$port_bin" version 2>/dev/null | head -1)" '. + [$v]' <<<"$versions")"
++[ -n "$brew_bin" ] && versions="$(jq --arg v "$(redact "homebrew ${brew_version_out%%$'\n'*}")" '. + [$v]' <<<"$versions")"
++[ -n "$port_bin" ] && versions="$(jq --arg v "$(redact "macports ${port_version_out%%$'\n'*}")" '. + [$v]' <<<"$versions")"
+ now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ mkdir -p "$(dirname "$out")"
+ jq -n --arg macos "$macos" --arg arch "$arch" --argjson pv "$versions" --arg now "$now" \
