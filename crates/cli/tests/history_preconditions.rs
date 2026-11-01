@@ -1161,9 +1161,21 @@ fn the_bracket_tripwire_accepts_the_right_order_and_names_each_way_it_is_broken(
     }
 }
 
-/// Detection: no product code outside the consent module calls `consent::ask`.
+/// A positive structural check, held whatever the switch is (work order 16
+/// part E-3, §6): consent is decided by `consent_for` after the first
+/// recapture and `plan_still_holds`, its result kept with `?`, before the
+/// marker is written; a second recapture follows it; a run that is not live
+/// is refused before it; and `migrate`'s product seam asks through
+/// `consent::ask` with a fresh code and no fallback, behind the live-scope
+/// refusal, so `--replay` and `--from-snapshot` never reach it (E-1 review,
+/// I1). The caller count it had before E-3 stays as a sub-check.
 #[test]
 fn the_switch_needs_consent_wired() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migrate =
+        std::fs::read_to_string(root.join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
+    let violations = consent_violations(&executor_files(), &migrate);
+    assert!(violations.is_empty(), "{violations:?}");
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut callers = 0;
     let mut stack: Vec<_> = std::fs::read_dir(&crates)
@@ -1184,10 +1196,278 @@ fn the_switch_needs_consent_wired() {
             }
         }
     }
-    assert!(
-        !(THIS_BUILD_DISPATCHES_MUTATIONS && callers == 0),
-        "mutations dispatch and elevation consent is not wired (INV-06; SE-016, slice 4 D10)"
+    assert_eq!(
+        callers, 1,
+        "one product caller of consent::ask (INV-06; SE-016, slice 4 D10)"
     );
+}
+
+const RECAPTURE: &str = "(io.recapture)(";
+const CONSENT_FOR: &str = "consent_for(";
+
+/// Every way the shell and `migrate` fail to wire consent as E-3 orders it.
+fn consent_violations(executor: &[SourceFile], migrate: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    let locking: Vec<String> = executor
+        .iter()
+        .map(|(_, t)| code_of(t))
+        .filter(|c| !calls_of(c, ACQUIRE).is_empty())
+        .collect();
+    match locking.as_slice() {
+        [code] => {
+            let recaptures = calls_of(code, RECAPTURE);
+            let holds = calls_of(code, "plan_still_holds(");
+            let consent = calls_of(code, CONSENT_FOR);
+            let write = calls_of(code, MARKER_WRITE).first().copied();
+            let live = code.find("if !io.live");
+            match (recaptures.as_slice(), consent.as_slice(), write) {
+                ([first, second], [asked], Some(write)) => {
+                    let held = |from: usize, to: usize| holds.iter().any(|h| *h > from && *h < to);
+                    if !(held(*first, *asked) && asked < second && held(*second, write)) {
+                        violations.push(
+                            "[order] not: recapture, plan_still_holds, consent_for, recapture, \
+                             plan_still_holds, run_marker::write"
+                                .to_string(),
+                        );
+                    }
+                    // Each re-plan's verdict is acted on, and the later capture
+                    // is the one the run writes (spec review of E-3, 3a-b).
+                    let acted = holds
+                        .iter()
+                        .all(|h| code[..*h].trim_end().ends_with("if let Err(fact) ="));
+                    if !acted {
+                        violations
+                            .push("[holds] a plan_still_holds verdict is not acted on".into());
+                    }
+                    let replaced = code.find("now = again;");
+                    if !replaced.is_some_and(|r| r > *second && r < write) {
+                        violations.push(
+                            "[replaced] the capture after the answer is not the one written".into(),
+                        );
+                    }
+                    let snapshot = calls_of(code, "take_snapshot(");
+                    if snapshot.is_empty() || snapshot.iter().any(|t| t < asked) {
+                        violations.push("[order] the snapshot is written before consent".into());
+                    }
+                    let carried = calls_of(code, DISPATCH).iter().all(|at| {
+                        let args = call_arguments(code, *at);
+                        args.windows(2).any(|w| w == ["consent", "take"])
+                    });
+                    if !(code.contains("tokens.take(step.index)") && carried) {
+                        violations.push(
+                            "[carried] the step's consent token is not taken and handed to the site"
+                                .into(),
+                        );
+                    }
+                    if live.is_none_or(|l| l >= *asked) {
+                        violations.push("[live] a run that is not live reaches consent".into());
+                    }
+                    let begin = code[..*asked].rfind([';', '{', '}']).map_or(0, |i| i + 1);
+                    let statement = code[begin..*asked].trim();
+                    let tail = &code[*asked..];
+                    let tail = &tail[..tail.find(';').unwrap_or(tail.len())];
+                    if !(statement.starts_with("let ")
+                        && !statement.starts_with("let _")
+                        && tail.contains('?'))
+                    {
+                        violations.push(format!(
+                            "[kept] consent_for's result is not bound and returned with `?`: {statement:?}"
+                        ));
+                    }
+                }
+                _ => violations.push(format!(
+                    "[calls] the shell must recapture twice ({}), call consent_for once ({}) and \
+                     write the marker",
+                    recaptures.len(),
+                    consent.len()
+                )),
+            }
+        }
+        _ => violations.push(format!("{} files take the lock; one must", locking.len())),
+    }
+    let migrate = code_of(migrate);
+    let body_of = |name: &str| -> String {
+        let body = migrate.find(name).map_or("", |i| &migrate[i..]);
+        body[..body[1..].find("\nfn ").map_or(body.len(), |i| i + 1)].to_string()
+    };
+    let ask = body_of("fn ask_for_consent(");
+    if calls_of(&ask, "consent::ask(").is_empty() {
+        violations.push("[migrate] the consent seam does not call consent::ask".into());
+    }
+    if !(ask.contains("let mut code = macportsbrew_adapters::entropy::fresh_bytes;")
+        && ask.matches("let mut code").count() == 1
+        && ask.matches("code =").count() == 1
+        && ask.contains("code: &mut code"))
+    {
+        violations.push("[migrate] the consent seam's code is not fresh_bytes alone".into());
+    }
+    if !(ask.contains("input_is_terminal: std::io::stdin().is_terminal()")
+        && ask.contains("prompt_is_terminal: std::io::stderr().is_terminal()"))
+    {
+        violations.push("[terminal] the consent seam does not ask the two streams it uses".into());
+    }
+    let callers = calls_of(&migrate, "ask_for_consent(");
+    let execute = body_of("fn execute_mutating(");
+    let scope = execute.find("ctx.history != HistoryScope::ThisMachine");
+    let seam = calls_of(&execute, "ask_for_consent(");
+    match (callers.as_slice(), scope, seam.as_slice()) {
+        ([_], Some(scope), [seam]) if scope < *seam => {}
+        _ => violations.push(
+            "[migrate] the consent seam is not built once, behind the live-scope refusal".into(),
+        ),
+    }
+    violations
+}
+
+#[test]
+fn consent_violations_fire_on_each_mutant() {
+    // The proof the check above would fire, kept as a test (the module's
+    // convention): one mutant per rule, made from the real sources.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let migrate =
+        std::fs::read_to_string(root.join("crates/cli/src/app/migrate.rs")).expect("migrate.rs");
+    let shell = executor_files();
+    let edit = |from: &str, to: &str| -> Vec<SourceFile> {
+        let mut hit = false;
+        let files = shell
+            .iter()
+            .map(|(n, t)| {
+                hit |= t.contains(from);
+                (n.clone(), t.replacen(from, to, 1))
+            })
+            .collect();
+        assert!(hit, "the mutant applies: {from}");
+        files
+    };
+    let consent_line =
+        "let mut tokens = consent_for(planned, io.consent).map_err(ConsentHalt::error)?;";
+    let shell_mutants: [(&str, Vec<SourceFile>); 4] = [
+        (
+            "kept",
+            edit(consent_line, "let _ = consent_for(planned, io.consent);"),
+        ),
+        (
+            "kept",
+            edit(
+                consent_line,
+                "let mut tokens = consent_for(planned, io.consent).unwrap_or_else(|_| todo!());",
+            ),
+        ),
+        (
+            "calls",
+            edit(
+                "let (again, fresh) = (io.recapture)()?;",
+                "let (again, fresh) = (now.clone(), fresh.clone());",
+            ),
+        ),
+        ("live", edit("if !io.live {", "if false {")),
+    ];
+    let shell_mutants = shell_mutants.into_iter().chain([
+        (
+            "holds",
+            edit(
+                "if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &again) {",
+                "let _ = plan_still_holds(plan, &fresh, planned.before(), &again);\n        if false {",
+            ),
+        ),
+        ("replaced", edit("now = again;", "let _ = again;")),
+        (
+            "carried",
+            edit(
+                "let mut consent = tokens.take(step.index);",
+                "let mut consent = None;",
+            ),
+        ),
+        (
+            "carried",
+            edit(
+                "                        consent.take(),\n",
+                "                        None,\n",
+            ),
+        ),
+    ]);
+    for (tag, files) in shell_mutants {
+        let found = consent_violations(&files, &migrate);
+        assert!(
+            found.iter().any(|v| v.starts_with(&format!("[{tag}]"))),
+            "{tag}: {found:?}"
+        );
+    }
+    for (from, to) in [
+        ("crate::consent::ask(", "crate::consent::confirm_plan_never("),
+        (
+            // A fallback shadowing the draw.
+            "let mut prompt = std::io::stderr();\n    let mut code = macportsbrew_adapters::entropy::fresh_bytes;",
+            "let mut prompt = std::io::stderr();\n    let mut code = macportsbrew_adapters::entropy::fresh_bytes;\n    let mut code = || code().or(Some([0, 0, 0]));",
+        ),
+        (
+            // The seam's own draw, not the plan question's.
+            "let mut prompt = std::io::stderr();\n    let mut code = macportsbrew_adapters::entropy::fresh_bytes;",
+            "let mut prompt = std::io::stderr();\n    let mut code = || Some([0u8, 0, 0]);",
+        ),
+        (
+            "let consent = |requests: &[ElevationRequest]| ask_for_consent(ctx, requests);",
+            "let consent = |requests: &[ElevationRequest]| ConsentDecision::Given(Vec::new());",
+        ),
+    ] {
+        assert!(migrate.contains(from), "the mutant applies: {from}");
+        let found = consent_violations(&shell, &migrate.replacen(from, to, 1));
+        assert!(
+            found.iter().any(|v| v.starts_with("[migrate]")),
+            "{from}: {found:?}"
+        );
+    }
+    // Either stream assumed to be a terminal.
+    for stream in ["stdin", "stderr"] {
+        let from = format!("std::io::{stream}().is_terminal(),\n            input: &mut input,\n            prompt: &mut prompt,");
+        let from = if stream == "stdin" {
+            "input_is_terminal: std::io::stdin().is_terminal(),\n            prompt_is_terminal: std::io::stderr().is_terminal(),\n            input: &mut input,\n            prompt: &mut prompt,".to_string()
+        } else {
+            from
+        };
+        assert!(migrate.contains(&from), "the mutant applies: {stream}");
+        let to = if stream == "stdin" {
+            from.replacen("std::io::stdin().is_terminal()", "true", 1)
+        } else {
+            from.replacen("std::io::stderr().is_terminal()", "true", 1)
+        };
+        let found = consent_violations(&shell, &migrate.replacen(&from, &to, 1));
+        assert!(
+            found.iter().any(|v| v.starts_with("[terminal]")),
+            "{stream}: {found:?}"
+        );
+    }
+    // And the move of consent past the marker write: the order fires.
+    let moved: Vec<SourceFile> = shell
+        .iter()
+        .map(|(n, t)| {
+            let t = t.replacen(consent_line, "let mut tokens = ConsentTokensLater;", 1);
+            let t = t.replacen(
+                "run_marker::write(&lock, state, &named, euid)?;",
+                &format!("run_marker::write(&lock, state, &named, euid)?;\n{consent_line}"),
+                1,
+            );
+            (n.clone(), t)
+        })
+        .collect();
+    assert!(consent_violations(&moved, &migrate)
+        .iter()
+        .any(|v| v.starts_with("[order]")));
+    // The snapshot written before the question: the order fires too.
+    let early: Vec<SourceFile> = shell
+        .iter()
+        .map(|(n, t)| {
+            let t = t.replacen(
+                consent_line,
+                &format!("let _early = take_snapshot(state, &now, euid);\n    {consent_line}"),
+                1,
+            );
+            (n.clone(), t)
+        })
+        .collect();
+    assert!(consent_violations(&early, &migrate)
+        .iter()
+        .any(|v| v == "[order] the snapshot is written before consent"));
 }
 
 /// `doctor` shows a stranded marker (pass 08 slice 5, D12). A positive check,

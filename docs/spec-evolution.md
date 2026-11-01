@@ -1660,6 +1660,26 @@ change is made. Silent deviation remains the one unrecoverable error.
   all three, the identifier telling them from the planner's own exit 4 (R2; `migrate.rs` rule 5 amended).
   The rendering a person confirms on takes its banner from the plan's own `dry_run_only` field: a plan that will run
   says so (`plan.will_run`) instead of "this version changes nothing" (security review of E-2).
+  Change (E-3, part B, consent wired): `application::consent_for(&PlannedRun, ask)` decides when a run asks — never
+  for a plan with no elevated operation or one that disagrees with the table, otherwise exactly one token per request
+  in order — and returns `ConsentTokens` (not `Clone`, `take(step)`) or a `ConsentHalt` (`Declined` → `USER_ABORTED`,
+  exit 6; `Unseen`, `CodeUnavailable`, `PlanDisagrees` → `SAFETY_BLOCKED`, exit 4; `Malformed`, an answer the prompt
+  never gives — tokens that are not one per request, or `NoRequests`/`PlanDisagrees` from the seam — → `INTERNAL`,
+  exit 1, per R5, which supersedes §4's three-halt list). Stdout is empty for each; the exit-4 stops share the
+  planner's identifier and are told apart by their message, as the plan question's `CodeUnavailable` already was. `MutatingRun.consent` is the seam;
+  `migrate`'s product seam calls `consent::ask` with the process's own streams and `adapters::entropy::fresh_bytes`,
+  behind the live-scope refusal, so `--replay` and `--from-snapshot` never reach it. `run_with_mutations` calls
+  `consent_for` after the marker read and before anything is written, and, when a question was put, captures and
+  re-plans again (`Boundary::ReplannedAfterConsent`; `Recapture` became a `Fn` held by reference). The step's token
+  is handed through `mutation_dispatch` to `MutationSite::perform`, which refuses one that does not cover the step's
+  command with `Precondition::WrongConsentToken` (`WRONG_CONSENT_TOKEN`, security review L1); `next_action_with`
+  takes no consent, so the guard
+  still halts every elevated command and no token reaches a site in this build. 04 "Privilege" records the reading
+  of "at the moment it is needed": the question up front under the lock, the credential at the spawn (R3).
+  `the_switch_needs_consent_wired` became a positive structural check of that order, with a mutant test; the
+  one-mutation-site scan now admits exactly one fake, inside the brace-matched extent of the shell's own test module,
+  which must be the file's last item, and holds the fake to the product site's body rules (reversing E-1's "one
+  implementation under `crates/*/src`", so the token's carriage is observed; security review L3).
 - Rationale: a re-check proves one program of a provider outranks nothing; spending it on another program's
   command is a check of something else. The program the shell re-read for is the one `registry::reread_configuration`
   checked against the derived prefix: the shell passes the same variable to both, and a wiring test pins, in both
@@ -1685,7 +1705,15 @@ change is made. Silent deviation remains the one unrecoverable error.
   `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`,
   `invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed`,
   `invariant_17_the_tie_behaves_alike_in_both_directions`,
-  `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown`.
+  `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown`; for E-3
+  `consent_for_asks_only_when_there_is_something_to_ask`,
+  `consent_for_never_asks_about_a_plan_that_disagrees_with_the_table`, `consent_for_maps_every_decision_by_name`
+  (each in both directions),
+  `consent_for_refuses_a_token_count_that_is_not_one_per_request`,
+  `invariant_06_a_declined_or_unseen_question_halts_before_the_marker`,
+  `invariant_06_the_guard_halts_an_elevated_command_whatever_the_tokens`, `a_consent_token_is_carried_to_the_site`,
+  `a_consent_code_is_made_only_from_fresh_bytes_in_the_consent_modules`, `the_switch_needs_consent_wired`,
+  `consent_violations_fire_on_each_mutant`, `invariant_15_the_consent_code_never_enters_a_document_or_a_record`.
 - User impact: none in this build (no command is dispatched, and `migrate --yes` asks nothing without a mutation
   allowance). Once a build dispatches: the plan is shown on standard error and `run plan <code>` confirms it, and an
   elevation phrase carries a six-character code. Keys in both locales: `migrate.precondition.wrong_program_token`,
@@ -1694,7 +1722,10 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: the token's `program` field; `application::ConsentCode` and `ConsentRefusal::CodeUnavailable`;
   a `ConsentStreams::code` seam; a new read-only `adapters::entropy` module (a file read, no spawn);
   `application::plan_tie` (`ShownPlan`, `confirm_shown`, `plan_question_error`), `MutatingRun.shown`, and
-  `ErrorId::PlanNotShown` and `ErrorId::UserAborted`. The witness covers the whole `MigrationPlan` value while the
+  `ErrorId::PlanNotShown` and `ErrorId::UserAborted`; `consent_for`, `ConsentTokens`, `ConsentHalt`,
+  `Precondition::WrongConsentToken` (`migrate.precondition.wrong_consent_token` in both locales),
+  `MutatingRun.consent`, a `consent` parameter on `MutationSite::perform`, and two observer boundaries
+  (`ConsentAsked`, `ReplannedAfterConsent`). The witness covers the whole `MigrationPlan` value while the
   person reads `human::plan`'s rendering, which does not show each command's sanitised environment; that field is
   derived, never read by the spawn site (obligation 10), so confirming it unseen adds no risk. SE-092's split
   holds: the shell plumbs, the application decides; the shell's three empty-program guards are defence in depth

@@ -809,6 +809,68 @@ fn elevation_is_re_derived_from_the_table_never_read_from_the_plan() {
 }
 
 #[test]
+fn invariant_06_the_guard_halts_an_elevated_command_whatever_the_tokens() {
+    // Work order 16 part E-3: consent is carried to the site and never to the
+    // guard. The elevated add halts under an allowance, and the guard's
+    // signature names no consent, so no token can change its answer in this
+    // slice (part J relaxes it, for a covering token only).
+    let allowance = MutationAllowance::forced_in_tests();
+    // Both directions (INV-17): toward MacPorts its add elevates, toward
+    // Homebrew MacPorts' removal does.
+    for (from, kind) in [(HB, StepKind::AddDestination), (MP, StepKind::RemoveSource)] {
+        let run = forced_run(from);
+        let at = position(run.plan(), kind);
+        let asked = crate::consent::elevation_requests(run.plan(), run.before()).expect("requests");
+        assert!(
+            asked.iter().any(|r| r.step == run.plan().steps[at].index),
+            "{from}: the step asks"
+        );
+        assert_eq!(
+            next_action_with(&run, at, &records_until(&run, at), Some(&allowance)),
+            Action::Halt(HaltReason::ElevationNotNone { command: 0 }),
+            "{from}"
+        );
+    }
+    let source = include_str!("../executor.rs");
+    let signature = source
+        .split("pub fn next_action_with(")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .expect("the guard's signature");
+    for consent in ["Consent", "consent"] {
+        assert!(
+            !signature.contains(consent),
+            "the guard takes consent: {signature}"
+        );
+    }
+}
+
+#[test]
+fn consent_for_never_asks_about_a_plan_that_disagrees_with_the_table() {
+    // A plan whose elevating command is not the table's: nothing is put to a
+    // person as something to approve (obligation 9).
+    // Both directions (INV-17): the elevating add toward MacPorts, the
+    // elevating removal toward Homebrew.
+    for (from, kind) in [(HB, StepKind::AddDestination), (MP, StepKind::RemoveSource)] {
+        for forge in [
+            (|c: &mut PlanCommand| c.argv.push("--x".into())) as fn(&mut PlanCommand),
+            |c: &mut PlanCommand| c.program = "/tmp/evil".into(),
+        ] {
+            let run = forced_run(from).map_plan(|p| {
+                let at = position(p, kind);
+                forge(&mut p.steps[at].commands[0]);
+            });
+            let got = crate::consent::consent_for(&run, |_| panic!("asked about a forged plan"));
+            assert_eq!(
+                got.expect_err("refused"),
+                crate::consent::ConsentHalt::PlanDisagrees,
+                "{from}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_mutating_command_that_is_not_the_planners_is_refused_under_an_allowance() {
     let allowance = MutationAllowance::forced_in_tests();
     let run = forced_run(MP).map_plan(|p| {
@@ -827,7 +889,8 @@ fn a_mutating_command_that_is_not_the_planners_is_refused_under_an_allowance() {
 #[test]
 fn the_narrowed_plan_clears_the_gate_only_under_an_allowance() {
     // Toward Homebrew the removal is MacPorts' and elevates: refused even
-    // under an allowance, because consent is not wired.
+    // under an allowance, because the gate admits no elevation until part J
+    // (consent is wired and unreachable, work order 16 E-3).
     let elevated = forced_run(MP);
     let report = execution_refusals_for(&elevated, Some(&MutationAllowance::forced_in_tests()));
     assert!(report

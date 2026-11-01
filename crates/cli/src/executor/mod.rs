@@ -75,11 +75,12 @@ use macportsbrew_adapters::registry::{
     plan_read_sites, reread_configuration, PlanReadError, PlanReadSites, RegistryContext,
 };
 use macportsbrew_application::{
-    certify_destination, destination_still_verified, execution_refusals, judge_mutation,
-    judge_step, must_record, next_action, next_action_with, outcome_of, plan_still_holds,
-    read_back_matches, recheck_provider_configuration, refused, run_record, Action,
-    ConfigurationRechecked, Disposition, GateClear, HaltReason, MutationResult, PlannedRun,
-    Precondition, RunOutcome, ShownPlan, StepRead, StepRecord,
+    certify_destination, consent_for, destination_still_verified, execution_refusals,
+    judge_mutation, judge_step, must_record, next_action, next_action_with, outcome_of,
+    plan_still_holds, read_back_matches, recheck_provider_configuration, refused, run_record,
+    Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt, Disposition,
+    ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition, RunOutcome,
+    ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
@@ -330,7 +331,11 @@ pub fn run_with<S: ReadSite>(
 pub trait MutationSite {
     /// Performs `command` against `provider`. Takes the configuration
     /// re-check's token **by value** and the run lock, so a command cannot be
-    /// performed without a fresh re-check or outside the lock.
+    /// performed without a fresh re-check or outside the lock. `consent` is
+    /// the person's consent for the step's operation when one was asked for
+    /// (work order 16 part E-3): carried here only, while the guard still
+    /// halts every elevated command before it is dispatched, so in this build
+    /// no token reaches a site.
     ///
     /// # Errors
     /// Why the command was not performed.
@@ -339,6 +344,7 @@ pub trait MutationSite {
         provider: &ProviderId,
         command: &PlanCommand,
         checked: ConfigurationRechecked,
+        consent: Option<ConsentGiven>,
         lock: &RunLock,
     ) -> Result<CommandEnd, MutationRefusal>;
 }
@@ -361,6 +367,7 @@ impl MutationSite for NotInThisBuild {
         _provider: &ProviderId,
         _command: &PlanCommand,
         _checked: ConfigurationRechecked,
+        _consent: Option<ConsentGiven>,
         _lock: &RunLock,
     ) -> Result<CommandEnd, MutationRefusal> {
         Err(MutationRefusal::Refused)
@@ -379,6 +386,12 @@ pub enum Boundary {
     Replanned,
     /// The interrupted-run marker was looked for and none was there.
     MarkerRead,
+    /// A person was asked for elevation consent and gave it (work order 16
+    /// part E-3). Passed only when there was something to ask about.
+    ConsentAsked,
+    /// After the consent question, the machine was captured again and
+    /// re-planned and the plan still holds: an answer can take minutes.
+    ReplannedAfterConsent,
     /// The snapshot was published durably and read back (`SNAPSHOT_BEFORE`),
     /// before the marker and before the first change.
     SnapshotWritten,
@@ -418,8 +431,14 @@ impl Observer for Unobserved {
     fn at(&self, _boundary: Boundary, _step: Option<u32>) {}
 }
 
-/// The machine captured again and the plan re-built from it, under the lock.
-pub type Recapture<'a> = Box<dyn FnOnce() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>;
+/// The machine captured again and the plan re-built from it, under the lock:
+/// once after the lock is taken, and again after a consent question was put.
+pub type Recapture<'a> = &'a dyn Fn() -> Result<(Snapshot, MigrationPlan), DomainError>;
+
+/// How a person is asked for elevation consent (`consent::ask` in the
+/// product, with the process's own terminal streams). Called only through
+/// `consent_for`, which decides whether there is anything to ask.
+pub type Consent<'a> = &'a dyn Fn(&[ElevationRequest]) -> ConsentDecision;
 
 /// A provider's configuration re-read for a step whose planned program is the
 /// second argument (`registry::reread_configuration` in the product).
@@ -447,6 +466,8 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub site: &'a M,
     /// Captures the machine again and re-plans, under the lock (D6).
     pub recapture: Recapture<'a>,
+    /// Asks a person for elevation consent (work order 16 part E-3).
+    pub consent: Consent<'a>,
     /// Re-reads a provider's configuration before a mutating command (D7).
     pub reread: Reread<'a>,
     /// Reads the published record back, under the lock (D3).
@@ -477,7 +498,9 @@ pub fn run_mutating<M: MutationSite>(
 /// slice 4): the live-scope check; the plan tied to the one confirmed
 /// (`io.shown`, work order 16 part E-2); the history probe; the lock; the machine
 /// captured again and re-planned under it, refusing on any difference; the
-/// marker looked for; the read steps; and, before the first mutating command,
+/// marker looked for; elevation consent decided by `consent_for` and, when a
+/// question was put, the machine captured and re-planned once more (E-3); the
+/// read steps; and, before the first mutating command,
 /// the marker written — then per mutating command the lock confirmed, the
 /// provider's configuration re-read and re-checked, and the command handed to
 /// the mutation site with the token; then the record written durably on every
@@ -491,7 +514,12 @@ pub fn run_mutating<M: MutationSite>(
 /// A refusal before anything was dispatched: a witness without an allowance,
 /// a run that is not live, a plan the confirmation does not cover
 /// (`PLAN_NOT_SHOWN`), the probe, the lock, the recapture, an interrupted
-/// run's marker, or a marker that could not be written. Nothing mutating ran.
+/// run's marker, a consent question refused or unseen (`USER_ABORTED`,
+/// `SAFETY_BLOCKED`), or a marker that could not be written. Nothing mutating
+/// ran, and on a consent refusal nothing was written.
+// `io` by value: the run spends the witness it carries, so one confirmation
+// cannot be handed to a second run.
+#[allow(clippy::needless_pass_by_value)]
 pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     cleared: &GateClear,
     sites: impl FnOnce() -> S,
@@ -527,21 +555,9 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     io.observer.at(Boundary::Probed, None);
     let lock = run_lock::acquire(state, euid)?;
     io.observer.at(Boundary::Locked, None);
-    let (now, fresh) = (io.recapture)()?;
+    let (mut now, fresh) = (io.recapture)()?;
     if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &now) {
-        return Ok(RunReport {
-            outcome: RunOutcome::Halted {
-                step: 0,
-                reason: HaltReason::StateChanged { fact },
-            },
-            records: Vec::new(),
-            refusal: None,
-            gate_refusals: Vec::new(),
-            history_error: None,
-            marker_left: None,
-            record_written: false,
-            receipt: RunReceipt::default(),
-        });
+        return Ok(state_changed(fact));
     }
     io.observer.at(Boundary::Replanned, None);
     if let Some(earlier) = run_marker::read(&lock, state, euid)? {
@@ -551,6 +567,21 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         ));
     }
     io.observer.at(Boundary::MarkerRead, None);
+    // Consent before anything is written: a refusal leaves no snapshot, no
+    // marker and no record (E-3; INV-06). The application decides whether
+    // there is anything to ask.
+    let mut tokens = consent_for(planned, io.consent).map_err(ConsentHalt::error)?;
+    if tokens.asked() {
+        io.observer.at(Boundary::ConsentAsked, None);
+        // An answer can take minutes, and the lock excludes another run, not
+        // the person in another terminal (INV-04): capture and re-plan again.
+        let (again, fresh) = (io.recapture)()?;
+        if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &again) {
+            return Ok(state_changed(fact));
+        }
+        now = again;
+        io.observer.at(Boundary::ReplannedAfterConsent, None);
+    }
     let marker = InterruptedRun::new(&io.start.id)
         .map_err(|why| DomainError::new(ErrorId::Internal, why))?;
     let site = sites();
@@ -609,6 +640,8 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                     io.observer.at(Boundary::MarkerWritten, Some(step.index));
                 }
                 let mut results: Vec<MutationResult> = Vec::new();
+                // The step's consent, spent on its first command (E-3).
+                let mut consent = tokens.take(step.index);
                 for command in &step.commands {
                     let Some(provider) = step.provider.as_ref() else {
                         results.push(MutationResult::PreconditionFailed(Precondition::NoProvider));
@@ -701,7 +734,15 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                     };
                     io.observer
                         .at(Boundary::ConfigurationRechecked, Some(step.index));
-                    let result = mutation_dispatch(io.site, provider, command, checked, &lock);
+                    let result = mutation_dispatch(
+                        io.site,
+                        provider,
+                        step.index,
+                        command,
+                        checked,
+                        consent.take(),
+                        &lock,
+                    );
                     if !matches!(result, MutationResult::PreconditionFailed(_)) {
                         io.observer.at(Boundary::Dispatched, Some(step.index));
                     }
@@ -813,6 +854,24 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     })
 }
 
+/// The report of a run halted at step 0 because the machine changed under the
+/// lock: nothing was written.
+fn state_changed(fact: macportsbrew_application::StateFact) -> RunReport {
+    RunReport {
+        outcome: RunOutcome::Halted {
+            step: 0,
+            reason: HaltReason::StateChanged { fact },
+        },
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: Vec::new(),
+        history_error: None,
+        marker_left: None,
+        record_written: false,
+        receipt: RunReceipt::default(),
+    }
+}
+
 /// A `VERIFY_DESTINATION` (SE-107 C1): the destination provider's
 /// configuration re-read and re-checked, then the step's commands read, then
 /// `certify_destination` with the re-check's token. A failed re-read or
@@ -876,12 +935,16 @@ fn take_snapshot(state: &StateDir, snapshot: &Snapshot, euid: u32) -> Option<Str
 /// Hands one mutating command to the mutation site with its re-check token —
 /// the only place [`MutationSite::perform`] is called. A token for another
 /// provider, or re-checked for another program than the command names, is
-/// refused here and nothing is handed over (SR 9).
+/// refused here and nothing is handed over (SR 9). The step's consent, when
+/// one was given, is handed over with it, and refused here unless it covers
+/// this step's command exactly (E-3, security review L1).
 fn mutation_dispatch(
     site: &dyn MutationSite,
     provider: &ProviderId,
+    step: u32,
     command: &PlanCommand,
     checked: ConfigurationRechecked,
+    consent: Option<ConsentGiven>,
     lock: &RunLock,
 ) -> MutationResult {
     if checked.provider() != provider {
@@ -890,7 +953,13 @@ fn mutation_dispatch(
     if checked.program() != command.program {
         return MutationResult::PreconditionFailed(Precondition::WrongProgramToken);
     }
-    match site.perform(provider, command, checked, lock) {
+    if consent
+        .as_ref()
+        .is_some_and(|c| !c.covers(step, &command.program, &command.argv))
+    {
+        return MutationResult::PreconditionFailed(Precondition::WrongConsentToken);
+    }
+    match site.perform(provider, command, checked, consent, lock) {
         Ok(end) => MutationResult::Ended(end),
         Err(MutationRefusal::Refused) => MutationResult::Refused,
         Err(MutationRefusal::Transport(error)) => MutationResult::TransportFailed(error),
@@ -1105,6 +1174,117 @@ mod tests {
         }
     }
 
+    /// What a site was handed, for the one test that must see it: the step
+    /// a consent token covered, when one came. Test-only; the product site is
+    /// `NotInThisBuild`.
+    struct Recording(std::cell::RefCell<Vec<Option<u32>>>);
+
+    impl MutationSite for Recording {
+        fn perform(
+            &self,
+            _provider: &ProviderId,
+            _command: &PlanCommand,
+            _checked: ConfigurationRechecked,
+            consent: Option<ConsentGiven>,
+            _lock: &RunLock,
+        ) -> Result<CommandEnd, MutationRefusal> {
+            self.0.borrow_mut().push(consent.map(|c| c.step()));
+            Err(MutationRefusal::Refused)
+        }
+    }
+
+    #[test]
+    fn a_consent_token_is_carried_to_the_site() {
+        // E-3: a token a person gave through the prompt reaches the site with
+        // its command, untouched; `None` when none was given. The guard still
+        // halts every elevated command before dispatch, so no run reaches this.
+        let provider = ProviderId::new("alpha");
+        let snapshot = configured(&provider);
+        let fresh = macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() };
+        let command = PlanCommand {
+            target: macportsbrew_domain::CommandTarget::default(),
+            program: "/opt/alpha/bin/alpha".into(),
+            argv: vec!["verb".into()],
+            environment: BTreeMap::new(),
+            elevation: macportsbrew_domain::Elevation::None,
+            success: macportsbrew_domain::SuccessSemantic::default(),
+            placeholder: false,
+        };
+        let request = ElevationRequest {
+            step: 3,
+            provider: provider.clone(),
+            program: command.program.clone(),
+            argv: command.argv.clone(),
+            known: true,
+        };
+        let messages = crate::i18n::Messages::for_locale(&crate::i18n::resolve(Some("en"), None));
+        let mut input = std::io::Cursor::new(b"allow step 3 010203\n".to_vec());
+        let mut prompt = Vec::new();
+        let mut code = || Some([1u8, 2, 3]);
+        let decision = crate::consent::ask(
+            std::slice::from_ref(&request),
+            crate::consent::ConsentStreams {
+                input_is_terminal: true,
+                prompt_is_terminal: true,
+                input: &mut input,
+                prompt: &mut prompt,
+                code: &mut code,
+            },
+            &messages,
+            &HomeRedaction::Recorded,
+        );
+        let ConsentDecision::Given(mut tokens) = decision else {
+            panic!("the exact phrase gives consent: {decision:?}");
+        };
+        let base =
+            std::env::temp_dir().join(format!("mpb-dispatch-consent-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).expect("scratch");
+        let euid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&base).expect("scratch"));
+        let state = StateDir::resolve(None, Some(base.join("state").to_str().expect("utf-8")))
+            .expect("a state directory");
+        let lock = run_lock::acquire(&state, euid).expect("the lock");
+        let site = Recording(std::cell::RefCell::new(Vec::new()));
+        for consent in [tokens.pop(), None] {
+            let checked =
+                recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
+                    .expect("an empty configuration outranks nothing");
+            assert!(matches!(
+                mutation_dispatch(&site, &provider, 3, &command, checked, consent, &lock),
+                MutationResult::Refused
+            ));
+        }
+        assert_eq!(*site.0.borrow(), [Some(3), None]);
+        // A token is never spent on another step's command: refused, and the
+        // site sees nothing (security review L1).
+        let mut input = std::io::Cursor::new(b"allow step 3 010203\n".to_vec());
+        let mut prompt = Vec::new();
+        let ConsentDecision::Given(mut again) = crate::consent::ask(
+            std::slice::from_ref(&request),
+            crate::consent::ConsentStreams {
+                input_is_terminal: true,
+                prompt_is_terminal: true,
+                input: &mut input,
+                prompt: &mut prompt,
+                code: &mut code,
+            },
+            &messages,
+            &HomeRedaction::Recorded,
+        ) else {
+            panic!("the exact phrase gives consent");
+        };
+        let checked =
+            recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
+                .expect("an empty configuration outranks nothing");
+        assert!(matches!(
+            mutation_dispatch(&site, &provider, 4, &command, checked, again.pop(), &lock),
+            MutationResult::PreconditionFailed(Precondition::WrongConsentToken)
+        ));
+        assert_eq!(site.0.borrow().len(), 2, "nothing more was handed over");
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
     #[test]
     fn a_token_for_another_program_is_refused_and_nothing_is_handed_over() {
         // SR 9: a re-check made for one program is never spent on a command
@@ -1136,13 +1316,13 @@ mod tests {
             recheck_provider_configuration(&provider, "/opt/alpha/bin/other", &snapshot, &fresh)
                 .expect("an empty configuration outranks nothing");
         assert!(matches!(
-            mutation_dispatch(&site, &provider, &command, other, &lock),
+            mutation_dispatch(&site, &provider, 3, &command, other, None, &lock),
             MutationResult::PreconditionFailed(Precondition::WrongProgramToken)
         ));
         let own = recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
             .expect("an empty configuration outranks nothing");
         assert!(matches!(
-            mutation_dispatch(&site, &provider, &command, own, &lock),
+            mutation_dispatch(&site, &provider, 3, &command, own, None, &lock),
             MutationResult::Refused
         ));
         drop(lock);

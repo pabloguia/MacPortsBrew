@@ -363,7 +363,14 @@ comments:
    a package that snapshot does not hold counts as a `GUI_APP`, so an
    undeterminable kind fails closed. The live probe is the capability capture
    records; a mutating operation is never relaxed by it. The gate still
-   refuses every elevated step.
+   refuses every elevated step. **Wired, unreachable** (work order 16 part
+   E-3): the run loop asks through `consent::consent_for`, which calls
+   `elevation_requests` on the plan and the snapshot it was built from, asks
+   only when that lists an operation and never for a plan that disagrees with
+   the table, and needs exactly one token per request; the tokens are carried
+   to the mutation site with the step's first command, while the guard still
+   halts every elevated command. The gap is declared: no cleared run has a
+   request until the gate admits elevation (DP-046 (b), part J).
 10. **The spawn site re-derives `program` and `environment` from live
     detection. It reads `PlanCommand.program` only to refuse a plan whose
     program disagrees with the derived one (DP-023), and never reads

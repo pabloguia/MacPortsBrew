@@ -997,6 +997,111 @@ the run on the reviewers' advice
 | 39 a failed draw falls back to a fixed code | killed | the declined-question test |
 | 40 `Declined` mapped to `SAFETY_BLOCKED` | survived at `ad850cb`; closed by `c7dbcbb` | `invariant_02_a_declined_plan_question_exits_6_before_anything_runs` (the mapping is `plan_question_error`) |
 
+## As built (E-3)
+
+- **Consent decided by the application.** `consent_for(&PlannedRun, ask)` in
+  `crates/application/src/consent.rs`, returning `ConsentTokens` (not `Clone`,
+  `asked()`, `take(step)`) or a `ConsentHalt`. **§4's three halts are superseded
+  by R5:** `Declined` → `USER_ABORTED` (6); `Unseen` and `CodeUnavailable`
+  (its own variant, closing E-1's owed SR 10 mapping) and `PlanDisagrees` →
+  `SAFETY_BLOCKED` (4); `Malformed` → `INTERNAL` (1) for any answer the prompt
+  never gives — tokens that are not one per request each covering it (in E-3's
+  first draft this was `Declined`, spec review finding 1), and `NoRequests` or
+  `PlanDisagrees` returned by the seam (finding 8).
+- **The order in `run_with_mutations`:** shown tie, live check, probe, lock,
+  recapture and `plan_still_holds`, marker read, `consent_for(…)?`, and when a
+  question was put `Boundary::ConsentAsked`, a second recapture and
+  `plan_still_holds` (`Boundary::ReplannedAfterConsent`), its capture replacing
+  `now`; then the loop. `Recapture` became `&dyn Fn`. A step's token is taken
+  for its first dispatched command and handed through `mutation_dispatch`,
+  which refuses a token not covering that step's command
+  (`Precondition::WrongConsentToken`, security review L1), to
+  `MutationSite::perform(…, consent, lock)`. `next_action_with` gains nothing.
+- **The product seam** is `migrate::ask_for_consent`: locked standard input,
+  `std::io::stderr()` directly (the run loop's `Fn` seam cannot borrow the
+  `&mut dyn Write` handed to `execute_mutating`; in the product both are the
+  real standard error, but a test capturing `migrate`'s stderr will not see
+  the elevation question — `ask` is tested directly instead; spec review 9),
+  both `IsTerminal` checks, `adapters::entropy::fresh_bytes` alone, and the
+  context's messages and home redaction.
+- **E-1's owed I1 items, closed:** the `fresh_bytes` pin with no fallback and
+  no shadowing (`consent_violations`' `[migrate]` rule);
+  `a_consent_code_is_made_only_from_fresh_bytes_in_the_consent_modules`; and
+  `--replay`/`--from-snapshot` never reaching `ask`, structurally (the
+  live-scope refusal precedes the seam in `execute_mutating`, `if !io.live`
+  precedes `consent_for`).
+- **Tripwire:** `the_switch_needs_consent_wired` is a positive check of the
+  order, of `?` on the result, of each re-plan's verdict acted on, of the later
+  capture being the one written, of the snapshot after consent, of the token's
+  carriage, of the live check, and of the seam's terminals and code source;
+  `consent_violations_fire_on_each_mutant` holds one mutant per rule (R11's
+  `the_consent_tripwire_fires_on_its_mutants`, renamed). The caller count stays
+  as a sub-check, now `== 1`.
+- **The one-mutation-site scan was relaxed, deliberately:** it admits exactly
+  one fake `impl MutationSite`, inside the brace-matched extent of
+  `crates/cli/src/executor/mod.rs`'s test module, which must be the file's last
+  item, and holds the fake to the product site's body rules. This reverses E-1
+  As built's "one implementation under `crates/*/src`"; it is what lets
+  `a_consent_token_is_carried_to_the_site` observe the token at a site.
+- **Tests renamed from R5/R11's names:** `consent_for_maps_every_decision_by_name`
+  (R5's name, adopted); `consent_violations_fire_on_each_mutant`. Added from R11:
+  `invariant_15_the_consent_code_never_enters_a_document_or_a_record`. INV-17:
+  `consent_for`'s cases, the guard and the forged-plan refusal run in both
+  directions (MacPorts' add toward MacPorts; MacPorts' removal toward Homebrew,
+  source not kept). **Not built:** a `known: false` cask case (R11) — no
+  in-code cask fixture plans to an elevated step in these tests; handed to
+  part J, where an elevated step first runs.
+- **Declared gaps, handed to J:** the prompt, the second recapture, and the
+  shell's declined or unseen case are unreachable while the gate refuses every
+  elevated step. At the run-loop level, mutants 28 and 29 (token never taken,
+  or taken for another step) and 32 (`now = again` dropped) are caught only
+  structurally (`[carried]`, `[replaced]`), not behaviourally; J adds the
+  end-to-end test. A step with several elevated commands hands its token to the
+  first only, which fails closed; J decides. `Context::recapture` stamps the
+  snapshot with the run's start time, so after a slow answer the written
+  snapshot's `captured_at` is earlier than its observation (pre-existing,
+  widened by E-3; security review Info). MacPortsBrew never caches a
+  credential; the elevation tool's own timestamp cache is J's to address.
+
+### Mutation proof (E-3, at `d511415`, isolated worktree, removed)
+
+`cargo test --workspace --no-fail-fast` per mutant, baseline green, every
+mutant compiled; all eighteen killed.
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| 23 `next_action_with` takes the tokens, `Some` skips the elevation halt | killed | `invariant_06_the_guard_halts_an_elevated_command_whatever_the_tokens` (signature scan) |
+| 24a `consent_for`'s result discarded, tokens from a second empty call | killed | `consent_violations_fire_on_each_mutant`, `the_switch_needs_consent_wired` (structural) |
+| 24b `consent_for` after the marker write | killed | the same two (structural) |
+| 25 the empty-request early return removed | killed | `consent_for_asks_only_when_there_is_something_to_ask` and about twenty mutating-run tests |
+| 25b `PlanDisagrees` swallowed (`unwrap_or_default`) | killed | `consent_for_never_asks_about_a_plan_that_disagrees_with_the_table` |
+| 26a `Declined` → `SAFETY_BLOCKED` | killed | `consent_for_maps_every_decision_by_name` |
+| 26b `Unseen` → `USER_ABORTED` | killed | the same |
+| 27 the second recapture and its `plan_still_holds` removed | killed | the two tripwires (structural) |
+| 27b the second recapture made unconditional | killed | `a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear`, `a_forced_run_toward_homebrew_reaches_success_with_its_snapshot_written_and_named` |
+| 28 `None` handed to `mutation_dispatch` | killed | the two tripwires (structural) |
+| 28b `tokens.take(step.index)` replaced by `None` | killed | the two tripwires (structural) |
+| 29 `ConsentTokens::take` returns the first token whatever the step | killed | `consent_for_refuses_a_token_count_that_is_not_one_per_request` |
+| 30 the `WrongConsentToken` check removed | killed | `a_consent_token_is_carried_to_the_site` |
+| 31 the one-per-request length check dropped | killed | `consent_for_refuses_a_token_count_that_is_not_one_per_request` |
+| 32 `now = again;` deleted | killed | the two tripwires (structural) |
+| 33 the seam claims standard input is a terminal | killed | the two tripwires (structural) |
+| 34 a second `impl MutationSite` in product code | killed | `there_is_exactly_one_mutation_site_and_it_refuses` |
+
+The structural-only kills (24a, 24b, 27, 28, 28b, 32, 33) are the declared gap
+above: with the gate refusing every elevated step, no run in this build issues
+a token, so the run loop's consent path cannot be driven end to end. Mutant 29
+as run sits inside `take` and is killed behaviourally; the run-loop form (the
+token taken for another step) stays structural. `a_consent_token_is_carried_to_the_site`
+calls `mutation_dispatch` directly, so it does not cover the call site in
+`run_with_mutations`; part J's end-to-end test does.
+
+**The switch.** With `THIS_BUILD_DISPATCHES_MUTATIONS = true`,
+`the_switch_needs_consent_wired` passes (absent from every failure list; `-q`
+prints no pass lines). Twenty-five other tests fail, wider than the flip
+tripwires alone: the gate-refusal tests, the documented-sample check and the
+replay invariants also pin the switch. Part J flips it and owns that list.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -1013,3 +1118,5 @@ the run on the reviewers' advice
 | spec-guardian | `ad850cb` | approve with changes: 1–9 | 1 R1 test; 2 INV-17 test, fixtures owed to E-4; 3 `plan_question_error` and its test; 4–6 As built (E-2); 5 SE-111 fields; 7 docs; 8 doc comment; 9 As built and SE-111 |
 | security-reviewer | `ad850cb` | not run at first: the launch was refused by the auto-mode classifier | owner item, then run at the owner's request |
 | security-reviewer | `187f02b..58af1ef` | approve with changes: 1 medium, 2 low | 1 banner from the plan's field, pinned; 2 the code source pinned, mutant 34; 3 mutants renumbered, R13's 33 argued |
+| security-reviewer | E-3 working tree (on `8866341`) | approve: L1–L3, Info ×3 | L1 `WrongConsentToken` at dispatch; L2 `[order]` snapshot and `[carried]` rules, mutants; L3 brace-matched test-module extent, exactly one fake; doc comment moved; snapshot time and multi-command steps As built |
+| spec-guardian | E-3 working tree (on `8866341`) | approve with changes: 1–10 | 1 `Malformed` → `INTERNAL` (R5); 2 both directions; 3 `[holds]`, `[replaced]`, `[terminal]`, shadow rules; 4 As built; 5 scan tightened, As built; 6 stale texts and exit-4 honesty; 7 doc comment; 8 folded into 1; 9 As built; 10 `invariant_15_*` added |

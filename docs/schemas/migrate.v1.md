@@ -133,7 +133,7 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 written durably and read back; nothing was changed), `MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
 `MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
 `NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
-`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED`, `WRONG_PROGRAM_TOKEN` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
+`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED`, `WRONG_PROGRAM_TOKEN`, `WRONG_CONSENT_TOKEN` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
 `PROVIDER_STATE`, `PROVIDER_LOCATION`, `PROVIDER_CAPABILITY`, `SOURCE_PACKAGE`,
 `DESTINATION_PACKAGE`, `REVERSE_DEPENDENCY`, `CLASSIFICATION`, `PLAN_DIFFERS`).
 `command` counts from 0 within the step. A `check` here is the check's kind
@@ -185,7 +185,13 @@ As `plan` in `RENDER` mode: 0, or **4** when the plan stops at
 allowance, the plan's confirmation is asked before anything runs, and a refusal
 there writes nothing to stdout either: `USER_ABORTED` (6, declined), `USAGE`
 (2, no terminal to confirm at), `PLAN_NOT_SHOWN` (4, the plan to run is not the
-one confirmed); the error's identifier, on stderr, tells them apart.
+one confirmed); the error's identifier, on stderr, tells them apart. The
+elevation question (wired in part E-3, reachable after part J) is asked under
+the lock before anything is written, and a stop there writes nothing to stdout
+either: `USER_ABORTED` (6, declined), `INTERNAL` (1, an answer the prompt never
+gives), or `SAFETY_BLOCKED` (4: no terminal, no code, or a command that is not
+the table's), which shares its identifier with the planner's own refusal and is
+told apart by its message.
 
 ## Samples
 

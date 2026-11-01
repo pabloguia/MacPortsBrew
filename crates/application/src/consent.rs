@@ -2,11 +2,12 @@
 
 //! Elevation consent, as decisions (pass 08 slice 4, D10; INV-06; SE-016).
 //!
-//! **Built, not wired.** The execution gate still refuses every step whose
-//! elevation is not `NONE` (`ELEVATION_REQUIRED`, `ELEVATION_UNKNOWN`), and no
-//! elevated command is built or run anywhere. What lands here is what a consent
-//! path decides, so the wiring that a later slice owes has nothing left to
-//! decide:
+//! **Wired, unreachable** (work order 16 part E-3). The execution gate still
+//! refuses every step whose elevation is not `NONE` (`ELEVATION_REQUIRED`,
+//! `ELEVATION_UNKNOWN`), the guard halts every elevated command, and no
+//! elevated command is built or run anywhere, so a cleared run has nothing to
+//! ask about until part J. What lands here is everything a consent path
+//! decides:
 //!
 //! - **Which operations ask.** [`elevation_requests`] lists every mutating
 //!   command whose elevation, **re-derived from the provider command table and
@@ -23,13 +24,24 @@
 //!   carries a [`ConsentCode`] drawn for that question alone, so a line typed
 //!   before the question was written cannot be its answer.
 //! - **What `--yes` is.** Nothing here: no function takes it.
+//! - **When a run asks** (work order 16 part E-3). [`consent_for`] decides it
+//!   for a planned run: no question for a plan with nothing to ask about, none
+//!   for a plan that disagrees with the table, and otherwise exactly one token
+//!   per request or a halt. The **question** is put once per elevated
+//!   operation, up front under the lock and before anything is written, so a
+//!   refusal leaves nothing half-done; the **credential** is requested by the
+//!   spawn that runs the operation, and a token covers that operation alone
+//!   (`04-migration-and-safety.md`, Privilege; SE-111).
 //!
 //! The prompt itself — terminal checks, where it is written, how input is
 //! read — is the command-line crate's `consent` module.
 
+use crate::executor::PlannedRun;
 use crate::planner::{elevation_for, package_kind_in, planned_argv};
 use crate::provider_commands;
-use macportsbrew_domain::{Elevation, MigrationPlan, ProviderId, Snapshot, StepKind};
+use macportsbrew_domain::{
+    DomainError, Elevation, ErrorId, MigrationPlan, ProviderId, Snapshot, StepKind,
+};
 use std::path::Path;
 
 /// One operation that would need administrator rights.
@@ -211,4 +223,131 @@ pub fn elevation_requests(
         });
     }
     Ok(requests)
+}
+
+/// The consent a run was given, one token per elevated operation, keyed by
+/// step. Neither `Clone` nor `Default`: it is made only by [`consent_for`],
+/// and each token is taken once.
+#[derive(Debug)]
+#[must_use]
+pub struct ConsentTokens {
+    tokens: Vec<ConsentGiven>,
+    asked: bool,
+}
+
+impl ConsentTokens {
+    /// Whether a question was put to a person to obtain these tokens. `false`
+    /// for a run with nothing to ask about, which holds no token.
+    #[must_use]
+    pub fn asked(&self) -> bool {
+        self.asked
+    }
+
+    /// The token for `step`, taken out so it is spent once; `None` when there
+    /// is none for that step, or it was already taken.
+    pub fn take(&mut self, step: u32) -> Option<ConsentGiven> {
+        let at = self.tokens.iter().position(|t| t.step == step)?;
+        Some(self.tokens.remove(at))
+    }
+}
+
+/// Why a run stops at its consent question, before anything is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsentHalt {
+    /// The person did not give the confirmation.
+    Declined,
+    /// Nobody could have seen the question: a stream was not a terminal.
+    Unseen,
+    /// No fresh code could be drawn, so nothing was asked (SR 10).
+    CodeUnavailable,
+    /// The plan's commands are not what the table and the detected prefix
+    /// give, so nothing was put to a person as something to approve.
+    PlanDisagrees,
+    /// The prompt answered in a shape it never gives: tokens that are not one
+    /// per request, each covering its request, or a refusal that contradicts
+    /// the question it was asked (R5). A defect, never a person's refusal.
+    Malformed,
+}
+
+impl ConsentHalt {
+    /// The error the run ends with: a person's refusal is `USER_ABORTED`
+    /// (exit 6); a question nobody could see, a missing code and a plan that
+    /// disagrees are safety stops (exit 4); a malformed answer is `INTERNAL`
+    /// (exit 1) — so a script tells them apart (R2, R5).
+    #[must_use]
+    pub fn error(self) -> DomainError {
+        match self {
+            Self::Declined => DomainError::new(
+                ErrorId::UserAborted,
+                "elevation was not allowed, so nothing was changed",
+            ),
+            Self::Unseen => DomainError::new(
+                ErrorId::SafetyBlocked,
+                "elevation needs a terminal to ask at; nothing was changed",
+            ),
+            Self::CodeUnavailable => DomainError::new(
+                ErrorId::SafetyBlocked,
+                "no confirmation code could be drawn, so elevation was not asked about; nothing \
+                 was changed",
+            ),
+            Self::PlanDisagrees => DomainError::new(
+                ErrorId::SafetyBlocked,
+                "a command the plan would elevate is not what the provider table gives for it; \
+                 nothing was changed",
+            ),
+            Self::Malformed => DomainError::new(
+                ErrorId::Internal,
+                "the consent prompt answered in a shape it never gives; nothing was changed",
+            ),
+        }
+    }
+}
+
+/// The consent `run` needs, decided here and asked through `ask` (work order
+/// 16 part E-3, SE-092): `ask` is called **only** when the plan, re-derived
+/// against the snapshot it was built from, has an operation to ask about, and
+/// never for a plan that disagrees with the table. The answer must hold
+/// exactly one token per request, each covering that request's step, program
+/// and argv, in order; anything else, like a refusal the prompt never gives
+/// for a non-empty list, is [`ConsentHalt::Malformed`] (R5).
+///
+/// # Errors
+/// The [`ConsentHalt`] the run stops with.
+pub fn consent_for(
+    run: &PlannedRun,
+    ask: impl FnOnce(&[ElevationRequest]) -> ConsentDecision,
+) -> Result<ConsentTokens, ConsentHalt> {
+    let requests =
+        elevation_requests(run.plan(), run.before()).map_err(|_| ConsentHalt::PlanDisagrees)?;
+    if requests.is_empty() {
+        return Ok(ConsentTokens {
+            tokens: Vec::new(),
+            asked: false,
+        });
+    }
+    match ask(&requests) {
+        ConsentDecision::Given(tokens) => {
+            let one_for_one = tokens.len() == requests.len()
+                && tokens
+                    .iter()
+                    .zip(&requests)
+                    .all(|(t, r)| t.covers(r.step, &r.program, &r.argv));
+            if one_for_one {
+                Ok(ConsentTokens {
+                    tokens,
+                    asked: true,
+                })
+            } else {
+                Err(ConsentHalt::Malformed)
+            }
+        }
+        ConsentDecision::Refused(ConsentRefusal::Declined) => Err(ConsentHalt::Declined),
+        ConsentDecision::Refused(ConsentRefusal::NotATerminal) => Err(ConsentHalt::Unseen),
+        ConsentDecision::Refused(ConsentRefusal::CodeUnavailable) => {
+            Err(ConsentHalt::CodeUnavailable)
+        }
+        ConsentDecision::Refused(ConsentRefusal::NoRequests | ConsentRefusal::PlanDisagrees) => {
+            Err(ConsentHalt::Malformed)
+        }
+    }
 }

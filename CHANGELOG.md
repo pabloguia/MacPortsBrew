@@ -33,6 +33,12 @@ describes the ones a user sees. (DP-045, ruled
   is shown on standard error and runs only after a person types
   `run plan <code>`; `--yes` never answers that question. New error
   identifiers `USER_ABORTED` (exit 6) and `PLAN_NOT_SHOWN` (exit 4) (SE-111).
+- `migrate --yes`, once a build also admits elevation (part J): an operation
+  that needs administrator rights is asked about after the plan is confirmed,
+  under the run lock and before anything is written; declining ends the run
+  with `USER_ABORTED` (exit 6) and nothing changed, and the machine is read
+  again after the answer. Not reachable in this build: the gate refuses every
+  elevated step (SE-111).
 - `migrate --json`: a configuration re-check now records the program it was
   made for, and a step it would be spent on that names another program, or no
   program, halts with the precondition `WRONG_PROGRAM_TOKEN`. The elevation

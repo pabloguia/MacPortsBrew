@@ -430,7 +430,8 @@ narrower one, and exists so a *report* can make the narrower claim truthfully.
 Recorded because the split reads as a relaxation to anyone who meets only half
 of it (SE-059, finding F-10).
 
-**The consent path is built and not wired** (pass 08 slice 4, D10; SE-016).
+**The consent path is wired and unreachable** (pass 08 slice 4, D10; SE-016;
+work order 16 part E-3, SE-111).
 Whether to ask is re-derived from the command table — never the plan's
 `elevation` field, and for the package's kind — and `UNKNOWN` asks. Consent is per operation: one token per
 step, minted only when the person types an exact phrase naming that step and a
@@ -439,9 +440,21 @@ the system's random device; work order 16 part E, SR 10), so a line typed
 before the question cannot answer it — never cached and never inherited, and
 with no code nothing is asked; `--yes` cannot stand for it. The question is asked
 only when both input and the question's own stream are terminals, on standard
-error, with every value escaped and nothing truncated. The execution gate still
-refuses every elevated step, no elevated command is built, and a tripwire fails
-the build that turns mutations on while nothing asks.
+error, with every value escaped and nothing truncated. **When it is asked:**
+"requested per operation at the moment it is needed" is read as two acts. The
+*question* is put once per elevated operation, up front, under the lock and
+before anything is written (no snapshot, marker or record), so a refusal leaves
+nothing half-done, and the machine is captured and re-planned again after the
+answer, since an answer can take minutes; the *credential* is requested by the
+spawn that runs the operation, at that moment, and a token covers that
+operation alone. A person's refusal ends the run with `USER_ABORTED` (exit 6);
+a question nobody could see, a missing code and a plan that disagrees with the
+table are safety stops (exit 4); an answer the prompt never gives is a defect
+(`INTERNAL`, exit 1). At dispatch a token that does not cover its command is
+refused (`WRONG_CONSENT_TOKEN`). The execution gate still refuses every
+elevated step, the guard halts every elevated command whatever the tokens, and
+no elevated command is built, so the question is unreachable until part J
+admits elevation (DP-046 (b)); a positive structural check holds the order.
 
 ## Process execution
 

@@ -36,7 +36,10 @@
 //!    E, R2): the plan not confirmed (`USER_ABORTED`, exit 6), no terminal to
 //!    confirm it at (`USAGE`, exit 2), or the plan to run not the one
 //!    confirmed (`PLAN_NOT_SHOWN`, exit 4). Stdout is empty for each, and the
-//!    error's identifier, not stdout, tells them from the planner's.
+//!    error's identifier, not stdout, tells them from the planner's. A stop
+//!    at the elevation question (E-3) is empty too: `USER_ABORTED` (6),
+//!    `INTERNAL` (1), or `SAFETY_BLOCKED` (4) — that last shares the
+//!    planner's identifier and is told apart only by its message.
 //!
 //! **INV-02.** Under a mutation allowance, the plan executed is the plan a
 //! person was shown and confirmed (`plan.v1.md`, obligation 8): after the
@@ -59,8 +62,9 @@ use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
     clear, migration_key, migration_start, mutation_allowance, plan_question_error,
-    AnalysisOptions, GateClear, HistoryConsultation, MigrationStart, MutationAllowance,
-    NotRecognised, PlanRequest, PlannedRun, RunOutcome, ShownPlan, StepRecord,
+    AnalysisOptions, ConsentDecision, ElevationRequest, GateClear, HistoryConsultation,
+    MigrationStart, MutationAllowance, NotRecognised, PlanRequest, PlannedRun, RunOutcome,
+    ShownPlan, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
@@ -245,7 +249,7 @@ fn execute_mutating(
     let shown = confirm_the_plan(ctx, &cleared, stderr)?;
     let (state, euid) = state_and_user(ctx)?;
     let ids = macportsbrew_adapters::registry::known_provider_ids();
-    let recapture = Box::new(|| {
+    let recapture = || {
         let now = ctx.recapture()?;
         let replan =
             |consultation| migration_start(&now, &ctx.policy, options, request, &ids, consultation);
@@ -267,7 +271,8 @@ fn execute_mutating(
                  run; nothing was changed",
             )),
         }
-    });
+    };
+    let consent = |requests: &[ElevationRequest]| ask_for_consent(ctx, requests);
     let reread = |provider: &ProviderId, program: &str| {
         macportsbrew_adapters::registry::reread_configuration(registry, provider, program)
     };
@@ -284,7 +289,8 @@ fn execute_mutating(
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
             },
             site: &executor::NotInThisBuild,
-            recapture,
+            recapture: &recapture,
+            consent: &consent,
             reread: &reread,
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
@@ -323,6 +329,32 @@ fn confirm_the_plan(
         &ctx.messages,
     );
     shown.map_err(plan_question_error)
+}
+
+/// Asks a person for elevation consent at the process's own terminal (work
+/// order 16 part E-3): the question on standard error, the answers from
+/// locked standard input, each code fresh from the system's random device
+/// with no fallback (SR 10). Reached only through `consent_for` inside the
+/// run loop, which this function never sees: a `--replay` or
+/// `--from-snapshot` run is refused before the loop, so it never asks.
+fn ask_for_consent(ctx: &Context, requests: &[ElevationRequest]) -> ConsentDecision {
+    use std::io::IsTerminal;
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    let mut prompt = std::io::stderr();
+    let mut code = macportsbrew_adapters::entropy::fresh_bytes;
+    crate::consent::ask(
+        requests,
+        crate::consent::ConsentStreams {
+            input_is_terminal: std::io::stdin().is_terminal(),
+            prompt_is_terminal: std::io::stderr().is_terminal(),
+            input: &mut input,
+            prompt: &mut prompt,
+            code: &mut code,
+        },
+        &ctx.messages,
+        &ctx.redaction,
+    )
 }
 
 /// What the run loop returned, as the document carries it: no read output and
