@@ -1008,16 +1008,22 @@ Deviations from the plan, and why:
    or `sbin` **for `e`**"; a single `dir` cannot say which. A leaf found
    directly under both is `UNKNOWN { AMBIGUOUS_DIRECTORY }` for the placement
    while the list keeps the name.
-3. **Two reasons not in the plan**: `AMBIGUOUS_DIRECTORY` (above) and
-   `NO_LINKED_KEG`, the placement of an installed Homebrew formula that is
-   neither keg-only nor linked (§1's "otherwise `UNKNOWN`" needed a reason).
+3. **Three reasons not in the plan**, all provider-neutral:
+   `AMBIGUOUS_DIRECTORY` (above); `NOT_LINKED_UNESTABLISHED` (renamed from
+   `NO_LINKED_KEG` in the review round, SG F-9), the placement of an installed
+   package the provider neither keeps off its linked directories nor links
+   (§1's "otherwise `UNKNOWN`" needed a reason); and
+   `AMBIGUOUS_INSTALLED_VERSION` (review round, SG F-6, below). The
+   plan-sanctioned `CASK_NOT_COVERED` and `AMBIGUOUS_KEG` keep their names.
    `UNKNOWN`'s `reason` serialises as either one of these identifiers or an
    `ErrorId`, untagged; `no_reason_collides_with_an_error_id` holds the two
-   spellings apart.
-4. **Directories in a listing are skipped**: an entry that is itself the parent
-   of another listed entry is not an executable. `brew list` already omits
-   directories (`find -not -type d`, R-21 E-8); `port -q contents` was not
-   observed to list one, and this costs nothing if it never does.
+   spellings apart, over an exhaustive `ListReason::all()`.
+4. **Reversed in the review round (SG F-5).** The first build skipped a listed
+   entry that was the parent of another listed entry as a directory. Now such a
+   listing is `ProviderOutputChanged`: both reads list files (`find -not -type
+   d`, R-21 E-8; the registry's file map, E-3), so a listed directory is a shape
+   this parser does not know, and guessing past it is the misparse the adapter
+   rules forbid.
 5. **A Homebrew `linked_keg` naming no installed keg** is
    `UNKNOWN { PROVIDER_OUTPUT_CHANGED }` with no read; the keg path is built
    only from the validated installed versions, never from `linked_keg` itself.
@@ -1088,7 +1094,74 @@ names, `list` without `--formula`; `contents` admitting any tail); 12 (a path
 under `bin/x/` counted; the parent compared by string); 13 (nothing under the
 prefix made `KNOWN{}`); 13b (empty stdout accepted); 13c (an inactive port
 read; answered `KNOWN`). 13c's second half, a failing name recorded
-`NOT_ON_PATH`, is a capture mutant and moves to F-2b.
+`NOT_ON_PATH`, is a capture mutant and moves to F-2b. The proof was taken before
+the review round below and is not re-run here.
+
+**Review round (`spec-guardian` and `security-reviewer`, both "approve with
+changes").** Fixed on this branch:
+
+- **SG F-1 / SR L-2 (line splitting).** The parser no longer uses
+  `str::lines`, which accepted `\r\n` and so hid a carriage return. It splits on
+  `\n` alone, allowing one final newline; a line carrying `\r`, U+FFFD or any
+  `HostileClass` character is `ProviderOutputChanged`. `ExecutableName::parse`
+  also refuses U+FFFD (`NameRefusal::Replacement`): it marks bytes that were not
+  UTF-8, so the name on disk is not the one parsed. Tests:
+  `a_carriage_return_a_replacement_or_any_hostile_character_is_refused`
+  (`listing.rs`) and a U+FFFD case in the name-class test.
+- **SG F-2 (INV-20 test).** `invariant_20_…` builds both adapters on
+  `/opt/elsewhere` and asserts the placement directories (`bin` and `sbin`) and
+  MacPorts' prefix filter follow it, so a hard-coded `/usr/local` or
+  `/opt/local` fails.
+- **SG F-4 (the unchecked runner entry).** Homebrew's `dispatch` is folded back
+  into `run_argv`. Both adapters' listing reads go through `read_listing`, which
+  checks the allowlist itself (so the adapter's own refusal propagates and stays
+  distinct from the runner's replayed `Internal`) and then calls the checked
+  `run_argv`, which checks again. No path reaches the runner unchecked.
+- **SG F-5.** Deviation 4 reversed (above). Test:
+  `a_listed_directory_is_provider_output_changed`.
+- **SG F-6 (several MacPorts versions).** A port with more than one installed
+  version (and an active one) is `UNKNOWN { AMBIGUOUS_INSTALLED_VERSION }` with
+  no read; which entry `port -q contents` picks then is added to R-24 in
+  `docs/spec/09-research-checklist.md`. Test:
+  `several_installed_versions_are_ambiguous_without_a_read`.
+- **SG F-7.** `ListReason::all()` is kept whole by a wildcard-free `match`;
+  `no_reason_collides_with_an_error_id` derives its cases from it, and
+  `list_reason_all_is_the_whole_enum_without_duplicates` pins the count.
+- **SG F-9.** `NO_LINKED_KEG` renamed `NOT_LINKED_UNESTABLISHED`.
+- **SR L-3 (an inventory name outside the class).** Checked before the argv is
+  built, in both adapters: the package is
+  `UNKNOWN { PROVIDER_OUTPUT_CHANGED }`, nothing is sent and the capture goes
+  on. The allowlist refusal stays reserved for a vector the adapter built wrong,
+  and still aborts; the refusal twins now provoke it with a two-name vector
+  through `read_listing`. Tests, in each adapter:
+  `a_replayed_inventory_name_outside_the_class_is_that_packages_unknown` and
+  `a_live_inventory_name_outside_the_class_is_that_packages_unknown`.
+
+- **Independent mutation proof (at `ebd57f5`, 30 mutants, all killed at crate
+  level).** Two gaps closed: mutant 9a (`known()` answering an unknown list as
+  an empty set) was killed only above the domain crate, so
+  `known_is_none_for_unknown_and_not_recorded` now kills it in
+  `crates/domain/src/executable.rs`; and a string-prefix `is_under` is now
+  killed end to end by `a_sibling_named_prefix_is_not_under_the_prefix`
+  (`/opt/localx/…` through `NOTHING_UNDER_PREFIX`) and
+  `a_sibling_keg_version_is_outside_the_keg` (`…/xz/5.8.3x/…` through the
+  Homebrew keg check), both in `crates/adapters/tests/executable_list.rs` and
+  both checked to fail against that mutant.
+
+**Handed to F-2b:**
+
+- **SR M-1 / SG F-8.** When the snapshot fields land, validate on load: every
+  `dirs` value an absolute plain path equal, component-wise, to the detected
+  `bin` or `sbin`; `NotLinked.reason` under the bounded no-Control free-text rule
+  (`is_safe_provider_text`); a `Known` list above `MAX_EXECUTABLES` refused.
+  `a_snapshot_with_a_bad_executable_name_fails_to_load` is extended to cover all
+  three.
+- **SR L-1.** Homebrew's placement rests on an inference from `linked_keg` (R-21
+  lists "whether `linked_keg` can disagree with the `bin/` symlinks" as open).
+  F-2b and F-3 check it against the captured resolution, and the inference is
+  recorded in SE-112's addendum when F-2b lands.
+- **SG F-7.** `docs/schemas/snapshot.v1.md` documents the `reason` union (a
+  `ListReason` identifier or an `ErrorId`, untagged, never colliding).
 
 ## Reviews
 
@@ -1100,3 +1173,6 @@ read; answered `KNOWN`). 13c's second half, a failing name recorded
 | `security-reviewer`, round 2 | revised uncommitted draft on `c974d33` | Approve with changes. N1 MED-HIGH empty stdout must not yield `NoExecutables`; N2 receipt claim unverified; N3 (= SG2-D1); N4 only the runner's `Internal` under replay; N5 inactive ports, name class before `which`; N6 `pathUsed` privacy limit, `escape_hostile`; N7 predicted-win unreachable under (a), indices before redaction; SR-10 residual for I; `F/05` (b) revised, (h)–(k) | All resolved: N1 → Design 2, Tests, mutant 13b; N2 → Design 2, R-24 (3), mutant 13; N3 → DP-055; N4 → Design 2, Tests (replay twin), mutant 10; N5 → Design 1, 2, 3, mutant 13c; N6 → Design 0, F-2b; N7 → Design 0, 3; SR-10 → Handed to I; `F/05` → Needs the owner 2 |
 | `spec-guardian`, F-0 diff | uncommitted F-0 on `wo16/F-0-plan` (from `origin/main`) | Approve with changes, 11 findings: held until E-4; 05 step list and tier; current build; digest conditional; 04 refusals before install and the backstop; 06 placement; SE-112 format; compatibility; R-24 stub; INV-17 wording | All resolved: see "Changes from the F-0 diff review (binding)" items 1–10 |
 | `docs-auditor`, F-0 diff | uncommitted F-0 on `wo16/F-0-plan` (from `origin/main`) | 18 findings: ledger and header (2, 18); 05 (3, 4, 6); current build (7); 04 (1, 5, 16); R-24 (8); keg-only citation (9); unreachability wording (10); INV-17 (12); own id for not installed (13); test path (14); compatibility (15); design-notes path (17) | All resolved: same section, items 1–11 |
+| `spec-guardian`, F-2a | `wo16/F-2a-reads` at `ebd57f5` | Approve with changes, F-1..F-9: F-1 line splitting and U+FFFD; F-2 INV-20 test on a non-default prefix; F-4 the unchecked runner entry; F-5 a listed directory skipped; F-6 several MacPorts versions; F-7 an exhaustive reason list, and the schema note; F-8 snapshot-load validation; F-9 a provider-named reason | Resolved in "As built (F-2a)", review round: F-1, F-2, F-4, F-5 (deviation 4 reversed), F-6 (with R-24), F-7's test half, F-9. Handed to F-2b: F-7's `snapshot.v1.md` note, F-8 (with SR M-1). F-3 required no change in this round |
+| `security-reviewer`, F-2a | `wo16/F-2a-reads` at `ebd57f5` | Approve with changes: M-1 snapshot-load validation of `dirs`, `NotLinked.reason`, list size; L-1 Homebrew placement rests on a `linked_keg` inference; L-2 line splitting (= SG F-1); L-3 an inventory name outside the class should be that package's unknown; Info `-q provides`' tail rule, tracked | L-2, L-3 resolved in "As built (F-2a)", review round. M-1, L-1 handed to F-2b (same section). Info: unchanged and out of F (SG2-N1), still tracked under "Handed to later parts" |
+| Mutation proof, F-2a (subagent, separate worktree) | `wo16/F-2a-reads` at `ebd57f5` | Independent mutation proof at `ebd57f5`, 30/30 killed at crate level; 9a was killed only above the domain crate | 9a domain-level gap closed by `known_is_none_for_unknown_and_not_recorded`; a string-prefix `is_under` also now dies end to end (`a_sibling_named_prefix_is_not_under_the_prefix`, `a_sibling_keg_version_is_outside_the_keg`) |

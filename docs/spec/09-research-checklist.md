@@ -510,6 +510,12 @@ Questions, for both providers (INV-17):
 - **File-less ports.** What it prints, and with what exit status, for an installed
   port that registers no files — the case that decides whether an empty listing
   is `NOTHING_UNDER_PREFIX` or a changed output format.
+- **Several installed versions.** Which entry `port -q contents <port>` lists
+  when more than one version of the port is installed (the active one, every
+  one, or the first the registry returns), and whether that holds with an
+  inactive version beside the active one. Until it is observed, part F answers
+  such a port `UNKNOWN { AMBIGUOUS_INSTALLED_VERSION }` with no read (F-2a,
+  SG F-6), the counterpart of Homebrew's `AMBIGUOUS_KEG`.
 
 A form that can write is refused, whatever it would answer (the
 `PERMITTED_SUBCOMMANDS` comment, AGENTS.md). A positive answer on one side only
