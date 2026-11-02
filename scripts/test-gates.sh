@@ -1987,6 +1987,90 @@ else
 fi
 
 echo
+echo "== capture-fixture.sh: the executable-list argvs are the adapters' (pass 16 part F, F/05 (g))"
+# A replayed read finds its invocation by program and exact argv, so the two
+# `record` tails the capture script sends one name after must be the adapter
+# constants the spawn site admits, and the script's copy of the reserved words
+# must be the spawn site's. Each is read out of its file, never written here:
+# a second spelling in this file would pass while both drifted. The checker
+# takes its four files as arguments so drifted copies can be fed to it.
+cap_check() { # <capture-fixture.sh> <homebrew/mod.rs> <macports/mod.rs> <process/mod.rs>
+  python3 - "$@" <<'PY'
+import re, sys
+
+script, homebrew, macports, process = (open(p).read() for p in sys.argv[1:5])
+
+def one(pattern, text, what, flags=re.M):
+    found = re.findall(pattern, text, flags)
+    if len(found) != 1:
+        sys.exit("%s: %d matches, wanted exactly 1" % (what, len(found)))
+    return found[0]
+
+def strings(body):
+    return re.findall(r'"([^"\\]*)"', body)
+
+checks = [
+    ("list --formula", r'^\s*record "\$brew_env" "\$brew_prog" ((?:[^"\s]+ )+)"\$formula"$',
+     homebrew, "ARGV_LIST_FORMULA"),
+    ("-q contents", r'^\s*record "\$port_env" "\$port_prog" ((?:[^"\s]+ )+)"\$port"$',
+     macports, "ARGV_CONTENTS"),
+]
+for what, tail_pattern, rust, const in checks:
+    tail = one(tail_pattern, script, "capture-fixture.sh, the %s record line" % what).split()
+    body = one(r'^pub\(crate\) const %s: &\[&str\] = &\[([^\]]*)\];$' % const, rust, const)
+    if tail != strings(body):
+        sys.exit("capture-fixture.sh sends %r, %s is %r" % (tail, const, strings(body)))
+    allowed = one(r'^pub const ALLOWED_ARGV_PREFIXES: &\[&\[&str\]\] = &\[([^\]]*)\];$',
+                  rust, "ALLOWED_ARGV_PREFIXES beside " + const)
+    if const not in [a.strip() for a in allowed.split(",")]:
+        sys.exit("%s is not in its spawn-site ALLOWED_ARGV_PREFIXES" % const)
+
+port_fn = one(r'^is_port_name\(\) \{\n(.*?)^\}', script, "capture-fixture.sh, is_port_name",
+              re.M | re.S)
+words = one(r'^\s*([a-z]+(?:\|[a-z]+)+)\) return 1 ;;$', port_fn,
+            "is_port_name, the reserved-word pattern").split("|")
+reserved = strings(one(r'^pub\(crate\) const PORT_RESERVED_WORDS: &\[&str\] = &\[(.*?)\];$',
+                       process, "PORT_RESERVED_WORDS", re.M | re.S))
+if sorted(words) != sorted(reserved):
+    sys.exit("is_port_name refuses %r, PORT_RESERVED_WORDS is %r" % (sorted(words), sorted(reserved)))
+PY
+}
+CAP_FILES=(scripts/capture-fixture.sh crates/adapters/src/homebrew/mod.rs
+           crates/adapters/src/macports/mod.rs crates/adapters/src/process/mod.rs)
+cf="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
+cap_case() { # <want: accept|reject> <label> [<file index 0-3> <regex> <replacement>]
+  local want="$1" label="$2" got=reject out k
+  local files=("${CAP_FILES[@]}")
+  if [ "$#" -eq 5 ]; then
+    # The drift is a Python substitution, not sed: BSD and GNU sed disagree on
+    # `\n` in a replacement and on `\|` in an extended expression.
+    python3 -c 'import re, sys; sys.stdout.write(re.sub(sys.argv[2], sys.argv[3], open(sys.argv[1]).read(), flags=re.M))' \
+      "${CAP_FILES[$3]}" "$4" "$5" >"$cf/drifted"
+    if cmp -s "$cf/drifted" "${CAP_FILES[$3]}"; then
+      note FAIL "$label" "the drift changed nothing"; miss; return
+    fi
+    files[$3]="$cf/drifted"
+  fi
+  for k in 0 1 2 3; do [ -f "${files[$k]}" ] || { note FAIL "$label" "${files[$k]} is missing"; miss; return; }; done
+  if out="$(cap_check "${files[@]}" 2>&1)"; then got=accept; fi
+  if [ "$got" = "$want" ]; then pass; note ok "$label" "$out"; else
+    note FAIL "$label" "wanted $want, got $got: $out"; miss
+  fi
+}
+cap_case accept "the tree's script and adapters agree"
+cap_case reject "the script sends list without --formula"  0 'list --formula "\$formula"$' 'list "$formula"'
+cap_case reject "the script sends contents without -q"     0 '-q contents "\$port"$' 'contents "$port"'
+cap_case reject "a second list --formula record line"      0 '^(.*list --formula "\$formula")$' '\1\n\1'
+cap_case reject "the script drops a reserved word"         0 '\|obsolete\|' '|'
+cap_case reject "the script adds a reserved word"          0 '\|not\) return 1 ;;$' '|not|any) return 1 ;;'
+cap_case reject "ARGV_LIST_FORMULA drifts"                 1 '^(pub\(crate\) const ARGV_LIST_FORMULA.*)"--formula"' '\1"--formulae"'
+cap_case reject "ARGV_LIST_FORMULA leaves the allowlist"   1 '^(pub const ALLOWED_ARGV_PREFIXES.*)ARGV_LIST_FORMULA' '\1ARGV_OTHER'
+cap_case reject "ARGV_CONTENTS drifts"                     2 '^(pub\(crate\) const ARGV_CONTENTS.*)"contents"' '\1"content"'
+cap_case reject "ARGV_CONTENTS leaves the allowlist"       2 ', ARGV_CONTENTS\];$' '];'
+cap_case reject "PORT_RESERVED_WORDS gains a word"         3 '^    "all",$' '    "all",\n    "any",'
+rm -rf "$cf"
+
+echo
 if [ "$failures" -eq 0 ]; then
   echo "test-gates: every constructed case produced the required verdict"
   exit 0
