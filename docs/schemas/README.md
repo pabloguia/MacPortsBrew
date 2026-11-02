@@ -16,7 +16,7 @@ a compatibility surface.**
 | `macportsbrew restore --plan --run <id> --json` | [`restore.v1.md`](restore.v1.md) | 1 |
 | `macportsbrew history acknowledge <id> [--yes] --json` | [`history-acknowledge.v1.md`](history-acknowledge.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
-| A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v2.md`](history.v2.md) (version 1, [superseded](history.v1.md), was never written) | 2 |
+| A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v3.md`](history.v3.md) (version 2, [still read](history.v2.md); version 1, [superseded](history.v1.md), was never written) | 3 |
 | The interrupted-run marker in the state directory, `interrupted-run.json` | [`run-marker.v2.md`](run-marker.v2.md) (version 1, [superseded](run-marker.v1.md), was never written) | 2 |
 
 ## The compatibility rule
@@ -79,7 +79,7 @@ Documented once, in
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
 | 2 | usage error | `USAGE` |
 | 3 | partial success | — (execution only; not reachable in this build) |
-| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed: under `migrate --yes --plan-digest`, a digest that is not the plan's, in every build; otherwise execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build) |
+| 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed: under `migrate --yes --plan-digest`, a digest that is not the plan's, in every build; otherwise execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build), `PRIMARY_NEEDS_SHIM` (work order 16 part F-3: only a shim could make the destination's executables win; the identifier the gate's `PRIMARY_NEEDS_SHIM` refusal stands for. The gate's report still exits 4 for every refusal; the identifier is reserved for the part that offers a consented shim) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |
 | 6 | user aborted | `USER_ABORTED` (a declined plan question, or a declined elevation question, which part E-3 wired and part J makes reachable; interactive only, not reachable in this build) |
 | 7 | lock held by another instance | `RUN_LOCK_HELD` (execution only; not reachable in this build) |

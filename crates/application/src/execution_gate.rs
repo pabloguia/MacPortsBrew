@@ -57,10 +57,12 @@ use crate::planner::{elevation_for, package_kind_in, planned_argv, planned_succe
 use crate::provider_commands;
 use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
 use macportsbrew_domain::{
-    expectation_for, Elevation, ErrorId, ExpectationError, MigrationPlan, PackageKind, ProviderId,
-    StepKind, SuccessSemantic, VerificationCheck,
+    expectation_for, Elevation, ErrorId, ExecutableName, ExpectationError, MigrationPlan,
+    MigrationStep, PackageKind, PrimaryDecision, PrimaryReason, ProviderId, StepKind,
+    SuccessSemantic, VerificationCheck,
 };
 use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One reason a plan may not be executed by this build.
 ///
@@ -305,6 +307,45 @@ pub enum ExecutionRefusal {
         /// The check.
         check: VerificationCheck,
     },
+    /// The primary decision refuses some executables with
+    /// `PRIMARY_NEEDS_SHIM`: only a shim, which this release does not offer,
+    /// could make the destination's copy win (F.md Design §4). Refused before
+    /// any step, under an allowance or not; `ErrorId::PrimaryNeedsShim`.
+    PrimaryNeedsShim {
+        /// The `SET_PRIMARY` step.
+        step: u32,
+        /// Every executable refused that way.
+        executables: Vec<ExecutableName>,
+    },
+    /// The primary decision refuses the plan for any other reason: every
+    /// executable with its reason, or one reason about the package.
+    PrimaryRefused {
+        /// The `SET_PRIMARY` step.
+        step: u32,
+        /// The executables refused for a reason other than a shim, with it.
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        reasons: BTreeMap<ExecutableName, PrimaryReason>,
+        /// The reason about the package as a whole, when there is one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        package: Option<PrimaryReason>,
+    },
+    /// A plan with a mutating step does not carry exactly one command-less
+    /// `SET_PRIMARY` with a decision this build recognises, or a decision sits
+    /// on another step (SR-2, SG2-N2). One meaning: there is no decision to
+    /// act on.
+    PrimaryDecisionMissing,
+    /// The executable lists the plan states in four places disagree: the
+    /// decision, `VERIFY_RESOLUTION`'s `RESOLVES_TO` checks (which must also
+    /// name the plan's destination provider and package), and
+    /// `VERIFY_DESTINATION`'s `EXECUTABLES_OWNED_BY_DESTINATION` and
+    /// `LIVENESS_PROBE` set (SG-3, SG2-N3); or a name in one of them is not an
+    /// executable name. `NO_EXECUTABLES` and a package-level refusal come with
+    /// no `VERIFY_RESOLUTION` and an empty list everywhere; a decision with a
+    /// list, with exactly one `VERIFY_RESOLUTION`.
+    ExecutableListsDisagree {
+        /// The step where the disagreement was found.
+        step: u32,
+    },
 }
 
 impl ExecutionRefusal {
@@ -340,6 +381,10 @@ impl ExecutionRefusal {
             Self::MutationIsNotThePlannersCommand { step } => (*step, 23),
             Self::MutationNotVerifiedAfter { step } => (*step, 24),
             Self::CheckHasNoAnsweringRead { step, .. } => (*step, 25),
+            Self::PrimaryNeedsShim { step, .. } => (*step, 26),
+            Self::PrimaryRefused { step, .. } => (*step, 27),
+            Self::PrimaryDecisionMissing => (0, 28),
+            Self::ExecutableListsDisagree { step } => (*step, 29),
         }
     }
 }
@@ -534,6 +579,9 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
             StepKind::VerifyDestination
         }
         VerificationCheck::PackageAbsent => StepKind::VerifyRemoval,
+        // Answered by a fresh resolution of the executable at run time, never
+        // by a provider read (F.md Design §4): only on `VERIFY_RESOLUTION`.
+        VerificationCheck::ResolvesTo { .. } => StepKind::VerifyResolution,
         VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
@@ -563,7 +611,11 @@ pub(crate) fn answers(check: &VerificationCheck, semantic: SuccessSemantic) -> b
             semantic,
             SuccessSemantic::StdoutMarksPackageActive | SuccessSemantic::JsonReportsPackageLinked
         ),
-        VerificationCheck::ProviderIntegrityCheck
+        // No read answers a resolution: it is answered by the resolution site
+        // (F.md Design §4), so `CHECK_HAS_NO_ANSWERING_READ` never sees it
+        // (`check_has_no_answering_read_is_unchanged`).
+        VerificationCheck::ResolvesTo { .. }
+        | VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
         | VerificationCheck::NoCrossProviderLinkage
@@ -692,11 +744,14 @@ fn refusals(
         }
     }
     for step in &plan.steps {
-        if is_verification(step.kind) && (step.commands.is_empty() || step.verification.is_empty())
+        if is_verification(step.kind)
+            && (step.commands.is_empty() || step.verification.is_empty())
+            && !is_resolution_check(step)
         {
             refusals.push(ExecutionRefusal::VerificationAssertsNothing { step: step.index });
         }
     }
+    primary_refusals(plan, &mut refusals);
     let unknown_success = plan.steps_with_unknown_success();
     if !unknown_success.is_empty() {
         refusals.push(ExecutionRefusal::UnknownSuccess {
@@ -915,8 +970,167 @@ fn refusals(
     GateReport { refusals }
 }
 
+/// The one narrow exemption from `VERIFICATION_ASSERTS_NOTHING` (SG-6): a
+/// `VERIFY_RESOLUTION` with no command and at least one check, every one of
+/// them `RESOLVES_TO`, is answered by the resolution site rather than a
+/// provider read. Nothing else is exempt: not `RESOLVES_TO` on another kind, not
+/// one beside a command, not one mixed with another check.
+fn is_resolution_check(step: &MigrationStep) -> bool {
+    step.kind == StepKind::VerifyResolution
+        && step.commands.is_empty()
+        && !step.verification.is_empty()
+        && step
+            .verification
+            .iter()
+            .all(|c| matches!(c, VerificationCheck::ResolvesTo { .. }))
+}
+
+/// Names parsed as executable names, `None` when any fails or two are equal.
+fn name_set<'a>(
+    names: impl ExactSizeIterator<Item = &'a String>,
+) -> Option<BTreeSet<ExecutableName>> {
+    let count = names.len();
+    let set: Option<BTreeSet<ExecutableName>> =
+        names.map(|n| ExecutableName::parse(n).ok()).collect();
+    set.filter(|set| set.len() == count)
+}
+
+/// The primary rules of F.md Design §4, read from the plan alone: exactly one
+/// decision, on a command-less `SET_PRIMARY`; a refusal for every decision but
+/// `NOTHING_TO_CHANGE` and `NO_EXECUTABLES`, whatever the allowance; and the
+/// four executable lists equal.
+fn primary_refusals(plan: &MigrationPlan, refusals: &mut Vec<ExecutionRefusal>) {
+    let set_primary: Vec<&MigrationStep> = plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::SetPrimary)
+        .collect();
+    let misplaced = plan
+        .steps
+        .iter()
+        .any(|s| s.kind != StepKind::SetPrimary && s.primary.is_some());
+    let decision = match set_primary.as_slice() {
+        [only] => only
+            .primary
+            .as_ref()
+            .filter(|d| !matches!(d, PrimaryDecision::Unknown))
+            .map(|d| (*only, d)),
+        _ => None,
+    };
+    let needed = plan.has_mutating_steps() || !set_primary.is_empty() || misplaced;
+    let Some((step, decision)) = decision.filter(|_| !misplaced) else {
+        if needed {
+            refusals.push(ExecutionRefusal::PrimaryDecisionMissing);
+        }
+        return;
+    };
+    if let PrimaryDecision::Refused {
+        reasons, package, ..
+    } = decision
+    {
+        let shim: Vec<ExecutableName> = reasons
+            .iter()
+            .filter(|(_, r)| **r == PrimaryReason::PrimaryNeedsShim)
+            .map(|(e, _)| e.clone())
+            .collect();
+        if !shim.is_empty() {
+            refusals.push(ExecutionRefusal::PrimaryNeedsShim {
+                step: step.index,
+                executables: shim,
+            });
+        }
+        let other: BTreeMap<ExecutableName, PrimaryReason> = reasons
+            .iter()
+            .filter(|(_, r)| **r != PrimaryReason::PrimaryNeedsShim)
+            .map(|(e, r)| (e.clone(), *r))
+            .collect();
+        // A refusal that names no reason is still a refusal: it is not a
+        // decision this build may complete.
+        if !other.is_empty() || package.is_some() || reasons.is_empty() {
+            refusals.push(ExecutionRefusal::PrimaryRefused {
+                step: step.index,
+                reasons: other,
+                package: *package,
+            });
+        }
+    }
+    let list = decision.executables();
+    let mut disagree = |at: u32| {
+        let refusal = ExecutionRefusal::ExecutableListsDisagree { step: at };
+        if !refusals.contains(&refusal) {
+            refusals.push(refusal);
+        }
+    };
+    let resolutions: Vec<&MigrationStep> = plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::VerifyResolution)
+        .collect();
+    match (list.is_empty(), resolutions.as_slice()) {
+        // `NO_EXECUTABLES` and a package-level refusal: nothing to resolve.
+        (true, []) => {}
+        (false, [resolution]) => {
+            let mut resolved = BTreeSet::new();
+            for check in &resolution.verification {
+                match check {
+                    VerificationCheck::ResolvesTo {
+                        executable,
+                        provider,
+                        package,
+                    } if *provider == plan.destination
+                        && plan.destination_package.as_deref() == Some(package.as_str())
+                        && resolved.insert(executable.clone()) => {}
+                    _ => disagree(resolution.index),
+                }
+            }
+            if resolved != list {
+                disagree(resolution.index);
+            }
+        }
+        (_, rest) => disagree(rest.first().map_or(step.index, |s| s.index)),
+    }
+    for verify in plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::VerifyDestination)
+    {
+        let owned: Vec<&Vec<String>> = verify
+            .verification
+            .iter()
+            .filter_map(|c| match c {
+                VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                    Some(executables)
+                }
+                _ => None,
+            })
+            .collect();
+        let probed: Vec<&String> = verify
+            .verification
+            .iter()
+            .filter_map(|c| match c {
+                VerificationCheck::LivenessProbe { executable, .. } => Some(executable),
+                _ => None,
+            })
+            .collect();
+        // At most one ownership check, equal to the list when present (a plan
+        // narrowed of the checks this build cannot evaluate has none; the
+        // planner always writes it); and no skip is recorded in this build's
+        // plan shape, so the probe set alone must equal the list (spec 04
+        // check 4; SG2-N3).
+        let owned_agrees = match owned.as_slice() {
+            [] => true,
+            [one] => name_set(one.iter()).as_ref() == Some(&list),
+            _ => false,
+        };
+        let probe_set = name_set(probed.into_iter());
+        if !owned_agrees || probe_set.as_ref() != Some(&list) {
+            disagree(verify.index);
+        }
+    }
+}
+
 /// Whether the planner writes commands on a step of this kind. It writes them
-/// on these five and no other, so a command anywhere else is not one it
+/// on these four and no other, so a command anywhere else is not one it
 /// derived.
 ///
 /// Exhaustive, so a new kind is classified rather than defaulted.
@@ -924,10 +1138,12 @@ fn planner_writes_commands_on(kind: StepKind) -> bool {
     match kind {
         StepKind::AddDestination
         | StepKind::VerifyDestination
-        | StepKind::SetPrimary
         | StepKind::RemoveSource
         | StepKind::VerifyRemoval => true,
-        StepKind::SnapshotBefore
+        // The decision is data, never a command (SG-3): any command on
+        // `SET_PRIMARY` is not the planner's.
+        StepKind::SetPrimary
+        | StepKind::SnapshotBefore
         | StepKind::VerifyResolution
         | StepKind::CleanupReview
         | StepKind::RecordHistory

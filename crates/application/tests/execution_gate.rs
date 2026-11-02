@@ -63,7 +63,16 @@ fn provider(id: &str, prefix: &str, packages: &[Pkg]) -> ProviderSnapshot {
                     macportsbrew_domain::Answer::from(p.service),
                 )),
                 ..PackageMetadata::default()
-            },
+            }
+            // A `KNOWN` list (F-3), so a plan carries its primary decision
+            // with executables, `VERIFY_RESOLUTION` and one probe each: the
+            // whole step shape. Not placed, and nothing resolved, so the
+            // decision refuses (F.md Design §4) — as every real plan in this
+            // build is refused.
+            .with_executables(
+                macportsbrew_domain::ExecutableList::from_leaves([p.name]),
+                macportsbrew_domain::Placement::default(),
+            ),
         );
         inventory.availability.insert(
             p.name.to_string(),
@@ -221,7 +230,8 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::EmptyPlan
         | ExecutionRefusal::NoRecordHistoryAtEnd
         | ExecutionRefusal::SameProviderOnBothSides
-        | ExecutionRefusal::PlanNotDryRunOnly => 0,
+        | ExecutionRefusal::PlanNotDryRunOnly
+        | ExecutionRefusal::PrimaryDecisionMissing => 0,
         ExecutionRefusal::ManualReview { step }
         | ExecutionRefusal::NoSnapshotBeforeFirstMutation { step }
         | ExecutionRefusal::CheckNotEvaluableInThisBuild { step, .. }
@@ -233,7 +243,10 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::MutationNotInThisBuild { step }
         | ExecutionRefusal::ProviderConfiguration { step, .. }
         | ExecutionRefusal::MutationIsNotThePlannersCommand { step }
-        | ExecutionRefusal::MutationNotVerifiedAfter { step } => *step,
+        | ExecutionRefusal::MutationNotVerifiedAfter { step }
+        | ExecutionRefusal::PrimaryNeedsShim { step, .. }
+        | ExecutionRefusal::PrimaryRefused { step, .. }
+        | ExecutionRefusal::ExecutableListsDisagree { step } => *step,
         ExecutionRefusal::Placeholder { steps }
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
@@ -403,10 +416,16 @@ fn a_recognised_check_is_not_thereby_evaluable() {
     let plan = full_plan();
     let step = index_of(&plan, StepKind::VerifyDestination);
     let report = execution_refusals(&plan);
+    // The probe names the source package's executable (F-3: 04 check 4 over
+    // the source's list), here `gnu-sed`.
+    let planned = VerificationCheck::LivenessProbe {
+        executable: "gnu-sed".into(),
+        flag: "--version".into(),
+    };
     assert!(refused(&report, |r| matches!(
         r,
         ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, check }
-            if *s == step && *check == liveness
+            if *s == step && *check == planned
     )));
     // The evaluable one on the same step is not refused.
     assert!(!refused(&report, |r| matches!(
@@ -421,9 +440,17 @@ fn a_recognised_check_is_not_thereby_evaluable() {
 #[test]
 fn a_verification_step_that_asserts_nothing_is_refused() {
     let mut plan = full_plan();
-    // As built: `VERIFY_RESOLUTION` carries neither a command nor a check.
+    // Since F-3 `VERIFY_RESOLUTION` carries `RESOLVES_TO` and no command: the
+    // one exemption (SG-6). Without its checks it asserts nothing again.
     let resolution = index_of(&plan, StepKind::VerifyResolution);
-    assert!(refused(&execution_refusals(&plan), |r| matches!(
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::VerificationAssertsNothing { step } if *step == resolution
+    )));
+    let mut emptied = plan.clone();
+    let at = position(&emptied, StepKind::VerifyResolution);
+    emptied.steps[at].verification.clear();
+    assert!(refused(&execution_refusals(&emptied), |r| matches!(
         r,
         ExecutionRefusal::VerificationAssertsNothing { step } if *step == resolution
     )));
@@ -587,8 +614,13 @@ fn a_mutating_step_with_no_command_is_refused_in_this_build() {
     assert_refused(&report);
     assert_eq!(
         report.refusals(),
-        [ExecutionRefusal::MutationNotInThisBuild { step: 2 }],
-        "the only refusal of a bracketed, commandless mutating plan"
+        [
+            // Since F-3 a plan with a mutating step must also carry its one
+            // primary decision (F.md Design §4, SR-2); this one has none.
+            ExecutionRefusal::PrimaryDecisionMissing,
+            ExecutionRefusal::MutationNotInThisBuild { step: 2 }
+        ],
+        "the only refusals of a bracketed, commandless mutating plan"
     );
 }
 
@@ -1109,6 +1141,8 @@ fn refusals_are_ordered_deterministically() {
 fn a_refusal_serialises_under_a_stable_tag() {
     let mut plan = full_plan();
     plan.dry_run_only = false;
+    let removal = position(&plan, StepKind::VerifyRemoval);
+    plan.steps[removal].verification.clear();
     let json = serde_json::to_value(execution_refusals(&plan)).unwrap();
     let refusals = json["refusals"].as_array().expect("a list of refusals");
     assert!(refusals
@@ -1214,13 +1248,18 @@ fn a_refusal_naming_several_steps_sorts_by_the_smallest() {
 /// that reads nothing cannot be evaluated there.
 #[test]
 fn a_check_on_a_step_with_no_provider_read_is_not_evaluable() {
-    let plan = full_plan();
+    // `SET_PRIMARY` used to carry `PROVIDER_REPORTS_ACTIVE`; since F-3 it
+    // carries a decision and no check (F.md Design §4). The rule is unchanged:
+    // the same check on a step that reads nothing is not evaluable there.
+    let mut plan = full_plan();
     let primary = position(&plan, StepKind::SetPrimary);
-    assert_eq!(
-        plan.steps[primary].verification,
-        vec![VerificationCheck::ProviderReportsActive],
-        "the planner puts this check on SET_PRIMARY"
+    assert!(
+        plan.steps[primary].verification.is_empty(),
+        "the planner puts no check on SET_PRIMARY"
     );
+    plan.steps[primary]
+        .verification
+        .push(VerificationCheck::ProviderReportsActive);
     let step = plan.steps[primary].index;
     assert!(refused(&execution_refusals(&plan), |r| matches!(
         r,
@@ -1594,4 +1633,299 @@ fn the_planner_step_sequence_is_unchanged() {
         );
         assert!(plan.check_ordering().is_ok(), "{source}");
     }
+}
+
+// --- the primary decision (work order 16 part F-3) ---------------------------
+
+fn exe(name: &str) -> macportsbrew_domain::ExecutableName {
+    macportsbrew_domain::ExecutableName::parse(name).unwrap()
+}
+
+/// [`full_plan`] with its decision replaced, the rest left as the planner
+/// wrote it for `gnu-sed`'s one executable.
+fn with_decision(decision: macportsbrew_domain::PrimaryDecision) -> MigrationPlan {
+    let mut plan = full_plan();
+    let at = position(&plan, StepKind::SetPrimary);
+    plan.steps[at].primary = Some(decision);
+    plan
+}
+
+fn nothing_to_change() -> macportsbrew_domain::PrimaryDecision {
+    macportsbrew_domain::PrimaryDecision::NothingToChange {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        path_used: Vec::new(),
+    }
+}
+
+fn primary_refusals(plan: &MigrationPlan) -> Vec<ExecutionRefusal> {
+    execution_refusals(plan)
+        .refusals()
+        .iter()
+        .filter(|r| {
+            matches!(
+                r,
+                ExecutionRefusal::PrimaryNeedsShim { .. }
+                    | ExecutionRefusal::PrimaryRefused { .. }
+                    | ExecutionRefusal::PrimaryDecisionMissing
+                    | ExecutionRefusal::ExecutableListsDisagree { .. }
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn a_consistent_nothing_to_change_plan_raises_no_primary_refusal() {
+    // The control for every case below: the planner's shape with the one
+    // decision a run may complete.
+    assert_eq!(primary_refusals(&with_decision(nothing_to_change())), []);
+}
+
+#[test]
+fn the_gate_refuses_primary_needs_shim_before_any_step() {
+    let plan = with_decision(macportsbrew_domain::PrimaryDecision::Refused {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        reasons: [(
+            exe("gnu-sed"),
+            macportsbrew_domain::PrimaryReason::PrimaryNeedsShim,
+        )]
+        .into_iter()
+        .collect(),
+        package: None,
+        path_used: Vec::new(),
+    });
+    let step = index_of(&plan, StepKind::SetPrimary);
+    let report = execution_refusals(&plan);
+    assert_refused(&report);
+    assert_eq!(
+        primary_refusals(&plan),
+        [ExecutionRefusal::PrimaryNeedsShim {
+            step,
+            executables: vec![exe("gnu-sed")],
+        }],
+        "only the shim refusal: no other reason was given"
+    );
+    // Before any step: the refusal is the gate's, so nothing runs (the read
+    // loop builds no site for a refused plan).
+    assert!(!report.may_execute());
+}
+
+#[test]
+fn the_gate_refuses_every_other_refusal_with_its_reasons() {
+    let plan = with_decision(macportsbrew_domain::PrimaryDecision::Refused {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        reasons: [(
+            exe("gnu-sed"),
+            macportsbrew_domain::PrimaryReason::NonProviderEntryWins,
+        )]
+        .into_iter()
+        .collect(),
+        package: None,
+        path_used: Vec::new(),
+    });
+    assert!(primary_refusals(&plan).iter().any(|r| matches!(
+        r,
+        ExecutionRefusal::PrimaryRefused { reasons, package: None, .. }
+            if reasons.len() == 1
+    )));
+}
+
+#[test]
+fn the_gate_refuses_a_plan_without_a_primary_decision() {
+    // No decision on `SET_PRIMARY`; an `UNKNOWN` one; a decision on another
+    // step; two `SET_PRIMARY`; none at all (SR-2, SG2-N2).
+    let mut none = full_plan();
+    let at = position(&none, StepKind::SetPrimary);
+    none.steps[at].primary = None;
+    let unknown = with_decision(macportsbrew_domain::PrimaryDecision::Unknown);
+    let mut misplaced = with_decision(nothing_to_change());
+    let add = position(&misplaced, StepKind::AddDestination);
+    misplaced.steps[add].primary = Some(nothing_to_change());
+    let mut twice = with_decision(nothing_to_change());
+    let extra = twice.steps[at].clone();
+    twice.steps.insert(at, extra);
+    renumber(&mut twice);
+    let mut absent = full_plan();
+    absent.steps.retain(|s| s.kind != StepKind::SetPrimary);
+    renumber(&mut absent);
+    for (what, plan) in [
+        ("none", none),
+        ("unknown", unknown),
+        ("misplaced", misplaced),
+        ("twice", twice),
+        ("absent", absent),
+    ] {
+        assert!(
+            primary_refusals(&plan).contains(&ExecutionRefusal::PrimaryDecisionMissing),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn the_gate_refuses_any_command_on_set_primary() {
+    // SG-3, mutant 19.
+    let mut plan = with_decision(nothing_to_change());
+    let at = position(&plan, StepKind::SetPrimary);
+    let add = position(&plan, StepKind::AddDestination);
+    let command = plan.steps[add].commands[0].clone();
+    plan.steps[at].commands.push(command);
+    let step = plan.steps[at].index;
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step: s } if *s == step
+    )));
+}
+
+#[test]
+fn the_gate_refuses_disagreeing_executable_lists() {
+    // SG-3, SG2-N3, mutant 20: each of the four lists in turn.
+    let base = with_decision(nothing_to_change());
+    let verify = position(&base, StepKind::VerifyDestination);
+    let resolution = position(&base, StepKind::VerifyResolution);
+    let disagrees = |plan: &MigrationPlan| {
+        primary_refusals(plan)
+            .iter()
+            .any(|r| matches!(r, ExecutionRefusal::ExecutableListsDisagree { .. }))
+    };
+    assert!(!disagrees(&base));
+    // The decision names another executable.
+    let decision = with_decision(macportsbrew_domain::PrimaryDecision::NothingToChange {
+        executables: [exe("other")].into_iter().collect(),
+        path_used: Vec::new(),
+    });
+    // The ownership check names another.
+    let mut owned = base.clone();
+    for c in &mut owned.steps[verify].verification {
+        if let VerificationCheck::ExecutablesOwnedByDestination { executables } = c {
+            *executables = vec!["other".into()];
+        }
+    }
+    // A probe dropped (no recorded skip stands in for it).
+    let mut probe = base.clone();
+    probe.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    // A probe added for a name outside the class.
+    let mut bad_probe = base.clone();
+    bad_probe.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbe {
+            executable: "../x".into(),
+            flag: "--version".into(),
+        });
+    // A resolution check for another executable.
+    let mut resolves = base.clone();
+    resolves.steps[resolution].verification = vec![VerificationCheck::ResolvesTo {
+        executable: exe("other"),
+        provider: base.destination.clone(),
+        package: base.destination_package.clone().unwrap(),
+    }];
+    // No `VERIFY_RESOLUTION` for a decision with a list.
+    let mut missing = base.clone();
+    missing.steps.remove(resolution);
+    renumber(&mut missing);
+    // A `VERIFY_RESOLUTION` for `NO_EXECUTABLES`.
+    let mut extra = with_decision(macportsbrew_domain::PrimaryDecision::NoExecutables);
+    for c in &mut extra.steps[verify].verification {
+        if let VerificationCheck::ExecutablesOwnedByDestination { executables } = c {
+            executables.clear();
+        }
+    }
+    extra.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    for (what, plan) in [
+        ("decision", decision),
+        ("ownership", owned),
+        ("a probe dropped", probe),
+        ("a probe outside the class", bad_probe),
+        ("resolution", resolves),
+        ("no resolution step", missing),
+        ("a resolution step for no executables", extra),
+    ] {
+        assert!(disagrees(&plan), "{what}");
+    }
+}
+
+#[test]
+fn the_gate_refuses_resolves_to_naming_another_provider_or_package() {
+    let base = with_decision(nothing_to_change());
+    let resolution = position(&base, StepKind::VerifyResolution);
+    for (provider, package) in [
+        (
+            base.source.clone(),
+            base.destination_package.clone().unwrap(),
+        ),
+        (base.destination.clone(), "not-the-package".to_string()),
+    ] {
+        let mut plan = base.clone();
+        plan.steps[resolution].verification = vec![VerificationCheck::ResolvesTo {
+            executable: exe("gnu-sed"),
+            provider,
+            package,
+        }];
+        assert!(primary_refusals(&plan)
+            .iter()
+            .any(|r| matches!(r, ExecutionRefusal::ExecutableListsDisagree { .. })));
+    }
+}
+
+#[test]
+fn the_gate_exempts_only_a_command_less_all_resolves_to_verify_resolution() {
+    // SG-6, mutant 21: not on `VERIFY_DESTINATION`, not beside a command, not
+    // mixed with another check.
+    let base = with_decision(nothing_to_change());
+    let resolution = position(&base, StepKind::VerifyResolution);
+    let index = base.steps[resolution].index;
+    let asserts_nothing = |plan: &MigrationPlan, step: u32| {
+        refused(
+            &execution_refusals(plan),
+            |r| matches!(r, ExecutionRefusal::VerificationAssertsNothing { step: s } if *s == step),
+        )
+    };
+    assert!(!asserts_nothing(&base, index));
+    let mut mixed = base.clone();
+    mixed.steps[resolution]
+        .verification
+        .push(VerificationCheck::NoCrossProviderLinkage);
+    assert!(asserts_nothing(&mixed, index), "mixed checks");
+    let mut commanded = base.clone();
+    let add = position(&commanded, StepKind::AddDestination);
+    let command = commanded.steps[add].commands[0].clone();
+    commanded.steps[resolution].commands.push(command);
+    assert!(refused(&execution_refusals(&commanded), |r| matches!(
+        r,
+        ExecutionRefusal::CommandOnStepThePlannerWritesNoneOn { step } if *step == index
+    )));
+    // `RESOLVES_TO` on a `VERIFY_DESTINATION` is not evaluable there.
+    let mut elsewhere = base.clone();
+    let verify = position(&elsewhere, StepKind::VerifyDestination);
+    let check = elsewhere.steps[resolution].verification[0].clone();
+    elsewhere.steps[verify].verification.push(check.clone());
+    let verify_index = elsewhere.steps[verify].index;
+    assert!(refused(&execution_refusals(&elsewhere), |r| matches!(
+        r,
+        ExecutionRefusal::CheckNotEvaluableInThisBuild { step, check: c }
+            if *step == verify_index && *c == check
+    )));
+    assert!(evaluable_in_this_build(StepKind::VerifyResolution, &check));
+    assert!(!evaluable_in_this_build(
+        StepKind::VerifyDestination,
+        &check
+    ));
+}
+
+#[test]
+fn check_has_no_answering_read_is_unchanged() {
+    // The resolution step has no command, so the rule never looks at it, and
+    // no read answers `RESOLVES_TO` anywhere.
+    let plan = with_decision(nothing_to_change());
+    assert!(!refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::CheckHasNoAnsweringRead {
+            check: VerificationCheck::ResolvesTo { .. },
+            ..
+        }
+    )));
 }

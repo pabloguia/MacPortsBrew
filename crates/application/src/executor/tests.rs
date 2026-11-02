@@ -10,6 +10,7 @@ use super::*;
 use crate::analysis::AnalysisOptions;
 use crate::execution_gate::evaluable_in_this_build;
 use crate::planner::{plan_run, PlanRequest};
+use macportsbrew_domain::PrimaryReason;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
     CommandLineTools, EnvironmentSnapshot, InstalledPackage, Machine, MacosVersion,
@@ -17,6 +18,7 @@ use macportsbrew_domain::{
     ProviderDetection, ProviderId, ProviderInventory, ProviderSnapshot, RequestedSet, Translation,
     Version, SNAPSHOT_SCHEMA_VERSION,
 };
+use macportsbrew_domain::{ExecutableOwner, ResolutionState};
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -682,6 +684,12 @@ fn mutable(plan: &MigrationPlan) -> MigrationPlan {
             .retain(|c| evaluable_in_this_build(kind, c));
         if kind == StepKind::SetPrimary {
             step.commands.clear();
+            // The fixture records no executable list, so the planner refuses
+            // the primary (`EXECUTABLES_UNKNOWN`); narrowed to `NO_EXECUTABLES`,
+            // the one decision that completes with nothing resolved (F-3). The
+            // `VERIFY_DESTINATION` checks DP-051 leaves unevaluable stay
+            // stripped above until part H.
+            step.primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
         }
     }
     out.elevated_steps.clear();
@@ -729,6 +737,10 @@ fn records_until(run: &PlannedRun, position: usize) -> Vec<StepRecord> {
     for at in 0..position {
         let disposition = match next_action_with(run, at, &records, Some(&allowance)) {
             Action::Dispatch | Action::Certify => verified(),
+            Action::Resolve => Disposition::Resolved {
+                executables: Vec::new(),
+                path_differs: false,
+            },
             Action::DispatchMutating { .. } => Disposition::Performed {
                 ends: vec![CommandEnd::Exited { code: 0 }],
             },
@@ -1482,13 +1494,12 @@ fn invariant_03_a_mutation_with_no_verification_after_it_is_refused() {
 /// here (slice 5 report).
 fn completable_run() -> PlannedRun {
     forced_run(MP).map_plan(|p| {
+        // `SET_PRIMARY` stays since F-3: `NO_EXECUTABLES` is carried out as
+        // `NOTHING_TO_CHANGE` (F.md, "cut the narrowing").
         p.steps.retain(|s| {
             !matches!(
                 s.kind,
-                StepKind::SetPrimary
-                    | StepKind::RemoveSource
-                    | StepKind::VerifyRemoval
-                    | StepKind::CleanupReview
+                StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview
             )
         });
         for (i, step) in p.steps.iter_mut().enumerate() {
@@ -2119,6 +2130,437 @@ fn a_removal_with_no_step_to_reread_is_never_dispatched() {
             dispatch_for(plan, add),
             Action::DispatchMutating { reverify: None },
             "{from}"
+        );
+    }
+}
+
+// --- the primary decision and VERIFY_RESOLUTION (work order 16 part F-3) -----
+
+fn exe(name: &str) -> ExecutableName {
+    ExecutableName::parse(name).unwrap()
+}
+
+/// A run of the planner's plan from Homebrew toward MacPorts with its decision
+/// replaced by `decision`, and, when it states a list, a `VERIFY_RESOLUTION`
+/// with one `RESOLVES_TO` for `gnu-sed` after `SET_PRIMARY`.
+fn primary_run(decision: PrimaryDecision) -> PlannedRun {
+    let (snap, package, to) = install_needed(HB);
+    planned(&configured(snap), package, to).map_plan(|plan| {
+        let at = plan
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::SetPrimary)
+            .unwrap();
+        plan.steps.retain(|s| s.kind != StepKind::VerifyResolution);
+        let lists = !decision.executables().is_empty();
+        plan.steps[at].primary = Some(decision);
+        if lists {
+            plan.steps.insert(
+                at + 1,
+                macportsbrew_domain::MigrationStep {
+                    index: 0,
+                    kind: StepKind::VerifyResolution,
+                    provider: None,
+                    commands: Vec::new(),
+                    verification: vec![VerificationCheck::ResolvesTo {
+                        executable: exe("gnu-sed"),
+                        provider: plan.destination.clone(),
+                        package: plan.destination_package.clone().unwrap(),
+                    }],
+                    primary: None,
+                    reason: macportsbrew_domain::Reason::new("reason.verify_resolution"),
+                },
+            );
+        }
+        for (i, step) in plan.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).unwrap() + 1;
+        }
+    })
+}
+
+fn path_used() -> Vec<String> {
+    vec!["/opt/dest/bin".into(), "/usr/bin".into()]
+}
+
+fn nothing_to_change() -> PrimaryDecision {
+    PrimaryDecision::NothingToChange {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        path_used: path_used(),
+    }
+}
+
+fn found(owner: ExecutableOwner, authoritative: bool, index: Option<u32>) -> ResolutionState {
+    ResolutionState::Found {
+        resolution: macportsbrew_domain::Resolution {
+            executable: "gnu-sed".into(),
+            path: Some(PathBuf::from("/opt/dest/bin/gnu-sed")),
+            canonical_path: None,
+            owner,
+            authoritative,
+        },
+        path_index: index,
+    }
+}
+
+fn resolution_position(run: &PlannedRun) -> usize {
+    run.plan()
+        .steps
+        .iter()
+        .position(|s| s.kind == StepKind::VerifyResolution)
+        .unwrap()
+}
+
+/// Records for the steps before `position`, none of them a halt: what
+/// `next_action` needs to answer about the step at `position`.
+fn fake_records(plan: &MigrationPlan, position: usize) -> Vec<StepRecord> {
+    plan.steps[..position]
+        .iter()
+        .map(|s| StepRecord {
+            index: s.index,
+            kind: s.kind,
+            disposition: Disposition::NotPerformedInThisBuild,
+        })
+        .collect()
+}
+
+#[test]
+fn nothing_to_change_is_answered_only_for_a_command_less_set_primary_that_completes() {
+    // Mutant 5: `NOTHING_TO_CHANGE` carried on another kind or decision.
+    for (decision, expected) in [
+        (nothing_to_change(), Disposition::NothingToChange),
+        (PrimaryDecision::NoExecutables, Disposition::NothingToChange),
+        (PrimaryDecision::Unknown, Disposition::NotDispatchedMutating),
+        (
+            PrimaryDecision::Refused {
+                executables: BTreeSet::new(),
+                reasons: BTreeMap::new(),
+                package: Some(PrimaryReason::ExecutablesUnknown),
+                path_used: Vec::new(),
+            },
+            Disposition::NotDispatchedMutating,
+        ),
+    ] {
+        let run = primary_run(decision.clone());
+        let plan = run.plan();
+        let at = plan
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::SetPrimary)
+            .unwrap();
+        let records = fake_records(plan, at);
+        assert_eq!(
+            next_action(plan, at, &records),
+            Action::PassOver(expected.clone()),
+            "{decision:?}"
+        );
+        // Under an allowance too: never a dispatch.
+        assert_eq!(
+            next_action_with(
+                &run,
+                at,
+                &records,
+                Some(&MutationAllowance::forced_in_tests())
+            ),
+            Action::PassOver(expected),
+            "{decision:?}"
+        );
+    }
+    // A command-less `ADD_DESTINATION` carrying a decision is passed over, not
+    // completed: only `SET_PRIMARY` completes this way.
+    let run = primary_run(nothing_to_change()).map_plan(|plan| {
+        let add = plan
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::AddDestination)
+            .unwrap();
+        plan.steps[add].commands.clear();
+        plan.steps[add].primary = Some(PrimaryDecision::NoExecutables);
+    });
+    let add = run
+        .plan()
+        .steps
+        .iter()
+        .position(|s| s.kind == StepKind::AddDestination)
+        .unwrap();
+    assert_eq!(
+        next_action(run.plan(), add, &fake_records(run.plan(), add)),
+        Action::PassOver(Disposition::NotDispatchedMutating)
+    );
+    // And a `SET_PRIMARY` with a command still halts, decision or not.
+    let run = primary_run(nothing_to_change()).map_plan(|plan| {
+        let add = plan
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::AddDestination)
+            .unwrap();
+        let at = plan
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::SetPrimary)
+            .unwrap();
+        let command = plan.steps[add].commands[0].clone();
+        plan.steps[at].commands.push(command);
+    });
+    let at = run
+        .plan()
+        .steps
+        .iter()
+        .position(|s| s.kind == StepKind::SetPrimary)
+        .unwrap();
+    assert_eq!(
+        next_action(run.plan(), at, &fake_records(run.plan(), at)),
+        Action::Halt(HaltReason::UnexecutedMutation)
+    );
+}
+
+#[test]
+fn verify_resolution_passes_only_on_the_destination_package_and_authoritative() {
+    // SR-3, mutants 3 (executor half) and 16.
+    let run = primary_run(nothing_to_change());
+    let at = resolution_position(&run);
+    let destination = run.plan().destination.clone();
+    let package = run.plan().destination_package.clone().unwrap();
+    let pass = judge_resolution(
+        &run,
+        at,
+        &[found(
+            ExecutableOwner::Provider {
+                provider: destination.clone(),
+                package: Some(package.clone()),
+            },
+            true,
+            Some(0),
+        )],
+        &path_used(),
+    );
+    assert_eq!(
+        pass,
+        Disposition::Resolved {
+            executables: vec![exe("gnu-sed")],
+            path_differs: false,
+        }
+    );
+    for (owner, authoritative, observed) in [
+        (
+            ExecutableOwner::Provider {
+                provider: destination.clone(),
+                package: None,
+            },
+            true,
+            ObservedWinner::AnotherPackage,
+        ),
+        (
+            ExecutableOwner::Provider {
+                provider: destination.clone(),
+                package: Some("other".into()),
+            },
+            true,
+            ObservedWinner::AnotherPackage,
+        ),
+        (
+            ExecutableOwner::Provider {
+                provider: destination.clone(),
+                package: Some(package.clone()),
+            },
+            false,
+            ObservedWinner::NotAuthoritative,
+        ),
+        (
+            ExecutableOwner::System,
+            false,
+            ObservedWinner::NotAProviderFile,
+        ),
+        (
+            ExecutableOwner::Unknown,
+            false,
+            ObservedWinner::NotAProviderFile,
+        ),
+    ] {
+        assert_eq!(
+            judge_resolution(
+                &run,
+                at,
+                &[found(owner.clone(), authoritative, Some(0))],
+                &path_used()
+            ),
+            Disposition::Halted {
+                reason: HaltReason::ResolutionMismatch {
+                    executable: exe("gnu-sed"),
+                    observed,
+                    path_differs: false,
+                },
+                evidence: Vec::new(),
+                ends: Vec::new(),
+            },
+            "{owner:?} {authoritative}"
+        );
+    }
+}
+
+#[test]
+fn verify_resolution_halts_when_the_source_still_wins() {
+    let run = primary_run(nothing_to_change());
+    let at = resolution_position(&run);
+    let source = run.plan().source.clone();
+    let disposition = judge_resolution(
+        &run,
+        at,
+        &[found(
+            ExecutableOwner::Provider {
+                provider: source,
+                package: Some("gnu-sed".into()),
+            },
+            true,
+            Some(0),
+        )],
+        &path_used(),
+    );
+    assert!(matches!(
+        disposition,
+        Disposition::Halted {
+            reason: HaltReason::ResolutionMismatch {
+                observed: ObservedWinner::AnotherProvider,
+                ..
+            },
+            ..
+        }
+    ));
+    // Nothing on `PATH` is a mismatch too, never a pass.
+    assert!(matches!(
+        judge_resolution(&run, at, &[ResolutionState::NotOnPath], &path_used()),
+        Disposition::Halted {
+            reason: HaltReason::ResolutionMismatch {
+                observed: ObservedWinner::NotOnPath,
+                ..
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn verify_resolution_under_replay_is_unevaluable() {
+    // INV-15, mutant 6: an unobserved resolution is never a pass.
+    let run = primary_run(nothing_to_change());
+    let at = resolution_position(&run);
+    let disposition = judge_resolution(&run, at, &[ResolutionState::NotObserved], &[]);
+    assert_eq!(
+        disposition,
+        Disposition::Halted {
+            reason: HaltReason::Unevaluable {
+                check: Some(CheckKind::ResolvesTo),
+                why: Unevaluable::ResolutionNotObserved,
+            },
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        }
+    );
+    // A winner whose index the run-time `PATH` does not establish (a relative
+    // entry before it, SR-4) is unevaluable too; and a missing answer is.
+    let destination = run.plan().destination.clone();
+    let package = run.plan().destination_package.clone().unwrap();
+    assert!(matches!(
+        judge_resolution(
+            &run,
+            at,
+            &[found(
+                ExecutableOwner::Provider {
+                    provider: destination,
+                    package: Some(package),
+                },
+                true,
+                None
+            )],
+            &path_used()
+        ),
+        Disposition::Halted {
+            reason: HaltReason::Unevaluable {
+                why: Unevaluable::WinnerIndexUnknown,
+                ..
+            },
+            ..
+        }
+    ));
+    assert!(matches!(
+        judge_resolution(&run, at, &[], &path_used()),
+        Disposition::Halted {
+            reason: HaltReason::Unevaluable {
+                why: Unevaluable::MissingRead,
+                ..
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn the_run_time_path_is_redacted_before_it_is_compared() {
+    // SG2-N5, mutant 18d: the shell hands over the run-time `PATH` redacted the
+    // same way as `pathUsed`, so an equal one is not "different"; a different
+    // one is stated, whichever way the step ends.
+    let run = primary_run(nothing_to_change());
+    let at = resolution_position(&run);
+    let destination = run.plan().destination.clone();
+    let package = run.plan().destination_package.clone().unwrap();
+    let pass = found(
+        ExecutableOwner::Provider {
+            provider: destination,
+            package: Some(package),
+        },
+        true,
+        Some(0),
+    );
+    assert!(matches!(
+        judge_resolution(&run, at, std::slice::from_ref(&pass), &path_used()),
+        Disposition::Resolved {
+            path_differs: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        judge_resolution(&run, at, &[pass], &["/elsewhere".to_string()]),
+        Disposition::Resolved {
+            path_differs: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        judge_resolution(
+            &run,
+            at,
+            &[ResolutionState::NotOnPath],
+            &["/elsewhere".to_string()]
+        ),
+        Disposition::Halted {
+            reason: HaltReason::ResolutionMismatch {
+                path_differs: true,
+                ..
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_shim_refusal_is_refused_with_and_without_an_allowance() {
+    // Mutant 22: `PRIMARY_NEEDS_SHIM` is a gate refusal regardless of
+    // allowance.
+    let run = primary_run(PrimaryDecision::Refused {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        reasons: [(exe("gnu-sed"), PrimaryReason::PrimaryNeedsShim)]
+            .into_iter()
+            .collect(),
+        package: None,
+        path_used: path_used(),
+    });
+    for allowance in [None, Some(MutationAllowance::forced_in_tests())] {
+        let report = execution_refusals_for(&run, allowance.as_ref());
+        assert!(
+            report
+                .refusals()
+                .iter()
+                .any(|r| matches!(r, ExecutionRefusal::PrimaryNeedsShim { .. })),
+            "{allowance:?}"
         );
     }
 }

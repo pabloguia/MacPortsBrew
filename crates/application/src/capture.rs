@@ -196,8 +196,15 @@ fn recordable(r: &Resolution, path: &Path, home: &HomeRedaction) -> bool {
 /// always used: the first provider, in the registry's order, that names a
 /// provider owner; else the first that answers at all.
 fn owner_of(ctx: &CaptureContext<'_>, path: &Path) -> Option<(ProviderId, Resolution)> {
+    owner_among(&ctx.providers, path)
+}
+
+/// [`owner_of`]'s rule over any set of providers, so the run loop's fresh
+/// resolution (`VERIFY_RESOLUTION`, F.md Design §4) asks exactly as capture
+/// does.
+fn owner_among(providers: &[&dyn ProviderRead], path: &Path) -> Option<(ProviderId, Resolution)> {
     let mut best = None;
-    for provider in &ctx.providers {
+    for provider in providers {
         if let Ok(r) = provider.resolution(path) {
             let is_owner = matches!(r.owner, ExecutableOwner::Provider { .. });
             if is_owner || best.is_none() {
@@ -209,6 +216,31 @@ fn owner_of(ctx: &CaptureContext<'_>, path: &Path) -> Option<(ProviderId, Resolu
         }
     }
     best
+}
+
+/// A fresh resolution of `executable`, now, by capture's own rule: the
+/// machine's search of `PATH`, then the best answer among `providers` about the
+/// hit (F.md Design §4, `ResolutionSite`). A reader that did not search — a
+/// replayed one — answers `NOT_OBSERVED`, never `NOT_ON_PATH` (INV-15); so does
+/// a hit no provider will answer about. The index is the search's own, taken
+/// on the unredacted `PATH`, so the relative-entry rule (SR-4) is applied to
+/// the run-time `PATH` here exactly as at capture.
+pub fn resolve_now(
+    machine: &dyn MachineRead,
+    providers: &[&dyn ProviderRead],
+    executable: &ExecutableName,
+) -> ResolutionState {
+    match machine.search_path(executable) {
+        PathSearch::NotSearched => ResolutionState::NotObserved,
+        PathSearch::NotFound => ResolutionState::NotOnPath,
+        PathSearch::Found { path, path_index } => match owner_among(providers, &path) {
+            Some((_, resolution)) => ResolutionState::Found {
+                resolution,
+                path_index,
+            },
+            None => ResolutionState::NotObserved,
+        },
+    }
 }
 
 /// An adapter's [`Placement::OnPathDir`], checked against the capture's own

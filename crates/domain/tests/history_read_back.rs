@@ -47,6 +47,7 @@ fn subject(package: &str) -> RunSubject {
         overrode: Some(Outcome::ManualReview),
         retain_source: true,
         primary_after: destination,
+        primary_executables: Some(Vec::new()),
     }
 }
 
@@ -192,7 +193,7 @@ fn the_stored_record_carries_its_schema_version_first() {
     let json =
         serde_json::to_string(&record(completed_steps(), RunEnding::Completed, None).stored())
             .unwrap();
-    assert!(json.starts_with(r#"{"schemaVersion":2,"id":""#), "{json}");
+    assert!(json.starts_with(r#"{"schemaVersion":3,"id":""#), "{json}");
 }
 
 #[test]
@@ -281,7 +282,43 @@ fn a_record_of_another_schema_version_or_with_unknown_fields_is_unusable() {
     };
     for (what, outcome) in [
         ("schema 1", tamper(&|v| v["schemaVersion"] = 1.into())),
-        ("schema 3", tamper(&|v| v["schemaVersion"] = 3.into())),
+        ("schema 4", tamper(&|v| v["schemaVersion"] = 4.into())),
+        // `history.v3` (F-3): the list is required in 3 and absent in 2.
+        (
+            "schema 3 without its primary executables",
+            tamper(&|v| {
+                v.as_object_mut().unwrap().remove("primaryExecutables");
+            }),
+        ),
+        (
+            "schema 2 with primary executables",
+            tamper(&|v| v["schemaVersion"] = 2.into()),
+        ),
+        (
+            "primary executables unsorted",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["b", "a"])),
+        ),
+        (
+            "primary executables twice",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["a", "a"])),
+        ),
+        (
+            "a primary executable outside the name class",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["../a"])),
+        ),
+        (
+            "nothing to change on a step that is not SET_PRIMARY",
+            tamper(&|v| {
+                v["steps"][0]["result"] = serde_json::json!({"result": "NOTHING_TO_CHANGE"});
+            }),
+        ),
+        (
+            "a resolution on a step that is not VERIFY_RESOLUTION",
+            tamper(&|v| {
+                v["steps"][2]["result"] =
+                    serde_json::json!({"result": "RESOLVED", "executables": ["a"]});
+            }),
+        ),
         ("schema 0", tamper(&|v| v["schemaVersion"] = 0.into())),
         ("top level", tamper(&|v| v["extra"] = 1.into())),
         ("package", tamper(&|v| v["package"]["extra"] = 1.into())),

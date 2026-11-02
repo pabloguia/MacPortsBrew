@@ -162,6 +162,23 @@ provider's configuration could not be re-read or has drifted halts
 `PRECONDITION_FAILED` with `CONFIGURATION_UNREADABLE` or `CONFIGURATION_DRIFT`
 and command 0 before any read; under `--replay` it always does.
 
+**Added by work order 16 part F-3 (the primary decision).** Gate refusals:
+`PRIMARY_NEEDS_SHIM` (`step`, `executables`: only a shim, which this release
+does not offer, could make the destination's copy win; `ErrorId`
+`PRIMARY_NEEDS_SHIM`, exit 4), `PRIMARY_REFUSED` (`step`, `reasons` by
+executable, `package`), `PRIMARY_DECISION_MISSING` and
+`EXECUTABLE_LISTS_DISAGREE` (`step`); each names executables through the same
+escaping as every echoed string. Dispositions: `NOTHING_TO_CHANGE` (a
+command-less `SET_PRIMARY` whose decision left nothing to set) and `RESOLVED`
+(`executables`, `pathDiffers`). Halt reason `RESOLUTION_MISMATCH`
+(`executable`, `observed`: `NOT_ON_PATH`, `ANOTHER_PROVIDER`,
+`ANOTHER_PACKAGE`, `NOT_AUTHORITATIVE`, `NOT_A_PROVIDER_FILE`; `pathDiffers`).
+`UNEVALUABLE` reasons `RESOLUTION_NOT_OBSERVED` (a replayed run or a snapshot
+file: never a pass, INV-15) and `WINNER_INDEX_UNKNOWN`. `pathDiffers` says the
+run-time `PATH`, home-redacted the same way, is not the one the plan's decision
+used. In this build the gate still refuses every planner-built plan before step
+1, so no real plan reaches `SET_PRIMARY`.
+
 **When history is consulted.** Only by a live `migrate --retain-source` whose
 planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run
 shows what `--yes` would do. `--replay` and `--from-snapshot` never read

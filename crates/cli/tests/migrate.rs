@@ -782,6 +782,7 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
                 filesystem: FilesystemScope::Elsewhere,
                 prefix_override: Some(recorded_overrides(&rec)),
             },
+            || executor::Unresolved,
             &HomeRedaction::Recorded,
         );
         assert!(
@@ -930,7 +931,7 @@ fn names_the_loop(text: &str) -> bool {
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '_')
             .collect();
-        name == "run" || name == "run_with"
+        name == "run" || name == "run_with" || name == "run_with_resolutions"
     };
     let mut rest = text;
     while let Some(i) = rest.find("executor") {
@@ -1251,6 +1252,7 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
                         filesystem: FilesystemScope::Elsewhere,
                         prefix_override: Some(recorded_overrides(&rec)),
                     },
+                    || executor::Unresolved,
                     &HomeRedaction::Recorded,
                 );
                 assert!(!report.gate_refusals.is_empty(), "{name}: refused");

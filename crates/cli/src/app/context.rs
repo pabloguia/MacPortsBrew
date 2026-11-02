@@ -193,6 +193,17 @@ pub fn env_language() -> Option<String> {
 /// even after `--`, where the parser would hand it over as one: it is refused
 /// before anything is captured.
 pub(crate) fn named_packages(cli: &Cli) -> Result<BTreeSet<String>, DomainError> {
+    // `migrate <package>` reads the lists of both sides of its 1→1 mapping
+    // (F.md Design §3 (B); handed to F-3 by F-2b). The name typed selects the
+    // first; the mapped destination is known only after a capture, and
+    // [`migrate_mapping_names`] adds it. A snapshot file reads nothing.
+    if let Some(super::Command::Migrate { package, .. }) = &cli.command {
+        return Ok(if cli.from_snapshot.is_some() || package.starts_with('-') {
+            BTreeSet::new()
+        } else {
+            [package.clone()].into_iter().collect()
+        });
+    }
     let Some(super::Command::Snapshot { packages, .. }) = &cli.command else {
         return Ok(BTreeSet::new());
     };
@@ -218,6 +229,49 @@ pub(crate) fn named_packages(cli: &Cli) -> Result<BTreeSet<String>, DomainError>
         ));
     }
     Ok(packages.iter().cloned().collect())
+}
+
+/// For `migrate`, the names on both sides of the plan the first capture
+/// supports — the source row's and the mapped destination package's — so their
+/// lists can be read (F.md Design §3 (B)). `None` for every other command, and
+/// when no plan is built: the planner's own refusal is then reported from the
+/// first capture, unchanged.
+fn migrate_mapping_names(
+    cli: &Cli,
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    today: &str,
+) -> Option<BTreeSet<String>> {
+    let Some(super::Command::Migrate {
+        package,
+        to,
+        retain_source,
+        ..
+    }) = &cli.command
+    else {
+        return None;
+    };
+    let plan = macportsbrew_application::build_plan(
+        snapshot,
+        policy,
+        &AnalysisOptions {
+            today: today.to_string(),
+            advanced: cli.advanced,
+            only: BTreeSet::new(),
+        },
+        &macportsbrew_application::PlanRequest {
+            package: package.clone(),
+            to: macportsbrew_domain::ProviderId::new(to),
+            retain_source: *retain_source,
+        },
+        &macportsbrew_adapters::registry::known_provider_ids(),
+    )
+    .ok()?;
+    Some(
+        std::iter::once(plan.package.name)
+            .chain(plan.destination_package)
+            .collect(),
+    )
 }
 
 impl Context {
@@ -286,7 +340,7 @@ impl Context {
             variables.clone(),
             home_redaction.clone(),
         );
-        let parts = Registry {
+        let mut parts = Registry {
             runner: Rc::clone(&runner),
             // Set here, next to every other decision `--replay` drives, so
             // the one place that knows the machine is a recording is the
@@ -305,12 +359,27 @@ impl Context {
             replay,
             executables_for,
         };
-        let snapshot = parts.capture(
+        let mut snapshot = parts.capture(
             &machine,
             &policy,
             time::rfc3339_utc(now),
-            cli.verbose.then_some(stderr),
+            cli.verbose.then_some(&mut *stderr),
         )?;
+        // `migrate`: the destination of the mapping is known now, so a second
+        // capture reads its list too, stamped with the same instant (one clock
+        // read). Only when it adds a name; the run lock's recapture reads the
+        // same set.
+        if let Some(names) = migrate_mapping_names(cli, &snapshot, &policy, &today) {
+            if !names.is_subset(&parts.executables_for) {
+                parts.executables_for.extend(names);
+                snapshot = parts.capture(
+                    &machine,
+                    &policy,
+                    time::rfc3339_utc(now),
+                    cli.verbose.then_some(&mut *stderr),
+                )?;
+            }
+        }
         Ok(Self {
             snapshot,
             policy,
@@ -363,6 +432,13 @@ impl Context {
         self.registry
             .as_ref()
             .map(|parts| parts.context(&self.policy))
+    }
+
+    /// A machine reader built from the parts that produced this context's
+    /// snapshot, for the run loop's resolution site (F.md Design §4); `None`
+    /// for a snapshot file, which has no machine to search.
+    pub fn resolution_machine(&self) -> Option<SystemMachine> {
+        self.registry.as_ref().map(Registry::machine_reader)
     }
 
     /// Runs the analysis on the context's snapshot.
@@ -710,5 +786,51 @@ mod tests {
             ("port", &["dir"], "/x/var/macportsfoo/y\n"),
         ]))
         .is_empty());
+    }
+}
+
+#[cfg(test)]
+mod mapping_reads {
+    use super::*;
+    use clap::Parser;
+
+    fn cli(args: &[&str]) -> Cli {
+        Cli::try_parse_from(std::iter::once("macportsbrew").chain(args.iter().copied()))
+            .expect("the arguments parse")
+    }
+
+    #[test]
+    fn migrate_reads_the_lists_of_both_sides_of_its_mapping() {
+        // F.md Design §3 (B), handed to F-3: the typed name selects the first
+        // read, and the plan the first capture supports names both sides.
+        let live = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/snapshots/both-providers-intel-macos26-live.json");
+        let migrate = cli(&["migrate", "htop", "--to", "macports"]);
+        assert_eq!(
+            named_packages(&migrate).unwrap(),
+            ["htop".to_string()].into_iter().collect()
+        );
+        let snapshot = load_snapshot(&live).expect("the captured snapshot loads");
+        let policy = PolicyData::load_embedded().unwrap();
+        assert_eq!(
+            migrate_mapping_names(&migrate, &snapshot, &policy, "2026-11-01"),
+            Some(["htop".to_string()].into_iter().collect()),
+            "both sides are named htop here"
+        );
+        // A snapshot file reads nothing.
+        let from_file = cli(&[
+            "--from-snapshot",
+            live.to_str().unwrap(),
+            "migrate",
+            "htop",
+            "--to",
+            "macports",
+        ]);
+        assert!(named_packages(&from_file).unwrap().is_empty());
+        // Every other command asks nothing of the mapping.
+        assert_eq!(
+            migrate_mapping_names(&cli(&["analyze"]), &snapshot, &policy, "2026-11-01"),
+            None
+        );
     }
 }

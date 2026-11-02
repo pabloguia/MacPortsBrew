@@ -577,6 +577,9 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
         for v in &step.verification {
             let _ = writeln!(out, "       ? {}", verification_line(ctx, v));
         }
+        if let Some(decision) = &step.primary {
+            primary_lines(ctx, decision, &mut out);
+        }
         if step.kind == StepKind::ManualReview {
             let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
         }
@@ -670,6 +673,79 @@ fn confidence_key(value: macportsbrew_domain::Confidence) -> &'static str {
     }
 }
 
+/// The primary decision a `SET_PRIMARY` carries, rendered: every name it
+/// echoes goes through [`shown`] (SR2-N6), and a refusal ends with the shell
+/// check a person can make themselves (SR-15).
+fn primary_lines(ctx: &Context, decision: &macportsbrew_domain::PrimaryDecision, out: &mut String) {
+    use macportsbrew_domain::PrimaryDecision;
+    let names = |set: &std::collections::BTreeSet<macportsbrew_domain::ExecutableName>| {
+        set.iter()
+            .map(|e| shown(e.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match decision {
+        PrimaryDecision::NothingToChange { executables, .. } => {
+            let _ = writeln!(
+                out,
+                "       = {}",
+                ctx.messages.render(
+                    "primary.nothing_to_change",
+                    &params(&[("executables", names(executables))])
+                )
+            );
+        }
+        PrimaryDecision::NoExecutables => {
+            let _ = writeln!(out, "       = {}", label(ctx, "primary.no_executables"));
+        }
+        PrimaryDecision::Refused {
+            reasons, package, ..
+        } => {
+            if let Some(reason) = package {
+                let _ = writeln!(out, "       ! {}", label(ctx, primary_reason_key(*reason)));
+            }
+            for (executable, reason) in reasons {
+                let _ = writeln!(
+                    out,
+                    "       ! {}",
+                    ctx.messages.render(
+                        "primary.refused_executable",
+                        &params(&[
+                            ("executable", shown(executable.as_str())),
+                            ("reason", label(ctx, primary_reason_key(*reason))),
+                        ])
+                    )
+                );
+            }
+            let _ = writeln!(out, "       {}", label(ctx, "primary.check_your_shell"));
+        }
+        PrimaryDecision::Unknown => {
+            let _ = writeln!(out, "       ! {}", label(ctx, "primary.unknown"));
+        }
+    }
+}
+
+/// The catalogue key of a primary reason.
+pub(crate) fn primary_reason_key(reason: macportsbrew_domain::PrimaryReason) -> &'static str {
+    use macportsbrew_domain::PrimaryReason;
+    match reason {
+        PrimaryReason::ExecutablesUnknown => "primary.reason.executables_unknown",
+        PrimaryReason::PrimaryMappingNotOneToOne => "primary.reason.primary_mapping_not_one_to_one",
+        PrimaryReason::PrimaryResolutionUnknown => "primary.reason.primary_resolution_unknown",
+        PrimaryReason::OwnedByAnotherPackage => "primary.reason.owned_by_another_package",
+        PrimaryReason::NonProviderEntryWins => "primary.reason.non_provider_entry_wins",
+        PrimaryReason::WinnerNotAuthoritative => "primary.reason.winner_not_authoritative",
+        PrimaryReason::PrimaryNeedsShim => "primary.reason.primary_needs_shim",
+        PrimaryReason::PrimaryDestinationNotInstalled => {
+            "primary.reason.primary_destination_not_installed"
+        }
+        PrimaryReason::PrimaryUnpredictable => "primary.reason.primary_unpredictable",
+        PrimaryReason::DestinationLacksExecutable => "primary.reason.destination_lacks_executable",
+        PrimaryReason::SameDirectory => "primary.reason.same_directory",
+        PrimaryReason::Unknown => "primary.reason.unknown",
+    }
+}
+
 /// One verification check, rendered.
 ///
 /// The two that carry data render it through the catalogue too, so a
@@ -696,6 +772,18 @@ fn verification_line(ctx: &Context, value: &VerificationCheck) -> String {
         }
         VerificationCheck::PackageAbsent => label(ctx, "verification.package_absent"),
         VerificationCheck::PackageNewlyPresent => label(ctx, "verification.package_newly_present"),
+        VerificationCheck::ResolvesTo {
+            executable,
+            provider,
+            package,
+        } => ctx.messages.render(
+            "verification.resolves_to",
+            &params(&[
+                ("executable", shown(executable.as_str())),
+                ("provider", shown(provider.as_str())),
+                ("package", shown(package)),
+            ]),
+        ),
         VerificationCheck::Unknown => label(ctx, "verification.unknown"),
     }
 }
@@ -798,6 +886,10 @@ pub fn retained_run_not_recognised(ctx: &Context, why: &NotRecognised) -> String
         ),
         NotRecognised::PrimaryNotConfirmed { run_id } => (
             "migrate.history_not_recognised.primary_not_confirmed",
+            Some(run_id),
+        ),
+        NotRecognised::ExecutablesUnknown { run_id } => (
+            "migrate.history_not_recognised.executables_unknown",
             Some(run_id),
         ),
     };
@@ -1015,6 +1107,28 @@ fn disposition_text(ctx: &Context, disposition: &Disposition) -> String {
             &params(&[("reason", halt_text(ctx, reason))]),
         ),
         Disposition::NotReached => label(ctx, "migrate.disposition.not_reached"),
+        Disposition::NothingToChange => label(ctx, "migrate.disposition.nothing_to_change"),
+        Disposition::Resolved {
+            executables,
+            path_differs,
+        } => {
+            let text = ctx.messages.render(
+                "migrate.disposition.resolved",
+                &params(&[(
+                    "executables",
+                    executables
+                        .iter()
+                        .map(|e| shown(e.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                )]),
+            );
+            if *path_differs {
+                format!("{text}; {}", label(ctx, "migrate.path_differs"))
+            } else {
+                text
+            }
+        }
     }
 }
 
@@ -1095,6 +1209,35 @@ fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
             "migrate.halt.state_changed",
             &params(&[("fact", label(ctx, state_fact_key(*fact)))]),
         ),
+        HaltReason::ResolutionMismatch {
+            executable,
+            observed,
+            path_differs,
+        } => {
+            let text = ctx.messages.render(
+                "migrate.halt.resolution_mismatch",
+                &params(&[
+                    ("executable", shown(executable.as_str())),
+                    ("observed", label(ctx, observed_key(*observed))),
+                ]),
+            );
+            if *path_differs {
+                format!("{text}; {}", label(ctx, "migrate.path_differs"))
+            } else {
+                text
+            }
+        }
+    }
+}
+
+fn observed_key(value: macportsbrew_application::ObservedWinner) -> &'static str {
+    use macportsbrew_application::ObservedWinner;
+    match value {
+        ObservedWinner::NotOnPath => "migrate.observed.not_on_path",
+        ObservedWinner::AnotherProvider => "migrate.observed.another_provider",
+        ObservedWinner::AnotherPackage => "migrate.observed.another_package",
+        ObservedWinner::NotAuthoritative => "migrate.observed.not_authoritative",
+        ObservedWinner::NotAProviderFile => "migrate.observed.not_a_provider_file",
     }
 }
 
@@ -1173,6 +1316,8 @@ fn unevaluable_key(value: Unevaluable) -> &'static str {
             "migrate.unevaluable.active_alone_after_an_install"
         }
         Unevaluable::NotCertifiedHere => "migrate.unevaluable.not_certified_here",
+        Unevaluable::ResolutionNotObserved => "migrate.unevaluable.resolution_not_observed",
+        Unevaluable::WinnerIndexUnknown => "migrate.unevaluable.winner_index_unknown",
     }
 }
 
@@ -1187,6 +1332,7 @@ fn check_key(value: CheckKind) -> &'static str {
         CheckKind::NoCrossProviderLinkage => "migrate.check.no_cross_provider_linkage",
         CheckKind::PackageAbsent => "migrate.check.package_absent",
         CheckKind::PackageNewlyPresent => "migrate.check.package_newly_present",
+        CheckKind::ResolvesTo => "migrate.check.resolves_to",
         CheckKind::Unknown => "migrate.check.unknown",
     }
 }
@@ -1294,6 +1440,53 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
         }
         ExecutionRefusal::MutationNotVerifiedAfter { step: s } => {
             step("migrate.refusal.mutation_not_verified_after", *s)
+        }
+        // Every executable name echoed goes through `shown` (SR2-N6).
+        ExecutionRefusal::PrimaryNeedsShim {
+            step: s,
+            executables,
+        } => ctx.messages.render(
+            "migrate.refusal.primary_needs_shim",
+            &params(&[
+                ("step", s.to_string()),
+                (
+                    "executables",
+                    executables
+                        .iter()
+                        .map(|e| shown(e.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            ]),
+        ),
+        ExecutionRefusal::PrimaryRefused {
+            step: s,
+            reasons,
+            package,
+        } => {
+            let mut why: Vec<String> = package
+                .iter()
+                .map(|r| label(ctx, primary_reason_key(*r)))
+                .collect();
+            why.extend(reasons.iter().map(|(e, r)| {
+                ctx.messages.render(
+                    "primary.refused_executable",
+                    &params(&[
+                        ("executable", shown(e.as_str())),
+                        ("reason", label(ctx, primary_reason_key(*r))),
+                    ]),
+                )
+            }));
+            ctx.messages.render(
+                "migrate.refusal.primary_refused",
+                &params(&[("step", s.to_string()), ("reasons", why.join("; "))]),
+            )
+        }
+        ExecutionRefusal::PrimaryDecisionMissing => {
+            label(ctx, "migrate.refusal.primary_decision_missing")
+        }
+        ExecutionRefusal::ExecutableListsDisagree { step: s } => {
+            step("migrate.refusal.executable_lists_disagree", *s)
         }
     }
 }
@@ -1412,9 +1605,13 @@ mod tests {
                 ExecutionRefusal::MutationIsNotThePlannersCommand { .. } => 23,
                 ExecutionRefusal::MutationNotVerifiedAfter { .. } => 24,
                 ExecutionRefusal::CheckHasNoAnsweringRead { .. } => 25,
+                ExecutionRefusal::PrimaryNeedsShim { .. } => 26,
+                ExecutionRefusal::PrimaryRefused { .. } => 27,
+                ExecutionRefusal::PrimaryDecisionMissing => 28,
+                ExecutionRefusal::ExecutableListsDisagree { .. } => 29,
             }
         }
-        const VARIANTS: usize = 26;
+        const VARIANTS: usize = 30;
         let all = vec![
             ExecutionRefusal::SchemaVersionNotThisBuilds {
                 found: 2,
@@ -1457,6 +1654,22 @@ mod tests {
                 step: 5,
                 check: VerificationCheck::PackageAbsent,
             },
+            ExecutionRefusal::PrimaryNeedsShim {
+                step: 4,
+                executables: vec![macportsbrew_domain::ExecutableName::parse("htop").unwrap()],
+            },
+            ExecutionRefusal::PrimaryRefused {
+                step: 4,
+                reasons: [(
+                    macportsbrew_domain::ExecutableName::parse("m4").unwrap(),
+                    macportsbrew_domain::PrimaryReason::NonProviderEntryWins,
+                )]
+                .into_iter()
+                .collect(),
+                package: None,
+            },
+            ExecutionRefusal::PrimaryDecisionMissing,
+            ExecutionRefusal::ExecutableListsDisagree { step: 5 },
         ];
         let mut filled = [false; VARIANTS];
         for refusal in &all {

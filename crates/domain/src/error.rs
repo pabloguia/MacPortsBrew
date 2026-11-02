@@ -98,6 +98,13 @@ pub enum ErrorId {
     /// so a script tells it from the planner's own refusal by the identifier,
     /// never by stdout, which is empty for both. Exit 4.
     PlanNotShown,
+    /// The primary for some executable could be made to win only by a shim,
+    /// which this release does not offer (F.md Design §4; SE-112): the plan is
+    /// refused before any step, and the refusal names every executable with its
+    /// reason. Separate from [`ErrorId::SafetyBlocked`] so a script can tell the
+    /// refusal a later part answers with a consented shim from the others.
+    /// Exit 4, "blocked by a safety check".
+    PrimaryNeedsShim,
     /// The person declined a question that had to be answered before anything
     /// ran: the plan, and once consent is wired (work order 16 part E-3) an
     /// elevated step (`06-cli-and-ux.md`: exit 6).
@@ -143,7 +150,8 @@ impl ErrorId {
             | ErrorId::SafetyUnverifiable
             | ErrorId::ProviderPresenceUnproven
             | ErrorId::RunInterrupted
-            | ErrorId::PlanNotShown => 4,
+            | ErrorId::PlanNotShown
+            | ErrorId::PrimaryNeedsShim => 4,
             ErrorId::UserAborted => 6,
             ErrorId::RunLockHeld => 7,
             ErrorId::ProviderNotFound
@@ -184,6 +192,7 @@ impl ErrorId {
             ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::PlanNotShown => "error.plan_not_shown",
+            ErrorId::PrimaryNeedsShim => "error.primary_needs_shim",
             ErrorId::UserAborted => "error.user_aborted",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
             ErrorId::ProviderPresenceUnproven => "error.provider_presence_unproven",
@@ -213,6 +222,7 @@ impl ErrorId {
             ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
             ErrorId::PlanNotShown,
+            ErrorId::PrimaryNeedsShim,
             ErrorId::UserAborted,
             ErrorId::SafetyUnverifiable,
             ErrorId::ProviderPresenceUnproven,
@@ -290,6 +300,8 @@ mod tests {
         // question is the user's abort (work order 16 part E).
         assert_eq!(ErrorId::PlanNotShown.exit_code(), 4);
         assert_eq!(ErrorId::UserAborted.exit_code(), 6);
+        // A primary only a shim could set is a safety stop (F.md Design §4).
+        assert_eq!(ErrorId::PrimaryNeedsShim.exit_code(), 4);
         assert_eq!(ErrorId::Internal.exit_code(), 1);
     }
 
@@ -323,7 +335,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 23;
+    const NUMBER_OF_ERROR_IDS: usize = 24;
 
     #[test]
     fn every_id_has_a_distinct_message() {

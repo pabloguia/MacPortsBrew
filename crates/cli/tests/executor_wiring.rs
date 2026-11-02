@@ -190,6 +190,15 @@ fn mutable(plan: &mut MigrationPlan) {
         if kind == StepKind::SetPrimary || (toward_macports && kind == StepKind::AddDestination) {
             step.commands.clear();
         }
+        // This fixture records no executable list, so the planner's decision
+        // refuses (`EXECUTABLES_UNKNOWN`); the run is narrowed to the one
+        // decision a run completes without resolving anything (F-3:
+        // `NO_EXECUTABLES`, a command-less `SET_PRIMARY` and no
+        // `VERIFY_RESOLUTION`). The `VERIFY_DESTINATION` checks DP-051 leaves
+        // unevaluable stay stripped above until part H.
+        if kind == StepKind::SetPrimary {
+            step.primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
+        }
     }
     plan.elevated_steps.clear();
 }
@@ -259,12 +268,10 @@ impl Direction {
         .expect("the planner builds this plan")
         .map_plan(|plan| {
             mutable(plan);
-            if self.complete {
-                plan.steps.retain(|s| s.kind != StepKind::SetPrimary);
-                for (i, step) in plan.steps.iter_mut().enumerate() {
-                    step.index = u32::try_from(i).expect("small") + 1;
-                }
-            }
+            // Since F-3 `SET_PRIMARY` stays: with `NO_EXECUTABLES` it is
+            // carried out as `NOTHING_TO_CHANGE`, so nothing is cut to let the
+            // run complete.
+            let _ = self.complete;
         })
     }
 
@@ -633,14 +640,21 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
         ]);
         assert_eq!(seen.all(), expected, "{name}: {report:?}");
         assert_eq!(site.handed.borrow().len(), 1, "{name}");
-        // `SET_PRIMARY` is passed over (SE-036 layer 4 does not exist), and a
-        // passed-over step is not a carried-out one: never a completion here.
-        assert!(
-            matches!(report.outcome, RunOutcome::PartialSuccess { .. }),
-            "{name}: {:?}",
-            report.outcome
-        );
-        assert_eq!(report.exit_code(), 3, "{name}");
+        // Since F-3 a `SET_PRIMARY` carrying `NO_EXECUTABLES` is carried out
+        // with nothing dispatched (`NOTHING_TO_CHANGE`), so the direction whose
+        // every step runs completes; the one whose `ADD_DESTINATION` was
+        // narrowed away passes that step over, which is never a completion.
+        if direction.to == HB {
+            assert_eq!(report.outcome, RunOutcome::Completed, "{name}");
+            assert_eq!(report.exit_code(), 0, "{name}");
+        } else {
+            assert!(
+                matches!(report.outcome, RunOutcome::PartialSuccess { .. }),
+                "{name}: {:?}",
+                report.outcome
+            );
+            assert_eq!(report.exit_code(), 3, "{name}");
+        }
         assert_eq!(scratch.records(), 1, "{name}: one durable record");
         assert!(!scratch.marker().exists(), "{name}: the marker is cleared");
         assert!(report.marker_left.is_none() && report.history_error.is_none());
@@ -2104,6 +2118,7 @@ fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)
         .position(|s| !s.commands.is_empty())
         .expect("a step with a command");
     let MigrationStep {
+        primary: _,
         index: _,
         kind: _,
         provider: _,
@@ -2223,6 +2238,14 @@ fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)
             edit(&|p| p.steps[step].reason = a_reason()),
         ),
         (
+            // The primary decision is part of what the person confirms (F.md
+            // Design §4, SG3-4): the digest covers it.
+            "steps[].primary",
+            edit(&|p| {
+                p.steps[step].primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
+            }),
+        ),
+        (
             "steps[].commands[].target",
             cmd(&|c| {
                 c.target = if c.target == CommandTarget::Tool {
@@ -2325,8 +2348,10 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 /// Taken from this build at version 0.1.0 and policy data as embedded on
 /// 2026-11-01. A version bump or a policy-data change moves it, deliberately:
 /// both are inside what is digested.
+// Moved by F-3: the plan gained its primary decision and lost the
+// `SET_PRIMARY` command (F.md Design §4).
 const PINNED_DIGEST: &str =
-    "sha256:835d0640af49d8fb2b5eedddd11553aa5e6db5e0d47f3abd2cf1e100cd58e872";
+    "sha256:b235351bb2db863d058a58879ca1d66e993d05f26d78beb11afedba4ed712ca8";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {

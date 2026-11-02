@@ -142,7 +142,13 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
             },
             overrode: None,
             retain_source: true,
-            primary_after: plan.primary_after.clone(),
+            // `history.v3`: what was observed to resolve after a completed run,
+            // and the executables the decision was about.
+            primary_after: plan.destination.clone(),
+            primary_executables: Some(vec![macportsbrew_domain::ExecutableName::parse(
+                &plan.package.name,
+            )
+            .unwrap()]),
         },
         steps,
         ending,
@@ -152,7 +158,23 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
 
 /// Makes the context's capture show `plan`'s executable resolving to the
 /// destination: what a live capture after the run would read.
+/// Records the source package's executable list as `KNOWN` (one executable,
+/// named after the package), which `history.v3` recognition reads (F-3).
+fn list_known(ctx: &mut Context, plan: &MigrationPlan) {
+    let meta = ctx
+        .snapshot
+        .providers
+        .get_mut(&plan.source)
+        .and_then(|p| p.inventory.metadata.get_mut(&plan.package.name))
+        .expect("the source row has metadata");
+    meta.set_executables(
+        macportsbrew_domain::ExecutableList::from_leaves([plan.package.name.as_str()]),
+        macportsbrew_domain::Placement::default(),
+    );
+}
+
 fn resolve_to_destination(ctx: &mut Context, plan: &MigrationPlan) {
+    list_known(ctx, plan);
     let name = plan
         .destination_package
         .clone()
@@ -177,7 +199,7 @@ fn resolve_to_destination(ctx: &mut Context, plan: &MigrationPlan) {
             canonical_path: None,
             owner: ExecutableOwner::Provider {
                 provider: plan.destination.clone(),
-                package: None,
+                package: plan.destination_package.clone(),
             },
             authoritative: true,
         },
@@ -274,9 +296,10 @@ fn a_retained_re_run_that_cannot_be_confirmed_is_planned_again_and_says_why() {
     // Without the resolution: what was read does not show the command
     // running from the run's primary.
     let cli = cli("htop", "macports", true);
-    let ctx = live(&cli);
+    let mut ctx = live(&cli);
     let request = request("htop", "macports");
     let plan = plan_of(&ctx, &request);
+    list_known(&mut ctx, &plan);
     let store = Store::new("unconfirmed");
     store.write(&record_of(&plan, RunEnding::Completed));
 

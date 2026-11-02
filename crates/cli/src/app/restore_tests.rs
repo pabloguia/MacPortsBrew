@@ -144,6 +144,7 @@ fn record(add: StepResult, id: &str) -> RunRecord {
             overrode: None,
             retain_source: true,
             primary_after: ProviderId::new("macports"),
+            primary_executables: Some(Vec::new()),
         },
         vec![
             step(0, StepKind::SnapshotBefore, StepResult::SnapshotTaken),

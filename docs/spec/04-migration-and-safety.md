@@ -609,7 +609,7 @@ names is published but not confirmed — never offered for restore, never taken 
 proof that a re-run is done.
 
 **MUST.** The store (`persistence::history_store`, shape in
-`docs/schemas/history.v2.md`) is one file per mutating run,
+`docs/schemas/history.v3.md`) is one file per mutating run,
 `history/run-<id>.json`, published by a link that can never replace a record.
 Reading creates nothing, and a record is never trusted: `RunRecord::from_stored`
 derives every derived field again and refuses one that disagrees (only a halt

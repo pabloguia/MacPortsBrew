@@ -41,10 +41,12 @@ fn plan(source_name: &str, destination_name: Option<&str>) -> MigrationPlan {
         overrode: None,
         steps: vec![
             MigrationStep {
+                primary: None,
                 commands: vec![cmd(SuccessSemantic::StdoutNamesPackage, &["query"])],
                 ..step(1, StepKind::VerifyDestination, DESTINATION)
             },
             MigrationStep {
+                primary: None,
                 commands: vec![cmd(SuccessSemantic::StdoutOmitsPackage, &["query"])],
                 ..step(2, StepKind::VerifyRemoval, SOURCE)
             },
@@ -58,6 +60,7 @@ fn plan(source_name: &str, destination_name: Option<&str>) -> MigrationPlan {
 
 fn step(index: u32, kind: StepKind, provider: &str) -> MigrationStep {
     MigrationStep {
+        primary: None,
         index,
         kind,
         provider: Some(ProviderId::new(provider)),

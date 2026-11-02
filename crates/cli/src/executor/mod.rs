@@ -76,15 +76,16 @@ use macportsbrew_adapters::registry::{
 };
 use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
-    judge_mutation, judge_step, must_record, next_action, next_action_with, outcome_of,
-    plan_still_holds, read_back_matches, recheck_provider_configuration, refused, run_record,
-    Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt, Disposition,
-    ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition, RunOutcome,
-    ShownPlan, StepRead, StepRecord,
+    judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
+    outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
+    run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt,
+    Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
+    RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
-    redact_home, CommandEnd, DomainError, ErrorId, HomeRedaction, InterruptedRun, MigrationPlan,
-    PlanCommand, ProviderConfiguration, ProviderId, RunStart, Snapshot,
+    redact_home, CommandEnd, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
+    MachineRead, MigrationPlan, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
+    ResolutionState, RunStart, Snapshot, VerificationCheck,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -121,6 +122,88 @@ impl<T: ReadSite + ?Sized> ReadSite for &T {
     ) -> Result<Invocation, PlanReadError> {
         (**self).read(provider, command)
     }
+}
+
+/// Where a `RESOLVES_TO` is answered at run time (F.md Design §4,
+/// `ResolutionSite`): a fresh search of `PATH` and the owning provider's own
+/// answer about the hit, by capture's rule (`resolve_now`). No command spec is
+/// built here and no new program is run; what the answers mean is
+/// `judge_resolution`'s decision, never this module's.
+pub trait ResolutionSite {
+    /// The state of `executable` on `PATH` now. `NOT_OBSERVED` when no search
+    /// ran — a replayed run, a snapshot file — which is never a pass (INV-15).
+    fn resolve(&self, executable: &ExecutableName) -> ResolutionState;
+    /// The run-time `PATH`, home-redacted the same way as the decision's
+    /// `pathUsed` (SG2-N5); indices are taken by the search on the unredacted
+    /// one.
+    fn redacted_path(&self) -> Vec<String>;
+}
+
+/// The site where nothing can be observed: every executable is
+/// `NOT_OBSERVED`. What a run gets with no machine to search — a recording or a
+/// snapshot file — and what the mutating loop answers with in this build.
+pub struct Unresolved;
+
+impl ResolutionSite for Unresolved {
+    fn resolve(&self, _executable: &ExecutableName) -> ResolutionState {
+        ResolutionState::NotObserved
+    }
+    fn redacted_path(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// The product's resolution site: this machine's reader and the providers the
+/// registry built, owned, so the run loop builds it only after the gate passed
+/// the plan, as it builds its read sites. Under replay the reader searches
+/// nothing, so every answer is `NOT_OBSERVED` (INV-15). `which` tests the mode
+/// bits, not `access(X_OK)` (SR-15): a file the user cannot execute can still be
+/// reported.
+pub struct MachineResolutionSite<'r> {
+    machine: Option<Box<dyn MachineRead + 'r>>,
+    providers: Vec<Box<dyn ProviderRead + 'r>>,
+}
+
+impl<'r> MachineResolutionSite<'r> {
+    /// The site over `machine` and `providers`.
+    /// `None` for no machine to search: every answer is then `NOT_OBSERVED`.
+    pub fn new(
+        machine: Option<Box<dyn MachineRead + 'r>>,
+        providers: Vec<Box<dyn ProviderRead + 'r>>,
+    ) -> Self {
+        Self { machine, providers }
+    }
+}
+
+impl ResolutionSite for MachineResolutionSite<'_> {
+    fn resolve(&self, executable: &ExecutableName) -> ResolutionState {
+        let Some(machine) = &self.machine else {
+            return ResolutionState::NotObserved;
+        };
+        let providers: Vec<&dyn ProviderRead> = self.providers.iter().map(AsRef::as_ref).collect();
+        macportsbrew_application::resolve_now(&**machine, &providers, executable)
+    }
+    fn redacted_path(&self) -> Vec<String> {
+        self.machine
+            .as_ref()
+            .and_then(|m| m.environment().ok())
+            .map(|e| e.path)
+            .unwrap_or_default()
+    }
+}
+
+/// The resolutions of the `VERIFY_RESOLUTION` step's checks, in order, and the
+/// judgement of them. Sequencing only: one `resolve` per `RESOLVES_TO`.
+fn resolve_step(planned: &PlannedRun, position: usize, site: &dyn ResolutionSite) -> Disposition {
+    let observed: Vec<ResolutionState> = planned.plan().steps[position]
+        .verification
+        .iter()
+        .map(|check| match check {
+            VerificationCheck::ResolvesTo { executable, .. } => site.resolve(executable),
+            _ => ResolutionState::NotObserved,
+        })
+        .collect();
+    judge_resolution(planned, position, &observed, &site.redacted_path())
 }
 
 /// A read site's refusal, as it may be shown or recorded.
@@ -233,10 +316,15 @@ impl RunReport {
 /// Runs `planned`'s verification reads through the read sites `ctx` detects —
 /// built only if the execution gate passes the plan. `home` is how any text
 /// the report keeps is redacted.
-pub fn run(planned: &PlannedRun, ctx: &RegistryContext<'_>, home: &HomeRedaction) -> RunReport {
+pub fn run<R: ResolutionSite>(
+    planned: &PlannedRun,
+    ctx: &RegistryContext<'_>,
+    resolutions: impl FnOnce() -> R,
+    home: &HomeRedaction,
+) -> RunReport {
     let reread =
         |provider: &ProviderId, program: &str| reread_configuration(ctx, provider, program);
-    run_with(planned, || plan_read_sites(ctx), &reread, home)
+    run_with_resolutions(planned, || plan_read_sites(ctx), &reread, resolutions, home)
 }
 
 /// [`run`], with the read sites from `sites`, which is called only after the
@@ -249,12 +337,26 @@ pub fn run_with<S: ReadSite>(
     reread: Reread<'_>,
     home: &HomeRedaction,
 ) -> RunReport {
+    run_with_resolutions(planned, sites, reread, || Unresolved, home)
+}
+
+/// [`run_with`], with `VERIFY_RESOLUTION` answered through the site
+/// `resolutions` builds — called, like `sites`, only after the gate passed the
+/// plan (F.md Design §4).
+pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
+    planned: &PlannedRun,
+    sites: impl FnOnce() -> S,
+    reread: Reread<'_>,
+    resolutions: impl FnOnce() -> R,
+    home: &HomeRedaction,
+) -> RunReport {
     let plan = planned.plan();
     let gate = execution_refusals(plan);
     if refused(&gate).is_some() {
         return refused_report(&gate, home);
     }
     let site = sites();
+    let resolutions = resolutions();
     let mut records: Vec<StepRecord> = Vec::new();
     let mut refusal = None;
     for (position, step) in plan.steps.iter().enumerate() {
@@ -275,6 +377,7 @@ pub fn run_with<S: ReadSite>(
                 }
             }
             Action::Certify => certify(planned, position, &site, reread, home, &mut refusal),
+            Action::Resolve => resolve_step(planned, position, &resolutions),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -616,6 +719,10 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             // recorded pending here (D2, D3).
             Action::RecordHistory => Disposition::RecordPendingReadBack,
             Action::Certify => certify(planned, position, &site, io.reread, home, &mut refusal),
+            // No allowance exists in this build, so this loop never runs a
+            // product plan; its resolutions are not observed until the part that
+            // grants one wires a machine here (F.md "As built (F-3)").
+            Action::Resolve => resolve_step(planned, position, &Unresolved),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -1127,6 +1234,21 @@ pub(crate) fn escape_controls(value: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn invariant_15_a_site_with_no_machine_to_search_observes_nothing() {
+        // A snapshot file, or a run with no machine reader: every executable is
+        // NOT_OBSERVED (never NOT_ON_PATH), so `VERIFY_RESOLUTION` is
+        // unevaluable rather than passed or failed (F.md Design §4).
+        let name = ExecutableName::parse("htop").unwrap();
+        for site in [
+            &Unresolved as &dyn ResolutionSite,
+            &MachineResolutionSite::new(None, Vec::new()),
+        ] {
+            assert_eq!(site.resolve(&name), ResolutionState::NotObserved);
+            assert!(site.redacted_path().is_empty());
+        }
+    }
 
     /// A snapshot holding `provider` with a configuration read and empty, so a
     /// re-check for it passes.

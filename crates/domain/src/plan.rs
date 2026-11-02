@@ -13,7 +13,9 @@
 //! would run come from provider data files, never from code, so that the
 //! no-mutation grep over `src/` stays meaningful.
 
+use crate::executable::ExecutableName;
 use crate::package::PackageIdentity;
+use crate::primary::PrimaryDecision;
 use crate::provider::ProviderId;
 use crate::reason::Reason;
 use crate::recommendation::Outcome;
@@ -380,6 +382,19 @@ pub enum VerificationCheck {
     /// happened. Where it was already present, the plan says so instead of
     /// implying a proof it cannot give.
     PackageNewlyPresent,
+    /// `executable`, searched on `PATH` at run time, resolves to a file the
+    /// named destination `provider` owns as `package`, by its own records
+    /// (`authoritative`), and to nothing else (04, check 3's run-time
+    /// backstop; F.md Design §4, SR-3). Carried only on `VERIFY_RESOLUTION`,
+    /// one per executable of the source package's list.
+    ResolvesTo {
+        /// The executable.
+        executable: ExecutableName,
+        /// The destination provider expected to own the winner.
+        provider: ProviderId,
+        /// The destination package expected to own it.
+        package: String,
+    },
     /// A check written by a build newer than this one, or a name that did not
     /// survive whatever produced this plan.
     ///
@@ -446,6 +461,11 @@ pub struct MigrationStep {
     /// Verification checks the step performs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub verification: Vec<VerificationCheck>,
+    /// The primary decision, on `SET_PRIMARY` only (F.md Design §4). Additive
+    /// in `plan.v1`: absent on any other step, and a `SET_PRIMARY` without one
+    /// is refused by the execution gate (`PRIMARY_DECISION_MISSING`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<PrimaryDecision>,
     /// The reason this step exists, renderable.
     pub reason: Reason,
 }
@@ -681,6 +701,7 @@ impl MigrationPlan {
         for kind in [
             StepKind::AddDestination,
             StepKind::VerifyDestination,
+            StepKind::VerifyResolution,
             StepKind::RemoveSource,
         ] {
             if count(kind) > 1 {
@@ -702,6 +723,15 @@ impl MigrationPlan {
                 .ok_or("RemoveSource without VerifyDestination (INV-01)")?;
             if !(add < verify && verify < remove) {
                 return Err("RemoveSource precedes destination add/verify (INV-01)".into());
+            }
+            // The resolution is checked before anything is removed, when the
+            // plan checks it at all (F.md Design §4, SG-4): a plan whose
+            // destination does not win must stop while the source still
+            // answers the user's executables.
+            if let Some(resolution) = pos(StepKind::VerifyResolution) {
+                if resolution > remove {
+                    return Err("RemoveSource precedes VerifyResolution (INV-01)".into());
+                }
             }
         }
         if self.has_mutating_steps() {
@@ -775,6 +805,81 @@ mod tests {
     }
 
     #[test]
+    fn invariant_01_remove_source_after_verify_resolution() {
+        // F.md Design §4 (SG-4): when both are present, the resolution is
+        // verified before the source is removed, and a plan checks it once.
+        let ordered = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::SetPrimary,
+            StepKind::VerifyResolution,
+            StepKind::RemoveSource,
+            StepKind::VerifyRemoval,
+            StepKind::RecordHistory,
+        ]);
+        ordered.check_ordering().expect("the planner's order");
+
+        let late = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::SetPrimary,
+            StepKind::RemoveSource,
+            StepKind::VerifyResolution,
+            StepKind::VerifyRemoval,
+        ]);
+        let err = late
+            .check_ordering()
+            .expect_err("a removal before the resolution is verified");
+        assert!(err.contains("VerifyResolution"), "{err}");
+
+        let twice = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::SetPrimary,
+            StepKind::VerifyResolution,
+            StepKind::VerifyResolution,
+            StepKind::RecordHistory,
+        ]);
+        assert!(twice.check_ordering().is_err(), "at most one");
+
+        // A retained plan with no removal needs no particular position.
+        let retained = plan_of(&[
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::SetPrimary,
+            StepKind::VerifyResolution,
+            StepKind::RecordHistory,
+        ]);
+        retained.check_ordering().expect("no removal to guard");
+    }
+
+    #[test]
+    fn a_resolves_to_check_round_trips_and_a_bad_name_fails_to_load() {
+        let check = VerificationCheck::ResolvesTo {
+            executable: ExecutableName::parse("htop").unwrap(),
+            provider: ProviderId::new("b"),
+            package: "htop".into(),
+        };
+        let text = serde_json::to_string(&check).unwrap();
+        assert_eq!(
+            text,
+            r#"{"check":"RESOLVES_TO","executable":"htop","provider":"b","package":"htop"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<VerificationCheck>(&text).unwrap(),
+            check
+        );
+        assert!(serde_json::from_str::<VerificationCheck>(
+            r#"{"check":"RESOLVES_TO","executable":"a/b","provider":"b","package":"x"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn an_unrecognised_check_is_read_and_never_satisfied() {
         // The tolerance added to keep a new variant additive is also a way to
         // re-open the defect the variant was added to close: an executor that
@@ -835,6 +940,7 @@ mod tests {
 
     fn step(index: u32, kind: StepKind) -> MigrationStep {
         MigrationStep {
+            primary: None,
             index,
             kind,
             provider: None,

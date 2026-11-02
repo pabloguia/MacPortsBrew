@@ -1903,6 +1903,30 @@ change is made. Silent deviation remains the one unrecoverable error.
     `docs/passes/16-staged/F/05` and `F/06` applied first; the live snapshot is the binary's own `snapshot`, whose
     reads are allow-listed, but it runs `brew` and `port`, which the session that built F-2b was not permitted to do.
     Both are handed to F-3 (F.md, "As built (F-2b)").
+- **Addendum, 2026-11-01 (work order 16 part F-3, the decision).** Built on `wo16/F-3-primary`: the planner decides
+  the primary per executable of the source's list by 05's step list (`crates/application/src/primary.rs`, one rule
+  both directions); `SET_PRIMARY` carries `PrimaryDecision` and no command; `VERIFY_RESOLUTION` carries one
+  `RESOLVES_TO` per executable and is checked before any `REMOVE_SOURCE` (`check_ordering`); the gate refuses every
+  decision but `NOTHING_TO_CHANGE` and `NO_EXECUTABLES` before any step (`PRIMARY_NEEDS_SHIM`, exit 4, a new
+  `ErrorId`; `PRIMARY_REFUSED`; `PRIMARY_DECISION_MISSING`; `EXECUTABLE_LISTS_DISAGREE`); the executor completes a
+  command-less `SET_PRIMARY` as `NOTHING_TO_CHANGE` and judges `VERIFY_RESOLUTION` from a fresh resolution
+  (`judge_resolution`, unevaluable under replay or a snapshot file); `history.v3`. Choices inside the entry:
+  - **An owner no provider claims wins as a non-provider entry.** Capture records `/usr/bin/m4` with an `UNKNOWN`
+    owner — every provider was asked and none owns it — and step 4's "any non-provider owner" covers it, so `m4` is
+    `NON_PROVIDER_ENTRY_WINS` in both directions, as SE-112 states. A provider's prefix-matched file stays
+    `WINNER_NOT_AUTHORITATIVE` (SG2-N4).
+  - **A refusal keeps the whole list.** `REFUSED` carries `executables` (the source's list) beside `reasons` (every
+    refused one), so the four lists the gate compares are one list whatever the decision; a refusal about the
+    package (`EXECUTABLES_UNKNOWN`, `PRIMARY_MAPPING_NOT_ONE_TO_ONE`) states none, and its plan carries no
+    `VERIFY_RESOLUTION`, as `NO_EXECUTABLES` does.
+  - **The ownership check may be absent, never different.** A plan narrowed of the checks this build cannot
+    evaluate has no `EXECUTABLES_OWNED_BY_DESTINATION`; when present it must equal the list. No skip is recorded in
+    this plan shape, so the probe set must equal the list.
+  - **`migrate <package>` reads both sides** by capturing twice: the typed name first, then — once the first
+    capture supports a plan — the plan's source row and mapped destination package, stamped with the same instant.
+    A recording cannot plan (DP-032), so under `--replay` only the first read happens.
+  - **The old-document rule holds by construction:** the decision never reads `Resolution.path`, only owners and
+    `pathIndex`, and an older document carries no index, so step 6 answers `PRIMARY_UNPREDICTABLE` from one.
 
 # Policy, output and quality
 

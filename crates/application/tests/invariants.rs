@@ -89,7 +89,14 @@ fn provider(
                         macportsbrew_domain::Answer::from(p.service),
                     )),
                     ..PackageMetadata::default()
-                },
+                }
+                // A `KNOWN` list (F-3) so every plan carries the whole step
+                // shape: a decision with executables, `VERIFY_RESOLUTION`,
+                // one probe each. Nothing is resolved, so it refuses.
+                .with_executables(
+                    macportsbrew_domain::ExecutableList::from_leaves([p.name]),
+                    macportsbrew_domain::Placement::default(),
+                ),
             );
             inventory
                 .availability
@@ -384,8 +391,32 @@ fn invariant_17_a_dual_held_package_plans_in_either_direction() {
     // verification a step carries became conditional (F-06), and the mirror
     // compared kinds alone - so an asymmetry introduced into that condition
     // would have been caught by nothing here.
+    // `RESOLVES_TO` names the destination provider (F-3), which is the one
+    // thing that is meant to differ: it is compared as "the plan's destination".
     let checks = |p: &macportsbrew_domain::MigrationPlan| -> Vec<Vec<VerificationCheck>> {
-        p.steps.iter().map(|s| s.verification.clone()).collect()
+        p.steps
+            .iter()
+            .map(|s| {
+                s.verification
+                    .iter()
+                    .map(|c| match c {
+                        VerificationCheck::ResolvesTo {
+                            executable,
+                            provider,
+                            package,
+                        } => {
+                            assert_eq!(*provider, p.destination, "{c:?}");
+                            VerificationCheck::ResolvesTo {
+                                executable: executable.clone(),
+                                provider: ProviderId::new("the-destination"),
+                                package: package.clone(),
+                            }
+                        }
+                        other => other.clone(),
+                    })
+                    .collect()
+            })
+            .collect()
     };
     assert_eq!(
         checks(&to_mp),
@@ -676,14 +707,15 @@ fn invariant_01_a_destination_already_holding_the_package_claims_no_proof_it_can
         v.extend(extra);
         v.extend([
             VerificationCheck::ProviderIntegrityCheck,
-            // The *destination's* name. `gnu-sed` under Homebrew maps to
-            // `gsed` under MacPorts, and what gets verified is what will be
-            // installed - which this pinned by getting it wrong first.
+            // Since F-3, the source package's **executable list** (04 check 3:
+            // the executables the user runs today, SG-4) — never a package
+            // name. This fixture's `gnu-sed` lists one executable, `gnu-sed`;
+            // the package name `gsed` it used to carry was a stand-in.
             VerificationCheck::ExecutablesOwnedByDestination {
-                executables: vec!["gsed".into()],
+                executables: vec!["gnu-sed".into()],
             },
             VerificationCheck::LivenessProbe {
-                executable: "gsed".into(),
+                executable: "gnu-sed".into(),
                 flag: "--version".into(),
             },
             VerificationCheck::NoCrossProviderLinkage,
@@ -820,7 +852,18 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
     // this invariant would actually break.
     let snap = both_present();
     let plan = plan_for(&snap, "tool", MP, true);
+    // Since F-3 `primaryAfter` is what is predicted to resolve: the
+    // destination only when the decision is `NOTHING_TO_CHANGE` (F.md Design
+    // §4). Here the destination's own package already wins `tool` by its own
+    // records, so it is the destination - observed, not requested.
     assert_eq!(plan.primary_after, ProviderId::new(MP));
+    assert!(matches!(
+        plan.steps
+            .iter()
+            .find(|s| s.kind == StepKind::SetPrimary)
+            .and_then(|s| s.primary.as_ref()),
+        Some(macportsbrew_domain::PrimaryDecision::NothingToChange { .. })
+    ));
     assert!(
         !plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource),
         "`--retain-source` keeps the source copy, so ownership cannot move by removal"
@@ -832,24 +875,17 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
         .find(|s| s.kind == StepKind::SetPrimary)
         .expect("this plan is the one that selects a primary");
 
-    // The load-bearing assertion. Selection goes through MacPortsBrew's own
-    // managed directory (SE-036), never through a provider's mechanism - so
-    // neither provider's record of what it owns is touched. A `SetPrimary` that
-    // ran `brew link` or `port select` instead would transfer exactly what
-    // INV-11 forbids, and this is what would catch it.
-    assert!(!primary.commands.is_empty(), "the step names its command");
-    for c in &primary.commands {
-        assert_eq!(
-            c.target,
-            macportsbrew_domain::CommandTarget::Tool,
-            "selection is this tool's own operation, not a provider's: {c:?}"
-        );
-        assert_eq!(
-            c.elevation,
-            macportsbrew_domain::Elevation::None,
-            "and it stays off the elevating path (SE-036): {c:?}"
-        );
-    }
+    // The load-bearing assertion, for the decision shape (F-3, SG-14): the
+    // step carries a decision and **no command at all**, so there is no
+    // mechanism by which selecting a primary could touch either provider's
+    // record of what it owns. A `SET_PRIMARY` that ran a provider's linking or
+    // selection verb would transfer exactly what INV-11 forbids; any command on
+    // it is refused by the gate (`COMMAND_ON_STEP_THE_PLANNER_WRITES_NONE_ON`).
+    assert!(
+        primary.commands.is_empty(),
+        "the decision is data, not a command: {primary:?}"
+    );
+    assert!(primary.primary.is_some(), "and it carries the decision");
 
     // No step touches anything but the package named. `dep` is a dependency of
     // `tool` under Homebrew, and a plan that reached for it would be moving
@@ -1320,46 +1356,30 @@ fn invariant_10_plan_commands_carry_the_sanitised_invocation_environment() {
             Some(Outcome::ManualReview),
             "the recommendation this fixture was chosen for"
         );
-        check_invocation_environment(&plan, &snap, 1);
+        check_invocation_environment(&plan, &snap, 0);
     }
     let snap = both_present();
-    check_invocation_environment(&plan_for(&snap, "tool", MP, false), &snap, 1);
+    check_invocation_environment(&plan_for(&snap, "tool", MP, false), &snap, 0);
     // With the source retained, the plan never invokes the source provider. That
     // is the case that decided where the name set comes from - derived from this
     // plan's own commands it was short by one provider - so it is the case the
     // suite has to keep exercising.
-    check_invocation_environment(&plan_for(&snap, "tool", MP, true), &snap, 1);
+    check_invocation_environment(&plan_for(&snap, "tool", MP, true), &snap, 0);
 }
 
 /// F-04 found three things wrong with the primary-selection command: the INV-10
-/// test filtered it out, its program is relative where `process/system.rs`
-/// refuses relative programs, and a bare name is resolved through `PATH` - the
-/// shadowing hazard `doctor` exists to warn about. Removing the filter fixed the
-/// first. The other two are the executor pass's to settle, most likely by
-/// running the binary this process is already running rather than spawning a
-/// name at all (SE-056).
-///
-/// So the current shape is pinned here and not in the test named after INV-10.
-/// This is a record of what is true today; changing it should mean editing a
-/// test that says so, rather than one whose name would lend the old shape an
-/// authority the invariant never gave it.
+/// test filtered it out, its program was relative, and a bare name is resolved
+/// through `PATH`. F-3 removed the command (SG-3): `SET_PRIMARY` carries a
+/// decision as data, so no plan carries a self-invocation at all, and the gate
+/// refuses one wherever it appears.
 #[test]
-fn the_self_invocation_has_the_shape_the_executor_pass_will_replace() {
+fn no_plan_carries_a_self_invocation_any_more() {
     let plan = plan_for(&both_present(), "tool", MP, false);
-    let tool: Vec<_> = plan
+    assert!(plan
         .steps
         .iter()
         .flat_map(|s| s.commands.iter())
-        .filter(|c| c.target == CommandTarget::Tool)
-        .collect();
-    assert_eq!(tool.len(), 1);
-    let c = tool[0];
-    assert_eq!(c.program, "macportsbrew");
-    assert!(
-        !Path::new(&c.program).is_absolute(),
-        "not yet resolved to this process's own binary"
-    );
-    assert!(c.environment.is_empty(), "no environment of its own yet");
+        .all(|c| c.target != CommandTarget::Tool));
 }
 
 #[test]

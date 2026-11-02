@@ -52,6 +52,7 @@ fn plan(name: &str, semantic: SuccessSemantic) -> MigrationPlan {
         },
         overrode: None,
         steps: vec![MigrationStep {
+            primary: None,
             index: 1,
             kind: StepKind::VerifyDestination,
             provider: Some(ProviderId::new("dst-provider")),

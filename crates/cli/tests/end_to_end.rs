@@ -2554,12 +2554,13 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
     // The **exact** line, not "starts with the right words and contains some
     // digit". Those two assertions passed unchanged under the mutation that
     // added a read to this list, because "3, 6" starts identically and still
-    // contains a digit. Step 6 is REMOVE_SOURCE and is the only step in this
+    // contains a digit. Step 5 is REMOVE_SOURCE (6 until F-3, which writes no
+    // VERIFY_RESOLUTION for a package whose list was not read) and is the only step in this
     // direction that genuinely elevates; naming it is what makes the assertion
     // able to fail.
     assert_eq!(
         reverse[0].trim(),
-        "Steps that need administrator rights: 6.",
+        "Steps that need administrator rights: 5.",
         "only the removal elevates in this direction; any other step appearing \
          here is a read being presented as a password prompt (INV-06)"
     );

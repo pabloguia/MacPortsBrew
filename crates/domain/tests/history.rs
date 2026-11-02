@@ -57,6 +57,7 @@ fn subject() -> RunSubject {
         overrode: None,
         retain_source: false,
         primary_after: destination,
+        primary_executables: Some(Vec::new()),
     }
 }
 

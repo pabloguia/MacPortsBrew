@@ -182,6 +182,7 @@ fn run(source: &str, destination: &str, package: &str, add: StepResult) -> RunRe
             overrode: None,
             retain_source: false,
             primary_after: ProviderId::new(destination),
+            primary_executables: Some(Vec::new()),
         },
         vec![
             step(0, StepKind::SnapshotBefore, StepResult::SnapshotTaken),
