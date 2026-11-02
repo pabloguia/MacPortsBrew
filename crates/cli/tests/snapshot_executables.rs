@@ -365,7 +365,7 @@ fn the_not_installed_notice_is_true_when_a_provider_could_not_be_read() {
 }
 
 #[test]
-#[ignore = "needs the F-3 recapture: a recording whose replayed rows answer the service question, so `migrate` can plan from it (DP-032), with listing reads for both sides"]
+#[ignore = "needs the recapture, deferred to the owner (F.md, As built (F-3), Recapture: deferred): capture-fixture.sh hits ARG_MAX; and under DP-032 a replayed xz, which declares no service, may need another package"]
 fn migrate_reads_the_list_it_decides_on_and_a_replay_refuses_primary_resolution_unknown() {
     // F-3 (handed on by F-2b): `migrate <package>` reads the lists of its
     // mapping's two sides before planning, so the primary decision is made on

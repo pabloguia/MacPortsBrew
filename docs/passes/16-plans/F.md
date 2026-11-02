@@ -1824,6 +1824,31 @@ Not done here, and why:
   own module, `crates/cli/src/executor/only_resolution.rs`, so the rest of
   `executor` cannot reach the provider it wraps.
 
+**Recapture: deferred.** F-3 ships without the recording recapture; it is an
+owner item.
+
+- **Why.** The branch merged `origin/main` (`004b265`, PR #59: `F/05` and
+  `F/06` applied, both confirmed by `git apply --reverse --check`). Then
+  `scripts/capture-fixture.sh both-providers-intel-macos26` aborted (exit 126,
+  `/usr/bin/jq: Argument list too long`). `record()`, lines 221–225, passes
+  each invocation's redacted stdout and stderr to `jq` through `--arg`, and
+  macOS limits arguments plus environment to `ARG_MAX` (1,048,576 bytes). It
+  failed right after the `cmake` listing. The script writes its output only at
+  the end, so the committed recording is byte-identical to before. `scripts/`
+  is outside this part, so the script was not changed, and no command was
+  reworded around it. The live snapshot was not taken either.
+- **The ignored test.**
+  `migrate_reads_the_list_it_decides_on_and_a_replay_refuses_primary_resolution_unknown`
+  (`crates/cli/tests/snapshot_executables.rs`) stays `#[ignore]`, and its
+  reason now names this deferral.
+- **A caveat for the recapture.** Under DP-032, a replayed source row answers
+  the service question only from what it declares. `xz` declares no service,
+  so `migrate xz --replay` may be refused before any plan exists, even against
+  a recording with listings. The test may need a package that declares a
+  service, or the live snapshot.
+- **What waits on it.** Deviations 9 and 10, the contract tests after `F/05`,
+  and the provenance update in `fixtures/recordings/README.md`.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
