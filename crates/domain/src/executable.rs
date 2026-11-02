@@ -202,6 +202,12 @@ list_reasons! {
     /// (`docs/spec/09-research-checklist.md`, R-24). No read is made. The
     /// provider-neutral counterpart of [`ListReason::AmbiguousKeg`].
     AmbiguousInstalledVersion,
+    /// A placement only: the adapter placed an executable in a `PATH` entry,
+    /// and the capture's own search of `PATH` contradicts it - nothing was
+    /// found there, or it was found only further along (F.md SR L-1: an
+    /// inference such as "the linked keg's names are linked" is checked
+    /// against what resolved, never trusted over it).
+    ContradictedByResolution,
 }
 
 /// Why an [`ExecutableList`] or a [`Placement`] is unknown: a reason the
@@ -282,6 +288,11 @@ impl ExecutableList {
             ExecutableList::NotRecorded | ExecutableList::Unknown { .. } => None,
         }
     }
+
+    /// Whether nobody asked: what a snapshot leaves out.
+    pub fn is_not_recorded(&self) -> bool {
+        matches!(self, ExecutableList::NotRecorded)
+    }
 }
 
 /// Where an installed package's executables land, filled by each adapter from
@@ -322,6 +333,11 @@ impl Placement {
         Placement::Unknown {
             reason: reason.into(),
         }
+    }
+
+    /// Whether nobody asked: the default, which a snapshot leaves out.
+    pub fn is_not_recorded(&self) -> bool {
+        *self == Placement::default()
     }
 }
 
@@ -562,6 +578,7 @@ mod tests {
                 "\"AMBIGUOUS_DIRECTORY\"",
                 "\"NOT_LINKED_UNESTABLISHED\"",
                 "\"AMBIGUOUS_INSTALLED_VERSION\"",
+                "\"CONTRADICTED_BY_RESOLUTION\"",
             ]
         );
     }

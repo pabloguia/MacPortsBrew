@@ -187,6 +187,11 @@ pub enum Command {
         /// Where to write; defaults to the state directory.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
+        /// Also read the executables these installed packages provide. A name
+        /// no provider has installed is reported and skipped. Not allowed with
+        /// --from-snapshot.
+        #[arg(value_name = "PACKAGE")]
+        packages: Vec<String>,
     },
 }
 
@@ -572,7 +577,30 @@ fn run_inner(
             stdout,
             stderr,
         ),
-        Command::Snapshot { out } => {
+        Command::Snapshot { out, packages } => {
+            // Every name the capture did not read is reported, from the same
+            // selection the capture made (06 MUST, F.md SR-13; security review
+            // of F-2b, L-2): one no provider this run could read holds, and one
+            // that is installed but was not read. Escaped: the string is the
+            // user's, and it reaches the terminal.
+            let named: BTreeSet<String> = packages.iter().cloned().collect();
+            for (name, key) in
+                macportsbrew_application::executables_notices(&ctx.snapshot.providers, &named)
+            {
+                let _ = writeln!(
+                    stderr,
+                    "{}",
+                    ctx.messages.render(
+                        key.message_id(),
+                        &[(
+                            "package".to_string(),
+                            macportsbrew_domain::escape_hostile(&name)
+                        )]
+                        .into_iter()
+                        .collect()
+                    )
+                );
+            }
             let (key, path) = match context::save_snapshot(&ctx, out.as_deref(), cli.dry_run)? {
                 context::Saved::Written(path) => ("snapshot.written", path),
                 context::Saved::WouldWrite(path) => ("snapshot.would_write", path),

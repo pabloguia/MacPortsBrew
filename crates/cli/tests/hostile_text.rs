@@ -54,6 +54,7 @@ fn captured(environment: EnvironmentSnapshot) -> Result<Snapshot, DomainError> {
         captured_by: "hostile_text.rs".into(),
         home: HomeRedaction::Recorded,
         environment_contracts: registry::environment_contracts(),
+        executables_for: std::collections::BTreeSet::new(),
     })
 }
 
@@ -129,6 +130,7 @@ fn a_format_character_a_snapshot_keeps_is_escaped_when_doctor_prints_it() {
     let mut snapshot = captured(EnvironmentSnapshot::default()).expect("a clean machine captures");
     snapshot.environment = EnvironmentSnapshot {
         installations: std::collections::BTreeMap::default(),
+        resolutions: std::collections::BTreeMap::default(),
         path: vec!["/opt/a\u{202E}b".into(), "/usr/bin".into()],
         reported: BTreeMap::new(),
         path_findings: vec![PathFinding {

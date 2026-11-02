@@ -157,11 +157,78 @@ pub trait MachineRead {
     /// Resolves an executable name the way `PATH` would, without following
     /// symbolic links. `None` when not found.
     fn which(&self, executable: &str) -> Option<PathBuf>;
+
+    /// Searches `PATH` for a name of the one class, and says whether a search
+    /// ran at all (`docs/passes/16-plans/F.md`, Design §3).
+    ///
+    /// The default is the safe reading of [`Self::which`] for a reader that
+    /// does not say how it searched: a hit is [`PathSearch::Found`] with no
+    /// index (so nothing is predicted from its position), and a miss is
+    /// [`PathSearch::NotSearched`], never [`PathSearch::NotFound`] - a `None`
+    /// that cannot be told from "never looked" must not read as "looked, and
+    /// nothing was there" (SG-2). A reader of a live machine overrides it.
+    fn search_path(&self, executable: &crate::ExecutableName) -> PathSearch {
+        match self.which(executable.as_str()) {
+            Some(path) => PathSearch::Found {
+                path,
+                path_index: None,
+            },
+            None => PathSearch::NotSearched,
+        }
+    }
+}
+
+/// The outcome of one [`MachineRead::search_path`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PathSearch {
+    /// Found at `path`, in the `PATH` entry at `path_index` when that is
+    /// established ([`crate::resolution::path_index`]).
+    Found {
+        /// What `PATH` produced, not canonicalised.
+        path: PathBuf,
+        /// The entry's index on the unredacted `PATH`.
+        path_index: Option<u32>,
+    },
+    /// The live `PATH` was searched and nothing was there.
+    NotFound,
+    /// No search ran: a replayed reader, or one that cannot say.
+    NotSearched,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reader that does not say how it searches: only `which`.
+    struct WhichOnly(Option<PathBuf>);
+
+    impl MachineRead for WhichOnly {
+        fn machine(&self) -> Result<Machine, DomainError> {
+            Err(DomainError::new(crate::ErrorId::Internal, "not asked"))
+        }
+        fn environment(&self) -> Result<EnvironmentSnapshot, DomainError> {
+            Err(DomainError::new(crate::ErrorId::Internal, "not asked"))
+        }
+        fn which(&self, _executable: &str) -> Option<PathBuf> {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn the_default_search_never_reads_a_miss_as_not_found() {
+        // P1 (independent mutation proof of F-2b): a `None` from `which` that
+        // cannot be told from "never looked" is NotSearched; a hit carries no
+        // index.
+        let name = crate::ExecutableName::parse("xz").unwrap();
+        assert_eq!(WhichOnly(None).search_path(&name), PathSearch::NotSearched);
+        assert_eq!(
+            WhichOnly(Some("/usr/bin/xz".into())).search_path(&name),
+            PathSearch::Found {
+                path: "/usr/bin/xz".into(),
+                path_index: None
+            }
+        );
+    }
 
     #[test]
     fn macos_versions_parse_and_order() {

@@ -51,7 +51,7 @@ pub use history::{
 };
 pub use interrupted_run::{InterruptedRun, StoredInterruptedRun, MARKER_SCHEMA_VERSION};
 pub use machine::{
-    Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, Translation,
+    Architecture, CommandLineTools, Machine, MachineRead, MacosVersion, PathSearch, Translation,
 };
 pub use mapping::{Confidence, MappingCandidate, MappingEvidence, PackageMapping};
 pub use ownership::{classify_ownership as classify_ownership_for, Ownership, OwnershipEvidence};
@@ -69,14 +69,15 @@ pub use provider::{
 };
 pub use reason::{Reason, ReasonId};
 pub use recommendation::{Outcome, Recommendation};
-pub use resolution::{ExecutableOwner, Resolution};
+pub use resolution::{path_index, ExecutableOwner, Resolution, ResolutionState};
 pub use snapshot::{
     is_build_flag, is_safe_captured_path, is_safe_configuration_key, is_safe_path,
     is_safe_provider_name, is_safe_provider_text, is_safe_provider_version,
-    path_starts_with_insensitive, redact_home, ConfigurationFile, ConfigurationScope,
-    EnvironmentSnapshot, HomeRedaction, Installations, PathFinding, PathFindingKind, Provenance,
-    ProviderConfiguration, ProviderEnvironmentContract, ProviderSnapshot, Snapshot, MAX_PATH_LEN,
-    MAX_TEXT_LEN, PINNED_ENVIRONMENT, SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
+    path_starts_with_insensitive, placement_holds, recorded_index_holds, redact_home,
+    ConfigurationFile, ConfigurationScope, EnvironmentSnapshot, HomeRedaction, Installations,
+    PathFinding, PathFindingKind, Provenance, ProviderConfiguration, ProviderEnvironmentContract,
+    ProviderSnapshot, Snapshot, MAX_PATH_LEN, MAX_TEXT_LEN, PINNED_ENVIRONMENT,
+    SNAPSHOT_SCHEMA_VERSION, SYSTEM_PATH,
 };
 pub use support::{DatedFact, SupportState, SupportTier};
 pub use text::{

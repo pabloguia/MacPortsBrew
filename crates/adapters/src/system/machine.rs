@@ -36,9 +36,10 @@
 use crate::process::{
     sanitised_environment, CommandSpec, EnvironmentSpec, ExitStatus, Invocation, ProcessRunner,
 };
+use macportsbrew_domain::path_index;
 use macportsbrew_domain::{
     Architecture, CommandLineTools, DomainError, EnvironmentSnapshot, ErrorId, ExecutableName,
-    Machine, MachineRead, MacosVersion, PathFinding, Translation,
+    Machine, MachineRead, MacosVersion, PathFinding, PathSearch, Translation,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -499,6 +500,7 @@ impl MachineRead for SystemMachine {
         // no `PATH`, so it produces no findings at all.
         let raw = EnvironmentSnapshot {
             installations: std::collections::BTreeMap::default(),
+            resolutions: std::collections::BTreeMap::default(),
             path: self.path_entries().clone(),
             reported,
             path_findings: Vec::new(),
@@ -525,7 +527,7 @@ impl MachineRead for SystemMachine {
     /// not the captured machine's, and letting a host fact into a replayed
     /// analysis is exactly the INV-15 break `analyze --from-snapshot` exists
     /// to catch. A caller working from a snapshot reads
-    /// `ProviderSnapshot::resolutions`, which is where the captured answers
+    /// `Snapshot::resolution_of`, which is where the captured answers
     /// live.
     fn which(&self, executable: &str) -> Option<PathBuf> {
         if self.runner.is_replay() || !is_plain_executable_name(executable) {
@@ -561,6 +563,24 @@ impl MachineRead for SystemMachine {
             }
         }
         None
+    }
+
+    /// [`Self::which`], with the state F.md §3 records: a replayed reader
+    /// never searched (`NOT_OBSERVED`, never "not on `PATH`"), and a hit
+    /// carries the index of its entry, taken on the **unredacted** `PATH`
+    /// this reader searched (SR2-N7) - the redacted one in the snapshot has
+    /// `~/…` where a home entry was, which no longer reads as absolute.
+    fn search_path(&self, executable: &ExecutableName) -> PathSearch {
+        if self.runner.is_replay() {
+            return PathSearch::NotSearched;
+        }
+        match self.which(executable.as_str()) {
+            Some(path) => PathSearch::Found {
+                path_index: path_index(&self.path_entries(), &path),
+                path,
+            },
+            None => PathSearch::NotFound,
+        }
     }
 }
 
@@ -1292,6 +1312,50 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn indices_are_taken_before_redaction() {
+        // A home entry first, then a system-like one. The redacted `PATH` the
+        // snapshot records starts with `~/…`, which reads as relative and so
+        // would make every later index unknown; the index is taken on the
+        // entries this reader searched, so it is still known (F.md SR2-N7).
+        let home = scratch("index-home");
+        let bin = home.join("bin");
+        let other = scratch("index-other");
+        std::fs::create_dir_all(&bin).unwrap();
+        for file in [bin.join("first"), other.join("second")] {
+            std::fs::write(&file, b"#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:{}", bin.display(), other.display());
+        let reader = SystemMachine::new(
+            Box::new(crate::process::SystemRunner::new()),
+            Some(path),
+            BTreeMap::new(),
+            HomeRedaction::Known(home.clone()),
+        );
+        let recorded = reader.environment().unwrap().path;
+        assert_eq!(recorded[0], "~/bin", "the snapshot's copy is redacted");
+        let search = |n: &str| reader.search_path(&ExecutableName::parse(n).unwrap());
+        assert_eq!(
+            search("second"),
+            PathSearch::Found {
+                path: other.join("second"),
+                path_index: Some(1)
+            },
+            "an index from the redacted entries would be None"
+        );
+        assert_eq!(
+            search("first"),
+            PathSearch::Found {
+                path: bin.join("first"),
+                path_index: Some(0)
+            }
+        );
+        assert_eq!(search("absent"), PathSearch::NotFound, "a searched miss");
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&other).ok();
     }
 
     #[test]

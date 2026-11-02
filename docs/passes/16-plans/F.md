@@ -1174,6 +1174,359 @@ changes").** Fixed on this branch:
 - **SG F-7.** `docs/schemas/snapshot.v1.md` documents the `reason` union (a
   `ListReason` identifier or an `ErrorId`, untagged, never colliding).
 
+## As built (F-2b)
+
+Branch `wo16/F-2b-capture`, cut from `origin/main` at `111ab0e` (F-2a merged,
+PR #57), in an isolated worktree. `git diff --stat origin/main --
+crates/adapters/src/process/ data/policy/provider-commands.toml scripts/
+.claude/ .github/ fixtures/` is empty; `THIS_BUILD_DISPATCHES_MUTATIONS` is
+unchanged; no `brew` or `port` command was run.
+
+- **Domain.** `PackageMetadata.executable_list` and `.placement` (both
+  `#[serde(default)]`, omitted when not recorded), written with the older
+  `executables` set by `set_executables` / `with_executables`.
+  `EnvironmentSnapshot.resolutions: BTreeMap<ExecutableName, ResolutionState>`,
+  `ResolutionState` = `FOUND { resolution, pathIndex? } | NOT_ON_PATH |
+  NOT_OBSERVED` (the last never stored). `Snapshot::resolution_of` is the one
+  accessor. `resolution::path_index` is §3's index rule, pure.
+  `MachineRead::search_path` returns `PathSearch` (`Found { path, path_index } |
+  NotFound | NotSearched`), taking an `ExecutableName`, so the name class runs
+  before any search by type. `Resolution::rank` is the analysis's ranking,
+  moved down.
+- **The fail-closed load rule**, in `Snapshot::check` (every route):
+  `check_executables` (names by deserialisation; `KNOWN` ≤ `MAX_EXECUTABLES`;
+  `executables` equals the list, empty beside any other state; `ON_PATH_DIR`
+  only beside a `KNOWN` list holding every placed name, each directory a
+  captured path component-equal to `detection.prefix` + `bin`/`sbin`, and no
+  prefix means no placement; `NOT_LINKED.reason` under `is_safe_provider_text`)
+  and `check_resolutions` (the agreement rule of §3, below).
+- **Adapters.** `SystemMachine::search_path`: `NotSearched` under replay, the
+  index from `path_index` over the unredacted entries it searched. Homebrew's
+  `environment_info` reports `sbin`.
+- **Capture** (`application/src/capture.rs`): `CaptureContext.executables_for`
+  selects installed rows by the inventory's name, per provider; each selected
+  row gets `ProviderRead::executables(&row.identity)`, whose `Err` aborts. Names
+  resolved: every installed package name and every name in a `KNOWN` list,
+  parsed first. `NotSearched` records nothing; `NotFound` is `NOT_ON_PATH`; a
+  hit is `FOUND` with the best provider answer by the unchanged rule
+  (`owner_of`), and only an installed package name is also filed in the
+  per-provider map. Then each placement is checked against the resolution (SR
+  L-1, below), the list filed on its row, and the placement's directories and
+  `NOT_LINKED` reason, and the PATH map's paths, redacted by the same functions
+  as everything else.
+- **Analysis** reads `resolution_of`, and the list (`executable_list.known()`)
+  rather than the older set. Output byte-identical: the fixture matrix goldens
+  are unchanged, and `analyze_and_doctor_goldens_are_byte_identical_without_named_packages`
+  holds the captured live snapshot's `analyze` and `doctor` bytes equal with and
+  without the PATH map.
+- **CLI.** `snapshot [--out <file>] [<package>...]`: the names become
+  `executables_for` (also for the run-lock recapture, through `Registry`); a
+  name no inventory holds is reported on stderr (`snapshot.package_not_installed`,
+  English and `pt-BR`, the name through `escape_hostile`); an argument beginning
+  with `-`, `--` or not, is a usage error before anything is captured. 06's
+  two `snapshot` markers now say built.
+- **Docs.** `snapshot.v1.md`: the environment map, `executableList`,
+  `placement`, the `REASON` union (SG F-7), the load rules, the two maps and the
+  older-document precedence, and the SG2-N6 compatibility line. SE-112 gains
+  the F-2b addendum (SR L-1's inference among it).
+
+**Handed to F-2b, resolved:**
+
+- **SR M-1 / SG F-8**: `check_executables` above; every case is in
+  `a_snapshot_with_a_bad_executable_name_fails_to_load`. `NotLinked.reason` is
+  rendered nowhere in this build; F-3's refusal text, which will echo it, must
+  route it through `escape_hostile` (the 06 MUST already says so for every
+  echoed provider text, and SE-112 cites it).
+- **SR L-1**: `confirmed_by_resolution` in `capture.rs`, for both providers'
+  `ON_PATH_DIR`: where the placed directory is `PATH` entry `k`, the search must
+  have found the executable at an index ≤ `k`; `NOT_ON_PATH`, or found further
+  along, makes the placement `UNKNOWN { CONTRADICTED_BY_RESOLUTION }`. A hit
+  with no index, a name not observed, or a directory not on `PATH` settle
+  nothing. Recorded in SE-112's addendum. Test:
+  `a_placement_the_resolution_contradicts_becomes_unknown`.
+- **SG F-7**: the `snapshot.v1.md` `REASON` note.
+- **SR Info 2**: nothing a listing read fails with reaches `doctor --report`,
+  history or a snapshot as text: a per-package failure is an `UnknownReason`, a
+  bare identifier (`the_serialised_shapes_are_tagged_by_state`), and an aborting
+  `Err` goes out through the top-level error path, which already redacts the
+  home from message and detail (`crates/cli/tests/error_redaction.rs`). No new
+  surface was added, so no new redaction was needed; if F-3 or H ever records a
+  listing error's detail, it must pass `redact_home`.
+
+Deviations from the plan, and why:
+
+1. **`migrate <pkg>` reads no list yet** (Design 3 (B) names both sides of a
+   1→1 mapping). The destination name is known only after mapping, which needs
+   the snapshot the capture produces; wiring a second read pass belongs with the
+   planner that consumes it, in F-3. Until then only `snapshot` names packages,
+   and `migrate` captures exactly as before.
+2. **One new reason, `CONTRADICTED_BY_RESOLUTION`** (placement only), for SR
+   L-1's check; the macro keeps it in `ListReason::all()`, and the spelling
+   pin and the collision test include it.
+3. **A hit no provider will answer about is `NOT_OBSERVED`**, not `FOUND` with
+   an owner made up: the per-provider map has always left such a name out, so
+   the two maps agree by construction and the agreement rule stays exact.
+4. **The agreement rule is stated per name kind.** §3 reads "every `FOUND`
+   agrees with the provider-map entry today's rule would have written"; today's
+   rule resolves only installed package names, so a `FOUND` for a list-only
+   name (`lzcat`) has no counterpart, and the rule requires none for it. For an
+   installed name it requires exactly one equal counterpart, filed under the
+   owner when a provider owns it (the adapters answer `PROVIDER` with their own
+   id only). Which provider a non-owned answer is filed under is not checked:
+   it is the registry's order, which a document does not carry.
+5. **The older-document precedence** is the analysis's existing rank (§3 lists
+   authoritative owner, non-authoritative owner, `UNKNOWN`; the rank also places
+   `SYSTEM`/`EXTERNAL`/shim between the last two), because byte-identical
+   analysis output requires the rule the analysis already applied.
+6. **A row with no metadata entry** gets no read (review round: the answer
+   could not be filed, so none is asked for). Every installed row in the captured snapshot and in every
+   recording has one; inserting a row would break `check_services`' all-or-none
+   rule.
+7. **The PATH map is omitted when empty**, so a replayed snapshot (which
+   observes nothing) is byte-identical to before, and a document without the
+   map reads as an older one. The only way to remove a non-empty map is to edit
+   the document, which drops it to the older precedence: names lose
+   `NOT_ON_PATH` and their index, the fail-safe direction (unobserved,
+   unpredictable).
+
+Tests added:
+
+- `crates/domain/src/resolution.rs`: `the_index_is_the_first_absolute_entry_equal_by_component`,
+  `a_relative_or_empty_entry_before_the_match_makes_the_index_unknown`,
+  `the_rank_orders_what_each_answer_settles`,
+  `the_state_is_tagged_and_not_observed_has_a_spelling`.
+- `crates/domain/src/snapshot.rs`: `a_snapshot_with_a_bad_executable_name_fails_to_load`
+  (names in a list, a placement and the PATH map; every SR M-1 / SG F-8 rule),
+  `a_snapshot_whose_two_resolution_maps_disagree_fails_to_load` (nineteen
+  disagreements), `a_name_that_is_not_a_package_resolves_only_in_the_path_map`,
+  `an_old_snapshot_loads_its_resolutions_by_the_stated_precedence`.
+- `crates/adapters/src/system/machine.rs`: `indices_are_taken_before_redaction`.
+- `crates/adapters/tests/invariants.rs`:
+  `invariant_15_a_replayed_reader_never_consults_the_live_filesystem`
+  extended - a replayed `search_path` is `NotSearched`, and both adapters'
+  list reads, with a keg and a `bin` on this disk under their prefixes and no
+  listing in the recording, answer `UNKNOWN` from the recording.
+- `crates/adapters/tests/homebrew_contract.rs`: `sbin` asserted.
+- `crates/application/tests/capture_executables.rs` (stub providers and
+  machine, in code): `the_provider_map_is_still_written_by_todays_rule`,
+  `invariant_15_a_replayed_capture_records_no_resolution_rather_than_none`,
+  `a_name_failing_the_class_is_never_resolved_and_stays_not_observed`,
+  `only_named_installed_rows_are_read_and_with_their_own_identity`,
+  `an_adapter_defect_in_the_list_read_aborts_the_capture`,
+  `a_placement_the_resolution_contradicts_becomes_unknown`,
+  `the_path_map_and_a_placement_under_the_home_are_redacted`,
+  `the_names_searched_from_lists_are_bounded`, `a_row_without_metadata_is_not_read`,
+  `a_not_linked_reason_under_the_home_is_redacted`.
+- `crates/cli/tests/snapshot_executables.rs` (the binary):
+  `every_committed_snapshot_loads_under_the_fail_closed_rule` (every file under
+  `fixtures/snapshots/`, and the snapshot replayed from every recording),
+  `analyze_and_doctor_goldens_are_byte_identical_without_named_packages`,
+  `a_named_snapshot_adds_executables_evidence_to_the_mapping`,
+  `snapshot_sends_the_inventory_name_and_nothing_for_an_unknown_one` (a scratch
+  copy of `both-providers-intel-macos26.json` with one listing per provider
+  appended, removed afterwards; nothing under `fixtures/` is written).
+
+Not done here, and why:
+
+- **The recapture** (the F-2b row's last commit) is two things, gated
+  differently (corrected by spec-guardian L-3). The **recording** recapture
+  (`scripts/capture-fixture.sh`) waits on the owner applying
+  `docs/passes/16-staged/F/05` and `F/06` (`docs/passes/16-progress.md`, "Needs
+  the owner"). The **live snapshot** is the binary's own `snapshot <package>...`,
+  whose reads are allow-listed and need no patch, but it runs `brew` and `port`,
+  which the session that built F-2b was told not to run. With them go everything
+  F.md lists "after the live recapture" and "after `F/05` is applied": the
+  recording's listing reads and their provenance, the contract tests that parse
+  them, `the_recorded_listing_parses_to_the_snapshot_lists`, a committed
+  snapshot carrying real lists and the PATH map with indices, and any
+  fixture-matrix golden that would change once a recording holds a listing. No
+  golden needed one in F-2b: the matrix replays without naming packages, so no
+  listing is read.
+- **Mutation proof 14-15, 18b** has not been run independently (a separate
+  subagent in its own worktree, as §"Mutants" asks). Run by the author in this
+  worktree, each mutant applied to the committed source and restored: 14
+  (NOT_OBSERVED written as NOT_ON_PATH) is killed by
+  `invariant_15_a_replayed_capture_records_no_resolution_rather_than_none`; 18b
+  (`check_resolutions` answering `Ok`) is killed by
+  `a_snapshot_whose_two_resolution_maps_disagree_fails_to_load` - after the
+  fix below. **15 moves to F-3** (spec-guardian M-3): its one F-2b reader,
+  `confirmed_by_resolution`, treats `None` as settling nothing, and `None` read
+  as 0 gives `0 > k`, always false, so the mutant is equivalent here.
+
+**Handed to F-3** (from this part):
+
+- `migrate <pkg>` reads both sides' lists (deviation 1).
+- The recapture, both halves, above.
+- Mutation 15, and the independent proof of 14 and 18b if F-2b merges
+  without it.
+- `NotLinked.reason` and every executable or package name F-3's refusals and
+  preview echo go through `escape_hostile` (SR2-N6).
+- A surviving `ON_PATH_DIR` is the adapter's statement, not an observation
+  (security review L-4): the decision rule reads it so.
+- A `Resolution.path` from `resolution_of` on a document without the PATH map
+  may be relative or contain `..`; F-3 must not use it as a path without
+  `is_safe_path` and must not predict from it (security re-review).
+
+**CHANGELOG: deferred to F-4** (docs-auditor L-4), as the phasing table
+places it. The F-4 entry must cover, for F-2b: `snapshot [<package>...]` and
+its refusals (a leading `-`, any name with `--from-snapshot`) and notices;
+the Homebrew `sbin` key in the provider `environment` map; and the
+`snapshot.v1` load tightening (the new fields' rules, the two maps' agreement,
+and the per-provider entries' shape rule), with the compatibility line.
+
+**Review round** (`spec-guardian` and `security-reviewer` on `5ee0a43` and
+`45ff537`, both "approve with changes"). Fixed on this branch:
+
+- **SG M-1 (the older set still decided mapping).** `mapping.rs` now compares
+  `executable_list.known()`, never the older `executables`; the analysis
+  already read the list. The change a named snapshot makes is stated in SE-112's
+  addendum and pinned by `a_named_snapshot_adds_executables_evidence_to_the_mapping`;
+  `snapshot.v1.md`'s self-contradicting `executables` row is fixed.
+  `mapping_evidence.rs` builds its rows with a list.
+- **SG M-2 / SR L-1 (a `FOUND`'s own fields).** On load a `FOUND`'s `path` must
+  be a captured path whose leaf is the key; an owner provider must be in the
+  snapshot and an owner package a provider name (the per-provider map's owner
+  package too, a gap that predates F); a `pathIndex` must name the entry equal
+  to the path's parent with no earlier entry equal to it, empty or relative
+  (`~/…` counts as absolute, being redacted from one). Nine new cases in
+  `a_snapshot_whose_two_resolution_maps_disagree_fails_to_load`, and a control
+  with a home entry ahead of a correct index.
+- **SR L-2 (keys no capture writes).** A map key must be an installed package
+  name or in some `KNOWN` list (`a_name_that_is_not_a_package_resolves_only_in_the_path_map`
+  now asserts both halves).
+- **SR L-3 (cost).** The listed names searched per capture are capped at
+  `MAX_EXECUTABLES`; the rest stay `NOT_OBSERVED`
+  (`the_names_searched_from_lists_are_bounded`).
+- **SR L-4.** `confirmed_by_resolution`'s doc and SE-112 say "contradiction
+  check, not confirmation"; the shadowed case was already a test case.
+- **SG L-1 (escaping untested).** `snapshot_sends_…` now passes an ESC in a name
+  and after `--`, and asserts stderr carries `\u{1b}` and no raw ESC.
+- **SG L-2 / SR Info-1.** `snapshot --from-snapshot <file> <package>...` is a
+  usage error.
+- **SG L-3.** The recapture's two gates stated apart (above), and moved into
+  the F-3 hand-off list.
+- **SG L-4.** A selected row with no metadata entry is not read
+  (`a_row_without_metadata_is_not_read`); deviation 6 now reads so.
+- **SR Info-2.** `a_not_linked_reason_under_the_home_is_redacted`.
+- **SG Info.** `snapshot.v1.md` says an unknown `REASON` is refused, unlike
+  `pathFindings`; `which`'s doc points at `resolution_of`; the capture comment
+  no longer names a provider.
+- **Test strength (found while running mutant 18b).** The disagreement cases
+  had been refused by `check_invocation_environments` (the constructed
+  providers had no invocation environment), so an `Ok` from `check_resolutions`
+  survived. The providers now carry one, the control passes the whole `check`,
+  and each case is asserted against `check_resolutions` itself.
+
+**Second review round** (an independent `security-reviewer` and `docs-auditor`
+on `1061877`, both "approve with changes"). Fixed on this branch:
+
+- **SR M-1 (a regression: a `..` PATH entry failed every live capture).**
+  `which` keeps the entry as written, capture recorded the `FOUND`, and the load
+  rule refused it. Capture now records in neither map a hit the load rule would
+  refuse once redacted (`recordable` in `capture.rs`: the path a captured path
+  under `MAX_PATH_LEN`, the canonical path printable, the owner package a
+  name), so it reads `NOT_OBSERVED`; the agreement rule and the load rule are
+  unchanged. Test: `a_path_entry_through_dot_dot_never_makes_a_live_capture_refuse_itself`.
+- **SR I-1 (redaction collision).** After redaction capture checks each index
+  with the load rule's own function (`snapshot::recorded_index_holds`, now
+  public) against the redacted `PATH`, and records no index where it would
+  fail - unpredictable, the safe reading - instead of aborting. Test:
+  `an_index_that_redaction_makes_ambiguous_is_dropped_not_fatal` (two homes
+  under an unresolved home redaction).
+- **SR L-1 (an older document's per-provider entries).** `check_resolutions`
+  now runs the shape rule on every per-provider entry, with or without the
+  PATH map: `executable` equals the key, a path exists and its leaf is the key,
+  an owner provider is in the snapshot with a package that is a name. Every
+  committed snapshot still loads. **One deviation from the rule as asked:**
+  the per-provider path is held to the display rule (bounded, no control
+  character), not the captured-path rule, because
+  `a_snapshot_cannot_turn_provider_metadata_into_a_flag_or_a_path`
+  (`crates/cli/tests/end_to_end.rs`) holds that a per-provider resolution at
+  `/usr/local/bin/../bin/wget` loads: a build before F-2b recorded a hit through
+  a `.../bin/../bin` entry as `PATH` wrote it. No committed snapshot is refused
+  either way; the `..` half is the one place the rule is weaker than asked, and
+  the reason is that existing contract. The PATH map keeps the captured-path
+  rule. Test: `an_old_snapshots_resolutions_keep_their_shape_rule`.
+- **SR L-2 (the notice and the reads could disagree).** `executables_selection`
+  (`capture.rs`, exported) is the one selection: `read_executables` reads
+  exactly it, and `snapshot` reports from it. A name no provider this run could
+  read holds gets `snapshot.package_not_installed`; one that is installed but
+  was not read gets the new `snapshot.package_not_read` (en, pt-BR). Test:
+  `the_selection_is_present_providers_installed_rows_with_metadata`.
+- **SR I-2, I-3.** Already handed on in this section ("Handed to F-3") or
+  accepted as recorded there; no change.
+- **DA M-1.** `snapshot.package_not_installed` now reads "No provider this run
+  could read has {package} installed…", in en and pt-BR. Test:
+  `the_not_installed_notice_is_true_when_a_provider_could_not_be_read`
+  (`macports-broken`).
+- **DA L-1.** The `PACKAGE` help: "Also read the executables these installed
+  packages provide. A name no provider has installed is reported and skipped.
+  Not allowed with --from-snapshot."
+- **DA L-2.** 06's MUST says naming a package with `--from-snapshot` is
+  refused.
+- **DA L-3.** `snapshot.v1.md`'s `ON_PATH_DIR` row says the adapter *states*
+  where each executable lands.
+- **DA Info.** `snapshot.v1.md` cites SE-112 rather than review identifiers.
+- **DA L-4.** The CHANGELOG deferral and what it must cover, above.
+
+**Third round** (the security re-review, "approve", and an independent
+mutation proof of the fix round at `7bd0443`: 17 mutants, 12 killed, 1
+equivalent, 4 gaps). Fixed on this branch:
+
+- **M1-canonical, M1-owner (gaps).**
+  `a_hit_with_a_canonical_path_that_is_not_printable_is_left_out` and
+  `a_hit_whose_owner_package_is_not_a_name_is_left_out` (`-rf`, `a b`; a new
+  stub knob): the capture completes, `xz` is `NOT_OBSERVED` and absent from
+  the per-provider map, and the snapshot passes the whole load check.
+- **L2 notice-differs and never-not-read (gaps).** The per-name decision is
+  `executables_notices` (`capture.rs`, beside `executables_selection`, with
+  `NoticeKey`); the command only renders it. Test:
+  `every_name_not_read_gets_the_notice_its_case_calls_for` (a broken provider
+  still listing the name and a row with no metadata → not read; a name nobody
+  holds → not installed; a selected name → none).
+- **E7-no-len (equivalent).** `is_safe_captured_path` already bounds the
+  length; the comment now calls the explicit bound belt-and-braces.
+- **Security I-4.** The placement rule is one function, `placement_holds`
+  (`snapshot.rs`, public); `check_executables` refuses with it and capture asks
+  it after redaction, recording a placement it would refuse as
+  `UNKNOWN { PROVIDER_OUTPUT_CHANGED }` so `snapshot <package>` cannot fail on
+  an adapter's unkeepable statement. Test:
+  `a_placement_the_load_rule_would_refuse_is_recorded_as_unknown`.
+- **Security I-5** (a name installed under two providers, a cosmetic
+  difference): accepted, no change.
+- **Security hand-off** to F-3 on `Resolution.path` from an older document:
+  above.
+
+**Independent mutation proof** (a subagent, at `1061877`): 73 mutants, 47
+killed, 6 equivalent (15, R3, S7, L2, L4; argued, and 15 moves to F-3 as above),
+20 survivors that were real gaps. Each now has a test that kills it:
+
+- `crates/domain/src/snapshot.rs`: `a_list_of_exactly_the_cap_loads` (E2),
+  `an_empty_placement_beside_an_unknown_list_is_refused` (E4),
+  `a_placed_directory_padded_with_dot_components_is_refused` (E7),
+  `agreeing_maps_on_a_resolution_of_another_name_are_refused` (R4),
+  `a_listed_name_is_held_to_every_field_rule` (R7, R12, R16),
+  `a_provider_entry_the_path_map_does_not_hold_is_refused` (R18).
+- `crates/domain/src/machine.rs`:
+  `the_default_search_never_reads_a_miss_as_not_found` (P1).
+- `crates/application/tests/capture_executables.rs`:
+  `one_executable_found_only_further_along_contradicts_the_placement` (CR2),
+  `every_placed_executable_is_checked_not_only_the_first` (CR7),
+  `a_path_entry_with_a_trailing_slash_is_the_placed_directory` (CR6),
+  `a_placed_directory_under_the_home_is_found_on_the_redacted_path` (CR5),
+  `an_owner_is_preferred_over_an_earlier_unknown_answer` (C6),
+  `the_first_owner_in_registry_order_wins` (C5, with a stub that claims every
+  path), `package_names_do_not_spend_the_listed_name_budget` (C3),
+  `two_rows_of_one_name_in_one_provider_are_read_once` (S2),
+  `a_name_found_that_no_provider_answers_about_is_left_out` (C7),
+  `a_canonical_path_under_the_home_is_redacted_in_the_path_map` (X4),
+  `an_absent_provider_gets_no_read` (S4).
+
+**E7 was also a code defect:** `Path::components` drops an interior `/.`, so a
+placed directory padded with `/.` compared equal to `prefix/bin` while being
+longer than any captured path, and `/opt/first/./bin` loaded. The placement
+rule now also checks the raw text's length and refuses a `.` component.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -1190,3 +1543,10 @@ changes").** Fixed on this branch:
 | Mutation proof of the fix round (subagent) | `wo16/F-2a-reads` at `ec16100` | Independent mutation proof of the fix round at `ec16100`: 18 mutants, 17 killed | The survivor (`ListReason::all()` missing a new variant) fixed by generating the enum and `all()` from one macro (`list_reasons!`) |
 | `spec-guardian`, re-review | `wo16/F-2a-reads` at `ec16100` | Approve with changes: wording in "As built" and this table | Resolved: the F-3 row text, "one gap closed (9a) and one end-to-end strengthening", the `escape_hostile` and redaction hand-ons to F-2b, these rows |
 | `security-reviewer`, re-review | `wo16/F-2a-reads` at `ec16100` | Approve; Info 2: a listing error detail surfaced in `doctor --report` or history goes through the home redaction | Info 2 handed to F-2b |
+| `spec-guardian`, F-2b | `wo16/F-2b-capture` at `45ff537` | Approve with changes: M-1 the older set still decided mapping; M-2 `pathIndex` unchecked against its entry; M-3 mutation proof not run; L-1 escaping untested; L-2 names under `--from-snapshot`; L-3 the recapture's gate misstated; L-4 a read thrown away; Info: unknown `REASON`, two comments. The seven deviations judged acceptable | All resolved in "As built (F-2b)", review round; M-3: 14 and 18b run by the author, 15 moved to F-3, the independent proof still owed |
+| `security-reviewer`, F-2b | `wo16/F-2b-capture` at `45ff537` | Approve with changes: L-1 a `FOUND`'s own fields barely checked; L-2 map keys no capture writes; L-3 unbounded searches; L-4 contradiction, not confirmation; Info-1 names under `--from-snapshot`; Info-2 no `NOT_LINKED` redaction test. `process/` untouched | All resolved in "As built (F-2b)", review round |
+| `security-reviewer` (independent), F-2b | `wo16/F-2b-capture` at `1061877` | Approve with changes: M-1 a `..` PATH entry fails every live capture; L-1 an older document's per-provider entries skip the shape rule; L-2 the not-installed notice decided apart from the reads; I-1 a redaction collision can refuse a correct index; I-2, I-3 | M-1, I-1, L-2 resolved; L-1 resolved with the per-provider path under the display rule, not the no-`..` one (an existing contract test; recorded in "Second review round"); I-2, I-3 already handed on or accepted |
+| `docs-auditor`, F-2b | `wo16/F-2b-capture` at `1061877` | Approve with changes: M-1 the not-installed notice overclaims with a broken provider; L-1 the `PACKAGE` help; L-2 06 silent on `--from-snapshot`; L-3 the placement row reads as fact; L-4 the CHANGELOG deferral unstated; Info review identifiers in `snapshot.v1.md` | All resolved in "As built (F-2b)", second review round |
+| `security-reviewer`, F-2b re-review | `wo16/F-2b-capture` at `7bd0443` | Approve; I-4 a placement the load rule refuses makes `snapshot <pkg>` fail; I-5 a name in two providers, cosmetic; a hand-off on an older document's `Resolution.path` | I-4 resolved (`placement_holds`, unknown at capture); I-5 accepted; the hand-off added to "Handed to F-3" |
+| Independent mutation proof of the fix round (subagent) | `wo16/F-2b-capture` at `7bd0443` | 17 mutants, 12 killed, 1 equivalent (E7-no-len), 4 gaps (M1-canonical, M1-owner, L2 notice-differs, L2 never-not-read) | 4 gaps closed by tests; the equivalent one's comment corrected ("As built (F-2b)", third round) |
+| Independent mutation proof, F-2b (subagent) | `wo16/F-2b-capture` at `1061877` | 73 mutants, 47 killed, 6 equivalent (15, R3, S7, L2, L4, argued), 20 gaps | 20 gaps closed by tests (E7 also a code fix); the mutant 15 argument stands and 15 moves to F-3 ("As built (F-2b)") |
