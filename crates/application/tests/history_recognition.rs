@@ -717,15 +717,94 @@ fn invariant_16_an_unknown_fresh_list_is_not_recognised() {
     );
 }
 
+/// Gives the fresh source package (`gsed` under MacPorts) the list `names`.
+fn source_ships(snapshot: &mut Snapshot, names: &[&str]) {
+    snapshot
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .inventory
+        .metadata
+        .get_mut("gsed")
+        .unwrap()
+        .set_executables(
+            macportsbrew_domain::ExecutableList::from_leaves(names.iter().copied()),
+            macportsbrew_domain::Placement::default(),
+        );
+}
+
 #[test]
 fn invariant_16_every_recorded_executable_is_checked_not_only_the_first() {
-    // Mutant 24: `sed` resolves to the destination, `zzz-not-resolved` to
-    // nothing observed; the second is enough to plan again.
+    // Mutant 24a: the fresh list and the record agree on two names, so the
+    // list rule (D-6) passes and the loop is reached; `sed` resolves to the
+    // destination and `zzz-not-resolved` to nothing observed. The second is
+    // enough to plan again. (Before this rework the fresh list held `sed`
+    // alone, D-6 refused first, and the loop was never reached.)
     let record = with_executables(&success(MP), Some(vec![EXE, "zzz-not-resolved"]));
-    let snapshot = fresh(MP, &After::done(HB));
-    let note = planned_with(start(MP, &snapshot, Some(&view_of(vec![record])), true));
+    let mut snapshot = fresh(MP, &After::done(HB));
+    source_ships(&mut snapshot, &[EXE, "zzz-not-resolved"]);
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![record.clone()])),
+        true,
+    ));
     assert!(
         matches!(note, Some(NotRecognised::PrimaryNotConfirmed { .. })),
         "{note:?}"
+    );
+    // The control: with the second name resolving too, it is recognised.
+    let resolution = snapshot.environment.resolutions[&ExecutableName::parse(EXE).unwrap()].clone();
+    snapshot.environment.resolutions.insert(
+        ExecutableName::parse("zzz-not-resolved").unwrap(),
+        resolution,
+    );
+    assert!(matches!(
+        start(MP, &snapshot, Some(&view_of(vec![record])), true),
+        MigrationStart::RetainedRunDone { .. }
+    ));
+}
+
+#[test]
+fn invariant_16_a_non_authoritative_resolution_is_not_recognised() {
+    // Mutant 24b; security review of F-3, L-2: the destination's own package
+    // answers by its path, not by the provider's records.
+    let mut snapshot = fresh(MP, &After::done(HB));
+    for state in snapshot.environment.resolutions.values_mut() {
+        if let ResolutionState::Found { resolution, .. } = state {
+            resolution.authoritative = false;
+        }
+    }
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![success(MP)])),
+        true,
+    ));
+    assert_eq!(
+        note,
+        Some(NotRecognised::PrimaryNotConfirmed {
+            run_id: RECORD_ID.into()
+        })
+    );
+}
+
+#[test]
+fn invariant_16_a_source_that_now_ships_another_executable_is_not_recognised() {
+    // Mutant 24c; spec-guardian review of F-3, D-6: the fresh source list is
+    // not the one the record resolved, so a name no run resolved exists.
+    let mut snapshot = fresh(MP, &After::done(HB));
+    source_ships(&mut snapshot, &[EXE, "gsed-extra"]);
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![success(MP)])),
+        true,
+    ));
+    assert_eq!(
+        note,
+        Some(NotRecognised::PrimaryNotConfirmed {
+            run_id: RECORD_ID.into()
+        })
     );
 }

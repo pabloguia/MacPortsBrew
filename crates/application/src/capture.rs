@@ -199,16 +199,43 @@ fn owner_of(ctx: &CaptureContext<'_>, path: &Path) -> Option<(ProviderId, Resolu
     owner_among(&ctx.providers, path)
 }
 
+/// The one question the run loop's fresh resolution may put to a provider:
+/// who owns this file (spec-guardian review of F-3: the site narrowed to it).
+/// Every [`ProviderRead`] answers it; a holder of only this trait can ask
+/// nothing else of the provider - no inventory, no listing, no command.
+pub trait ResolutionAnswer {
+    /// The provider's identifier.
+    fn id(&self) -> &ProviderId;
+    /// The provider's own answer about `path` ([`ProviderRead::resolution`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`ProviderRead::resolution`].
+    fn resolution(&self, path: &Path) -> Result<Resolution, macportsbrew_domain::DomainError>;
+}
+
+impl<T: ProviderRead + ?Sized> ResolutionAnswer for T {
+    fn id(&self) -> &ProviderId {
+        ProviderRead::id(self)
+    }
+    fn resolution(&self, path: &Path) -> Result<Resolution, macportsbrew_domain::DomainError> {
+        ProviderRead::resolution(self, path)
+    }
+}
+
 /// [`owner_of`]'s rule over any set of providers, so the run loop's fresh
 /// resolution (`VERIFY_RESOLUTION`, F.md Design §4) asks exactly as capture
 /// does.
-fn owner_among(providers: &[&dyn ProviderRead], path: &Path) -> Option<(ProviderId, Resolution)> {
+fn owner_among<P: ResolutionAnswer + ?Sized>(
+    providers: &[&P],
+    path: &Path,
+) -> Option<(ProviderId, Resolution)> {
     let mut best = None;
     for provider in providers {
-        if let Ok(r) = provider.resolution(path) {
+        if let Ok(r) = ResolutionAnswer::resolution(*provider, path) {
             let is_owner = matches!(r.owner, ExecutableOwner::Provider { .. });
             if is_owner || best.is_none() {
-                best = Some((provider.id().clone(), r));
+                best = Some((ResolutionAnswer::id(*provider).clone(), r));
                 if is_owner {
                     break;
                 }
@@ -224,21 +251,27 @@ fn owner_among(providers: &[&dyn ProviderRead], path: &Path) -> Option<(Provider
 /// replayed one — answers `NOT_OBSERVED`, never `NOT_ON_PATH` (INV-15); so does
 /// a hit no provider will answer about. The index is the search's own, taken
 /// on the unredacted `PATH`, so the relative-entry rule (SR-4) is applied to
-/// the run-time `PATH` here exactly as at capture.
-pub fn resolve_now(
+/// the run-time `PATH` here exactly as at capture. A hit capture would not
+/// record - one the snapshot's load rule refuses once redacted under `home` -
+/// is `NOT_OBSERVED` here too (security review of F-3, L-3), so a run never
+/// judges a resolution capture would have thrown away.
+pub fn resolve_now<P: ResolutionAnswer + ?Sized>(
     machine: &dyn MachineRead,
-    providers: &[&dyn ProviderRead],
+    providers: &[&P],
     executable: &ExecutableName,
+    home: &HomeRedaction,
 ) -> ResolutionState {
     match machine.search_path(executable) {
         PathSearch::NotSearched => ResolutionState::NotObserved,
         PathSearch::NotFound => ResolutionState::NotOnPath,
         PathSearch::Found { path, path_index } => match owner_among(providers, &path) {
-            Some((_, resolution)) => ResolutionState::Found {
-                resolution,
-                path_index,
-            },
-            None => ResolutionState::NotObserved,
+            Some((_, resolution)) if recordable(&resolution, &path, home) => {
+                ResolutionState::Found {
+                    resolution,
+                    path_index,
+                }
+            }
+            _ => ResolutionState::NotObserved,
         },
     }
 }

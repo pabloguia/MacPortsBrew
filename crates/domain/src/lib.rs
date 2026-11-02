@@ -41,8 +41,8 @@ pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use executable::{
-    ExecutableList, ExecutableName, ListReason, NameRefusal, Placement, UnknownReason,
-    MAX_EXECUTABLES, MAX_EXECUTABLE_NAME_BYTES,
+    command_v_checks, ExecutableList, ExecutableName, ListReason, NameRefusal, Placement,
+    UnknownReason, MAX_EXECUTABLES, MAX_EXECUTABLE_NAME_BYTES,
 };
 pub use history::{
     is_run_id, CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,

@@ -126,7 +126,9 @@ fn record(id: &str, package: &str, ending: RunEnding) -> RunRecord {
             },
             overrode: None,
             retain_source: true,
-            primary_after: destination,
+            // No resolution is recorded here, so the source stays primary
+            // (security review of F-3, L-4).
+            primary_after: ProviderId::new(SOURCE),
             primary_executables: Some(Vec::new()),
         },
         steps,

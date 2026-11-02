@@ -1572,7 +1572,10 @@ unchanged; no `brew` or `port` command was run.
   `docs/schemas/README.md`'s exit-code table; SE-112's F-3 addendum.
 
 **Review round** (`security-reviewer` and `spec-guardian` on `cf80b88`; rows
-below), each resolved in code with a test:
+below), each resolved in code. **Corrected in the fix round:** this list said
+every item had its test at `1d3c6eb`; the independent mutation proof showed
+SR M-2, SR L-1, SG/SR L-2 and mutant 24 had none that failed (mutants 15b, 28d,
+24b and 24a survived). Their tests are named below, under "Fix round".
 
 - **SR M-1** — a stale resolution guarded the removal. `check_ordering` refuses
   a `VERIFY_RESOLUTION` before `VERIFY_DESTINATION` or `SET_PRIMARY`, and the
@@ -1582,10 +1585,15 @@ below), each resolved in code with a test:
   (both early placements), `invariant_03_a_missing_destination_executable_ends_partial_with_the_source_kept`.
 - **SR M-2** — "already wins" with no recorded index. Step 3 answers
   `PRIMARY_UNPREDICTABLE` for a winner without `pathIndex`, as step 6 does.
+  Untested at `1d3c6eb`; now `a_destination_winner_without_a_recorded_index_is_unpredictable`.
 - **SR L-1** — a read-back `RESOLVED` step must name exactly the record's
-  `primaryExecutables`.
+  `primaryExecutables`. Untested at `1d3c6eb` (the tamper case it was credited
+  to was refused for another reason); now
+  `a_resolved_step_naming_other_executables_is_unusable`.
 - **SR L-2** — recognition counts a resolution as the destination's only by
   the provider's own records (`authoritative`), as `VERIFY_RESOLUTION` does.
+  The fixture change made the passing case authoritative; nothing tested the
+  refusal until `invariant_16_a_non_authoritative_resolution_is_not_recognised`.
 - **SR L-3** — `NOTHING_TO_CHANGE` about no executable is refused
   `EXECUTABLE_LISTS_DISAGREE`.
 - **SG R-1** — a row saying the destination's own package wins while the
@@ -1605,10 +1613,18 @@ below), each resolved in code with a test:
 
 Deviations from the plan, and why:
 
-1. **1→1 is a heuristic (SG D-4).** Design §4 refuses 1→many and many→1. The
-   planner's `one_to_one` answers yes when the unit is planned onto its own
-   side, or when the mapping selected a candidate and no other candidate shares
-   its confidence. That catches 1→many at the top confidence; it does not
+Each deviation carries its tier (`docs/spec/README.md`): Tier 3 where it
+narrows or adds to a MUST or a documented contract, Tier 4 where it is an
+implementation or sequencing choice the specification leaves open.
+
+1. **1→1 is a heuristic (SG D-4). Tier 3:** it narrows 05's MUST "only a
+   one-to-one mapping is planned". Design §4 refuses 1→many and many→1. The
+   planner's `one_to_one` (`crates/application/src/planner.rs`) is true when
+   the unit is planned onto its own side, and otherwise amounts to
+   `mapping.selected.is_some()`: `PackageMapping::from_candidates` selects only
+   a best candidate strictly ahead of the runner-up, so the "no other candidate
+   shares its confidence" clause adds nothing. That refuses an ambiguous
+   1→many; it does not
    detect many→1 (two source packages whose mappings select the same
    destination package), because a plan is built for one package and never
    looks at the other rows' mappings. Each such plan still decides executable
@@ -1616,49 +1632,63 @@ Deviations from the plan, and why:
    captured resolution does not show; what is lost is the refusal's name.
    Recorded in SE-112; a mapping-wide check belongs with whatever part plans
    several packages together.
-2. **`ErrorId::PrimaryNeedsShim` is defined and not raised.** The gate's report
+2. **`ErrorId::PrimaryNeedsShim` is defined and not raised. Tier 3** (the
+   exit-code contract of `docs/schemas/README.md`). The gate's report
    exits 4 for every refusal, as before, and names `PRIMARY_NEEDS_SHIM` among
    `gateRefusals`; the identifier, with its exit code and catalogue sentence,
    is reserved for the part that offers a consented shim. The README said so;
    `plan.v1.md`, `migrate.v1.md` and the variant's comment said the refusal
    carried it, and now say what the README says.
-3. **Step 3 has two conditions the plan did not write** (SR M-2, SG R-1): a
+3. **Step 3 has two conditions the plan did not write** (SR M-2, SG R-1).
+   **Tier 3;** 05 step 3 now states them. A
    recorded `pathIndex`, and an installed destination. Without them "already
    wins" is not an observation of this `PATH`, or the row is inconsistent; both
    refuse rather than predict.
-4. **The ownership check is absent only beside an empty list** (SG R-2),
+4. **The ownership check is absent only beside an empty list** (SG R-2;
+   **Tier 3**, the gate's `EXECUTABLE_LISTS_DISAGREE` rule),
    reversing the addendum's "may be absent, never different": once part H
    evaluates check 3, a plan that drops it must not pass this rule.
-5. **`NOTHING_TO_CHANGE` about no executable is refused** (SR L-3): it is
+5. **`NOTHING_TO_CHANGE` about no executable is refused** (SR L-3; **Tier 3**,
+   the same rule): it is
    `NO_EXECUTABLES` misspelt, and the gate has one meaning for each.
-6. **The removal waits on `RESOLVED`, not on the absence of a halt** (SR M-1),
+6. **The removal waits on `RESOLVED`, not on the absence of a halt** (SR M-1;
+   **Tier 3**, 04's `VERIFY_RESOLUTION` MUST, which now says so;
+   `invariant_01_a_removal_waits_on_a_resolution_recorded_resolved`),
    and `check_ordering` also places `VERIFY_RESOLUTION` after
    `VERIFY_DESTINATION` and `SET_PRIMARY`. Design §4 stated only "before
    `REMOVE_SOURCE`".
-7. **History beyond §5** (SG D-5, D-6; SR L-1, L-2). `primaryAfter` is the
+7. **History beyond §5** (SG D-5, D-6; SR L-1, L-2, L-4; **Tier 3**, the
+   `history.v3` contract). `primaryAfter` is the
    destination also when a `NO_EXECUTABLES` `SET_PRIMARY` was carried out:
    nothing then stays with the source, and §5's "what resolved" has nothing to
    resolve. Recognition requires the fresh source list to equal the record's
    `primaryExecutables` (a source that now ships another executable has one no
    run resolved; an empty pair is recognised on the rest), and an
    authoritative resolution. Read-back refuses a `RESOLVED` step naming other
-   executables.
-8. **"Says so in the run record" (SG-10) is the run report.** Whether the
+   executables, and (fix round, SR L-4) a v3 record naming the destination
+   without a `RESOLVED` step or an empty list beside a carried-out
+   `SET_PRIMARY`. The plan now agrees with the record: the planner's
+   `primaryAfter` is the destination on `NO_EXECUTABLES` too (it was the
+   source), and `plan.v1.md` gains a compatibility line for the field's
+   changed meaning.
+8. **"Says so in the run record" (SG-10) is the run report. Tier 3** (where a
+   `migrate.v1` statement lives). Whether the
    run-time `PATH` differed from `pathUsed` is `pathDiffers` on the `RESOLVED`
    disposition and the `RESOLUTION_MISMATCH` halt in `migrate.v1`'s execution
    document; `history.v3` records no `PATH` and no flag. The field was
    serialised `path_differs` against the documented `pathDiffers`; found by
    `the_path_a_decision_used_is_home_redacted_in_plan_history_and_report` and
    fixed with a `serde` rename.
-9. **The narrowing is not cut.** `mutable()` and `completable_run()` still
+9. **The narrowing is not cut. Tier 4** (test scaffolding; no requirement
+   changes). `mutable()` and `completable_run()` still
    remove `VERIFY_RESOLUTION` and narrow the decision to `NO_EXECUTABLES`,
    because no recording carries a list: the fixtures' rows answer
    `EXECUTABLES_UNKNOWN`. The cut goes with the recapture (F-2b's hand-off),
    with a comment naming it. The new executor tests build the
    `VERIFY_RESOLUTION` shape directly (`primary_run`,
    `removal_guarded_by_a_resolution`).
-10. **The tests "after the live recapture" are not written**, for the same
-    reason: `a_plan_whose_destination_already_wins_sets_no_primary`,
+10. **The tests "after the live recapture" are not written. Tier 4** (the
+    plan's sequencing), for the same reason: `a_plan_whose_destination_already_wins_sets_no_primary`,
     `invariant_17_a_plan_needing_a_shim_is_refused_before_any_install`,
     `an_executable_not_named_after_its_package_is_planned`,
     `invariant_01_a_real_retain_source_plan_completes_once_its_checks_are_evaluable`,
@@ -1670,6 +1700,25 @@ Deviations from the plan, and why:
     unit-only (`a_keg_only_destination_needs_a_shim`), as SG-5 allows.
     `invariant_03_…` halts at `VERIFY_RESOLUTION`; once part H evaluates
     check 3 the same run halts at `VERIFY_DESTINATION`.
+11. **05 step 5's order is the code's (fix round). Tier 3,** 05 amended rather
+    than the code changed: "does the destination ship `e`" is asked before
+    "where does it link it", because a placement says nothing about a name the
+    package does not ship. With the destination's list not `KNOWN` the answer
+    is `PRIMARY_UNPREDICTABLE` before the placement is read (SR L-1: it was
+    `PRIMARY_NEEDS_SHIM` from a `NOT_LINKED` that could not speak for `e`).
+12. **Step 6 predicts no win (fix round, SR L-2). Tier 3,** 05 step 6 amended.
+    Design §4 had `d < w` and a miss on `PATH` as predicted wins. With step 3
+    answering for a winner that is the destination's, the winner step 6 sees is
+    another's, so `d < w` (or a miss beside a placement on `PATH`) is the
+    capture contradicting the placement: `PRIMARY_UNPREDICTABLE`. This is what
+    05's "What this reaches" already said: a run completes only where step 3
+    observed the win.
+13. **The run's resolution site is narrowed (fix round). Tier 4.**
+    `MachineResolutionSite` holds the providers as `OnlyResolution`, which
+    implements only `ResolutionAnswer` (`id`, `resolution`), so the site cannot
+    reach any other `ProviderRead` method; `resolve_now` takes the narrowed
+    trait and applies capture's recordability rule under the run's home
+    redaction (SR L-3).
 
 Tests added in the review round, besides those named above:
 `invariant_12_setting_a_primary_never_reorders_path`,
@@ -1679,7 +1728,10 @@ Tests added in the review round, besides those named above:
 (`crates/application/tests/execution_gate.rs`);
 `echoed_names_go_through_escape_hostile` (`crates/cli/src/app/human.rs`);
 `no_run_writes_outside_the_state_directory_or_the_providers`, with `HOME` and
-`TMPDIR` both redirected (`crates/cli/tests/migrate.rs`). Changed for the round:
+`TMPDIR` both redirected (`crates/cli/tests/migrate.rs`). Added in the fix
+round: every test named in "Fix round" below, and
+`invariant_01_a_removal_waits_on_a_resolution_recorded_resolved`
+(`crates/application/src/executor/tests.rs`). Changed for the round:
 `invariant_17_the_decision_rule_is_the_same_for_both_directions` (an
 uninstalled destination is refused both ways, R-1),
 `invariant_11_setting_the_primary_transfers_no_ownership` (the winner carries
@@ -1690,8 +1742,56 @@ Not done here, and why:
 
 - **The recapture**, both halves, and with it deviations 9 and 10 and the
   contract tests after `F/05`: unchanged from F-2b's hand-off.
-- **The mutation proof of F-3** (§"Mutants", including 15 from F-2b) has not
-  been run by an independent subagent.
+- **CHANGELOG and `wiki/Primary-Provider.md`** (its lines on what the primary
+  does in this release) are F-4's, as the phasing table says; F-3 leaves both
+  as they are.
+
+**Fix round** (one combined round on `1d3c6eb`: `security-reviewer`,
+`spec-guardian`, `docs-auditor` and the independent mutation proof):
+
+- **Security.** M-1: the `command -v` text is built per name by
+  `ExecutableName::command_v` and `command_v_checks`, single-quoting any name
+  outside `[A-Za-z0-9._+-]`, never one `command -v a, b, c`
+  (`a_command_v_line_never_runs_more_than_the_question`,
+  `a_command_v_check_quotes_a_name_a_shell_would_read`, both locales). L-1,
+  L-2: deviations 11 and 12 (`a_destination_list_not_known_is_unpredictable_even_when_not_linked`,
+  `the_index_comparison_never_predicts_a_win_against_the_capture`). L-3:
+  deviation 13 (`a_fresh_resolution_capture_would_not_record_is_not_observed`).
+  L-4: deviation 7 (`a_primary_after_naming_the_destination_without_a_resolution_is_unusable`).
+- **The mutation proof** (independent subagent, at `1d3c6eb`): 62 mutants, 50
+  killed, 10 survived, 2 equivalent. Each survivor now has a test that kills
+  it, re-run one by one against this tree (applied as an exact-string edit,
+  the owning crate's and the dependent crates' tests run, the file restored
+  from its saved copy):
+
+  | Mutant | What it does | Killed by |
+  |---|---|---|
+  | 15b | drops step 3's missing-index refusal | `a_destination_winner_without_a_recorded_index_is_unpredictable` |
+  | 20e | lets a repeated `RESOLVES_TO` through | `the_gate_refuses_a_repeated_resolves_to` |
+  | 21a | exempts any command-less step, not only `VERIFY_RESOLUTION` | `the_gate_exempts_only_a_command_less_all_resolves_to_verify_resolution` (extended) |
+  | 24a | checks only the first recorded executable | `invariant_16_every_recorded_executable_is_checked_not_only_the_first` (reworked: the fresh list now holds both names, so D-6 no longer refuses first and the loop is reached) |
+  | 24b | drops `authoritative` from recognition | `invariant_16_a_non_authoritative_resolution_is_not_recognised` |
+  | 24c | drops the fresh-list equality (D-6) | `invariant_16_a_source_that_now_ships_another_executable_is_not_recognised` |
+  | 27b | lets a `REFUSED` with no reason through | `a_refusal_with_no_reason_is_still_refused` |
+  | 28c | makes any carried-out decision name the destination | `primary_after_is_the_source_when_resolution_did_not_hold` |
+  | 28d | drops read-back's `RESOLVED`-list check | `a_resolved_step_naming_other_executables_is_unusable` |
+  | 28f | drops read-back's `NOTHING_TO_CHANGE` placement check | `nothing_to_change_on_a_step_other_than_set_primary_is_unusable` (its first draft moved the result without clearing `dispatched`, so the dispatch rule refused the record and the mutant survived the re-run; with `dispatched` false the placement rule is the only one left, and it is killed) |
+
+  The two equivalent: **21b** removes `commands.is_empty()` from the
+  `VERIFICATION_ASSERTS_NOTHING` exemption, but a `VERIFY_RESOLUTION` with a
+  command is already refused `COMMAND_ON_STEP_THE_PLANNER_WRITES_NONE_ON`, so
+  no plan's outcome changes. **29** echoes executable names without `shown`,
+  but `ExecutableName::parse` refuses every hostile character, so
+  `escape_hostile` is the identity on any name and the output is the same
+  byte for byte.
+- **Specification.** 05 steps 3, 5 and 6 and the section heading; 04's two
+  MUSTs and 06's `PATH` paragraph now say "built in F-3", not "not built";
+  SE-112's status (accepted for what F-3 built, two parts named as
+  experimental) and its body carry the reserved-`ErrorId` note.
+- **Docs** (docs-auditor M1–M7, L1–L3, L6, L7, Info): `migrate.v1.md`,
+  `history.v3.md`, `plan.v1.md` (the `pathUsed` sample no longer reproduces a
+  developer `PATH`; two checked fields and an illustrative shape instead), and
+  the catalogue entries named in the fix-round list.
 
 ## Reviews
 

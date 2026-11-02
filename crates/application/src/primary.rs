@@ -178,10 +178,15 @@ fn decide_one(
     let Some(destination) = destination else {
         return Some(PrimaryReason::PrimaryUnpredictable);
     };
-    if let Some(ships) = destination.executable_list.known() {
-        if !ships.contains(executable) {
-            return Some(PrimaryReason::DestinationLacksExecutable);
-        }
+    // "Does the destination ship `e`" before its placement (05 step 5, in this
+    // order). With its list not known, a `NOT_LINKED` placement says nothing
+    // about `e`, so it is not evidence a shim is needed (security review of
+    // F-3, L-1).
+    let Some(ships) = destination.executable_list.known() else {
+        return Some(PrimaryReason::PrimaryUnpredictable);
+    };
+    if !ships.contains(executable) {
+        return Some(PrimaryReason::DestinationLacksExecutable);
     }
     // A surviving `ON_PATH_DIR` is the adapter's statement, not an
     // observation (security review of F-2b, L-4): it is only ever compared
@@ -201,14 +206,19 @@ fn decide_one(
         DirectoryIndex::Unpredictable => return Some(PrimaryReason::PrimaryUnpredictable),
         DirectoryIndex::Absent => return Some(PrimaryReason::PrimaryNeedsShim),
     };
+    // The destination says `e` is linked at `d`, and the winner reached here
+    // is not the destination's own (step 3 answered that). Where `d` comes
+    // before the winner, or nothing was found at all, the capture contradicts
+    // the placement: the shell would have found the destination's copy first.
+    // A contradiction is never a predicted win (security review of F-3, L-2;
+    // 05 "What this reaches").
     match winner {
-        // Only an observed miss predicts a win (SG-2).
-        None => None,
+        None => Some(PrimaryReason::PrimaryUnpredictable),
         // A winner with no recorded index is unpredictable, never index 0
         // (SR-5; mutant 15).
         Some(None) => Some(PrimaryReason::PrimaryUnpredictable),
         Some(Some(w)) => match d.cmp(&w) {
-            std::cmp::Ordering::Less => None,
+            std::cmp::Ordering::Less => Some(PrimaryReason::PrimaryUnpredictable),
             std::cmp::Ordering::Greater => Some(PrimaryReason::PrimaryNeedsShim),
             std::cmp::Ordering::Equal => Some(PrimaryReason::SameDirectory),
         },

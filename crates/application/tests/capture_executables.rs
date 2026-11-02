@@ -926,3 +926,38 @@ fn every_name_not_read_gets_the_notice_its_case_calls_for() {
         "snapshot.package_not_read"
     );
 }
+#[test]
+fn a_fresh_resolution_capture_would_not_record_is_not_observed() {
+    // Security review of F-3, L-3: the run loop's `resolve_now` applies the
+    // recordability rule capture applies, so a hit through a `..` entry, one
+    // whose owner package is not a name, or one with a hostile canonical path
+    // reads `NOT_OBSERVED` - never a resolution to judge.
+    use macportsbrew_application::resolve_now;
+    let home = HomeRedaction::Known(HOME.into());
+    let dotdot = Stub::new("first", "/opt/first", &["xz"]);
+    let machine = Machine2::live(
+        &["/opt/first/libexec/../bin", "/usr/bin"],
+        &[("xz", "/opt/first/libexec/../bin/xz")],
+    );
+    assert_eq!(
+        resolve_now(&machine, &[&dotdot], &name("xz"), &home),
+        ResolutionState::NotObserved
+    );
+    let mut owner = Stub::new("first", "/opt/first", &["xz"]);
+    owner.owner_package = Some("a b".into());
+    let mut canonical = Stub::new("first", "/opt/first", &["xz"]);
+    canonical.canonical_in = Some(PathBuf::from("/opt/first/x\u{1b}[2J"));
+    let machine = Machine2::live(PATH, &[("xz", "/opt/first/bin/xz")]);
+    for stub in [&owner, &canonical] {
+        assert_eq!(
+            resolve_now(&machine, &[stub], &name("xz"), &home),
+            ResolutionState::NotObserved
+        );
+    }
+    // The control: a recordable hit is found.
+    let plain = Stub::new("first", "/opt/first", &["xz"]);
+    assert!(matches!(
+        resolve_now(&machine, &[&plain], &name("xz"), &home),
+        ResolutionState::Found { .. }
+    ));
+}

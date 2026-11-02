@@ -1914,6 +1914,45 @@ fn the_gate_exempts_only_a_command_less_all_resolves_to_verify_resolution() {
         StepKind::VerifyDestination,
         &check
     ));
+    // Mutant 21a: the exemption is the kind's. A command-less
+    // `VERIFY_DESTINATION` whose one check is a `RESOLVES_TO` asserts nothing.
+    let mut only = base.clone();
+    only.steps[verify].commands.clear();
+    only.steps[verify].verification = vec![check];
+    assert!(asserts_nothing(&only, verify_index), "a VERIFY_DESTINATION");
+}
+
+#[test]
+fn the_gate_refuses_a_repeated_resolves_to() {
+    // Mutant 20e: the set of names agrees, the step does not - a
+    // `RESOLVES_TO` written twice is not one check per executable.
+    let mut plan = with_decision(nothing_to_change());
+    let resolution = position(&plan, StepKind::VerifyResolution);
+    let index = plan.steps[resolution].index;
+    let check = plan.steps[resolution].verification[0].clone();
+    plan.steps[resolution].verification.push(check);
+    assert!(primary_refusals(&plan)
+        .contains(&ExecutionRefusal::ExecutableListsDisagree { step: index }));
+}
+
+#[test]
+fn a_refusal_with_no_reason_is_still_refused() {
+    // Mutant 27b: `REFUSED` with no reason, per executable or for the package,
+    // is not a decision this build may complete.
+    let plan = with_decision(macportsbrew_domain::PrimaryDecision::Refused {
+        executables: [exe("gnu-sed")].into_iter().collect(),
+        reasons: BTreeMap::new(),
+        package: None,
+        path_used: Vec::new(),
+    });
+    let at = plan.steps[position(&plan, StepKind::SetPrimary)].index;
+    assert!(
+        primary_refusals(&plan).contains(&ExecutionRefusal::PrimaryRefused {
+            step: at,
+            reasons: BTreeMap::new(),
+            package: None,
+        })
+    );
 }
 
 #[test]

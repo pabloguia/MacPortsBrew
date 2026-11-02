@@ -115,7 +115,31 @@ fn record_of(plan: &MigrationPlan, ending: RunEnding) -> RunRecord {
                     evidence: Vec::new(),
                 },
             };
-            RecordedStep::new(s.index, s.kind, s.provider.clone(), result, false)
+            (s.kind, s.provider.clone(), result)
+        })
+        .collect::<Vec<_>>();
+    // `primaryAfter` names the destination only after a resolution shows it
+    // (security review of F-3, L-4): the run resolved the package's one
+    // executable before it recorded itself.
+    let mut steps = steps;
+    let last = steps.len() - 1;
+    steps.insert(
+        last,
+        (
+            StepKind::VerifyResolution,
+            None,
+            StepResult::Resolved {
+                executables: vec![
+                    macportsbrew_domain::ExecutableName::parse(&plan.package.name).unwrap(),
+                ],
+            },
+        ),
+    );
+    let steps: Vec<RecordedStep> = steps
+        .into_iter()
+        .zip(1..)
+        .map(|((kind, provider, result), index)| {
+            RecordedStep::new(index, kind, provider, result, false)
         })
         .collect();
     RunRecord::new(

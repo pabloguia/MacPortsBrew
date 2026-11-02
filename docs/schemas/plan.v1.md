@@ -218,7 +218,7 @@ comments:
    `ReadEvidence` and has no field a provider read could occupy
    (`a_run_record_cannot_carry_an_inventory`,
    `crates/application/tests/history.rs`). The store
-   ([`history.v2.md`](history.v2.md)) keeps the same evidence-only shape;
+   ([`history.v3.md`](history.v3.md)) keeps the same evidence-only shape;
    writing a record is owed (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
@@ -497,7 +497,7 @@ comments:
     `mutationDispatched` is the one fact a store may key a lock or an
     interrupted-run marker on, and it fails toward true for a halt that cannot
     be placed before or after a dispatch. **The store landed 2026-10-04**
-    (pass 08 slice 1, [`history.v2.md`](history.v2.md)) with the write
+    (pass 08 slice 1, [`history.v3.md`](history.v3.md)) with the write
     predicate `application::history::must_record` (iff `mutationDispatched`)
     and the `--retain-source` re-run recognition `04-migration-and-safety.md`
     (History) states. **Still owed by the pass that dispatches mutations**,
@@ -513,7 +513,7 @@ comments:
     record not known to be durable keeps the marker and never exits 0. **`SNAPSHOT_BEFORE` and
     `RECORD_HISTORY` are performed by pass 08 slice 5 (D2, D3)**, and
     `RECORD_HISTORY` is settled: a record never certifies its own write, so it
-    is stored `RECORD_PENDING_READ_BACK` ([`history.v2.md`](history.v2.md)) and
+    is stored `RECORD_PENDING_READ_BACK` ([`history.v3.md`](history.v3.md)) and
     the run reads the published file back under the lock, comparing the
     canonical text with what it wrote; the marker is cleared only when the
     write was durable and the read-back matches, so **a record is confirmed by
@@ -591,43 +591,27 @@ service answers the service question `UNKNOWN` and is refused, DP-032):
 The decision that step now carries for the same plan: the committed live
 capture records no executable list for `htop`, so the decision refuses the
 package as a whole (`EXECUTABLES_UNKNOWN`) and the plan carries no
-`VERIFY_RESOLUTION`. `pathUsed` is the capture's home-redacted `PATH`.
+`VERIFY_RESOLUTION`. The two checked fields:
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/decision -->
+```json
+"REFUSED"
+```
+
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/package -->
+```json
+"EXECUTABLES_UNKNOWN"
+```
+
+`pathUsed` is the capture's home-redacted `PATH`, every entry in order. It is
+not reproduced from the capture here, because a whole developer `PATH` names
+that machine's tools; its shape, illustrative and unchecked:
+
 ```json
 {
   "decision": "REFUSED",
   "package": "EXECUTABLES_UNKNOWN",
-  "pathUsed": [
-    "~/.local/share/sonarqube-cli/bin",
-    "~/.grok/bin",
-    "~/.bun/bin",
-    "~/bin",
-    "/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home/bin",
-    "~/.local/bin",
-    "/usr/local/bin",
-    "/usr/local/sbin",
-    "/usr/local/bin",
-    "/System/Cryptexes/App/usr/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-    "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin",
-    "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin",
-    "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin",
-    "/pkg/env/global/bin",
-    "/opt/X11/bin",
-    "/Library/Apple/usr/bin",
-    "/usr/local/share/dotnet",
-    "~/.dotnet/tools",
-    "~/.cargo/bin",
-    "~/Library/Application Support/JetBrains/Toolbox/scripts",
-    "~/.nvm/versions/node/v22.22.1/bin",
-    "/opt/local/bin",
-    "~/Library/pnpm",
-    "~/.claude/plugins/cache/context-mode/context-mode/1.0.169/bin"
-  ]
+  "pathUsed": ["~/bin", "/usr/local/bin", "/usr/bin", "/bin", "/opt/local/bin"]
 }
 ```
 
@@ -790,7 +774,7 @@ exactly one — is refused (`PRIMARY_DECISION_MISSING`).
 |---|---|---|
 | `NOTHING_TO_CHANGE` | `executables`, `pathUsed` | Every executable of the source's list already resolves to the destination package. Completed with no dispatch (`NOTHING_TO_CHANGE` disposition); `VERIFY_RESOLUTION` checks it at run time |
 | `NO_EXECUTABLES` | — | The source's list is known and empty. No `VERIFY_RESOLUTION`, and an empty list everywhere |
-| `REFUSED` | `executables`, `reasons`, `package`, `pathUsed` | Not planned. `executables` is the source's whole list, `reasons` each refused one with its reason; `package` instead when no list was read or the mapping is not 1→1. The gate refuses it: `PRIMARY_NEEDS_SHIM` for the shim reasons, `PRIMARY_REFUSED` for the rest; the gate's report exits 4 as for every refusal. `ErrorId::PrimaryNeedsShim` (exit 4) is defined but not raised by this build: it is reserved for the part that offers a consented shim (`docs/schemas/README.md`) |
+| `REFUSED` | `executables`, `reasons`, `package`, `pathUsed` | Not planned. `executables` is the source's whole list; `reasons` an object keyed by executable name, each refused one with its `PrimaryReason`; `package` a `PrimaryReason` about the package as a whole, when no list was read or the mapping is not 1→1. `executables` and `reasons` are omitted when empty, and `package` when absent. The gate refuses it: `PRIMARY_NEEDS_SHIM` for the shim reasons, `PRIMARY_REFUSED` for the rest; the gate's report exits 4 as for every refusal. `ErrorId::PrimaryNeedsShim` (exit 4) is defined but not raised by this build: it is reserved for the part that offers a consented shim (`docs/schemas/README.md`) |
 | `UNKNOWN` | — | A decision written by a newer build; never acted on |
 
 `pathUsed` is the snapshot's home-redacted `PATH`, kept whole because the rule
@@ -808,12 +792,21 @@ build does not know.
 **The refusal-reason tightening.** `plan.v1` gains, for a plan this build
 writes: every executable name parses as one (`ExecutableName`, the same class
 capture uses); `primaryAfter` is the destination only on `NOTHING_TO_CHANGE`
-(otherwise the source); and the gate's four new refusals —
+and `NO_EXECUTABLES` — nothing stays with the source when the package installs
+no executable, which is also what `history.v3` records once that `SET_PRIMARY`
+is carried out — and otherwise the source; and the gate's four new refusals —
 `PRIMARY_NEEDS_SHIM`, `PRIMARY_REFUSED`, `PRIMARY_DECISION_MISSING`,
 `EXECUTABLE_LISTS_DISAGREE` — fire before any step, under an allowance or not.
 A risk `system_tool_keeps_name` (not blocking) names the executables an
 installed destination ships outside the source's list that a file no provider
 owns wins today.
+
+**Compatibility of `primaryAfter`.** Before work order 16 part F-3 it was the
+provider the plan was *asked* to make primary (the request's `to`); since F-3 it
+is the provider *predicted* to answer the executables once the plan has run —
+the destination on `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, the source on any
+refusal. The field, its type and its values are unchanged; a consumer that read
+it as "the requested destination" must read `destination` for that.
 
 ### `PlanRisk`
 

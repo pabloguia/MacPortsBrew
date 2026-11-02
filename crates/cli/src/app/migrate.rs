@@ -646,6 +646,7 @@ fn migrate_with(
                             ctx.resolution_machine()
                                 .map(|m| Box::new(m) as Box<dyn macportsbrew_domain::MachineRead>),
                             macportsbrew_adapters::registry::build(&registry),
+                            ctx.redaction.clone(),
                         )
                     },
                     &ctx.redaction,

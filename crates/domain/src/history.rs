@@ -71,8 +71,10 @@ pub struct RunSubject {
     /// Whether the source package was to be kept (`--retain-source`).
     pub retain_source: bool,
     /// Which provider was **observed** to resolve the package's executables
-    /// afterwards (`history.v3`, SG-12): the destination only when the run's
-    /// `VERIFY_RESOLUTION` was resolved, else the source.
+    /// afterwards (`history.v3`, SG-12): the destination when the run's
+    /// `VERIFY_RESOLUTION` was resolved, or when the package installs no
+    /// executable and its `SET_PRIMARY` was carried out (`NO_EXECUTABLES`),
+    /// else the source.
     pub primary_after: ProviderId,
     /// The executables the primary decision was about, sorted (`history.v3`).
     /// `None` only for a record read from `history.v2`, which never stated
@@ -793,6 +795,31 @@ impl RunRecord {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
             steps.push(recorded);
+        }
+        // `primaryAfter` is what was observed to resolve (`history.v3`): the
+        // destination only after a `RESOLVED` step, or a carried-out
+        // `SET_PRIMARY` for a package with no executable (an empty
+        // `primaryExecutables`). A v3 record that names the destination
+        // without either is not one this build writes (security review of
+        // F-3, L-4). A v2 record's `primaryAfter` was the plan's, and reads as
+        // before.
+        if !v2 && stored.primary_after == stored.direction.destination {
+            let resolved = steps
+                .iter()
+                .any(|s| matches!(s.result, StepResult::Resolved { .. }));
+            let nothing_to_resolve = stored
+                .primary_executables
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+                && steps.iter().any(|s| {
+                    s.kind == StepKind::SetPrimary
+                        && matches!(s.result, StepResult::NothingToChange)
+                });
+            if !resolved && !nothing_to_resolve {
+                return Err(unusable(
+                    "names the destination as primary without a resolution that shows it",
+                ));
+            }
         }
 
         let record = RunRecord::new(

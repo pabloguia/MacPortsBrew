@@ -19,10 +19,13 @@ it does not list here.
 ## What changed from version 2, and why
 
 - **`primaryAfter` is what was observed to resolve**, not what the plan asked
-  for: the destination only when the run's `VERIFY_RESOLUTION` ended `RESOLVED`
+  for: the destination when the run's `VERIFY_RESOLUTION` ended `RESOLVED`
   (every executable resolved to the destination package by the provider's own
-  records), and otherwise the source. Version 2's `primaryAfter` was the
-  request, which no step had checked.
+  records), or when the package installs no executable (`NO_EXECUTABLES`: an
+  empty `primaryExecutables` and its `SET_PRIMARY` carried out as
+  `NOTHING_TO_CHANGE`), and otherwise the source. A version 3 record naming the
+  destination without one of the two is `HISTORY_UNUSABLE`. Version 2's
+  `primaryAfter` was the request, which no step had checked.
 - **`primaryExecutables`** (array of executable names, sorted, no duplicates):
   the executables the plan's primary decision was about — the source package's
   list. Empty for `NO_EXECUTABLES` or a refusal about the package as a whole.
@@ -32,8 +35,9 @@ it does not list here.
 - **Two step results**: `NOTHING_TO_CHANGE`, only on `SET_PRIMARY` (a
   command-less step whose decision left nothing to set; carried out, not
   dispatched), and `RESOLVED` (`executables`), only on `VERIFY_RESOLUTION`
-  (carried out, dispatched: the resolution site asked the providers). Either on
-  another step is `HISTORY_UNUSABLE`.
+  (carried out, dispatched: the resolution site asked the providers), naming
+  exactly `primaryExecutables`. Either on another step, or a `RESOLVED` naming
+  other executables, is `HISTORY_UNUSABLE`.
 - Why a new version: recognition reads `primaryExecutables`, and a reader of
   version 2 would refuse the new results and field (it denies unknown fields),
   so the change is not additive.
@@ -48,19 +52,27 @@ version 2 never established which executables its primary was about.
 
 ## Recognition
 
-A `--retain-source` re-run is recognised as already done only when every
-`primaryExecutables` entry, resolved in the fresh snapshot through
-`resolution_of`, is the destination package's by the provider's own records. A
-fresh snapshot whose source list is not `KNOWN` answers `EXECUTABLES_UNKNOWN`,
-never recognised. Restore has nothing to revert for the primary: no build sets
-one.
+A `--retain-source` re-run is recognised as already done only when all of these
+hold, besides version 2's conditions:
+
+- the fresh snapshot's source list is `KNOWN` (else `EXECUTABLES_UNKNOWN`) and
+  equals `primaryExecutables` exactly (else `PRIMARY_NOT_CONFIRMED`: a source
+  that now ships another executable has one no run resolved);
+- the record's `primaryAfter` is the destination (else `PRIMARY_NOT_CONFIRMED`);
+- every `primaryExecutables` entry, resolved in the fresh snapshot through
+  `resolution_of`, is the destination package's, and the resolution is
+  authoritative — by the provider's own records, not inferred from the path
+  (else `PRIMARY_NOT_CONFIRMED`); one that resolves to MacPortsBrew's shim
+  answers `PRIMARY_IS_SHIM`.
+
+Restore has nothing to revert for the primary: this build sets none.
 
 ## Root (the fields that differ from version 2)
 
 | Field | Type | Notes |
 |---|---|---|
 | `schemaVersion` | integer | `3` |
-| `primaryAfter` | string | The provider observed to resolve the executables: the destination only after `RESOLVED` |
+| `primaryAfter` | string | The provider observed to resolve the executables: the destination only after `RESOLVED`, or for `NO_EXECUTABLES` after its `SET_PRIMARY` was carried out |
 | `primaryExecutables` | array of string | Sorted, unique, each an executable name |
 
 ## `Step.result` (the values added to version 2's)

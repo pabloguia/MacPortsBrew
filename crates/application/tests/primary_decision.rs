@@ -387,12 +387,15 @@ fn a_missing_path_index_is_unpredictable() {
 }
 
 #[test]
-fn the_index_comparison_predicts_a_win_only_below_the_winner() {
-    // `d < w` is a predicted win, `d > w` a shim, `d == w` the same directory
-    // (mutant 4: the comparison negated).
+fn the_index_comparison_never_predicts_a_win_against_the_capture() {
+    // `d > w` a shim, `d == w` the same directory (mutant 4: the comparison
+    // negated). `d < w` with a winner that is not the destination's own, and
+    // a miss while the destination says it is linked on `PATH`, are the
+    // capture contradicting the placement: unpredictable, never a predicted
+    // win (security review of F-3, L-2).
     let (mp, hb) = (id(MP), id(HB));
     for (w, expected) in [
-        (30, None),
+        (30, Some(PrimaryReason::PrimaryUnpredictable)),
         (3, Some(PrimaryReason::PrimaryNeedsShim)),
         (6, Some(PrimaryReason::SameDirectory)),
     ] {
@@ -411,15 +414,68 @@ fn the_index_comparison_predicts_a_win_only_below_the_winner() {
             "w = {w}"
         );
     }
-    // Only an observed miss predicts a win (SG-2).
     let mut snap = htop_both_ways();
     snap.environment
         .resolutions
         .insert(name("htop"), ResolutionState::NotOnPath);
-    assert!(matches!(
-        decide(&snap, &question(&mp, "htop", &hb, true)),
-        PrimaryDecision::NothingToChange { .. }
-    ));
+    assert_eq!(
+        reason_for(&decide(&snap, &question(&mp, "htop", &hb, true)), "htop"),
+        Some(PrimaryReason::PrimaryUnpredictable),
+        "a miss against a placement on PATH"
+    );
+}
+
+#[test]
+fn a_destination_list_not_known_is_unpredictable_even_when_not_linked() {
+    // Security review of F-3, L-1: `NOT_LINKED` says nothing about `e` when
+    // the destination's list is not known, so it is not `PRIMARY_NEEDS_SHIM`.
+    let mut snap = htop_both_ways();
+    let meta = snap
+        .providers
+        .get_mut(&id(HB))
+        .unwrap()
+        .inventory
+        .metadata
+        .get_mut("htop")
+        .unwrap();
+    meta.set_executables(
+        ExecutableList::NotRecorded,
+        Placement::NotLinked {
+            reason: "keg-only".into(),
+        },
+    );
+    found(
+        &mut snap,
+        "htop",
+        "/opt/local/bin",
+        owned(MP, Some("htop")),
+        true,
+        Some(25),
+    );
+    let (mp, hb) = (id(MP), id(HB));
+    assert_eq!(
+        reason_for(&decide(&snap, &question(&mp, "htop", &hb, true)), "htop"),
+        Some(PrimaryReason::PrimaryUnpredictable)
+    );
+}
+
+#[test]
+fn a_destination_winner_without_a_recorded_index_is_unpredictable() {
+    // Mutant 15b; security review of F-3, M-2: "already wins" with no index.
+    let mut snap = htop_both_ways();
+    found(
+        &mut snap,
+        "htop",
+        "/usr/local/bin",
+        owned(HB, Some("htop")),
+        true,
+        None,
+    );
+    let (mp, hb) = (id(MP), id(HB));
+    assert_eq!(
+        reason_for(&decide(&snap, &question(&mp, "htop", &hb, true)), "htop"),
+        Some(PrimaryReason::PrimaryUnpredictable)
+    );
 }
 
 #[test]
@@ -756,6 +812,8 @@ fn no_executables_plans_a_command_less_set_primary_and_no_verify_resolution() {
         .find(|s| s.kind == StepKind::SetPrimary)
         .unwrap();
     assert_eq!(set_primary.primary, Some(PrimaryDecision::NoExecutables));
+    // Nothing stays with the source, as `history.v3` records it (fix round).
+    assert_eq!(plan.primary_after, id(HB));
     assert!(set_primary.commands.is_empty());
     assert!(!plan
         .steps
@@ -922,4 +980,65 @@ fn the_path_a_decision_used_is_home_redacted_in_plan_history_and_report() {
     for entry in &snap.environment.path {
         assert!(!said.contains(&format!("\"{entry}\"")), "{said}");
     }
+}
+#[test]
+fn primary_after_is_the_source_when_resolution_did_not_hold() {
+    // Mutant 28c: `history.v3`'s `primaryAfter` is what resolved. A completed
+    // `SET_PRIMARY` (`NOTHING_TO_CHANGE`) followed by a halted
+    // `VERIFY_RESOLUTION` leaves the source primary; a `RESOLVED` one names
+    // the destination.
+    let snap = htop_both_ways();
+    let run = macportsbrew_application::plan_run(
+        &snap,
+        &PolicyData::load_embedded().unwrap(),
+        &AnalysisOptions {
+            today: "2026-11-01".into(),
+            advanced: false,
+            only: BTreeSet::new(),
+        },
+        &PlanRequest {
+            package: "htop".into(),
+            to: id(HB),
+            retain_source: true,
+        },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
+    )
+    .expect("a plan");
+    let plan = run.plan();
+    let records_with = |resolution: macportsbrew_application::Disposition| {
+        plan.steps
+            .iter()
+            .map(|s| macportsbrew_application::StepRecord {
+                index: s.index,
+                kind: s.kind,
+                disposition: match s.kind {
+                    StepKind::SetPrimary => macportsbrew_application::Disposition::NothingToChange,
+                    StepKind::VerifyResolution => resolution.clone(),
+                    _ => macportsbrew_application::Disposition::NotPerformedInThisBuild,
+                },
+            })
+            .collect::<Vec<_>>()
+    };
+    let start = || macportsbrew_domain::RunStart {
+        id: "20261101T120000Z-0000000000000001".into(),
+        started_at: "2026-11-01T12:00:00Z".into(),
+        tool_version: "0.1.0".into(),
+    };
+    let halted = macportsbrew_application::Disposition::Halted {
+        reason: macportsbrew_application::HaltReason::ResolutionMismatch {
+            executable: name("htop"),
+            observed: macportsbrew_application::ObservedWinner::AnotherProvider,
+            path_differs: false,
+        },
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    };
+    let record = macportsbrew_application::run_record(&run, &records_with(halted), start(), None);
+    assert_eq!(record.subject().primary_after, plan.source);
+    let resolved = macportsbrew_application::Disposition::Resolved {
+        executables: vec![name("htop")],
+        path_differs: false,
+    };
+    let record = macportsbrew_application::run_record(&run, &records_with(resolved), start(), None);
+    assert_eq!(record.subject().primary_after, plan.destination);
 }

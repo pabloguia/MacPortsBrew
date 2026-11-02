@@ -80,7 +80,7 @@ use macportsbrew_application::{
     outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
     run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt,
     Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
-    RunOutcome, ShownPlan, StepRead, StepRecord,
+    ResolutionAnswer, RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
@@ -159,19 +159,46 @@ impl ResolutionSite for Unresolved {
 /// nothing, so every answer is `NOT_OBSERVED` (INV-15). `which` tests the mode
 /// bits, not `access(X_OK)` (SR-15): a file the user cannot execute can still be
 /// reported.
+///
+/// The providers are held as [`OnlyResolution`]: the site can ask them who
+/// owns a file and nothing else - no inventory, listing or command (spec-guardian
+/// review of F-3). What it finds is judged by capture's own recordability rule
+/// under `home` (security review of F-3, L-3).
 pub struct MachineResolutionSite<'r> {
     machine: Option<Box<dyn MachineRead + 'r>>,
-    providers: Vec<Box<dyn ProviderRead + 'r>>,
+    providers: Vec<OnlyResolution<'r>>,
+    home: HomeRedaction,
+}
+
+/// A provider narrowed to [`ResolutionAnswer`]: the type keeps the site from
+/// reaching any other [`ProviderRead`] method.
+pub struct OnlyResolution<'r>(Box<dyn ProviderRead + 'r>);
+
+impl ResolutionAnswer for OnlyResolution<'_> {
+    fn id(&self) -> &macportsbrew_domain::ProviderId {
+        self.0.id()
+    }
+    fn resolution(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<macportsbrew_domain::Resolution, macportsbrew_domain::DomainError> {
+        self.0.resolution(path)
+    }
 }
 
 impl<'r> MachineResolutionSite<'r> {
-    /// The site over `machine` and `providers`.
+    /// The site over `machine` and `providers`, redacting under `home`.
     /// `None` for no machine to search: every answer is then `NOT_OBSERVED`.
     pub fn new(
         machine: Option<Box<dyn MachineRead + 'r>>,
         providers: Vec<Box<dyn ProviderRead + 'r>>,
+        home: HomeRedaction,
     ) -> Self {
-        Self { machine, providers }
+        Self {
+            machine,
+            providers: providers.into_iter().map(OnlyResolution).collect(),
+            home,
+        }
     }
 }
 
@@ -180,8 +207,8 @@ impl ResolutionSite for MachineResolutionSite<'_> {
         let Some(machine) = &self.machine else {
             return ResolutionState::NotObserved;
         };
-        let providers: Vec<&dyn ProviderRead> = self.providers.iter().map(AsRef::as_ref).collect();
-        macportsbrew_application::resolve_now(&**machine, &providers, executable)
+        let providers: Vec<&OnlyResolution<'_>> = self.providers.iter().collect();
+        macportsbrew_application::resolve_now(&**machine, &providers, executable, &self.home)
     }
     fn redacted_path(&self) -> Vec<String> {
         self.machine
@@ -1243,7 +1270,7 @@ mod tests {
         let name = ExecutableName::parse("htop").unwrap();
         for site in [
             &Unresolved as &dyn ResolutionSite,
-            &MachineResolutionSite::new(None, Vec::new()),
+            &MachineResolutionSite::new(None, Vec::new(), HomeRedaction::Recorded),
         ] {
             assert_eq!(site.resolve(&name), ResolutionState::NotObserved);
             assert!(site.redacted_path().is_empty());

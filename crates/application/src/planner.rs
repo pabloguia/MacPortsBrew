@@ -1009,17 +1009,20 @@ pub fn plan_outcome(
                         package: dest_name.clone(),
                     })
                     .collect(),
-                Reason::new("reason.verify_resolution").with(
-                    "executable",
-                    &expected
-                        .iter()
-                        .map(macportsbrew_domain::ExecutableName::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                ),
+                // One runnable check per name, each quoted when the name
+                // needs it (security review of F-3, M-1).
+                Reason::new("reason.verify_resolution")
+                    .with("checks", &macportsbrew_domain::command_v_checks(&expected)),
             ));
         }
-        primary_after = if matches!(decision, PrimaryDecision::NothingToChange { .. }) {
+        // The destination where nothing would stay with the source: every
+        // executable already resolves to it, or there is none. The same
+        // answer `history.v3` records once the run carries the step out
+        // (spec-guardian review of F-3, fix round).
+        primary_after = if matches!(
+            decision,
+            PrimaryDecision::NothingToChange { .. } | PrimaryDecision::NoExecutables
+        ) {
             request.to.clone()
         } else {
             source.clone()

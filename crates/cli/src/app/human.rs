@@ -1219,6 +1219,8 @@ fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
                 &params(&[
                     ("executable", shown(executable.as_str())),
                     ("observed", label(ctx, observed_key(*observed))),
+                    // Quoted when the name needs it (security review, M-1).
+                    ("check", shown(&executable.command_v())),
                 ]),
             );
             if *path_differs {
@@ -1983,6 +1985,65 @@ mod tests {
                     "{name:?} is not shown as written:\n{line}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_command_v_check_quotes_a_name_a_shell_would_read() {
+        // Security review of F-3, M-1: `reason.verify_resolution` and
+        // `migrate.halt.resolution_mismatch` tell a person to run `command -v`.
+        // The name class admits `;`, `$`, a backquote and spaces, so a name
+        // such as `x;y` or `$(id)` must reach the line quoted, one check per
+        // name, in both shipped locales.
+        use macportsbrew_domain::{command_v_checks, ExecutableName, Reason};
+        let names: Vec<ExecutableName> = ["x;y", "$(id)", "htop"]
+            .iter()
+            .map(|n| ExecutableName::parse(n).unwrap())
+            .collect();
+        for language in ["en", "pt-BR"] {
+            let ctx = context_in(language);
+            let reason = ctx.messages.render_reason(
+                &Reason::new("reason.verify_resolution").with("checks", &command_v_checks(&names)),
+            );
+            let mut lines = vec![reason.clone()];
+            for name in &names {
+                lines.push(halt_text(
+                    &ctx,
+                    &HaltReason::ResolutionMismatch {
+                        executable: name.clone(),
+                        observed: macportsbrew_application::ObservedWinner::NotOnPath,
+                        path_differs: false,
+                    },
+                ));
+            }
+            assert!(
+                reason.contains("`command -v 'x;y'`"),
+                "{language}: {reason}"
+            );
+            assert!(
+                reason.contains("`command -v '$(id)'`"),
+                "{language}: {reason}"
+            );
+            assert!(reason.contains("`command -v htop`"), "{language}: {reason}");
+            for line in &lines {
+                for unquoted in ["command -v x;y", "command -v $(id)", "command -v x;y, "] {
+                    assert!(!line.contains(unquoted), "{language}: {line}");
+                }
+                assert!(
+                    !line.contains('{'),
+                    "{language}: a placeholder left: {line}"
+                );
+            }
+            assert!(
+                lines[1].contains("`command -v 'x;y'`"),
+                "{language}: {}",
+                lines[1]
+            );
+            assert!(
+                lines[2].contains("`command -v '$(id)'`"),
+                "{language}: {}",
+                lines[2]
+            );
         }
     }
 }

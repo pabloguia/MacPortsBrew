@@ -2688,3 +2688,36 @@ fn invariant_03_a_missing_destination_executable_ends_partial_with_the_source_ke
         Action::Halt(HaltReason::UnexecutedMutation)
     );
 }
+#[test]
+fn invariant_01_a_removal_waits_on_a_resolution_recorded_resolved() {
+    // INV-01 for the primary (spec-guardian review of F-3; security M-1):
+    // `REMOVE_SOURCE` is dispatched only once every earlier
+    // `VERIFY_RESOLUTION` was recorded `RESOLVED`. Every other way the
+    // resolution can be recorded short of a halt keeps it from being
+    // dispatched, even where the loop would carry on.
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = removal_guarded_by_a_resolution();
+    let plan = run.plan();
+    let resolution = position(plan, StepKind::VerifyResolution);
+    let remove = position(plan, StepKind::RemoveSource);
+    let good = records_until(&run, remove);
+    assert!(matches!(
+        next_action_with(&run, remove, &good, Some(&allowance)),
+        Action::DispatchMutating { .. }
+    ));
+    for other in [
+        Disposition::NotPerformedInThisBuild,
+        Disposition::NothingToChange,
+        verified(),
+        Disposition::NotDispatchedMutating,
+        Disposition::Performed { ends: Vec::new() },
+    ] {
+        let mut records = good.clone();
+        records[resolution].disposition = other.clone();
+        assert_eq!(
+            next_action_with(&run, remove, &records, Some(&allowance)),
+            Action::Halt(HaltReason::UnexecutedMutation),
+            "{other:?}"
+        );
+    }
+}

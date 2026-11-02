@@ -189,7 +189,7 @@ package names, findings. Never: usernames, home paths, environment variable
 values, tokens, or anything outside the two providers' scope. The user sees the
 file and chooses to share it; MacPortsBrew never uploads it.
 
-**The limit of a plan's `PATH`** (part F, work order 16, not built; SE-112). A
+**The limit of a plan's `PATH`** (part F, work order 16, built in F-3; SE-112). A
 plan, and the run record built from it, will carry the `PATH` the primary
 decision read, with the home directory and the account name redacted and every
 other entry kept: the decision reads each entry ahead of the destination's and

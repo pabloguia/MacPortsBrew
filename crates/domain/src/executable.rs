@@ -110,6 +110,34 @@ impl ExecutableName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The shell check a person can run for this name, `command -v <name>`,
+    /// as one runnable line (security review of F-3, M-1). The class admits
+    /// `;`, `|`, `$`, a backquote and spaces, so a name outside
+    /// `[A-Za-z0-9._+-]` is single-quoted, with any `'` closed, escaped and
+    /// reopened: pasted into a shell, the line only ever asks about the name.
+    pub fn command_v(&self) -> String {
+        let plain = self
+            .0
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c));
+        if plain {
+            format!("command -v {}", self.0)
+        } else {
+            format!("command -v '{}'", self.0.replace('\'', "'\\''"))
+        }
+    }
+}
+
+/// The `command -v` checks for `names`, each on its own and in backquotes,
+/// joined with `, ` — never one `command -v a, b, c`, which a shell would read
+/// as one command with three arguments, the commas included.
+pub fn command_v_checks<'a>(names: impl IntoIterator<Item = &'a ExecutableName>) -> String {
+    names
+        .into_iter()
+        .map(|n| format!("`{}`", n.command_v()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl fmt::Display for ExecutableName {
@@ -343,6 +371,27 @@ impl Placement {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_command_v_line_never_runs_more_than_the_question() {
+        // Security review of F-3, M-1.
+        let line = |n: &str| ExecutableName::parse(n).unwrap().command_v();
+        assert_eq!(line("gnu-sed"), "command -v gnu-sed");
+        assert_eq!(line("c++"), "command -v c++");
+        assert_eq!(line("x;y"), "command -v 'x;y'");
+        assert_eq!(line("$(id)"), "command -v '$(id)'");
+        assert_eq!(line("a b"), "command -v 'a b'");
+        assert_eq!(line("it's"), "command -v 'it'\\''s'");
+        assert_eq!(line("x`y`"), "command -v 'x`y`'");
+        let names: Vec<ExecutableName> = ["a", "x;y"]
+            .iter()
+            .map(|n| ExecutableName::parse(n).unwrap())
+            .collect();
+        assert_eq!(
+            super::command_v_checks(&names),
+            "`command -v a`, `command -v 'x;y'`"
+        );
+    }
+
     use super::*;
     use crate::text::CHARACTER_SAMPLES;
 
