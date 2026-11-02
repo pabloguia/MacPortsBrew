@@ -1792,6 +1792,37 @@ Not done here, and why:
   `history.v3.md`, `plan.v1.md` (the `pathUsed` sample no longer reproduces a
   developer `PATH`; two checked fields and an illustrative shape instead), and
   the catalogue entries named in the fix-round list.
+- **The renamed parameter** (`reason.verify_resolution`, `{executable}` →
+  `{checks}`) needs no fallback: no build re-renders a stored plan or record
+  through it. A plan is rendered only in the run that built it, and
+  `history.v3` stores no step reason.
+
+**Fix round 2** (spec-guardian and security-reviewer on `a51015d`):
+
+- **plan.v1.md's field table** now gives `primaryAfter` as the destination on
+  `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, otherwise the source. SE-112's
+  compatibility line says why the change stays inside `plan.v1`, after a check:
+  no build before F-3 produced a plan a consumer could act on through it.
+  `THIS_BUILD_DISPATCHES_MUTATIONS` has never been `true` in any commit (git
+  log `-S`, since `699d173` introduced it), the repository has no release tag,
+  the gate refused every planner-built plan, and a history record is written
+  only after a dispatched mutation.
+- **One current rationale.** SE-112's shadowing and "what part F reaches"
+  paragraphs, and the matching paragraph in 05, now state the rule as it is:
+  a plan completes only where step 3 observed the win, and step 6 predicts
+  none. 06's `PATH` paragraph is in the present tense, and says the history
+  record carries no `PATH`.
+- **Tests.** `invariant_01_a_removal_waits_on_a_resolution_recorded_resolved`
+  also covers `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK`;
+  `invariant_17_no_executables_plans_the_same_toward_either_provider` checks
+  the `NO_EXECUTABLES` shape and `primaryAfter` in both directions.
+- **Security.** `ExecutableName::parse` refuses `\` (`NameRefusal::Backslash`):
+  fish reads backslash escapes inside single quotes, so no `command -v` line
+  could quote one for every shell (`a_backslash_is_never_an_executable_name`).
+  No captured fixture names an executable with one; the backslashes in the
+  recordings are inside Homebrew caveat text. `OnlyResolution` moved to its
+  own module, `crates/cli/src/executor/only_resolution.rs`, so the rest of
+  `executor` cannot reach the provider it wraps.
 
 ## Reviews
 

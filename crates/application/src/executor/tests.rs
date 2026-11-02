@@ -2711,6 +2711,8 @@ fn invariant_01_a_removal_waits_on_a_resolution_recorded_resolved() {
         verified(),
         Disposition::NotDispatchedMutating,
         Disposition::Performed { ends: Vec::new() },
+        Disposition::SnapshotTaken,
+        Disposition::RecordPendingReadBack,
     ] {
         let mut records = good.clone();
         records[resolution].disposition = other.clone();

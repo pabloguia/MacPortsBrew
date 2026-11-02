@@ -62,6 +62,10 @@ pub enum NameRefusal {
     /// Carries U+FFFD: what a lossy decoding put where the provider's bytes
     /// were not UTF-8, so the name on disk is not this one.
     Replacement,
+    /// Contains `\`: fish reads backslash escapes inside single quotes, so no
+    /// `command -v` line could quote it for every shell (security review of
+    /// F-3, fix round 2).
+    Backslash,
 }
 
 impl fmt::Display for NameRefusal {
@@ -74,6 +78,7 @@ impl fmt::Display for NameRefusal {
             NameRefusal::TooLong => "is longer than 255 bytes",
             NameRefusal::Hostile => "carries a control, format or line-separator character",
             NameRefusal::Replacement => "carries U+FFFD, the mark of bytes that were not UTF-8",
+            NameRefusal::Backslash => "contains a backslash, which a shell may read as an escape",
         };
         f.write_str(text)
     }
@@ -90,6 +95,9 @@ impl ExecutableName {
         }
         if name.contains('/') {
             return Err(NameRefusal::Separator);
+        }
+        if name.contains('\\') {
+            return Err(NameRefusal::Backslash);
         }
         if name == "." || name == ".." {
             return Err(NameRefusal::DotOrDotDot);
@@ -371,6 +379,21 @@ impl Placement {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_backslash_is_never_an_executable_name() {
+        // Security review of F-3, fix round 2: fish treats `\` as an escape
+        // inside single quotes, so `command_v` could not quote it for every
+        // shell. No captured fixture names an executable with one.
+        for name in ["a\\b", "\\", "x\\'y", "\\n"] {
+            assert_eq!(
+                ExecutableName::parse(name),
+                Err(NameRefusal::Backslash),
+                "{name:?}"
+            );
+        }
+        assert!(ExecutableName::parse("a-b").is_ok());
+    }
+
     #[test]
     fn a_command_v_line_never_runs_more_than_the_question() {
         // Security review of F-3, M-1.

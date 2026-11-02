@@ -80,7 +80,7 @@ use macportsbrew_application::{
     outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
     run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt,
     Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
-    ResolutionAnswer, RunOutcome, ShownPlan, StepRead, StepRecord,
+    RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CommandEnd, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
@@ -88,6 +88,9 @@ use macportsbrew_domain::{
     ResolutionState, RunStart, Snapshot, VerificationCheck,
 };
 use serde::Serialize;
+
+mod only_resolution;
+use only_resolution::OnlyResolution;
 use std::collections::BTreeMap;
 
 /// Where a plan's command is read.
@@ -160,7 +163,7 @@ impl ResolutionSite for Unresolved {
 /// bits, not `access(X_OK)` (SR-15): a file the user cannot execute can still be
 /// reported.
 ///
-/// The providers are held as [`OnlyResolution`]: the site can ask them who
+/// The providers are held as `OnlyResolution`: the site can ask them who
 /// owns a file and nothing else - no inventory, listing or command (spec-guardian
 /// review of F-3). What it finds is judged by capture's own recordability rule
 /// under `home` (security review of F-3, L-3).
@@ -168,22 +171,6 @@ pub struct MachineResolutionSite<'r> {
     machine: Option<Box<dyn MachineRead + 'r>>,
     providers: Vec<OnlyResolution<'r>>,
     home: HomeRedaction,
-}
-
-/// A provider narrowed to [`ResolutionAnswer`]: the type keeps the site from
-/// reaching any other [`ProviderRead`] method.
-pub struct OnlyResolution<'r>(Box<dyn ProviderRead + 'r>);
-
-impl ResolutionAnswer for OnlyResolution<'_> {
-    fn id(&self) -> &macportsbrew_domain::ProviderId {
-        self.0.id()
-    }
-    fn resolution(
-        &self,
-        path: &std::path::Path,
-    ) -> Result<macportsbrew_domain::Resolution, macportsbrew_domain::DomainError> {
-        self.0.resolution(path)
-    }
 }
 
 impl<'r> MachineResolutionSite<'r> {
@@ -196,7 +183,7 @@ impl<'r> MachineResolutionSite<'r> {
     ) -> Self {
         Self {
             machine,
-            providers: providers.into_iter().map(OnlyResolution).collect(),
+            providers: providers.into_iter().map(OnlyResolution::new).collect(),
             home,
         }
     }

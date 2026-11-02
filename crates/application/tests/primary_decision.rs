@@ -1042,3 +1042,34 @@ fn primary_after_is_the_source_when_resolution_did_not_hold() {
     let record = macportsbrew_application::run_record(&run, &records_with(resolved), start(), None);
     assert_eq!(record.subject().primary_after, plan.destination);
 }
+#[test]
+fn invariant_17_no_executables_plans_the_same_toward_either_provider() {
+    // INV-17, spec-guardian review of F-3 (fix round 2, F-5): the
+    // `NO_EXECUTABLES` shape, and `primaryAfter` naming the destination, are
+    // the same whichever provider the package moves toward.
+    for (from, to) in [(MP, HB), (HB, MP)] {
+        let mut snap = htop_both_ways();
+        list(&mut snap, from, "htop", &[], Placement::default());
+        let plan = plan(&snap, "htop", to);
+        let set_primary = plan
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::SetPrimary)
+            .unwrap();
+        assert_eq!(
+            set_primary.primary,
+            Some(PrimaryDecision::NoExecutables),
+            "toward {to}"
+        );
+        assert!(set_primary.commands.is_empty(), "toward {to}");
+        assert!(
+            !plan
+                .steps
+                .iter()
+                .any(|s| s.kind == StepKind::VerifyResolution),
+            "toward {to}"
+        );
+        assert_eq!(plan.primary_after, id(to), "toward {to}");
+        assert_eq!(plan.destination, id(to));
+    }
+}

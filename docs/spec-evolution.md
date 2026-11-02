@@ -1823,7 +1823,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Rationale: DP-047 (b), confirmed by the owner on 2026-10-27, makes `COMPLETED` mean that the destination now
   runs, with nothing written outside the providers.
   - **Declared, not closed — the shadowing gap** (05): a source-list executable never newly shadows anything,
-    because a predicted win only displaces a provider's winner. An executable the destination ships beyond that list
+    because a plan completes only where step 3 observed the destination's own package already winning the name, so
+    nothing that wins today is displaced. An executable the destination ships beyond that list
     is named where the destination is installed; where it is not, the install itself links everything it ships at
     its own `PATH` position and can shadow system tools and other packages' names before anything verifies it.
   - **Declared — `authoritative` means two things:** the registry's answer for MacPorts (`port -q provides`), and
@@ -1831,9 +1832,10 @@ change is made. Silent deviation remains the one unrecoverable error.
     Homebrew read answers which keg owns a path (R-21 E-14). Both are treated as authoritative in part F; making
     Homebrew's an owner query is part H's (`EXECUTABLES_OWNED_BY_DESTINATION`).
   - **Declared — what part F reaches.** Under DP-055 (a) an uninstalled destination is refused
-    `PRIMARY_DESTINATION_NOT_INSTALLED`, and an installed, linked destination ahead of the winner would already be
-    the winner, so the predicted-win branch (`d < w`) is effectively unreachable. `COMPLETED` comes only where the
-    destination already holds the package and already wins; part F does not migrate a primary to a destination it
+    `PRIMARY_DESTINATION_NOT_INSTALLED`. An installed, linked destination ahead of the winner would already be the
+    winner, so step 6 predicts no win: `d < w`, or a miss on `PATH` beside a placement on it, is the capture
+    contradicting the placement and answers `PRIMARY_UNPREDICTABLE`. `COMPLETED` comes only where the destination
+    already holds the package and already wins (step 3); part F does not migrate a primary to a destination it
     installs. A real plan's `COMPLETED` also waits on part H (DP-051): until then it halts at
     `VERIFY_DESTINATION`.
   - **INV-17.** One type, one pair of reads, one planner rule and one refusal set for both providers. On the captured
@@ -1861,7 +1863,11 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: `snapshot.v1` additive (two metadata fields and an environment map), with one tightening — a
   snapshot whose executable names fail the name class, or whose two resolution maps disagree, no longer loads;
   `plan.v1` additive (the `primary` decision) with one tightening — a `SET_PRIMARY` with a command, or a plan with no
-  decision, is refused, and the refusal reasons above join its open set; `history.v3`; `migrate.v1.md` gains the
+  decision, is refused, and the refusal reasons above join its open set. `primaryAfter` changes meaning from the
+  requested provider to the predicted one (destination on `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, else the source)
+  within `plan.v1`, because no build before F-3 produced a plan a consumer could act on through it:
+  `THIS_BUILD_DISPATCHES_MUTATIONS` has been `false` in every commit since it was introduced, the gate refused every
+  planner-built plan before its first step, and no shipped build wrote a history record that carries it; `history.v3`; `migrate.v1.md` gains the
   refusal values, and `docs/schemas/README.md`'s exit-code table lists the reserved exit-4 `PRIMARY_NEEDS_SHIM`;
   06's `snapshot` synopsis gains positionals.
 - **Addendum, 2026-11-01 (work order 16 part F-2b, capture).** Built on `wo16/F-2b-capture`: capture reads the lists

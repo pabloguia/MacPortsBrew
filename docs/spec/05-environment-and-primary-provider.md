@@ -171,8 +171,9 @@ the text says to check `command -v <name>` and that `hash -r` clears a stale
 hash.
 
 **The shadowing MUST above, and what part F covers of it.** An executable on
-the source's list never newly shadows a system tool: a predicted win only
-displaces a winner that is already a provider's. What part F cannot see is an
+the source's list never newly shadows a system tool: a plan completes only where
+step 3 observed the destination's own package already winning the name, so
+nothing that wins today is displaced. What part F cannot see is an
 executable the destination ships beyond the source's list. Where the destination
 is installed, its list is read and such an executable is named; where it is not,
 installing it links everything it ships at its own `PATH` position, which can
