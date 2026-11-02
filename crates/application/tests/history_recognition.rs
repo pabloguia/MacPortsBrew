@@ -210,7 +210,9 @@ fn fresh(source: &str, after: &After) -> Snapshot {
                     path: Some(PathBuf::from(format!("/somewhere/{EXE}"))),
                     canonical_path: None,
                     owner: owner.clone(),
-                    authoritative: false,
+                    // By the provider's own records, as recognition requires
+                    // (security review of F-3, L-2).
+                    authoritative: true,
                 },
                 path_index: Some(0),
             },

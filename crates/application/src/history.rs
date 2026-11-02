@@ -83,11 +83,21 @@ pub fn run_record(
         retain_source: plan.retain_source,
         // `history.v3` (SG-12): what was observed to resolve. The destination
         // only when this run's `VERIFY_RESOLUTION` resolved every executable to
-        // it; otherwise the source, whatever the plan predicted.
-        primary_after: if records
-            .iter()
-            .any(|r| matches!(r.disposition, Disposition::Resolved { .. }))
-        {
+        // it — or, for a package that installs none (`NO_EXECUTABLES`), when
+        // its `SET_PRIMARY` was carried out, since nothing then stays with the
+        // source (spec-guardian review of F-3, D-5); otherwise the source,
+        // whatever the plan predicted.
+        primary_after: if records.iter().any(|r| match &r.disposition {
+            Disposition::Resolved { .. } => true,
+            Disposition::NothingToChange => plan.steps.iter().any(|s| {
+                s.index == r.index
+                    && matches!(
+                        s.primary,
+                        Some(macportsbrew_domain::PrimaryDecision::NoExecutables)
+                    )
+            }),
+            _ => false,
+        }) {
             plan.destination.clone()
         } else {
             plan.source.clone()
@@ -490,8 +500,15 @@ pub fn recognise_retained_run(
         .get(&plan.source)
         .and_then(|p| p.inventory.metadata.get(&plan.package.name))
         .and_then(|m| m.executable_list.known());
-    if source_list.is_none() {
+    let Some(source_list) = source_list else {
         return Recognition::NotRecognised(NotRecognised::ExecutablesUnknown { run_id });
+    };
+    // The fresh list must be the one the record checked: a source that now
+    // ships another executable has one nobody has resolved (spec-guardian
+    // review of F-3, D-6). An empty pair is a package with no executable,
+    // whose re-run is recognised on the rest (D-5).
+    if source_list.iter().ne(executables.iter()) {
+        return Recognition::NotRecognised(NotRecognised::PrimaryNotConfirmed { run_id });
     }
     if record.subject().primary_after != plan.destination {
         return Recognition::NotRecognised(NotRecognised::PrimaryNotConfirmed { run_id });
@@ -535,10 +552,14 @@ fn resolves_to(
     match fresh.resolution_of(executable) {
         ResolutionState::Found { resolution, .. } => match &resolution.owner {
             ExecutableOwner::MacportsbrewShim => Resolved::Shim,
+            // By the provider's own records, as `VERIFY_RESOLUTION` requires
+            // (security review of F-3, L-2).
             ExecutableOwner::Provider {
                 provider,
                 package: Some(owned),
-            } if provider == destination && owned == package => Resolved::Primary,
+            } if provider == destination && owned == package && resolution.authoritative => {
+                Resolved::Primary
+            }
             ExecutableOwner::Provider { .. }
             | ExecutableOwner::System
             | ExecutableOwner::External

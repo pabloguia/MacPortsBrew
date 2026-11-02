@@ -758,6 +758,15 @@ impl RunRecord {
                         "states a resolution on a step that is not VERIFY_RESOLUTION",
                     ));
                 }
+                // What was resolved is the list the decision was about
+                // (security review of F-3, L-1).
+                StepResult::Resolved { executables }
+                    if Some(executables) != stored.primary_executables.as_ref() =>
+                {
+                    return Err(unusable(
+                        "states a resolution of other executables than its primary ones",
+                    ));
+                }
                 StepResult::SnapshotTaken if !on_bracket(StepKind::SnapshotBefore) => {
                     return Err(unusable(
                         "states a snapshot taken by a step that takes none",

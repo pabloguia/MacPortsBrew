@@ -164,8 +164,11 @@ and command 0 before any read; under `--replay` it always does.
 
 **Added by work order 16 part F-3 (the primary decision).** Gate refusals:
 `PRIMARY_NEEDS_SHIM` (`step`, `executables`: only a shim, which this release
-does not offer, could make the destination's copy win; `ErrorId`
-`PRIMARY_NEEDS_SHIM`, exit 4), `PRIMARY_REFUSED` (`step`, `reasons` by
+does not offer, could make the destination's copy win; reported in
+`gateRefusals` and exiting 4 like every gate refusal — the `ErrorId`
+`PRIMARY_NEEDS_SHIM`, exit 4, is defined but not raised by this build, reserved
+for the part that offers a consented shim, as `docs/schemas/README.md` says),
+`PRIMARY_REFUSED` (`step`, `reasons` by
 executable, `package`), `PRIMARY_DECISION_MISSING` and
 `EXECUTABLE_LISTS_DISAGREE` (`step`); each names executables through the same
 escaping as every echoed string. Dispositions: `NOTHING_TO_CHANGE` (a

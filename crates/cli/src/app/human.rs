@@ -1903,4 +1903,86 @@ mod tests {
             assert!(!text.contains(raw), "{raw:?} reached the user:\n{text}");
         }
     }
+
+    #[test]
+    fn echoed_names_go_through_escape_hostile() {
+        // SR2-N6: every executable name the primary decision and its refusals
+        // echo goes through `shown`. A hostile character never becomes a name
+        // (the class `ExecutableName` shares with capture), so what can reach
+        // a line is a name a shell might read specially but a terminal shows
+        // as written: each must appear verbatim, and no line may carry a
+        // hostile character unescaped.
+        use macportsbrew_domain::{
+            escape_hostile, ExecutableName, PrimaryDecision, PrimaryReason, CHARACTER_SAMPLES,
+        };
+        for &(c, class) in CHARACTER_SAMPLES {
+            if class.is_some() {
+                assert!(
+                    ExecutableName::parse(&format!("a{c}b")).is_err(),
+                    "{:?} became an executable name",
+                    c.escape_unicode().to_string()
+                );
+            }
+        }
+        let odd = ["$(id)", "a b", "x`y`", "naïve", "c++", "x;y"];
+        let names: std::collections::BTreeSet<ExecutableName> = odd
+            .iter()
+            .map(|n| ExecutableName::parse(n).expect("admissible"))
+            .collect();
+        let ctx = context();
+        let mut lines = Vec::new();
+        for decision in [
+            PrimaryDecision::NothingToChange {
+                executables: names.clone(),
+                path_used: Vec::new(),
+            },
+            PrimaryDecision::Refused {
+                executables: names.clone(),
+                reasons: names
+                    .iter()
+                    .map(|n| (n.clone(), PrimaryReason::NonProviderEntryWins))
+                    .collect(),
+                package: None,
+                path_used: Vec::new(),
+            },
+        ] {
+            let mut out = String::new();
+            primary_lines(&ctx, &decision, &mut out);
+            lines.push(out);
+        }
+        lines.push(gate_refusal_line(
+            &ctx,
+            &ExecutionRefusal::PrimaryNeedsShim {
+                step: 4,
+                executables: names.iter().cloned().collect(),
+            },
+        ));
+        lines.push(gate_refusal_line(
+            &ctx,
+            &ExecutionRefusal::PrimaryRefused {
+                step: 4,
+                reasons: names
+                    .iter()
+                    .map(|n| (n.clone(), PrimaryReason::PrimaryNeedsShim))
+                    .collect(),
+                package: None,
+            },
+        ));
+        for text in &lines {
+            for line in text.lines() {
+                assert_eq!(
+                    escape_hostile(line),
+                    line,
+                    "a hostile character in:\n{line}"
+                );
+            }
+            let line = text;
+            for name in odd {
+                assert!(
+                    line.contains(name),
+                    "{name:?} is not shown as written:\n{line}"
+                );
+            }
+        }
+    }
 }

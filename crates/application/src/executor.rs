@@ -118,6 +118,8 @@ pub enum Disposition {
         executables: Vec<ExecutableName>,
         /// Whether the run-time `PATH`, home-redacted the same way, differs
         /// from the one the decision used (SG-10, SG2-N5).
+        /// `pathDiffers` in `migrate.v1`, as documented.
+        #[serde(rename = "pathDiffers")]
         path_differs: bool,
     },
     /// A mutating step dispatched under a [`MutationAllowance`] whose every
@@ -253,6 +255,8 @@ pub enum HaltReason {
         /// What resolves instead, as a kind.
         observed: ObservedWinner,
         /// Whether the run-time `PATH` differs from the decision's.
+        /// `pathDiffers` in `migrate.v1`, as documented.
+        #[serde(rename = "pathDiffers")]
         path_differs: bool,
     },
 }
@@ -835,6 +839,11 @@ fn mutating_action(
     {
         return Action::Halt(HaltReason::UnexecutedMutation);
     }
+    // And the resolution that justifies the removal held, when the plan checks
+    // one (F.md Design §4; security review of F-3, M-1).
+    if step.kind == StepKind::RemoveSource && !resolution_held_before(plan, position, records) {
+        return Action::Halt(HaltReason::UnexecutedMutation);
+    }
     let table = provider_commands::load().unwrap_or_default();
     let entry = step.provider.as_ref().and_then(|p| table.get(p.as_str()));
     for (command, c) in step.commands.iter().enumerate() {
@@ -897,6 +906,22 @@ fn destination_verified_before(
         .is_some_and(|r| {
             r.kind == StepKind::VerifyDestination
                 && matches!(r.disposition, Disposition::Verified { .. })
+        })
+}
+
+/// Whether every `VERIFY_RESOLUTION` before the step at `position` was
+/// recorded `RESOLVED`. A plan with none before it answers yes: whether it must
+/// carry one is the gate's and `check_ordering`'s question.
+fn resolution_held_before(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> bool {
+    plan.steps[..position]
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.kind == StepKind::VerifyResolution)
+        .all(|(at, _)| {
+            records.get(at).is_some_and(|r| {
+                r.kind == StepKind::VerifyResolution
+                    && matches!(r.disposition, Disposition::Resolved { .. })
+            })
         })
 }
 

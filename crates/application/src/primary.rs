@@ -133,6 +133,20 @@ fn decide_one(
                     if !resolution.authoritative {
                         return Some(PrimaryReason::WinnerNotAuthoritative);
                     }
+                    // "Already wins" is an observation only where the shell's
+                    // search order is: a winner with no recorded index (a
+                    // relative or empty entry before it, or an older document)
+                    // is unpredictable here too (SR-5; security review of F-3,
+                    // M-2). And it is the destination's only if the destination
+                    // is installed: a row that says otherwise is inconsistent
+                    // and refused the same way in both directions (spec-guardian
+                    // review of F-3, R-1; 05 "What this reaches").
+                    if path_index.is_none() {
+                        return Some(PrimaryReason::PrimaryUnpredictable);
+                    }
+                    if !question.destination_installed {
+                        return Some(PrimaryReason::PrimaryDestinationNotInstalled);
+                    }
                     return None;
                 }
                 ExecutableOwner::Provider { .. } => {

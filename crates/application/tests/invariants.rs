@@ -850,7 +850,18 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
     // the plan itself: the mechanism by which a primary is selected is the
     // reason ownership cannot move, and a change to that mechanism is the way
     // this invariant would actually break.
-    let snap = both_present();
+    let mut snap = both_present();
+    // "Already wins" is an observation only with the winner's place in the
+    // search order recorded (security review of F-3, M-2): a capture of this
+    // build writes it; the provider map alone never does.
+    let tool = snap.providers[&ProviderId::new(MP)].resolutions["tool"].clone();
+    snap.environment.resolutions.insert(
+        macportsbrew_domain::ExecutableName::parse("tool").unwrap(),
+        macportsbrew_domain::ResolutionState::Found {
+            resolution: tool,
+            path_index: Some(0),
+        },
+    );
     let plan = plan_for(&snap, "tool", MP, true);
     // Since F-3 `primaryAfter` is what is predicted to resolve: the
     // destination only when the decision is `NOTHING_TO_CHANGE` (F.md Design

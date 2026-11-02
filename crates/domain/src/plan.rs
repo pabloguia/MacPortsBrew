@@ -734,6 +734,16 @@ impl MigrationPlan {
                 }
             }
         }
+        // And it observes the state the run produced, never the state before
+        // it: after the destination is verified and after `SET_PRIMARY`, when
+        // those are present (security review of F-3, M-1).
+        if let Some(resolution) = pos(StepKind::VerifyResolution) {
+            for before in [StepKind::VerifyDestination, StepKind::SetPrimary] {
+                if pos(before).is_some_and(|at| at > resolution) {
+                    return Err(format!("VerifyResolution precedes {before:?} (INV-01)"));
+                }
+            }
+        }
         if self.has_mutating_steps() {
             match pos(StepKind::SnapshotBefore) {
                 Some(0) => {}
@@ -844,6 +854,29 @@ mod tests {
             StepKind::RecordHistory,
         ]);
         assert!(twice.check_ordering().is_err(), "at most one");
+
+        // Observed before the destination was added, verified and made
+        // primary: a stale resolution guards nothing (security review, M-1).
+        for early in [
+            vec![
+                StepKind::SnapshotBefore,
+                StepKind::VerifyResolution,
+                StepKind::AddDestination,
+                StepKind::VerifyDestination,
+                StepKind::SetPrimary,
+                StepKind::RemoveSource,
+            ],
+            vec![
+                StepKind::SnapshotBefore,
+                StepKind::AddDestination,
+                StepKind::VerifyDestination,
+                StepKind::VerifyResolution,
+                StepKind::SetPrimary,
+                StepKind::RemoveSource,
+            ],
+        ] {
+            assert!(plan_of(&early).check_ordering().is_err(), "{early:?}");
+        }
 
         // A retained plan with no removal needs no particular position.
         let retained = plan_of(&[

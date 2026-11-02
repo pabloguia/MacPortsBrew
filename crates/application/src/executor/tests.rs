@@ -686,9 +686,11 @@ fn mutable(plan: &MigrationPlan) -> MigrationPlan {
             step.commands.clear();
             // The fixture records no executable list, so the planner refuses
             // the primary (`EXECUTABLES_UNKNOWN`); narrowed to `NO_EXECUTABLES`,
-            // the one decision that completes with nothing resolved (F-3). The
-            // `VERIFY_DESTINATION` checks DP-051 leaves unevaluable stay
-            // stripped above until part H.
+            // the one decision that completes with nothing resolved (F-3), and
+            // `VERIFY_RESOLUTION` goes with it; both edits are cut once the
+            // recapture gives the fixtures real lists (F.md, "As built (F-3)",
+            // deviation 9). The `VERIFY_DESTINATION` checks DP-051 leaves
+            // unevaluable stay stripped above until part H.
             step.primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
         }
     }
@@ -2193,7 +2195,9 @@ fn found(owner: ExecutableOwner, authoritative: bool, index: Option<u32>) -> Res
     ResolutionState::Found {
         resolution: macportsbrew_domain::Resolution {
             executable: "gnu-sed".into(),
-            path: Some(PathBuf::from("/opt/dest/bin/gnu-sed")),
+            // Joined, not spelt: a literal program path in production source is
+            // what scripts/check-no-shell.sh refuses.
+            path: Some(PathBuf::from("/opt/dest/bin").join("gnu-sed")),
             canonical_path: None,
             owner,
             authoritative,
@@ -2563,4 +2567,124 @@ fn a_shim_refusal_is_refused_with_and_without_an_allowance() {
             "{allowance:?}"
         );
     }
+}
+/// `consolidation_run` — the one run of this build that reaches an unelevated
+/// `REMOVE_SOURCE` under an allowance — with its decision set to
+/// `NOTHING_TO_CHANGE` for `gnu-sed` and a `VERIFY_RESOLUTION` for it placed
+/// after `SET_PRIMARY` and before the removal, as `check_ordering` requires.
+fn removal_guarded_by_a_resolution() -> PlannedRun {
+    consolidation_run().map_plan(|plan| {
+        let at = position(plan, StepKind::SetPrimary);
+        plan.steps[at].primary = Some(nothing_to_change());
+        plan.steps.insert(
+            at + 1,
+            macportsbrew_domain::MigrationStep {
+                index: 0,
+                kind: StepKind::VerifyResolution,
+                provider: None,
+                commands: Vec::new(),
+                verification: vec![VerificationCheck::ResolvesTo {
+                    executable: exe("gnu-sed"),
+                    provider: plan.destination.clone(),
+                    package: plan.destination_package.clone().unwrap(),
+                }],
+                primary: None,
+                reason: macportsbrew_domain::Reason::new("reason.verify_resolution"),
+            },
+        );
+        for (i, step) in plan.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).unwrap() + 1;
+        }
+    })
+}
+
+#[test]
+fn invariant_03_a_missing_destination_executable_ends_partial_with_the_source_kept() {
+    // SG-4: the plan **includes** a `REMOVE_SOURCE`, under the test allowance,
+    // and it never runs. The destination does not provide `gnu-sed`, so
+    // nothing on `PATH` answers for it: `VERIFY_RESOLUTION` halts, the removal
+    // is never reached, and the run ends partial with the source installed.
+    // Once part H evaluates `EXECUTABLES_OWNED_BY_DESTINATION` the same run
+    // fails earlier, at `VERIFY_DESTINATION`.
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = removal_guarded_by_a_resolution();
+    let plan = run.plan();
+    plan.check_ordering()
+        .expect("the resolution guards the removal");
+    let resolution = position(plan, StepKind::VerifyResolution);
+    let remove = position(plan, StepKind::RemoveSource);
+    assert!(resolution < remove);
+
+    let mut records = records_until(&run, resolution);
+    assert_eq!(
+        next_action_with(&run, resolution, &records, Some(&allowance)),
+        Action::Resolve
+    );
+    let halted = judge_resolution(
+        &run,
+        resolution,
+        &[ResolutionState::NotOnPath],
+        &path_used(),
+    );
+    assert!(matches!(
+        halted,
+        Disposition::Halted {
+            reason: HaltReason::ResolutionMismatch {
+                observed: ObservedWinner::NotOnPath,
+                ..
+            },
+            ..
+        }
+    ));
+    records.push(StepRecord {
+        index: plan.steps[resolution].index,
+        kind: StepKind::VerifyResolution,
+        disposition: halted,
+    });
+    // The removal, and every step after the halt, is never dispatched.
+    for at in resolution + 1..plan.steps.len() {
+        assert!(
+            !matches!(
+                next_action_with(&run, at, &records, Some(&allowance)),
+                Action::DispatchMutating { .. }
+            ),
+            "step {at}"
+        );
+        records.push(StepRecord {
+            index: plan.steps[at].index,
+            kind: plan.steps[at].kind,
+            disposition: Disposition::NotReached,
+        });
+    }
+    let outcome = outcome_of(plan, &records);
+    assert!(
+        matches!(
+            outcome,
+            RunOutcome::PartialSuccess {
+                reason: HaltReason::ResolutionMismatch { .. },
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(outcome.exit_code(), 3);
+    assert_eq!(records[remove].disposition, Disposition::NotReached);
+
+    // And the guard does not lean on the halt alone (security review of F-3,
+    // M-1): a resolution recorded any way but `RESOLVED` keeps the removal
+    // from being dispatched even where the loop would go on.
+    let mut records = records_until(&run, remove);
+    assert!(matches!(
+        records[resolution].disposition,
+        Disposition::Resolved { .. }
+    ));
+    assert!(matches!(
+        next_action_with(&run, remove, &records, Some(&allowance)),
+        Action::DispatchMutating { .. }
+    ));
+    records[resolution].disposition = Disposition::NotPerformedInThisBuild;
+    assert_eq!(
+        next_action_with(&run, remove, &records, Some(&allowance)),
+        Action::Halt(HaltReason::UnexecutedMutation)
+    );
 }

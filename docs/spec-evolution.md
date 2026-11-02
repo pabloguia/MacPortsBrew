@@ -1907,8 +1907,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   the primary per executable of the source's list by 05's step list (`crates/application/src/primary.rs`, one rule
   both directions); `SET_PRIMARY` carries `PrimaryDecision` and no command; `VERIFY_RESOLUTION` carries one
   `RESOLVES_TO` per executable and is checked before any `REMOVE_SOURCE` (`check_ordering`); the gate refuses every
-  decision but `NOTHING_TO_CHANGE` and `NO_EXECUTABLES` before any step (`PRIMARY_NEEDS_SHIM`, exit 4, a new
-  `ErrorId`; `PRIMARY_REFUSED`; `PRIMARY_DECISION_MISSING`; `EXECUTABLE_LISTS_DISAGREE`); the executor completes a
+  decision but `NOTHING_TO_CHANGE` and `NO_EXECUTABLES` before any step (`PRIMARY_NEEDS_SHIM`, exit 4 as every
+  refusal, its new `ErrorId` reserved for the part that offers a shim; `PRIMARY_REFUSED`; `PRIMARY_DECISION_MISSING`; `EXECUTABLE_LISTS_DISAGREE`); the executor completes a
   command-less `SET_PRIMARY` as `NOTHING_TO_CHANGE` and judges `VERIFY_RESOLUTION` from a fresh resolution
   (`judge_resolution`, unevaluable under replay or a snapshot file); `history.v3`. Choices inside the entry:
   - **An owner no provider claims wins as a non-provider entry.** Capture records `/usr/bin/m4` with an `UNKNOWN`
@@ -1919,14 +1919,35 @@ change is made. Silent deviation remains the one unrecoverable error.
     refused one), so the four lists the gate compares are one list whatever the decision; a refusal about the
     package (`EXECUTABLES_UNKNOWN`, `PRIMARY_MAPPING_NOT_ONE_TO_ONE`) states none, and its plan carries no
     `VERIFY_RESOLUTION`, as `NO_EXECUTABLES` does.
-  - **The ownership check may be absent, never different.** A plan narrowed of the checks this build cannot
-    evaluate has no `EXECUTABLES_OWNED_BY_DESTINATION`; when present it must equal the list. No skip is recorded in
-    this plan shape, so the probe set must equal the list.
+  - **The ownership check may be absent only beside an empty list** (corrected by the review round below; first
+    written "may be absent, never different"). When present it must equal the list. No skip is recorded in this
+    plan shape, so the probe set must equal the list.
   - **`migrate <package>` reads both sides** by capturing twice: the typed name first, then — once the first
     capture supports a plan — the plan's source row and mapped destination package, stamped with the same instant.
     A recording cannot plan (DP-032), so under `--replay` only the first read happens.
   - **The old-document rule holds by construction:** the decision never reads `Resolution.path`, only owners and
     `pathIndex`, and an older document carries no index, so step 6 answers `PRIMARY_UNPREDICTABLE` from one.
+- **Addendum, 2026-11-02 (work order 16 part F-3, review round).** `security-reviewer` and `spec-guardian` on
+  `cf80b88`; every finding resolved in code, recorded in F.md "As built (F-3)" with its ten deviations. What changes
+  the rule above:
+  - **"Already wins" is an observation only with an index and an installed destination.** Step 3 answers
+    `PRIMARY_UNPREDICTABLE` for a winner with no `pathIndex`, as step 6 does, and
+    `PRIMARY_DESTINATION_NOT_INSTALLED` when the destination is not installed, so DP-055's refusal holds in both
+    directions with no exception.
+  - **1→1 is a heuristic (Tier 4, declared).** The planner takes a mapping as one-to-one when it selected one
+    candidate and no other shares its confidence, or when the unit is planned onto its own side. That refuses 1→many
+    at the top confidence; many→1 (two source packages whose mappings select one destination package) is not
+    detected, because a plan is built for one package. The per-executable decision still reads only the captured
+    resolution, so a wrong pairing loses the refusal's name, never predicts a win the capture does not show. A
+    mapping-wide check belongs to a part that plans several packages together.
+  - **The removal waits on `RESOLVED`.** `check_ordering` places `VERIFY_RESOLUTION` after `VERIFY_DESTINATION` and
+    `SET_PRIMARY`, and the executor dispatches `REMOVE_SOURCE` only when every earlier `VERIFY_RESOLUTION` was
+    recorded `RESOLVED`.
+  - **`NOTHING_TO_CHANGE` with no executable is refused** `EXECUTABLE_LISTS_DISAGREE`; it is `NO_EXECUTABLES`.
+  - **History.** `primaryAfter` is the destination also when a `NO_EXECUTABLES` `SET_PRIMARY` was carried out;
+    recognition requires the fresh source list to equal `primaryExecutables` and an authoritative resolution;
+    read-back refuses a `RESOLVED` step naming other executables. Whether the run-time `PATH` differed is
+    `pathDiffers` in `migrate.v1`'s execution document; `history.v3` records no `PATH`.
 
 # Policy, output and quality
 

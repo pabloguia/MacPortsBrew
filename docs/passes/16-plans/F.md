@@ -1527,6 +1527,172 @@ placed directory padded with `/.` compared equal to `prefix/bin` while being
 longer than any captured path, and `/opt/first/./bin` loaded. The placement
 rule now also checks the raw text's length and refuses a `.` component.
 
+## As built (F-3)
+
+Branch `wo16/F-3-primary`, cut from `origin/main` at `6ee88ee` (F-2b merged,
+PR #58), in an isolated worktree: `cf80b88` (the part) and the review round on
+top of it. `git diff --stat origin/main -- crates/adapters/src/process/
+data/policy/provider-commands.toml scripts/ .claude/ .github/ fixtures/` is
+empty; `THIS_BUILD_DISPATCHES_MUTATIONS` is unchanged;
+`every_plan_this_planner_builds_is_refused_for_execution_in_this_build` is
+unchanged; no `brew` or `port` command was run.
+
+- **Domain.** `PrimaryDecision` (`NOTHING_TO_CHANGE { executables, pathUsed }`,
+  `NO_EXECUTABLES`, `REFUSED { executables, reasons, package, pathUsed }`,
+  `UNKNOWN`) and `PrimaryReason` (`crates/domain/src/primary.rs`), carried on
+  `SET_PRIMARY` as `primary`; `VerificationCheck::RESOLVES_TO`;
+  `check_ordering` places `VERIFY_RESOLUTION` after `VERIFY_DESTINATION` and
+  `SET_PRIMARY` and before `REMOVE_SOURCE`, at most one; `ErrorId::PrimaryNeedsShim`
+  (exit 4, reserved: deviation 2); `history.v3` (`primaryExecutables`, the
+  `NOTHING_TO_CHANGE` and `RESOLVED` results; a v2 record still reads).
+- **Planner.** `application::primary::decide`: 05's step list 1–6 from the
+  snapshot alone, over its one `PATH`, the same rule for both providers
+  (INV-17). `SET_PRIMARY` carries the decision and no command;
+  `VERIFY_DESTINATION` carries `EXECUTABLES_OWNED_BY_DESTINATION` and one
+  `LIVENESS_PROBE` per executable of the source's list; `VERIFY_RESOLUTION` one
+  `RESOLVES_TO` per executable; `primaryAfter` is the destination only on
+  `NOTHING_TO_CHANGE`; the `system_tool_keeps_name` risk.
+- **Gate.** `PRIMARY_NEEDS_SHIM`, `PRIMARY_REFUSED`, `PRIMARY_DECISION_MISSING`,
+  `EXECUTABLE_LISTS_DISAGREE`, before any step, under an allowance or not;
+  `planner_writes_commands_on(SetPrimary)` is `false`; the one
+  `VERIFICATION_ASSERTS_NOTHING` exemption for a command-less, all-`RESOLVES_TO`
+  `VERIFY_RESOLUTION`.
+- **Executor.** `NOTHING_TO_CHANGE` for a command-less `SET_PRIMARY` whose
+  decision completes; `Action::Resolve` and `judge_resolution` (a pass only on
+  the destination package by its provider's own records; `NOT_OBSERVED` and a
+  missing index unevaluable, never a pass); the shell's `ResolutionSite`, built
+  after the gate from the machine reader and the registry's providers.
+- **History.** `primaryAfter` is what resolved; recognition checks every
+  `primaryExecutables` entry through `resolution_of`.
+- **CLI.** `migrate <package>` reads the lists of both sides of its mapping
+  (F-2b's deviation 1, closed); the decision, the refusals and the dispositions
+  rendered in English and `pt-BR`, every echoed name through `escape_hostile`.
+- **Docs.** `history.v3.md`; `plan.v1.md` (the decision and the refusal-reason
+  tightening); `migrate.v1.md` (refusals, dispositions, `RESOLUTION_MISMATCH`);
+  `docs/schemas/README.md`'s exit-code table; SE-112's F-3 addendum.
+
+**Review round** (`security-reviewer` and `spec-guardian` on `cf80b88`; rows
+below), each resolved in code with a test:
+
+- **SR M-1** — a stale resolution guarded the removal. `check_ordering` refuses
+  a `VERIFY_RESOLUTION` before `VERIFY_DESTINATION` or `SET_PRIMARY`, and the
+  executor dispatches `REMOVE_SOURCE` only when every earlier
+  `VERIFY_RESOLUTION` was recorded `RESOLVED` (`resolution_held_before`), not
+  only when the loop has not halted. Tests: `invariant_01_remove_source_after_verify_resolution`
+  (both early placements), `invariant_03_a_missing_destination_executable_ends_partial_with_the_source_kept`.
+- **SR M-2** — "already wins" with no recorded index. Step 3 answers
+  `PRIMARY_UNPREDICTABLE` for a winner without `pathIndex`, as step 6 does.
+- **SR L-1** — a read-back `RESOLVED` step must name exactly the record's
+  `primaryExecutables`.
+- **SR L-2** — recognition counts a resolution as the destination's only by
+  the provider's own records (`authoritative`), as `VERIFY_RESOLUTION` does.
+- **SR L-3** — `NOTHING_TO_CHANGE` about no executable is refused
+  `EXECUTABLE_LISTS_DISAGREE`.
+- **SG R-1** — a row saying the destination's own package wins while the
+  destination is not installed is refused `PRIMARY_DESTINATION_NOT_INSTALLED`,
+  so DP-055's refusal holds in both directions with no exception.
+- **SG R-2** — the ownership check may be absent only beside an empty list.
+- **SG D-5, D-6** — see deviation 7.
+- **SG D-4** — see deviation 1.
+- **`PrimaryNeedsShim`** — `plan.v1.md` and `migrate.v1.md` now say what the
+  README says: deviation 2.
+- **`cf80b88` did not pass `scripts/validate.sh`**, which its commit gate did
+  not run (the command began `timeout 598 git commit`, which the gate's
+  pattern does not match). Two stages failed: i18n parity (`pt-BR` lacked the
+  32 keys F-3 added; added) and no-shell (a test helper in
+  `crates/application/src/executor/tests.rs` spelt a program path; now
+  joined). Both pass at this commit.
+
+Deviations from the plan, and why:
+
+1. **1→1 is a heuristic (SG D-4).** Design §4 refuses 1→many and many→1. The
+   planner's `one_to_one` answers yes when the unit is planned onto its own
+   side, or when the mapping selected a candidate and no other candidate shares
+   its confidence. That catches 1→many at the top confidence; it does not
+   detect many→1 (two source packages whose mappings select the same
+   destination package), because a plan is built for one package and never
+   looks at the other rows' mappings. Each such plan still decides executable
+   by executable from the snapshot, so a wrong pairing cannot predict a win the
+   captured resolution does not show; what is lost is the refusal's name.
+   Recorded in SE-112; a mapping-wide check belongs with whatever part plans
+   several packages together.
+2. **`ErrorId::PrimaryNeedsShim` is defined and not raised.** The gate's report
+   exits 4 for every refusal, as before, and names `PRIMARY_NEEDS_SHIM` among
+   `gateRefusals`; the identifier, with its exit code and catalogue sentence,
+   is reserved for the part that offers a consented shim. The README said so;
+   `plan.v1.md`, `migrate.v1.md` and the variant's comment said the refusal
+   carried it, and now say what the README says.
+3. **Step 3 has two conditions the plan did not write** (SR M-2, SG R-1): a
+   recorded `pathIndex`, and an installed destination. Without them "already
+   wins" is not an observation of this `PATH`, or the row is inconsistent; both
+   refuse rather than predict.
+4. **The ownership check is absent only beside an empty list** (SG R-2),
+   reversing the addendum's "may be absent, never different": once part H
+   evaluates check 3, a plan that drops it must not pass this rule.
+5. **`NOTHING_TO_CHANGE` about no executable is refused** (SR L-3): it is
+   `NO_EXECUTABLES` misspelt, and the gate has one meaning for each.
+6. **The removal waits on `RESOLVED`, not on the absence of a halt** (SR M-1),
+   and `check_ordering` also places `VERIFY_RESOLUTION` after
+   `VERIFY_DESTINATION` and `SET_PRIMARY`. Design §4 stated only "before
+   `REMOVE_SOURCE`".
+7. **History beyond §5** (SG D-5, D-6; SR L-1, L-2). `primaryAfter` is the
+   destination also when a `NO_EXECUTABLES` `SET_PRIMARY` was carried out:
+   nothing then stays with the source, and §5's "what resolved" has nothing to
+   resolve. Recognition requires the fresh source list to equal the record's
+   `primaryExecutables` (a source that now ships another executable has one no
+   run resolved; an empty pair is recognised on the rest), and an
+   authoritative resolution. Read-back refuses a `RESOLVED` step naming other
+   executables.
+8. **"Says so in the run record" (SG-10) is the run report.** Whether the
+   run-time `PATH` differed from `pathUsed` is `pathDiffers` on the `RESOLVED`
+   disposition and the `RESOLUTION_MISMATCH` halt in `migrate.v1`'s execution
+   document; `history.v3` records no `PATH` and no flag. The field was
+   serialised `path_differs` against the documented `pathDiffers`; found by
+   `the_path_a_decision_used_is_home_redacted_in_plan_history_and_report` and
+   fixed with a `serde` rename.
+9. **The narrowing is not cut.** `mutable()` and `completable_run()` still
+   remove `VERIFY_RESOLUTION` and narrow the decision to `NO_EXECUTABLES`,
+   because no recording carries a list: the fixtures' rows answer
+   `EXECUTABLES_UNKNOWN`. The cut goes with the recapture (F-2b's hand-off),
+   with a comment naming it. The new executor tests build the
+   `VERIFY_RESOLUTION` shape directly (`primary_run`,
+   `removal_guarded_by_a_resolution`).
+10. **The tests "after the live recapture" are not written**, for the same
+    reason: `a_plan_whose_destination_already_wins_sets_no_primary`,
+    `invariant_17_a_plan_needing_a_shim_is_refused_before_any_install`,
+    `an_executable_not_named_after_its_package_is_planned`,
+    `invariant_01_a_real_retain_source_plan_completes_once_its_checks_are_evaluable`,
+    `primary_after_is_what_resolved`. Each case has a unit over the captured
+    snapshot's `PATH` with constructed rows (`a_destination_that_already_wins_has_nothing_to_change`,
+    `a_destination_later_on_path_needs_a_shim`,
+    `an_executable_not_named_after_its_package_is_decided_by_its_own_name`,
+    `nothing_to_change_is_carried_only_on_set_primary`); keg-only stays
+    unit-only (`a_keg_only_destination_needs_a_shim`), as SG-5 allows.
+    `invariant_03_…` halts at `VERIFY_RESOLUTION`; once part H evaluates
+    check 3 the same run halts at `VERIFY_DESTINATION`.
+
+Tests added in the review round, besides those named above:
+`invariant_12_setting_a_primary_never_reorders_path`,
+`the_path_a_decision_used_is_home_redacted_in_plan_history_and_report`
+(`crates/application/tests/primary_decision.rs`);
+`liveness_probes_plus_recorded_skips_equal_the_list`
+(`crates/application/tests/execution_gate.rs`);
+`echoed_names_go_through_escape_hostile` (`crates/cli/src/app/human.rs`);
+`no_run_writes_outside_the_state_directory_or_the_providers`, with `HOME` and
+`TMPDIR` both redirected (`crates/cli/tests/migrate.rs`). Changed for the round:
+`invariant_17_the_decision_rule_is_the_same_for_both_directions` (an
+uninstalled destination is refused both ways, R-1),
+`invariant_11_setting_the_primary_transfers_no_ownership` (the winner carries
+an index, M-2), and `history_recognition.rs`'s fixture (an authoritative
+resolution, L-2).
+
+Not done here, and why:
+
+- **The recapture**, both halves, and with it deviations 9 and 10 and the
+  contract tests after `F/05`: unchanged from F-2b's hand-off.
+- **The mutation proof of F-3** (§"Mutants", including 15 from F-2b) has not
+  been run by an independent subagent.
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -1550,3 +1716,5 @@ rule now also checks the raw text's length and refuses a `.` component.
 | `security-reviewer`, F-2b re-review | `wo16/F-2b-capture` at `7bd0443` | Approve; I-4 a placement the load rule refuses makes `snapshot <pkg>` fail; I-5 a name in two providers, cosmetic; a hand-off on an older document's `Resolution.path` | I-4 resolved (`placement_holds`, unknown at capture); I-5 accepted; the hand-off added to "Handed to F-3" |
 | Independent mutation proof of the fix round (subagent) | `wo16/F-2b-capture` at `7bd0443` | 17 mutants, 12 killed, 1 equivalent (E7-no-len), 4 gaps (M1-canonical, M1-owner, L2 notice-differs, L2 never-not-read) | 4 gaps closed by tests; the equivalent one's comment corrected ("As built (F-2b)", third round) |
 | Independent mutation proof, F-2b (subagent) | `wo16/F-2b-capture` at `1061877` | 73 mutants, 47 killed, 6 equivalent (15, R3, S7, L2, L4, argued), 20 gaps | 20 gaps closed by tests (E7 also a code fix); the mutant 15 argument stands and 15 moves to F-3 ("As built (F-2b)") |
+| `security-reviewer`, F-3 | `wo16/F-3-primary` at `cf80b88` | Approve with changes: M-1 a stale resolution guards the removal; M-2 "already wins" without an index; L-1 a `RESOLVED` step's list unchecked at read-back; L-2 recognition without `authoritative`; L-3 an empty `NOTHING_TO_CHANGE` | All resolved in "As built (F-3)", review round, with tests |
+| `spec-guardian`, F-3 | `wo16/F-3-primary` at `cf80b88` | Approve with changes: R-1 already-wins exempt from DP-055's refusal; R-2 an absent ownership check passes beside a list; D-4 1→1 is a heuristic, undeclared; D-5 `primaryAfter` for `NO_EXECUTABLES`; D-6 recognition on a changed list | R-1, R-2, D-5, D-6 resolved in code; D-4 declared (deviation 1, SE-112). With the round, from the coordinator: six named tests written, and `PrimaryNeedsShim` reconciled across the schema notes (deviation 2) |

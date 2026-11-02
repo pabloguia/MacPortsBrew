@@ -790,7 +790,7 @@ exactly one — is refused (`PRIMARY_DECISION_MISSING`).
 |---|---|---|
 | `NOTHING_TO_CHANGE` | `executables`, `pathUsed` | Every executable of the source's list already resolves to the destination package. Completed with no dispatch (`NOTHING_TO_CHANGE` disposition); `VERIFY_RESOLUTION` checks it at run time |
 | `NO_EXECUTABLES` | — | The source's list is known and empty. No `VERIFY_RESOLUTION`, and an empty list everywhere |
-| `REFUSED` | `executables`, `reasons`, `package`, `pathUsed` | Not planned. `executables` is the source's whole list, `reasons` each refused one with its reason; `package` instead when no list was read or the mapping is not 1→1. The gate refuses it: `PRIMARY_NEEDS_SHIM` (exit 4, `ErrorId::PrimaryNeedsShim`) for the shim reasons, `PRIMARY_REFUSED` for the rest |
+| `REFUSED` | `executables`, `reasons`, `package`, `pathUsed` | Not planned. `executables` is the source's whole list, `reasons` each refused one with its reason; `package` instead when no list was read or the mapping is not 1→1. The gate refuses it: `PRIMARY_NEEDS_SHIM` for the shim reasons, `PRIMARY_REFUSED` for the rest; the gate's report exits 4 as for every refusal. `ErrorId::PrimaryNeedsShim` (exit 4) is defined but not raised by this build: it is reserved for the part that offers a consented shim (`docs/schemas/README.md`) |
 | `UNKNOWN` | — | A decision written by a newer build; never acted on |
 
 `pathUsed` is the snapshot's home-redacted `PATH`, kept whole because the rule

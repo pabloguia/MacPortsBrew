@@ -310,7 +310,9 @@ pub enum ExecutionRefusal {
     /// The primary decision refuses some executables with
     /// `PRIMARY_NEEDS_SHIM`: only a shim, which this release does not offer,
     /// could make the destination's copy win (F.md Design §4). Refused before
-    /// any step, under an allowance or not; `ErrorId::PrimaryNeedsShim`.
+    /// any step, under an allowance or not. The report exits 4 as every
+    /// refusal does; `ErrorId::PrimaryNeedsShim` is reserved for the part that
+    /// offers a consented shim (`docs/schemas/README.md`).
     PrimaryNeedsShim {
         /// The `SET_PRIMARY` step.
         step: u32,
@@ -1066,6 +1068,11 @@ fn primary_refusals(plan: &MigrationPlan, refusals: &mut Vec<ExecutionRefusal>) 
         .iter()
         .filter(|s| s.kind == StepKind::VerifyResolution)
         .collect();
+    // `NOTHING_TO_CHANGE` about no executable is `NO_EXECUTABLES` misspelt
+    // (security review of F-3, L-3).
+    if list.is_empty() && matches!(decision, PrimaryDecision::NothingToChange { .. }) {
+        disagree(step.index);
+    }
     match (list.is_empty(), resolutions.as_slice()) {
         // `NO_EXECUTABLES` and a package-level refusal: nothing to resolve.
         (true, []) => {}
@@ -1117,8 +1124,11 @@ fn primary_refusals(plan: &MigrationPlan, refusals: &mut Vec<ExecutionRefusal>) 
         // planner always writes it); and no skip is recorded in this build's
         // plan shape, so the probe set alone must equal the list (spec 04
         // check 4; SG2-N3).
+        // Absent only beside an empty list (a narrowed plan): once part H
+        // evaluates check 3 a plan that drops it must not pass this rule
+        // (spec-guardian review of F-3, R-2).
         let owned_agrees = match owned.as_slice() {
-            [] => true,
+            [] => list.is_empty(),
             [one] => name_set(one.iter()).as_ref() == Some(&list),
             _ => false,
         };

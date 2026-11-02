@@ -1993,3 +1993,136 @@ fn the_digest_hint_is_given_only_where_the_plan_could_be_put_to_the_gate() {
     assert!(text.contains("Plan digest: sha256:"), "{text}");
     assert!(!text.contains("To put exactly this plan"), "{text}");
 }
+/// Every file under `dir`, relative to it, skipping `skip`.
+fn files_under(dir: &Path, skip: &Path) -> BTreeSet<PathBuf> {
+    let mut found = BTreeSet::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(at) = pending.pop() {
+        if at == skip {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&at) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.insert(path.strip_prefix(dir).unwrap_or(&path).to_path_buf());
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn no_run_writes_outside_the_state_directory_or_the_providers() {
+    // SR-16: with **both** `HOME` and `TMPDIR` redirected into a scratch
+    // directory, a planned run, an execute-mode run and a dry run write
+    // nothing outside the state directory: not under the home, not under the
+    // temporary directory, not beside the repository the binary runs in.
+    // Every run here is `--replay` or `--from-snapshot`, so no provider is
+    // asked to write either (INV-05).
+    let scratch = Scratch::new("writes");
+    let home = scratch.path().join("home");
+    let tmp = scratch.path().join("tmp");
+    std::fs::create_dir_all(&home).expect("home");
+    std::fs::create_dir_all(&tmp).expect("tmp");
+    let env = [
+        ("HOME", home.to_str().expect("UTF-8 path")),
+        ("TMPDIR", tmp.to_str().expect("UTF-8 path")),
+    ];
+    let recording = fixture(BOTH);
+    let recording = recording.to_str().expect("UTF-8 path");
+    let snapshot = root().join("fixtures/snapshots/both-providers-intel-macos26-live.json");
+    let snapshot = snapshot.to_str().expect("UTF-8 path");
+    let repository_before = files_under(&root().join("fixtures"), Path::new(""));
+    let top_before: BTreeSet<_> = std::fs::read_dir(root())
+        .expect("the repository root")
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    let mut ran = 0;
+    for args in [
+        vec![
+            "--replay",
+            recording,
+            "migrate",
+            REPLAYED_SERVICE,
+            "--to",
+            MP,
+            "--today",
+            TODAY,
+        ],
+        vec![
+            "--replay",
+            recording,
+            "--json",
+            "--yes",
+            "migrate",
+            REPLAYED_SERVICE,
+            "--to",
+            MP,
+            "--today",
+            TODAY,
+        ],
+        vec![
+            "--replay",
+            recording,
+            "--yes",
+            "--dry-run",
+            "migrate",
+            REPLAYED_SERVICE,
+            "--to",
+            MP,
+            "--today",
+            TODAY,
+        ],
+        vec![
+            "--from-snapshot",
+            snapshot,
+            "migrate",
+            "htop",
+            "--to",
+            HB,
+            "--today",
+            TODAY,
+        ],
+        vec![
+            "--from-snapshot",
+            snapshot,
+            "migrate",
+            "htop",
+            "--to",
+            MP,
+            "--today",
+            TODAY,
+        ],
+    ] {
+        let output = run_with_env(&scratch, &args, &env);
+        assert!(
+            output.status.code().is_some(),
+            "{args:?} was killed: {}",
+            stderr(&output)
+        );
+        ran += 1;
+    }
+    assert_eq!(ran, 5);
+    assert_eq!(
+        files_under(scratch.path(), &scratch.state_dir()),
+        BTreeSet::new(),
+        "a run wrote outside the state directory"
+    );
+    assert_eq!(
+        files_under(&root().join("fixtures"), Path::new("")),
+        repository_before,
+        "a run wrote under fixtures/"
+    );
+    let top_after: BTreeSet<_> = std::fs::read_dir(root())
+        .expect("the repository root")
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(top_after, top_before, "a run wrote beside the repository");
+}

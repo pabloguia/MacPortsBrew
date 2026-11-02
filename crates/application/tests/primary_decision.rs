@@ -225,15 +225,12 @@ fn invariant_17_the_decision_rule_is_the_same_for_both_directions() {
             Some(PrimaryReason::NonProviderEntryWins),
             "m4 toward {to}"
         );
+        // A row that says the destination's own package wins while the
+        // destination is not installed is inconsistent, and refused the same
+        // way in both directions (spec-guardian review of F-3, R-1).
         assert_eq!(
             reason_for(&decide(&snap, &question(from, "htop", to, false)), "htop"),
-            if to == &hb {
-                // Already the destination's own: step 3 settles it before the
-                // destination's installation is ever asked about.
-                None
-            } else {
-                Some(PrimaryReason::PrimaryDestinationNotInstalled)
-            },
+            Some(PrimaryReason::PrimaryDestinationNotInstalled),
             "an uninstalled destination toward {to}"
         );
     }
@@ -778,4 +775,151 @@ fn no_executables_plans_a_command_less_set_primary_and_no_verify_resolution() {
         .verification
         .iter()
         .any(|c| matches!(c, VerificationCheck::LivenessProbe { .. })));
+}
+#[test]
+fn invariant_12_setting_a_primary_never_reorders_path() {
+    // "PATH is never reordered implicitly." The decision reads the one
+    // captured `PATH` and writes nothing back: `SET_PRIMARY` carries no
+    // command; a command's environment carries only the sanitised `PATH` its
+    // provider's invocation already ran with (INV-10), never one the plan
+    // built, and no argv names `PATH`; and the `PATH` the decision records is
+    // the snapshot's,
+    // entry for entry, in both directions — a predicted win and a refusal
+    // that only a reorder (or a shim) would answer alike.
+    let snap = htop_both_ways();
+    let before = snap.environment.path.clone();
+    for to in [HB, MP] {
+        let plan = plan(&snap, "htop", to);
+        for step in &plan.steps {
+            if step.kind == StepKind::SetPrimary {
+                assert!(step.commands.is_empty(), "toward {to}: {step:?}");
+            }
+            for command in &step.commands {
+                let recorded: Vec<Option<&String>> = snap
+                    .providers
+                    .values()
+                    .map(|p| p.invocation_environment.get("PATH"))
+                    .collect();
+                assert!(
+                    recorded.contains(&command.environment.get("PATH")),
+                    "toward {to}: {command:?}"
+                );
+                assert!(
+                    !command.argv.iter().any(|a| a.contains("PATH")),
+                    "toward {to}: {command:?}"
+                );
+            }
+        }
+        let decision = plan
+            .steps
+            .iter()
+            .find_map(|s| s.primary.as_ref())
+            .expect("one decision");
+        let used = match decision {
+            PrimaryDecision::NothingToChange { path_used, .. }
+            | PrimaryDecision::Refused { path_used, .. } => path_used,
+            other => panic!("toward {to}: {other:?}"),
+        };
+        assert_eq!(
+            used, &before,
+            "toward {to}: the order read is the order kept"
+        );
+    }
+    // Toward MacPorts only a reorder or a shim would make its copy win; the
+    // plan offers neither and says so.
+    let toward_mp = plan(&snap, "htop", MP);
+    assert!(toward_mp
+        .steps
+        .iter()
+        .filter_map(|s| s.primary.as_ref())
+        .any(|d| d.needing_a_shim().contains(&name("htop"))));
+    assert_eq!(snap.environment.path, before);
+}
+
+#[test]
+fn the_path_a_decision_used_is_home_redacted_in_plan_history_and_report() {
+    // SR-12. Capture writes `PATH` home-redacted (`capture_redaction.rs`); the
+    // decision keeps that redacted copy as `pathUsed`, the plan document — the
+    // report `migrate` prints — carries nothing else of it, and the run record
+    // carries no `PATH` at all, only whether the run-time one differed.
+    const HOME: &str = "/Users/testuser";
+    let mut snap = htop_both_ways();
+    snap.environment.path.push("~/.local/bin".into());
+    let run = macportsbrew_application::plan_run(
+        &snap,
+        &PolicyData::load_embedded().unwrap(),
+        &AnalysisOptions {
+            today: "2026-11-01".into(),
+            advanced: false,
+            only: BTreeSet::new(),
+        },
+        &PlanRequest {
+            package: "htop".into(),
+            to: id(HB),
+            retain_source: true,
+        },
+        &snap.providers.keys().cloned().collect::<Vec<_>>(),
+    )
+    .expect("a plan");
+    let plan = run.plan();
+    let Some(PrimaryDecision::NothingToChange { path_used, .. }) =
+        plan.steps.iter().find_map(|s| s.primary.as_ref())
+    else {
+        panic!("htop already wins toward Homebrew: {plan:?}");
+    };
+    assert_eq!(path_used, &snap.environment.path);
+    assert_eq!(path_used.last().map(String::as_str), Some("~/.local/bin"));
+
+    let document = serde_json::to_string(plan).expect("a plan serialises");
+    assert!(
+        document.contains("~/.local/bin"),
+        "the redacted entry is kept"
+    );
+    assert!(!document.contains(HOME) && !document.contains("testuser"));
+
+    let records: Vec<macportsbrew_application::StepRecord> = plan
+        .steps
+        .iter()
+        .map(|s| macportsbrew_application::StepRecord {
+            index: s.index,
+            kind: s.kind,
+            disposition: match s.kind {
+                StepKind::VerifyResolution => macportsbrew_application::Disposition::Resolved {
+                    executables: vec![name("htop")],
+                    path_differs: true,
+                },
+                _ => macportsbrew_application::Disposition::NotPerformedInThisBuild,
+            },
+        })
+        .collect();
+    let record = macportsbrew_application::run_record(
+        &run,
+        &records,
+        macportsbrew_domain::RunStart {
+            id: "20261101T120000Z-0000000000000001".into(),
+            started_at: "2026-11-01T12:00:00Z".into(),
+            tool_version: "0.1.0".into(),
+        },
+        None,
+    );
+    let text = serde_json::to_string(&record).expect("a record serialises");
+    for entry in &snap.environment.path {
+        assert!(
+            !text.contains(&format!("\"{entry}\"")),
+            "the record copies the PATH entry {entry}: {text}"
+        );
+    }
+    assert!(!text.contains(HOME) && !text.contains("testuser"));
+    // Whether the run-time `PATH` differed is said in the run report
+    // (`migrate.v1`'s `RESOLVED`), as a flag and never as the `PATH` itself.
+    let at = plan
+        .steps
+        .iter()
+        .position(|s| s.kind == StepKind::VerifyResolution)
+        .expect("a resolution step");
+    let said = serde_json::to_string(&records[at].disposition).expect("a disposition serialises");
+    assert!(said.contains("\"pathDiffers\":true"), "{said}");
+    for entry in &snap.environment.path {
+        assert!(!said.contains(&format!("\"{entry}\"")), "{said}");
+    }
 }

@@ -1929,3 +1929,85 @@ fn check_has_no_answering_read_is_unchanged() {
         }
     )));
 }
+#[test]
+fn liveness_probes_plus_recorded_skips_equal_the_list() {
+    // SG2-N3 (spec 04 check 4: a probe is "skippable with a recorded
+    // reason"). This build's plan shape records no skip, so the probe set
+    // alone must equal the list: one per executable, none for a name outside
+    // it. A plan that carries no ownership check at all agrees only when the
+    // list is empty (spec-guardian review of F-3, R-2).
+    let base = with_decision(nothing_to_change());
+    let verify = position(&base, StepKind::VerifyDestination);
+    let disagrees = |plan: &MigrationPlan| {
+        primary_refusals(plan)
+            .iter()
+            .any(|r| matches!(r, ExecutionRefusal::ExecutableListsDisagree { .. }))
+    };
+    let probes = |plan: &MigrationPlan| -> Vec<String> {
+        plan.steps[verify]
+            .verification
+            .iter()
+            .filter_map(|c| match c {
+                VerificationCheck::LivenessProbe { executable, .. } => Some(executable.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    // The planner's own shape: one probe, for the one executable.
+    assert_eq!(probes(&base), ["gnu-sed"]);
+    assert!(!disagrees(&base));
+
+    // No probe and no recorded skip: the list is not covered.
+    let mut none = base.clone();
+    none.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    // A probe for a name the list does not hold, beside the right one.
+    let mut extra = base.clone();
+    extra.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbe {
+            executable: "gsed".into(),
+            flag: "--version".into(),
+        });
+    // The probe swapped for one of another name: the count is right, the set
+    // is not.
+    let mut swapped = base.clone();
+    for c in &mut swapped.steps[verify].verification {
+        if let VerificationCheck::LivenessProbe { executable, .. } = c {
+            *executable = "gsed".into();
+        }
+    }
+    // The ownership check dropped beside a non-empty list (R-2).
+    let mut unowned = base.clone();
+    unowned.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::ExecutablesOwnedByDestination { .. }));
+    for (what, plan) in [
+        ("no probe", none),
+        ("a probe outside the list", extra),
+        ("a probe of another name", swapped),
+        ("no ownership check beside a list", unowned),
+    ] {
+        assert!(disagrees(&plan), "{what}");
+    }
+
+    // `NOTHING_TO_CHANGE` about no executable is `NO_EXECUTABLES` misspelt
+    // (security review of F-3, L-3), even with every list empty.
+    let mut empty = with_decision(macportsbrew_domain::PrimaryDecision::NothingToChange {
+        executables: BTreeSet::new(),
+        path_used: Vec::new(),
+    });
+    let resolution = position(&empty, StepKind::VerifyResolution);
+    empty.steps.remove(resolution);
+    renumber(&mut empty);
+    for c in &mut empty.steps[verify].verification {
+        if let VerificationCheck::ExecutablesOwnedByDestination { executables } = c {
+            executables.clear();
+        }
+    }
+    empty.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    assert!(disagrees(&empty), "an empty NOTHING_TO_CHANGE");
+}
