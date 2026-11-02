@@ -84,7 +84,12 @@ Remove a line when the owner has done it, citing the commit.
   gate skipped `timeout 900 git commit`, `env X=1 git commit` and other
   prefixed forms, and validated the main checkout for a worktree or
   `git -C <dir>` commit; worktree commit `cf80b88` landed unvalidated that way.
-  Action, on a topic branch from `main`:
+  A third `security-reviewer` round (2026-11-02, README "Review") says **apply
+  with changes**. F1: confine the validated root to this project's repository
+  with a `--git-common-dir` check. F2: report the validated root on allow, and
+  record one live worktree-agent commit. Land both before or while applying; a
+  session cannot make that draft without editing a copy of a guarded file.
+  Action, on a topic branch from `main`, after fixing F1 and F2 in the patch:
   `git apply docs/passes/16-staged/F/07-commit-gate-prefix-and-worktree.patch docs/passes/16-staged/F/08-test-hooks-commit-gate.patch`,
   then `scripts/generate-codex-layer.sh` (the `.codex/hooks/` mirrors are not
   in the patches), then `scripts/validate.sh --quick`, then commit the two hooks
