@@ -48,14 +48,6 @@ Append items here as they appear. Each line gives:
 
 Remove a line when the owner has done it, citing the commit.
 
-- **Apply the staged capture-script patches `F/05` and `F/06`** (blocks F-2b's
-  live recapture only; staged at `docs/passes/16-staged/F/`, read its
-  `README.md`). Action, from the repository root on a topic branch:
-  `git apply docs/passes/16-staged/F/05-capture-executables.patch docs/passes/16-staged/F/06-test-gates-capture-argv.patch`,
-  then `scripts/validate.sh`, then commit both in one commit and open the pull
-  request. `06` fails against the script without `05`, so apply them together.
-  Once merged, the session runs the capture itself. A follow-up owner patch
-  (R2 in the README) is recorded there, not here: it blocks nothing.
 - **Rule DP-054** (blocks nothing; `docs/decisions-pending.md`). Whether to
   relax DP-032 and DP-016 for `--replay` so replayed Homebrew plans keep showing.
   Action: reply (a) to keep the rulings as built, or (c) to relax them; the
@@ -137,3 +129,4 @@ session stopped and why.
 - 2026-11-01, later: F-0 merged (PR #55, `caf8799`). F-1 on `wo16/F-1-stage`: `F/05` and `F/06` staged, both apply cleanly to `caf8799`; security-reviewer approved with changes twice, all findings resolved or recorded in the staging README. F-2a started in an isolated worktree on `wo16/F-2a-reads`.
 - 2026-11-01, later: F-1 merged (PR #56, `a163d5d`). F-2a built in an isolated worktree on `wo16/F-2a-reads`; two review rounds (spec-guardian, security-reviewer) and two independent mutation proofs, every finding fixed or handed to F-2b in F.md.
 - 2026-11-01, later: F-2a merged (PR #57, `111ab0e`); the owner deleted the merged remote branches. F-2b built in an isolated worktree on `wo16/F-2b-capture`, three fix rounds; the live recapture is handed to F-3 (it waits on `F/05` and `F/06`).
+- 2026-11-01, later: F-2b merged (PR #58, `6ee88ee`). The owner applied `F/05` and `F/06` (PR #59, `1a81b2a`, merged `1c74723`); their item leaves Needs the owner. F-3 started on `wo16/F-3-primary` in an isolated worktree; the live recapture is its own commit there.
