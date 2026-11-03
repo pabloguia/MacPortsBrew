@@ -96,14 +96,15 @@ MacPorts' `mportselect` joins both link source and target with `${prefix}`, and
 other provider's binary (R-6, 2026-09-02). Layer 4 is not a preference for
 owning more; it is the absence of an alternative.
 
-### Layer 1 inside a run (part F, work order 16, not built; SE-112)
+### Layer 1 inside a run (part F, work order 16; the decision built in F-3; SE-112)
 
 The first mutating release performs layer 1 as a run's outcome, and writes
-nothing outside the providers for it (DP-047 (b)). **Today**, the execution gate
-refuses every plan the planner builds before its first step, because
-`SET_PRIMARY` carries a check nothing can evaluate there and
-`VERIFY_DESTINATION` carries four that part H has not built
-(`CheckNotEvaluableInThisBuild`); no real plan reaches `SET_PRIMARY`.
+nothing outside the providers for it (DP-047 (b)). **Today** the planner decides
+the primary by the steps below and `SET_PRIMARY` carries that decision and no
+command; the execution gate still refuses every plan the planner builds before
+its first step, because `VERIFY_DESTINATION` carries four checks part H has not
+built (`CheckNotEvaluableInThisBuild`), and this build dispatches no mutation.
+No real plan reaches `SET_PRIMARY` in a run.
 
 **MUST.** The executables a primary concerns are the source package's own,
 from the provider's file list of the installed package (`04`, Verification
@@ -122,23 +123,31 @@ providers — in this order, and the first step that answers decides:
    not record it) → `PRIMARY_RESOLUTION_UNKNOWN`. Observed and found nowhere on
    `PATH` is a different answer, handled in step 6.
 3. The winner is owned, authoritatively, by the destination provider's
-   destination package → nothing to change. Owned by the destination provider
-   but by another package, or by no package it names →
+   destination package → nothing to change, provided its position on `PATH`
+   was recorded (else `PRIMARY_UNPREDICTABLE`: "already wins" is an
+   observation of the search order only with the index) and the destination is
+   installed (else `PRIMARY_DESTINATION_NOT_INSTALLED`, as in step 5: the row
+   is inconsistent and refused the same way in both directions). Owned by the
+   destination provider but by another package, or by no package it names →
    `OWNED_BY_ANOTHER_PACKAGE`.
 4. The winner is not a provider's → `NON_PROVIDER_ENTRY_WINS`; a provider's
    whose ownership is not authoritative → `WINNER_NOT_AUTHORITATIVE`.
 5. The destination is not installed → `PRIMARY_DESTINATION_NOT_INSTALLED`, in
    both directions (DP-055 (a), the reversible default while the owner rules).
-   Installed, but its placement is unknown → `PRIMARY_UNPREDICTABLE`; not linked
-   into its own `bin` or `sbin` → `PRIMARY_NEEDS_SHIM`; its file list lacks the
-   executable → `DESTINATION_LACKS_EXECUTABLE`.
+   Installed: its file list is not known → `PRIMARY_UNPREDICTABLE`; it lacks
+   the executable → `DESTINATION_LACKS_EXECUTABLE`; then its placement: unknown
+   → `PRIMARY_UNPREDICTABLE`, not linked into its own `bin` or `sbin` →
+   `PRIMARY_NEEDS_SHIM`. (Whether it ships the name is asked before where it
+   links it: a placement says nothing about a name the package does not ship.)
 6. Linked: its directory's position `d` is the first absolute `PATH` entry equal,
    by path components, to the destination's detected `bin` or `sbin`. A relative
    or empty entry ahead of `d` → `PRIMARY_UNPREDICTABLE`; no such entry →
-   `PRIMARY_NEEDS_SHIM`. Against the winner's recorded position `w`: missing →
-   `PRIMARY_UNPREDICTABLE`; `d < w` → nothing to change; `d > w` →
-   `PRIMARY_NEEDS_SHIM`; `d == w` → `SAME_DIRECTORY`. Found nowhere on `PATH` →
-   nothing to change.
+   `PRIMARY_NEEDS_SHIM`. Against the winner's recorded position `w` (a winner
+   step 3 did not settle, so not the destination's): missing →
+   `PRIMARY_UNPREDICTABLE`; `d > w` → `PRIMARY_NEEDS_SHIM`; `d == w` →
+   `SAME_DIRECTORY`. `d < w`, or found nowhere on `PATH`, contradicts the
+   placement — a shell searching `PATH` would have found the destination's copy
+   first — so either is `PRIMARY_UNPREDICTABLE`, never a predicted win.
 
 One refused executable refuses the package, and the refusal lists every
 executable with its reason. Every refusal happens before any install;
@@ -150,7 +159,8 @@ runs the system tool today — is a Tier 4 choice inside this MUST (SE-112).
 **What this reaches.** Under DP-055 (a), a run completes only where the
 destination is already installed and already wins (step 3): an uninstalled
 destination is refused at step 5, and an installed, linked one ahead of the
-winner would already be the winner. Part F does not migrate a primary to a
+winner would already be the winner, so step 6 refuses the capture that says
+otherwise. Part F does not migrate a primary to a
 destination it installs. A real plan also waits on part H's checks (DP-051).
 
 **MUST.** The plan records the `PATH` its decision read, home-redacted, so the
@@ -161,8 +171,9 @@ the text says to check `command -v <name>` and that `hash -r` clears a stale
 hash.
 
 **The shadowing MUST above, and what part F covers of it.** An executable on
-the source's list never newly shadows a system tool: a predicted win only
-displaces a winner that is already a provider's. What part F cannot see is an
+the source's list never newly shadows a system tool: a plan completes only where
+step 3 observed the destination's own package already winning the name, so
+nothing that wins today is displaced. What part F cannot see is an
 executable the destination ships beyond the source's list. Where the destination
 is installed, its list is read and such an executable is named; where it is not,
 installing it links everything it ships at its own `PATH` position, which can

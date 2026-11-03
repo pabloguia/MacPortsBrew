@@ -207,6 +207,7 @@ fn not_recognised(why: &NotRecognised) -> NotRecognisedDoc<'_> {
         NotRecognised::DestinationNotActive { run_id } => ("DESTINATION_NOT_ACTIVE", Some(run_id)),
         NotRecognised::PrimaryIsShim { run_id } => ("PRIMARY_IS_SHIM", Some(run_id)),
         NotRecognised::PrimaryNotConfirmed { run_id } => ("PRIMARY_NOT_CONFIRMED", Some(run_id)),
+        NotRecognised::ExecutablesUnknown { run_id } => ("EXECUTABLES_UNKNOWN", Some(run_id)),
     };
     NotRecognisedDoc {
         reason,
@@ -634,7 +635,22 @@ fn migrate_with(
             // The gate is the one producer of an allowance, and this build's
             // gives none: the read-only loop, exactly as before.
             Some(match mutation_allowance() {
-                None => executor::run(&planned, &registry, &ctx.redaction),
+                // `VERIFY_RESOLUTION` is answered by a fresh search of this
+                // machine's `PATH` and the providers' own answers, through a
+                // site the loop builds only after the gate passed the plan.
+                None => executor::run(
+                    &planned,
+                    &registry,
+                    || {
+                        executor::MachineResolutionSite::new(
+                            ctx.resolution_machine()
+                                .map(|m| Box::new(m) as Box<dyn macportsbrew_domain::MachineRead>),
+                            macportsbrew_adapters::registry::build(&registry),
+                            ctx.redaction.clone(),
+                        )
+                    },
+                    &ctx.redaction,
+                ),
                 Some(allowance) => execute_mutating(
                     ctx,
                     request,

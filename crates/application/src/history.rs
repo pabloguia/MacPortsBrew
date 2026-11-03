@@ -26,9 +26,9 @@ use crate::executor::{
     outcome_of, Disposition, HaltReason, PlannedRun, RunOutcome, StepRecord, Unevaluable,
 };
 use macportsbrew_domain::{
-    Direction, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan, NotRestorable,
-    ProviderId, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
-    RunRecord, RunStart, RunStatus, RunSubject, Snapshot, StepResult,
+    Direction, ExecutableName, ExecutableOwner, HistoryView, MigrationKey, MigrationPlan,
+    NotRestorable, ProviderId, RecordStanding, RecordedStep, RecordedVersions, ResolutionState,
+    Restorability, RunEnding, RunRecord, RunStart, RunStatus, RunSubject, Snapshot, StepResult,
 };
 
 /// The history record of `run`, whose steps ended as `records`.
@@ -81,7 +81,35 @@ pub fn run_record(
         action: plan.recommendation.clone(),
         overrode: plan.overrode.clone(),
         retain_source: plan.retain_source,
-        primary_after: plan.primary_after.clone(),
+        // `history.v3` (SG-12): what was observed to resolve. The destination
+        // only when this run's `VERIFY_RESOLUTION` resolved every executable to
+        // it — or, for a package that installs none (`NO_EXECUTABLES`), when
+        // its `SET_PRIMARY` was carried out, since nothing then stays with the
+        // source (spec-guardian review of F-3, D-5); otherwise the source,
+        // whatever the plan predicted.
+        primary_after: if records.iter().any(|r| match &r.disposition {
+            Disposition::Resolved { .. } => true,
+            Disposition::NothingToChange => plan.steps.iter().any(|s| {
+                s.index == r.index
+                    && matches!(
+                        s.primary,
+                        Some(macportsbrew_domain::PrimaryDecision::NoExecutables)
+                    )
+            }),
+            _ => false,
+        }) {
+            plan.destination.clone()
+        } else {
+            plan.source.clone()
+        },
+        primary_executables: Some(
+            plan.steps
+                .iter()
+                .find(|s| s.kind == macportsbrew_domain::StepKind::SetPrimary)
+                .and_then(|s| s.primary.as_ref())
+                .map(|d| d.executables().into_iter().collect())
+                .unwrap_or_default(),
+        ),
     };
     RunRecord::new(
         start,
@@ -124,6 +152,13 @@ fn result_of(disposition: &Disposition) -> (StepResult, bool) {
         Disposition::SnapshotTaken => (StepResult::SnapshotTaken, false),
         Disposition::RecordPendingReadBack => (StepResult::RecordPendingReadBack, false),
         Disposition::NotDispatchedMutating => (StepResult::NotDispatchedMutating, false),
+        Disposition::NothingToChange => (StepResult::NothingToChange, false),
+        Disposition::Resolved { executables, .. } => (
+            StepResult::Resolved {
+                executables: executables.clone(),
+            },
+            true,
+        ),
         Disposition::Performed { ends } => (StepResult::Performed { ends: ends.clone() }, true),
         Disposition::Halted {
             reason,
@@ -170,7 +205,9 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
         // A mutating command was handed to the site, whatever became of it:
         // a refusal of the first counts too (D4, failing toward a record).
         | HaltReason::MutationFailed { .. }
-        | HaltReason::MutationRefused { .. } => true,
+        | HaltReason::MutationRefused { .. }
+        // Given only by `judge_resolution`, after the resolution site asked.
+        | HaltReason::ResolutionMismatch { .. } => true,
         HaltReason::Unevaluable { why, .. } => match why {
             Unevaluable::NoEvaluationForStepKind | Unevaluable::NoCommand => false,
             Unevaluable::NoCheck
@@ -180,6 +217,8 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
             | Unevaluable::PresenceBeforeUnknown
             | Unevaluable::PresentBeforeTheRun
             | Unevaluable::ActiveAloneAfterAnInstall
+            | Unevaluable::ResolutionNotObserved
+            | Unevaluable::WinnerIndexUnknown
             // Given by `judge_step` whatever the reads, so possibly after one.
             | Unevaluable::NotCertifiedHere => true,
         },
@@ -369,9 +408,16 @@ pub enum NotRecognised {
         /// The run history shows.
         run_id: String,
     },
-    /// The executable does not resolve to the record's primary, or its
-    /// resolution is unknown or absent.
+    /// An executable does not resolve to the record's primary, or its
+    /// resolution is unknown or absent, or the record (`history.v2`) never
+    /// stated which executables its primary was about.
     PrimaryNotConfirmed {
+        /// The run history shows.
+        run_id: String,
+    },
+    /// The fresh capture's list for the source package is not `KNOWN`, so
+    /// which executables to check is not established (`history.v3`).
+    ExecutablesUnknown {
         /// The run history shows.
         run_id: String,
     },
@@ -397,14 +443,12 @@ pub enum Recognition {
 /// Recognised only when: no record is stamped later than `run_stamp`; the
 /// key's latest stamp carries exactly one record; that record is a
 /// retain-source `SUCCESS`; `fresh` shows the destination holding the
-/// destination package active; and the executable the plan verifies resolves
-/// to the record's `primaryAfter`, authoritatively or not, and to nothing
-/// else. A shim resolution is [`NotRecognised::PrimaryIsShim`].
-///
-/// The executable is the destination package's name, the one the plan's
-/// `VERIFY_DESTINATION` probes; a package with no executable of that name is
-/// never recognised, so INV-16 then rests on `ADD_DESTINATION` being
-/// idempotent (owed by a later slice).
+/// destination package active; the fresh source list is `KNOWN`; the record's
+/// `primaryAfter` is the destination; and **every** `primaryExecutables` entry
+/// resolves, through `resolution_of`, to the destination package and to
+/// nothing else (`history.v3`, SG-12). A shim resolution is
+/// [`NotRecognised::PrimaryIsShim`]; a `history.v2` record, which states no
+/// list, is never recognised.
 #[must_use]
 pub fn recognise_retained_run(
     view: &HistoryView,
@@ -444,7 +488,43 @@ pub fn recognise_retained_run(
     if !active {
         return Recognition::NotRecognised(NotRecognised::DestinationNotActive { run_id });
     }
-    match resolves_to(fresh, &name, &record.subject().primary_after) {
+    // `history.v3` (SG-12): every executable the record's decision was about
+    // must resolve, in the fresh capture, to the destination package by its
+    // provider — one unconfirmed executable is enough to plan again. A v2
+    // record never stated them, so it is never recognised.
+    let Some(executables) = &record.subject().primary_executables else {
+        return Recognition::NotRecognised(NotRecognised::PrimaryNotConfirmed { run_id });
+    };
+    let source_list = fresh
+        .providers
+        .get(&plan.source)
+        .and_then(|p| p.inventory.metadata.get(&plan.package.name))
+        .and_then(|m| m.executable_list.known());
+    let Some(source_list) = source_list else {
+        return Recognition::NotRecognised(NotRecognised::ExecutablesUnknown { run_id });
+    };
+    // The fresh list must be the one the record checked: a source that now
+    // ships another executable has one nobody has resolved (spec-guardian
+    // review of F-3, D-6). An empty pair is a package with no executable,
+    // whose re-run is recognised on the rest (D-5).
+    if source_list.iter().ne(executables.iter()) {
+        return Recognition::NotRecognised(NotRecognised::PrimaryNotConfirmed { run_id });
+    }
+    if record.subject().primary_after != plan.destination {
+        return Recognition::NotRecognised(NotRecognised::PrimaryNotConfirmed { run_id });
+    }
+    let mut answer = Resolved::Primary;
+    for executable in executables {
+        match resolves_to(fresh, executable, &plan.destination, &name) {
+            Resolved::Primary => {}
+            Resolved::Shim => {
+                answer = Resolved::Shim;
+                break;
+            }
+            Resolved::Other => answer = Resolved::Other,
+        }
+    }
+    match answer {
         Resolved::Primary => Recognition::Recognised { run_id },
         Resolved::Shim => Recognition::NotRecognised(NotRecognised::PrimaryIsShim { run_id }),
         Resolved::Other => {
@@ -459,26 +539,32 @@ enum Resolved {
     Other,
 }
 
-/// What every provider's capture says `executable` resolves to. A shim
-/// anywhere is a shim; otherwise every resolution found must name `primary`,
-/// and at least one must exist.
-fn resolves_to(fresh: &Snapshot, executable: &str, primary: &ProviderId) -> Resolved {
-    let owners: Vec<&ExecutableOwner> = fresh
-        .providers
-        .values()
-        .filter_map(|p| p.resolutions.get(executable))
-        .map(|r| &r.owner)
-        .collect();
-    if owners
-        .iter()
-        .any(|o| matches!(o, ExecutableOwner::MacportsbrewShim))
-    {
-        return Resolved::Shim;
-    }
-    let primary_owns = |o: &&ExecutableOwner| matches!(o, ExecutableOwner::Provider { provider, .. } if provider == primary);
-    if !owners.is_empty() && owners.iter().all(primary_owns) {
-        Resolved::Primary
-    } else {
-        Resolved::Other
+/// What the fresh capture says `executable` resolves to, through
+/// `resolution_of` (the one accessor, F.md Design §3): a shim is a shim;
+/// otherwise a `FOUND` the destination provider owns as the destination
+/// package, and nothing else, is the primary.
+fn resolves_to(
+    fresh: &Snapshot,
+    executable: &ExecutableName,
+    destination: &ProviderId,
+    package: &str,
+) -> Resolved {
+    match fresh.resolution_of(executable) {
+        ResolutionState::Found { resolution, .. } => match &resolution.owner {
+            ExecutableOwner::MacportsbrewShim => Resolved::Shim,
+            // By the provider's own records, as `VERIFY_RESOLUTION` requires
+            // (security review of F-3, L-2).
+            ExecutableOwner::Provider {
+                provider,
+                package: Some(owned),
+            } if provider == destination && owned == package && resolution.authoritative => {
+                Resolved::Primary
+            }
+            ExecutableOwner::Provider { .. }
+            | ExecutableOwner::System
+            | ExecutableOwner::External
+            | ExecutableOwner::Unknown => Resolved::Other,
+        },
+        ResolutionState::NotOnPath | ResolutionState::NotObserved => Resolved::Other,
     }
 }

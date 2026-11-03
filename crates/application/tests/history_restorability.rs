@@ -40,6 +40,7 @@ fn record(steps: Vec<RecordedStep>, snapshot: Option<&str>) -> RunRecord {
             overrode: None,
             retain_source: true,
             primary_after: ProviderId::new("a"),
+            primary_executables: Some(Vec::new()),
         },
         steps,
         RunEnding::Completed,

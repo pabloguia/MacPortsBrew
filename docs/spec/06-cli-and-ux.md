@@ -189,10 +189,10 @@ package names, findings. Never: usernames, home paths, environment variable
 values, tokens, or anything outside the two providers' scope. The user sees the
 file and chooses to share it; MacPortsBrew never uploads it.
 
-**The limit of a plan's `PATH`** (part F, work order 16, not built; SE-112). A
-plan, and the run record built from it, will carry the `PATH` the primary
-decision read, with the home directory and the account name redacted and every
-other entry kept: the decision reads each entry ahead of the destination's and
+**The limit of a plan's `PATH`** (part F, work order 16, built in F-3; SE-112). A
+plan carries the `PATH` the primary decision read, with the home directory and
+the account name redacted and every other entry kept (the run's history record
+carries no `PATH`; its report says only whether the run-time one differed): the decision reads each entry ahead of the destination's and
 the winner's, so a reader must be able to check all of them. Directory names under `/opt`, `/pkg` or
 an application's folder can therefore appear in a plan a user shares, as they
 already do in a snapshot. That value never enters `doctor --report`, whose MUST

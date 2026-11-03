@@ -254,6 +254,12 @@ fn dispatched_positions(plan: &MigrationPlan) -> Vec<usize> {
                     evidence: Vec::new(),
                 }
             }
+            // A fresh resolution is a read of `PATH`, never a provider
+            // command: not a dispatch.
+            Action::Resolve => Disposition::Resolved {
+                executables: Vec::new(),
+                path_differs: false,
+            },
             Action::DispatchMutating { .. } | Action::TakeSnapshot | Action::RecordHistory => {
                 panic!("no allowance, so never a mutating dispatch or a bracket performed")
             }
@@ -408,11 +414,30 @@ fn invariant_19_manual_review_halts_before_any_dispatch() {
 
 #[test]
 fn the_bracketing_steps_are_not_performed_and_verify_resolution_cannot_pass() {
-    let plan = plan_for(&install_needed(HB).0, "gnu-sed", MP, false);
+    let mut plan = plan_for(&install_needed(HB).0, "gnu-sed", MP, false);
     assert_eq!(
         next_action(&plan, 0, &[]),
         Action::PassOver(Disposition::NotPerformedInThisBuild)
     );
+    // This fixture records no executable list, so since F-3 the planner writes
+    // no `VERIFY_RESOLUTION` (a package-level refusal states no list). One is
+    // put back with no check: the shape that still has no evaluation.
+    let at = position(&plan, StepKind::SetPrimary) + 1;
+    plan.steps.insert(
+        at,
+        macportsbrew_domain::MigrationStep {
+            index: 0,
+            kind: StepKind::VerifyResolution,
+            provider: None,
+            commands: Vec::new(),
+            verification: Vec::new(),
+            primary: None,
+            reason: macportsbrew_domain::Reason::new("reason.verify_resolution"),
+        },
+    );
+    for (i, step) in plan.steps.iter_mut().enumerate() {
+        step.index = u32::try_from(i).unwrap() + 1;
+    }
     let resolution = position(&plan, StepKind::VerifyResolution);
     let records: Vec<StepRecord> = (0..resolution)
         .map(|p| {
@@ -432,6 +457,24 @@ fn the_bracketing_steps_are_not_performed_and_verify_resolution_cannot_pass() {
             why: Unevaluable::NoEvaluationForStepKind
         })
     );
+    // With its `RESOLVES_TO` checks it is answered by a fresh resolution
+    // (F-3), never a provider read; and any other check beside them takes it
+    // back to no evaluation (SG-6).
+    plan.steps[resolution]
+        .verification
+        .push(VerificationCheck::ResolvesTo {
+            executable: macportsbrew_domain::ExecutableName::parse("gnu-sed").unwrap(),
+            provider: ProviderId::new(MP),
+            package: "gsed".into(),
+        });
+    assert_eq!(next_action(&plan, resolution, &records), Action::Resolve);
+    plan.steps[resolution]
+        .verification
+        .push(VerificationCheck::NoCrossProviderLinkage);
+    assert!(matches!(
+        next_action(&plan, resolution, &records),
+        Action::Halt(HaltReason::Unevaluable { .. })
+    ));
     let last = plan.steps.len() - 1;
     assert_eq!(plan.steps[last].kind, StepKind::RecordHistory);
 }
@@ -750,6 +793,7 @@ fn every_error_id() -> Vec<ErrorId> {
         ErrorId::RunInterrupted,
         ErrorId::SafetyBlocked,
         ErrorId::PlanNotShown,
+        ErrorId::PrimaryNeedsShim,
         ErrorId::UserAborted,
         ErrorId::SafetyUnverifiable,
         ErrorId::ProviderPresenceUnproven,
@@ -776,6 +820,7 @@ fn every_error_id() -> Vec<ErrorId> {
             | ErrorId::RunInterrupted
             | ErrorId::SafetyBlocked
             | ErrorId::PlanNotShown
+            | ErrorId::PrimaryNeedsShim
             | ErrorId::UserAborted
             | ErrorId::SafetyUnverifiable
             | ErrorId::ProviderPresenceUnproven

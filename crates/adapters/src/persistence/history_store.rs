@@ -568,6 +568,7 @@ mod durable_tests {
                 overrode: None,
                 retain_source: true,
                 primary_after: destination.clone(),
+                primary_executables: Some(Vec::new()),
             },
             vec![
                 RecordedStep::new(

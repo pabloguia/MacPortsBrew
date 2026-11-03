@@ -363,3 +363,56 @@ fn the_not_installed_notice_is_true_when_a_provider_could_not_be_read() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+#[ignore = "needs the recapture, deferred to the owner (F.md, As built (F-3), Recapture: deferred): capture-fixture.sh hits ARG_MAX; and under DP-032 a replayed xz, which declares no service, may need another package"]
+fn migrate_reads_the_list_it_decides_on_and_a_replay_refuses_primary_resolution_unknown() {
+    // F-3 (handed on by F-2b): `migrate <package>` reads the lists of its
+    // mapping's two sides before planning, so the primary decision is made on
+    // the source package's real list — `xz` ships `lzcat` and `xz` — and never
+    // on its name. Under `--replay` nothing is resolved, so every executable
+    // is `PRIMARY_RESOLUTION_UNKNOWN`, deterministically, from the recording
+    // alone (INV-15).
+    let dir = scratch("migrate-lists");
+    let recording = recording_with_listings(&dir);
+    for to in ["macports", "homebrew"] {
+        let out = run(
+            &dir,
+            &[
+                "--replay",
+                recording.to_str().unwrap(),
+                "--today",
+                TODAY,
+                "--json",
+                "migrate",
+                "xz",
+                "--to",
+                to,
+            ],
+        );
+        let doc: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("{to}: {e}: {}", String::from_utf8_lossy(&out.stderr)));
+        let steps = doc["plan"]["steps"].as_array().expect("a plan");
+        let Some(set_primary) = steps.iter().find(|s| s["kind"] == "SET_PRIMARY") else {
+            // A plan that stops at manual review carries no decision; this
+            // fixture's xz is not one of those.
+            panic!("{to}: no SET_PRIMARY in {steps:?}");
+        };
+        let decision = &set_primary["primary"];
+        assert_eq!(decision["decision"], "REFUSED", "{to}: {decision}");
+        assert_eq!(
+            decision["executables"],
+            serde_json::json!(["lzcat", "xz"]),
+            "{to}: the list, not the package name"
+        );
+        assert_eq!(
+            decision["reasons"],
+            serde_json::json!({
+                "lzcat": "PRIMARY_RESOLUTION_UNKNOWN",
+                "xz": "PRIMARY_RESOLUTION_UNKNOWN"
+            }),
+            "{to}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

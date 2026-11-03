@@ -11,9 +11,9 @@ use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTAT
 use macportsbrew_domain::{
     Answer, ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence,
     DomainError, Elevation, EntryMode, ErrorId, MigrationPlan, MigrationStep, Outcome,
-    PackageIdentity, PackageKind, PackageMetadata, PlanCommand, PlanRisk, ProviderId,
-    ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind, SuccessSemantic,
-    VerificationCheck,
+    PackageIdentity, PackageKind, PackageMapping, PackageMetadata, PlanCommand, PlanRisk,
+    PrimaryDecision, ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind,
+    SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -37,7 +37,8 @@ pub const REASON_IDS: &[&str] = &[
     "reason.add_under_destination",
     "reason.already_under_destination",
     "reason.verify_destination",
-    "reason.set_primary_shim",
+    "reason.set_primary_decision",
+    "reason.system_tool_keeps_name",
     "reason.verify_resolution",
     "reason.remove_from_source",
     "reason.verify_removal",
@@ -815,10 +816,15 @@ pub fn plan_outcome(
     .then(|| unit.recommendation.outcome.clone());
 
     let mut steps = Vec::new();
+    // What resolves afterwards: the destination only when every executable is
+    // already the destination's (F.md Design §4); a plan with no decision
+    // (manual review) keeps the source.
+    let mut primary_after = source.clone();
     let mut index = 0u32;
     let mut next = |kind, provider: Option<ProviderId>, commands, verification, reason| {
         index += 1;
         MigrationStep {
+            primary: None,
             index,
             kind,
             provider,
@@ -837,6 +843,38 @@ pub fn plan_outcome(
             Reason::new("reason.snapshot_before_mutation"),
         ));
         let dest_name = destination_package.clone().unwrap_or_default();
+        // The primary decision, from the snapshot alone (F.md Design §4;
+        // 05's MUST step list). Made here because the expected executables of
+        // `VERIFY_DESTINATION` (04 check 3) are the source package's list, the
+        // same list the decision reads (SG-4).
+        let question = crate::primary::PrimaryQuestion {
+            source: &source,
+            source_package: &source_name,
+            destination: &request.to,
+            destination_package: destination_package.as_deref(),
+            destination_installed: destination_holds_it,
+            one_to_one: one_to_one(mapping.as_ref(), request.to == unit.source),
+        };
+        let decision = crate::primary::decide(snapshot, &question);
+        let expected: Vec<macportsbrew_domain::ExecutableName> =
+            decision.executables().into_iter().collect();
+        let keeping = crate::primary::system_tools_keeping_their_names(snapshot, &question);
+        if !keeping.is_empty() {
+            risks.push(PlanRisk {
+                id: "system_tool_keeps_name".into(),
+                reason: Reason::new("reason.system_tool_keeps_name")
+                    .with("provider", &request.to)
+                    .with(
+                        "executables",
+                        &keeping
+                            .iter()
+                            .map(macportsbrew_domain::ExecutableName::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                blocking: false,
+            });
+        }
         // The step stays in the plan when the destination already holds the
         // package, and carries no command. Consolidating onto a provider that
         // already has it is a removal from the other side, and the plan used to
@@ -925,59 +963,70 @@ pub fn plan_outcome(
                 }
                 checks.extend([
                     VerificationCheck::ProviderIntegrityCheck,
+                    // 04 check 3: the expected executables are the source
+                    // package's list, never the package name (SG-4); check 4,
+                    // one probe per executable (SG2-N3). An unknown list
+                    // expects nothing here, and the decision refuses the plan.
                     VerificationCheck::ExecutablesOwnedByDestination {
-                        executables: vec![dest_name.clone()],
+                        executables: expected.iter().map(ToString::to_string).collect(),
                     },
-                    VerificationCheck::LivenessProbe {
-                        executable: dest_name.clone(),
-                        flag: "--version".into(),
-                    },
-                    VerificationCheck::NoCrossProviderLinkage,
                 ]);
+                checks.extend(expected.iter().map(|e| VerificationCheck::LivenessProbe {
+                    executable: e.to_string(),
+                    flag: "--version".into(),
+                }));
+                checks.push(VerificationCheck::NoCrossProviderLinkage);
                 checks
             },
             Reason::new("reason.verify_destination"),
         ));
-        // The primary is set through the MacPortsBrew-managed directory in
-        // the user's home (SE-036), by a command of this tool's own, so the
-        // step is enumerated with its command and its elevation: none.
-        steps.push(next(
+        // No command (SG-3): this release sets no primary, it decides one. The
+        // decision travels as data, and the gate refuses every decision but
+        // `NOTHING_TO_CHANGE` and `NO_EXECUTABLES` before any step runs. The
+        // dispatch guard still keys on the kind alone.
+        let mut set_primary = next(
             StepKind::SetPrimary,
             Some(request.to.clone()),
-            // Marked as a self-invocation rather than left to be recognised by
-            // its program string. It is the one command in a plan that is not a
-            // provider invocation, so INV-10's sanitised environment is not what
-            // governs it - and the test named after INV-10 used to skip it by
-            // comparing `program` to a literal, which meant nobody noticed it
-            // carried no environment and a relative name at all. The type says
-            // which rule applies; an executor resolves its own binary instead of
-            // searching `PATH` for this one, which is the hazard `doctor` exists
-            // to warn about.
-            vec![PlanCommand {
-                // This tool's own command; it is always the real one.
-                placeholder: false,
-                target: CommandTarget::Tool,
-                program: "macportsbrew".into(),
-                argv: vec!["primary".into(), unit.name.clone(), request.to.to_string()],
-                environment: BTreeMap::new(),
-                elevation: Elevation::None,
-                // Stated here rather than read from `provider-commands.toml`,
-                // for the same reason the elevation beside it is: this is not a
-                // provider command, so that table does not describe it. This
-                // tool's own exit status is the answer, and it is this tool
-                // that will have to keep that true.
-                success: SuccessSemantic::ExitStatus,
-            }],
-            vec![VerificationCheck::ProviderReportsActive],
-            Reason::new("reason.set_primary_shim").with("provider", &request.to),
-        ));
-        steps.push(next(
-            StepKind::VerifyResolution,
-            None,
             vec![],
             vec![],
-            Reason::new("reason.verify_resolution").with("executable", &unit.name),
-        ));
+            Reason::new("reason.set_primary_decision").with("provider", &request.to),
+        );
+        set_primary.primary = Some(decision.clone());
+        steps.push(set_primary);
+        // One `RESOLVES_TO` per executable (SR-3), checked before any removal
+        // (`check_ordering`, SG-4). None for `NO_EXECUTABLES` or a
+        // package-level refusal: there is nothing to resolve (SG2-N2).
+        if !expected.is_empty() {
+            steps.push(next(
+                StepKind::VerifyResolution,
+                None,
+                vec![],
+                expected
+                    .iter()
+                    .map(|e| VerificationCheck::ResolvesTo {
+                        executable: e.clone(),
+                        provider: request.to.clone(),
+                        package: dest_name.clone(),
+                    })
+                    .collect(),
+                // One runnable check per name, each quoted when the name
+                // needs it (security review of F-3, M-1).
+                Reason::new("reason.verify_resolution")
+                    .with("checks", &macportsbrew_domain::command_v_checks(&expected)),
+            ));
+        }
+        // The destination where nothing would stay with the source: every
+        // executable already resolves to it, or there is none. The same
+        // answer `history.v3` records once the run carries the step out
+        // (spec-guardian review of F-3, fix round).
+        primary_after = if matches!(
+            decision,
+            PrimaryDecision::NothingToChange { .. } | PrimaryDecision::NoExecutables
+        ) {
+            request.to.clone()
+        } else {
+            source.clone()
+        };
         if !request.retain_source {
             let src_snapshot = &snapshot.providers[&source];
             steps.push(next(
@@ -1060,7 +1109,7 @@ pub fn plan_outcome(
         destination_package,
         retain_source: request.retain_source,
         entered_by: Some(entered_by),
-        primary_after: request.to.clone(),
+        primary_after,
         recommendation: Outcome::MigrateTo {
             provider: request.to.clone(),
         },
@@ -1074,6 +1123,28 @@ pub fn plan_outcome(
     plan.check_ordering()
         .map_err(|e| DomainError::new(ErrorId::Internal, e))?;
     Ok(PlanOutcome::Plan(Box::new(plan)))
+}
+
+/// Whether the plan's mapping is one package to one package (F.md Design §4):
+/// a unit planned onto its own side is the package itself; otherwise the
+/// mapping must have selected one candidate, with no other at the selected
+/// confidence. 1→many and many→1 are refused `PRIMARY_MAPPING_NOT_ONE_TO_ONE`.
+fn one_to_one(mapping: Option<&PackageMapping>, own_side: bool) -> bool {
+    if own_side {
+        return true;
+    }
+    let Some(mapping) = mapping else {
+        return false;
+    };
+    let Some(selected) = &mapping.selected else {
+        return false;
+    };
+    mapping
+        .candidates
+        .iter()
+        .filter(|c| c.confidence == selected.confidence)
+        .count()
+        == 1
 }
 
 /// The operations whose job is to read, and the only ones a detected

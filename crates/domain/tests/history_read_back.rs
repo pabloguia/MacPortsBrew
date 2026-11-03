@@ -8,9 +8,9 @@
 
 use macportsbrew_domain::history::{is_run_id, is_snapshot_file_name};
 use macportsbrew_domain::{
-    Direction, ErrorId, Outcome, PackageIdentity, ProviderId, RecordedStep, RecordedVersions,
-    RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepKind, StepResult, StoredRunRecord,
-    Version,
+    Direction, ErrorId, ExecutableName, Outcome, PackageIdentity, ProviderId, RecordedStep,
+    RecordedVersions, RunEnding, RunRecord, RunStart, RunStatus, RunSubject, StepKind, StepResult,
+    StoredRunRecord, Version,
 };
 use serde_json::Value;
 
@@ -46,7 +46,11 @@ fn subject(package: &str) -> RunSubject {
         },
         overrode: Some(Outcome::ManualReview),
         retain_source: true,
-        primary_after: destination,
+        // Nothing here resolved anything, so the source stays primary: a v3
+        // record names the destination only after a resolution shows it
+        // (security review of F-3, L-4).
+        primary_after: ProviderId::new("alpha"),
+        primary_executables: Some(Vec::new()),
     }
 }
 
@@ -192,7 +196,7 @@ fn the_stored_record_carries_its_schema_version_first() {
     let json =
         serde_json::to_string(&record(completed_steps(), RunEnding::Completed, None).stored())
             .unwrap();
-    assert!(json.starts_with(r#"{"schemaVersion":2,"id":""#), "{json}");
+    assert!(json.starts_with(r#"{"schemaVersion":3,"id":""#), "{json}");
 }
 
 #[test]
@@ -281,7 +285,43 @@ fn a_record_of_another_schema_version_or_with_unknown_fields_is_unusable() {
     };
     for (what, outcome) in [
         ("schema 1", tamper(&|v| v["schemaVersion"] = 1.into())),
-        ("schema 3", tamper(&|v| v["schemaVersion"] = 3.into())),
+        ("schema 4", tamper(&|v| v["schemaVersion"] = 4.into())),
+        // `history.v3` (F-3): the list is required in 3 and absent in 2.
+        (
+            "schema 3 without its primary executables",
+            tamper(&|v| {
+                v.as_object_mut().unwrap().remove("primaryExecutables");
+            }),
+        ),
+        (
+            "schema 2 with primary executables",
+            tamper(&|v| v["schemaVersion"] = 2.into()),
+        ),
+        (
+            "primary executables unsorted",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["b", "a"])),
+        ),
+        (
+            "primary executables twice",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["a", "a"])),
+        ),
+        (
+            "a primary executable outside the name class",
+            tamper(&|v| v["primaryExecutables"] = serde_json::json!(["../a"])),
+        ),
+        (
+            "nothing to change on a step that is not SET_PRIMARY",
+            tamper(&|v| {
+                v["steps"][0]["result"] = serde_json::json!({"result": "NOTHING_TO_CHANGE"});
+            }),
+        ),
+        (
+            "a resolution on a step that is not VERIFY_RESOLUTION",
+            tamper(&|v| {
+                v["steps"][2]["result"] =
+                    serde_json::json!({"result": "RESOLVED", "executables": ["a"]});
+            }),
+        ),
         ("schema 0", tamper(&|v| v["schemaVersion"] = 0.into())),
         ("top level", tamper(&|v| v["extra"] = 1.into())),
         ("package", tamper(&|v| v["package"]["extra"] = 1.into())),
@@ -820,4 +860,152 @@ fn a_read_only_loop_record_may_state_the_brackets_not_performed() {
     );
     assert!(!original.mutation_dispatched());
     assert_eq!(read_back(stored_json(&original)), Ok(original));
+}
+/// [`completed_steps`] with a `SET_PRIMARY` completed as `NOTHING_TO_CHANGE`
+/// and a `VERIFY_RESOLUTION` recorded `RESOLVED` for `resolved`, stored with
+/// `primaryExecutables` = `primary` and `primaryAfter` = `after`.
+fn resolution_record(resolved: &[&str], primary: &[&str], after: &str) -> Value {
+    let names = |list: &[&str]| -> Vec<ExecutableName> {
+        list.iter()
+            .map(|n| ExecutableName::parse(n).unwrap())
+            .collect()
+    };
+    let steps = vec![
+        step(
+            1,
+            StepKind::SnapshotBefore,
+            StepResult::SnapshotTaken,
+            false,
+        ),
+        step(2, StepKind::AddDestination, performed(), false),
+        step(3, StepKind::VerifyDestination, verified(), false),
+        step(4, StepKind::SetPrimary, StepResult::NothingToChange, false),
+        step(
+            5,
+            StepKind::VerifyResolution,
+            StepResult::Resolved {
+                executables: names(resolved),
+            },
+            false,
+        ),
+        step(
+            6,
+            StepKind::RecordHistory,
+            StepResult::RecordPendingReadBack,
+            false,
+        ),
+    ];
+    let mut value = stored_json(&record(steps, RunEnding::Completed, None));
+    value["primaryExecutables"] = serde_json::json!(primary);
+    value["primaryAfter"] = after.into();
+    value
+}
+
+#[test]
+fn a_resolved_step_naming_other_executables_is_unusable() {
+    // Mutant 28d; security review of F-3, L-1. The control reads back.
+    assert!(read_back(resolution_record(&["a"], &["a"], "beta")).is_ok());
+    for (resolved, primary) in [
+        (&["b"][..], &["a"][..]),
+        (&["a"][..], &["a", "b"][..]),
+        (&["a", "b"][..], &["a"][..]),
+    ] {
+        assert_eq!(
+            read_back(resolution_record(resolved, primary, "beta")).map(|_| ()),
+            Err(ErrorId::HistoryUnusable),
+            "{resolved:?} against {primary:?}"
+        );
+    }
+}
+
+#[test]
+fn nothing_to_change_on_a_step_other_than_set_primary_is_unusable() {
+    // Mutant 28f: the only defect is where `NOTHING_TO_CHANGE` stands. The
+    // control, on `SET_PRIMARY`, reads back.
+    let control = resolution_record(&["a"], &["a"], "beta");
+    assert!(read_back(control.clone()).is_ok());
+    let mut moved = control;
+    // `VERIFY_DESTINATION`, carried out and not dispatched, as a
+    // `NOTHING_TO_CHANGE` is stored: no other rule refuses it.
+    moved["steps"][2]["result"] = serde_json::json!({"result": "NOTHING_TO_CHANGE"});
+    moved["steps"][2]["dispatched"] = false.into();
+    assert_eq!(read_back(moved).map(|_| ()), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn a_primary_after_naming_the_destination_without_a_resolution_is_unusable() {
+    // Security review of F-3, L-4: `history.v3`'s `primaryAfter` is what was
+    // observed to resolve.
+    assert!(read_back(resolution_record(&["a"], &["a"], "beta")).is_ok());
+    // No `RESOLVED` step: the resolution halted, a run partial.
+    let unresolved = stored_json(&record(
+        vec![
+            step(
+                1,
+                StepKind::SnapshotBefore,
+                StepResult::SnapshotTaken,
+                false,
+            ),
+            step(2, StepKind::AddDestination, performed(), false),
+            step(3, StepKind::VerifyDestination, verified(), false),
+            step(4, StepKind::SetPrimary, StepResult::NothingToChange, false),
+            step(
+                5,
+                StepKind::VerifyResolution,
+                StepResult::Halted {
+                    ends: Vec::new(),
+                    error: ErrorId::SafetyBlocked,
+                    evidence: Vec::new(),
+                },
+                false,
+            ),
+            step(6, StepKind::RecordHistory, StepResult::NotReached, false),
+        ],
+        RunEnding::PartialSuccess {
+            step: 5,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
+    ));
+    let mut source = unresolved.clone();
+    source["primaryExecutables"] = serde_json::json!(["a"]);
+    source["primaryAfter"] = "alpha".into();
+    assert!(
+        read_back(source.clone()).is_ok(),
+        "the source stays primary"
+    );
+    let mut destination = source;
+    destination["primaryAfter"] = "beta".into();
+    assert_eq!(
+        read_back(destination).map(|_| ()),
+        Err(ErrorId::HistoryUnusable)
+    );
+    // `NO_EXECUTABLES`: an empty list and a carried-out `SET_PRIMARY`, with
+    // no `VERIFY_RESOLUTION`, may name the destination.
+    let mut none = stored_json(&record(
+        vec![
+            step(
+                1,
+                StepKind::SnapshotBefore,
+                StepResult::SnapshotTaken,
+                false,
+            ),
+            step(2, StepKind::AddDestination, performed(), false),
+            step(3, StepKind::VerifyDestination, verified(), false),
+            step(4, StepKind::SetPrimary, StepResult::NothingToChange, false),
+            step(
+                5,
+                StepKind::RecordHistory,
+                StepResult::RecordPendingReadBack,
+                false,
+            ),
+        ],
+        RunEnding::Completed,
+        None,
+    ));
+    none["primaryAfter"] = "beta".into();
+    assert!(read_back(none.clone()).is_ok(), "NO_EXECUTABLES");
+    // ...but not with a list it never resolved.
+    none["primaryExecutables"] = serde_json::json!(["a"]);
+    assert_eq!(read_back(none).map(|_| ()), Err(ErrorId::HistoryUnusable));
 }

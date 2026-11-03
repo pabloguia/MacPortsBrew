@@ -12,12 +12,13 @@ use macportsbrew_application::{
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, CommandLineTools, Direction, EnvironmentSnapshot, ErrorId, ExecutableOwner,
-    HistoryView, InstalledPackage, Machine, MacosVersion, MarkerState, Outcome, PackageIdentity,
-    PackageKind, PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
-    ProviderInventory, ProviderPresence, ProviderSnapshot, RecordedStep, RecordedVersions,
-    RequestedSet, Resolution, RunEnding, RunRecord, RunStart, RunSubject, Snapshot, StepKind,
-    StepResult, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    CapabilityState, CommandLineTools, Direction, EnvironmentSnapshot, ErrorId, ExecutableName,
+    ExecutableOwner, HistoryView, InstalledPackage, Machine, MacosVersion, MarkerState, Outcome,
+    PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
+    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
+    RecordedStep, RecordedVersions, RequestedSet, Resolution, ResolutionState, RunEnding,
+    RunRecord, RunStart, RunSubject, Snapshot, StepKind, StepResult, Translation, Version,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,9 +63,18 @@ fn installed(
                 macportsbrew_domain::Answer::from(service),
             )),
             ..PackageMetadata::default()
-        },
+        }
+        // `history.v3` recognition reads the list (F-3): both sides ship `sed`.
+        .with_executables(
+            macportsbrew_domain::ExecutableList::from_leaves([EXE]),
+            macportsbrew_domain::Placement::default(),
+        ),
     )
 }
+
+/// The one executable both packages of the pair ship, and the record's
+/// `primaryExecutables`.
+const EXE: &str = "sed";
 
 fn provider(
     id: &str,
@@ -137,11 +147,14 @@ struct After {
 
 impl After {
     fn done(destination: &str) -> Self {
+        // The destination package itself: `history.v3` requires the package,
+        // not only the provider (SR-3).
+        let package = if destination == HB { "gnu-sed" } else { "gsed" };
         Self {
             destination_active: true,
             owner: Some(ExecutableOwner::Provider {
                 provider: ProviderId::new(destination),
-                package: None,
+                package: Some(package.into()),
             }),
             service: false,
         }
@@ -187,6 +200,24 @@ fn fresh(source: &str, after: &After) -> Snapshot {
             .resolutions
             .insert(dst_name.into(), resolution);
     }
+    let mut environment = EnvironmentSnapshot::default();
+    if let Some(owner) = &after.owner {
+        environment.resolutions.insert(
+            ExecutableName::parse(EXE).unwrap(),
+            ResolutionState::Found {
+                resolution: Resolution {
+                    executable: EXE.into(),
+                    path: Some(PathBuf::from(format!("/somewhere/{EXE}"))),
+                    canonical_path: None,
+                    owner: owner.clone(),
+                    // By the provider's own records, as recognition requires
+                    // (security review of F-3, L-2).
+                    authoritative: true,
+                },
+                path_index: Some(0),
+            },
+        );
+    }
     let mut providers = BTreeMap::new();
     providers.insert(ProviderId::new(src), source_snapshot);
     providers.insert(ProviderId::new(dst), destination_snapshot);
@@ -208,7 +239,7 @@ fn fresh(source: &str, after: &After) -> Snapshot {
                 path: PathBuf::from("/Library/Developer/CommandLineTools"),
             },
         },
-        environment: EnvironmentSnapshot::default(),
+        environment,
         providers,
     }
 }
@@ -271,6 +302,7 @@ fn record(source: &str, id: &str, ending: RunEnding, retain_source: bool) -> Run
             overrode: None,
             retain_source,
             primary_after: destination,
+            primary_executables: Some(vec![ExecutableName::parse(EXE).unwrap()]),
         },
         steps,
         ending,
@@ -592,4 +624,187 @@ fn invariant_16_a_record_the_marker_names_or_cannot_confirm_is_not_recognised() 
             "{source}"
         );
     }
+}
+
+// --- history.v3 (F-3, SG-12) --------------------------------------------------
+
+/// [`record`] rewritten with its `primaryExecutables` replaced.
+fn with_executables(record: &RunRecord, list: Option<Vec<&str>>) -> RunRecord {
+    let subject = RunSubject {
+        primary_executables: list.map(|l| {
+            l.into_iter()
+                .map(|n| ExecutableName::parse(n).unwrap())
+                .collect()
+        }),
+        ..record.subject().clone()
+    };
+    RunRecord::new(
+        RunStart {
+            id: record.id().to_owned(),
+            started_at: record.started_at().to_owned(),
+            tool_version: "0.1.0".into(),
+        },
+        subject,
+        record.steps().to_vec(),
+        record.ending().clone(),
+        None,
+    )
+}
+
+#[test]
+fn invariant_16_a_rerun_after_a_no_shim_primary_is_recognised() {
+    // The destination's own package answers every executable the record names:
+    // recognised, in both directions (no shim was ever involved).
+    for source in [MP, HB] {
+        let (_, _, dst, _) = pair(source);
+        let snapshot = fresh(source, &After::done(dst));
+        assert!(
+            matches!(
+                start(
+                    source,
+                    &snapshot,
+                    Some(&view_of(vec![success(source)])),
+                    true
+                ),
+                MigrationStart::RetainedRunDone { .. }
+            ),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn invariant_16_a_v2_record_is_never_recognised() {
+    // A record read from `history.v2` states no list: never recognised, even
+    // where everything else agrees.
+    let record = with_executables(&success(MP), None);
+    let snapshot = fresh(MP, &After::done(HB));
+    let note = planned_with(start(MP, &snapshot, Some(&view_of(vec![record])), true));
+    assert_eq!(
+        note,
+        Some(NotRecognised::PrimaryNotConfirmed {
+            run_id: RECORD_ID.into()
+        })
+    );
+}
+
+#[test]
+fn invariant_16_an_unknown_fresh_list_is_not_recognised() {
+    let mut snapshot = fresh(MP, &After::done(HB));
+    let meta = snapshot
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .inventory
+        .metadata
+        .get_mut("gsed")
+        .unwrap();
+    meta.set_executables(
+        macportsbrew_domain::ExecutableList::NotRecorded,
+        macportsbrew_domain::Placement::default(),
+    );
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![success(MP)])),
+        true,
+    ));
+    assert_eq!(
+        note,
+        Some(NotRecognised::ExecutablesUnknown {
+            run_id: RECORD_ID.into()
+        })
+    );
+}
+
+/// Gives the fresh source package (`gsed` under MacPorts) the list `names`.
+fn source_ships(snapshot: &mut Snapshot, names: &[&str]) {
+    snapshot
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .unwrap()
+        .inventory
+        .metadata
+        .get_mut("gsed")
+        .unwrap()
+        .set_executables(
+            macportsbrew_domain::ExecutableList::from_leaves(names.iter().copied()),
+            macportsbrew_domain::Placement::default(),
+        );
+}
+
+#[test]
+fn invariant_16_every_recorded_executable_is_checked_not_only_the_first() {
+    // Mutant 24a: the fresh list and the record agree on two names, so the
+    // list rule (D-6) passes and the loop is reached; `sed` resolves to the
+    // destination and `zzz-not-resolved` to nothing observed. The second is
+    // enough to plan again. (Before this rework the fresh list held `sed`
+    // alone, D-6 refused first, and the loop was never reached.)
+    let record = with_executables(&success(MP), Some(vec![EXE, "zzz-not-resolved"]));
+    let mut snapshot = fresh(MP, &After::done(HB));
+    source_ships(&mut snapshot, &[EXE, "zzz-not-resolved"]);
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![record.clone()])),
+        true,
+    ));
+    assert!(
+        matches!(note, Some(NotRecognised::PrimaryNotConfirmed { .. })),
+        "{note:?}"
+    );
+    // The control: with the second name resolving too, it is recognised.
+    let resolution = snapshot.environment.resolutions[&ExecutableName::parse(EXE).unwrap()].clone();
+    snapshot.environment.resolutions.insert(
+        ExecutableName::parse("zzz-not-resolved").unwrap(),
+        resolution,
+    );
+    assert!(matches!(
+        start(MP, &snapshot, Some(&view_of(vec![record])), true),
+        MigrationStart::RetainedRunDone { .. }
+    ));
+}
+
+#[test]
+fn invariant_16_a_non_authoritative_resolution_is_not_recognised() {
+    // Mutant 24b; security review of F-3, L-2: the destination's own package
+    // answers by its path, not by the provider's records.
+    let mut snapshot = fresh(MP, &After::done(HB));
+    for state in snapshot.environment.resolutions.values_mut() {
+        if let ResolutionState::Found { resolution, .. } = state {
+            resolution.authoritative = false;
+        }
+    }
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![success(MP)])),
+        true,
+    ));
+    assert_eq!(
+        note,
+        Some(NotRecognised::PrimaryNotConfirmed {
+            run_id: RECORD_ID.into()
+        })
+    );
+}
+
+#[test]
+fn invariant_16_a_source_that_now_ships_another_executable_is_not_recognised() {
+    // Mutant 24c; spec-guardian review of F-3, D-6: the fresh source list is
+    // not the one the record resolved, so a name no run resolved exists.
+    let mut snapshot = fresh(MP, &After::done(HB));
+    source_ships(&mut snapshot, &[EXE, "gsed-extra"]);
+    let note = planned_with(start(
+        MP,
+        &snapshot,
+        Some(&view_of(vec![success(MP)])),
+        true,
+    ));
+    assert_eq!(
+        note,
+        Some(NotRecognised::PrimaryNotConfirmed {
+            run_id: RECORD_ID.into()
+        })
+    );
 }

@@ -131,6 +131,7 @@ fn subject() -> RunSubject {
         overrode: None,
         retain_source: true,
         primary_after: ProviderId::new("homebrew"),
+        primary_executables: Some(Vec::new()),
     }
 }
 
@@ -332,8 +333,9 @@ fn restorability_is_derived_from_the_ends_the_snapshot_and_the_standing() {
     assert_eq!(shown["standing"], "CONFIRMED");
     assert_eq!(shown["snapshot"], "PRESENT");
     assert_eq!(shown["snapshotChecked"], "PARSED");
-    // The stored record is the history.v2 document, and states no restorability.
-    assert_eq!(shown["record"]["schemaVersion"], 2);
+    // The stored record is the history.v3 document (F-3), and states no
+    // restorability.
+    assert_eq!(shown["record"]["schemaVersion"], 3);
     assert!(shown["record"].get("restorability").is_none());
 
     // The list reports the same, from the file's details alone.

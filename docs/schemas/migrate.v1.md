@@ -35,8 +35,8 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `schemaVersion` | integer | `1` |
 | `mode` | string | `RENDER` or `EXECUTE` |
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string, "notDetected": [string] }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16). `notDetected` is always written: the other providers that were not detected, in identifier order; empty when every other provider was detected and read (DP-026) |
-| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record, and every plan's primary is a shim (`PRIMARY_IS_SHIM`) |
-| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `RECORD_NOT_CONFIRMED` (pass 08 slice 5, additive: the interrupted-run marker names the record, or could not be read), `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`. Additive (pass 08) |
+| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record (the switch is off). Since work order 16 part F-3 a record is recognised only when every one of its `primaryExecutables` resolves, authoritatively, to the destination package ([`history.v3.md`](history.v3.md), Recognition) |
+| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `RECORD_NOT_CONFIRMED` (pass 08 slice 5, additive: the interrupted-run marker names the record, or could not be read), `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`, and `EXECUTABLES_UNKNOWN` (work order 16 part F-3, additive: the fresh capture does not know the source package's executable list). Additive (pass 08) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v1.md`](plan.v1.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `planDigest` | string, optional | Present whenever `plan` is: `sha256:` and 64 lowercase hexadecimal digits, the digest `--yes --plan-digest` takes back to run exactly this plan. Taken over the same plan this document carries (home redaction happens at capture, not here), with a domain-separated prefix that carries the build's version: a digest is valid only for builds with the same version string and plan serialisation. **A fingerprint**: someone holding it can test a guess at the plan's content, so remove it before publishing a document, and remove it with any hand edit to `plan`; `doctor --report` never contains it. Additive (work order 16 part E-4) |
 | `warnings` | array, optional | As in [`plan.v1.md`](plan.v1.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`, at this document's root, derived and never stored on the plan. Since 2026-10-27, additive (DP-037) |
@@ -118,7 +118,7 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 |---|---|---|
 | `index` | integer | The plan step's `index` |
 | `kind` | string | The plan step's `kind` |
-| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK` (pass 08 slice 5, additive: `SNAPSHOT_BEFORE` and `RECORD_HISTORY` performed — the latter pending until the published record reads back), `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`reason`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED`. `PERFORMED` and `ends` are reached only under a mutation allowance, which no shipped build has; `ends` are as in [`history.v2.md`](history.v2.md) |
+| `disposition` | string | The tag of the step's disposition, with its fields beside it: `VERIFIED` (`evidence`), `NOT_PERFORMED_IN_THIS_BUILD`, `SNAPSHOT_TAKEN` and `RECORD_PENDING_READ_BACK` (pass 08 slice 5, additive: `SNAPSHOT_BEFORE` and `RECORD_HISTORY` performed — the latter pending until the published record reads back), `NOT_DISPATCHED_MUTATING`, `PERFORMED` (`ends`), `HALTED` (`reason`, `evidence`, and `ends` when any mutating command ran), `NOT_REACHED`, and since work order 16 part F-3 `NOTHING_TO_CHANGE` and `RESOLVED` (`executables`, `pathDiffers`; below). `PERFORMED` and `ends` are reached only under a mutation allowance, which no shipped build has; `ends` are as in [`history.v3.md`](history.v3.md) |
 
 `evidence` is an array of `ReadEvidence`, one per command that ran:
 `{ "passed": boolean, "lineCount": integer, "truncated": boolean, "cause"?:
@@ -162,21 +162,43 @@ provider's configuration could not be re-read or has drifted halts
 `PRECONDITION_FAILED` with `CONFIGURATION_UNREADABLE` or `CONFIGURATION_DRIFT`
 and command 0 before any read; under `--replay` it always does.
 
+**Added by work order 16 part F-3 (the primary decision).** Gate refusals:
+`PRIMARY_NEEDS_SHIM` (`step`, `executables`: only a shim, which this release
+does not offer, could make the destination's copy win; reported in
+`gateRefusals` and exiting 4 like every gate refusal — the `ErrorId`
+`PRIMARY_NEEDS_SHIM`, exit 4, is defined but not raised by this build, reserved
+for the part that offers a consented shim, as `docs/schemas/README.md` says),
+`PRIMARY_REFUSED` (`step`, `reasons` by
+executable, `package`), `PRIMARY_DECISION_MISSING` (no field: it is about the
+plan as a whole) and `EXECUTABLE_LISTS_DISAGREE` (`step`); each names executables through the same
+escaping as every echoed string. Dispositions: `NOTHING_TO_CHANGE` (a
+command-less `SET_PRIMARY` whose decision left nothing to set) and `RESOLVED`
+(`executables`, `pathDiffers`). Halt reason `RESOLUTION_MISMATCH`
+(`executable`, `observed`: `NOT_ON_PATH`, `ANOTHER_PROVIDER`,
+`ANOTHER_PACKAGE`, `NOT_AUTHORITATIVE`, `NOT_A_PROVIDER_FILE`; `pathDiffers`).
+`UNEVALUABLE` reasons `RESOLUTION_NOT_OBSERVED` (a replayed run or a snapshot
+file: never a pass, INV-15) and `WINNER_INDEX_UNKNOWN`. `pathDiffers` says the
+run-time `PATH`, home-redacted the same way, is not the one the plan's decision
+used. In this build the gate still refuses every planner-built plan before step
+1, so no real plan reaches `SET_PRIMARY`.
+
 **When history is consulted.** Only by a live `migrate --retain-source` whose
 planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run
 shows what `--yes` would do. `--replay` and `--from-snapshot` never read
 history (INV-15), a run without `--retain-source` never does, and every
 refusal, every manual review and *nothing to move* keeps its precedence. A
 history the store cannot trust is `HISTORY_UNUSABLE` (exit 8) with empty
-stdout, never read as "no record" ([`history.v2.md`](history.v2.md)); a run as
+stdout, never read as "no record" ([`history.v3.md`](history.v3.md)); a run as
 root is refused as `SAFETY_BLOCKED` (exit 4) before history is read. **In a shipped
 build nothing writes a record** (the switch is off), so a re-run is recognised
 only from records a later build writes — and only from a **confirmed** one: a
 record the interrupted-run marker still names, or whose marker cannot be read,
 recognises nothing (`retainedRunNotRecognised.reason` is `RECORD_NOT_CONFIRMED`,
-pass 08 slice 5); and because every plan sets its primary through
-MacPortsBrew's shim, which no capture can yet trace to a provider, such a
-re-run is planned again with `PRIMARY_IS_SHIM` until shims record their target.
+pass 08 slice 5). Since work order 16 part F-3 no plan sets its primary through
+a shim: a record is recognised only when the fresh source list equals its
+`primaryExecutables` and each resolves, by the provider's own records, to the
+destination package; a winner that is MacPortsBrew's shim answers
+`PRIMARY_IS_SHIM` ([`history.v3.md`](history.v3.md), Recognition).
 
 ## Exit codes
 
@@ -268,4 +290,4 @@ provider's own configuration is unknown — are listed above.
   nothing in this build takes it, because nothing dispatches a mutation.
 - **Writing history** (obligation 12): no run of this build is a mutating run,
   so no record is written. The store and its read-back exist
-  ([`history.v2.md`](history.v2.md)); reading serves the recognition above.
+  ([`history.v3.md`](history.v3.md)); reading serves the recognition above.

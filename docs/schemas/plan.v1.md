@@ -31,7 +31,7 @@ once at its own root; see "What an executor inherits".
 | `destinationPackage` | string, optional | The name under the destination, when the mapping selected one |
 | `retainSource` | boolean | `--retain-source`: keep the source package after migrating |
 | `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan would remove, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
-| `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards |
+| `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards, as predicted from the snapshot: since F-3 the destination when the primary decision is `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, otherwise the source (a plan that stops at `MANUAL_REVIEW` carries no decision and keeps the source) |
 | `recommendation` | `Outcome` | What the policy engine recommends, independently of what was asked for |
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
 | `steps` | array of `MigrationStep` | In execution order |
@@ -51,6 +51,7 @@ once at its own root; see "What an executor inherits".
 | `provider` | string, optional | Which provider the step acts on |
 | `commands` | array of `PlanCommand`, optional | Every command that would run, with its full argv |
 | `verification` | array of `VerificationCheck`, optional | |
+| `primary` | `PrimaryDecision`, optional | On `SET_PRIMARY` only, since work order 16 part F-3 (additive). See "`PrimaryDecision`" below |
 | `reason` | `Reason` | Why this step is in the plan |
 
 ### `kind` — the migration state machine
@@ -64,8 +65,8 @@ the order they occur:
 | `SNAPSHOT_BEFORE` | no | Capture both providers' state so the run is restorable |
 | `ADD_DESTINATION` | yes | Install under the destination |
 | `VERIFY_DESTINATION` | no | The verification contract, before anything is removed |
-| `SET_PRIMARY` | yes | Make the destination's copy the one that resolves |
-| `VERIFY_RESOLUTION` | no | Confirm it actually does |
+| `SET_PRIMARY` | yes | **Since F-3, no command**: it carries the primary decision (`primary`) as data, decided from the snapshot alone. The gate refuses any command on it (`COMMAND_ON_STEP_THE_PLANNER_WRITES_NONE_ON`) |
+| `VERIFY_RESOLUTION` | no | One `RESOLVES_TO` per executable of the source's list, and no command; absent when the decision states no list (`NO_EXECUTABLES`, or a refusal about the package). Checked before any `REMOVE_SOURCE` |
 | `REMOVE_SOURCE` | yes | Only reachable after `VERIFY_DESTINATION` passed (INV-01) |
 | `VERIFY_REMOVAL` | no | Carries `PACKAGE_ABSENT` **and, since 2026-09-19, a command**: the provider's inventory verb with **no package argument**, and `success: STDOUT_OMITS_PACKAGE`. Absence is the name missing from an answer that exited cleanly, was not truncated and is non-empty — four conditions, not one; the exit status is a precondition here rather than the answer (F-06, F-22) |
 | `CLEANUP_REVIEW` | yes | What is left behind, for a human to decide about. Counted as mutating so the gate fails closed; cleanup itself stays opt-in and is never a side effect of a migration (spec 04, Cleanup) |
@@ -77,8 +78,10 @@ the order they occur:
 `VERIFY_DESTINATION` that guards it. It establishes that by comparing
 *positions*, which is the same thing only while a plan carries one package — a
 step does not name the package it acts on — so it also refuses outright any plan
-carrying more than one `ADD_DESTINATION`, `VERIFY_DESTINATION` or
-`REMOVE_SOURCE`.
+carrying more than one `ADD_DESTINATION`, `VERIFY_DESTINATION`,
+`VERIFY_RESOLUTION` or `REMOVE_SOURCE`. Since F-3 it also refuses a plan whose
+`VERIFY_RESOLUTION` comes after its `REMOVE_SOURCE`
+(`invariant_01_remove_source_after_verify_resolution`).
 
 That refuses one *shape* of the ambiguity, not the ambiguity: a plan with
 exactly one of each kind whose removal concerns a different package than the
@@ -215,7 +218,7 @@ comments:
    `ReadEvidence` and has no field a provider read could occupy
    (`a_run_record_cannot_carry_an_inventory`,
    `crates/application/tests/history.rs`). The store
-   ([`history.v2.md`](history.v2.md)) keeps the same evidence-only shape;
+   ([`history.v3.md`](history.v3.md)) keeps the same evidence-only shape;
    writing a record is owed (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
@@ -494,7 +497,7 @@ comments:
     `mutationDispatched` is the one fact a store may key a lock or an
     interrupted-run marker on, and it fails toward true for a halt that cannot
     be placed before or after a dispatch. **The store landed 2026-10-04**
-    (pass 08 slice 1, [`history.v2.md`](history.v2.md)) with the write
+    (pass 08 slice 1, [`history.v3.md`](history.v3.md)) with the write
     predicate `application::history::must_record` (iff `mutationDispatched`)
     and the `--retain-source` re-run recognition `04-migration-and-safety.md`
     (History) states. **Still owed by the pass that dispatches mutations**,
@@ -510,7 +513,7 @@ comments:
     record not known to be durable keeps the marker and never exits 0. **`SNAPSHOT_BEFORE` and
     `RECORD_HISTORY` are performed by pass 08 slice 5 (D2, D3)**, and
     `RECORD_HISTORY` is settled: a record never certifies its own write, so it
-    is stored `RECORD_PENDING_READ_BACK` ([`history.v2.md`](history.v2.md)) and
+    is stored `RECORD_PENDING_READ_BACK` ([`history.v3.md`](history.v3.md)) and
     the run reads the published file back under the lock, comparing the
     canonical text with what it wrote; the marker is cleared only when the
     write was durable and the read-back matches, so **a record is confirmed by
@@ -541,15 +544,14 @@ the useful output even when it cannot be run unattended.
 | `success` | tagged union, tag `success` | How an executor establishes that this command succeeded: `EXIT_STATUS`, `STDOUT_NAMES_PACKAGE`, `STDOUT_OMITS_PACKAGE`, `STDOUT_MARKS_PACKAGE_ACTIVE`, `JSON_REPORTS_PACKAGE_LINKED`, or `UNKNOWN`. The two "active" semantics (work order 16 part S) are valid on a `VERIFY_DESTINATION` read that names no package, and answer `PROVIDER_REPORTS_ACTIVE` alone: exactly one record of the package marked active by the provider — for `STDOUT_MARKS_PACKAGE_ACTIVE`, one row whose first token is the name exactly (no case folding), whose second begins with `@`, and whose third is exactly `(active)`, a two-token row of the name being ignored and any other row of the name failing the read; for `JSON_REPORTS_PACKAGE_LINKED`, a typed parse of the whole stdout in which exactly one `formulae[]` entry has the name and its `linked_keg` equals one of its own `installed[].version` (a cask cannot pass). Both fail `ACTIVE_NOT_REPORTED` when no record or two are marked (two `formulae[]` entries of the name count as two), `OUTPUT_SHAPE_UNKNOWN` when a row of the name or the document is in a shape this build does not know, and on a non-zero exit, an empty answer or a truncated one as every semantic does. An older reader deserialises either as `UNKNOWN`, which it must refuse, so the schema version does not move. **Exit status is not the universal answer, and assuming it is fails open.** Observed 2026-09-08: the MacPorts read verb exits 0 for an installed port, for a real port that is absent, and for a name that is not a port at all, so a `VERIFY_DESTINATION` toward MacPorts driven by exit status can never fail - and INV-01 puts that step in front of `REMOVE_SOURCE` (F-33). `STDOUT_NAMES_PACKAGE` means the package's own name must appear in stdout and an empty stdout is a failure however the process exited. **"Appear" means equal to the first whitespace-separated token of some line, not a substring** — measured 2026-09-19, 18 of 201 installed formulae are a substring of another's name (`gh` inside `ghidra`), so a substring rule lets a failed install pass the step INV-01 puts in front of `REMOVE_SOURCE` (F-51). A prefix test does not close it either: `ghidra` begins with `gh`. `STDOUT_OMITS_PACKAGE` is how a **removal** is certified and is deliberately not that one negated: the name must be missing from a **non-empty** stdout, because asked about one name each provider answers an absent package, a name that never was one, and a provider that failed to run with the same empty output (observed 2026-09-19). The command therefore names no package and asks for the whole inventory, and an empty answer is refused rather than read as a removal. It uses the same whole-token definition of "names" as `STDOUT_NAMES_PACKAGE`, negated — one definition for the pair, because under a substring rule the two fail in opposite directions. Unlike `placeholder`, the permissive value is not the default one: a missing or unrecognised `success` deserialises to `UNKNOWN`, which an executor must refuse, so a document written before this field existed fails closed. **A truncated read fails every semantic** — `STDOUT_NAMES_PACKAGE` and `EXIT_STATUS` included, not only `STDOUT_OMITS_PACKAGE`: an answer cut short at the capture bound is not the answer the provider gave — a line cut mid-name can read `gh` where the provider printed `ghidra` — and a clean exit does not vouch for output nobody read whole (SE-089) |
 | `placeholder` | boolean, always present | The command is an **illustration**, not something an executor could run. A plan built for a provider that was not detected has no prefix to resolve, so the program reads `<macports prefix>/bin/macports` and the verb `<verify>`. Until this field existed nothing distinguished those from a real command, and `check_ordering` never looks at commands at all (F-20). **An executor refuses a plan carrying one** rather than running the steps around it. **Read this field before executing anything.** It is always written, but `false` is the permissive value, so a reader that ignores it — or a document produced before the field existed — sees a real command where an illustration is. Unlike an unrecognised `check`, which deserialises to a value that cannot be satisfied, a boolean has no shape that fails closed on a reader who never looks |
 
-**`TOOL` is not a provider invocation.** Exactly one step can carry one —
-`SET_PRIMARY`, because the shim directory is MacPortsBrew's own (SE-036) — and
-it is a distinct value rather than something inferred from the program string,
-so the rule that applies to a command is a property a reader of `--json` can see. The rendered text plan does not yet show it. Deciding
-whether an executor spawns it or performs the step in-process belongs to the
-pass that writes the executor; what the plan settles is that it is not a
-provider command and must not be resolved through `PATH`.
+**`TOOL` is not a provider invocation.** It used to be carried by one step,
+`SET_PRIMARY`, whose self-invocation named a subcommand this tool never had.
+**Since work order 16 part F-3 no plan carries one**: `SET_PRIMARY` carries its
+decision as data and no command (see "`PrimaryDecision`"), and the gate refuses
+any command on it. The value stays in the union so a document that states it
+still reads, and an executor refuses it wherever it appears.
 
-Both shapes as they actually serialise — `target`, like `elevation`, is an
+A provider command as it actually serialises — `target`, like `elevation`, is an
 internally tagged union, so the tag repeats the field name. Taken from
 `plan htop --to macports --json` against the committed live capture
 `fixtures/snapshots/both-providers-intel-macos26-live.json` (a recording can no
@@ -586,25 +588,30 @@ service answers the service question `UNKNOWN` and is refused, DP-032):
 }
 ```
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/commands/0 -->
+The decision that step now carries for the same plan: the committed live
+capture records no executable list for `htop`, so the decision refuses the
+package as a whole (`EXECUTABLES_UNKNOWN`) and the plan carries no
+`VERIFY_RESOLUTION`. The two checked fields:
+
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/decision -->
+```json
+"REFUSED"
+```
+
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/package -->
+```json
+"EXECUTABLES_UNKNOWN"
+```
+
+`pathUsed` is the capture's home-redacted `PATH`, every entry in order. It is
+not reproduced from the capture here, because a whole developer `PATH` names
+that machine's tools; its shape, illustrative and unchecked:
+
 ```json
 {
-  "target": {
-    "target": "TOOL"
-  },
-  "program": "macportsbrew",
-  "argv": [
-    "primary",
-    "htop",
-    "macports"
-  ],
-  "elevation": {
-    "elevation": "NONE"
-  },
-  "success": {
-    "success": "EXIT_STATUS"
-  },
-  "placeholder": false
+  "decision": "REFUSED",
+  "package": "EXECUTABLES_UNKNOWN",
+  "pathUsed": ["~/bin", "/usr/local/bin", "/usr/bin", "/bin", "/opt/local/bin"]
 }
 ```
 
@@ -613,10 +620,10 @@ check it satisfies are only meaningful together — this is what an executor
 inherits from item 3 above. Note `argv` carries **no package name**: the
 `htop` this plan removes appears nowhere in it.
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/6 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/5 -->
 ```json
 {
-  "index": 7,
+  "index": 6,
   "kind": "VERIFY_REMOVAL",
   "provider": "homebrew",
   "commands": [
@@ -720,6 +727,7 @@ Tagged union on `check`:
 | `LIVENESS_PROBE` | `executable`, `flag` | A non-mutating flag (`--version` by default) exits successfully |
 | `NO_CROSS_PROVIDER_LINKAGE` | — | No new cross-provider linkage was introduced (INV-07) |
 | `PACKAGE_ABSENT` | — | The source provider reports the package **no longer** installed. `VERIFY_REMOVAL` carries this; it used to carry `PROVIDER_REPORTS_ACTIVE`, which asserts the opposite (F-06) |
+| `RESOLVES_TO` | `executable`, `provider`, `package` | Since F-3, on `VERIFY_RESOLUTION` only: a fresh search of `PATH` finds `executable` in a file `provider` owns as `package`, **by its own records**, at an established `PATH` index. Answered by the run loop's resolution site, never by a provider read, so it is the one check a command-less verification step may carry (the gate's one exemption from `VERIFICATION_ASSERTS_NOTHING`). Unobserved — a replay, a snapshot file — is unevaluable, never a pass |
 | `PACKAGE_NEWLY_PRESENT` | — | The destination reports the package installed **and did not at plan time**. Present only where the destination was absent when the plan was built — which is exactly when presence afterwards proves the install happened rather than predating it. Its *absence* from a `VERIFY_DESTINATION` therefore says something: the destination already held the package, and the step cannot prove more than that it still does (F-06) |
 
 **A reader that meets a `check` it does not recognise treats it as unknown
@@ -748,6 +756,57 @@ worth stating plainly — nothing in this workspace deserialises a
 nothing has been released. `docs/schemas/README.md`'s rule (a value may be added
 to an enumeration whose consumers *already* handle an unknown one) will apply to
 the *next* value added, which is the point of adding the tolerant reader now.
+
+**Since F-3, `EXECUTABLES_OWNED_BY_DESTINATION`'s `executables` and the
+`LIVENESS_PROBE`s are the source package's executable list** (04 check 3: the
+executables the user runs today; SG-4), never a package name. An unknown list
+expects none, and the decision refuses the plan. No skip is recorded in this
+version, so the probe set equals the list.
+
+### `PrimaryDecision`
+
+Tagged union on `decision`, carried on `SET_PRIMARY` (work order 16 part F-3;
+`docs/passes/16-plans/F.md` Design §4; SE-112). Additive: absent on every other
+step, and a `SET_PRIMARY` without one — or a plan with a mutating step and not
+exactly one — is refused (`PRIMARY_DECISION_MISSING`).
+
+| `decision` | Payload | Meaning |
+|---|---|---|
+| `NOTHING_TO_CHANGE` | `executables`, `pathUsed` | Every executable of the source's list already resolves to the destination package. Completed with no dispatch (`NOTHING_TO_CHANGE` disposition); `VERIFY_RESOLUTION` checks it at run time |
+| `NO_EXECUTABLES` | — | The source's list is known and empty. No `VERIFY_RESOLUTION`, and an empty list everywhere |
+| `REFUSED` | `executables`, `reasons`, `package`, `pathUsed` | Not planned. `executables` is the source's whole list; `reasons` an object keyed by executable name, each refused one with its `PrimaryReason`; `package` a `PrimaryReason` about the package as a whole, when no list was read or the mapping is not 1→1. `executables` and `reasons` are omitted when empty, and `package` when absent. The gate refuses it: `PRIMARY_NEEDS_SHIM` for the shim reasons, `PRIMARY_REFUSED` for the rest; the gate's report exits 4 as for every refusal. `ErrorId::PrimaryNeedsShim` (exit 4) is defined but not raised by this build: it is reserved for the part that offers a consented shim (`docs/schemas/README.md`) |
+| `UNKNOWN` | — | A decision written by a newer build; never acted on |
+
+`pathUsed` is the snapshot's home-redacted `PATH`, kept whole because the rule
+reads every entry below the two it compares (`06`, "Privacy and diagnostics").
+The plan's digest covers the decision.
+
+Reasons (`PrimaryReason`): `EXECUTABLES_UNKNOWN`,
+`PRIMARY_MAPPING_NOT_ONE_TO_ONE`, `PRIMARY_RESOLUTION_UNKNOWN`,
+`OWNED_BY_ANOTHER_PACKAGE`, `NON_PROVIDER_ENTRY_WINS`,
+`WINNER_NOT_AUTHORITATIVE`, `PRIMARY_NEEDS_SHIM`,
+`PRIMARY_DESTINATION_NOT_INSTALLED`, `PRIMARY_UNPREDICTABLE`,
+`DESTINATION_LACKS_EXECUTABLE`, `SAME_DIRECTORY`, and `UNKNOWN` for one this
+build does not know.
+
+**The refusal-reason tightening.** `plan.v1` gains, for a plan this build
+writes: every executable name parses as one (`ExecutableName`, the same class
+capture uses); `primaryAfter` is the destination only on `NOTHING_TO_CHANGE`
+and `NO_EXECUTABLES` — nothing stays with the source when the package installs
+no executable, which is also what `history.v3` records once that `SET_PRIMARY`
+is carried out — and otherwise the source; and the gate's four new refusals —
+`PRIMARY_NEEDS_SHIM`, `PRIMARY_REFUSED`, `PRIMARY_DECISION_MISSING`,
+`EXECUTABLE_LISTS_DISAGREE` — fire before any step, under an allowance or not.
+A risk `system_tool_keeps_name` (not blocking) names the executables an
+installed destination ships outside the source's list that a file no provider
+owns wins today.
+
+**Compatibility of `primaryAfter`.** Before work order 16 part F-3 it was the
+provider the plan was *asked* to make primary (the request's `to`); since F-3 it
+is the provider *predicted* to answer the executables once the plan has run —
+the destination on `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, the source on any
+refusal. The field, its type and its values are unchanged; a consumer that read
+it as "the requested destination" must read `destination` for that.
 
 ### `PlanRisk`
 
@@ -808,7 +867,7 @@ non-mutating and the command exits 4:
   "destination": "macports",
   "retainSource": false,
   "enteredBy": "DEFAULT_VIEW",
-  "primaryAfter": "macports",
+  "primaryAfter": "homebrew",
   "recommendation": {
     "kind": "MIGRATE_TO",
     "provider": "macports"

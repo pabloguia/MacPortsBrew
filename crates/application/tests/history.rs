@@ -367,6 +367,7 @@ fn a_run_the_dispatch_guard_halted_changed_nothing() {
                     Action::Dispatch
                     | Action::Certify
                     | Action::DispatchMutating { .. }
+                    | Action::Resolve
                     | Action::TakeSnapshot
                     | Action::RecordHistory => {
                         panic!("nothing is dispatched before the guard halts")

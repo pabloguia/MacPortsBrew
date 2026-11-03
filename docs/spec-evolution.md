@@ -1769,10 +1769,13 @@ change is made. Silent deviation remains the one unrecoverable error.
   valid only for builds with the same version string and plan serialisation; across versions it fails closed.
 
 ## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
-- Status: experimental — proposed: the specification edits below land in work order 16 part F-0, marked "part F,
-  not built"; the code is F-2a, F-2b and F-3 (`docs/passes/16-plans/F.md`, reviewed by `spec-guardian` and
-  `security-reviewer` in two rounds, and the F-0 diff by `spec-guardian` and `docs-auditor`). This entry is completed
-  by each of those pull requests (SE-032: one topic, one entry) and becomes accepted with F-3.
+- Status: accepted for the decision rule, the plan shape, the gate, the executor's resolution and `history.v3`, as
+  built in work order 16 part F-3 (`wo16/F-3-primary`; F-2a and F-2b merged) and reviewed in its fix round
+  (`docs/passes/16-plans/F.md`, "As built (F-3)"); it takes effect on that branch's merge. Two parts stay
+  experimental, named here so the status is not read wider than it is: DP-055's uninstalled-destination refusal (the
+  reversible default (a), the owner's open ruling) and the Tier 4 choice that a winning system entry refuses. The
+  1→1 test is a declared Tier 3 narrowing (the F-3 review-round addendum). The specification edits landed in F-0 marked "not built" and now say "built in F-3". This entry
+  is completed by each of the part's pull requests (SE-032: one topic, one entry).
 - Date / Pass: 2026-11-01 / 16-complete-mutating-product, part F
 - Original assumption: SE-036 deferred every layer's implementation. The planner gives `SET_PRIMARY` a `TOOL`
   command, `macportsbrew primary <name> <to>`, which does not exist, and `PROVIDER_REPORTS_ACTIVE`, which nothing can
@@ -1789,8 +1792,10 @@ change is made. Silent deviation remains the one unrecoverable error.
     `VERIFY_DESTINATION`, where it is evaluable. `VERIFY_RESOLUTION` carries one `RESOLVES_TO` per executable,
     naming the destination provider and package, evaluated by the executor from a fresh resolution (no new program,
     no new spawn site) and unevaluable under `--replay` or `--from-snapshot` (INV-15). A removal is ordered after it.
-    Every refusal is before any install; `PRIMARY_NEEDS_SHIM` is a new `ErrorId`, exit 4. 05 "Layer 1 inside a run"
-    and 04 "Verification contract" are amended.
+    Every refusal is before any install. The gate's `PRIMARY_NEEDS_SHIM` refusal exits 4, as every gate refusal
+    does; `ErrorId::PrimaryNeedsShim` (exit 4) is defined and reserved for the part that offers a consented shim,
+    and no path of this build raises it (`docs/schemas/README.md`). 05 "Layer 1 inside a run" and 04
+    "Verification contract" are amended.
   - **The executable list comes from provider metadata**, for formulae and active ports, through the two reads part
     P staged and the owner applied (`port -q contents <port>`, `brew list --formula <formula>`; R-21, 2026-10-28):
     the direct entries of the detected `bin` and `sbin`. The slice 8 refusal of a package not named after its
@@ -1818,7 +1823,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Rationale: DP-047 (b), confirmed by the owner on 2026-10-27, makes `COMPLETED` mean that the destination now
   runs, with nothing written outside the providers.
   - **Declared, not closed — the shadowing gap** (05): a source-list executable never newly shadows anything,
-    because a predicted win only displaces a provider's winner. An executable the destination ships beyond that list
+    because a plan completes only where step 3 observed the destination's own package already winning the name, so
+    nothing that wins today is displaced. An executable the destination ships beyond that list
     is named where the destination is installed; where it is not, the install itself links everything it ships at
     its own `PATH` position and can shadow system tools and other packages' names before anything verifies it.
   - **Declared — `authoritative` means two things:** the registry's answer for MacPorts (`port -q provides`), and
@@ -1826,9 +1832,10 @@ change is made. Silent deviation remains the one unrecoverable error.
     Homebrew read answers which keg owns a path (R-21 E-14). Both are treated as authoritative in part F; making
     Homebrew's an owner query is part H's (`EXECUTABLES_OWNED_BY_DESTINATION`).
   - **Declared — what part F reaches.** Under DP-055 (a) an uninstalled destination is refused
-    `PRIMARY_DESTINATION_NOT_INSTALLED`, and an installed, linked destination ahead of the winner would already be
-    the winner, so the predicted-win branch (`d < w`) is effectively unreachable. `COMPLETED` comes only where the
-    destination already holds the package and already wins; part F does not migrate a primary to a destination it
+    `PRIMARY_DESTINATION_NOT_INSTALLED`. An installed, linked destination ahead of the winner would already be the
+    winner, so step 6 predicts no win: `d < w`, or a miss on `PATH` beside a placement on it, is the capture
+    contradicting the placement and answers `PRIMARY_UNPREDICTABLE`. `COMPLETED` comes only where the destination
+    already holds the package and already wins (step 3); part F does not migrate a primary to a destination it
     installs. A real plan's `COMPLETED` also waits on part H (DP-051): until then it halts at
     `VERIFY_DESTINATION`.
   - **INV-17.** One type, one pair of reads, one planner rule and one refusal set for both providers. On the captured
@@ -1856,9 +1863,13 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: `snapshot.v1` additive (two metadata fields and an environment map), with one tightening — a
   snapshot whose executable names fail the name class, or whose two resolution maps disagree, no longer loads;
   `plan.v1` additive (the `primary` decision) with one tightening — a `SET_PRIMARY` with a command, or a plan with no
-  decision, is refused, and the refusal reasons above join its open set; `history.v3`; `migrate.v1.md` gains the
-  refusal values and the new exit-4 `PRIMARY_NEEDS_SHIM`, which also joins `docs/schemas/README.md`'s exit-code
-  table; 06's `snapshot` synopsis gains positionals.
+  decision, is refused, and the refusal reasons above join its open set. `primaryAfter` changes meaning from the
+  requested provider to the predicted one (destination on `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, else the source)
+  within `plan.v1`, because no build before F-3 produced a plan a consumer could act on through it:
+  `THIS_BUILD_DISPATCHES_MUTATIONS` has been `false` in every commit since it was introduced, the gate refused every
+  planner-built plan before its first step, and no shipped build wrote a history record that carries it; `history.v3`; `migrate.v1.md` gains the
+  refusal values, and `docs/schemas/README.md`'s exit-code table lists the reserved exit-4 `PRIMARY_NEEDS_SHIM`;
+  06's `snapshot` synopsis gains positionals.
 - **Addendum, 2026-11-01 (work order 16 part F-2b, capture).** Built on `wo16/F-2b-capture`: capture reads the lists
   for the packages `snapshot <package>...` names (the user's string only selects an installed row; a name no
   inventory holds is reported and sends nothing; an argument beginning with `-` is refused), writes them with their
@@ -1903,6 +1914,66 @@ change is made. Silent deviation remains the one unrecoverable error.
     `docs/passes/16-staged/F/05` and `F/06` applied first; the live snapshot is the binary's own `snapshot`, whose
     reads are allow-listed, but it runs `brew` and `port`, which the session that built F-2b was not permitted to do.
     Both are handed to F-3 (F.md, "As built (F-2b)").
+- **Addendum, 2026-11-01 (work order 16 part F-3, the decision).** Built on `wo16/F-3-primary`: the planner decides
+  the primary per executable of the source's list by 05's step list (`crates/application/src/primary.rs`, one rule
+  both directions); `SET_PRIMARY` carries `PrimaryDecision` and no command; `VERIFY_RESOLUTION` carries one
+  `RESOLVES_TO` per executable and is checked before any `REMOVE_SOURCE` (`check_ordering`); the gate refuses every
+  decision but `NOTHING_TO_CHANGE` and `NO_EXECUTABLES` before any step (`PRIMARY_NEEDS_SHIM`, with the reserved
+  `ErrorId` the change above describes; `PRIMARY_REFUSED`; `PRIMARY_DECISION_MISSING`; `EXECUTABLE_LISTS_DISAGREE`); the executor completes a
+  command-less `SET_PRIMARY` as `NOTHING_TO_CHANGE` and judges `VERIFY_RESOLUTION` from a fresh resolution
+  (`judge_resolution`, unevaluable under replay or a snapshot file); `history.v3`. Choices inside the entry:
+  - **An owner no provider claims wins as a non-provider entry.** Capture records `/usr/bin/m4` with an `UNKNOWN`
+    owner — every provider was asked and none owns it — and step 4's "any non-provider owner" covers it, so `m4` is
+    `NON_PROVIDER_ENTRY_WINS` in both directions, as SE-112 states. A provider's prefix-matched file stays
+    `WINNER_NOT_AUTHORITATIVE` (SG2-N4).
+  - **A refusal keeps the whole list.** `REFUSED` carries `executables` (the source's list) beside `reasons` (every
+    refused one), so the four lists the gate compares are one list whatever the decision; a refusal about the
+    package (`EXECUTABLES_UNKNOWN`, `PRIMARY_MAPPING_NOT_ONE_TO_ONE`) states none, and its plan carries no
+    `VERIFY_RESOLUTION`, as `NO_EXECUTABLES` does.
+  - **The ownership check may be absent only beside an empty list** (corrected by the review round below; first
+    written "may be absent, never different"). When present it must equal the list. No skip is recorded in this
+    plan shape, so the probe set must equal the list.
+  - **`migrate <package>` reads both sides** by capturing twice: the typed name first, then — once the first
+    capture supports a plan — the plan's source row and mapped destination package, stamped with the same instant.
+    A recording cannot plan (DP-032), so under `--replay` only the first read happens.
+  - **The old-document rule holds by construction:** the decision never reads `Resolution.path`, only owners and
+    `pathIndex`, and an older document carries no index, so step 6 answers `PRIMARY_UNPREDICTABLE` from one.
+- **Addendum, 2026-11-02 (work order 16 part F-3, review round).** `security-reviewer` and `spec-guardian` on
+  `cf80b88`; every finding resolved in code, recorded in F.md "As built (F-3)" with its ten deviations. What changes
+  the rule above:
+  - **"Already wins" is an observation only with an index and an installed destination.** Step 3 answers
+    `PRIMARY_UNPREDICTABLE` for a winner with no `pathIndex`, as step 6 does, and
+    `PRIMARY_DESTINATION_NOT_INSTALLED` when the destination is not installed, so DP-055's refusal holds in both
+    directions with no exception. 05 step 3 now says so.
+  - **No predicted win against the capture (security review L-1, L-2; 05 steps 5 and 6 amended).** A destination
+    whose list is not known is `PRIMARY_UNPREDICTABLE` before its placement is read (a `NOT_LINKED` says nothing
+    about a name it may not ship), and "does it ship the name" is asked before "where does it link it" — 05 step 5
+    now states the order the code had. In step 6, `d < w` with a winner that is not the destination's, and a miss
+    on `PATH` beside a placement on it, are the capture contradicting the placement: `PRIMARY_UNPREDICTABLE`, never
+    a predicted win. So a run completes only where step 3 already observed the win, as "What this reaches" said.
+  - **The run's resolution is narrowed and filtered.** The CLI's resolution site holds the providers only as a
+    resolution-answering trait (`ResolutionAnswer`), and `resolve_now` applies capture's recordability rule, so a
+    hit capture would not record is `NOT_OBSERVED` at run time too (security review L-3).
+  - **The `command -v` line is quoted** (security review M-1): each name is its own check, single-quoted when it
+    holds anything outside `[A-Za-z0-9._+-]`.
+  - **Read-back holds `primaryAfter` to what resolved** (security review L-4): a v3 record naming the destination
+    without a `RESOLVED` step, or without an empty list and a carried-out `SET_PRIMARY`, is unusable.
+  - **1→1 is a heuristic (Tier 3, declared: it narrows 05's MUST "only a one-to-one mapping is planned").** The
+    planner's `one_to_one` (`crates/application/src/planner.rs`) is true when the unit is planned onto its own side,
+    and otherwise amounts to `mapping.selected.is_some()`: `PackageMapping::from_candidates` selects only a best
+    candidate strictly ahead of the runner-up, so "no other candidate at the selected confidence" adds nothing. That
+    refuses an ambiguous 1→many; many→1 (two source packages whose mappings select one destination package) is not
+    detected, because a plan is built for one package. The per-executable decision still reads only the captured
+    resolution, so a wrong pairing loses the refusal's name, never predicts a win the capture does not show. A
+    mapping-wide check belongs to a part that plans several packages together.
+  - **The removal waits on `RESOLVED`.** `check_ordering` places `VERIFY_RESOLUTION` after `VERIFY_DESTINATION` and
+    `SET_PRIMARY`, and the executor dispatches `REMOVE_SOURCE` only when every earlier `VERIFY_RESOLUTION` was
+    recorded `RESOLVED`.
+  - **`NOTHING_TO_CHANGE` with no executable is refused** `EXECUTABLE_LISTS_DISAGREE`; it is `NO_EXECUTABLES`.
+  - **History.** `primaryAfter` is the destination also when a `NO_EXECUTABLES` `SET_PRIMARY` was carried out;
+    recognition requires the fresh source list to equal `primaryExecutables` and an authoritative resolution;
+    read-back refuses a `RESOLVED` step naming other executables. Whether the run-time `PATH` differed is
+    `pathDiffers` in `migrate.v1`'s execution document; `history.v3` records no `PATH`.
 
 # Policy, output and quality
 

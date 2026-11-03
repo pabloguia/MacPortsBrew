@@ -34,8 +34,9 @@
 //!    on that step kind and backed by a command whose read passed; a
 //!    `PACKAGE_NEWLY_PRESENT` also needs the destination package absent from the
 //!    snapshot taken before the run. Anything else halts as
-//!    [`HaltReason::Unevaluable`] — never a pass. `VERIFY_RESOLUTION` has no
-//!    evaluation at all and halts the same way.
+//!    [`HaltReason::Unevaluable`] — never a pass. `VERIFY_RESOLUTION` is
+//!    judged by [`judge_resolution`] from fresh resolutions the shell obtains
+//!    ([`Action::Resolve`]); an unobserved one is unevaluable, never a pass.
 //! 6. A read is judged by `verification::evaluate`, never by a process's exit
 //!    status alone (`04-migration-and-safety.md`, "The install command exited
 //!    0 is not verification"): a read that did not finish, or was cut at the
@@ -72,9 +73,9 @@ use crate::provider_commands;
 use crate::verification_json::linked_report;
 use macportsbrew_domain::{
     evaluate_with, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget,
-    Elevation, ErrorId, ExpectationError, FailureCause, MigrationPlan, PackageKind, PlanCommand,
-    ProviderId, ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, Verdict,
-    VerificationCheck,
+    Elevation, ErrorId, ExecutableName, ExpectationError, FailureCause, MigrationPlan, PackageKind,
+    PlanCommand, PrimaryDecision, ProviderId, ProviderPresence, ReadEvidence, ReadOutput, Snapshot,
+    StepKind, Verdict, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -104,6 +105,23 @@ pub enum Disposition {
     RecordPendingReadBack,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
+    /// A command-less `SET_PRIMARY` whose decision is `NOTHING_TO_CHANGE` or
+    /// `NO_EXECUTABLES` (F.md Design §4, SG2-N2): there is nothing to set, so
+    /// the step is done with nothing dispatched. Never answered for any other
+    /// step or decision.
+    NothingToChange,
+    /// A `VERIFY_RESOLUTION` whose every `RESOLVES_TO` held on a fresh
+    /// resolution: each executable resolves to the destination package, by
+    /// the provider's own records.
+    Resolved {
+        /// The executables checked, in order.
+        executables: Vec<ExecutableName>,
+        /// Whether the run-time `PATH`, home-redacted the same way, differs
+        /// from the one the decision used (SG-10, SG2-N5).
+        /// `pathDiffers` in `migrate.v1`, as documented.
+        #[serde(rename = "pathDiffers")]
+        path_differs: bool,
+    },
     /// A mutating step dispatched under a [`MutationAllowance`] whose every
     /// command exited 0. Carried out, and **not thereby a success**: an exit
     /// status is never verification (`04-migration-and-safety.md`), so the
@@ -227,6 +245,37 @@ pub enum HaltReason {
         /// The first fact that moved.
         fact: StateFact,
     },
+    /// A `RESOLVES_TO` did not hold: the executable resolves to something
+    /// other than the destination package by the provider's own records (F.md
+    /// Design §4) — the source still wins, another package, a system file, a
+    /// prefix guess, or nothing at all.
+    ResolutionMismatch {
+        /// The executable.
+        executable: ExecutableName,
+        /// What resolves instead, as a kind.
+        observed: ObservedWinner,
+        /// Whether the run-time `PATH` differs from the decision's.
+        /// `pathDiffers` in `migrate.v1`, as documented.
+        #[serde(rename = "pathDiffers")]
+        path_differs: bool,
+    },
+}
+
+/// What a fresh resolution found instead of the destination package — a kind,
+/// never a path, so a halt reason can be recorded without redaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ObservedWinner {
+    /// Nothing on `PATH` answers the name.
+    NotOnPath,
+    /// A file of another provider.
+    AnotherProvider,
+    /// A file of the destination provider, but another package or none named.
+    AnotherPackage,
+    /// A provider file whose owner was decided by a path prefix.
+    NotAuthoritative,
+    /// A file no provider owns, or an owner that could not be determined.
+    NotAProviderFile,
 }
 
 /// A check made before each mutating command (D7), by name.
@@ -304,6 +353,8 @@ pub enum CheckKind {
     PackageAbsent,
     /// `PACKAGE_NEWLY_PRESENT`.
     PackageNewlyPresent,
+    /// `RESOLVES_TO`.
+    ResolvesTo,
     /// A check this build does not recognise.
     Unknown,
 }
@@ -320,6 +371,7 @@ impl From<&VerificationCheck> for CheckKind {
             VerificationCheck::NoCrossProviderLinkage => Self::NoCrossProviderLinkage,
             VerificationCheck::PackageAbsent => Self::PackageAbsent,
             VerificationCheck::PackageNewlyPresent => Self::PackageNewlyPresent,
+            VerificationCheck::ResolvesTo { .. } => Self::ResolvesTo,
             VerificationCheck::Unknown => Self::Unknown,
         }
     }
@@ -347,6 +399,14 @@ pub enum Unevaluable {
     /// `PACKAGE_NEWLY_PRESENT`, but the destination package was already
     /// present before the run: presence now proves nothing happened.
     PresentBeforeTheRun,
+    /// `RESOLVES_TO`, but nothing searched `PATH` for the executable: a
+    /// replayed run, a run from a snapshot file, a site that could not ask,
+    /// or a hit no provider answers about (INV-15). Never a pass.
+    ResolutionNotObserved,
+    /// `RESOLVES_TO`, but where the winner stands on the run-time `PATH` is
+    /// not established: a relative or empty entry comes before it, or no entry
+    /// equals its directory (SR-4, SR-5).
+    WinnerIndexUnknown,
     /// `PROVIDER_REPORTS_ACTIVE` on a step that does not also carry
     /// `PACKAGE_NEWLY_PRESENT`, while the snapshot before the run shows the
     /// destination did not already hold the package: "active" is read from a
@@ -377,6 +437,10 @@ pub enum Action {
     /// Run the step's commands through its provider's read site, and judge them
     /// with [`judge_step`]. Never answered for a `VERIFY_DESTINATION`.
     Dispatch,
+    /// A `VERIFY_RESOLUTION` whose every check is `RESOLVES_TO`: resolve each
+    /// executable afresh through the resolution site and judge the answers
+    /// with [`judge_resolution`]. No command, no provider read, no spec.
+    Resolve,
     /// A `VERIFY_DESTINATION`: re-read the destination provider's
     /// configuration, re-check it (`recheck_provider_configuration`), run the
     /// step's commands through its read site, and judge them with
@@ -554,7 +618,8 @@ impl HaltReason {
             | Self::MutatingStepCarriesVerification
             | Self::PreconditionFailed { .. }
             | Self::SnapshotNotTaken
-            | Self::StateChanged { .. } => ErrorId::SafetyBlocked,
+            | Self::StateChanged { .. }
+            | Self::ResolutionMismatch { .. } => ErrorId::SafetyBlocked,
             Self::Expectation { .. } | Self::Unevaluable { .. } => ErrorId::SafetyUnverifiable,
             Self::TransportFailed { error, .. } => *error,
             Self::RecordsDoNotMatchPlan => ErrorId::Internal,
@@ -685,7 +750,7 @@ fn next_action_guarded(
     // The dispatch guard: before every other question about the step.
     if step.kind.is_mutating() {
         return match allowance {
-            None => guard(step.commands.is_empty()),
+            None => guard(step),
             Some((_, kind)) => mutating_action(plan, position, records, kind),
         };
     }
@@ -695,6 +760,10 @@ fn next_action_guarded(
         StepKind::SnapshotBefore | StepKind::RecordHistory => {
             Action::PassOver(Disposition::NotPerformedInThisBuild)
         }
+        // Answered by a fresh resolution, and only in the one shape the gate
+        // exempts (SG-6): no command, at least one check, every one
+        // `RESOLVES_TO`. Anything else has no evaluation in this build.
+        StepKind::VerifyResolution if is_resolution_step(step) => Action::Resolve,
         StepKind::VerifyResolution => Action::Halt(HaltReason::Unevaluable {
             check: None,
             why: Unevaluable::NoEvaluationForStepKind,
@@ -731,7 +800,7 @@ fn next_action_guarded(
         StepKind::AddDestination
         | StepKind::SetPrimary
         | StepKind::RemoveSource
-        | StepKind::CleanupReview => guard(step.commands.is_empty()),
+        | StepKind::CleanupReview => guard(step),
         StepKind::ManualReview => Action::Halt(HaltReason::ManualReview { step: step.index }),
     }
 }
@@ -751,7 +820,7 @@ fn mutating_action(
         StepKind::RemoveSource => "remove",
         // Never dispatched: a layer that does not exist, and a review.
         StepKind::SetPrimary | StepKind::CleanupReview => {
-            return guard(step.commands.is_empty());
+            return guard(step);
         }
         _ => return Action::Halt(HaltReason::RecordsDoNotMatchPlan),
     };
@@ -768,6 +837,11 @@ fn mutating_action(
     }
     if step.kind == StepKind::RemoveSource && !destination_verified_before(plan, position, records)
     {
+        return Action::Halt(HaltReason::UnexecutedMutation);
+    }
+    // And the resolution that justifies the removal held, when the plan checks
+    // one (F.md Design §4; security review of F-3, M-1).
+    if step.kind == StepKind::RemoveSource && !resolution_held_before(plan, position, records) {
         return Action::Halt(HaltReason::UnexecutedMutation);
     }
     let table = provider_commands::load().unwrap_or_default();
@@ -835,6 +909,22 @@ fn destination_verified_before(
         })
 }
 
+/// Whether every `VERIFY_RESOLUTION` before the step at `position` was
+/// recorded `RESOLVED`. A plan with none before it answers yes: whether it must
+/// carry one is the gate's and `check_ordering`'s question.
+fn resolution_held_before(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> bool {
+    plan.steps[..position]
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.kind == StepKind::VerifyResolution)
+        .all(|(at, _)| {
+            records.get(at).is_some_and(|r| {
+                r.kind == StepKind::VerifyResolution
+                    && matches!(r.disposition, Disposition::Resolved { .. })
+            })
+        })
+}
+
 /// What the ends of a dispatched mutating step's commands amount to (D4).
 ///
 /// `results` are in command order, ending early only where a command did not
@@ -881,12 +971,138 @@ pub fn judge_mutation(
     Disposition::Performed { ends }
 }
 
-/// The dispatch guard's answer for a mutating step: never a dispatch.
-fn guard(commandless: bool) -> Action {
-    if commandless {
-        Action::PassOver(Disposition::NotDispatchedMutating)
+/// The dispatch guard's answer for a mutating step: never a dispatch. A
+/// command halts; a command-less `SET_PRIMARY` whose decision leaves nothing
+/// to change is done ([`Disposition::NothingToChange`]); any other
+/// command-less step is passed over, undone.
+fn guard(step: &macportsbrew_domain::MigrationStep) -> Action {
+    if !step.commands.is_empty() {
+        return Action::Halt(HaltReason::UnexecutedMutation);
+    }
+    let nothing_to_change = step.kind == StepKind::SetPrimary
+        && step
+            .primary
+            .as_ref()
+            .is_some_and(PrimaryDecision::completes_without_dispatch);
+    if nothing_to_change {
+        Action::PassOver(Disposition::NothingToChange)
     } else {
-        Action::Halt(HaltReason::UnexecutedMutation)
+        Action::PassOver(Disposition::NotDispatchedMutating)
+    }
+}
+
+/// The shape [`Action::Resolve`] is answered for, the gate's one exemption
+/// from `VERIFICATION_ASSERTS_NOTHING` (SG-6).
+fn is_resolution_step(step: &macportsbrew_domain::MigrationStep) -> bool {
+    step.kind == StepKind::VerifyResolution
+        && step.commands.is_empty()
+        && !step.verification.is_empty()
+        && step
+            .verification
+            .iter()
+            .all(|c| matches!(c, VerificationCheck::ResolvesTo { .. }))
+}
+
+/// Judges the `VERIFY_RESOLUTION` at `position` from fresh resolutions, one
+/// per check in order, and the run-time `PATH` home-redacted the same way as
+/// the decision's (SG2-N5).
+///
+/// Passes only when every executable resolves to a file the step's provider
+/// owns as the step's package, **by its own records** (`authoritative`), at an
+/// established `PATH` index (SR-3, SR-4). An unobserved resolution — replay, a
+/// snapshot file — is [`Unevaluable::ResolutionNotObserved`], never a pass
+/// (INV-15). A run-time `PATH` other than the decision's is stated on the
+/// disposition, whichever way it ends (SG-10).
+#[must_use]
+pub fn judge_resolution(
+    run: &PlannedRun,
+    position: usize,
+    observed: &[macportsbrew_domain::ResolutionState],
+    runtime_path: &[String],
+) -> Disposition {
+    use macportsbrew_domain::{ExecutableOwner, ResolutionState};
+    let halted = |reason| Disposition::Halted {
+        reason,
+        evidence: Vec::new(),
+        ends: Vec::new(),
+    };
+    let plan = run.plan();
+    let Some(step) = plan.steps.get(position).filter(|s| is_resolution_step(s)) else {
+        return halted(HaltReason::RecordsDoNotMatchPlan);
+    };
+    if observed.len() != step.verification.len() {
+        return halted(unevaluable(None, Unevaluable::MissingRead));
+    }
+    let path_used = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::SetPrimary)
+        .and_then(|s| s.primary.as_ref())
+        .and_then(|d| match d {
+            PrimaryDecision::NothingToChange { path_used, .. }
+            | PrimaryDecision::Refused { path_used, .. } => Some(path_used.as_slice()),
+            PrimaryDecision::NoExecutables | PrimaryDecision::Unknown => None,
+        });
+    let path_differs = path_used != Some(runtime_path);
+    let mut executables = Vec::new();
+    for (check, state) in step.verification.iter().zip(observed) {
+        let VerificationCheck::ResolvesTo {
+            executable,
+            provider,
+            package,
+        } = check
+        else {
+            return halted(unevaluable(Some(check), Unevaluable::CheckHasNoEvaluation));
+        };
+        let mismatch = |observed| {
+            halted(HaltReason::ResolutionMismatch {
+                executable: executable.clone(),
+                observed,
+                path_differs,
+            })
+        };
+        let (resolution, path_index) = match state {
+            ResolutionState::NotObserved => {
+                return halted(unevaluable(Some(check), Unevaluable::ResolutionNotObserved));
+            }
+            ResolutionState::NotOnPath => return mismatch(ObservedWinner::NotOnPath),
+            ResolutionState::Found {
+                resolution,
+                path_index,
+            } => (resolution, path_index),
+        };
+        if path_index.is_none() {
+            return halted(unevaluable(Some(check), Unevaluable::WinnerIndexUnknown));
+        }
+        match &resolution.owner {
+            ExecutableOwner::Provider {
+                provider: owning_provider,
+                package: owning_package,
+            } if owning_provider == provider => {
+                if owning_package.as_deref() != Some(package.as_str()) {
+                    return mismatch(ObservedWinner::AnotherPackage);
+                }
+                if !resolution.authoritative {
+                    return mismatch(ObservedWinner::NotAuthoritative);
+                }
+            }
+            ExecutableOwner::Provider { .. } => {
+                return mismatch(if resolution.authoritative {
+                    ObservedWinner::AnotherProvider
+                } else {
+                    ObservedWinner::NotAuthoritative
+                });
+            }
+            ExecutableOwner::System
+            | ExecutableOwner::External
+            | ExecutableOwner::MacportsbrewShim
+            | ExecutableOwner::Unknown => return mismatch(ObservedWinner::NotAProviderFile),
+        }
+        executables.push(executable.clone());
+    }
+    Disposition::Resolved {
+        executables,
+        path_differs,
     }
 }
 
@@ -1041,6 +1257,8 @@ pub fn destination_still_verified(
         | Disposition::SnapshotTaken
         | Disposition::RecordPendingReadBack
         | Disposition::NotDispatchedMutating
+        | Disposition::NothingToChange
+        | Disposition::Resolved { .. }
         | Disposition::Performed { .. }
         | Disposition::Halted { .. }
         | Disposition::NotReached => Err(Precondition::DestinationNotReverified),
@@ -1319,6 +1537,8 @@ pub fn outcome_of(plan: &MigrationPlan, records: &[StepRecord]) -> RunOutcome {
                 | Disposition::Performed { .. }
                 | Disposition::SnapshotTaken
                 | Disposition::RecordPendingReadBack
+                | Disposition::NothingToChange
+                | Disposition::Resolved { .. }
         )
     };
     let Some(first_skipped) = records.iter().find(|r| !carried(r)) else {

@@ -32,7 +32,7 @@
 //! writes no record yet (pass 08, slice 1).
 
 use crate::text::is_control_class;
-use crate::{DomainError, FailureCause};
+use crate::{DomainError, ExecutableName, FailureCause};
 use crate::{ErrorId, Outcome, PackageIdentity, ProviderId, ReadEvidence, StepKind, Version};
 use serde::{Deserialize, Serialize};
 
@@ -70,8 +70,18 @@ pub struct RunSubject {
     pub overrode: Option<Outcome>,
     /// Whether the source package was to be kept (`--retain-source`).
     pub retain_source: bool,
-    /// Which provider the plan made primary afterwards.
+    /// Which provider was **observed** to resolve the package's executables
+    /// afterwards (`history.v3`, SG-12): the destination when the run's
+    /// `VERIFY_RESOLUTION` was resolved, or when the package installs no
+    /// executable and its `SET_PRIMARY` was carried out (`NO_EXECUTABLES`),
+    /// else the source.
     pub primary_after: ProviderId,
+    /// The executables the primary decision was about, sorted (`history.v3`).
+    /// `None` only for a record read from `history.v2`, which never stated
+    /// them: recognition then answers "primary not confirmed", never
+    /// "recognised".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_executables: Option<Vec<ExecutableName>>,
 }
 
 /// Source and destination provider.
@@ -161,6 +171,15 @@ pub enum StepResult {
     RecordPendingReadBack,
     /// A mutating step with no command, passed over and not dispatched.
     NotDispatchedMutating,
+    /// A command-less `SET_PRIMARY` whose decision left nothing to change
+    /// (`history.v3`). Carried out, with nothing dispatched.
+    NothingToChange,
+    /// `VERIFY_RESOLUTION`: every executable resolved to the destination
+    /// package by the provider's own records (`history.v3`).
+    Resolved {
+        /// The executables checked, sorted as the plan lists them.
+        executables: Vec<ExecutableName>,
+    },
     /// A mutating step whose every command exited 0. Carried out, and not
     /// thereby a success: the verification step after it judges.
     Performed {
@@ -192,6 +211,8 @@ impl StepResult {
                 | Self::Performed { .. }
                 | Self::SnapshotTaken
                 | Self::RecordPendingReadBack
+                | Self::NothingToChange
+                | Self::Resolved { .. }
         )
     }
 }
@@ -221,7 +242,10 @@ impl RecordedStep {
         halted_after_dispatch: bool,
     ) -> Self {
         let dispatched = match &result {
-            StepResult::Verified { .. } | StepResult::Performed { .. } => true,
+            // A fresh resolution asks providers about the hit, so it reads.
+            StepResult::Verified { .. }
+            | StepResult::Performed { .. }
+            | StepResult::Resolved { .. } => true,
             StepResult::Halted { evidence, ends, .. } => {
                 halted_after_dispatch || !evidence.is_empty() || !ends.is_empty()
             }
@@ -229,6 +253,7 @@ impl RecordedStep {
             | StepResult::SnapshotTaken
             | StepResult::RecordPendingReadBack
             | StepResult::NotDispatchedMutating
+            | StepResult::NothingToChange
             | StepResult::NotReached => false,
         };
         Self {
@@ -518,8 +543,13 @@ impl RunRecord {
 
 // --- Read-back --------------------------------------------------------------
 
-/// The schema version a stored record carries (`docs/schemas/history.v2.md`).
-pub const HISTORY_SCHEMA_VERSION: u32 = 2;
+/// The schema version a stored record carries (`docs/schemas/history.v3.md`).
+/// A `history.v2` record still reads ([`RunRecord::from_stored`]), with no
+/// `primaryExecutables`.
+pub const HISTORY_SCHEMA_VERSION: u32 = 3;
+
+/// The older version a record may still carry and be read.
+pub const HISTORY_V2: u32 = 2;
 
 /// Characters in a compact UTC stamp, `YYYYMMDDTHHMMSSZ`.
 const STAMP_CHARS: usize = 16;
@@ -623,8 +653,33 @@ impl RunRecord {
     pub fn from_stored(stored: StoredRunRecord) -> Result<Self, DomainError> {
         let unusable =
             |what: &str| DomainError::new(ErrorId::HistoryUnusable, format!("the record {what}"));
-        if stored.schema_version != HISTORY_SCHEMA_VERSION {
-            return Err(unusable("has a schema version this build does not read"));
+        // v3 states its primary executables; v2 never did, and a v2 record
+        // that claims to is not one any build wrote. A v2 record cannot state
+        // a v3-only step result either (checked with the steps below).
+        let v2 = match stored.schema_version {
+            HISTORY_SCHEMA_VERSION if stored.primary_executables.is_some() => false,
+            HISTORY_V2 if stored.primary_executables.is_none() => true,
+            HISTORY_SCHEMA_VERSION | HISTORY_V2 => {
+                return Err(unusable(
+                    "states its primary executables against its version",
+                ));
+            }
+            _ => return Err(unusable("has a schema version this build does not read")),
+        };
+        if let Some(list) = &stored.primary_executables {
+            if !list.windows(2).all(|w| w[0] < w[1]) {
+                return Err(unusable("states primary executables unsorted or twice"));
+            }
+        }
+        if v2
+            && stored.steps.iter().any(|s| {
+                matches!(
+                    s.result,
+                    StoredStepResult::NothingToChange {} | StoredStepResult::Resolved { .. }
+                )
+            })
+        {
+            return Err(unusable("states a step result its version does not have"));
         }
         if stored.strings().any(|s| s.chars().any(is_control_class)) {
             return Err(unusable("contains a control character"));
@@ -694,6 +749,26 @@ impl RunRecord {
             // `RECORD_HISTORY` is never stored verified.
             let on_bracket = |kind: StepKind| step.kind == kind;
             match &recorded.result {
+                // The two primary results, each only on its own step (F-3).
+                StepResult::NothingToChange if !on_bracket(StepKind::SetPrimary) => {
+                    return Err(unusable(
+                        "states nothing to change on a step that is not SET_PRIMARY",
+                    ));
+                }
+                StepResult::Resolved { .. } if !on_bracket(StepKind::VerifyResolution) => {
+                    return Err(unusable(
+                        "states a resolution on a step that is not VERIFY_RESOLUTION",
+                    ));
+                }
+                // What was resolved is the list the decision was about
+                // (security review of F-3, L-1).
+                StepResult::Resolved { executables }
+                    if Some(executables) != stored.primary_executables.as_ref() =>
+                {
+                    return Err(unusable(
+                        "states a resolution of other executables than its primary ones",
+                    ));
+                }
                 StepResult::SnapshotTaken if !on_bracket(StepKind::SnapshotBefore) => {
                     return Err(unusable(
                         "states a snapshot taken by a step that takes none",
@@ -721,6 +796,31 @@ impl RunRecord {
             }
             steps.push(recorded);
         }
+        // `primaryAfter` is what was observed to resolve (`history.v3`): the
+        // destination only after a `RESOLVED` step, or a carried-out
+        // `SET_PRIMARY` for a package with no executable (an empty
+        // `primaryExecutables`). A v3 record that names the destination
+        // without either is not one this build writes (security review of
+        // F-3, L-4). A v2 record's `primaryAfter` was the plan's, and reads as
+        // before.
+        if !v2 && stored.primary_after == stored.direction.destination {
+            let resolved = steps
+                .iter()
+                .any(|s| matches!(s.result, StepResult::Resolved { .. }));
+            let nothing_to_resolve = stored
+                .primary_executables
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+                && steps.iter().any(|s| {
+                    s.kind == StepKind::SetPrimary
+                        && matches!(s.result, StepResult::NothingToChange)
+                });
+            if !resolved && !nothing_to_resolve {
+                return Err(unusable(
+                    "names the destination as primary without a resolution that shows it",
+                ));
+            }
+        }
 
         let record = RunRecord::new(
             RunStart {
@@ -745,6 +845,7 @@ impl RunRecord {
                 overrode: stored.overrode.map(StoredOutcome::into_outcome),
                 retain_source: stored.retain_source,
                 primary_after: stored.primary_after,
+                primary_executables: stored.primary_executables,
             },
             steps,
             stored.ending.into_ending(),
@@ -795,6 +896,8 @@ pub struct StoredRunRecord {
     overrode: Option<StoredOutcome>,
     retain_source: bool,
     primary_after: ProviderId,
+    #[serde(default)]
+    primary_executables: Option<Vec<ExecutableName>>,
     environment_changes: Vec<EnvironmentChange>,
     steps: Vec<StoredStep>,
     ending: StoredEnding,
@@ -915,6 +1018,10 @@ enum StoredStepResult {
     SnapshotTaken {},
     RecordPendingReadBack {},
     NotDispatchedMutating {},
+    NothingToChange {},
+    Resolved {
+        executables: Vec<ExecutableName>,
+    },
     Performed {
         ends: Vec<StoredCommandEnd>,
     },
@@ -967,6 +1074,8 @@ impl StoredStepResult {
             Self::SnapshotTaken {} => StepResult::SnapshotTaken,
             Self::RecordPendingReadBack {} => StepResult::RecordPendingReadBack,
             Self::NotDispatchedMutating {} => StepResult::NotDispatchedMutating,
+            Self::NothingToChange {} => StepResult::NothingToChange,
+            Self::Resolved { executables } => StepResult::Resolved { executables },
             Self::Performed { ends } => {
                 let ends: Vec<CommandEnd> =
                     ends.into_iter().map(StoredCommandEnd::into_end).collect();

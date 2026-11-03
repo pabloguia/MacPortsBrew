@@ -35,6 +35,7 @@ fn cmd(success: SuccessSemantic, argv: &[&str]) -> PlanCommand {
 
 fn step(index: u32, kind: StepKind, provider: &str, command: PlanCommand) -> MigrationStep {
     MigrationStep {
+        primary: None,
         index,
         kind,
         provider: Some(ProviderId::new(provider)),

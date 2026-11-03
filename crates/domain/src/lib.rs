@@ -23,6 +23,7 @@ pub mod mapping;
 pub mod ownership;
 pub mod package;
 pub mod plan;
+pub mod primary;
 pub mod provider;
 pub mod reason;
 pub mod recommendation;
@@ -40,14 +41,14 @@ pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
 pub use error::{DomainError, ErrorId};
 pub use executable::{
-    ExecutableList, ExecutableName, ListReason, NameRefusal, Placement, UnknownReason,
-    MAX_EXECUTABLES, MAX_EXECUTABLE_NAME_BYTES,
+    command_v_checks, ExecutableList, ExecutableName, ListReason, NameRefusal, Placement,
+    UnknownReason, MAX_EXECUTABLES, MAX_EXECUTABLE_NAME_BYTES,
 };
 pub use history::{
     is_run_id, CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,
     NotRestorable, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
     RunRecord, RunStart, RunStatus, RunSubject, StepResult, StoredEnvelope, StoredRunRecord,
-    HISTORY_SCHEMA_VERSION,
+    HISTORY_SCHEMA_VERSION, HISTORY_V2,
 };
 pub use interrupted_run::{InterruptedRun, StoredInterruptedRun, MARKER_SCHEMA_VERSION};
 pub use machine::{
@@ -63,6 +64,7 @@ pub use plan::{
     CommandTarget, Elevation, EntryMode, MigrationPlan, MigrationStep, PlanCommand, PlanRisk,
     StepKind, SuccessSemantic, VerificationCheck,
 };
+pub use primary::{PrimaryDecision, PrimaryReason};
 pub use provider::{
     Capability, CapabilityState, ProviderCapabilities, ProviderDetection, ProviderId,
     ProviderInventory, ProviderPresence, ProviderRead, RequestedSet,

@@ -637,7 +637,12 @@ fn a_replayed_certifying_read_halts_before_it_is_made() {
             .as_str()
             .to_string();
         let runner = ReplayRunner::new(recording(&[(plan.destination.as_str(), &name)], naming));
-        let report = run(&run_, &context(&runner), &HomeRedaction::Recorded);
+        let report = run(
+            &run_,
+            &context(&runner),
+            || macportsbrew::executor::Unresolved,
+            &HomeRedaction::Recorded,
+        );
         let verify = plan
             .steps
             .iter()
@@ -1126,7 +1131,12 @@ fn a_provider_with_no_read_site_halts() {
     ctx.prefix_override = Some(Vec::new());
     // The product's loop stops earlier: a provider it cannot detect has no
     // configuration to re-read, so the certifying read is never made.
-    let report = macportsbrew::executor::run(&run, &ctx, &HomeRedaction::Recorded);
+    let report = macportsbrew::executor::run(
+        &run,
+        &ctx,
+        || macportsbrew::executor::Unresolved,
+        &HomeRedaction::Recorded,
+    );
     assert!(
         matches!(
             report.outcome,
@@ -1749,7 +1759,13 @@ fn the_switch_needs_the_destination_contract_evaluable() {
     .into_iter()
     .map(String::from)
     .collect();
-    assert_eq!(not_evaluable, dp_051);
+    // Since F-3 the probes are one per executable of the source's list, and
+    // this fixture records none, so no `LIVENESS_PROBE` is written here; the
+    // other three always are.
+    let mut written = dp_051.clone();
+    written.remove("LivenessProbe");
+    assert_eq!(not_evaluable, written);
+    assert!(not_evaluable.is_subset(&dp_051));
 }
 
 #[test]

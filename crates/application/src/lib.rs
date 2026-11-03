@@ -25,13 +25,17 @@ pub mod history;
 pub mod mapping;
 pub mod plan_tie;
 pub mod planner;
+pub mod primary;
 pub mod provider_commands;
 pub mod report;
 pub mod restore;
 pub mod verification_json;
 
 pub use analysis::{analyze, Analysis, AnalysisOptions, AnalysisSource};
-pub use capture::{capture, executables_notices, executables_selection, CaptureContext, NoticeKey};
+pub use capture::{
+    capture, executables_notices, executables_selection, resolve_now, CaptureContext, NoticeKey,
+    ResolutionAnswer,
+};
 pub use configuration_recheck::{
     recheck_provider_configuration, ConfigurationDrift, ConfigurationRechecked,
 };
@@ -48,10 +52,10 @@ pub use execution_gate::{
     ExecutionRefusal, GateClear, GateReport, MutationAllowance,
 };
 pub use executor::{
-    certify_destination, destination_still_verified, judge_mutation, judge_step, next_action,
-    next_action_with, outcome_of, plan_still_holds, refused, reverify_for, Action, CheckKind,
-    Disposition, HaltReason, MutationResult, PlannedRun, Precondition, Reverify, RunOutcome,
-    StateFact, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+    certify_destination, destination_still_verified, judge_mutation, judge_resolution, judge_step,
+    next_action, next_action_with, outcome_of, plan_still_holds, refused, reverify_for, Action,
+    CheckKind, Disposition, HaltReason, MutationResult, ObservedWinner, PlannedRun, Precondition,
+    Reverify, RunOutcome, StateFact, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{

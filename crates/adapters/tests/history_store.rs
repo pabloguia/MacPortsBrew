@@ -126,7 +126,10 @@ fn record(id: &str, package: &str, ending: RunEnding) -> RunRecord {
             },
             overrode: None,
             retain_source: true,
-            primary_after: destination,
+            // No resolution is recorded here, so the source stays primary
+            // (security review of F-3, L-4).
+            primary_after: ProviderId::new(SOURCE),
+            primary_executables: Some(Vec::new()),
         },
         steps,
         ending,
@@ -470,22 +473,39 @@ fn a_new_run_id_is_a_run_id_and_a_typed_id_is_checked_before_it_is_a_path() {
     }
 }
 
-#[test]
-fn the_documented_sample_is_a_record_this_version_reads() {
+/// The JSON block a schema document marks as its sample.
+fn documented_sample(document: &str) -> String {
     let doc = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/schemas/history.v2.md"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/schemas")
+            .join(document),
     )
     .unwrap();
     let marker = "<!-- history-sample -->";
     let start = doc.find(marker).expect("the document marks its sample");
     let block = &doc[start + marker.len()..];
     let block = &block[block.find("```json").unwrap() + "```json".len()..];
-    let json = &block[..block.find("```").unwrap()];
-    let stored: StoredRunRecord = serde_json::from_str(json).expect("the sample parses");
+    block[..block.find("```").unwrap()].to_string()
+}
+
+#[test]
+fn the_documented_sample_is_a_record_this_version_reads() {
+    let json = documented_sample("history.v3.md");
+    let stored: StoredRunRecord = serde_json::from_str(&json).expect("the sample parses");
     let back = RunRecord::from_stored(stored).expect("the sample is a usable record");
     // And it is exactly what this version writes for that record.
     let rewritten = serde_json::to_string_pretty(&back.stored()).unwrap();
     assert_eq!(rewritten.trim(), json.trim());
+}
+
+#[test]
+fn the_version_2_sample_still_reads_and_states_no_primary_executables() {
+    // `history.v3.md`: a version 2 record still reads, with no list, so
+    // recognition never answers "recognised" for it (F-3, SG-12).
+    let json = documented_sample("history.v2.md");
+    let stored: StoredRunRecord = serde_json::from_str(&json).expect("the sample parses");
+    let back = RunRecord::from_stored(stored).expect("a version 2 record still reads");
+    assert_eq!(back.subject().primary_executables, None);
 }
 
 #[test]
