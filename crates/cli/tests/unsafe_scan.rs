@@ -408,7 +408,11 @@ fn metadata_with(args: &[&str]) -> serde_json::Value {
         .current_dir(workspace_root())
         .output()
         .expect("cargo metadata runs");
-    assert!(output.status.success(), "cargo metadata succeeds");
+    assert!(
+        output.status.success(),
+        "cargo metadata {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     serde_json::from_slice(&output.stdout).expect("cargo metadata is JSON")
 }
 
@@ -491,8 +495,8 @@ const DIRECT_DEPENDENCIES: &[&str] = &[
     "macportsbrew-policy toml",
 ];
 
-/// The proc-macro crates in the whole graph (`cargo metadata` without
-/// `--no-deps`), pinned for the same reason.
+/// The proc-macro crates in the host's graph (`cargo metadata` without
+/// `--no-deps`, filtered to the host), pinned for the same reason.
 const PROC_MACROS: &[&str] = &[
     "clap_derive",
     "darling_macro",
@@ -506,9 +510,25 @@ const PROC_MACROS: &[&str] = &[
 
 /// Drift from the two pins above.
 fn dependency_violations(meta: &serde_json::Value) -> Vec<String> {
+    // Filtered to the host: offline, the whole graph needs every platform's
+    // crates in the cache, and a CI runner holds only its own (PR #64's
+    // coverage job). The proc-macro set is the same on both release targets
+    // (2026-11-03).
+    assert_eq!(
+        std::env::consts::OS,
+        "macos",
+        "MacPortsBrew builds for macOS only"
+    );
+    let host = format!("{}-apple-darwin", std::env::consts::ARCH);
     dependency_drift(
         meta,
-        &metadata_with(&["--format-version", "1", "--offline"]),
+        &metadata_with(&[
+            "--format-version",
+            "1",
+            "--offline",
+            "--filter-platform",
+            &host,
+        ]),
     )
 }
 

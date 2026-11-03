@@ -455,7 +455,8 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   must name a `.rs` file; an unclosed comment or literal is refused; at the
   site, no `macro_rules`/`macro` token and the one `allow` on a `fn` item;
   every target's source under `crates/`; the members' direct dependencies and
-  the graph's proc-macro crates are pinned in the test; a `rustflags`, `rustc`
+  the host graph's proc-macro crates (the same on both targets) are pinned in
+  the test; a `rustflags`, `rustc`
   or wrapper key in `.cargo/config*` and `RUSTC`, `RUSTC_WRAPPER`,
   `RUSTC_WORKSPACE_WRAPPER` are refused outright, except `cargo-llvm-cov` as
   `RUSTC_WRAPPER` with flags that lower no lint (CI's coverage job; the first

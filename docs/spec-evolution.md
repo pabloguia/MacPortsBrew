@@ -2825,7 +2825,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   `crates/` and naming a `.rs` file, no unclosed comment or literal (a hand lexer out of step with rustc), and at the
   site no macro and the one `allow` on a `fn` item; from `cargo metadata`, no proc-macro or build-script target,
   every target under `crates/`, every compiled target but `adapters`' a root, and the members' direct dependencies
-  and the graph's proc-macro crates pinned in the test (a dependency's macro expands `unsafe` that neither rustc's
+  and the host graph's proc-macro crates pinned in the test (a dependency's macro expands `unsafe` that neither rustc's
   lint nor the scan sees); no `rustflags`, `rustc` or wrapper key in `.cargo/config*`, no `RUSTC`/`RUSTC_WRAPPER`/
   `RUSTC_WORKSPACE_WRAPPER` (one admitted: CI's coverage job's `cargo-llvm-cov` as `RUSTC_WRAPPER`, while the flags it
   publishes lower no lint), and no lint-lowering flag (`-A`, `-W`, `--allow`, `--warn`, `--force-warn`,
