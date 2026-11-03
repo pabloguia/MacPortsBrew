@@ -1,0 +1,15 @@
+--- a/scripts/check-licences.sh
++++ b/scripts/check-licences.sh
+@@ -7,9 +7,10 @@
+ #      failure. Anything outside the list needs an ADR before it is added.
+ #   2. build-script and unsafe surface - a crate with a build.rs is accepted
+ #      only when it is named in the allow-list below, each with the ADR that
+-#      reviewed it. `unsafe_code = "forbid"` covers the workspace's own code;
+-#      dependencies' unsafe surface is reviewed in the same ADR.
++#      reviewed it. The workspace's own code is `unsafe_code = "deny"`, with
++#      `forbid` at every crate root but adapters, whose one reviewed call is
++#      ADR-0007's; dependencies' unsafe surface is reviewed in the same ADR.
+ #   3. deployment floor - checked on the built artifact by
+ #      check-deployment-target.sh, not here.
+ # The same licence policy is in deny.toml for cargo-deny in CI; this script
+ # needs only `cargo metadata` so it runs anywhere the toolchain does.
