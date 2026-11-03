@@ -506,6 +506,15 @@ const PROC_MACROS: &[&str] = &[
 
 /// Drift from the two pins above.
 fn dependency_violations(meta: &serde_json::Value) -> Vec<String> {
+    dependency_drift(
+        meta,
+        &metadata_with(&["--format-version", "1", "--offline"]),
+    )
+}
+
+/// The comparison itself, over `meta` (no dependencies) and `full` (the
+/// graph), so a drift can be planted.
+fn dependency_drift(meta: &serde_json::Value, full: &serde_json::Value) -> Vec<String> {
     let packages = meta["packages"].as_array().expect("packages");
     let members: Vec<&str> = packages.iter().filter_map(|p| p["name"].as_str()).collect();
     let mut direct: Vec<String> = packages
@@ -524,7 +533,6 @@ fn dependency_violations(meta: &serde_json::Value) -> Vec<String> {
         .collect();
     direct.sort();
     direct.dedup();
-    let full = metadata_with(&["--format-version", "1", "--offline"]);
     let mut macros: Vec<String> = full["packages"]
         .as_array()
         .expect("packages")
@@ -552,26 +560,34 @@ fn dependency_violations(meta: &serde_json::Value) -> Vec<String> {
     v
 }
 
-/// What the workspace's lint configuration shows.
-fn configuration_violations(root: &Path, members: &[PathBuf]) -> Vec<String> {
-    let mut v = Vec::new();
-    let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("Cargo.toml");
+/// Every value `unsafe_code` is given under `[workspace.lints.rust]`.
+fn workspace_unsafe_level(manifest: &str) -> Vec<&str> {
     let section = manifest
         .split("[workspace.lints.rust]")
         .nth(1)
         .and_then(|s| s.split("\n[").next())
         .unwrap_or("");
-    let level: Vec<&str> = section
+    section
         .lines()
         .filter_map(|l| l.trim().strip_prefix("unsafe_code"))
         .filter_map(|l| l.trim().strip_prefix('='))
         .map(str::trim)
-        .collect();
-    if level != ["\"deny\""] {
-        v.push(format!(
-            "the workspace's `unsafe_code` is {level:?}, not exactly \"deny\""
-        ));
-    }
+        .collect()
+}
+
+/// A workspace `unsafe_code` level other than exactly `"deny"`: `forbid`
+/// would refuse the site's one `allow`, anything lower admits more.
+fn workspace_level_violation(manifest: &str) -> Option<String> {
+    let level = workspace_unsafe_level(manifest);
+    (level != ["\"deny\""])
+        .then(|| format!("the workspace's `unsafe_code` is {level:?}, not exactly \"deny\""))
+}
+
+/// What the workspace's lint configuration shows.
+fn configuration_violations(root: &Path, members: &[PathBuf]) -> Vec<String> {
+    let mut v = Vec::new();
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("Cargo.toml");
+    v.extend(workspace_level_violation(&manifest));
     for member in members {
         let text = fs::read_to_string(member).unwrap_or_default();
         let opted_in = text.split("\n[lints]").nth(1).is_some_and(|s| {
@@ -941,6 +957,14 @@ fn the_site_admits_one_allow_on_a_fn_and_no_macro() {
         u = "unsafe"
     );
     assert!(!planted(SITE, &exported).is_empty(), "a macro at the site");
+    // Mutation proof, mutant 6: a macro otherwise admitted (one `unsafe`, one
+    // `allow`, on a `fn`) is refused by the macro rule alone.
+    let admitted_but_a_macro = format!(
+        "macro_rules! raw {{ () => {{ #[allow({c})] pub fn f() {{ {u} {{}} }} }} }}",
+        c = "unsafe_code",
+        u = "unsafe"
+    );
+    assert!(!planted(SITE, &admitted_but_a_macro).is_empty());
 }
 
 #[test]
@@ -956,4 +980,68 @@ fn cargo_configuration_that_substitutes_the_compiler_is_recognised() {
     ));
     assert!(substitutes_the_compiler("rustc = \"/x/rustc\""));
     assert!(!substitutes_the_compiler("[net]\noffline = true"));
+}
+
+#[test]
+fn only_a_crates_own_build_directory_is_skipped() {
+    let base = Path::new(env!("CARGO_TARGET_TMPDIR")).join("unsafe_scan_walk");
+    let _ = fs::remove_dir_all(&base);
+    let module = base.join("crates/a/src/target");
+    let build = base.join("crates/a/target");
+    fs::create_dir_all(&module).expect("a module directory");
+    fs::create_dir_all(&build).expect("a build directory");
+    fs::write(module.join("m.rs"), "").expect("written");
+    fs::write(build.join("b.rs"), "").expect("written");
+    let mut found = Vec::new();
+    rust_files(&base.join("crates"), &mut found);
+    fs::remove_dir_all(&base).expect("removed");
+    assert_eq!(found, [module.join("m.rs")]);
+}
+
+#[test]
+fn a_drift_in_the_pins_or_the_level_is_caught() {
+    let meta = |extra: &str| {
+        let mut packages: Vec<serde_json::Value> = Vec::new();
+        let mut by_member: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for pin in DIRECT_DEPENDENCIES
+            .iter()
+            .copied()
+            .chain((!extra.is_empty()).then_some(extra))
+        {
+            let (member, dep) = pin.split_once(' ').expect("member dependency");
+            by_member.entry(member).or_default().push(dep);
+        }
+        for (member, deps) in by_member {
+            let deps: Vec<serde_json::Value> = deps
+                .iter()
+                .map(|d| serde_json::json!({ "name": d }))
+                .collect();
+            packages.push(serde_json::json!({ "name": member, "dependencies": deps }));
+        }
+        serde_json::json!({ "packages": packages })
+    };
+    let full = |extra: Option<&str>| {
+        let packages: Vec<serde_json::Value> = PROC_MACROS
+            .iter()
+            .copied()
+            .chain(extra)
+            .map(|n| serde_json::json!({ "name": n, "targets": [{ "kind": ["proc-macro"] }] }))
+            .collect();
+        serde_json::json!({ "packages": packages })
+    };
+    assert!(dependency_drift(&meta(""), &full(None)).is_empty());
+    assert!(!dependency_drift(&meta("macportsbrew-domain foo"), &full(None)).is_empty());
+    assert!(!dependency_drift(&meta(""), &full(Some("paste"))).is_empty());
+    let lints = |level: &str| format!("[workspace.lints.rust]\nunsafe_code = \"{level}\"\n");
+    assert!(workspace_level_violation(&lints("deny")).is_none());
+    for level in ["forbid", "warn", "allow"] {
+        assert!(
+            workspace_level_violation(&lints(level)).is_some(),
+            "{level}"
+        );
+    }
+    assert!(
+        workspace_level_violation("[workspace]\n").is_some(),
+        "no level at all"
+    );
 }

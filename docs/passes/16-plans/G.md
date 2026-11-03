@@ -462,6 +462,15 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   is not read; what an admitted dependency's macro expands to is not seen.
 - **Item 20 N5, decided:** the test alone is the check; no `validate.sh` stage
   is staged, since `validate.sh`'s default mode and CI both run it.
+- **Mutation proof (isolated worktree, a subagent; removed afterwards):** 16
+  mutants of the scan, including the plan's 13 (string stripping, nested
+  comment depth) and 14 (`main.rs` dropped as a root, and its `forbid`
+  deleted). 12 killed at first; the 4 survivors (the site's macro rule, the
+  build-directory depth, the dependency pin's comparison, the exact `deny`)
+  were each made testable and are now killed by
+  `the_site_admits_one_allow_on_a_fn_and_no_macro`,
+  `only_a_crates_own_build_directory_is_skipped` and
+  `a_drift_in_the_pins_or_the_level_is_caught`, re-run by hand.
 - **Handed to G-2:** "at most once" becomes "exactly once" when `getlk.rs`
   lands, the `allow` tied to `held`;
   `no_workspace_crate_depends_on_libc_directly` edited on purpose; the direct
