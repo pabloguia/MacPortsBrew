@@ -457,7 +457,9 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   every target's source under `crates/`; the members' direct dependencies and
   the graph's proc-macro crates are pinned in the test; a `rustflags`, `rustc`
   or wrapper key in `.cargo/config*` and `RUSTC`, `RUSTC_WRAPPER`,
-  `RUSTC_WORKSPACE_WRAPPER` are refused outright.
+  `RUSTC_WORKSPACE_WRAPPER` are refused outright, except `cargo-llvm-cov` as
+  `RUSTC_WRAPPER` with flags that lower no lint (CI's coverage job; the first
+  CI run of PR #64 failed on it).
 - **Limits, declared in SE-110:** Cargo configuration outside the repository
   is not read; what an admitted dependency's macro expands to is not seen.
 - **Item 20 N5, decided:** the test alone is the check; no `validate.sh` stage

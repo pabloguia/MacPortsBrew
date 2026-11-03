@@ -625,11 +625,25 @@ fn configuration_violations(root: &Path, members: &[PathBuf]) -> Vec<String> {
             var.as_str(),
             "RUSTC" | "RUSTC_WRAPPER" | "RUSTC_WORKSPACE_WRAPPER"
         ) && !value.is_empty()
+            && !coverage_wrapper(&var, &value, &|k| std::env::var(k).ok())
         {
             v.push(format!("{var}: a substituted compiler can pass any flag"));
         }
     }
     v
+}
+
+/// The one wrapper admitted: CI's coverage job runs the tests under
+/// `cargo-llvm-cov`, which sets itself as `RUSTC_WRAPPER` and passes rustc
+/// the flags it publishes in `__CARGO_LLVM_COV_RUSTC_WRAPPER_RUSTFLAGS`. It
+/// is admitted only under that name, only as `RUSTC_WRAPPER`, and only while
+/// those flags lower no lint.
+fn coverage_wrapper(var: &str, value: &str, env: &dyn Fn(&str) -> Option<String>) -> bool {
+    var == "RUSTC_WRAPPER"
+        && Path::new(value)
+            .file_name()
+            .is_some_and(|n| n == "cargo-llvm-cov")
+        && env("__CARGO_LLVM_COV_RUSTC_WRAPPER_RUSTFLAGS").is_some_and(|f| !capping(&f))
 }
 
 /// Whether Cargo configuration sets flags or substitutes the compiler.
@@ -1044,4 +1058,38 @@ fn a_drift_in_the_pins_or_the_level_is_caught() {
         workspace_level_violation("[workspace]\n").is_some(),
         "no level at all"
     );
+}
+
+#[test]
+fn only_the_coverage_wrapper_with_coverage_flags_is_admitted() {
+    let flags = |f: &'static str| {
+        move |k: &str| (k == "__CARGO_LLVM_COV_RUSTC_WRAPPER_RUSTFLAGS").then(|| f.to_string())
+    };
+    let coverage = flags("-Cinstrument-coverage\u{1f}--cfg=coverage");
+    assert!(coverage_wrapper(
+        "RUSTC_WRAPPER",
+        "/x/bin/cargo-llvm-cov",
+        &coverage
+    ));
+    assert!(!coverage_wrapper(
+        "RUSTC_WRAPPER",
+        "/x/bin/sccache",
+        &coverage
+    ));
+    assert!(!coverage_wrapper(
+        "RUSTC_WORKSPACE_WRAPPER",
+        "/x/bin/cargo-llvm-cov",
+        &coverage
+    ));
+    assert!(!coverage_wrapper(
+        "RUSTC_WRAPPER",
+        "/x/bin/cargo-llvm-cov",
+        &|_: &str| None
+    ));
+    let lowering = flags("-Cinstrument-coverage\u{1f}--cap-lints=allow");
+    assert!(!coverage_wrapper(
+        "RUSTC_WRAPPER",
+        "/x/bin/cargo-llvm-cov",
+        &lowering
+    ));
 }

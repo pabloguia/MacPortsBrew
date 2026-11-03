@@ -109,7 +109,7 @@ Remove a line when the owner has done it, citing the commit.
 
 - **Run the hooks group of `/tooling-recheck`** (blocks nothing; guarded paths). On 2026-11-03 the auto-mode classifier refused the launch of the read-only subagent for the hooks, permissions and CI group ("Auto-Mode Bypass"); the other two groups ran (`docs/research/tooling/2026-11-03-*.md`, no contract break). Action: run `/tooling-recheck` with scope "Hooks, permissions, CI" in a session where that launch is allowed, or allow the subagent launch. The read dates in spec 11 and `.claude/README.md` stay at 2026-10-30 until all three groups have run. The memory group adds guarded recommendations for the owner: `onFailure: "block"` on the guard and gate hooks; `Edit(/...)` instead of `Edit(./...)` at `.claude/settings.json:97-98`; `CLAUDE.md:57` and `:61-62` wording.
 
-- **Apply `G/01`, the `check-licences.sh` comment** (blocks nothing; `docs/passes/16-staged/G/`, README there). Action: after G-1 merges, on a topic branch from `main`, `git apply docs/passes/16-staged/G/01-check-licences-unsafe-comment.patch`, then `scripts/validate.sh --quick`, then commit.
+- ~~**Apply `G/01`, the `check-licences.sh` comment**~~ — done 2026-11-03: the owner applied it in the session, committed into G-1 (PR #64) at the owner's choice rather than on its own branch after G-1; `git apply --reverse --check` succeeds.
 
 ## Disclosures
 
