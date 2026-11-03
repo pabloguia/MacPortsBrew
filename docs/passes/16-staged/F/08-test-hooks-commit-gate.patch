@@ -1,0 +1,105 @@
+diff --git a/.claude/hooks/test-hooks.sh b/.claude/hooks/test-hooks.sh
+index 7351c57..4c04a01 100755
+--- a/.claude/hooks/test-hooks.sh
++++ b/.claude/hooks/test-hooks.sh
+@@ -782,6 +782,100 @@ CLAUDE_PROJECT_DIR="$d" assert "a missing validator refuses the commit" "$C" den
+ CLAUDE_PROJECT_DIR="$d/does-not-exist" assert "an unreachable project refuses the commit" "$C" deny "$(bash_input "$COMMIT")"
+ rm -rf "$d"
+ 
++
++# --- the commit gate: what counts as a commit, and which tree (F/07) --------
++# A wrapper or an assignment in front of `git` used to skip the gate, and the
++# gate validated the main checkout whatever tree the commit landed in. Every
++# validator below is a stub that leaves a marker in the tree it ran in, so each
++# case asserts the verdict and which tree, if any, was validated: an `allow`
++# from a gate that never recognised the command leaves no marker and fails.
++bash_input_cwd() {
++  if command -v python3 >/dev/null 2>&1; then
++    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' "$1" "$2"
++  else
++    jq -cn --arg c "$1" --arg w "$2" '{tool_name:"Bash",cwd:$w,tool_input:{command:$c}}'
++  fi
++}
++validator() { printf '#!/bin/sh\n: > .validated\nexit %s\n' "$2" >"$1/scripts/validate.sh"; chmod +x "$1/scripts/validate.sh"; }
++# gate_case <label> <allow|deny|ignored> <d|w|none: the tree validated> <json>
++gate_case() {
++  local label="$1" expect="$2" where="$3" json="$4" got="" out
++  rm -f "$d/.validated" "$w/.validated"
++  if [ "$expect" = ignored ]; then
++    if out="$(printf '%s' "$json" | CLAUDE_PROJECT_DIR="$d" "$HERE/$C" 2>&1)" && [ -z "$out" ]; then
++      pass=$((pass + 1))
++    else
++      failures+=("$label: expected the gate to ignore it: $out")
++    fi
++  else
++    CLAUDE_PROJECT_DIR="$d" assert "$label" "$C" "$expect" "$json"
++  fi
++  [ -e "$d/.validated" ] && got="${got}d"
++  [ -e "$w/.validated" ] && got="${got}w"
++  [ -n "$got" ] || got=none
++  if [ "$got" = "$where" ]; then
++    pass=$((pass + 1))
++  else
++    failures+=("$label: validated tree $got, expected $where")
++  fi
++}
++GC="git ""commit"
++d="$(scratch_repo)"
++# A worktree where a subagent works, inside the main checkout.
++w="$d/.claude/worktrees/agent"
++git -C "$d" worktree add -q --detach "$w" >/dev/null 2>&1
++
++validator "$d" 1
++validator "$w" 0
++for form in "timeout 900 $GC -m x" "env X=1 $GC -m x" "X=1 $GC -m x" "nice $GC -m x" \
++  "nohup $GC -m x" "time $GC -m x" "command $GC -m x" "/usr/bin/$GC -m x" "bash -c '$GC -m x'" \
++  "git -c user.name=\"A B\" commit -m x" "git -c user.name='A B' commit -m x" \
++  "git -c user.name=a\\ b commit -m x"; do
++  gate_case "a prefixed or quoted-option commit is validated: $form" deny d "$(bash_input "$form")"
++done
++gate_case "git log --grep commit is not a commit" ignored none "$(bash_input "git log --grep commit")"
++gate_case "commit-tree is not a commit" ignored none "$(bash_input "$GC-tree HEAD^{tree}")"
++
++gate_case "-C <worktree> validates the worktree, not the checkout" allow w "$(bash_input "git -C $w commit -m x")"
++gate_case "a relative -C is resolved from the cwd" allow w "$(bash_input_cwd "git -C .claude/worktrees/agent commit -m x" "$d")"
++gate_case "the input's cwd selects the worktree" allow w "$(bash_input_cwd "$GC -m x" "$w")"
++gate_case "a leading cd selects the worktree" allow w "$(bash_input "cd $w && $GC -m x")"
++validator "$d" 0
++validator "$w" 1
++gate_case "-C <worktree> with a failing worktree refuses" deny w "$(bash_input "git -C $w commit -m x")"
++gate_case "a relative -C into a failing worktree refuses" deny w "$(bash_input_cwd "git -C .claude/worktrees/agent commit -m x" "$d")"
++gate_case "the input's cwd in a failing worktree refuses" deny w "$(bash_input_cwd "$GC -m x" "$w")"
++gate_case "a leading cd into a failing worktree refuses" deny w "$(bash_input "cd $w; $GC -m x")"
++gate_case "the checkout still passes on its own" allow d "$(bash_input "$GC -m x")"
++gate_case "a message naming a commit in the same tree passes" allow d "$(bash_input "$GC -m \"explain $GC\"")"
++# `cd lnk/..` is the checkout to the shell's logical cd, the worktree physically.
++ln -s "$w/scripts" "$d/lnk"
++gate_case "a leading cd resolves .. as the shell does" allow d "$(bash_input_cwd "cd lnk/.. && $GC -m x" "$d")"
++
++# What the gate cannot follow, it refuses without validating anything.
++validator "$w" 0
++nonrepo="$(mktemp -d)"
++gate_case "a -C written with a variable refuses" deny none "$(bash_input "git -C \"\$WT\" commit -m x")"
++gate_case "a -C outside any work tree refuses" deny none "$(bash_input "git -C $nonrepo commit -m x")"
++gate_case "a -C that does not exist refuses" deny none "$(bash_input "git -C $d/nope commit -m x")"
++gate_case "a cwd that does not exist refuses" deny none "$(bash_input_cwd "$GC -m x" "$d/nope")"
++gate_case "GIT_DIR in the command refuses" deny none "$(bash_input "GIT_DIR=$w/.git $GC -m x")"
++gate_case "--git-dir with a separate argument refuses" deny none "$(bash_input "git --git-dir $w/.git commit -m x")"
++gate_case "a quoted git refuses" deny none "$(bash_input "\"git\" commit -m x")"
++gate_case "a backslash inside commit refuses" deny none "$(bash_input "git co\\mmit -m x")"
++gate_case "a cd that is not leading refuses" deny none "$(bash_input "true && cd $w && $GC -m x")"
++gate_case "env -C before git refuses" deny none "$(bash_input "env -C $w $GC -m x")"
++gate_case "commits in two trees refuse" deny none "$(bash_input "git -C $w commit -m a; git -C $d commit -m b")"
++gate_case "a second commit with a quoted option is still read" deny none "$(bash_input "git -C $d commit -m a; git -c x=\"a b\" -C $w commit -m b")"
++gate_case "env through a path with -C refuses" deny none "$(bash_input "/usr/bin/env -C $w $GC -m x")"
++gate_case "core.worktree refuses" deny none "$(bash_input "git -c core.worktree=$w commit -m x")"
++gate_case "a leading cd through a missing directory refuses" deny none "$(bash_input_cwd "cd $w/missing/.. ; $GC -m x" "$d")"
++mkdir -p "$d/sub dir"
++gate_case "a quoted path cannot hide a quoted git" deny none "$(bash_input "git -C \"$d/sub dir\" commit -m x; \"git\" -C $w commit -m y")"
++gate_case "a commit inside bash -c cannot hide a quoted git" deny none "$(bash_input_cwd "bash -c '$GC -m a'; \"git\" -C $w commit -m b" "$d")"
++git -C "$d" worktree remove --force "$w" >/dev/null 2>&1
++rm -rf "$d" "$nonrepo"
++
+ # --- report -----------------------------------------------------------------
+ total=$((pass + ${#failures[@]}))
+ if [ ${#failures[@]} -gt 0 ]; then

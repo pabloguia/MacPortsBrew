@@ -1,0 +1,270 @@
+diff --git a/.claude/hooks/commit-gate.sh b/.claude/hooks/commit-gate.sh
+index 32e7a40..dd17354 100755
+--- a/.claude/hooks/commit-gate.sh
++++ b/.claude/hooks/commit-gate.sh
+@@ -14,6 +14,45 @@
+ # committed - staged or in the working tree, since `git commit -a` exists -
+ # touches anything the tests cover; `--quick` for a documentation-only commit.
+ #
++# Two defects fixed on 2026-11-02 (work order 16, F/07), both observed when a
++# worktree agent's commit landed unvalidated:
++#
++# 1. Which commands are commits. `git` had to stand at the start of the command
++#    or after `;`, `&`, `|` or `(`, so `timeout 900 git commit`, `env X=1 git
++#    commit`, `VAR=1 git commit`, `nice`, `nohup`, `time`, `command` and
++#    `/usr/bin/git commit` were not recognised and skipped the gate entirely.
++#    `git` - with an optional path in front of it - now counts after any
++#    whitespace or quote as well; an option value may be quoted in parts or
++#    escaped (`-c user.name="A B"`, `a\ b`); a command that spells more commits
++#    once its quotes and backslashes are removed (`"git" commit`, `git
++#    co\mmit`) is refused, and the commits of that quote-free copy are resolved
++#    to their trees as well. A false positive costs one validation run; a false negative ships
++#    an unvalidated commit, so the match errs wide: `echo git commit` and a
++#    commit message that contains the words "git commit" are validated too.
++#    `git log --grep commit` still does not match: only options may stand
++#    between `git` and `commit`. Still not caught: a `git` reached through a
++#    variable or a substitution (`"$(which git)" commit`, `$GIT commit`), an
++#    alias (`git ci`), and the other subcommands that make commits (`merge`,
++#    `cherry-pick`, `revert`, `am`, `rebase`, `pull`) - the gate's scope was
++#    `git commit` before this change and still is.
++#
++# 2. Which tree is validated. The gate validated `CLAUDE_PROJECT_DIR`, the main
++#    checkout, whatever the commit targeted - wrong for a subagent in a
++#    worktree under `.claude/worktrees/`, for `git -C <dir> commit` and for
++#    `cd <dir> && git commit`. The gate now starts from the hook input's `cwd`
++#    (else `CLAUDE_PROJECT_DIR`, else its own working directory), applies each
++#    leading `cd <dir> &&` or `cd <dir>;` (the directory must exist as written,
++#    and `..` is resolved as the shell's logical `cd` resolves it), then each
++#    `-C <dir>` of the commit, and validates the
++#    tree `git rev-parse --show-toplevel` names there, with that tree's own
++#    `scripts/validate.sh`. It refuses, rather than guess, when it cannot follow
++#    the command: a `cd`, `pushd`, `popd` or `env -C` that is not leading, a
++#    directory written with a variable, a substitution or a glob, `GIT_DIR`,
++#    `GIT_WORK_TREE`, `--git-dir`, `--work-tree` or `core.worktree` in the
++#    command, two commit
++#    invocations that resolve to different trees, or a directory that is not
++#    in a work tree.
++#
+ # Disclosed escape, on the same terms as MPB_SKIP_STOP_GATE: set
+ # MPB_SKIP_COMMIT_GATE=1 in the environment, and say so in the pass report.
+ 
+@@ -27,11 +66,46 @@ COMMAND=""
+ mpb_field_or_fail_closed COMMAND "$INPUT" "tool_input.command"
+ [ -n "$COMMAND" ] || exit 0
+ 
+-NORM="$(printf '%s' "$COMMAND" | tr '\n\t\r' '   ' | tr -s ' ')"
+-# `git`, any global options (`-C <dir>`, `-c <k=v>`, `--no-pager`, ...), then
+-# the `commit` subcommand. `git log --grep commit` does not match.
+-GIT_COMMIT='(^|[;&|(])[[:space:]]*git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([[:space:]]|$)'
+-printf '%s' "$NORM" | grep -Eq "$GIT_COMMIT" || exit 0
++# Newlines and tabs become spaces; runs of spaces are kept, because they may be
++# inside a quoted directory.
++NORM="$(printf '%s' "$COMMAND" | tr '\n\t\r' '   ')"
++# What may stand before `git`: the start, whitespace, a separator or a quote.
++SEP="[[:space:];&|(\`\"']"
++PRE="(^|${SEP})"
++# An option argument: one word, any part of it quoted or backslash-escaped.
++QARG="(([^[:space:]\"'\\\\]|\\\\.|\"[^\"]*\"|'[^']*')+)"
++# The global options that take their argument as the next word.
++LONGARG="--(git-dir|work-tree|namespace|super-prefix|config-env)"
++# `git`, optionally with a path, any global options, then the `commit`
++# subcommand as a whole word.
++GIT_COMMIT="${PRE}([^[:space:];&|()\`\"']*/)?git([[:space:]]+(-[Cc][[:space:]]+${QARG}|${LONGARG}[[:space:]]+${QARG}|-[^[:space:]]+))*[[:space:]]+commit([[:space:];&|)\`\"']|\$)"
++
++# count_commits <text>: how many commit invocations the text holds.
++count_commits() {
++  local s="$1" n=0 m last
++  while [[ $s =~ $GIT_COMMIT ]]; do
++    m="${BASH_REMATCH[0]}"
++    n=$((n + 1))
++    last="${m: -1}"
++    s="${s#*"$m"}"
++    case "$last" in
++      t) ;;
++      *) s="$last$s" ;;
++    esac
++  done
++  printf '%s' "$n"
++}
++# The command with its quotes and backslashes removed, the way the shell reads
++# it: whitespace inside quotes, and an escaped space, become PH, so a quoted
++# word stays one word. Without perl, the plain deletion (which can split a
++# quoted word, and so only ever finds fewer commits).
++PH=$'\001'
++if ! PLAIN="$(printf '%s' "$NORM" | perl -pe 's/"([^"]*)"/(my $x = $1) =~ s{\s}{\001}g; $x/ge; s/\x27([^\x27]*)\x27/(my $x = $1) =~ s{\s}{\001}g; $x/ge; s/\\\s/\001/g; s/\\//g' 2>/dev/null)"; then
++  PLAIN="$(printf '%s' "$NORM" | tr -d "\"'\\\\")"
++fi
++n_real="$(count_commits "$NORM")"
++n_plain="$(count_commits "$PLAIN")"
++[ "$n_real" -gt 0 ] || [ "$n_plain" -gt 0 ] || exit 0
+ 
+ if [ "${MPB_SKIP_COMMIT_GATE:-0}" = "1" ]; then
+   mpb_context "PreToolUse" "MPB_SKIP_COMMIT_GATE=1 is set: this commit was not validated. The end-of-pass report must say so."
+@@ -42,12 +116,164 @@ fi
+ # under `set -e` used to exit 1 and a missing `validate.sh` exit 0, and Claude
+ # Code proceeds on both - "exit code 1 [is] a non-blocking error" (hooks page,
+ # read 2026-10-03) - so the commit landed unvalidated (tooling recheck D2).
+-ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
++deny_tree() {
++  mpb_deny "PreToolUse" "Commit refused: $1 The commit gate validates the tree the commit lands in and cannot tell which tree that is. Commit from that directory, or with \`git -C <literal path> commit\`."
++}
++
++if [ "$n_plain" -gt "$n_real" ]; then
++  deny_tree "the command spells a commit with quotes or backslashes the gate cannot read."
++fi
++case "$NORM" in
++  *GIT_DIR=* | *GIT_WORK_TREE=* | *--git-dir* | *--work-tree*)
++    deny_tree "the command names GIT_DIR, GIT_WORK_TREE, --git-dir or --work-tree." ;;
++esac
++case "$(printf '%s' "$NORM" | tr '[:upper:]' '[:lower:]')" in
++  *core.worktree*)
++    deny_tree "the command names core.worktree." ;;
++esac
++
++# The repository variables the hook itself inherits would redirect every git
++# call below, and validate.sh's, away from the tree being resolved.
++unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_NAMESPACE
++
++# join_dir <base> <argument as written>: the directory the argument names,
++# relative to base. Fails on anything the shell would expand.
++join_dir() {
++  local d="$2"
++  d="${d//$PH/ }"
++  case "$d" in
++    \"*\") d="${d#\"}"; d="${d%\"}" ;;
++    \'*\') d="${d#\'}"; d="${d%\'}" ;;
++  esac
++  case "$d" in
++    \~) d="$HOME" ;;
++    \~/*) d="$HOME/${d#\~/}" ;;
++  esac
++  case "$d" in
++    '' | *'$'* | *'`'* | *'"'* | *"'"* | *'*'* | *'?'* | *'['* | \~* | *\\*) return 1 ;;
++  esac
++  case "$d" in
++    /*) printf '%s' "$d" ;;
++    *) printf '%s' "$1/$d" ;;
++  esac
++}
++
++# lexnorm <absolute path>: `.` and `..` resolved by text, as the shell's
++# logical `cd` resolves them (`git -C` resolves them physically, so `-C`
++# arguments do not go through this).
++lexnorm() {
++  local IFS=/ part out=""
++  local -a parts=()
++  read -r -a parts <<<"$1"
++  if [ "${#parts[@]}" -gt 0 ]; then
++    for part in "${parts[@]}"; do
++      case "$part" in
++        '' | .) ;;
++        ..) out="${out%/*}" ;;
++        *) out="$out/$part" ;;
++      esac
++    done
++  fi
++  printf '%s' "${out:-/}"
++}
++
++# Where the command runs: the hook input's `cwd`, which a subagent in a worktree
++# carries; an unreadable input fails closed.
++CWD_FIELD=""
++mpb_field_or_fail_closed CWD_FIELD "$INPUT" "cwd"
++if ! HERE_DIR="$(pwd)"; then
++  deny_tree "the gate could not read its own working directory."
++fi
++START="${CWD_FIELD:-${CLAUDE_PROJECT_DIR:-$HERE_DIR}}"
++case "$START" in
++  /*) ;;
++  *) START="${CLAUDE_PROJECT_DIR:-$HERE_DIR}/$START" ;;
++esac
++
++CDARG="(\"[^\"]*\"|'[^']*'|[^[:space:];&|]+)"
++CD_LEADING="^[[:space:]]*cd[[:space:]]+${CDARG}[[:space:]]*(&&|;)"
++CD_ANYWHERE="(^|${SEP})(cd|pushd|popd)([[:space:]]|\$)"
++ENV_CHDIR="(^|${SEP})([^[:space:];&|()\`\"']*/)?env[[:space:]]([^;&|]*[[:space:]])?(-[[:alnum:]]*C|--chdir)"
++GITBIN="^([^[:space:]]*/)?git(.*)\$"
++OPT_C="^-C[[:space:]]+${QARG}"
++OPT_ARG="^(-c|${LONGARG})[[:space:]]+${QARG}"
++OPT_ANY="^-[^[:space:]]+"
++ROOT=""
++
++# resolve_text <text>: every commit invocation in the text, each resolved to
++# the tree it lands in; all must be one tree, which becomes ROOT. Run on the
++# command as written and on its quote-free copy, so a commit visible in only
++# one of them is still resolved.
++resolve_text() {
++  local base="$START" rest="$1" next s m0 m opts dir top last consumed=""
++  # Each leading `cd <dir> &&` or `cd <dir>;`. The directory must exist as
++  # written: the shell refuses `cd missing/..`, and after `;` the commit would
++  # then run where it started.
++  while [[ $rest =~ $CD_LEADING ]]; do
++    if ! next="$(join_dir "$base" "${BASH_REMATCH[1]}")" || [ ! -d "$next" ]; then
++      deny_tree "a leading \`cd\` names a directory the gate cannot resolve."
++    fi
++    base="$(lexnorm "$next")"
++    rest="${rest:${#BASH_REMATCH[0]}}"
++  done
++  # Each commit invocation, with its own `-C` options. A directory change that
++  # is not leading, before any of them, is refused rather than followed.
++  s="$rest"
++  while [[ $s =~ $GIT_COMMIT ]]; do
++    m0="${BASH_REMATCH[0]}"
++    consumed="$consumed${s%%"$m0"*}"
++    if [[ $consumed =~ $CD_ANYWHERE ]] || [[ $consumed =~ $ENV_CHDIR ]]; then
++      deny_tree "a \`cd\`, \`pushd\`, \`popd\` or \`env -C\` that is not at the start of the command comes before the commit."
++    fi
++    m="$m0"
++    case "${m:0:1}" in
++      [[:space:]] | ';' | '&' | '|' | '(' | '`' | '"' | "'") m="${m:1}" ;;
++    esac
++    [[ $m =~ $GITBIN ]] || deny_tree "the gate could not read the git invocation."
++    opts="${BASH_REMATCH[2]}"
++    dir="$base"
++    while :; do
++      opts="${opts#"${opts%%[![:space:]]*}"}"
++      if [[ $opts =~ $OPT_C ]]; then
++        if ! dir="$(join_dir "$dir" "${BASH_REMATCH[1]}")"; then
++          deny_tree "\`git -C\` names a directory the gate cannot resolve."
++        fi
++        opts="${opts:${#BASH_REMATCH[0]}}"
++      elif [[ $opts =~ $OPT_ARG ]]; then
++        opts="${opts:${#BASH_REMATCH[0]}}"
++      elif [[ $opts =~ ^commit ]]; then
++        break
++      elif [[ $opts =~ $OPT_ANY ]]; then
++        opts="${opts:${#BASH_REMATCH[0]}}"
++      else
++        deny_tree "the gate could not read the git options."
++      fi
++    done
++    if ! top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || [ -z "$top" ]; then
++      deny_tree "\`$dir\` is not inside a git work tree the gate can read."
++    fi
++    if [ -n "$ROOT" ] && [ "$ROOT" != "$top" ]; then
++      deny_tree "the command commits in two different trees."
++    fi
++    ROOT="$top"
++    consumed="$consumed$m0"
++    last="${m0: -1}"
++    s="${s#*"$m0"}"
++    case "$last" in
++      t) ;;
++      *) s="$last$s" ;;
++    esac
++  done
++}
++resolve_text "$NORM"
++resolve_text "$PLAIN"
++[ -n "$ROOT" ] || deny_tree "the gate could not find the commit invocation after the leading \`cd\`."
++
+ if ! cd "$ROOT" 2>/dev/null; then
+-  mpb_deny "PreToolUse" "Commit refused: the commit gate could not enter the project directory, so it cannot validate this commit."
++  mpb_deny "PreToolUse" "Commit refused: the commit gate could not enter $ROOT, so it cannot validate this commit."
+ fi
+ if [ ! -x scripts/validate.sh ]; then
+-  mpb_deny "PreToolUse" "Commit refused: scripts/validate.sh is missing or not executable, so this commit cannot be validated. Restore it, or set MPB_SKIP_COMMIT_GATE=1 and disclose it in the pass report."
++  mpb_deny "PreToolUse" "Commit refused: scripts/validate.sh is missing or not executable in $ROOT, so this commit cannot be validated. Restore it, or set MPB_SKIP_COMMIT_GATE=1 and disclose it in the pass report."
+ fi
+ PATH="$HOME/.cargo/bin:$PATH"
+ 
