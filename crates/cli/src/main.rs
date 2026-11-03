@@ -3,6 +3,8 @@
 //! MacPortsBrew command-line entry point. `macportsbrew` and `mpb` are the
 //! same program (`docs/spec/06-cli-and-ux.md`).
 
+#![forbid(unsafe_code)]
+
 use clap::{CommandFactory, FromArgMatches};
 use macportsbrew::app::{run, version, Cli};
 

@@ -35,7 +35,10 @@ clap = { version = "4.5", features = ["derive"] }
 sha2 = { version = "0.11.1", default-features = false }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# ADR-0007: `deny` here, `#![forbid(unsafe_code)]` at every crate root but
+# adapters, whose one reviewed `unsafe` call is the lock probe's.
+# `crates/cli/tests/unsafe_scan.rs` holds the rest.
+unsafe_code = "deny"
 missing_docs = "warn"
 
 [workspace.lints.clippy]

@@ -11,6 +11,8 @@
 //! analysis, which is how INV-15 is proven rather than asserted. No I/O
 //! happens in this crate except through the traits the domain declares.
 
+#![forbid(unsafe_code)]
+
 pub mod analysis;
 pub mod capture;
 pub mod classify;

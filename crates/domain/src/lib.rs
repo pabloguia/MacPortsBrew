@@ -11,6 +11,8 @@
 //! (`BTreeMap`, `BTreeSet`, sorted `Vec`) so that the same input produces the
 //! same bytes (INV-15).
 
+#![forbid(unsafe_code)]
+
 pub mod availability;
 pub mod class;
 pub mod concurrency;

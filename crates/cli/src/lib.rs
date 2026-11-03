@@ -18,6 +18,8 @@
 //!   produces ragged tables for half the target locales. [`render::width`] is
 //!   the only place that answers "how wide is this".
 
+#![forbid(unsafe_code)]
+
 pub mod app;
 pub mod consent;
 pub mod executor;
