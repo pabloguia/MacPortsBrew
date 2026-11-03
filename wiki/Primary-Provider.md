@@ -28,8 +28,8 @@ macportsbrew doctor
 
 shows the order in which your `PATH` reaches each provider's prefix, a prefix
 that is not on `PATH` at all, and duplicate `PATH` entries. Run it on the live
-machine: a recording or a snapshot does not carry your `PATH`, and `doctor`
-says so rather than guessing.
+machine: a recording carries no `PATH`, `doctor` reads only the live one, and
+it says so rather than guessing.
 
 For one particular tool, ask your shell directly:
 
@@ -38,7 +38,9 @@ command -v git     # the copy that runs
 which -a git       # every copy on PATH, in the order they are found
 ```
 
-**Per-package resolution is specified but not in 0.1.0.** The design is for
+**A per-package resolution report is specified but not in 0.1.0.**
+`snapshot <package>` records the raw resolution of each executable in its
+`--json`, but the report is not built. The design is for
 `analyze` to report, for each package, the executable `PATH` resolves to, the
 canonical path after following symlinks, and which provider owns it — asking
 the provider which package owns the resolved path, with prefix matching as a
@@ -57,9 +59,10 @@ is the least invasive one that can express what you asked for
 Report what wins and change nothing. It is the only option with no failure
 mode, and it is often all you need: once you can see that `/usr/local/bin/git`
 is winning over `/opt/local/bin/git`, you know what to do about it. In 0.1.0
-this layer is `doctor`'s `PATH`-order report plus `command -v` and `which -a`;
-the per-executable report of the winner, its owner and the losers is designed
-and not yet built.
+this layer is `doctor`'s `PATH`-order report plus `command -v` and `which -a`.
+`snapshot <package>` records where each of a package's executables resolves,
+and a migration plan reads it (below); the per-executable report of the
+winner, its owner and the losers in `analyze` is designed and not yet built.
 
 ### 2. Recommend the versioned executable name
 
@@ -115,10 +118,25 @@ invasive, which is why it is last.
 
 ## In this build
 
-Layer 1 only, and only its `PATH`-order part. `macportsbrew primary`,
+Layer 1 only, and only its `PATH`-order part, plus the decision a plan
+records. `macportsbrew snapshot <package>` records the executables a package
+ships and where each one resolves on your `PATH`. A migration plan then decides
+its primary per executable from that snapshot alone, the same way in both
+directions: it completes only where the destination's copy was already
+observed winning, or where the package ships no executable, and it predicts no
+win. Where only a shim (layer 4) could make the destination's copy run, it is
+refused with `PRIMARY_NEEDS_SHIM` and the source is kept. A destination that is
+not installed yet is refused too, in both directions, while DP-055 is open, so
+for most migrations the primary half is refused. A plan records that, before
+any source would be removed, a fresh search of `PATH` must find each executable
+in the destination's own package, and it names the `command -v` check you can
+run yourself. In this release the gate refuses every migration plan before its
+first step, so these checks are what a plan records, not something that runs.
+`macportsbrew primary`,
 `macportsbrew provider-priority` and `macportsbrew env` are specified and not
-yet written: they do not exist in 0.1.0, and a plan that mentions `primary`
-describes a step a later release will run, not a command you can type today. Nothing in version
+yet written: they do not exist in 0.1.0. A plan's `SET_PRIMARY` step records
+a decision and runs no command, and `macportsbrew primary` is not a command you
+can type today. Nothing in version
 0.1.0 writes to a shell file, creates a symlink, or changes what runs.
 
 ## See also

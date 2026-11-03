@@ -115,8 +115,59 @@ describes the ones a user sees. (DP-045, ruled
   was no such run. Nothing else about the command changes; `history show` never
   did this.
 
+- `migrate` and `plan` (work order 16 part F, SE-112): the primary is now
+  decided per executable, from the snapshot alone, by the same rule in both
+  directions. A plan's `SET_PRIMARY` step carries no command any more; it
+  carries the decision (`primary` in `plan --json`: `NOTHING_TO_CHANGE`,
+  `NO_EXECUTABLES`, `REFUSED` or `UNKNOWN`). A plan completes only where the
+  snapshot observed the destination's copy already winning `PATH`, or where the
+  package ships no executable; no win is predicted. A destination that is not
+  installed yet is refused too, in both directions, while DP-055 is open, so
+  for most migrations the primary half is refused; so is a plan built from a
+  replay, since no recording carries an executable list yet. A new
+  `VERIFY_RESOLUTION` step, one `RESOLVES_TO` check per executable, must be
+  recorded `RESOLVED` before the source may be removed (INV-01).
+  `VERIFY_DESTINATION`'s `EXECUTABLES_OWNED_BY_DESTINATION` and its
+  `LIVENESS_PROBE`s now name the source's executables, not the package name,
+  and a plan can carry the `system_tool_keeps_name` risk. Four new gate
+  refusals, each exiting 4 like every refusal: `PRIMARY_NEEDS_SHIM` (only a
+  shim, which this release does not offer, could make the destination's copy
+  win; the `ErrorId` of that name is reserved for the part that offers one),
+  `PRIMARY_REFUSED`, `PRIMARY_DECISION_MISSING` and
+  `EXECUTABLE_LISTS_DISAGREE`. New dispositions `NOTHING_TO_CHANGE` and
+  `RESOLVED`; halt reason `RESOLUTION_MISMATCH`; `UNEVALUABLE` reasons
+  `RESOLUTION_NOT_OBSERVED` (a replay or a snapshot file is never a pass) and
+  `WINNER_INDEX_UNKNOWN`. `primaryAfter` is now the provider predicted to
+  resolve, not the one requested ([`docs/schemas/plan.v1.md`](docs/schemas/plan.v1.md)).
+  A plan now carries the `PATH` its primary decision read, with the home
+  directory and account name redacted, so directory names from `PATH` appear in
+  a plan a user shares, as they already did in a snapshot (06, "The limit of a
+  plan's `PATH`"). An executable name may not contain `\`. The gate still
+  refuses every plan this build makes.
+- History schema 3 ([`docs/schemas/history.v3.md`](docs/schemas/history.v3.md))
+  records `primaryExecutables`; a version 2 record still reads but is never
+  recognised as a re-run. No build writes a record yet (the switch is off). A
+  `--retain-source` re-run is recognised only when the source still ships
+  exactly those executables and each still resolves, by the destination's own
+  records, to the destination package.
+- `snapshot.v1` loads fail closed (SE-112): a snapshot is refused if it carries
+  a bad executable name, an `executables` array no list backs, a placement no
+  capture could write, or an environment map that disagrees with its
+  per-provider one. No earlier capture wrote any of these fields except an
+  empty `executables`, and every committed snapshot still loads.
+
 ### Added after the release candidate
 
+- `macportsbrew snapshot [<package>...]` (work order 16 part F, SE-112): naming
+  installed packages also records the executables each one ships, read from
+  its provider's own file list, and where each name resolves on `PATH`, with an
+  explicit state per name (`resolutions` and, per row, `executableList` and
+  `placement` in [`docs/schemas/snapshot.v1.md`](docs/schemas/snapshot.v1.md)).
+  A name no inventory holds is reported and reads nothing; an argument that
+  begins with `-` is never taken as a package; naming a package with
+  `--from-snapshot` is refused. `migrate <package>` reads the lists of both
+  sides of its mapping the same way. The Homebrew provider's `environment` map
+  gains its `sbin` directory, as MacPorts' already listed its own.
 - `macportsbrew history acknowledge <id>`: deals with the interrupted-run
   marker a run left. Without `--yes` it says what it knows and changes nothing;
   with it, it makes the run's record durable, checks it reads back, and removes
@@ -182,14 +233,17 @@ the same planner and the same safety rules.
 (shows the plan), `doctor` (prefixes, `PATH` order, leaked build variables,
 provider health, a package manager installed in more than one place, which
 provider is exposed to the other, an interrupted-run marker, and dated support
-facts), `snapshot`, and `history`, `history show`, `history acknowledge`
+facts), `snapshot` (with package names, it also records each package's
+executables and where each resolves on `PATH`), and `history`, `history show`, `history acknowledge`
 and `restore --plan --run`, which only read, or change nothing, on a machine that
 has recorded no run. Every command has a
 versioned `--json` form. `doctor --report` writes a diagnostic file for issue
 reports, without your user name or home folder path. `PATH` entries a finding
 mentions appear with your home folder shown as `~`; other environment variables
 are named but their values are left out. It also lists every installed package.
-Read it before you share it. `doctor --report` and `snapshot --out` replace an
+Read it before you share it. A snapshot, and a plan's `--json`, keep the
+directory names of your `PATH`, with your home folder shown as `~`; read them
+before you share them too. `doctor --report` and `snapshot --out` replace an
 existing file only when it is itself a MacPortsBrew document. `--dry-run` writes
 no file at all: `snapshot` and `doctor --report` say where they would have
 written.
