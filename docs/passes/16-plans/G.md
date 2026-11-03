@@ -267,6 +267,8 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 | `spec-guardian`, plan round 2 | `G.md` with items 1–18, 2026-11-03 | Approve with changes: every round-1 finding resolved; N1 the deviation from the README's compatibility rule must be explicit; N2, N3 mutants; N4, N5 notes | Item 19 |
 | `security-reviewer`, plan round 2 | `G.md` with items 1–18, 2026-11-03 | Approve with changes: every round-1 finding resolved; N1 cross-process detection; N2 MacPorts strictness and `read_dir` item errors; N3–N6 notes | Item 20 |
 | `spec-guardian`, plan round 1 | `G.md` draft, 2026-11-03 | Approve with changes: B1 the scan fails on the root attributes; B2 one `unsafe` only; B3 analysis stays pure; B4 the order before each command and the token name; B5 no `invariant_NN_` tests named; B6 the schema change is not additive by the README's rule; R1 combining answers; R2 the test seam and the kept-failing test; R3 device nodes; R4 R-17 rule 4; R5 04's MUST met partially; R6 `check-deployment-target.sh`; R7 exit codes recorded, and exit 3 mid-run; L1–L4 | All resolved, "Changes from review round 1" |
+| `spec-guardian`, G-1 code | `wo16/G-1-lints`, uncommitted, 2026-11-03 | Approve with changes: 1 ADR-0004, ADR-0007 and SE-110 left false; 2 lint-lowering flags missed (`-W`, `--force-warn`, single-quoted TOML, other `*RUSTFLAGS`); 3 `include` under another name; 4 `#[path]` forms unread; 5 any `target` directory skipped; 6 roots by kind `lib`/`bin` only; 7 `build.rs` checked by target, "first inner attribute" stricter than item 4; 8 "exactly once" is G-2's | 1–7 fixed in G-1 (As built, G-1); 8 handed to G-2 |
+| `security-reviewer`, G-1 code | `wo16/G-1-lints`, uncommitted, 2026-11-03 | Bypasses, verified by compiling: B1 raw C strings, B2 long `\u{..}` char literals desync the lexer (also a fake root `forbid`); B3 `include` renamed; B4 `#[path]` forms; B5 nested `target`, non-`.rs` path targets; B6 a macro at the site multiplies it; B7 a dependency's macro expands `unsafe` even under `forbid`, and 8 proc-macro crates are in the graph; B8 flags and wrappers; B9 targets outside `crates/`, other crate kinds | All fixed in G-1 with a planted self-test each, except B7's residue: admitted dependencies' macros, pinned and declared as a limit in SE-110 |
 
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 
@@ -440,3 +442,27 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
     (`Directory { dir }` with every entry, or `File { file }`), not two optional
     keys. R-17's addendum records `HOMEBREW_LOCKS`' overridability as
     unverified.
+
+## As built (G-1)
+
+- `Cargo.toml` `unsafe_code = "deny"`; `#![forbid(unsafe_code)]` as the first
+  inner attribute of the five roots. `crates/cli/tests/unsafe_scan.rs`, 13
+  tests: the scan and one planted self-test per bypass.
+- **Deviations from item 4, each stricter:** the `forbid` must be a root's
+  *first* inner attribute; a file named `build.rs` anywhere under `crates/` is
+  refused, compiled or not (item 20 N4), as well as a `custom-build` target;
+  the bare `include` token is refused, not only `include!`; a `path` attribute
+  must name a `.rs` file; an unclosed comment or literal is refused; at the
+  site, no `macro_rules`/`macro` token and the one `allow` on a `fn` item;
+  every target's source under `crates/`; the members' direct dependencies and
+  the graph's proc-macro crates are pinned in the test; a `rustflags`, `rustc`
+  or wrapper key in `.cargo/config*` and `RUSTC`, `RUSTC_WRAPPER`,
+  `RUSTC_WORKSPACE_WRAPPER` are refused outright.
+- **Limits, declared in SE-110:** Cargo configuration outside the repository
+  is not read; what an admitted dependency's macro expands to is not seen.
+- **Item 20 N5, decided:** the test alone is the check; no `validate.sh` stage
+  is staged, since `validate.sh`'s default mode and CI both run it.
+- **Handed to G-2:** "at most once" becomes "exactly once" when `getlk.rs`
+  lands, the `allow` tied to `held`;
+  `no_workspace_crate_depends_on_libc_directly` edited on purpose; the direct
+  dependency pin gains `macportsbrew-adapters libc`.

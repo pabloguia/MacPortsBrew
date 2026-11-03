@@ -2816,6 +2816,23 @@ change is made. Silent deviation remains the one unrecoverable error.
   confined to one `adapters` module; four crates keep `forbid` by the compiler.
 - Compatibility impact: deployment floors re-checked on both targets in E-4 (2026-11-01: 10.12 x86_64, 11.0 arm64,
   unchanged) and again in G (`scripts/check-deployment-target.sh`); every added crate `MIT OR Apache-2.0`.
+- Amendment (2026-11-03, part G-1, interim; G-3 writes the final text): the lint split is built — the workspace
+  `unsafe_code = "deny"`, `#![forbid(unsafe_code)]` at the five roots (`domain`, `policy`, `application`, `cli`'s
+  `lib.rs` and `main.rs`). `crates/cli/tests/unsafe_scan.rs` reads every `.rs` under `crates/` with comments and
+  strings stripped and admits `unsafe` at most once and only in `crates/adapters/src/lock_probe/getlk.rs` (G-2 makes
+  it exactly once), the lint name under `allow`/`expect`/`warn` only there, `forbid` only as each root's first inner
+  attribute, `libc` only under `lock_probe/`, no `include` token, no `build.rs`, every `path` attribute inside
+  `crates/` and naming a `.rs` file, no unclosed comment or literal (a hand lexer out of step with rustc), and at the
+  site no macro and the one `allow` on a `fn` item; from `cargo metadata`, no proc-macro or build-script target,
+  every target under `crates/`, every compiled target but `adapters`' a root, and the members' direct dependencies
+  and the graph's proc-macro crates pinned in the test (a dependency's macro expands `unsafe` that neither rustc's
+  lint nor the scan sees); no `rustflags`, `rustc` or wrapper key in `.cargo/config*`, no `RUSTC`/`RUSTC_WRAPPER`/
+  `RUSTC_WORKSPACE_WRAPPER`, and no lint-lowering flag (`-A`, `-W`, `--allow`, `--warn`, `--force-warn`,
+  `--cap-lints`) in the `*RUSTFLAGS` variables Cargo reads. **Limit, declared:** what an *admitted* dependency's
+  macro expands to is not seen. ADR-0007's "the identifier `unsafe_code` … only in
+  that module" is corrected in its status line. **Limit, declared:** Cargo configuration outside the repository
+  (a parent directory, `$CARGO_HOME`) is not read; it is the developer's machine, and CI has none. The test alone is
+  the check (no `validate.sh` stage staged): `validate.sh`'s default mode and CI both run it.
 
 # Process: the agentic SDLC
 

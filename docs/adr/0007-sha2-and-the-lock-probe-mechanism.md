@@ -4,7 +4,13 @@
   change that adds `sha2` to `Cargo.toml`. The choice is the session's to make
   under work order 16 §4.3; the plan's reviewers approved it
   (`docs/passes/16-plans/E.md`, Reviews), and the owner applied P/01 first
-  (`4a64aa0`, PR #50).
+  (`4a64aa0`, PR #50). **Addendum, 2026-11-03, part G-1:** the lint split is
+  built (`Cargo.toml` `deny`, `#![forbid(unsafe_code)]` at the five roots) and
+  `crates/cli/tests/unsafe_scan.rs` holds the rest. The Decision's "the
+  identifier `unsafe_code` … only in that module" is corrected: the lint name
+  also appears as the roots' inner `forbid` and in `Cargo.toml`; under an
+  `allow`, `expect` or `warn` it appears only in that module, at most once
+  (`docs/passes/16-plans/G.md` item 4).
 - **Date:** 2026-10-30
 - **Pass:** 16-complete-mutating-product, part E
 - **Supersedes:** ADR-0006, **for the `sha2` dependency and the lock probe

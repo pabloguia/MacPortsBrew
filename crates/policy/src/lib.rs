@@ -20,6 +20,8 @@
 //! Everything a rule knows about a provider lives in `data/policy/*.toml`
 //! with a source and a read date, embedded at build time (INV-20).
 
+#![forbid(unsafe_code)]
+
 pub mod data;
 pub mod engine;
 pub mod facts;

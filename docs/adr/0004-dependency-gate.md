@@ -49,6 +49,9 @@ compiler it was invoked by (`libc`'s spawns are FreeBSD and Emscripten only). Th
 `unsafe` surface of the graph is the standard library's and `serde_json`'s
 (which is `#![deny(unsafe_code)]` except audited SIMD paths), plus
 `unicode-width` (none). The workspace's own code is `unsafe_code = "forbid"`.
+(Amended 2026-11-03, work order 16 part G-1: the workspace lint is now `deny`,
+with `#![forbid(unsafe_code)]` at every crate root but `adapters`, whose one
+reviewed `unsafe` call is [ADR-0007](0007-sha2-and-the-lock-probe-mechanism.md)'s.)
 
 ## Options considered
 
