@@ -33,6 +33,10 @@ clap = { version = "4.5", features = ["derive"] }
 # ADR-0007: the plan digest (work order 16 part E-4). Default features off;
 # `Sha256::digest` needs none. Used by `crates/application` only.
 sha2 = { version = "0.11.1", default-features = false }
+# ADR-0007: the lock probe's one `fcntl(F_GETLK)` call (work order 16 part G).
+# Default features, the version already locked through `sha2`. Used by
+# `crates/adapters` only, and there only under `src/lock_probe/`.
+libc = "0.2.191"
 
 [workspace.lints.rust]
 # ADR-0007: `deny` here, `#![forbid(unsafe_code)]` at every crate root but

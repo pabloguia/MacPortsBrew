@@ -2834,6 +2834,24 @@ change is made. Silent deviation remains the one unrecoverable error.
   that module" is corrected in its status line. **Limit, declared:** Cargo configuration outside the repository
   (a parent directory, `$CARGO_HOME`) is not read; it is the developer's machine, and CI has none. The test alone is
   the check (no `validate.sh` stage staged): `validate.sh`'s default mode and CI both run it.
+- Amendment (2026-11-03, part G-2, interim; G-3 writes the final text): the probe is built, and nothing calls it yet.
+  `libc` is direct in `crates/adapters` alone; `crates/adapters/src/lock_probe/getlk.rs` holds the one `unsafe` block,
+  an `F_GETLK` with a complete `flock` literal, and the one `allow`, on `held`; the scan now requires exactly one of
+  each. `ProviderLockProbe` is the domain's trait. `ConcurrentProviderActivity` gains `NotDetermined { undetermined }`,
+  and `Observed` gains `undetermined`, omitted when empty: both map a provider to a closed `UndeterminedCause` token
+  (`UNRESOLVED`, `UNEXPECTED_SHAPE`, `OVER_BOUND`, `UNREADABLE`, `CHANGED`), never a path, so a refusal can say what to do
+  and a held lock does not hide another provider (G items 1, 7, 20 N5, N6). No `--json` document can carry them before
+  G-3. Locations are in `data/policy/provider-locks.toml`, read only by `registry`, policy version `2026.10.18-2`.
+  `registry::lock_probe` is the only constructor. It answers `Unknowable` for a replay or a filesystem that is not this
+  machine, reading the scope as requested rather than through `effective_scope`, because that collapse exists to stop an
+  unprobed prefix being executed, and for a probe the contradiction resolves towards not looking. A provider detection
+  missed only because its executable could not be checked (`is_file` turns every error into "no") is sampled as
+  `UNRESOLVED` rather than left out (`absence_is_certain`). **Handed to G-3, recorded here:** a provider whose presence
+  is `Broken` has a detected prefix and is sampled normally; item 7 needs it `NotDetermined`, and G-3 combines presence
+  at the application seam. Evidence: R-17's addendum (2026-11-03), and `crates/adapters/tests/lock_probe_cross_process.rs`,
+  which holds the lock from a re-executed test binary (G item 20 N1). That file and
+  `crates/adapters/tests/lock_probe_shapes.rs` compile the site's module again through `#[path]`; each is a second
+  compilation of the same file, not a second site, and the scan pins those two as the only ones.
 
 # Process: the agentic SDLC
 

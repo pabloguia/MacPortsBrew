@@ -941,7 +941,7 @@ pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> Stri
         ConcurrentProviderActivity::NotChecked => label(ctx, "concurrency.not_checked"),
         ConcurrentProviderActivity::Unknowable => label(ctx, "concurrency.unknowable"),
         ConcurrentProviderActivity::NoneObserved => label(ctx, "concurrency.none_observed"),
-        ConcurrentProviderActivity::Observed { providers } => ctx.messages.render(
+        ConcurrentProviderActivity::Observed { providers, .. } => ctx.messages.render(
             "concurrency.observed",
             &params(&[
                 ("count", providers.len().to_string()),
@@ -949,6 +949,20 @@ pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> Stri
                     "providers",
                     providers
                         .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            ]),
+        ),
+        ConcurrentProviderActivity::NotDetermined { undetermined } => ctx.messages.render(
+            "concurrency.not_determined",
+            &params(&[
+                ("count", undetermined.len().to_string()),
+                (
+                    "providers",
+                    undetermined
+                        .keys()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>()
                         .join(", "),

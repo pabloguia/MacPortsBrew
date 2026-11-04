@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Where each provider holds the locks it takes while it mutates, as dated data
+# (INV-20; DP-030 (b); docs/research/R-17-provider-mutation-locks.md). Read
+# only by crates/adapters/src/registry.rs, which resolves each location for
+# this machine and hands it to the lock probe (crates/adapters/src/lock_probe/),
+# which never learns which provider a location belongs to (INV-17).
+#
+# A held lock here means "this provider was mutating at that instant", never
+# the converse: a provider can mutate without holding a lock this file names
+# (R-17, "False positives and false negatives"), and the probe never claims a
+# provider is idle.
+#
+# Fields
+#   provider   provider id, lower case; must be one the registry knows
+#   base       what `location` is relative to, a closed set:
+#                "prefix"      the provider's detected prefix
+#                "portdbpath"  the provider's registry database directory, as
+#                              its own configuration resolves it (only the
+#                              default is resolved; anything else is "not
+#                              determined")
+#   location   one of
+#                { kind = "directory", dir = "<relative>" }
+#                    every entry of that directory is a lock file, whatever
+#                    its name; a missing directory holds none
+#                { kind = "file", file = "<relative>" }
+#                    one lock file; its parent directory must exist
+#              Relative, no `..`, no `.`, no leading `/`.
+#   source     precise enough that someone else can re-read what was read
+#   read_on    YYYY-MM-DD, the day it was read
+#   note       what the source actually said, in English
+
+[[entry]]
+provider = "homebrew"
+base = "prefix"
+location = { kind = "directory", dir = "var/homebrew/locks" }
+source = "Homebrew 7.0.4, Library/Homebrew/lock_file.rb line 26 and startup/config.rb line 55 (R-17 E1); the directory observed on this machine (R-17 E2)"
+read_on = "2026-10-05"
+note = """
+Lock files are HOMEBREW_LOCKS/"<name>.<type>.lock" with HOMEBREW_LOCKS = \
+HOMEBREW_PREFIX/"var/homebrew/locks", taken with flock(LOCK_EX | LOCK_NB). \
+The directory also holds suffix-less lock files taken by the shell side \
+(utils/lock.sh, e.g. `update`), so every entry is read, not only *.lock. \
+A lock file survives its release; only a held flock means anything. Whether \
+HOMEBREW_LOCKS can be overridden from the environment was not verified \
+(G item 18).\
+"""
+
+[[entry]]
+provider = "macports"
+base = "portdbpath"
+location = { kind = "file", file = "registry/.registry.lock" }
+source = "MacPorts 2.12.6, src/registry2.0/registry.tcl lines 389-416, registry::exclusive_lock (R-17 E3)"
+read_on = "2026-10-05"
+note = """
+`set lockpath [::file join ${registry.path} registry .registry.lock]`, then \
+adv-flock -exclusive; registry.path is portdbpath. The file is never \
+removed, and the lock is taken only by a caller that can write the registry \
+directory, so only a registry-writing port holds it.\
+"""

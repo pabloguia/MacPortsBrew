@@ -1770,9 +1770,12 @@ fn the_switch_needs_the_destination_contract_evaluable() {
 
 #[test]
 fn no_workspace_crate_depends_on_libc_directly() {
-    // ADR-0007 (work order 16 part E-4): `libc` reaches the build only
-    // transitively, through `sha2` on Apple Silicon; part G admits it for
-    // `crates/adapters` alone, editing this test on purpose. And `sha2` is the
+    // ADR-0007 (work order 16 part E-4): `libc` reached the build only
+    // transitively, through `sha2` on Apple Silicon; part G-2 admits it as a
+    // direct dependency of `crates/adapters` alone, for the lock probe's one
+    // `fcntl` call, and edited this test on purpose to say so (its name kept,
+    // as the records cite it). `crates/cli/tests/unsafe_scan.rs` keeps the name inside
+    // `src/lock_probe/` within that crate. And `sha2` is the
     // application crate's alone: the domain stays `serde`-only. Read from
     // `cargo metadata`, so a `[dependencies.libc]` table, a target-specific
     // table or a renamed dependency is seen as what it is (E-4 review, L4).
@@ -1803,7 +1806,11 @@ fn no_workspace_crate_depends_on_libc_directly() {
             .iter()
             .map(|d| d["name"].as_str().expect("a dependency name"))
             .collect();
-        assert!(!deps.contains(&"libc"), "{name} depends on libc directly");
+        assert_eq!(
+            deps.contains(&"libc"),
+            name == "macportsbrew-adapters",
+            "{name}: libc is a direct dependency of the adapters crate alone"
+        );
         assert_eq!(
             deps.contains(&"sha2"),
             name == "macportsbrew-application",

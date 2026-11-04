@@ -52,7 +52,9 @@ cross-session message envelope, and a mod — a Claude Code extension that handl
 permission checks, hooks note §3 item 3 — can approve a call a deny rule or a
 `PreToolUse` hook refused unless managed settings or a Team login apply; the
 wording items for this chapter and `.claude/README.md` are open in the notes and
-listed in `docs/passes/16-progress.md`). The
+listed in `docs/passes/16-progress.md`), and **2026-11-03**, all three groups,
+during part G (`docs/research/tooling/2026-11-03-*.md`; no contract break; the
+guarded-path findings wait for the owner in `docs/passes/16-progress.md`). The
 pages are the ones `/tooling-recheck` names — that skill's table is the one
 list — and the notes from each run live in `../research/tooling/`.
 

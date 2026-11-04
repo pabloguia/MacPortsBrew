@@ -40,7 +40,9 @@ pub use availability::{
     ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, SourceBuildReason,
 };
 pub use class::{ClassEvidence, ClassSet, PackageClass};
-pub use concurrency::{ConcurrencyFlag, ConcurrentProviderActivity};
+pub use concurrency::{
+    ConcurrencyFlag, ConcurrentProviderActivity, ProviderLockProbe, UndeterminedCause,
+};
 pub use error::{DomainError, ErrorId};
 pub use executable::{
     command_v_checks, ExecutableList, ExecutableName, ListReason, NameRefusal, Placement,

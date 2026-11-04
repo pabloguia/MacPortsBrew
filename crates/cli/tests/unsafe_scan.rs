@@ -9,10 +9,11 @@
 //! `allow` may sit, so this scan reads every `.rs` file under `crates/`, with
 //! comments and string contents removed, and admits:
 //!
-//! - the keyword `unsafe` as a whole token at most once, and only in
+//! - the keyword `unsafe` as a whole token exactly once, and only in
 //!   `crates/adapters/src/lock_probe/getlk.rs`;
 //! - the lint name `unsafe_code` only as the roots' inner `forbid`, and inside
-//!   `allow(..)`, `expect(..)` or `warn(..)` at most once, in that same file;
+//!   `allow(..)`, `expect(..)` or `warn(..)` exactly once, in that same file,
+//!   on the `fn` named `held`;
 //! - the identifier `libc` only under `crates/adapters/src/lock_probe/`;
 //! - no `include!`, and every `#[path = ..]` resolving inside `crates/`.
 //!
@@ -33,6 +34,13 @@ use std::process::Command;
 
 /// The one file allowed an `unsafe` block and its `allow`.
 const SITE: &str = "crates/adapters/src/lock_probe/getlk.rs";
+/// The one `fn` the site's `allow` sits on.
+const SITE_FN: &str = "held";
+/// The test files that compile the site's module a second time.
+const SITE_RECOMPILERS: &[&str] = &[
+    "crates/adapters/tests/lock_probe_cross_process.rs",
+    "crates/adapters/tests/lock_probe_shapes.rs",
+];
 /// The one directory allowed to name `libc`.
 const LIBC_DIR: &str = "crates/adapters/src/lock_probe/";
 /// The crate whose root is not `forbid`, because the site is in it.
@@ -249,9 +257,9 @@ fn file_violations(relative: &str, text: &str, roots: &[String]) -> Vec<String> 
     if unsafe_count > 0 && !is_site {
         v.push(format!("{relative}: the keyword `unsafe` outside {SITE}"));
     }
-    if unsafe_count > 1 {
+    if unsafe_count > 1 || (is_site && unsafe_count != 1) {
         v.push(format!(
-            "{relative}: `unsafe` {unsafe_count} times; one is admitted"
+            "{relative}: `unsafe` {unsafe_count} times; exactly one is admitted, at the site"
         ));
     }
     let mut allows = 0;
@@ -263,10 +271,14 @@ fn file_violations(relative: &str, text: &str, roots: &[String]) -> Vec<String> 
                     "forbid" if inner && roots.iter().any(|r| r == relative) => {}
                     "allow" | "expect" | "warn" if is_site && !inner => {
                         allows += 1;
-                        if !on_a_fn_item(&code, at) {
-                            v.push(format!(
+                        match fn_item_name(&code, at) {
+                            None => v.push(format!(
                                 "{relative}: the admitted `allow` is not on a `fn` item"
-                            ));
+                            )),
+                            Some(name) if name != SITE_FN => v.push(format!(
+                                "{relative}: the admitted `allow` is on `{name}`, not `{SITE_FN}`"
+                            )),
+                            Some(_) => {}
                         }
                     }
                     _ => v.push(format!(
@@ -289,9 +301,9 @@ fn file_violations(relative: &str, text: &str, roots: &[String]) -> Vec<String> 
             _ => {}
         }
     }
-    if allows > 1 {
+    if allows > 1 || (is_site && allows != 1) {
         v.push(format!(
-            "{relative}: {allows} `allow`s of `unsafe_code`; one is admitted"
+            "{relative}: {allows} `allow`s of `unsafe_code`; exactly one is admitted"
         ));
     }
     if roots.iter().any(|r| r == relative) {
@@ -309,31 +321,38 @@ fn file_violations(relative: &str, text: &str, roots: &[String]) -> Vec<String> 
     v
 }
 
-/// Whether the attribute holding the lint name at `at` sits on a `fn` item:
-/// after its closing `]`, any further attributes, then an optional `pub` or
-/// `pub(..)`, then `fn`.
-fn on_a_fn_item(code: &str, at: usize) -> bool {
-    let Some(close) = code[at..].find(']') else {
-        return false;
-    };
+/// Whether a `path` attribute in `source` may name `target`: the module holding
+/// the site is compiled again only by the two test files that need it.
+fn path_source_admitted(source: &str, target: &str) -> bool {
+    !target.starts_with(LIBC_DIR) || SITE_RECOMPILERS.contains(&source)
+}
+
+/// The name of the `fn` item the attribute holding the lint name at `at` sits
+/// on, if it sits on one: after its closing `]`, any further attributes, then
+/// an optional `pub` or `pub(..)`, then `fn` and its name.
+fn fn_item_name(code: &str, at: usize) -> Option<&str> {
+    let close = code[at..].find(']')?;
     let mut rest = code[at + close + 1..].trim_start();
     while let Some(attribute) = rest.strip_prefix("#[") {
-        let Some(end) = attribute.find(']') else {
-            return false;
-        };
+        let end = attribute.find(']')?;
         rest = attribute[end + 1..].trim_start();
     }
     if let Some(after) = rest.strip_prefix("pub") {
         rest = after.trim_start();
         if let Some(group) = rest.strip_prefix('(') {
-            let Some(end) = group.find(')') else {
-                return false;
-            };
+            let end = group.find(')')?;
             rest = group[end + 1..].trim_start();
         }
     }
-    rest.strip_prefix("fn")
-        .is_some_and(|after| after.starts_with(|c: char| c.is_whitespace()))
+    let after = rest.strip_prefix("fn")?;
+    if !after.starts_with(|c: char| c.is_whitespace()) {
+        return None;
+    }
+    let after = after.trim_start();
+    let len = after
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(after.len());
+    (len > 0).then(|| &after[..len])
 }
 
 /// Every `path = "…"` attribute target, whether written `#[path = ..]` or
@@ -481,6 +500,7 @@ const DIRECT_DEPENDENCIES: &[&str] = &[
     "macportsbrew serde_json",
     "macportsbrew toml",
     "macportsbrew unicode-width",
+    "macportsbrew-adapters libc",
     "macportsbrew-adapters serde",
     "macportsbrew-adapters serde_json",
     "macportsbrew-adapters toml",
@@ -741,7 +761,27 @@ fn the_unsafe_surface_is_adr_0007s_single_site_and_nothing_else() {
                     "{relative}: `#[path = \"{target}\"]` leaves crates/"
                 ));
             }
+            let target_relative = resolved
+                .canonicalize()
+                .ok()
+                .and_then(|p| {
+                    p.strip_prefix(root.canonicalize().expect("the root"))
+                        .ok()
+                        .map(|r| r.display().to_string())
+                })
+                .unwrap_or_default();
+            if !path_source_admitted(&relative, &target_relative) {
+                v.push(format!(
+                    "{relative}: `#[path = \"{target}\"]` compiles the site again"
+                ));
+            }
         }
+    }
+    if !files
+        .iter()
+        .any(|f| f.strip_prefix(&root).is_ok_and(|r| r == Path::new(SITE)))
+    {
+        v.push(format!("{SITE}: the site the scan admits does not exist"));
     }
     for (r, seen) in seen_roots {
         if !seen {
@@ -768,6 +808,53 @@ fn a_planted_unsafe_block_or_fn_outside_the_site_is_caught() {
     assert!(!planted(OTHER, &attribute).is_empty());
     let external = format!("{} extern \"C\" {{ }}", "unsafe");
     assert!(!planted(OTHER, &external).is_empty());
+}
+
+#[test]
+fn only_the_two_named_test_files_may_compile_the_site_again() {
+    let getlk = SITE;
+    for admitted in SITE_RECOMPILERS {
+        assert!(path_source_admitted(admitted, getlk));
+    }
+    assert!(!path_source_admitted("crates/adapters/src/lib.rs", getlk));
+    assert!(!path_source_admitted(
+        "crates/adapters/tests/another.rs",
+        "crates/adapters/src/lock_probe/mod.rs"
+    ));
+    assert!(path_source_admitted(
+        "crates/cli/src/app/migrate.rs",
+        "crates/cli/src/app/other.rs"
+    ));
+}
+
+#[test]
+fn the_site_holds_exactly_one_unsafe_and_one_allow_on_held() {
+    // G-2: "at most once" became "exactly once" when the site landed.
+    let none = "fn held() {}";
+    assert!(!planted(SITE, none).is_empty(), "a site with no `unsafe`");
+    let no_allow = format!("fn held() {{ {} {{ }} }}", "unsafe");
+    assert!(
+        !planted(SITE, &no_allow).is_empty(),
+        "an `unsafe` without its `allow`"
+    );
+    let elsewhere = format!(
+        "#[allow({c})]\nfn other() {{ {u} {{ }} }}",
+        c = "unsafe_code",
+        u = "unsafe"
+    );
+    assert!(
+        !planted(SITE, &elsewhere).is_empty(),
+        "the `allow` on another fn"
+    );
+    let prefixed = format!(
+        "#[allow({c})]\nfn held_too() {{ {u} {{ }} }}",
+        c = "unsafe_code",
+        u = "unsafe"
+    );
+    assert!(
+        !planted(SITE, &prefixed).is_empty(),
+        "a name that only starts with it"
+    );
 }
 
 #[test]
@@ -972,8 +1059,9 @@ fn the_lexer_stays_in_step_with_rustc() {
 #[test]
 fn the_site_admits_one_allow_on_a_fn_and_no_macro() {
     let on_fn = format!(
-        "#[allow({})]\n#[inline]\npub(crate) fn held() {{}}",
-        "unsafe_code"
+        "#[allow({c})]\n#[inline]\npub(crate) fn held() {{ {u} {{}} }}",
+        c = "unsafe_code",
+        u = "unsafe"
     );
     assert!(
         planted(SITE, &on_fn).is_empty(),
@@ -994,7 +1082,7 @@ fn the_site_admits_one_allow_on_a_fn_and_no_macro() {
     // Mutation proof, mutant 6: a macro otherwise admitted (one `unsafe`, one
     // `allow`, on a `fn`) is refused by the macro rule alone.
     let admitted_but_a_macro = format!(
-        "macro_rules! raw {{ () => {{ #[allow({c})] pub fn f() {{ {u} {{}} }} }} }}",
+        "macro_rules! raw {{ () => {{ #[allow({c})] pub fn held() {{ {u} {{}} }} }} }}",
         c = "unsafe_code",
         u = "unsafe"
     );

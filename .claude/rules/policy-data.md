@@ -36,6 +36,7 @@ the adapter can observe; add one for what it cannot.
 | `provider-support.toml` | Support tier, published end date, prebuilt-artifact availability, per architecture and macOS range |
 | `provider-prefixes.toml` | Where each provider installs, in detection order. Read by `crates/adapters/src/prefixes.rs`, not by `application` — the loader is in the layer that needs it |
 | `provider-configuration.toml` | Which configuration files each provider reads over the environment this tool invokes it with, and how a line names a key (DP-027). Read by `crates/adapters/src/configuration.rs` |
+| `provider-locks.toml` | Where each provider holds the locks it takes while it mutates (DP-030 (b), R-17). Read by `crates/adapters/src/registry.rs`, which resolves it for the lock probe |
 | `curated-mappings.toml` | Package equivalences the heuristics miss |
 | `cross-provider-advice.toml` | How each provider's own tooling guards its builds against another provider's prefix (`build_defence`, a closed vocabulary), one row per affected provider; `doctor` picks its direction-specific wording from it (DP-041). Rows carry `index_as_of` for a source that is a local checkout |
 | `provider-commands.toml` | Provider verbs and per-operation elevation |
