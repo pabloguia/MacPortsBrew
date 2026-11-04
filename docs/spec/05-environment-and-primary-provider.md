@@ -22,7 +22,9 @@ the commands whose resolution would change, and a stronger confirmation.
 `SYSTEM` · `HOMEBREW` · `MACPORTS` · `MACPORTSBREW_SHIM` · `EXTERNAL` · `UNKNOWN`
 
 **MUST.** Determine ownership by asking the provider which package owns the
-resolved path, following symlinks first. Path prefix matching is a fallback
+resolved path, following symlinks first. No Homebrew read answers this, so for Homebrew
+the rule is the one Homebrew itself applies: the real location inside a keg of its
+Cellar (R-21, R-26, SE-113). Path prefix matching is a fallback
 heuristic and must be marked as such — users relocate prefixes.
 
 **MUST.** Never shadow a macOS system tool without saying so explicitly and

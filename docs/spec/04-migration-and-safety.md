@@ -58,7 +58,8 @@ The original brief said "verify" without defining it. It is defined here.
    the rule Homebrew itself applies, since no Homebrew read answers which formula
    owns a path (R-26).
 4. A liveness probe exits successfully for each primary executable, run only from
-   a curated row of `data/policy/liveness-probes.toml`, at the version that row
+   a curated row of a dated data file (`data/policy/liveness-probes.toml`, landing in
+   part H-2), at the version that row
    observed. There is no default flag: `httpd --version` starts a server and exits
    0 (R-28). An executable with no row is a recorded skip, which is `UNCHECKED`,
    never a pass.
@@ -320,13 +321,13 @@ restored from a guess.
 |---|---|
 | Destination install fails | Source untouched. Report and stop. |
 | Destination verification fails | Source untouched. Report which check failed. |
-| A destination check could not be evaluated | Source untouched, never removed. The run continues and ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
+| A destination check could not be evaluated (not built: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
 | Activation fails | Restore previous resolution where safe. Source untouched. |
 | Source removal fails after a good destination | Destination usable. Report **partial success**. Leave recovery instructions. |
 | Cleanup fails | Never affects migration status. Report separately. |
 
 **MUST.** Partial success is its own exit code and its own history status.
-`COMPLETED_WITH_UNCHECKED` is a kind of partial success: exit code 3, and in history `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, never `SUCCESS` (SE-113).
+Not built: SE-113. `COMPLETED_WITH_UNCHECKED` is a kind of partial success: exit code 3, and in history `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, never `SUCCESS` (SE-113).
 
 ## Cleanup
 

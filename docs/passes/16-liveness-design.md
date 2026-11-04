@@ -39,13 +39,14 @@ pub(in crate::process) fn may_spawn(spec: &CommandSpec) -> bool {
         Admission::Allowlist => /* today's rule, with PERMITTED_IN_TESTS under cfg(test) */,
         // Never consults PERMITTED_IN_TESTS. Shape only: the site cannot prove
         // prefix membership, which `admit` established.
-        Admission::CuratedProbe { .. } => is_admitted_probe_shape(spec),
+        Admission::CuratedProbe { .. } => is_admitted_probe_shape(spec), // program and arg0's leaf
     }
 }
 ```
 
-`Admission` is a private field, and `Admission::CuratedProbe { scratch }` carries
-the directory, so an allowlist spec cannot carry one at all and the `port current`
+`Admission` is a private field, and `Admission::CuratedProbe { scratch, arg0, target }`
+carries the directory, the placed leaf and the recorded identity, so an allowlist spec
+cannot carry any of them and the `port current`
 protection stays structural (`system.rs:260-272`). Only
 `CommandSpec::curated_probe(AdmittedProbe)` produces it. **A spec can never be
 widened afterwards:** the site refuses a probe whose timeout or output cap exceeds
@@ -54,21 +55,33 @@ the set below.
 
 **No capability crosses a crate.** `adapters` cannot depend on `policy` or
 `application`, so a type the judge hands back would need a public constructor that
-anyone could call. Instead the adapter does all of it:
+anyone could call. And **the probe is not a method of `ProviderRead`:** any holder of
+that trait (`capture.rs`, a future `doctor`) could then start a third-party program with
+one call, past the gate, the consent and the run lock.
 
 ```rust
-// domain, on ProviderRead; the default is `NotObserved`
-fn liveness_probe(&self, package: &PackageIdentity, leaf: &ExecutableName,
-                  argv: &[String]) -> ProbeObservation;
+// domain: a trait of its own, not a supertrait of ProviderRead
+pub trait DestinationProbe {
+    fn liveness_probe(&self, package: &PackageIdentity, leaf: &ExecutableName,
+                      argv: &[String]) -> ProbeObservation;
+}
 ```
 
+It is obtained only from `registry::destination_sites(ctx, &StateDir, &RunLock)`, which
+is added to the banned list of `crates/cli/tests/executor.rs` (`.claude/rules/executor.md`
+rule 1: read sites are built after the gate passes). The read-only loop passes no such
+site, and answers `NotObserved` (`analysis_and_dry_run_never_reach_a_probe`). Requiring
+`&RunLock` gives the state root and makes the leftover sweep safe under that lock.
+
 The adapter re-runs its own owner rule immediately before spawning, reads the table
-itself (`process/probe.rs`, `include_str!` and a strict parser, as `prefixes.rs`
-does; a test asserts the `policy` loader and this parser agree on every row), and
-takes prefix, Cellar and scope from itself, never from a caller. **`AdmittedProbe`**
-is `pub(crate)`, private-fielded, with no `Clone`, `Default` or serde, and is consumed
-by `curated_probe`. The application judge produces the *answer* from the observation;
-it never produces the permission.
+itself (`process/probe.rs`, `include_str!` and a strict parser, as `prefixes.rs` does;
+an agreement test against the `policy` loader lives in `crates/cli/tests`, through a
+parameterless read-only accessor, which is not the seam forbidden below), and takes
+prefix, Cellar and scope from itself, never from a caller. **`AdmittedProbe`** is
+`pub(crate)`, private-fielded, with no `Clone`, `Default` or serde. `CommandSpec` derives
+`Clone`, so the spec is built and run inside `process/probe.rs`, and `curated_probe` is
+`pub(in crate::process)`. The application judge produces the *answer* from the
+observation; it never produces the permission.
 
 **`AdmittedProbe::admit` refuses unless all of these hold.** Each refusal is a named
 `ProbeObservation::NotRun(cause)`, which answers `Unchecked`, never a spawn.
@@ -82,19 +95,21 @@ it never produces the permission.
 | 5 | `argv` is exactly one element of the closed set `--version`, `-version`, `-V`, `-v`, checked in the loader, here and at the site | `argv = []` is the server-start case. `--init`, `--daemon` and `-D` would pass a character class. Growing the set is a reviewed code change |
 | 6 | The installed version, from the owner rule's own answer, **equals the row's `observed_version` exactly**, revision included | A row observed at 3.5.3 says nothing about 4.0. The safe direction; DP-057 asks whether to widen it |
 | 7 | The placed entry `<prefix>/<bin or sbin>/<leaf>`, built from typed parts, is owned by this package, by the owner rule, re-run now | §3 item 10 |
-| 8 | Its canonical path is the path the owner rule judged: inside the keg, or the path `provides` answered. Not merely under the prefix, which admits `Caskroom`, `var/`, `Homebrew/` | §3 item 10 |
+| 8 | The canonical path is the destination package's by the owner rule: inside the keg; and where the rule is a query, it is asked of the placed path **and** the canonical path, and both answer this package (`lzcat` is a link to `xz`; the same argv form). Not merely under the prefix, which admits `Caskroom`, `var/`, `Homebrew/` | §3 item 10; a lenient reading would admit a link into another port |
 | 9 | On one handle or one `lstat` of the canonical target: a regular file; no setuid or setgid; owned by this uid or root; no group or world write | INV-06. The mode bit is the only check possible, since `invariant_06_*` refuses the elevation program's name in source |
 | 10 | Neither the placed nor the canonical leaf is a provider program, a system probe, a shell or an interpreter | Defence in depth, and `bin/foo -> libexec/python3` |
 | 11 | The target's first bytes are not an `env` shebang | The table excludes them when written; a later version can become one |
-| 12 | No check of this step answered `Fails`, and no file was malformed | A package just shown to link into the other provider is not run |
+
+**A package just shown to link into the other provider is not run, and the adapter cannot enforce that:** it does not hold the other checks' answers, and a flag passed in would be decorative. It is a pure function in `application::executor`, `next_destination_question(plan, position, answers) -> Question`; the shell may call the probe only with what `Question::Probe { leaf, argv }` hands it. Tested there, with the mutant "a probe after a `Fails`".
+
 
 **What runs:** the **canonical path, with `arg0` set to the placed leaf**
 (`CommandExt::arg0`). That is "the resolved executable" of §3 item 10, and closes a
 re-pointing of the link between `admit` and spawn, while a program dispatching on
 `argv[0]` (`lzcat`, a link to `xz`) still does what its name says. Rows are qualified
 in the same form. **The remaining race is declared:** macOS has no `fexecve`, so the
-target file itself could be replaced. `(dev, ino, size, mtime)` is recorded at `admit`
-and re-read immediately before spawn and after exit; any difference is
+target file itself could be replaced. `(dev, ino, size, mtime, ctime, mode)` from `lstat` is recorded at `admit`
+and re-read immediately before spawn (in `system.rs`) and after exit (in `probe.rs`); any difference is
 `Unchecked (PROBE_TARGET_CHANGED)`, never `Holds`.
 
 **A shim is never the program,** and the shim directory is not on the probe's `PATH`.
@@ -128,9 +143,10 @@ An exhaustive match on `ExitStatus`, with no wildcard and not `success()` plus a
 | Exit 0, pipes closed, target unchanged | `Holds` |
 | Exit non-zero, or a real signal | `Fails`: the step halts, the source is kept |
 | The timeout | `Unchecked (PROBE_TIMED_OUT)`: 30 s is a hypothesis, and "could not tell" is never `Fails` |
-| `Cancelled`; `Signalled { signal: None }` (the wait failed) | `Unchecked` with its cause |
+| `Cancelled` (kept for exhaustiveness; no token is wired, so unreachable today); `Signalled { signal: None }` (the wait failed) | `Unchecked` with its cause |
 | Exit 0, drain gave up (a pipe held) | `Unchecked (PROBE_LEFT_A_PROCESS)`. **Tightens "only the exit status counts"**, recorded in the SE entry: something outlived the probe, so the row is wrong |
-| Exit 0, over the output cap only | `Unchecked (PROBE_OUTPUT_OVER_CAP)`: separated, since `system.rs` already tells the two apart |
+| Exit 0, over the output cap only | `Unchecked (PROBE_OUTPUT_OVER_CAP)`. **`system.rs` does not tell these apart today:** the readers report one `truncated`, so they gain a three-way ending (complete, over cap, gave up), with allowlist behaviour unchanged |
+| A read error on a pipe | `Unchecked` |
 | No row; a skip in the plan | `Unchecked (NO_CURATED_PROBE)` |
 | An `admit` refusal, or the spawn failed | `Unchecked` with its named cause |
 | `--replay`, `--from-snapshot` | `Unchecked (NOT_OBSERVED)` |
@@ -166,7 +182,7 @@ stays true of the list, gaining a comment and a spec sentence on what it does no
 ## What must be tested
 
 As unit tests in `process/` under `cfg(test)`: **no `pub` seam that accepts a table or
-a prefix may exist for `crates/*/tests`, because that seam ships.** Each of the twelve
+a prefix may exist for `crates/*/tests`, because that seam ships.** Each of the eleven
 `admit` refusals, by a test that would spawn if it were dropped; the site refusing a
 right-shaped spec with `Admission::Allowlist`, a provider path with
 `Admission::CuratedProbe`, a widened timeout, cap or environment; the exact environment;
@@ -182,8 +198,10 @@ loader's rules. Named: `invariant_06_*`, `invariant_10_*`,
 
 `process/mod.rs` is a frozen path (§3 item 3), and this is growth in what may be
 started. `16-staged/H/01-curated-probe-admission.patch` holds `mod.rs`, `system.rs`
-(the `may_spawn` call, `arg0`, the working directory, the recording refusal),
-`recording.rs`, `process/probe.rs` and their tests. **It is built after H-2 merges,**
+(the `may_spawn` call, `arg0`, the working directory, the identity re-read before spawn,
+the three-way reader ending, the recording refusal), `recording.rs`, `process/probe.rs`
+and their tests. `state_dir.rs`'s `probes` directory and `registry::destination_sites`
+land in H-2, since neither is frozen. **It is built after H-2 merges,**
 in a scratch worktree on that `main`, because it needs H-1's causes, H-2's owner rule
 and the data file: the owner is not handed code that has never compiled. Until it is
 applied every probe answers `Unchecked (NOT_OBSERVED)`, which is safe: the source is
@@ -195,3 +213,6 @@ kept and the run says so.
 |---|---|---|---|
 | `security-reviewer` | uncommitted draft on `9b8d68d` | Pass with changes, L1-L14, S1-S3: `cited` runs an unseen program; `observed_version` never compared; empty `argv`; "enforced by type" false across crates; no route to the table; canonical path with `arg0`; missing conditions; the scratch parent; qualification environment | All in this revision |
 | `spec-guardian` | the same draft | Approve with changes; B8, B9, D6 here | Placed-entry view overridden by L6's `arg0`, which keeps what it wanted; all else in this revision |
+| `security-reviewer`, round 2 | `11d8d50` | Pass with changes, 1-8 before H-1: the probe on `ProviderRead` bypasses the gate; condition 12 cannot live in `admit`; condition 8 refuses MacPorts links; H/01 omits the re-check, and `system.rs` does not tell the endings apart | All in this revision |
+| `spec-guardian`, round 2 | `11d8d50` | Approve with changes; condition 12 the same | The same |
+

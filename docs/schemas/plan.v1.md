@@ -721,6 +721,8 @@ sources and read dates, not from Rust
 
 Tagged union on `check`:
 
+**The "What it asserts" column below overstates four checks.** `docs/spec/04-migration-and-safety.md` and SE-113 are the current wording, since 2026-11-04: neither provider offers a read-only integrity verb, no Homebrew read answers ownership, `--version` is not safe by default (`httpd --version` starts a server), and "new" linkage cannot be claimed. The shape changes in `plan.v2`.
+
 | `check` | Payload | What it asserts |
 |---|---|---|
 | `PROVIDER_REPORTS_ACTIVE` | — | The destination provider reports the package installed and active |
