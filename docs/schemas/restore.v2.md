@@ -2,7 +2,7 @@
 
 # `restore --json` schema, version 2
 
-**What changed from version 1 (work order 16 part H-1).** The plan it embeds is `plan.v2`, and its `outcome` is `migrate.v2`'s.
+**What changed from version 1 (2026-11-04, work order 16 part H-1).** The plan it embeds is `plan.v2`, and its `outcome` is `migrate.v2`'s.
 
 What `macportsbrew restore --run <id> [--plan] --json` prints on stdout: the plan
 that puts back what one recorded run changed, with what the plan itself does not

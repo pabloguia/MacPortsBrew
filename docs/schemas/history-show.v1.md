@@ -3,7 +3,7 @@
 # `history show <id> --json` schema, version 1
 
 What `macportsbrew history show <id> --json` prints on stdout: one run's record
-exactly as [`history.v4`](history.v4.md) stores it, with what is derived about it
+exactly as stored, in its own version ([`history.v4`](history.v4.md), or an older one still read), with what is derived about it
 when it is read. Built in `crates/cli/src/app/history.rs`. The compatibility
 rule is in [`README.md`](README.md). The same refusals as
 [`history-list.v1`](history-list.v1.md) apply, and no flag about provider
@@ -24,7 +24,7 @@ activity is carried.
 
 | Field | Meaning |
 |---|---|
-| `record` | The `history.v4` document, unchanged. It states no `restorability` |
+| `record` | The record in its own version, unchanged; its `schemaVersion` says which, so this document needs no new version when a record's does. It states no `restorability` |
 | `restorability` | `{ "restorable": "NOTHING_TO_RESTORE" \| "FROM_SNAPSHOT" }`, or `{ "restorable": "PARTIALLY" \| "NOT", "reason": ... }` with the reasons listed in [`history-list.v1`](history-list.v1.md). Derived, in order, from the record, the snapshot and the standing: nothing dispatched; record not confirmed; no snapshot named; snapshot missing, unreadable or not this run's; a dispatched command without a known exit 0 |
 | `standing` | As in the list |
 | `snapshot` | `NOT_TAKEN`, `PRESENT`, `MISSING` or `UNREADABLE` |

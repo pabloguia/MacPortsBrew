@@ -2995,7 +2995,7 @@ fn unchecked_by(disposition: &Disposition) -> &[UncheckedEntry] {
 }
 
 #[test]
-fn invariant_15_a_check_with_no_observation_is_unchecked_never_holds() {
+fn a_check_with_no_observation_is_unchecked_never_holds() {
     let run = full_run();
     let outcome = certified(&run, |_| {
         CheckAnswer::Unchecked(UncheckedCause::NotObserved)
@@ -3577,4 +3577,32 @@ fn a_read_that_did_not_pass_lets_nothing_be_asked() {
     let wrong: Vec<String> = outputs.iter().map(|_| String::new()).collect();
     assert!(!reads_let_the_site_be_asked(&run, verify, &passing(&wrong)));
     assert!(!reads_let_the_site_be_asked(&run, verify, &[]));
+}
+
+#[test]
+fn a_probe_passes_the_gate_only_for_the_tables_row() {
+    // Here, in the unit test build, the row exists; in the shipped build, and an
+    // integration test's, it does not, and every probe is refused.
+    let refused_for = |executable: &str| {
+        let plan = with_probes(consolidation_run().plan());
+        let verify = position(&plan, StepKind::VerifyDestination);
+        let mut plan = plan;
+        for check in &mut plan.steps[verify].verification {
+            match check {
+                VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                    *executables = vec![executable.to_owned()];
+                }
+                VerificationCheck::LivenessProbe { executable: e, .. } => {
+                    *e = executable.to_owned();
+                }
+                _ => {}
+            }
+        }
+        crate::execution_refusals(&plan)
+            .refusals()
+            .iter()
+            .any(|r| matches!(r, ExecutionRefusal::ProbeIsNotTheTables { .. }))
+    };
+    assert!(!refused_for(crate::execution_gate::TEST_PROBE_EXECUTABLE));
+    assert!(refused_for("not-the-fixture-row"));
 }

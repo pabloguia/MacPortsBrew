@@ -2206,6 +2206,48 @@ impl DestinationSite for Counting {
 }
 
 #[test]
+fn a_reread_that_failed_stops_the_site_being_asked_again() {
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("site-after-failed-reread");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let verify = plan
+        .steps
+        .iter()
+        .find(|s| s.kind == StepKind::VerifyDestination)
+        .expect("a destination check");
+    let counting = Counting::default();
+    let reads = Vanishing::new(&plan, verify.commands.len());
+    let report = run_with_mutations(
+        &cleared,
+        || &reads,
+        MutatingRun {
+            destination: &counting,
+            resolutions: &Resolves::of(&plan),
+            locks: &LocksFree,
+            shown: shown(&cleared),
+            live: true,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*unchanged(&direction, &scratch).recapture,
+            consent: &never_asked,
+            reread: unchanged(&direction, &scratch).reread,
+            read_back: &history_store::read_back,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    assert_eq!(site.handed.borrow().len(), 0, "{:?}", report.outcome);
+    // Ownership, integrity, linkage, probe: once each, and not again.
+    assert_eq!(*counting.0.borrow(), 4, "{:?}", report.outcome);
+}
+
+#[test]
 fn a_read_that_failed_stops_the_site_being_asked_at_all() {
     // A probe runs the package's program: not on the way to a halt the read
     // already decided (spec-guardian, review of H-1).

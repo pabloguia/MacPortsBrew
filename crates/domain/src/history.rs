@@ -872,38 +872,69 @@ impl RunRecord {
             .iter()
             .any(|s| matches!(s.result, StepResult::VerifiedWithUnchecked { .. }));
         let kept = |s: &RecordedStep| matches!(s.result, StepResult::SourceKeptUnchecked);
-        if unchecked && matches!(stored.ending, StoredEnding::Completed {}) {
-            return Err(unusable("states a completion with something unchecked"));
+        let whole = !steps.is_empty() && steps.iter().all(|s| s.result.carried_out() || kept(s));
+        if unchecked
+            && matches!(
+                stored.ending,
+                StoredEnding::Completed {}
+                    | StoredEnding::Halted { .. }
+                    | StoredEnding::Refused { .. }
+            )
+        {
+            return Err(unusable("states an ending its steps contradict"));
+        }
+        if unchecked
+            && whole
+            && !matches!(stored.ending, StoredEnding::CompletedWithUnchecked { .. })
+        {
+            return Err(unusable("states an ending its steps contradict"));
         }
         if let StoredEnding::CompletedWithUnchecked { source_kept } = &stored.ending {
-            let whole = steps.iter().all(|s| s.result.carried_out() || kept(s));
             if !unchecked || steps.iter().any(kept) != *source_kept || !whole {
                 return Err(unusable("states an ending its steps contradict"));
             }
         }
-        // A record cannot say what INV-01 forbids (security review of H-1): once
-        // something is unchecked no removal ran, and its check and review are
-        // kept only behind a removal that was. A halt that ran no command is what
-        // a resolution that did not hold gives.
+        // A record with something unchecked that contradicts itself about a removal
+        // is refused (security review of H-1): no removal ran, and the steps after
+        // it say what became of it. This catches a contradiction only; nothing here
+        // authenticates a record, and an edit that rewrites the result itself
+        // passes. A halt counts as no removal only if nothing was handed over: a
+        // refusal or a transport failure on the first command leaves no end and may
+        // have run.
         if unchecked {
-            let removal = steps.iter().find(|s| s.kind == StepKind::RemoveSource);
-            let removed = removal.is_some_and(|s| {
-                !matches!(
-                    &s.result,
-                    StepResult::SourceKeptUnchecked
-                        | StepResult::NotReached
-                        | StepResult::NotDispatchedMutating
-                ) && !matches!(&s.result, StepResult::Halted { ends, .. } if ends.is_empty())
-            });
+            let removals: Vec<&RecordedStep> = steps
+                .iter()
+                .filter(|s| s.kind == StepKind::RemoveSource)
+                .collect();
+            let removed = removals.len() > 1
+                || removals.iter().any(|s| {
+                    !matches!(
+                        &s.result,
+                        StepResult::SourceKeptUnchecked
+                            | StepResult::NotReached
+                            | StepResult::NotDispatchedMutating
+                    ) && (!matches!(&s.result, StepResult::Halted { ends, .. } if ends.is_empty())
+                        || s.dispatched)
+                });
             let after_removal = |s: &&RecordedStep| {
                 matches!(s.kind, StepKind::VerifyRemoval | StepKind::CleanupReview)
             };
+            // A command-less removal is passed over before the rule about what is
+            // unchecked is asked, so what follows it is judged as ever.
+            let removal = removals.first().copied();
             let removal_kept = removal.is_some_and(kept);
+            let commandless =
+                removal.is_some_and(|s| matches!(s.result, StepResult::NotDispatchedMutating));
             let contradicts = steps.iter().filter(after_removal).any(|s| {
                 if removal_kept {
                     !kept(s) && s.result != StepResult::NotReached
-                } else {
+                } else if commandless {
                     kept(s)
+                } else {
+                    !matches!(
+                        s.result,
+                        StepResult::NotReached | StepResult::NotDispatchedMutating
+                    )
                 }
             });
             if removed || contradicts {

@@ -1106,6 +1106,11 @@ fn invariant_03_a_run_with_something_unchecked_is_partial_or_no_change_never_suc
         None,
     );
     assert_eq!(claimed.status(), macportsbrew_domain::RunStatus::Partial);
+    // The same with nothing kept, so only the unchecked step can say so.
+    let mut retained = unchecked_steps_after_an_install();
+    retained.retain(|s| !matches!(s.result(), StepResult::SourceKeptUnchecked));
+    let claimed = record(retained, RunEnding::Completed, None);
+    assert_eq!(claimed.status(), macportsbrew_domain::RunStatus::Partial);
 }
 
 #[test]
@@ -1135,6 +1140,75 @@ fn invariant_01_a_record_cannot_state_a_removal_after_something_unchecked() {
             },
             RunEnding::CompletedWithUnchecked { source_kept: true },
         ),
+        // Kept, and a second removal ran.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps.insert(
+                    3,
+                    step(
+                        4,
+                        StepKind::RemoveSource,
+                        StepResult::Performed {
+                            ends: vec![CommandEnd::Exited { code: 0 }],
+                        },
+                        true,
+                    ),
+                );
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+        // Handed over, and no end: a refusal or a transport failure may have run.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(
+                    3,
+                    StepKind::RemoveSource,
+                    StepResult::Halted {
+                        error: ErrorId::SafetyBlocked,
+                        evidence: Vec::new(),
+                        ends: Vec::new(),
+                    },
+                    true,
+                );
+                steps.truncate(3);
+                steps
+            },
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        // A removal check that ran with no removal behind it.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(4, StepKind::VerifyRemoval, verified(), false);
+                steps.remove(3);
+                steps
+            },
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        // Whole steps, and an ending that does not say so.
+        (
+            unchecked_steps(),
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        (
+            unchecked_steps(),
+            RunEnding::Halted {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
         // Kept, and its check says it was verified as gone.
         (
             {
@@ -1145,12 +1219,12 @@ fn invariant_01_a_record_cannot_state_a_removal_after_something_unchecked() {
             RunEnding::CompletedWithUnchecked { source_kept: true },
         ),
     ];
-    for (steps, ending) in cases {
-        // Serialised by hand from a record that says partial, as an edit would.
-        let mut value = stored_json(&record(steps, ending, None));
-        value["status"] = serde_json::json!(value["status"].clone());
-        assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    for (i, (steps, ending)) in cases.into_iter().enumerate() {
+        let value = stored_json(&record(steps, ending, None));
+        assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable), "case {i}");
     }
+    // The control: untampered, it reads, so the refusals above are about the edit.
+    assert!(read_back(stored_json(&unchecked_record())).is_ok());
 }
 
 #[test]
@@ -1191,14 +1265,26 @@ fn something_unchecked_on_another_step_or_an_empty_list_is_refused() {
 
 #[test]
 fn a_stored_empty_unchecked_list_is_refused_whatever_the_ending() {
-    let mut value = stored_json(&record(
-        unchecked_steps(),
-        RunEnding::Halted {
+    // A partial run: something unchecked, then a step not reached, so that the
+    // list is the one thing wrong.
+    let mut steps = unchecked_steps();
+    steps.truncate(2);
+    steps.push(step(
+        3,
+        StepKind::RemoveSource,
+        StepResult::NotReached,
+        false,
+    ));
+    let good = record(
+        steps,
+        RunEnding::PartialSuccess {
             step: 3,
             error: ErrorId::SafetyBlocked,
         },
         None,
-    ));
+    );
+    assert!(read_back(stored_json(&good)).is_ok(), "the control");
+    let mut value = stored_json(&good);
     value["steps"][1]["unchecked"] = serde_json::json!([]);
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
 }

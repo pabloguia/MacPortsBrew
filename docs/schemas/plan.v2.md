@@ -1,6 +1,6 @@
 # `plan` schema, version 2
 
-**What changed from version 1 (work order 16 part H-1, SE-113).** `LIVENESS_PROBE`'s `flag` became `argv`, a rename and a type change; `LIVENESS_PROBE_SKIPPED` is new; the check table below says what the four checks of DP-051 assert now. A consumer of version 1 reads [`plan.v1.md`](plan.v1.md). A plan carrying another version is refused (`SCHEMA_VERSION_NOT_THIS_BUILDS`).
+**What changed from version 1 (2026-11-04, work order 16 part H-1, SE-113).** `LIVENESS_PROBE`'s `flag` became `argv`, a rename and a type change; `LIVENESS_PROBE_SKIPPED` is new; the check table below says what the four checks of DP-051 assert now. A consumer of version 1 reads [`plan.v1.md`](plan.v1.md). A plan carrying another version is refused (`SCHEMA_VERSION_NOT_THIS_BUILDS`).
 
 Emitted by `macportsbrew plan <package> --to <provider> --json`. Derived from
 `MigrationPlan` in `crates/domain/src/plan.rs`. The compatibility rule is in
@@ -220,7 +220,7 @@ comments:
    `ReadEvidence` and has no field a provider read could occupy
    (`a_run_record_cannot_carry_an_inventory`,
    `crates/application/tests/history.rs`). The store
-   ([`history.v3.md`](history.v3.md)) keeps the same evidence-only shape;
+   ([`history.v4.md`](history.v4.md)) keeps the same evidence-only shape;
    writing a record is owed (obligation 12).
 
    The cost is stated rather than discovered: removing the last package a
@@ -254,7 +254,7 @@ comments:
    **MUST** in two halves, and this build owes them differently.
    *Read-only analysis may proceed, flagged as possibly inconsistent* — that
    half is met for `migrate`: every document carries
-   `concurrentProviderActivity` (`migrate.v1.md`), the domain's
+   `concurrentProviderActivity` (`migrate.v2.md`), the domain's
    `ConcurrentProviderActivity`, and its rule is that it never claims a check
    that was not made. A live run says what one sample of the providers' own locks
    answered (`NONE_OBSERVED`, `OBSERVED`, `NOT_DETERMINED`);
@@ -312,8 +312,9 @@ comments:
    snapshot cannot say (04, check 1). A planner
    `VERIFY_DESTINATION` also carries DP-051's four checks. Those are answered
    through a destination site rather than a read, with `HOLDS`, `FAILS` or
-   `UNCHECKED` (`04-migration-and-safety.md`, not yet observed in this build, so
-   all four answer `UNCHECKED` / `NOT_OBSERVED`); `FAILS` halts, `UNCHECKED` keeps
+   `UNCHECKED` (`04-migration-and-safety.md`; nothing observes them yet, and past
+   the gate, which this build does not reach, integrity, ownership and linkage
+   would answer `UNCHECKED` / `NOT_OBSERVED`); `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
    `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one
    missing `PACKAGE_NEWLY_PRESENT` when the plan adds the package, or one whose
@@ -321,7 +322,8 @@ comments:
    (`DESTINATION_CONTRACT_INCOMPLETE`), and a
    `LIVENESS_PROBE` whose argv is not the curated table's
    (`PROBE_IS_NOT_THE_TABLES`; this build holds no row, so it refuses every one).
-   In this build a planner plan is refused by `MUTATION_NOT_IN_THIS_BUILD`.
+   In this build a plan with a mutating step is refused by
+   `MUTATION_NOT_IN_THIS_BUILD`.
    **Evaluable means evaluable by this plan:** a check this build evaluates on
    the step, that none of the step's commands carries a semantic to answer, is
    refused (`CHECK_HAS_NO_ANSWERING_READ`,
@@ -511,7 +513,7 @@ comments:
     `mutationDispatched` is the one fact a store may key a lock or an
     interrupted-run marker on, and it fails toward true for a halt that cannot
     be placed before or after a dispatch. **The store landed 2026-10-04**
-    (pass 08 slice 1, [`history.v3.md`](history.v3.md)) with the write
+    (pass 08 slice 1, [`history.v4.md`](history.v4.md)) with the write
     predicate `application::history::must_record` (iff `mutationDispatched`)
     and the `--retain-source` re-run recognition `04-migration-and-safety.md`
     (History) states. **Still owed by the pass that dispatches mutations**,
@@ -527,7 +529,7 @@ comments:
     record not known to be durable keeps the marker and never exits 0. **`SNAPSHOT_BEFORE` and
     `RECORD_HISTORY` are performed by pass 08 slice 5 (D2, D3)**, and
     `RECORD_HISTORY` is settled: a record never certifies its own write, so it
-    is stored `RECORD_PENDING_READ_BACK` ([`history.v3.md`](history.v3.md)) and
+    is stored `RECORD_PENDING_READ_BACK` ([`history.v4.md`](history.v4.md)) and
     the run reads the published file back under the lock, comparing the
     canonical text with what it wrote; the marker is cleared only when the
     write was durable and the read-back matches, so **a record is confirmed by
@@ -736,11 +738,11 @@ Tagged union on `check`:
 | `check` | Payload | What it asserts |
 |---|---|---|
 | `PROVIDER_REPORTS_ACTIVE` | — | The destination provider reports the package installed and active |
-| `PROVIDER_INTEGRITY_CHECK` | — | What the package records of itself is present on disk. Neither provider offers a read-only integrity verb (R-25), so the check is this project's own; it never asserts content integrity, provenance or that the package runs |
-| `EXECUTABLES_OWNED_BY_DESTINATION` | `executables` | The expected executables are placed at entries the destination package owns when read, by the provider's own record or rule (R-26) |
-| `LIVENESS_PROBE` | `executable`, `argv` | The curated probe of this executable exits 0 (R-28). `argv` equals the curated row's; there is no default flag |
+| `PROVIDER_INTEGRITY_CHECK` | — | What the package records of itself is present on disk. Neither provider offers a read-only integrity verb (R-25, read 2026-11-04), so the check is this project's own; it never asserts content integrity, provenance or that the package runs |
+| `EXECUTABLES_OWNED_BY_DESTINATION` | `executables` | The expected executables are placed at entries the destination package owns when read, by the provider's own record or rule (R-26, read 2026-11-04) |
+| `LIVENESS_PROBE` | `executable`, `argv` | The curated probe of this executable exits 0 (R-28). `argv` equals the curated row's; there is no default flag (R-28, read 2026-11-04) |
 | `LIVENESS_PROBE_SKIPPED` | `executable` (optional), `cause` | No probe was written: `NO_CURATED_PROBE` for a listed executable with no row, or `NO_EXECUTABLE_TO_PROBE`, with no `executable`, when the list is empty. Answers `UNCHECKED`, never `HOLDS`, so the source is kept. Said at plan time, so a removal passed over surprises nobody |
-| `NO_CROSS_PROVIDER_LINKAGE` | — | No file of the package refers to another provider's prefix when read. Evidence about INV-07, not the invariant, and not "no *new* linkage": the snapshot holds no baseline (R-27) |
+| `NO_CROSS_PROVIDER_LINKAGE` | — | No file of the package refers to another provider's prefix when read. Evidence about INV-07, not the invariant, and not "no *new* linkage": the snapshot holds no baseline (R-27, read 2026-11-04) |
 | `PACKAGE_ABSENT` | — | The source provider reports the package **no longer** installed. `VERIFY_REMOVAL` carries this; it used to carry `PROVIDER_REPORTS_ACTIVE`, which asserts the opposite (F-06) |
 | `RESOLVES_TO` | `executable`, `provider`, `package` | Since F-3, on `VERIFY_RESOLUTION` only: a fresh search of `PATH` finds `executable` in a file `provider` owns as `package`, **by its own records**, at an established `PATH` index. Answered by the run loop's resolution site, never by a provider read, so it is the one check a command-less verification step may carry (the gate's one exemption from `VERIFICATION_ASSERTS_NOTHING`). Unobserved — a replay, a snapshot file — is unevaluable, never a pass |
 | `PACKAGE_NEWLY_PRESENT` | — | The destination reports the package installed **and did not at plan time**. Present only where the destination was absent when the plan was built — which is exactly when presence afterwards proves the install happened rather than predating it. Its *absence* from a `VERIFY_DESTINATION` therefore says something: the destination already held the package, and the step cannot prove more than that it still does (F-06) |
@@ -809,7 +811,7 @@ build does not know.
 writes: every executable name parses as one (`ExecutableName`, the same class
 capture uses); `primaryAfter` is the destination only on `NOTHING_TO_CHANGE`
 and `NO_EXECUTABLES` — nothing stays with the source when the package installs
-no executable, which is also what `history.v3` records once that `SET_PRIMARY`
+no executable, which is also what `history.v4` records once that `SET_PRIMARY`
 is carried out — and otherwise the source; and the gate's four new refusals —
 `PRIMARY_NEEDS_SHIM`, `PRIMARY_REFUSED`, `PRIMARY_DECISION_MISSING`,
 `EXECUTABLE_LISTS_DISAGREE` — fire before any step, under an allowance or not.

@@ -179,10 +179,11 @@ Identical to the other direction, because it is the same planner:
 
 1. **Snapshot before.**
 2. **Add destination** — install under Homebrew.
-3. **Verify destination** — installed, active, executables belonging to the package when
-   read, no file referring to the other package manager's directory, and a curated
-   probe where one exists. What cannot be told is reported as unchecked, the source
-   is kept, and the run exits 3. This version observes none of these four yet.
+3. **Verify destination** — installed, active, what the package records of itself on disk,
+   executables belonging to it when read, no file referring to the other package
+   manager's directory, and a curated probe where one exists. What cannot be told is
+   reported as unchecked, the source is kept, and the run exits 3. This version
+   observes none of the last four yet.
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;

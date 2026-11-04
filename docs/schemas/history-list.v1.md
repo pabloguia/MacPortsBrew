@@ -42,7 +42,7 @@ MacPortsBrew has made on this machine, newest first (`06-cli-and-ux.md`;
 | `total` | How many records the store holds, including those not listed |
 | `limit` | The page size asked for (`--limit`, 1 to 200, default 20) |
 | `runs` | At most `limit` runs, newest first by the stamp in the id. Two runs started in the same second are in a fixed order that is not chronological |
-| `status` | `SUCCESS`, `PARTIAL`, `FAILURE` or `NO_CHANGE`, as `history.v2` states it |
+| `status` | `SUCCESS`, `PARTIAL`, `FAILURE` or `NO_CHANGE`, as [`history.v4`](history.v4.md) states it |
 | `restorable` | `NOTHING_TO_RESTORE`, `FROM_SNAPSHOT`, `PARTIALLY` or `NOT`; the last two carry a `reason` (below) beside it. **Derived when the record is read**, never stored |
 | `standing` | `CONFIRMED` (no interrupted-run marker names the record), `UNCONFIRMED` (the marker names it: published, not known to be durable) or `UNKNOWN` (the marker could not be read) |
 | `snapshotFile` | The snapshot file name the record names, or `null` when none was taken |

@@ -22,7 +22,6 @@ output may change freely.
 
 ## [Unreleased]
 
-- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. Nothing observes the four new checks yet, and no plan is run. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
 
 These changes came after the 0.1.0 release candidate and are on `main`; the
 0.1.0 tag is cut from `main`, so they ship in 0.1.0 and the 0.1.0 section below
@@ -30,6 +29,8 @@ describes the ones a user sees. (DP-045, ruled
 2026-10-23: they ship in 0.1.0.)
 
 ### Changed after the release candidate
+
+- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. Nothing observes the four new checks yet, and no plan is run. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
 
 - **Live commands now sample the package managers' own locks** (DP-030 (b)). `analyze`,
   `plan`, `migrate`, `explain`, `doctor` and `restore` say in text whether a provider's
@@ -199,7 +200,7 @@ describes the ones a user sees. (DP-045, ruled
   it cannot say. Nothing is executed: `restore --run <id>` without `--plan`
   puts a recorded run's plan to the execution gate, which refuses it (exit 4)
   (with no record of that run it answers `RUN_NOT_FOUND`, exit 8, first), and
-  `restore --snapshot` is not built (exit 1). `--json`: `restore.v1`.
+  `restore --snapshot` is not built (exit 1). `--json`: `restore.v2`.
 - `macportsbrew history` and `history show <id>`: the runs this MacPortsBrew has
   made, newest first, and one run's steps, snapshot and whether it can be put
   back (restorability is derived when read, never stored). Read-only, creates
@@ -482,7 +483,7 @@ candidate; see [Unreleased])
   history and a fresh capture agree, it would answer `retainedRunDone` (exit 0)
   instead of planning again; when history has something to say that is not
   enough, the plan carries `retainedRunNotRecognised` with the reason. Additive to
-  `migrate.v1`. Until shims record which provider they point at, a real re-run
+  `migrate.v2`. Until shims record which provider they point at, a real re-run
   is still planned again, with `PRIMARY_IS_SHIM`.
 
 - **A provider's own configuration is detected and reported (DP-027).** Capture
@@ -510,7 +511,7 @@ candidate; see [Unreleased])
   installed where detection does not look would read the same (DP-026). The
   planner's own refusals keep their codes.
   `--yes` with `--from-snapshot` is a usage error. New `--json` schema:
-  [`migrate.v1.md`](docs/schemas/migrate.v1.md).
+  [`migrate.v2.md`](docs/schemas/migrate.v2.md).
   Every `migrate` output that shows a plan or *nothing to move* ends by saying
   whether a package manager may have been changing the machine while it was read (`concurrentProviderActivity`): a live
   run says it was not checked, and a run from `--replay` or `--from-snapshot`

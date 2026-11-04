@@ -338,7 +338,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "reason.snapshot_before_mutation" = "Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first."
 "reason.add_under_destination" = "Add {package} under {provider}."
 "reason.already_under_destination" = "{package} is already installed under {provider}; nothing to add."
-"reason.verify_destination" = "Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists. What cannot be told is reported as unchecked, and the source is then kept."
+"reason.verify_destination" = "Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists (none exists yet). What cannot be told is reported as unchecked, and the source is then kept."
 "reason.set_primary_decision" = "Decide, from this PATH, whether {provider}'s copy already runs. This release changes no primary: this step sets nothing, and where the copy does not already run the plan is refused before any step."
 "reason.system_tool_keeps_name" = "{provider} also installs {executables}; a file no provider owns wins those names today, and it keeps them."
 "reason.verify_resolution" = "Check which copy now runs, in your shell: {checks} should each print the file the destination package installed."
@@ -350,7 +350,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 
 # --- concurrency ------------------------------------------------------------
 # Whether a package manager's own lock was held right after the machine was read
-# (`plan.v1.md`, obligation 5). The last line of `analyze`, `plan`, `migrate`,
+# (`plan.v2.md`, obligation 5). The last line of `analyze`, `plan`, `migrate`,
 # `explain`, `doctor` and `restore`, and of `status` and `list` when a lock was
 # held or could not be determined, the same sentence because it renders the one
 # flag their `--json` carries (`concurrentProviderActivity`). A live run reports

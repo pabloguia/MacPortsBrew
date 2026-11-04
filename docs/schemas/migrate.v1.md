@@ -1,6 +1,6 @@
 # `migrate` schema, version 1
 
-**Superseded on 2026-11-04 by `migrate.v2.md`** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
+**Superseded on 2026-11-04 by [`migrate.v2.md`](migrate.v2.md)** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
 
 Emitted by `macportsbrew migrate <package> --to <provider> [--retain-source]
 [--yes] [--dry-run] --json`. Built in `crates/cli/src/app/migrate.rs`; the run's

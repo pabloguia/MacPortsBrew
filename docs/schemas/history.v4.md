@@ -5,8 +5,8 @@ The file a mutating run leaves in the state directory, `history/run-<id>.json`
 `crates/domain/src/history.rs`; written and read by
 `crates/adapters/src/persistence/history_store.rs`. The compatibility rule is
 in [`README.md`](README.md). **Version 4 is what this build writes**; a
-[version 2](history.v2.md) record still reads (below). Shipped with work order
-16 part F-3 (`docs/passes/16-plans/F.md`, Design §5; SG-12).
+[version 3](history.v3.md) or [version 2](history.v2.md) record still reads (below). Introduced by
+work order 16 part H-1, 2026-11-04 (SE-113); nothing has been released under it.
 
 **This build writes none to a user's machine.** A record is written iff the run
 dispatched a mutating step (`mutationDispatched`), and the gate refuses every
@@ -25,7 +25,7 @@ Work order 16 part H-1. A check on `VERIFY_DESTINATION` now answers `HOLDS`, `FA
 - `status` for that ending is `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, **never `SUCCESS`** (`04-migration-and-safety.md`). So a re-run re-verifies an unchecked destination rather than recognising it as done (`recognise_retained_run` still refuses anything but `SUCCESS`, INV-16).
 - `UncheckedEntry` is as in [`migrate.v2.md`](migrate.v2.md).
 
-A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
+A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). Part H-2 adds its unchecked causes to this version before anything is released. A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
 
 **What did not change** is everything else: the rest of this document is version 3's. Its own history of how version 3 differed from version 2 follows.
 
@@ -94,11 +94,13 @@ Restore has nothing to revert for the primary: this build sets none.
 |---|---|---|
 | `NOTHING_TO_CHANGE` | — | `SET_PRIMARY` only |
 | `RESOLVED` | `executables`: array of string | `VERIFY_RESOLUTION` only |
+| `VERIFIED_WITH_UNCHECKED` | `evidence`, `unchecked` | `VERIFY_DESTINATION` only; version 4 |
+| `SOURCE_KEPT_UNCHECKED` | — | `REMOVE_SOURCE`, `VERIFY_REMOVAL`, `CLEANUP_REVIEW`; version 4 |
 
 ## Sample
 
 An illustrative record of a retain-source migration whose steps were all
-carried out, as the mutating pass will write it: its primary decision was
+carried out, as the mutating pass will write it once all four checks of DP-051 are observed to hold, which this build does not do: its primary decision was
 `NOTHING_TO_CHANGE` and `VERIFY_RESOLUTION` resolved `wget` to the destination
 package. Checked by `the_documented_sample_is_a_record_this_version_reads`
 (`crates/adapters/tests/history_store.rs`), which reads it back and

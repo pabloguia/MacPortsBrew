@@ -1,6 +1,6 @@
 # `plan` schema, version 1
 
-**Superseded on 2026-11-04 by `plan.v2.md`** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
+**Superseded on 2026-11-04 by [`plan.v2.md`](plan.v2.md)** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
 
 Emitted by `macportsbrew plan <package> --to <provider> --json`. Derived from
 `MigrationPlan` in `crates/domain/src/plan.rs`. The compatibility rule is in

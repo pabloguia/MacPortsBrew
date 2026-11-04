@@ -106,11 +106,11 @@ this order, and the order is enforced rather than conventional:
    executing a restore is not built, and nothing records a run yet, so today
    take your own with `macportsbrew snapshot --out before.json`.
 2. **Add destination** — install under MacPorts.
-3. **Verify destination** — the package is installed and active, its
-   executables belong to it when read, no file refers to the other package
-   manager's directory, and a curated probe exits 0 where one exists. What cannot
-   be told is reported as unchecked, the source is kept, and the run exits 3.
-   This version observes none of these four yet, so all of them would be unchecked.
+3. **Verify destination** — the package is installed and active, what it
+   records of itself is on disk, its executables belong to it when read, no file
+   refers to the other package manager's directory, and a curated probe exits 0
+   where one exists. What cannot be told is reported as unchecked, the source is
+   kept, and the run exits 3. This version observes none of the last four yet.
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.
