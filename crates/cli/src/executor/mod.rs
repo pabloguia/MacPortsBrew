@@ -77,17 +77,17 @@ use macportsbrew_adapters::registry::{
 use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
     judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
-    outcome_of, plan_still_holds, provider_locks_clear, read_back_matches,
-    recheck_provider_configuration, refused, run_record, Action, ConfigurationRechecked,
-    ConsentDecision, ConsentGiven, ConsentHalt, Disposition, ElevationRequest, GateClear,
-    HaltReason, MutationResult, PlannedRun, Precondition, ProviderLockRefusal, RunOutcome,
-    ShownPlan, StepRead, StepRecord,
+    next_destination_question, outcome_of, plan_still_holds, provider_locks_clear,
+    read_back_matches, recheck_provider_configuration, refused, reverify_questions, run_record,
+    Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt, DestinationAnswer,
+    Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
+    ProviderLockRefusal, Question, RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
-    redact_home, CommandEnd, ConcurrentProviderActivity, DomainError, ErrorId, ExecutableName,
-    HomeRedaction, InterruptedRun, MachineRead, MigrationPlan, PlanCommand, ProviderConfiguration,
-    ProviderId, ProviderLockProbe, ProviderRead, ResolutionState, RunStart, Snapshot,
-    VerificationCheck,
+    redact_home, CheckAnswer, CommandEnd, ConcurrentProviderActivity, DomainError, ErrorId,
+    ExecutableName, HomeRedaction, InterruptedRun, MachineRead, MigrationPlan, PlanCommand,
+    ProviderConfiguration, ProviderId, ProviderLockProbe, ProviderRead, ResolutionState, RunStart,
+    Snapshot, UncheckedCause, VerificationCheck,
 };
 use serde::Serialize;
 
@@ -333,6 +333,43 @@ impl RunReport {
     }
 }
 
+/// What answers DP-051's four checks on a `VERIFY_DESTINATION` (work order 16
+/// part H), as [`ResolutionSite`] answers `RESOLVES_TO`. It is asked only what
+/// `next_destination_question` hands the loop, and decides nothing else.
+pub trait DestinationSite {
+    /// The answer to `question`.
+    fn answer(&self, question: &Question) -> CheckAnswer;
+}
+
+/// The site with no observer behind it: every question is
+/// `Unchecked(NOT_OBSERVED)`, never `Holds`. A replayed run, a run from a snapshot
+/// file, and in this build every run (`observed_by_this_build`).
+pub struct NothingObserved;
+
+impl DestinationSite for NothingObserved {
+    fn answer(&self, _question: &Question) -> CheckAnswer {
+        CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+    }
+}
+
+/// Asks `site` what `next_destination_question` says to ask, until it says
+/// nothing more. Sequencing only.
+fn destination_answers(
+    plan: &MigrationPlan,
+    position: usize,
+    site: &dyn DestinationSite,
+) -> Vec<DestinationAnswer> {
+    let mut answers = Vec::new();
+    loop {
+        let question = next_destination_question(plan, position, &answers);
+        if question == Question::Done {
+            return answers;
+        }
+        let answer = site.answer(&question);
+        answers.push(DestinationAnswer { question, answer });
+    }
+}
+
 /// Runs `planned`'s verification reads through the read sites `ctx` detects —
 /// built only if the execution gate passes the plan. `home` is how any text
 /// the report keeps is redacted.
@@ -370,6 +407,27 @@ pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
     resolutions: impl FnOnce() -> R,
     home: &HomeRedaction,
 ) -> RunReport {
+    run_with_sites(
+        planned,
+        sites,
+        reread,
+        resolutions,
+        || NothingObserved,
+        home,
+    )
+}
+
+/// [`run_with_resolutions`], with DP-051's checks answered through the site
+/// `destination` builds, called, like the others, only after the gate passed the
+/// plan.
+pub fn run_with_sites<S: ReadSite, R: ResolutionSite, D: DestinationSite>(
+    planned: &PlannedRun,
+    sites: impl FnOnce() -> S,
+    reread: Reread<'_>,
+    resolutions: impl FnOnce() -> R,
+    destination: impl FnOnce() -> D,
+    home: &HomeRedaction,
+) -> RunReport {
     let plan = planned.plan();
     let gate = execution_refusals(plan);
     if refused(&gate).is_some() {
@@ -377,6 +435,7 @@ pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
     }
     let site = sites();
     let resolutions = resolutions();
+    let destination = destination();
     let mut records: Vec<StepRecord> = Vec::new();
     let mut refusal = None;
     for (position, step) in plan.steps.iter().enumerate() {
@@ -396,7 +455,15 @@ pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
                     ends: Vec::new(),
                 }
             }
-            Action::Certify => certify(planned, position, &site, reread, home, &mut refusal),
+            Action::Certify => certify(
+                planned,
+                position,
+                &site,
+                &destination,
+                reread,
+                home,
+                &mut refusal,
+            ),
             Action::Resolve => resolve_step(planned, position, &resolutions),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
@@ -444,7 +511,7 @@ pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
 /// and the spawn site's allowlist does not grow. A test double records what it
 /// is handed.
 ///
-/// **What any implementation owes** (`plan.v1.md` obligations 9 and 10), for
+/// **What any implementation owes** (`plan.v2.md` obligations 9 and 10), for
 /// the day one is written: the program is re-derived from the provider's
 /// detected prefix, which must be the prefix the run re-planned under, and the
 /// call is refused otherwise; the argv is checked against an allowlist; and
@@ -596,6 +663,12 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub consent: Consent<'a>,
     /// Re-reads a provider's configuration before a mutating command (D7).
     pub reread: Reread<'a>,
+    /// Answers DP-051's four checks on a `VERIFY_DESTINATION`, and check 3 again
+    /// before a removal (work order 16 part H).
+    pub destination: &'a dyn DestinationSite,
+    /// Answers `RESOLVES_TO`. [`Unresolved`] in this build: the part that wires
+    /// `SET_PRIMARY` wires a machine here (F.md "As built (F-3)").
+    pub resolutions: &'a dyn ResolutionSite,
     /// Reads the published record back, under the lock (D3).
     pub read_back: ReadBack<'a>,
     /// Told of each boundary.
@@ -768,11 +841,16 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             // The one write of the record follows the loop; the step is only
             // recorded pending here (D2, D3).
             Action::RecordHistory => Disposition::RecordPendingReadBack,
-            Action::Certify => certify(planned, position, &site, io.reread, home, &mut refusal),
-            // No allowance exists in this build, so this loop never runs a
-            // product plan; its resolutions are not observed until the part that
-            // grants one wires a machine here (F.md "As built (F-3)").
-            Action::Resolve => resolve_step(planned, position, &Unresolved),
+            Action::Certify => certify(
+                planned,
+                position,
+                &site,
+                io.destination,
+                io.reread,
+                home,
+                &mut refusal,
+            ),
+            Action::Resolve => resolve_step(planned, position, io.resolutions),
             Action::Dispatch => {
                 let results = read_commands(step.provider.as_ref(), &step.commands, &site);
                 if let Some(Err(PlanReadError::Refused(r))) = results.last() {
@@ -847,11 +925,19 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                             refusal = Some(rendered_refusal(step.index, r, home));
                         }
                         let reads: Vec<StepRead<'_>> = reread.iter().map(step_read).collect();
+                        let owned: Vec<DestinationAnswer> = reverify_questions(plan, reverify)
+                            .into_iter()
+                            .map(|question| {
+                                let answer = io.destination.answer(&question);
+                                DestinationAnswer { question, answer }
+                            })
+                            .collect();
                         if let Err(why) = destination_still_verified(
                             planned,
                             reverify,
                             destination_checked,
                             &reads,
+                            &owned,
                         ) {
                             results.push(MutationResult::PreconditionFailed(why));
                             break;
@@ -1050,6 +1136,7 @@ fn certify(
     planned: &PlannedRun,
     position: usize,
     site: &dyn ReadSite,
+    destination: &dyn DestinationSite,
     reread: Reread<'_>,
     home: &HomeRedaction,
     refusal: &mut Option<RenderedRefusal>,
@@ -1081,7 +1168,15 @@ fn certify(
         *refusal = Some(rendered_refusal(step.index, r, home));
     }
     let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
-    certify_destination(planned, position, checked, &reads)
+    // A read that failed already decides the step, and what follows is not asked.
+    let reads_finished = reads.len() == step.commands.len()
+        && reads.iter().all(|r| matches!(r, StepRead::Output(_)));
+    let answers = if reads_finished {
+        destination_answers(planned.plan(), position, destination)
+    } else {
+        Vec::new()
+    };
+    certify_destination(planned, position, checked, &reads, &answers)
 }
 
 /// Writes `snapshot` (the capture taken under the lock) durably into the state
@@ -1539,6 +1634,7 @@ mod tests {
         let partial = RunOutcome::PartialSuccess {
             step: 1,
             reason: HaltReason::NotPerformedInThisBuild,
+            unchecked: Vec::new(),
         };
         assert_eq!(report(partial, Some(ErrorId::Io)).exit_code(), 3);
     }

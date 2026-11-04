@@ -94,7 +94,7 @@ cannot show that. `--json` carries the same answer as
 `concurrentProviderActivity`.
 
 Add `--json` for the machine-readable form — see
-[`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).
+[`../docs/schemas/plan.v2.md`](../docs/schemas/plan.v2.md).
 
 ## What a full migration plan will contain
 
@@ -107,8 +107,10 @@ this order, and the order is enforced rather than conventional:
    take your own with `macportsbrew snapshot --out before.json`.
 2. **Add destination** — install under MacPorts.
 3. **Verify destination** — the package is installed and active, its
-   executables are where MacPorts says they are, and a liveness probe with a
-   safe flag exits cleanly.
+   executables belong to it when read, no file refers to the other package
+   manager's directory, and a curated probe exits 0 where one exists. What cannot
+   be told is reported as unchecked, the source is kept, and the run exits 3.
+   This version observes none of these four yet, so all of them would be unchecked.
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.

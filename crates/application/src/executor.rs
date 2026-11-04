@@ -34,7 +34,11 @@
 //!    on that step kind and backed by a command whose read passed; a
 //!    `PACKAGE_NEWLY_PRESENT` also needs the destination package absent from the
 //!    snapshot taken before the run. Anything else halts as
-//!    [`HaltReason::Unevaluable`] — never a pass. `VERIFY_RESOLUTION` is
+//!    [`HaltReason::Unevaluable`] — never a pass. DP-051's four checks on a
+//!    `VERIFY_DESTINATION` are answered through the destination site instead
+//!    ([`next_destination_question`]): `Fails` halts, and `Unchecked` records
+//!    [`Disposition::VerifiedWithUnchecked`], under which the source is never
+//!    removed (rule 10). `VERIFY_RESOLUTION` is
 //!    judged by [`judge_resolution`] from fresh resolutions the shell obtains
 //!    ([`Action::Resolve`]); an unobserved one is unevaluable, never a pass.
 //! 6. A read is judged by `verification::evaluate`, never by a process's exit
@@ -43,7 +47,7 @@
 //!    cap, certifies nothing.
 //! 7. What is kept of a read is [`ReadEvidence`] — the result, the line count
 //!    and the truncation flag. There is no field for output, so a record
-//!    cannot carry a machine's inventory (`plan.v1.md`, obligation 3).
+//!    cannot carry a machine's inventory (`plan.v2.md`, obligation 3).
 //! 8. **A `VERIFY_DESTINATION` is certified only after its provider's
 //!    configuration was re-checked** (SE-107 C1): [`next_action`] answers
 //!    [`Action::Certify`] for it, [`judge_step`] refuses it
@@ -56,6 +60,11 @@
 //!    `VERIFY_DESTINATION` whose own commands are re-read, carried in
 //!    [`Action::DispatchMutating`], and [`destination_still_verified`] must
 //!    answer `Ok` before each removal command is handed over.
+//! 10. **A `VERIFY_DESTINATION` with anything unchecked keeps the source**:
+//!     `REMOVE_SOURCE`, its `VERIFY_REMOVAL` and any `CLEANUP_REVIEW` are recorded
+//!     [`Disposition::SourceKeptUnchecked`], on a positive match of the record
+//!     before them, and the run ends [`RunOutcome::CompletedWithUnchecked`],
+//!     never [`RunOutcome::Completed`].
 //!
 //! **History (obligation 12).** A mutating run writes a history record on
 //! every way it ends — but only under a [`MutationAllowance`], which no shipped
@@ -67,16 +76,20 @@
 //! write, and what confirms it is a read-back, `crate::history::read_back_matches`).
 
 use crate::configuration_recheck::ConfigurationRechecked;
-use crate::execution_gate::{answers, evaluable_in_this_build, GateReport, MutationAllowance};
+use crate::execution_gate::{
+    answers, destination_contract_complete, evaluable_in_this_build, is_site_answered, GateReport,
+    MutationAllowance,
+};
 use crate::planner::{elevation_for, package_kind_in};
 use crate::provider_commands;
 use crate::verification_json::linked_report;
 use macportsbrew_domain::{
-    evaluate_with, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget,
-    ConcurrentProviderActivity, DomainError, Elevation, ErrorId, ExecutableName, ExpectationError,
-    FailureCause, MigrationPlan, PackageKind, PlanCommand, PrimaryDecision, ProviderId,
-    ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, UndeterminedCause, Verdict,
-    VerificationCheck,
+    evaluate_with, expectation_for, Capability, CapabilityState, CheckAnswer, CheckFailure,
+    CommandEnd, CommandTarget, ConcurrentProviderActivity, DestinationCheck, DomainError,
+    Elevation, ErrorId, ExecutableName, ExpectationError, FailureCause, MigrationPlan,
+    MigrationStep, PackageKind, PlanCommand, PrimaryDecision, ProviderId, ProviderPresence,
+    ReadEvidence, ReadOutput, Snapshot, StepKind, UncheckedCause, UncheckedEntry,
+    UndeterminedCause, Verdict, VerificationCheck,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -94,6 +107,20 @@ pub enum Disposition {
         /// One per command, in order.
         evidence: Vec<ReadEvidence>,
     },
+    /// A `VERIFY_DESTINATION` whose reads passed, whose checks answered no
+    /// `Fails`, and at least one of whose checks could not be told. **Not
+    /// `Verified`, on purpose**: a field on that variant would let every match
+    /// on it keep compiling and remove the source.
+    VerifiedWithUnchecked {
+        /// One per command, in order.
+        evidence: Vec<ReadEvidence>,
+        /// What could not be told, in the order it was asked. Never empty.
+        unchecked: Vec<UncheckedEntry>,
+    },
+    /// A `REMOVE_SOURCE`, its `VERIFY_REMOVAL` or a `CLEANUP_REVIEW`, passed over
+    /// because the destination was recorded
+    /// [`Disposition::VerifiedWithUnchecked`]: the source was kept.
+    SourceKeptUnchecked,
     /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY` on the read-only loop, which
     /// performs neither (only a run under a [`MutationAllowance`] does).
     NotPerformedInThisBuild,
@@ -120,7 +147,7 @@ pub enum Disposition {
         executables: Vec<ExecutableName>,
         /// Whether the run-time `PATH`, home-redacted the same way, differs
         /// from the one the decision used (SG-10, SG2-N5).
-        /// `pathDiffers` in `migrate.v1`, as documented.
+        /// `pathDiffers` in `migrate.v2`, as documented.
         #[serde(rename = "pathDiffers")]
         path_differs: bool,
     },
@@ -201,6 +228,17 @@ pub enum HaltReason {
         /// The command.
         command: usize,
     },
+    /// A destination check was observed not to hold (work order 16 part H). The
+    /// source is kept.
+    DestinationCheckFailed {
+        /// Which check.
+        check: DestinationCheck,
+        /// The executable, for a check asked once per executable.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        executable: Option<ExecutableName>,
+        /// Why.
+        cause: CheckFailure,
+    },
     /// A check that cannot be shown to hold. Never a pass.
     Unevaluable {
         /// The check's kind, when one is to blame — the kind only: a check's
@@ -257,7 +295,7 @@ pub enum HaltReason {
         /// What resolves instead, as a kind.
         observed: ObservedWinner,
         /// Whether the run-time `PATH` differs from the decision's.
-        /// `pathDiffers` in `migrate.v1`, as documented.
+        /// `pathDiffers` in `migrate.v2`, as documented.
         #[serde(rename = "pathDiffers")]
         path_differs: bool,
     },
@@ -456,6 +494,8 @@ pub enum CheckKind {
     ExecutablesOwnedByDestination,
     /// `LIVENESS_PROBE`.
     LivenessProbe,
+    /// `LIVENESS_PROBE_SKIPPED`.
+    LivenessProbeSkipped,
     /// `NO_CROSS_PROVIDER_LINKAGE`.
     NoCrossProviderLinkage,
     /// `PACKAGE_ABSENT`.
@@ -477,6 +517,7 @@ impl From<&VerificationCheck> for CheckKind {
                 Self::ExecutablesOwnedByDestination
             }
             VerificationCheck::LivenessProbe { .. } => Self::LivenessProbe,
+            VerificationCheck::LivenessProbeSkipped { .. } => Self::LivenessProbeSkipped,
             VerificationCheck::NoCrossProviderLinkage => Self::NoCrossProviderLinkage,
             VerificationCheck::PackageAbsent => Self::PackageAbsent,
             VerificationCheck::PackageNewlyPresent => Self::PackageNewlyPresent,
@@ -526,6 +567,12 @@ pub enum Unevaluable {
     /// A `VERIFY_DESTINATION` handed to [`judge_step`]: it is certified only by
     /// [`certify_destination`], after a configuration re-check (SE-107 C1).
     NotCertifiedHere,
+    /// A `VERIFY_DESTINATION` that does not carry the whole of DP-051's
+    /// contract. The gate refuses the same plan first.
+    ContractIncomplete,
+    /// The destination site's answers are not the ones
+    /// [`next_destination_question`] asked for: out of order, missing or extra.
+    AnswersDoNotMatchQuestions,
 }
 
 /// One step's record.
@@ -657,12 +704,56 @@ pub enum StepRead<'a> {
     TransportFailed(ErrorId),
 }
 
+/// What the destination site is asked next about a `VERIFY_DESTINATION`. The
+/// shell may ask only what this hands it, so "a probe after a `Fails`" is a
+/// decision here and not a sequencing accident there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Question {
+    /// Whether the placed entry of `executable` is the destination package's.
+    Owned {
+        /// The executable.
+        executable: ExecutableName,
+    },
+    /// `PROVIDER_INTEGRITY_CHECK`.
+    Integrity,
+    /// `NO_CROSS_PROVIDER_LINKAGE`.
+    Linkage,
+    /// `LIVENESS_PROBE`: run this leaf with this curated argv.
+    Probe {
+        /// The executable, whose ownership answered `Holds`.
+        leaf: ExecutableName,
+        /// The curated argv, from the plan the gate compared with the table.
+        argv: Vec<String>,
+    },
+    /// Nothing more is asked.
+    Done,
+}
+
+/// A question and what the site answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DestinationAnswer {
+    /// What was asked.
+    pub question: Question,
+    /// What came back.
+    pub answer: CheckAnswer,
+}
+
 /// How a run ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "outcome")]
 pub enum RunOutcome {
     /// Every step was carried out and every check passed.
     Completed,
+    /// Every step the rule leaves was carried out, no check failed, and some
+    /// could not be told, so the source was not removed. A kind of partial
+    /// success (06), exit 3; **never success** in history (04).
+    CompletedWithUnchecked {
+        /// What could not be told.
+        unchecked: Vec<UncheckedEntry>,
+        /// Whether a removal was passed over because of it.
+        #[serde(rename = "sourceKept")]
+        source_kept: bool,
+    },
     /// The execution gate refused the plan; nothing ran. The refusals
     /// themselves quote plan text, so they are rendered by the caller with
     /// the home redacted, never carried here ([`refused`]).
@@ -682,7 +773,7 @@ pub enum RunOutcome {
     /// **Not a partial migration in this build.** No run here dispatches a
     /// mutating step, so a partial success is a verification that passed
     /// beside one that did not, or a skipped bracket; history records it as
-    /// `NO_CHANGE`, never as a migration left half done (SE-020; `plan.v1.md`
+    /// `NO_CHANGE`, never as a migration left half done (SE-020; `plan.v2.md`
     /// obligation 12; `macportsbrew_domain::RunStatus`).
     PartialSuccess {
         /// The step that stopped the run, or else the first step that was
@@ -690,6 +781,9 @@ pub enum RunOutcome {
         step: u32,
         /// Why that step was not carried out.
         reason: HaltReason,
+        /// What a `VERIFY_DESTINATION` could not tell before the run stopped.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        unchecked: Vec<UncheckedEntry>,
     },
 }
 
@@ -702,7 +796,9 @@ impl RunOutcome {
             Self::Completed => 0,
             Self::Refused { .. } => ErrorId::SafetyBlocked.exit_code(),
             Self::Halted { reason, .. } => reason.error_id().exit_code(),
-            Self::PartialSuccess { .. } => PARTIAL_SUCCESS_EXIT_CODE,
+            Self::PartialSuccess { .. } | Self::CompletedWithUnchecked { .. } => {
+                PARTIAL_SUCCESS_EXIT_CODE
+            }
         }
     }
 }
@@ -727,6 +823,7 @@ impl HaltReason {
             | Self::MutatingStepCarriesVerification
             | Self::SnapshotNotTaken
             | Self::StateChanged { .. }
+            | Self::DestinationCheckFailed { .. }
             | Self::ResolutionMismatch { .. } => ErrorId::SafetyBlocked,
             Self::PreconditionFailed { why, .. } => match why {
                 Precondition::ProviderLockHeld => ErrorId::ProviderLockHeld,
@@ -888,6 +985,11 @@ fn next_action_guarded(
             check: None,
             why: Unevaluable::NoEvaluationForStepKind,
         }),
+        // The source was kept, so there is no removal to verify (PACKAGE_ABSENT
+        // would fail on a source still there).
+        StepKind::VerifyRemoval if source_kept_before(plan, position, records) => {
+            Action::PassOver(Disposition::SourceKeptUnchecked)
+        }
         StepKind::VerifyDestination | StepKind::VerifyRemoval => {
             if step.commands.is_empty() {
                 return Action::Halt(unevaluable(None, Unevaluable::NoCommand));
@@ -938,6 +1040,9 @@ fn mutating_action(
     let operation = match step.kind {
         StepKind::AddDestination => "add",
         StepKind::RemoveSource => "remove",
+        StepKind::CleanupReview if source_kept_before(plan, position, records) => {
+            return Action::PassOver(Disposition::SourceKeptUnchecked);
+        }
         // Never dispatched: a layer that does not exist, and a review.
         StepKind::SetPrimary | StepKind::CleanupReview => {
             return guard(step);
@@ -955,14 +1060,21 @@ fn mutating_action(
     if !snapshot_taken_before(plan, position, records) {
         return Action::Halt(HaltReason::UnexecutedMutation);
     }
-    if step.kind == StepKind::RemoveSource && !destination_verified_before(plan, position, records)
-    {
+    let answered = (step.kind == StepKind::RemoveSource)
+        .then(|| destination_record_before(plan, position, records));
+    if matches!(answered, Some(DestinationRecord::Neither)) {
         return Action::Halt(HaltReason::UnexecutedMutation);
     }
     // And the resolution that justifies the removal held, when the plan checks
-    // one (F.md Design §4; security review of F-3, M-1).
+    // one (F.md Design §4; security review of F-3, M-1). Before the pass-over,
+    // so a resolution that did not hold still halts.
     if step.kind == StepKind::RemoveSource && !resolution_held_before(plan, position, records) {
         return Action::Halt(HaltReason::UnexecutedMutation);
+    }
+    // Unchecked is never enough to remove (DP-051; INV-01): a positive match,
+    // and the only way past here without a `Verified` record.
+    if matches!(answered, Some(DestinationRecord::WithUnchecked)) {
+        return Action::PassOver(Disposition::SourceKeptUnchecked);
     }
     let table = provider_commands::load().unwrap_or_default();
     let entry = step.provider.as_ref().and_then(|p| table.get(p.as_str()));
@@ -1011,21 +1123,59 @@ fn snapshot_taken_before(plan: &MigrationPlan, position: usize, records: &[StepR
         })
 }
 
-/// Whether the `VERIFY_DESTINATION` that guards the step at `position` was
-/// recorded verified (INV-01): it must come before, and its record must say
-/// `Verified`. A missing, halted or passed-over record is a no.
-fn destination_verified_before(
+/// What the `VERIFY_DESTINATION` guarding a removal was recorded as.
+enum DestinationRecord {
+    /// `Verified`: all four checks hold (INV-01).
+    Verified,
+    /// `VerifiedWithUnchecked`: no check failed and some could not be told.
+    WithUnchecked,
+    /// Anything else, a missing record included.
+    Neither,
+}
+
+/// What the `VERIFY_DESTINATION` that guards the step at `position` was
+/// recorded as: it must come before. A missing, halted or passed-over record is
+/// [`DestinationRecord::Neither`].
+fn destination_record_before(
     plan: &MigrationPlan,
     position: usize,
     records: &[StepRecord],
-) -> bool {
-    plan.steps[..position]
+) -> DestinationRecord {
+    let record = plan.steps[..position]
         .iter()
         .position(|s| s.kind == StepKind::VerifyDestination)
         .and_then(|at| records.get(at))
+        .filter(|r| r.kind == StepKind::VerifyDestination);
+    match record.map(|r| &r.disposition) {
+        Some(Disposition::Verified { .. }) => DestinationRecord::Verified,
+        Some(Disposition::VerifiedWithUnchecked { .. }) => DestinationRecord::WithUnchecked,
+        Some(
+            Disposition::SourceKeptUnchecked
+            | Disposition::NotPerformedInThisBuild
+            | Disposition::SnapshotTaken
+            | Disposition::RecordPendingReadBack
+            | Disposition::NotDispatchedMutating
+            | Disposition::NothingToChange
+            | Disposition::Resolved { .. }
+            | Disposition::Performed { .. }
+            | Disposition::Halted { .. }
+            | Disposition::NotReached,
+        )
+        | None => DestinationRecord::Neither,
+    }
+}
+
+/// Whether the removal before the step at `position` was passed over because
+/// the destination could not be fully told: the nearest `REMOVE_SOURCE` before
+/// it, positively. Anything else is a no, and the step is judged as ever.
+fn source_kept_before(plan: &MigrationPlan, position: usize, records: &[StepRecord]) -> bool {
+    plan.steps[..position]
+        .iter()
+        .rposition(|s| s.kind == StepKind::RemoveSource)
+        .and_then(|at| records.get(at))
         .is_some_and(|r| {
-            r.kind == StepKind::VerifyDestination
-                && matches!(r.disposition, Disposition::Verified { .. })
+            r.kind == StepKind::RemoveSource
+                && matches!(r.disposition, Disposition::SourceKeptUnchecked)
         })
 }
 
@@ -1254,10 +1404,11 @@ pub fn judge_step(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> 
     }
 }
 
-/// Certifies the `VERIFY_DESTINATION` at `position` from its reads, which the
-/// shell obtained **after** re-reading and re-checking the destination
-/// provider's configuration: `checked` is that re-check's token, taken by value
-/// so one re-check certifies one step (SE-107 C1; L1).
+/// Certifies the `VERIFY_DESTINATION` at `position` from its reads and its
+/// checks' answers, which the shell obtained **after** re-reading and re-checking
+/// the destination provider's configuration: `checked` is that re-check's token,
+/// taken by value so one re-check certifies one step (SE-107 C1; L1). One
+/// disposition, written after every judge has answered.
 ///
 /// A token for any provider but the plan's destination is refused
 /// (`PRECONDITION_FAILED` / `WRONG_PROVIDER_TOKEN`), as is a position that is
@@ -1271,6 +1422,7 @@ pub fn certify_destination(
     position: usize,
     checked: ConfigurationRechecked,
     reads: &[StepRead<'_>],
+    answers: &[DestinationAnswer],
 ) -> Disposition {
     let plan = run.plan();
     let halted = |reason| Disposition::Halted {
@@ -1293,7 +1445,252 @@ pub fn certify_destination(
             why: Precondition::WrongProgramToken,
         });
     }
-    judge_reads(run, position, reads)
+    match reads_established(run, position, reads) {
+        Ok(evidence) => judge_destination(plan, position, evidence, answers),
+        Err(disposition) => disposition,
+    }
+}
+
+/// The `CheckAnswer` a recorded question got, if it was asked.
+fn answer_to<'a>(answers: &'a [DestinationAnswer], question: &Question) -> Option<&'a CheckAnswer> {
+    answers
+        .iter()
+        .find(|a| &a.question == question)
+        .map(|a| &a.answer)
+}
+
+/// The executables a step's ownership check lists, or `None` when the check is
+/// not exactly one or a name is not an executable name.
+fn owned_executables(step: &MigrationStep) -> Option<Vec<ExecutableName>> {
+    let mut lists = step.verification.iter().filter_map(|c| match c {
+        VerificationCheck::ExecutablesOwnedByDestination { executables } => Some(executables),
+        _ => None,
+    });
+    let list = lists.next()?;
+    if lists.next().is_some() {
+        return None;
+    }
+    list.iter()
+        .map(|name| ExecutableName::parse(name).ok())
+        .collect()
+}
+
+/// What the destination site is asked next about the `VERIFY_DESTINATION` at
+/// `position`, given the answers so far (work order 16 part H).
+///
+/// Ownership per executable; then integrity; then linkage; then a probe only
+/// of a leaf whose ownership answered `Holds`, and only when no check answered
+/// `Fails` and no file was malformed. **Any `Fails` stops what follows.** Pure,
+/// and the only source of a [`Question::Probe`]. A step that is not a
+/// `VERIFY_DESTINATION` carrying the whole contract asks nothing, and the judge
+/// halts it.
+#[must_use]
+pub fn next_destination_question(
+    plan: &MigrationPlan,
+    position: usize,
+    answers: &[DestinationAnswer],
+) -> Question {
+    let Some(step) = plan
+        .steps
+        .get(position)
+        .filter(|s| s.kind == StepKind::VerifyDestination && destination_contract_complete(s))
+    else {
+        return Question::Done;
+    };
+    if answers
+        .iter()
+        .any(|a| matches!(a.answer, CheckAnswer::Fails(_)))
+    {
+        return Question::Done;
+    }
+    let Some(owned) = owned_executables(step) else {
+        return Question::Done;
+    };
+    let first_asked = owned
+        .into_iter()
+        .map(|executable| Question::Owned { executable })
+        .chain([Question::Integrity, Question::Linkage])
+        .find(|q| answer_to(answers, q).is_none());
+    if let Some(question) = first_asked {
+        return question;
+    }
+    if answers.iter().any(|a| {
+        matches!(
+            a.answer,
+            CheckAnswer::Unchecked(UncheckedCause::MalformedFile)
+        )
+    }) {
+        return Question::Done;
+    }
+    for check in &step.verification {
+        let VerificationCheck::LivenessProbe { executable, argv } = check else {
+            continue;
+        };
+        let Ok(leaf) = ExecutableName::parse(executable) else {
+            continue;
+        };
+        let owned = Question::Owned {
+            executable: leaf.clone(),
+        };
+        let probe = Question::Probe {
+            leaf,
+            argv: argv.clone(),
+        };
+        if answer_to(answers, &owned) == Some(&CheckAnswer::Holds)
+            && answer_to(answers, &probe).is_none()
+        {
+            return probe;
+        }
+    }
+    Question::Done
+}
+
+/// Judges the checks of a `VERIFY_DESTINATION` from the site's answers, after
+/// its reads passed: the one place it gets a record (work order 16 part H).
+///
+/// The answers must be exactly the questions [`next_destination_question`]
+/// asked, in order. A `Fails` halts. A step with nothing unchecked is
+/// [`Disposition::Verified`], and nothing else is; anything unchecked, a skip
+/// or a probe not run included, is [`Disposition::VerifiedWithUnchecked`].
+fn judge_destination(
+    plan: &MigrationPlan,
+    position: usize,
+    evidence: Vec<ReadEvidence>,
+    answers: &[DestinationAnswer],
+) -> Disposition {
+    let halted = |reason, evidence| Disposition::Halted {
+        reason,
+        evidence,
+        ends: Vec::new(),
+    };
+    let Some(step) = plan.steps.get(position) else {
+        return halted(HaltReason::RecordsDoNotMatchPlan, evidence);
+    };
+    if !destination_contract_complete(step) {
+        return halted(unevaluable(None, Unevaluable::ContractIncomplete), evidence);
+    }
+    for (asked, answer) in answers.iter().enumerate() {
+        if next_destination_question(plan, position, &answers[..asked]) != answer.question
+            || answer.question == Question::Done
+        {
+            return halted(
+                unevaluable(None, Unevaluable::AnswersDoNotMatchQuestions),
+                evidence,
+            );
+        }
+    }
+    if next_destination_question(plan, position, answers) != Question::Done {
+        return halted(
+            unevaluable(None, Unevaluable::AnswersDoNotMatchQuestions),
+            evidence,
+        );
+    }
+    let mut unchecked = Vec::new();
+    for DestinationAnswer { question, answer } in answers {
+        let (check, executable) = match question {
+            Question::Owned { executable } => (
+                DestinationCheck::ExecutablesOwnedByDestination,
+                Some(executable.clone()),
+            ),
+            Question::Integrity => (DestinationCheck::ProviderIntegrityCheck, None),
+            Question::Linkage => (DestinationCheck::NoCrossProviderLinkage, None),
+            Question::Probe { leaf, .. } => (DestinationCheck::LivenessProbe, Some(leaf.clone())),
+            Question::Done => continue,
+        };
+        match *answer {
+            CheckAnswer::Holds => {}
+            CheckAnswer::Fails(cause) => {
+                return halted(
+                    HaltReason::DestinationCheckFailed {
+                        check,
+                        executable,
+                        cause,
+                    },
+                    evidence,
+                )
+            }
+            CheckAnswer::Unchecked(cause) => unchecked.push(UncheckedEntry {
+                check,
+                executable,
+                cause,
+            }),
+        }
+    }
+    // What was never asked is not therefore fine: a skip answers for itself,
+    // and a probe not run answers why.
+    let malformed = unchecked
+        .iter()
+        .any(|e: &UncheckedEntry| e.cause == UncheckedCause::MalformedFile);
+    for check in &step.verification {
+        match check {
+            VerificationCheck::LivenessProbeSkipped { executable, cause } => {
+                let executable = match executable {
+                    Some(name) => match ExecutableName::parse(name) {
+                        Ok(name) => Some(name),
+                        Err(_) => {
+                            return halted(
+                                unevaluable(Some(check), Unevaluable::ContractIncomplete),
+                                evidence,
+                            )
+                        }
+                    },
+                    None => None,
+                };
+                unchecked.push(UncheckedEntry {
+                    check: DestinationCheck::LivenessProbe,
+                    executable,
+                    cause: cause.unchecked(),
+                });
+            }
+            VerificationCheck::LivenessProbe { executable, argv } => {
+                let Ok(leaf) = ExecutableName::parse(executable) else {
+                    return halted(
+                        unevaluable(Some(check), Unevaluable::ContractIncomplete),
+                        evidence,
+                    );
+                };
+                let probe = Question::Probe {
+                    leaf: leaf.clone(),
+                    argv: argv.clone(),
+                };
+                if answer_to(answers, &probe).is_none() {
+                    unchecked.push(UncheckedEntry {
+                        check: DestinationCheck::LivenessProbe,
+                        executable: Some(leaf),
+                        cause: if malformed {
+                            UncheckedCause::MalformedFile
+                        } else {
+                            UncheckedCause::OwnershipNotHeld
+                        },
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if unchecked.is_empty() {
+        Disposition::Verified { evidence }
+    } else {
+        Disposition::VerifiedWithUnchecked {
+            evidence,
+            unchecked,
+        }
+    }
+}
+
+/// The questions the re-read before a removal asks: check 3 per executable, and
+/// no other (work order 16 part H: checks 2, 4 and 5 are not re-run, a window
+/// the specification declares). Empty when the step's list cannot be read,
+/// which [`destination_still_verified`] refuses.
+#[must_use]
+pub fn reverify_questions(plan: &MigrationPlan, reverify: &Reverify) -> Vec<Question> {
+    plan.steps
+        .get(reverify.verify_position())
+        .and_then(owned_executables)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|executable| Question::Owned { executable })
+        .collect()
 }
 
 /// `Ok` when `commands` is not empty and every one names `program`; otherwise
@@ -1310,9 +1707,10 @@ fn names_only(commands: &[PlanCommand], program: &str) -> Result<(), usize> {
 }
 
 /// Whether the destination, read again immediately before a removal command,
-/// still certifies (work order 16 part S, §6): `Ok` only when
-/// [`certify_destination`] over `reads` at `reverify`'s position is exactly
-/// `Verified`.
+/// still certifies (work order 16 part S, §6; part H): `Ok` only when every read
+/// passes by the `VERIFY_DESTINATION`'s own rule and `owned` answers exactly
+/// [`reverify_questions`], every one `Holds`. Its own judge, not the four-answer
+/// one: an `Unchecked` or a `Fails` here is a halt, with nothing dispatched.
 ///
 /// `checked` is the destination configuration re-check's token, by value, so a
 /// token certifies one removal command and no other (L1). Refused, each as a
@@ -1325,11 +1723,15 @@ fn names_only(commands: &[PlanCommand], program: &str) -> Result<(), usize> {
 ///
 /// # Errors
 /// The precondition that did not hold.
+// By value on purpose: a re-check certifies one removal command and is spent
+// doing so (L1); the token is neither `Clone` nor `Copy`.
+#[allow(clippy::needless_pass_by_value)]
 pub fn destination_still_verified(
     run: &PlannedRun,
     reverify: &Reverify,
     checked: ConfigurationRechecked,
     reads: &[StepRead<'_>],
+    owned: &[DestinationAnswer],
 ) -> Result<(), Precondition> {
     let plan = run.plan();
     if checked.provider() != &plan.destination || reverify.provider() != &plan.destination {
@@ -1355,43 +1757,47 @@ pub fn destination_still_verified(
             return Err(Precondition::DestinationNotReverified);
         }
     }
-    match certify_destination(run, reverify.verify_position(), checked, reads) {
-        Disposition::Verified { .. } => Ok(()),
-        Disposition::Halted {
-            reason:
-                HaltReason::PreconditionFailed {
-                    why: Precondition::WrongProviderToken,
-                    ..
-                },
-            ..
-        } => Err(Precondition::WrongProviderToken),
-        Disposition::Halted {
-            reason:
-                HaltReason::PreconditionFailed {
-                    why: Precondition::WrongProgramToken,
-                    ..
-                },
-            ..
-        } => Err(Precondition::WrongProgramToken),
-        Disposition::NotPerformedInThisBuild
-        | Disposition::SnapshotTaken
-        | Disposition::RecordPendingReadBack
-        | Disposition::NotDispatchedMutating
-        | Disposition::NothingToChange
-        | Disposition::Resolved { .. }
-        | Disposition::Performed { .. }
-        | Disposition::Halted { .. }
-        | Disposition::NotReached => Err(Precondition::DestinationNotReverified),
+    if reads_established(run, reverify.verify_position(), reads).is_err() {
+        return Err(Precondition::DestinationNotReverified);
+    }
+    let asked = reverify_questions(plan, reverify);
+    let every_one_holds = owned.len() == asked.len()
+        && owned
+            .iter()
+            .zip(&asked)
+            .all(|(a, q)| &a.question == q && a.answer == CheckAnswer::Holds);
+    if every_one_holds {
+        Ok(())
+    } else {
+        Err(Precondition::DestinationNotReverified)
     }
 }
 
-/// The judgement behind [`judge_step`] and [`certify_destination`].
+/// [`judge_step`]'s answer for a step that is not a `VERIFY_DESTINATION`: the
+/// only path to `Verified` from reads alone.
 fn judge_reads(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
+    match reads_established(run, position, reads) {
+        Ok(evidence) => Disposition::Verified { evidence },
+        Err(disposition) => disposition,
+    }
+}
+
+/// What the reads of the step at `position` establish: the evidence when every
+/// read passed and every check a read answers was answered, otherwise the halt.
+/// A check answered through the destination site is not this function's
+/// ([`is_site_answered`]), so its `Ok` says nothing about one.
+fn reads_established(
+    run: &PlannedRun,
+    position: usize,
+    reads: &[StepRead<'_>],
+) -> Result<Vec<ReadEvidence>, Disposition> {
     let (plan, before) = (run.plan(), run.before());
-    let halted = |reason, evidence| Disposition::Halted {
-        reason,
-        evidence,
-        ends: Vec::new(),
+    let halted = |reason, evidence| {
+        Err(Disposition::Halted {
+            reason,
+            evidence,
+            ends: Vec::new(),
+        })
     };
     let Some(step) = plan.steps.get(position) else {
         return halted(HaltReason::RecordsDoNotMatchPlan, Vec::new());
@@ -1432,6 +1838,9 @@ fn judge_reads(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Dis
                 unevaluable(Some(check), Unevaluable::CheckHasNoEvaluation),
                 evidence,
             );
+        }
+        if is_site_answered(step.kind, check) {
+            continue;
         }
         if !passed.iter().any(|s| answers(check, *s)) {
             return halted(
@@ -1478,7 +1887,7 @@ fn judge_reads(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Dis
             }
         }
     }
-    Disposition::Verified { evidence }
+    Ok(evidence)
 }
 
 enum Before {
@@ -1654,6 +2063,7 @@ pub fn outcome_of(plan: &MigrationPlan, records: &[StepRecord]) -> RunOutcome {
         matches!(
             r.disposition,
             Disposition::Verified { .. }
+                | Disposition::VerifiedWithUnchecked { .. }
                 | Disposition::Performed { .. }
                 | Disposition::SnapshotTaken
                 | Disposition::RecordPendingReadBack
@@ -1661,20 +2071,47 @@ pub fn outcome_of(plan: &MigrationPlan, records: &[StepRecord]) -> RunOutcome {
                 | Disposition::Resolved { .. }
         )
     };
-    let Some(first_skipped) = records.iter().find(|r| !carried(r)) else {
-        return RunOutcome::Completed;
+    let unchecked: Vec<UncheckedEntry> = records
+        .iter()
+        .filter_map(|r| match &r.disposition {
+            Disposition::VerifiedWithUnchecked { unchecked, .. } => Some(unchecked.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    // A pass-over counts only in this exact shape: on the steps it may stand
+    // on, after something unchecked. `NOT_PERFORMED_IN_THIS_BUILD` and every
+    // other pass-over stay what they are, so they cannot produce this outcome.
+    let kept_rightly = |r: &&StepRecord| {
+        matches!(r.disposition, Disposition::SourceKeptUnchecked)
+            && !unchecked.is_empty()
+            && matches!(
+                r.kind,
+                StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview
+            )
+    };
+    let Some(first_skipped) = records.iter().find(|r| !carried(r) && !kept_rightly(r)) else {
+        if unchecked.is_empty() {
+            return RunOutcome::Completed;
+        }
+        return RunOutcome::CompletedWithUnchecked {
+            source_kept: records.iter().any(|r| kept_rightly(&r)),
+            unchecked,
+        };
     };
     let halt = records.iter().find_map(|r| match &r.disposition {
         Disposition::Halted { reason, .. } => Some((r.index, reason.clone())),
         _ => None,
     });
     let carried_out = records.iter().any(|r| carried(&r));
-    if carried_out {
-        let (step, reason) =
-            halt.unwrap_or((first_skipped.index, HaltReason::NotPerformedInThisBuild));
-        return RunOutcome::PartialSuccess { step, reason };
-    }
     let (step, reason) = halt.unwrap_or((first_skipped.index, HaltReason::NotPerformedInThisBuild));
+    if carried_out {
+        return RunOutcome::PartialSuccess {
+            step,
+            reason,
+            unchecked,
+        };
+    }
     RunOutcome::Halted { step, reason }
 }
 

@@ -11,7 +11,7 @@
 //!
 //! - **Which operations ask.** [`elevation_requests`] lists every mutating
 //!   command whose elevation, **re-derived from the provider command table and
-//!   never read from the plan's field** (`plan.v1.md` obligation 9), is not
+//!   never read from the plan's field** (`plan.v2.md` obligation 9), is not
 //!   `NONE` — `UNKNOWN` asks too (`04-migration-and-safety.md`, Privilege). A
 //!   plan edited to say `NONE` does not skip the question. The program and argv
 //!   a request shows are re-derived the same way, and a plan whose text

@@ -233,14 +233,14 @@ fn a_confirmed_run_is_planned_and_the_plan_is_an_ordinary_one() {
     let (code, out) = run_restore(&ctx, &cli, true, RUN_ID);
     assert_eq!(code.expect("planned"), 0, "{out}");
     let doc: Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(doc["schemaVersion"], 1);
+    assert_eq!(doc["schemaVersion"], super::RESTORE_SCHEMA_VERSION);
     assert_eq!(doc["mode"], "RENDER");
     assert_eq!(doc["restoreOf"]["runId"], RUN_ID);
     assert_eq!(doc["restoreOf"]["snapshotFile"], SNAPSHOT);
     assert_eq!(doc["restoreOf"]["standing"], "CONFIRMED");
     assert_eq!(doc["restoreOf"]["restorable"], "FROM_SNAPSHOT");
     assert_eq!(doc["notes"][0]["note"], "NOT_VERSION_EXACT");
-    // The plan is `plan.v1` exactly: put back where it came from, taken from
+    // The plan is `plan.v2` exactly: put back where it came from, taken from
     // where the run put it, the destination removed only after it is verified.
     let plan = &doc["plan"];
     assert_eq!(plan["destination"], "macports");

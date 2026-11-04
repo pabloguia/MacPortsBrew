@@ -105,7 +105,7 @@ nothing outside the providers for it (DP-047 (b)). **Today** the planner decides
 the primary by the steps below and `SET_PRIMARY` carries that decision and no
 command; the execution gate still refuses every plan the planner builds before
 its first step, because `VERIFY_DESTINATION` carries four checks part H has not
-yet built (`CheckNotEvaluableInThisBuild`; SE-113), and this build dispatches no mutation.
+yet built (every plan is refused `MutationNotInThisBuild`, and nothing observes the check yet; SE-113), and this build dispatches no mutation.
 No real plan reaches `SET_PRIMARY` in a run.
 
 **MUST.** The executables a primary concerns are the source package's own,

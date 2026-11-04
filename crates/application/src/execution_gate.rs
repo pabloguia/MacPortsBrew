@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Whether a plan may be executed, and every reason it may not
-//! (`plan.v1.md`, "What an executor inherits").
+//! (`plan.v2.md`, "What an executor inherits").
 //!
 //! **Consulted only for execution, never for rendering.** A plan that this
 //! gate refuses is still a plan: `plan` shows it, `--json` serialises it, and
@@ -43,7 +43,7 @@
 //! allowlist remains the last line: whatever a plan says, it decides whether a
 //! command is one this build may run at all. Elevation is refused wholesale
 //! below; when a consent path exists, whether to ask comes from the table and
-//! the live capability probe, never from the plan's field (`plan.v1.md`,
+//! the live capability probe, never from the plan's field (`plan.v2.md`,
 //! obligation 9).
 //!
 //! **Some causes are reported twice**: a placeholder, an unrecognised check or
@@ -348,6 +348,19 @@ pub enum ExecutionRefusal {
         /// The step where the disagreement was found.
         step: u32,
     },
+    /// A `VERIFY_DESTINATION` missing one of DP-051's checks, or whose probes
+    /// and recorded skips are not exactly its executable list
+    /// ([`destination_contract_complete`]).
+    DestinationContractIncomplete {
+        /// The step.
+        step: u32,
+    },
+    /// A `LIVENESS_PROBE` whose argv is not the curated table's for that
+    /// executable, or that has no row: a plan cannot bring its own argv.
+    ProbeIsNotTheTables {
+        /// The step.
+        step: u32,
+    },
 }
 
 impl ExecutionRefusal {
@@ -387,6 +400,8 @@ impl ExecutionRefusal {
             Self::PrimaryRefused { step, .. } => (*step, 27),
             Self::PrimaryDecisionMissing => (0, 28),
             Self::ExecutableListsDisagree { step } => (*step, 29),
+            Self::DestinationContractIncomplete { step } => (*step, 30),
+            Self::ProbeIsNotTheTables { step } => (*step, 31),
         }
     }
 }
@@ -566,11 +581,10 @@ pub fn clear(
 /// include no active read is still refused, by
 /// [`ExecutionRefusal::CheckHasNoAnsweringRead`].
 ///
-/// The other checks need evidence this build does not gather — an integrity
-/// verb, an ownership query, a linkage scan — and `LIVENESS_PROBE` would run
-/// the package's own executable, a program outside the executor's
-/// `PERMITTED_PROGRAMS`, which is a security decision and not a detail
-/// (obligation 6). `UNKNOWN` is never evaluable.
+/// The four checks of DP-051 (a) and a recorded skip are evaluable on
+/// `VERIFY_DESTINATION` because their answers are judged there
+/// ([`is_site_answered`]), **which does not mean anything observed them**: that
+/// is [`observed_by_this_build`]. `UNKNOWN` is never evaluable.
 ///
 /// Exhaustive on purpose: a check added to the domain must be classified
 /// here before this compiles, rather than falling into a wildcard.
@@ -587,10 +601,129 @@ pub fn evaluable_in_this_build(kind: StepKind, check: &VerificationCheck) -> boo
         VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
-        | VerificationCheck::NoCrossProviderLinkage
-        | VerificationCheck::Unknown => return false,
+        | VerificationCheck::LivenessProbeSkipped { .. }
+        | VerificationCheck::NoCrossProviderLinkage => StepKind::VerifyDestination,
+        VerificationCheck::Unknown => return false,
     };
     kind == reads
+}
+
+/// Whether `check` is answered through the destination site rather than by one
+/// of the step's reads (work order 16 part H). True of exactly the four checks
+/// of DP-051 (a) and a recorded skip, and only on `VERIFY_DESTINATION`, so the
+/// checks reads answer stay under `CHECK_HAS_NO_ANSWERING_READ` as they were.
+///
+/// Exhaustive, so a new check is classified rather than defaulted.
+#[must_use]
+pub fn is_site_answered(kind: StepKind, check: &VerificationCheck) -> bool {
+    let answered = match check {
+        VerificationCheck::ProviderIntegrityCheck
+        | VerificationCheck::ExecutablesOwnedByDestination { .. }
+        | VerificationCheck::LivenessProbe { .. }
+        | VerificationCheck::LivenessProbeSkipped { .. }
+        | VerificationCheck::NoCrossProviderLinkage => true,
+        VerificationCheck::ProviderReportsActive
+        | VerificationCheck::PackageAbsent
+        | VerificationCheck::PackageNewlyPresent
+        | VerificationCheck::ResolvesTo { .. }
+        | VerificationCheck::Unknown => false,
+    };
+    answered && kind == StepKind::VerifyDestination
+}
+
+/// Whether this build holds a real observer for `check` (work order 16 part H,
+/// the tripwire). "Evaluable" says an answer can be judged; this says something
+/// other than "not observed" can come back, and it flips per check only when
+/// the observer lands. `the_switch_needs_the_destination_contract_observed`
+/// keeps the switch off until all four are.
+///
+/// A recorded skip observes nothing and needs no observer. Exhaustive.
+#[must_use]
+pub fn observed_by_this_build(check: &VerificationCheck) -> bool {
+    match check {
+        VerificationCheck::ProviderIntegrityCheck
+        | VerificationCheck::ExecutablesOwnedByDestination { .. }
+        | VerificationCheck::LivenessProbe { .. }
+        | VerificationCheck::NoCrossProviderLinkage => false,
+        VerificationCheck::LivenessProbeSkipped { .. }
+        | VerificationCheck::ProviderReportsActive
+        | VerificationCheck::PackageAbsent
+        | VerificationCheck::PackageNewlyPresent
+        | VerificationCheck::ResolvesTo { .. } => true,
+        VerificationCheck::Unknown => false,
+    }
+}
+
+/// The curated argv of `executable` of `package` under `provider`, or `None`
+/// when the table holds no row. The table lands with its observers (part H-2),
+/// so in this build every answer is `None`, and the gate refuses every
+/// `LIVENESS_PROBE`: a plan cannot bring its own argv.
+#[cfg(not(any(test, feature = "test-support")))]
+fn curated_probe_argv(_provider: &str, _package: &str, _executable: &str) -> Option<Vec<String>> {
+    None
+}
+
+/// [`curated_probe_argv`] in a test build (and under the non-default
+/// `test-support` feature, which a release is built free of): one row, for a
+/// name no package has, so a test can reach a `VERIFY_DESTINATION` with nothing
+/// unchecked through the gate. It goes when the table arrives.
+#[cfg(any(test, feature = "test-support"))]
+fn curated_probe_argv(_provider: &str, _package: &str, executable: &str) -> Option<Vec<String>> {
+    (executable == TEST_PROBE_EXECUTABLE).then(|| vec!["--version".to_owned()])
+}
+
+/// The executable the test build's one curated row is about.
+#[cfg(any(test, feature = "test-support"))]
+pub const TEST_PROBE_EXECUTABLE: &str = "mpb-fixture-probe";
+
+/// Whether `step` carries the whole of DP-051's contract (work order 16 part H,
+/// the plan-only analogue of V2): exactly one each of integrity, ownership and
+/// linkage, and for liveness one probe or recorded skip per listed executable,
+/// or one skip naming none for an empty list. A duplicate, a name that is not
+/// an executable name, and a nameless skip beside a list are all incomplete.
+#[must_use]
+pub fn destination_contract_complete(step: &MigrationStep) -> bool {
+    let count = |wanted: fn(&VerificationCheck) -> bool| {
+        step.verification.iter().filter(|c| wanted(c)).count()
+    };
+    if count(|c| matches!(c, VerificationCheck::ProviderIntegrityCheck)) != 1
+        || count(|c| matches!(c, VerificationCheck::NoCrossProviderLinkage)) != 1
+    {
+        return false;
+    }
+    let owned: Vec<&Vec<String>> = step
+        .verification
+        .iter()
+        .filter_map(|c| match c {
+            VerificationCheck::ExecutablesOwnedByDestination { executables } => Some(executables),
+            _ => None,
+        })
+        .collect();
+    let [listed] = owned.as_slice() else {
+        return false;
+    };
+    let Some(listed) = name_set(listed.iter()) else {
+        return false;
+    };
+    let mut named = Vec::new();
+    let mut nameless = 0usize;
+    for check in &step.verification {
+        match check {
+            VerificationCheck::LivenessProbe { executable, .. }
+            | VerificationCheck::LivenessProbeSkipped {
+                executable: Some(executable),
+                ..
+            } => named.push(executable),
+            VerificationCheck::LivenessProbeSkipped {
+                executable: None, ..
+            } => nameless += 1,
+            _ => {}
+        }
+    }
+    if listed.is_empty() {
+        return nameless == 1 && named.is_empty();
+    }
+    nameless == 0 && name_set(named.into_iter()).as_ref() == Some(&listed)
 }
 
 /// Whether a passed read of `semantic` answers `check`. Presence is answered
@@ -620,6 +753,7 @@ pub(crate) fn answers(check: &VerificationCheck, semantic: SuccessSemantic) -> b
         | VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::LivenessProbe { .. }
+        | VerificationCheck::LivenessProbeSkipped { .. }
         | VerificationCheck::NoCrossProviderLinkage
         | VerificationCheck::Unknown => false,
     }
@@ -753,6 +887,29 @@ fn refusals(
             refusals.push(ExecutionRefusal::VerificationAssertsNothing { step: step.index });
         }
     }
+    // Evaluable is not enough: a `VERIFY_DESTINATION` missing one of DP-051's
+    // checks would pass on the rest, and a probe must be the table's own.
+    for step in plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::VerifyDestination)
+    {
+        if !destination_contract_complete(step) {
+            refusals.push(ExecutionRefusal::DestinationContractIncomplete { step: step.index });
+        }
+        for check in &step.verification {
+            if let VerificationCheck::LivenessProbe { executable, argv } = check {
+                let row = curated_probe_argv(
+                    plan.destination.as_str(),
+                    plan.destination_package.as_deref().unwrap_or_default(),
+                    executable,
+                );
+                if row.as_ref() != Some(argv) {
+                    refusals.push(ExecutionRefusal::ProbeIsNotTheTables { step: step.index });
+                }
+            }
+        }
+    }
     primary_refusals(plan, &mut refusals);
     let unknown_success = plan.steps_with_unknown_success();
     if !unknown_success.is_empty() {
@@ -831,6 +988,7 @@ fn refusals(
         }
         for check in &step.verification {
             if evaluable_in_this_build(step.kind, check)
+                && !is_site_answered(step.kind, check)
                 && !step.commands.iter().any(|c| answers(check, c.success))
             {
                 refusals.push(ExecutionRefusal::CheckHasNoAnsweringRead {
@@ -1115,18 +1273,18 @@ fn primary_refusals(plan: &MigrationPlan, refusals: &mut Vec<ExecutionRefusal>) 
             .verification
             .iter()
             .filter_map(|c| match c {
-                VerificationCheck::LivenessProbe { executable, .. } => Some(executable),
+                VerificationCheck::LivenessProbe { executable, .. }
+                | VerificationCheck::LivenessProbeSkipped {
+                    executable: Some(executable),
+                    ..
+                } => Some(executable),
                 _ => None,
             })
             .collect();
-        // At most one ownership check, equal to the list when present (a plan
-        // narrowed of the checks this build cannot evaluate has none; the
-        // planner always writes it); and no skip is recorded in this build's
-        // plan shape, so the probe set alone must equal the list (spec 04
-        // check 4; SG2-N3).
-        // Absent only beside an empty list (a narrowed plan): once part H
-        // evaluates check 3 a plan that drops it must not pass this rule
-        // (spec-guardian review of F-3, R-2).
+        // At most one ownership check, equal to the list when present; and the
+        // probes and recorded skips together equal the list (spec 04 check 4;
+        // SG2-N3). A plan that drops a check altogether is
+        // `DESTINATION_CONTRACT_INCOMPLETE`'s (part H; review of F-3, R-2).
         let owned_agrees = match owned.as_slice() {
             [] => list.is_empty(),
             [one] => name_set(one.iter()).as_ref() == Some(&list),

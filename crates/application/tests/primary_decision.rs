@@ -969,7 +969,7 @@ fn the_path_a_decision_used_is_home_redacted_in_plan_history_and_report() {
     }
     assert!(!text.contains(HOME) && !text.contains("testuser"));
     // Whether the run-time `PATH` differed is said in the run report
-    // (`migrate.v1`'s `RESOLVED`), as a flag and never as the `PATH` itself.
+    // (`migrate.v2`'s `RESOLVED`), as a flag and never as the `PATH` itself.
     let at = plan
         .steps
         .iter()

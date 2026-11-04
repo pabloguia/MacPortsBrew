@@ -22,6 +22,8 @@ output may change freely.
 
 ## [Unreleased]
 
+- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. Nothing observes the four new checks yet, and no plan is run. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
+
 These changes came after the 0.1.0 release candidate and are on `main`; the
 0.1.0 tag is cut from `main`, so they ship in 0.1.0 and the 0.1.0 section below
 describes the ones a user sees. (DP-045, ruled

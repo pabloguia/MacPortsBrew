@@ -196,7 +196,7 @@ fn the_stored_record_carries_its_schema_version_first() {
     let json =
         serde_json::to_string(&record(completed_steps(), RunEnding::Completed, None).stored())
             .unwrap();
-    assert!(json.starts_with(r#"{"schemaVersion":3,"id":""#), "{json}");
+    assert!(json.starts_with(r#"{"schemaVersion":4,"id":""#), "{json}");
 }
 
 #[test]
@@ -285,10 +285,10 @@ fn a_record_of_another_schema_version_or_with_unknown_fields_is_unusable() {
     };
     for (what, outcome) in [
         ("schema 1", tamper(&|v| v["schemaVersion"] = 1.into())),
-        ("schema 4", tamper(&|v| v["schemaVersion"] = 4.into())),
-        // `history.v3` (F-3): the list is required in 3 and absent in 2.
+        ("schema 5", tamper(&|v| v["schemaVersion"] = 5.into())),
+        // `history.v3` (F-3): the list is required in 3 and 4, and absent in 2.
         (
-            "schema 3 without its primary executables",
+            "schema 4 without its primary executables",
             tamper(&|v| {
                 v.as_object_mut().unwrap().remove("primaryExecutables");
             }),
@@ -1008,4 +1008,103 @@ fn a_primary_after_naming_the_destination_without_a_resolution_is_unusable() {
     // ...but not with a list it never resolved.
     none["primaryExecutables"] = serde_json::json!(["a"]);
     assert_eq!(read_back(none).map(|_| ()), Err(ErrorId::HistoryUnusable));
+}
+
+// --- `history.v4` (work order 16 part H-1) ------------------------------------
+
+fn unchecked_entry() -> macportsbrew_domain::UncheckedEntry {
+    macportsbrew_domain::UncheckedEntry {
+        check: macportsbrew_domain::DestinationCheck::ProviderIntegrityCheck,
+        executable: None,
+        cause: macportsbrew_domain::UncheckedCause::NotObserved,
+    }
+}
+
+fn unchecked_steps() -> Vec<RecordedStep> {
+    vec![
+        step(
+            1,
+            StepKind::SnapshotBefore,
+            StepResult::SnapshotTaken,
+            false,
+        ),
+        step(
+            2,
+            StepKind::VerifyDestination,
+            StepResult::VerifiedWithUnchecked {
+                evidence: Vec::new(),
+                unchecked: vec![unchecked_entry()],
+            },
+            false,
+        ),
+        step(
+            3,
+            StepKind::RemoveSource,
+            StepResult::SourceKeptUnchecked,
+            false,
+        ),
+        step(
+            4,
+            StepKind::VerifyRemoval,
+            StepResult::SourceKeptUnchecked,
+            false,
+        ),
+        step(
+            5,
+            StepKind::RecordHistory,
+            StepResult::RecordPendingReadBack,
+            false,
+        ),
+    ]
+}
+
+fn unchecked_record() -> RunRecord {
+    record(
+        unchecked_steps(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        Some("snapshot-1.json"),
+    )
+}
+
+#[test]
+fn an_ending_with_something_unchecked_reads_back_as_itself_and_is_never_success() {
+    let written = unchecked_record();
+    assert_ne!(written.status(), macportsbrew_domain::RunStatus::Success);
+    assert_eq!(read_back(stored_json(&written)).expect("reads"), written);
+}
+
+#[test]
+fn a_v3_record_stating_what_v4_added_is_refused() {
+    let mut value = stored_json(&unchecked_record());
+    value["schemaVersion"] = serde_json::json!(3);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn an_ending_its_steps_contradict_is_refused() {
+    // `sourceKept` against the steps.
+    let mut value = stored_json(&unchecked_record());
+    value["ending"]["sourceKept"] = serde_json::json!(false);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    // Nothing unchecked on any step.
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1] = serde_json::json!({
+        "index": 2, "kind": "VERIFY_DESTINATION", "dispatched": true,
+        "result": "VERIFIED", "evidence": []
+    });
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn something_unchecked_on_another_step_or_an_empty_list_is_refused() {
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1]["kind"] = serde_json::json!("VERIFY_REMOVAL");
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1]["unchecked"] = serde_json::json!([]);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    // A kept source with nothing unchecked before it.
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][2]["kind"] = serde_json::json!("SNAPSHOT_BEFORE");
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
 }

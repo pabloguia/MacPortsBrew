@@ -12,7 +12,7 @@
 //!
 //! **Nothing calls it in the shipped binary.** This build dispatches no
 //! mutating step, so no run it can execute is a mutating run, and obligation
-//! 12 (`plan.v1.md`) writes a record only for those ([`must_record`]). The
+//! 12 (`plan.v2.md`) writes a record only for those ([`must_record`]). The
 //! append-only store exists (`persistence::history_store`, pass 08 slice 1);
 //! the call that writes through it lands with the mutations.
 //!
@@ -132,7 +132,12 @@ fn ending_of(outcome: &RunOutcome) -> RunEnding {
             step: *step,
             error: reason.error_id(),
         },
-        RunOutcome::PartialSuccess { step, reason } => RunEnding::PartialSuccess {
+        RunOutcome::CompletedWithUnchecked { source_kept, .. } => {
+            RunEnding::CompletedWithUnchecked {
+                source_kept: *source_kept,
+            }
+        }
+        RunOutcome::PartialSuccess { step, reason, .. } => RunEnding::PartialSuccess {
             step: *step,
             error: reason.error_id(),
         },
@@ -148,6 +153,17 @@ fn result_of(disposition: &Disposition) -> (StepResult, bool) {
             },
             true,
         ),
+        Disposition::VerifiedWithUnchecked {
+            evidence,
+            unchecked,
+        } => (
+            StepResult::VerifiedWithUnchecked {
+                evidence: evidence.clone(),
+                unchecked: unchecked.clone(),
+            },
+            true,
+        ),
+        Disposition::SourceKeptUnchecked => (StepResult::SourceKeptUnchecked, false),
         Disposition::NotPerformedInThisBuild => (StepResult::NotPerformedInThisBuild, false),
         Disposition::SnapshotTaken => (StepResult::SnapshotTaken, false),
         Disposition::RecordPendingReadBack => (StepResult::RecordPendingReadBack, false),
@@ -206,11 +222,15 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
         // a refusal of the first counts too (D4, failing toward a record).
         | HaltReason::MutationFailed { .. }
         | HaltReason::MutationRefused { .. }
+        // Given only after the destination site was asked.
+        | HaltReason::DestinationCheckFailed { .. }
         // Given only by `judge_resolution`, after the resolution site asked.
         | HaltReason::ResolutionMismatch { .. } => true,
         HaltReason::Unevaluable { why, .. } => match why {
             Unevaluable::NoEvaluationForStepKind | Unevaluable::NoCommand => false,
-            Unevaluable::NoCheck
+            Unevaluable::ContractIncomplete
+            | Unevaluable::AnswersDoNotMatchQuestions
+            | Unevaluable::NoCheck
             | Unevaluable::CheckHasNoEvaluation
             | Unevaluable::NoPassingRead
             | Unevaluable::MissingRead
@@ -227,7 +247,7 @@ fn halted_after_dispatch(reason: &HaltReason) -> bool {
 }
 
 /// Whether `record` is written to history: iff the run dispatched a mutating
-/// step (`plan.v1.md` obligation 12; D2 of pass 08's plan). A gate-refused,
+/// step (`plan.v2.md` obligation 12; D2 of pass 08's plan). A gate-refused,
 /// `NO_CHANGE` or nothing-to-move run leaves nothing.
 #[must_use]
 pub fn must_record(record: &RunRecord) -> bool {
@@ -265,7 +285,7 @@ pub enum SnapshotLook {
 }
 
 /// Whether what a run changed can be put back, **derived and never stored or
-/// trusted** (history schema 2; pass 08 slice 5, D8; `plan.v1.md` N7).
+/// trusted** (history schema 2; pass 08 slice 5, D8; `plan.v2.md` N7).
 ///
 /// In order, the first that holds:
 /// 1. no mutating step was dispatched: nothing to restore;

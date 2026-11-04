@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The concurrency flag on `plan`, `analyze`, `explain` and `doctor`, end to
-//! end, and the one serialiser every command shares (`plan.v1.md`,
+//! end, and the one serialiser every command shares (`plan.v2.md`,
 //! obligation 5; SE-015).
 //!
 //! `04-migration-and-safety.md` lets read-only analysis proceed while a

@@ -179,7 +179,7 @@ pub fn check_same_package(
 
 /// Something the person reviewing a restore plan should know that the plan
 /// itself does not say. Kept **outside** the plan, which stays exactly a
-/// `MigrationPlan` (`restore.v1`).
+/// `MigrationPlan` (`restore.v2`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "note", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RestoreNote {

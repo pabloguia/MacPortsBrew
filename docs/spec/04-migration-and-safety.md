@@ -104,7 +104,7 @@ activation read alone, in both directions (S-2;
 `provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
 recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
-Checks 2 to 5 are DP-051's and stay unevaluable until work order 16 part H builds them.
+Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`; nothing observes them yet, so every run of this build answers `UNCHECKED` / `NOT_OBSERVED` and no source is removed on them.
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **Check 3's "expected
 executables" are the source package's executable list** — the executables the
@@ -119,7 +119,7 @@ refused before any install: `DESTINATION_LACKS_EXECUTABLE` where the destination
 is installed and its list is read, `PRIMARY_DESTINATION_NOT_INSTALLED` where it
 is not (DP-055 (a)). `VERIFY_RESOLUTION`, and check 3 once part H evaluates it,
 are the backstop: a miss either finds ends the run partial with the source kept
-(INV-03). The planner writes the list on check 3 and one probe per name; part
+(INV-03). The planner writes the list on check 3 and one probe or recorded skip per name; part
 H evaluates them (DP-051).
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **`VERIFY_RESOLUTION`
@@ -160,7 +160,7 @@ that inventory is known to be complete.
 
 The conditions, the observation behind them and the obligation never to record
 that inventory are stated **once**, in
-[`../schemas/plan.v1.md`](../schemas/plan.v1.md)'s `success` field and its
+[`../schemas/plan.v2.md`](../schemas/plan.v2.md)'s `success` field and its
 executor-debt item 3. This section points at that copy rather than repeating it:
 this contract was written in four places on one day — a schema document, a Rust
 doc comment and two data-file comments — and this chapter, which INV-01 names as
@@ -316,7 +316,7 @@ restored from a guess.
 |---|---|
 | Destination install fails | Source untouched. Report and stop. |
 | Destination verification fails | Source untouched. Report which check failed. |
-| A destination check could not be evaluated (not built: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
+| A destination check could not be evaluated (the rule is built, H-1; nothing observes the checks yet, so every one answers this way: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
 | Activation fails | Restore previous resolution where safe. Source untouched. |
 | Source removal fails after a good destination | Destination usable. Report **partial success**. Leave recovery instructions. |
 | Cleanup fails | Never affects migration status. Report separately. |
@@ -649,7 +649,7 @@ secrets or environment variable values.
 status `NO_CHANGE` (nothing to restore), whatever its verification reads
 showed: it is never a partial migration, and it takes no lock and leaves no
 interrupted-run marker. Whether such a run is written to history at all is
-`plan.v1.md` obligation 12's call — today, only a mutating run is. "Dispatched"
+`plan.v2.md` obligation 12's call — today, only a mutating run is. "Dispatched"
 fails closed: a halt that cannot be placed before or after a step's dispatch
 counts as one. Whether a mutation was dispatched is derived from the steps; the
 status from the steps and the run's ending, checked against each other, so a
@@ -662,7 +662,7 @@ build has (pass 08 slices 4 and 5), so no shipped build writes a record.** `RunR
 every field above, built by `application::history::run_record` from the plan
 and the run loop's per-step records, deriving the outcome itself. A
 verification read enters it as `ReadEvidence` only — result, line count,
-truncation flag — so it has no field a provider read could occupy (`plan.v1.md`
+truncation flag — so it has no field a provider read could occupy (`plan.v2.md`
 obligation 3). Its start time is supplied by the caller, from the one
 wall-clock read (`invariant_14_the_wall_clock_is_read_in_exactly_one_place`).
 The **plan executed** is recorded as its steps — index, kind, provider, whether
@@ -697,7 +697,7 @@ directory it was recorded in, and moving `MACPORTSBREW_STATE_DIR` leaves its
 history behind. Before a mutating step is dispatched, the store's ability to
 publish is proved by a probe; a run never finds out after a change that it
 cannot record it. (The probe and the write call are both wired, in that order,
-and the wiring tripwires check it on every build — `plan.v1.md` obligation 12.)
+and the wiring tripwires check it on every build — `plan.v2.md` obligation 12.)
 A record not known to be durable keeps the marker, never exits 0, is never
 deleted and is never offered for restore.
 
@@ -871,7 +871,7 @@ do not gold-plate beyond them.
   parameter substitution and wherever snapshot text is printed directly, so a
   kept character cannot reorder text or break a line; default-ignorable
   characters outside Cf are not covered. `--json` is not escaped beyond JSON's own rules, except `migrate`'s
-  `gateRefusals`, which are cleaned like the human view (`migrate.v1.md`): a
+  `gateRefusals`, which are cleaned like the human view (`migrate.v2.md`): a
   consumer that renders it must escape them itself (SE-092, end-of-pass amendment (a)).
 - **Privilege boundaries** — elevation is per-operation, enumerated, visible,
   never cached, never inherited by unrelated steps.

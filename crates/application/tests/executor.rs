@@ -486,14 +486,14 @@ fn a_verification_step_with_a_check_it_cannot_evaluate_is_not_dispatched() {
     let verify = position(&ro, StepKind::VerifyDestination);
     ro.steps[verify]
         .verification
-        .push(VerificationCheck::NoCrossProviderLinkage);
+        .push(VerificationCheck::Unknown);
     let records: Vec<StepRecord> = (0..verify)
         .map(|p| record(&ro, p, Disposition::NotPerformedInThisBuild))
         .collect();
     assert_eq!(
         next_action(&ro, verify, &records),
         Action::Halt(HaltReason::Unevaluable {
-            check: Some(CheckKind::NoCrossProviderLinkage),
+            check: Some(CheckKind::Unknown),
             why: Unevaluable::CheckHasNoEvaluation
         })
     );
@@ -611,6 +611,7 @@ fn invariant_03_partial_success_is_its_own_outcome_and_exit_code() {
                 command: 0,
                 cause: FailureCause::NamePresent,
             },
+            unchecked: Vec::new(),
         }
     );
     assert_eq!(outcome.exit_code(), PARTIAL_SUCCESS_EXIT_CODE);
@@ -664,7 +665,8 @@ fn a_halt_is_never_reported_as_completed() {
                         outcome,
                         RunOutcome::PartialSuccess {
                             step: plan.steps[at].index,
-                            reason: reason.clone()
+                            reason: reason.clone(),
+                            unchecked: Vec::new(),
                         }
                     );
                 } else {
@@ -702,7 +704,8 @@ fn a_run_that_skipped_its_snapshot_is_never_completed() {
         outcome_of(&plan, &all_verified_but_brackets),
         RunOutcome::PartialSuccess {
             step: 1,
-            reason: HaltReason::NotPerformedInThisBuild
+            reason: HaltReason::NotPerformedInThisBuild,
+            unchecked: Vec::new(),
         }
     );
     // A commandless mutating step passed over is not carried out either.

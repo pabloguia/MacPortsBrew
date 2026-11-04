@@ -223,7 +223,7 @@ pub enum SuccessSemantic {
     /// (`FailureCause::ActiveNotReported`).
     ///
     /// **An older build reads this value as [`Self::Unknown`]**, which every
-    /// executor must refuse, so adding it is additive (`plan.v1.md`).
+    /// executor must refuse, so adding it is additive (`plan.v2.md`).
     StdoutMarksPackageActive,
     /// The destination provider's **JSON inventory** records exactly one entry
     /// of the package as linked, to one of that entry's own installed versions
@@ -308,7 +308,7 @@ pub struct PlanCommand {
     /// equivalent trick for a boolean without inverting its sense, which would
     /// make every real command carry a field saying so. So it is always
     /// serialised, so that a reader which looks never finds it missing, and
-    /// `plan.v1.md` states the hazard in the same row rather than leaving it to
+    /// `plan.v2.md` states the hazard in the same row rather than leaving it to
     /// be discovered.
     #[serde(default)]
     pub placeholder: bool,
@@ -343,22 +343,37 @@ pub enum CommandTarget {
 pub enum VerificationCheck {
     /// The destination provider reports the package installed and active.
     ProviderReportsActive,
-    /// The provider's own integrity check passes, where offered.
+    /// What the package records of itself is present on disk. Neither provider
+    /// offers a read-only integrity check, so the check is this project's own
+    /// (R-25), and it never asserts content integrity or that the package runs.
     ProviderIntegrityCheck,
-    /// Expected executables exist at paths the destination owns, confirmed
-    /// by asking the provider.
+    /// Expected executables are placed at entries the destination package owns
+    /// when read, by the provider's own record or rule (R-26).
     ExecutablesOwnedByDestination {
         /// The executables expected.
         executables: Vec<String>,
     },
-    /// A liveness probe with a safe flag exits successfully.
+    /// The curated probe of this executable exits 0 (R-28). Written only from a
+    /// curated row, whose argv this must equal (`plan.v2`).
     LivenessProbe {
         /// Executable.
         executable: String,
-        /// The non-mutating flag (`--version` by default).
-        flag: String,
+        /// The curated argv, not including the program.
+        argv: Vec<String>,
     },
-    /// No new cross-provider linkage was introduced.
+    /// No probe exists for `executable`, or `executable` is absent because the
+    /// package's list is empty or unknown: a plan shape of its own, so the
+    /// compiler sends it through every classification. Answers `Unchecked`,
+    /// never `Holds` (DP-051).
+    LivenessProbeSkipped {
+        /// The executable passed over; absent when there was none to name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        executable: Option<String>,
+        /// Why.
+        cause: crate::destination_check::ProbeSkipCause,
+    },
+    /// No file of the package refers to another provider's prefix when read
+    /// (R-27). Not "no *new* linkage": the snapshot holds no baseline.
     NoCrossProviderLinkage,
     /// The source provider reports the package **no longer** installed.
     ///
@@ -462,7 +477,7 @@ pub struct MigrationStep {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub verification: Vec<VerificationCheck>,
     /// The primary decision, on `SET_PRIMARY` only (F.md Design §4). Additive
-    /// in `plan.v1`: absent on any other step, and a `SET_PRIMARY` without one
+    /// in `plan.v2`: absent on any other step, and a `SET_PRIMARY` without one
     /// is refused by the execution gate (`PRIMARY_DECISION_MISSING`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary: Option<PrimaryDecision>,
@@ -564,12 +579,12 @@ pub struct MigrationPlan {
 /// execution gate, which refuses the first mutating step while this is
 /// `false` and a plan whose `dryRunOnly` is not its negation. Flipping it is
 /// not how the mutating pass begins — that pass owes the obligations
-/// `plan.v1.md` lists first — and no dispatch guard may read it, so that a
+/// `plan.v2.md` lists first — and no dispatch guard may read it, so that a
 /// flipped constant alone cannot reach a provider.
 pub const THIS_BUILD_DISPATCHES_MUTATIONS: bool = false;
 
 /// The current plan schema version.
-pub const PLAN_SCHEMA_VERSION: u32 = 1;
+pub const PLAN_SCHEMA_VERSION: u32 = 2;
 
 impl MigrationPlan {
     /// True when any step is a manual-review stop.
@@ -1169,7 +1184,7 @@ mod tests {
 
     #[test]
     fn a_step_with_no_commands_at_all_is_not_reported_as_unknown() {
-        // `VERIFY_REMOVAL` carries no command today (`plan.v1.md` executor-debt
+        // `VERIFY_REMOVAL` carries no command today (`plan.v2.md` executor-debt
         // item 3, which this pass does not close). A step with nothing to run
         // has nothing whose success semantic could be missing, and reporting it
         // would make the accessor fire on every plan and so mean nothing.

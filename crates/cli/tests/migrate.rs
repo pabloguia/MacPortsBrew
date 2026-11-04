@@ -3,7 +3,7 @@
 //! `migrate`, end to end: the built binary over the captured recordings, plus
 //! the composition it runs — `migration_start`, then the run loop — driven in
 //! process where what must be observed is which invocations a runner was
-//! asked for (`docs/schemas/migrate.v1.md`; SE-092, S6 addendum).
+//! asked for (`docs/schemas/migrate.v2.md`; SE-092, S6 addendum).
 //!
 //! Nothing here touches a live installation (INV-05): every run is
 //! `--replay` or `--from-snapshot`, and the in-process runs use a
@@ -208,7 +208,8 @@ fn migrate_dry_run_renders_every_command_including_elevated_ones() {
     let json = from_snapshot(&scratch, &file, &["--json", "--dry-run"], "python@3.12", MP);
     assert_eq!(json.status.code(), Some(0), "{}", stderr(&json));
     let doc = document(&json);
-    assert_eq!(doc["schemaVersion"], 1);
+    // `migrate.v2` (work order 16 part H).
+    assert_eq!(doc["schemaVersion"], 2);
     assert_eq!(doc["mode"], "RENDER");
     assert!(doc.get("execution").is_none(), "a render runs nothing");
     let human = from_snapshot(&scratch, &file, &["--dry-run"], "python@3.12", MP);
@@ -1024,7 +1025,7 @@ fn the_context_runner_and_the_run_loop_are_reached_from_migrate_alone() {
 
 #[test]
 fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
-    // INV-02 wants the plan a human has seen (`plan.v1.md`, obligation 8). In
+    // INV-02 wants the plan a human has seen (`plan.v2.md`, obligation 8). In
     // `execute_mutating`, the plan is confirmed after the gate cleared it and
     // before the state directory is resolved, and the witness is what the
     // `MutatingRun` carries; the loop refuses a plan it does not cover
@@ -1968,7 +1969,7 @@ fn the_digest_is_taken_of_the_plan_migrate_shows_and_runs() {
 fn a_digest_is_not_consulted_when_there_is_nothing_to_run() {
     // Security review L1 of E-4: with nothing to move there is no plan to tie,
     // and nothing runs either way (INV-16). The answer stays exit 0 and the
-    // digest is not consulted, as `migrate.v1.md` says.
+    // digest is not consulted, as `migrate.v2.md` says.
     let scratch = Scratch::new("digest-nothing");
     let file = fixture(BOTH);
     let digest = format!("sha256:{}", "0".repeat(64));

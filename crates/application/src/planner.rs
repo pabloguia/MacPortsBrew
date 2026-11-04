@@ -12,8 +12,8 @@ use macportsbrew_domain::{
     Answer, ArtifactAvailability, Capability, CapabilityState, CommandTarget, Confidence,
     DomainError, Elevation, EntryMode, ErrorId, MigrationPlan, MigrationStep, Outcome,
     PackageIdentity, PackageKind, PackageMapping, PackageMetadata, PlanCommand, PlanRisk,
-    PrimaryDecision, ProviderId, ProviderPresence, ProviderSnapshot, Reason, Snapshot, StepKind,
-    SuccessSemantic, VerificationCheck,
+    PrimaryDecision, ProbeSkipCause, ProviderId, ProviderPresence, ProviderSnapshot, Reason,
+    Snapshot, StepKind, SuccessSemantic, VerificationCheck,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeMap;
@@ -965,16 +965,30 @@ pub fn plan_outcome(
                     VerificationCheck::ProviderIntegrityCheck,
                     // 04 check 3: the expected executables are the source
                     // package's list, never the package name (SG-4); check 4,
-                    // one probe per executable (SG2-N3). An unknown list
-                    // expects nothing here, and the decision refuses the plan.
+                    // one probe or recorded skip per executable (SG2-N3). An
+                    // unknown list expects nothing here, and the decision
+                    // refuses the plan.
                     VerificationCheck::ExecutablesOwnedByDestination {
                         executables: expected.iter().map(ToString::to_string).collect(),
                     },
                 ]);
-                checks.extend(expected.iter().map(|e| VerificationCheck::LivenessProbe {
-                    executable: e.to_string(),
-                    flag: "--version".into(),
-                }));
+                // No curated row exists in this build (part H-2 brings the
+                // table), so every executable is a recorded skip, and a package
+                // with none records that: it is never vacuously probed.
+                checks.extend(
+                    expected
+                        .iter()
+                        .map(|e| VerificationCheck::LivenessProbeSkipped {
+                            executable: Some(e.to_string()),
+                            cause: ProbeSkipCause::NoCuratedProbe,
+                        }),
+                );
+                if expected.is_empty() {
+                    checks.push(VerificationCheck::LivenessProbeSkipped {
+                        executable: None,
+                        cause: ProbeSkipCause::NoExecutableToProbe,
+                    });
+                }
                 checks.push(VerificationCheck::NoCrossProviderLinkage);
                 checks
             },
@@ -1050,7 +1064,7 @@ pub fn plan_outcome(
                 Some(source.clone()),
                 // Carried nothing until 2026-09-19, which made this the only
                 // verification step in the plan with a check and no way to
-                // perform it - executor-debt item 3 in `plan.v1.md`. The
+                // perform it - executor-debt item 3 in `plan.v2.md`. The
                 // semantic is the mirror of what SE-083 gave
                 // `VERIFY_DESTINATION`, and it is deliberately not that one
                 // negated: see `SuccessSemantic::StdoutOmitsPackage` for the

@@ -1,5 +1,7 @@
 # `history` record schema, version 3
 
+**Superseded on 2026-11-04 by [`history.v4.md`](history.v4.md)** (work order 16 part H-1). A version 3 record still reads.
+
 The file a mutating run leaves in the state directory, `history/run-<id>.json`
 (`04-migration-and-safety.md`, History). Derived from `RunRecord` in
 `crates/domain/src/history.rs`; written and read by

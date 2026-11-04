@@ -2,6 +2,8 @@
 
 # `restore --json` schema, version 1
 
+**Superseded on 2026-11-04 by `restore.v2.md`** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
+
 What `macportsbrew restore --run <id> [--plan] --json` prints on stdout: the plan
 that puts back what one recorded run changed, with what the plan itself does not
 say (`04-migration-and-safety.md`, "Undoing a migration"). Built in

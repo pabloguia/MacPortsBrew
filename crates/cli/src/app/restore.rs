@@ -44,8 +44,8 @@ use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
 
-/// The version of `restore.v1.md`.
-pub const RESTORE_SCHEMA_VERSION: u32 = 1;
+/// The version of `restore.v2.md`.
+pub const RESTORE_SCHEMA_VERSION: u32 = 2;
 
 /// The refusals that come before a context is built: the scope, the arguments.
 /// Nothing is read or resolved for any of them.

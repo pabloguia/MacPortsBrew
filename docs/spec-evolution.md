@@ -1820,6 +1820,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: A new `DestinationProbe` trait, apart from `ProviderRead`; one judge per check over facts; a new disposition; the first program this tool starts that no literal names, admitted by a curated table at the one spawn site, staged for the owner (`docs/passes/16-staged/H/`).
 - Compatibility impact: `plan.v2` (`flag` to `argv`, a skip shape), `migrate.v2` and `restore.v2` (a new outcome and disposition; `restore` embeds the plan), `history.v4` (a new ending). No release has shipped these.
 
+**As built, H-1 (2026-11-04).** The answer model, the dispositions, `COMPLETED_WITH_UNCHECKED`, the gate's `DESTINATION_CONTRACT_INCOMPLETE` and `PROBE_IS_NOT_THE_TABLES`, the removal rule, its own judge for the re-read, and the tripwire `the_switch_needs_the_destination_contract_observed`, over a site that observes nothing, so all four answer `UNCHECKED` / `NOT_OBSERVED`. `CHECK_NOT_EVALUABLE_IN_THIS_BUILD` no longer names the four on `VERIFY_DESTINATION`; every plan this planner builds is now refused by `MUTATION_NOT_IN_THIS_BUILD`, with that test unweakened. `plan.v2`, `migrate.v2`, `restore.v2`, `history.v4`. Deviations: `docs/passes/16-plans/H.md`, "As built (H-1)".
+
 ## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
 - Status: accepted for the decision rule, the plan shape, the gate, the executor's resolution and `history.v3`, as
   built in work order 16 part F-3 (`wo16/F-3-primary`; F-2a and F-2b merged) and reviewed in its fix round

@@ -15,6 +15,7 @@ use macportsbrew_domain::{
 fn every_ending() -> Vec<RunEnding> {
     vec![
         RunEnding::Completed,
+        RunEnding::CompletedWithUnchecked { source_kept: true },
         RunEnding::PartialSuccess {
             step: 3,
             error: ErrorId::SafetyBlocked,

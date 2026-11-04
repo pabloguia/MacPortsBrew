@@ -251,6 +251,15 @@ written)` becomes that per-check statement, and the `read_only` helper (`crates/
 instead, so it does not silently widen. `a_check_with_no_observation_is_unchecked_never_holds` stands beside it. **With H/01 unapplied this keeps failing
 under the switch**, which is exactly what it is for.
 
+## As built (H-1)
+
+Deviations from the text above, each reviewed below:
+
+1. **The `read_only` helper does not narrow by observability.** The contract gate refuses a `VERIFY_DESTINATION` missing one of the four, so no narrowed plan could pass it. Tests keep the whole contract and supply a test site answering `Holds`; a run through the gate with `NothingObserved` ends `COMPLETED_WITH_UNCHECKED`. What "does not silently widen" asked for is carried by the tripwire and `a_check_with_no_observation_is_unchecked_never_holds`.
+2. **The argv comparison has no table yet.** `curated_probe_argv` answers `None` in a shipped build, so the gate refuses every `LIVENESS_PROBE` (`PROBE_IS_NOT_THE_TABLES`) and the planner writes only skips, until H-2 brings `liveness-probes.toml`. A test build, and only one (the `test-support` feature, which `build-release.sh` refuses), has one row, for the name `mpb-fixture-probe`, no package's: that is how `crates/cli/tests/executor_wiring.rs` reaches a removal through the gate.
+3. **`MutatingRun` gained `resolutions`**, `Unresolved` in the product. A plan reaching `VERIFIED` must have an executable list, whose decision needs a `VERIFY_RESOLUTION`, which the mutating loop could not answer. No behaviour of a shipped build moves.
+4. **The causes:** every `CheckFailure` the plan names exists now, so `migrate.v2` is stable on them; `UncheckedCause` holds only what H-1 can produce, and H-2 adds its own with the documents, before any release.
+
 ## Slices
 
 | Slice | Branch | What | Depends on |

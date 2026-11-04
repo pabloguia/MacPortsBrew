@@ -1834,7 +1834,7 @@ fn the_switch_needs_snapshot_before_and_record_history_performed() {
     assert!(
         !THIS_BUILD_DISPATCHES_MUTATIONS || violations.is_empty(),
         "mutations dispatch and SNAPSHOT_BEFORE / RECORD_HISTORY are not performed in order \
-         (plan.v1.md obligation 11; SE-092, slice 5 D6)"
+         (plan.v2.md obligation 11; SE-092, slice 5 D6)"
     );
 }
 

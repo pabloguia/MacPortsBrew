@@ -226,9 +226,12 @@ fn passing(outputs: &[String]) -> Vec<StepRead<'_>> {
 }
 
 /// The real-install plan from Homebrew, narrowed to its read steps, paired
-/// with the snapshot it was planned from.
+/// with the snapshot it was planned from. Its `VERIFY_DESTINATION` carries the
+/// whole contract with a probe written directly for the one executable (the
+/// fixture lists none, and no probe clears the gate in this build), so the
+/// judge can reach `Verified`.
 fn full_run() -> PlannedRun {
-    planned(&install_needed(HB).0, "gnu-sed", MP).map_plan(|p| *p = read_only(p))
+    planned(&install_needed(HB).0, "gnu-sed", MP).map_plan(|p| *p = with_probes(&read_only(p)))
 }
 
 fn planned(snap: &Snapshot, package: &str, to: &str) -> PlannedRun {
@@ -389,7 +392,11 @@ fn every_check_must_be_backed_by_a_passing_read() {
     let extra = run.clone().map_plan(|p| {
         p.steps[verify]
             .verification
-            .push(VerificationCheck::ProviderIntegrityCheck);
+            .push(VerificationCheck::ResolvesTo {
+                executable: exe("gnu-sed"),
+                provider: ProviderId::new(HB),
+                package: "gnu-sed".into(),
+            });
     });
     assert!(matches!(
         judge(&extra, verify, &passing(&outputs)),
@@ -421,7 +428,7 @@ fn newly_present_from(edit: impl FnOnce(&mut Snapshot)) -> Option<Unevaluable> {
     let (mut snap, package, to) = install_needed(HB);
     edit(&mut snap);
     let run = planned(&snap, package, to).map_plan(|p| {
-        *p = read_only(p);
+        *p = with_probes(&read_only(p));
         let verify = position(p, StepKind::VerifyDestination);
         if !p.steps[verify]
             .verification
@@ -467,8 +474,19 @@ fn active_alone_from(
         .to_owned();
     edit(&mut snap, &destination, &name);
     let run = planned(&snap, package, to).map_plan(|p| {
+        // The whole destination contract stays; only which read answers
+        // presence is narrowed, to `PROVIDER_REPORTS_ACTIVE` alone.
+        *p = with_probes(&read_only(p));
         let verify = position(p, StepKind::VerifyDestination);
-        p.steps[verify].verification = vec![VerificationCheck::ProviderReportsActive];
+        p.steps[verify].verification.retain(|c| {
+            !matches!(
+                c,
+                VerificationCheck::PackageNewlyPresent | VerificationCheck::ProviderReportsActive
+            )
+        });
+        p.steps[verify]
+            .verification
+            .push(VerificationCheck::ProviderReportsActive);
     });
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let outputs = destination_outputs(run.plan());
@@ -577,7 +595,8 @@ fn partial_success_exits_three_and_nothing_else_does() {
     assert_eq!(
         RunOutcome::PartialSuccess {
             step: 2,
-            reason: HaltReason::NotPerformedInThisBuild
+            reason: HaltReason::NotPerformedInThisBuild,
+            unchecked: Vec::new(),
         }
         .exit_code(),
         3
@@ -652,10 +671,90 @@ fn token(run: &PlannedRun) -> ConfigurationRechecked {
 /// `certify_destination` with a fresh token, every other step by `judge_step`.
 fn judge(run: &PlannedRun, position: usize, reads: &[StepRead<'_>]) -> Disposition {
     if run.plan().steps[position].kind == StepKind::VerifyDestination {
-        certify_destination(run, position, token(run), reads)
+        certify_destination(
+            run,
+            position,
+            token(run),
+            reads,
+            &all_hold(run.plan(), position),
+        )
     } else {
         judge_step(run, position, reads)
     }
+}
+
+/// The answers a destination site gives when every question it is asked
+/// `Holds`, walked through [`next_destination_question`] so the answers are
+/// exactly the questions the sequencing asks (work order 16 part H).
+fn all_hold(plan: &MigrationPlan, position: usize) -> Vec<DestinationAnswer> {
+    let mut answers = Vec::new();
+    loop {
+        let question = next_destination_question(plan, position, &answers);
+        if question == Question::Done {
+            return answers;
+        }
+        answers.push(DestinationAnswer {
+            question,
+            answer: CheckAnswer::Holds,
+        });
+    }
+}
+
+/// What the re-read before a removal is answered when every executable's
+/// ownership `Holds`.
+fn owned_hold(plan: &MigrationPlan, reverify: &Reverify) -> Vec<DestinationAnswer> {
+    reverify_questions(plan, reverify)
+        .into_iter()
+        .map(|question| DestinationAnswer {
+            question,
+            answer: CheckAnswer::Holds,
+        })
+        .collect()
+}
+
+/// `plan` with its `VERIFY_DESTINATION` made to list one executable and probe it,
+/// whatever the fixture recorded: every recorded skip is replaced by a probe
+/// written directly, so the judge can reach `Verified`. This bypasses the gate
+/// on purpose: through the gate, in this build, no probe clears (the table
+/// lands in H-2), so this is only for tests that call the judge.
+fn with_probes(plan: &MigrationPlan) -> MigrationPlan {
+    let mut out = plan.clone();
+    for step in out
+        .steps
+        .iter_mut()
+        .filter(|s| s.kind == StepKind::VerifyDestination)
+    {
+        let listed: Vec<String> = step
+            .verification
+            .iter()
+            .find_map(|c| match c {
+                VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                    Some(executables.clone())
+                }
+                _ => None,
+            })
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| vec!["gnu-sed".into()]);
+        step.verification.retain(|c| {
+            !matches!(
+                c,
+                VerificationCheck::LivenessProbeSkipped { .. }
+                    | VerificationCheck::LivenessProbe { .. }
+                    | VerificationCheck::ExecutablesOwnedByDestination { .. }
+            )
+        });
+        step.verification
+            .push(VerificationCheck::ExecutablesOwnedByDestination {
+                executables: listed.clone(),
+            });
+        for executable in listed {
+            step.verification.push(VerificationCheck::LivenessProbe {
+                executable,
+                argv: vec!["--version".into()],
+            });
+        }
+    }
+    out
 }
 
 fn configured(mut snap: Snapshot) -> Snapshot {
@@ -689,8 +788,7 @@ fn mutable(plan: &MigrationPlan) -> MigrationPlan {
             // the one decision that completes with nothing resolved (F-3), and
             // `VERIFY_RESOLUTION` goes with it; both edits are cut once the
             // recapture gives the fixtures real lists (F.md, "As built (F-3)",
-            // deviation 9). The `VERIFY_DESTINATION` checks DP-051 leaves
-            // unevaluable stay stripped above until part H.
+            // deviation 9).
             step.primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
         }
     }
@@ -707,9 +805,7 @@ fn forced_run(from: &str) -> PlannedRun {
 /// package had been installed by hand: MacPorts' own writes elevate and consent
 /// is not wired, so this is the one way this build reaches a removal at all,
 /// Homebrew's unelevated uninstall (data, not code: INV-17). A consolidation
-/// cannot stand in: its `VERIFY_DESTINATION` carries the four DP-051 checks
-/// this build cannot evaluate (part H), and narrowed to the one it can,
-/// `PROVIDER_REPORTS_ACTIVE`, it is a different case from the one this tests.
+/// cannot stand in: it is a different case from the one this tests.
 fn consolidation_run() -> PlannedRun {
     planned(&consolidation_snapshot(), "gnu-sed", MP).map_plan(|p| *p = without_add(p))
 }
@@ -1652,8 +1748,15 @@ fn judge_step_never_verifies_a_verify_destination_even_with_passing_reads() {
     let verify = position(run.plan(), StepKind::VerifyDestination);
     let outputs = destination_outputs(run.plan());
     let reads = passing(&outputs);
+    let probed = run.clone();
     assert!(matches!(
-        certify_destination(&run, verify, token(&run), &reads),
+        certify_destination(
+            &probed,
+            verify,
+            token(&probed),
+            &reads,
+            &all_hold(probed.plan(), verify)
+        ),
         Disposition::Verified { .. }
     ));
     assert_eq!(
@@ -1713,7 +1816,8 @@ fn invariant_01_certify_destination_refuses_a_token_for_another_program() {
             &run,
             verify,
             token_program(&run, &destination, "another-program"),
-            &[StepRead::Output(finished(&named))]
+            &[StepRead::Output(finished(&named))],
+            &[]
         ),
         wrong_program(0)
     );
@@ -1727,13 +1831,13 @@ fn invariant_01_certify_destination_refuses_a_token_for_another_program() {
         p.steps[verify].commands.push(other);
     });
     assert_eq!(
-        certify_destination(&more, verify, token(&more), &[]),
+        certify_destination(&more, verify, token(&more), &[], &[]),
         wrong_program(last)
     );
     // A step with no command names no program: nothing is certified.
     let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
     assert_eq!(
-        certify_destination(&bare, verify, token(&run), &[]),
+        certify_destination(&bare, verify, token(&run), &[], &[]),
         wrong_program(0)
     );
 }
@@ -1751,7 +1855,8 @@ fn invariant_01_a_destination_token_for_another_program_is_refused() {
             &run,
             &reverify,
             token_program(&run, &destination, "another-program"),
-            &passing(&outputs)
+            &passing(&outputs),
+            &owned_hold(run.plan(), &reverify),
         ),
         Err(Precondition::WrongProgramToken)
     );
@@ -1760,7 +1865,7 @@ fn invariant_01_a_destination_token_for_another_program_is_refused() {
     let verify = reverify.verify_position();
     let bare = run.clone().map_plan(|p| p.steps[verify].commands.clear());
     assert_eq!(
-        destination_still_verified(&bare, &reverify, token(&run), &[]),
+        destination_still_verified(&bare, &reverify, token(&run), &[], &[]),
         Err(Precondition::WrongProgramToken)
     );
 }
@@ -1777,7 +1882,8 @@ fn certify_destination_refuses_a_token_for_another_provider() {
             &run,
             verify,
             token_for(&run, &source),
-            &[StepRead::Output(finished(&named))]
+            &[StepRead::Output(finished(&named))],
+            &[]
         ),
         Disposition::Halted {
             reason: HaltReason::PreconditionFailed {
@@ -1791,7 +1897,7 @@ fn certify_destination_refuses_a_token_for_another_provider() {
     // A position that is not a VERIFY_DESTINATION is not certified either.
     let removal = position(run.plan(), StepKind::VerifyRemoval);
     assert_eq!(
-        certify_destination(&run, removal, token(&run), &[]),
+        certify_destination(&run, removal, token(&run), &[], &[]),
         Disposition::Halted {
             reason: HaltReason::RecordsDoNotMatchPlan,
             evidence: Vec::new(),
@@ -1843,7 +1949,13 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
         let reverify = reverify_for(plan, remove).expect("a removal is re-read");
         let outputs = destination_outputs(plan);
         assert_eq!(
-            destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
+            destination_still_verified(
+                &run,
+                &reverify,
+                token(&run),
+                &passing(&outputs),
+                &owned_hold(run.plan(), &reverify)
+            ),
             Ok(()),
             "{from}: the control"
         );
@@ -1861,7 +1973,8 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
                 &run,
                 &reverify,
                 token(&run),
-                &[StepRead::Output(gone), active]
+                &[StepRead::Output(gone), active],
+                &owned_hold(run.plan(), &reverify),
             ),
             Err(Precondition::DestinationNotReverified),
             "{from}"
@@ -1875,7 +1988,8 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
                     &run,
                     &reverify,
                     token(&run),
-                    &[StepRead::Output(finished("  unrelated 1.0\n")), active]
+                    &[StepRead::Output(finished("  unrelated 1.0\n")), active],
+                    &owned_hold(run.plan(), &reverify),
                 ),
                 Err(Precondition::DestinationNotReverified),
                 "{from}"
@@ -1901,7 +2015,8 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
                 &[
                     StepRead::Output(finished(&outputs[0])),
                     StepRead::Output(finished(&inactive))
-                ]
+                ],
+                &owned_hold(run.plan(), &reverify),
             ),
             Err(Precondition::DestinationNotReverified),
             "{from}: present but inactive"
@@ -1956,7 +2071,13 @@ fn invariant_01_removal_refused_when_the_reread_is_truncated_failed_or_unjudged(
     ];
     for read in &reads {
         assert_eq!(
-            destination_still_verified(&run, &reverify, token(&run), read),
+            destination_still_verified(
+                &run,
+                &reverify,
+                token(&run),
+                read,
+                &owned_hold(run.plan(), &reverify)
+            ),
             Err(Precondition::DestinationNotReverified),
             "{read:?}"
         );
@@ -1980,12 +2101,19 @@ fn invariant_01_destination_still_verified_requires_exactly_verified() {
             &run,
             reverify.verify_position(),
             token(&run),
-            &passing(&outputs)
+            &passing(&outputs),
+            &[]
         ),
         Disposition::Halted { .. }
     ));
     assert_eq!(
-        destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
+        destination_still_verified(
+            &run,
+            &reverify,
+            token(&run),
+            &passing(&outputs),
+            &owned_hold(run.plan(), &reverify)
+        ),
         Err(Precondition::DestinationNotReverified)
     );
 }
@@ -2003,7 +2131,8 @@ fn invariant_01_a_destination_token_for_the_wrong_provider_is_refused() {
             &run,
             &reverify,
             token_for(&run, &source),
-            &passing(&outputs)
+            &passing(&outputs),
+            &owned_hold(run.plan(), &reverify),
         ),
         Err(Precondition::WrongProviderToken)
     );
@@ -2024,7 +2153,13 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
     let outputs = destination_outputs(plan);
     assert_eq!(
-        destination_still_verified(&run, &reverify, token(&run), &passing(&outputs)),
+        destination_still_verified(
+            &run,
+            &reverify,
+            token(&run),
+            &passing(&outputs),
+            &owned_hold(run.plan(), &reverify)
+        ),
         Err(Precondition::DestinationNotReverified)
     );
     // The activation read alone needing a prompt is refused as well: the
@@ -2042,7 +2177,8 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
             &second_only,
             &reverify,
             token(&second_only),
-            &passing(&outputs)
+            &passing(&outputs),
+            &owned_hold(second_only.plan(), &reverify),
         ),
         Err(Precondition::DestinationNotReverified)
     );
@@ -2063,8 +2199,14 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     let outputs_gui = destination_outputs(gui.plan());
     assert!(
         matches!(
-            certify_destination(&gui, verify, token(&gui), &passing(&outputs_gui)),
-            Disposition::Verified { .. }
+            certify_destination(
+                &gui,
+                verify,
+                token(&gui),
+                &passing(&outputs_gui),
+                &all_hold(gui.plan(), verify)
+            ),
+            Disposition::VerifiedWithUnchecked { .. }
         ),
         "the GUI-app control certifies"
     );
@@ -2072,7 +2214,13 @@ fn invariant_01_a_reread_command_whose_elevation_is_not_none_is_refused() {
     let reverify =
         reverify_for(plan, position(plan, StepKind::RemoveSource)).expect("a removal is re-read");
     assert_eq!(
-        destination_still_verified(&gui, &reverify, token(&gui), &passing(&outputs_gui)),
+        destination_still_verified(
+            &gui,
+            &reverify,
+            token(&gui),
+            &passing(&outputs_gui),
+            &owned_hold(gui.plan(), &reverify)
+        ),
         Err(Precondition::DestinationNotReverified)
     );
 }
@@ -2801,4 +2949,523 @@ fn a_precondition_about_a_providers_lock_keeps_its_own_exit_code() {
         reason(Precondition::LockLost).error_id(),
         ErrorId::SafetyBlocked
     );
+}
+
+// --- The destination's answers (work order 16 part H) ----------------------
+
+use macportsbrew_domain::{CheckFailure, DestinationCheck, UncheckedCause, UncheckedEntry};
+
+/// The whole run of questions, each answered by `site`.
+fn answered(
+    plan: &MigrationPlan,
+    position: usize,
+    site: impl Fn(&Question) -> CheckAnswer,
+) -> Vec<DestinationAnswer> {
+    let mut answers = Vec::new();
+    loop {
+        let question = next_destination_question(plan, position, &answers);
+        if question == Question::Done {
+            return answers;
+        }
+        let answer = site(&question);
+        answers.push(DestinationAnswer { question, answer });
+    }
+}
+
+/// `VERIFY_DESTINATION` certified with the reads passing and `site` answering.
+fn certified(run: &PlannedRun, site: impl Fn(&Question) -> CheckAnswer) -> Disposition {
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    let outputs = destination_outputs(plan);
+    let reads = passing(&outputs);
+    certify_destination(
+        run,
+        verify,
+        token(run),
+        &reads,
+        &answered(plan, verify, site),
+    )
+}
+
+fn unchecked_by(disposition: &Disposition) -> &[UncheckedEntry] {
+    match disposition {
+        Disposition::VerifiedWithUnchecked { unchecked, .. } => unchecked,
+        other => panic!("not unchecked: {other:?}"),
+    }
+}
+
+#[test]
+fn a_check_with_no_observation_is_unchecked_never_holds() {
+    let run = full_run();
+    let outcome = certified(&run, |_| {
+        CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+    });
+    let unchecked = unchecked_by(&outcome);
+    // Ownership, integrity and linkage; the probe was not run, since ownership
+    // did not hold, and says so.
+    let checks: Vec<DestinationCheck> = unchecked.iter().map(|e| e.check).collect();
+    assert_eq!(
+        checks,
+        [
+            DestinationCheck::ExecutablesOwnedByDestination,
+            DestinationCheck::ProviderIntegrityCheck,
+            DestinationCheck::NoCrossProviderLinkage,
+            DestinationCheck::LivenessProbe,
+        ]
+    );
+    assert_eq!(unchecked[0].cause, UncheckedCause::NotObserved);
+    assert_eq!(unchecked[3].cause, UncheckedCause::OwnershipNotHeld);
+}
+
+#[test]
+fn verified_needs_all_four_to_hold_and_each_unchecked_alone_denies_it() {
+    let run = full_run();
+    assert!(matches!(
+        certified(&run, |_| CheckAnswer::Holds),
+        Disposition::Verified { .. }
+    ));
+    let is_integrity = |q: &Question| *q == Question::Integrity;
+    let is_linkage = |q: &Question| *q == Question::Linkage;
+    let is_owned = |q: &Question| matches!(q, Question::Owned { .. });
+    let is_probe = |q: &Question| matches!(q, Question::Probe { .. });
+    let kinds: [&dyn Fn(&Question) -> bool; 4] = [&is_integrity, &is_linkage, &is_owned, &is_probe];
+    for which in kinds {
+        let outcome = certified(&run, |q| {
+            if which(q) {
+                CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+            } else {
+                CheckAnswer::Holds
+            }
+        });
+        assert!(
+            matches!(outcome, Disposition::VerifiedWithUnchecked { .. }),
+            "{outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn a_skip_answers_unchecked_whatever_the_site_says_and_is_never_asked_about() {
+    let run = full_run().map_plan(|plan| {
+        let verify = position(plan, StepKind::VerifyDestination);
+        for check in &mut plan.steps[verify].verification {
+            if let VerificationCheck::LivenessProbe { executable, .. } = check {
+                *check = VerificationCheck::LivenessProbeSkipped {
+                    executable: Some(executable.clone()),
+                    cause: macportsbrew_domain::ProbeSkipCause::NoCuratedProbe,
+                };
+            }
+        }
+    });
+    let outcome = certified(&run, |q| {
+        assert!(
+            !matches!(q, Question::Probe { .. }),
+            "a skip was asked: {q:?}"
+        );
+        CheckAnswer::Holds
+    });
+    assert_eq!(
+        unchecked_by(&outcome)[0].cause,
+        UncheckedCause::NoCuratedProbe
+    );
+}
+
+#[test]
+fn a_package_with_no_executable_never_passes_vacuously() {
+    let run = full_run().map_plan(|plan| {
+        let verify = position(plan, StepKind::VerifyDestination);
+        let checks = &mut plan.steps[verify].verification;
+        checks.retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+        for check in checks.iter_mut() {
+            if let VerificationCheck::ExecutablesOwnedByDestination { executables } = check {
+                executables.clear();
+            }
+        }
+        checks.push(VerificationCheck::LivenessProbeSkipped {
+            executable: None,
+            cause: macportsbrew_domain::ProbeSkipCause::NoExecutableToProbe,
+        });
+    });
+    let outcome = certified(&run, |_| CheckAnswer::Holds);
+    assert_eq!(
+        unchecked_by(&outcome),
+        [UncheckedEntry {
+            check: DestinationCheck::LivenessProbe,
+            executable: None,
+            cause: UncheckedCause::NoExecutableToProbe,
+        }]
+    );
+}
+
+#[test]
+fn a_fails_halts_names_the_check_and_stops_what_follows() {
+    let run = full_run();
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    for (failing, expected) in [
+        (
+            Question::Integrity,
+            DestinationCheck::ProviderIntegrityCheck,
+        ),
+        (Question::Linkage, DestinationCheck::NoCrossProviderLinkage),
+    ] {
+        let site = |q: &Question| {
+            if *q == failing {
+                CheckAnswer::Fails(CheckFailure::PathMissing)
+            } else {
+                CheckAnswer::Holds
+            }
+        };
+        let answers = answered(plan, verify, site);
+        assert!(
+            !answers
+                .iter()
+                .any(|a| matches!(a.question, Question::Probe { .. })),
+            "a probe after a Fails"
+        );
+        match certified(&run, site) {
+            Disposition::Halted {
+                reason: HaltReason::DestinationCheckFailed { check, cause, .. },
+                ..
+            } => {
+                assert_eq!(check, expected);
+                assert_eq!(cause, CheckFailure::PathMissing);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_probe_is_asked_only_of_a_leaf_owned_and_only_when_no_file_was_malformed() {
+    let run = full_run();
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    let asked_a_probe = |site: &dyn Fn(&Question) -> CheckAnswer| {
+        answered(plan, verify, site)
+            .iter()
+            .any(|a| matches!(a.question, Question::Probe { .. }))
+    };
+    assert!(asked_a_probe(&|_| CheckAnswer::Holds));
+    assert!(!asked_a_probe(&|q| {
+        if matches!(q, Question::Owned { .. }) {
+            CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+        } else {
+            CheckAnswer::Holds
+        }
+    }));
+    assert!(!asked_a_probe(&|q| {
+        if *q == Question::Linkage {
+            CheckAnswer::Unchecked(UncheckedCause::MalformedFile)
+        } else {
+            CheckAnswer::Holds
+        }
+    }));
+}
+
+#[test]
+fn answers_that_are_not_the_questions_asked_certify_nothing() {
+    let run = full_run();
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    let good = all_hold(plan, verify);
+    let outputs = destination_outputs(plan);
+    let reads = passing(&outputs);
+    let missing = &good[..good.len() - 1];
+    let mut reordered = good.clone();
+    reordered.reverse();
+    let mut extra = good.clone();
+    extra.push(good[0].clone());
+    for answers in [&[][..], missing, &reordered, &extra] {
+        let outcome = certify_destination(&run, verify, token(&run), &reads, answers);
+        assert!(
+            matches!(
+                outcome,
+                Disposition::Halted {
+                    reason: HaltReason::Unevaluable {
+                        why: Unevaluable::AnswersDoNotMatchQuestions,
+                        ..
+                    },
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn a_step_missing_one_of_the_four_is_not_certified_however_the_site_answers() {
+    let run = full_run();
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let drop_one: [fn(&VerificationCheck) -> bool; 3] = [
+        |c| matches!(c, VerificationCheck::ProviderIntegrityCheck),
+        |c| matches!(c, VerificationCheck::NoCrossProviderLinkage),
+        |c| matches!(c, VerificationCheck::LivenessProbe { .. }),
+    ];
+    for dropped in drop_one {
+        let narrowed =
+            full_run().map_plan(|p| p.steps[verify].verification.retain(|c| !dropped(c)));
+        let outputs = destination_outputs(narrowed.plan());
+        let reads = passing(&outputs);
+        let answers = all_hold(narrowed.plan(), verify);
+        let outcome = certify_destination(&narrowed, verify, token(&narrowed), &reads, &answers);
+        assert!(
+            matches!(
+                outcome,
+                Disposition::Halted {
+                    reason: HaltReason::Unevaluable {
+                        why: Unevaluable::ContractIncomplete,
+                        ..
+                    },
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+    }
+}
+
+fn unchecked_entry() -> UncheckedEntry {
+    UncheckedEntry {
+        check: DestinationCheck::ProviderIntegrityCheck,
+        executable: None,
+        cause: UncheckedCause::NotObserved,
+    }
+}
+
+fn with_unchecked() -> Disposition {
+    Disposition::VerifiedWithUnchecked {
+        evidence: Vec::new(),
+        unchecked: vec![unchecked_entry()],
+    }
+}
+
+/// Records up to `position` of a removal run, with its destination unchecked.
+fn records_unchecked_until(run: &PlannedRun, position_of: usize) -> Vec<StepRecord> {
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let mut records = records_until(run, position_of);
+    records[verify].disposition = with_unchecked();
+    records
+}
+
+#[test]
+fn invariant_01_an_unchecked_destination_is_never_removed_in_either_direction() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = consolidation_run();
+    let plan = run.plan();
+    let remove = position(plan, StepKind::RemoveSource);
+    let records = records_unchecked_until(&run, remove);
+    assert_eq!(
+        next_action_with(&run, remove, &records, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
+    // The same rule in the other direction (INV-17): one judge, no path to a
+    // dispatch, and the comparison reads no provider.
+    let (snap, package, to) = install_needed(MP);
+    let other = planned(&configured(snap), package, to).map_plan(|p| *p = without_add(p));
+    assert_ne!(other.plan().destination, run.plan().destination);
+    let remove_other = position(other.plan(), StepKind::RemoveSource);
+    let records = records_unchecked_until(&other, remove_other);
+    assert_eq!(
+        next_action_with(&other, remove_other, &records, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
+}
+
+#[test]
+fn a_resolution_that_did_not_hold_still_halts_a_removal_passed_over() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = consolidation_run().map_plan(|plan| {
+        let at = position(plan, StepKind::RemoveSource);
+        let mut resolution = plan.steps[at].clone();
+        resolution.kind = StepKind::VerifyResolution;
+        resolution.commands.clear();
+        plan.steps.insert(at, resolution);
+        for (i, step) in plan.steps.iter_mut().enumerate() {
+            step.index = u32::try_from(i).expect("small") + 1;
+        }
+    });
+    let remove = position(run.plan(), StepKind::RemoveSource);
+    let verify = position(run.plan(), StepKind::VerifyDestination);
+    let mut records: Vec<StepRecord> = run
+        .plan()
+        .steps
+        .iter()
+        .take(remove)
+        .map(|s| StepRecord {
+            index: s.index,
+            kind: s.kind,
+            disposition: match s.kind {
+                StepKind::SnapshotBefore => Disposition::SnapshotTaken,
+                StepKind::VerifyResolution => Disposition::NotReached,
+                _ => Disposition::NotDispatchedMutating,
+            },
+        })
+        .collect();
+    records[verify].disposition = with_unchecked();
+    // A record that is not a resolution held: halts, not a pass-over. Not
+    // `NotReached`, which the loop refuses first as records that do not match.
+    let at = position(run.plan(), StepKind::VerifyResolution);
+    records[at].disposition = Disposition::NotPerformedInThisBuild;
+    assert_eq!(
+        next_action_with(&run, remove, &records, Some(&allowance)),
+        Action::Halt(HaltReason::UnexecutedMutation)
+    );
+}
+
+#[test]
+fn after_a_kept_source_its_removal_check_and_review_are_passed_over_and_only_then() {
+    let allowance = MutationAllowance::forced_in_tests();
+    let run = consolidation_run();
+    let plan = run.plan();
+    let remove = position(plan, StepKind::RemoveSource);
+    let check = position(plan, StepKind::VerifyRemoval);
+    let mut records = records_unchecked_until(&run, remove);
+    records.push(StepRecord {
+        index: plan.steps[remove].index,
+        kind: StepKind::RemoveSource,
+        disposition: Disposition::SourceKeptUnchecked,
+    });
+    assert_eq!(
+        next_action_with(&run, check, &records, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
+    // A removal performed: the check is judged as ever.
+    records[remove].disposition = Disposition::Performed { ends: vec![] };
+    assert_ne!(
+        next_action_with(&run, check, &records, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
+}
+
+fn step_records(
+    run: &PlannedRun,
+    disposition: impl Fn(StepKind) -> Disposition,
+) -> Vec<StepRecord> {
+    run.plan()
+        .steps
+        .iter()
+        .map(|s| StepRecord {
+            index: s.index,
+            kind: s.kind,
+            disposition: disposition(s.kind),
+        })
+        .collect()
+}
+
+/// A run that stayed clean except for what it could not tell.
+fn unchecked_shape(kind: StepKind) -> Disposition {
+    match kind {
+        StepKind::VerifyDestination => with_unchecked(),
+        StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview => {
+            Disposition::SourceKeptUnchecked
+        }
+        StepKind::SnapshotBefore => Disposition::SnapshotTaken,
+        StepKind::RecordHistory => Disposition::RecordPendingReadBack,
+        StepKind::SetPrimary => Disposition::NothingToChange,
+        StepKind::AddDestination | StepKind::VerifyResolution | StepKind::ManualReview => {
+            Disposition::Performed { ends: Vec::new() }
+        }
+    }
+}
+
+#[test]
+fn completed_with_unchecked_is_its_own_outcome_and_exits_three() {
+    let run = consolidation_run();
+    let outcome = outcome_of(run.plan(), &step_records(&run, unchecked_shape));
+    assert_eq!(
+        outcome,
+        RunOutcome::CompletedWithUnchecked {
+            unchecked: vec![unchecked_entry()],
+            source_kept: true,
+        }
+    );
+    assert_eq!(outcome.exit_code(), PARTIAL_SUCCESS_EXIT_CODE);
+}
+
+#[test]
+fn a_halt_or_a_step_not_reached_outranks_it_and_the_unchecked_list_survives() {
+    let run = consolidation_run();
+    let halted = HaltReason::SnapshotNotTaken;
+    for last in [
+        Disposition::Halted {
+            reason: halted.clone(),
+            evidence: Vec::new(),
+            ends: Vec::new(),
+        },
+        Disposition::NotReached,
+        Disposition::NotPerformedInThisBuild,
+    ] {
+        let records = step_records(&run, |kind| {
+            if kind == StepKind::RecordHistory {
+                last.clone()
+            } else {
+                unchecked_shape(kind)
+            }
+        });
+        match outcome_of(run.plan(), &records) {
+            RunOutcome::PartialSuccess { unchecked, .. } => {
+                assert_eq!(unchecked, vec![unchecked_entry()]);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_pass_over_is_accepted_only_in_its_exact_shape() {
+    let run = consolidation_run();
+    // A kept source with nothing unchecked before it.
+    let records = step_records(&run, |kind| {
+        if kind == StepKind::VerifyDestination {
+            Disposition::Verified {
+                evidence: Vec::new(),
+            }
+        } else {
+            unchecked_shape(kind)
+        }
+    });
+    assert!(matches!(
+        outcome_of(run.plan(), &records),
+        RunOutcome::PartialSuccess { .. }
+    ));
+    // On a step it may not stand on.
+    let records = step_records(&run, |kind| {
+        if kind == StepKind::SetPrimary {
+            Disposition::SourceKeptUnchecked
+        } else {
+            unchecked_shape(kind)
+        }
+    });
+    assert!(matches!(
+        outcome_of(run.plan(), &records),
+        RunOutcome::PartialSuccess { .. }
+    ));
+}
+
+#[test]
+fn the_re_read_before_a_removal_has_its_own_judge_and_unchecked_is_a_halt() {
+    let run = consolidation_run().map_plan(|p| *p = with_probes(p));
+    let plan = run.plan();
+    let remove = position(plan, StepKind::RemoveSource);
+    let reverify = reverify_for(plan, remove).expect("a re-read");
+    let outputs = destination_outputs(plan);
+    let reads = passing(&outputs);
+    let good = owned_hold(plan, &reverify);
+    assert!(!good.is_empty());
+    assert_eq!(
+        destination_still_verified(&run, &reverify, token(&run), &reads, &good),
+        Ok(())
+    );
+    let mut unchecked = good.clone();
+    unchecked[0].answer = CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+    let mut fails = good.clone();
+    fails[0].answer = CheckAnswer::Fails(CheckFailure::NoPlacedEntry);
+    for owned in [&unchecked[..], &fails[..], &[][..]] {
+        assert_eq!(
+            destination_still_verified(&run, &reverify, token(&run), &reads, owned),
+            Err(Precondition::DestinationNotReverified)
+        );
+    }
 }

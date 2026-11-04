@@ -26,8 +26,8 @@
 //! `RECORD_HISTORY` are not performed in this build (D9).
 
 use macportsbrew::executor::{
-    run_with_mutations, Boundary, MutatingRun, MutationRefusal, MutationSite, Observer, ReadBack,
-    ReadSite, RunReport,
+    run_with_mutations, Boundary, DestinationSite, MutatingRun, MutationRefusal, MutationSite,
+    Observer, ReadBack, ReadSite, ResolutionSite, RunReport,
 };
 use macportsbrew_adapters::persistence::history_store::{self, new_run_id};
 use macportsbrew_adapters::persistence::run_lock::{self, RunLock, LOCK_FILE};
@@ -40,17 +40,19 @@ use macportsbrew_application::{
     clear, confirm_shown, evaluable_in_this_build, plan_run, tie, AnalysisOptions,
     ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
     ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest,
-    PlannedRun, Precondition, RunOutcome, ShownPlan, PARTIAL_SUCCESS_EXIT_CODE,
+    PlannedRun, Precondition, Question, RunOutcome, ShownPlan, PARTIAL_SUCCESS_EXIT_CODE,
+    TEST_PROBE_EXECUTABLE,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, CommandEnd, CommandLineTools, ConcurrentProviderActivity, ConfigurationFile,
-    ConfigurationScope, DomainError, EnvironmentSnapshot, ErrorId, HomeRedaction, InstalledPackage,
-    Machine, MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata,
-    PlanCommand, Provenance, ProviderCapabilities, ProviderConfiguration, ProviderDetection,
-    ProviderId, ProviderInventory, ProviderLockProbe, ProviderPresence, ProviderSnapshot,
-    RequestedSet, RunStart, Snapshot, StepKind, SuccessSemantic, Translation, UndeterminedCause,
-    Version, SNAPSHOT_SCHEMA_VERSION,
+    CapabilityState, CheckAnswer, CommandEnd, CommandLineTools, ConcurrentProviderActivity,
+    ConfigurationFile, ConfigurationScope, DomainError, EnvironmentSnapshot, ErrorId,
+    ExecutableName, ExecutableOwner, HomeRedaction, InstalledPackage, Machine, MacosVersion,
+    MigrationPlan, PackageIdentity, PackageKind, PackageMetadata, PlanCommand, Provenance,
+    ProviderCapabilities, ProviderConfiguration, ProviderDetection, ProviderId, ProviderInventory,
+    ProviderLockProbe, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution,
+    ResolutionState, RunStart, Snapshot, StepKind, SuccessSemantic, Translation, UndeterminedCause,
+    VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -173,12 +175,64 @@ fn snapshot(hb: &[&str], mp: &[&str]) -> Snapshot {
     }
 }
 
+/// A destination site that answers every question `Holds`: the checks of
+/// DP-051 are observed in a test only by being granted here (work order 16 part
+/// H); nothing in this build observes them.
+struct AllHold;
+
+impl DestinationSite for AllHold {
+    fn answer(&self, _: &Question) -> CheckAnswer {
+        CheckAnswer::Holds
+    }
+}
+
+/// A resolution site that finds every executable where the plan expects it, by
+/// the provider's own records, as a machine with the primary already set would.
+struct Resolves {
+    provider: ProviderId,
+    package: String,
+}
+
+impl Resolves {
+    fn of(plan: &MigrationPlan) -> Self {
+        Self {
+            provider: plan.destination.clone(),
+            package: plan.destination_package.clone().unwrap_or_default(),
+        }
+    }
+}
+
+impl ResolutionSite for Resolves {
+    fn resolve(&self, executable: &ExecutableName) -> ResolutionState {
+        ResolutionState::Found {
+            resolution: Resolution {
+                executable: executable.as_str().to_owned(),
+                path: None,
+                canonical_path: None,
+                owner: ExecutableOwner::Provider {
+                    provider: self.provider.clone(),
+                    package: Some(self.package.clone()),
+                },
+                authoritative: true,
+            },
+            path_index: Some(0),
+        }
+    }
+    fn redacted_path(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 /// A plan's narrowing, each edit a statement about this build: `dryRunOnly`
 /// false; `VERIFY_RESOLUTION` removed (it asserts nothing, and carries no
 /// command); every check this build cannot evaluate removed; `SET_PRIMARY`'s
 /// command removed (SE-036 layer 4 does not exist); toward MacPorts, the add's
 /// command removed (MacPorts' writes elevate and consent is not wired);
 /// renumbered.
+fn fixture_executable() -> ExecutableName {
+    ExecutableName::parse(TEST_PROBE_EXECUTABLE).expect("a name")
+}
+
 fn mutable(plan: &mut MigrationPlan) {
     let toward_macports = plan.destination.as_str() == MP;
     plan.dry_run_only = false;
@@ -192,14 +246,51 @@ fn mutable(plan: &mut MigrationPlan) {
             step.commands.clear();
         }
         // This fixture records no executable list, so the planner's decision
-        // refuses (`EXECUTABLES_UNKNOWN`); the run is narrowed to the one
-        // decision a run completes without resolving anything (F-3:
-        // `NO_EXECUTABLES`, a command-less `SET_PRIMARY` and no
-        // `VERIFY_RESOLUTION`). The `VERIFY_DESTINATION` checks DP-051 leaves
-        // unevaluable stay stripped above until part H.
+        // refuses (`EXECUTABLES_UNKNOWN`) and every run would stay unchecked on a
+        // nameless skip. So the plan is given the test build's one curated row
+        // (`TEST_PROBE_EXECUTABLE`), and the decision a run completes with
+        // nothing to dispatch, checked by a `VERIFY_RESOLUTION`: with the site
+        // answering `Holds`, this is the run that reaches a removal.
         if kind == StepKind::SetPrimary {
-            step.primary = Some(macportsbrew_domain::PrimaryDecision::NoExecutables);
+            step.primary = Some(macportsbrew_domain::PrimaryDecision::NothingToChange {
+                executables: [fixture_executable()].into_iter().collect(),
+                path_used: Vec::new(),
+            });
         }
+        if kind == StepKind::VerifyDestination {
+            for check in &mut step.verification {
+                match check {
+                    VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                        *executables = vec![TEST_PROBE_EXECUTABLE.to_owned()];
+                    }
+                    VerificationCheck::LivenessProbeSkipped { .. } => {
+                        *check = VerificationCheck::LivenessProbe {
+                            executable: TEST_PROBE_EXECUTABLE.to_owned(),
+                            argv: vec!["--version".to_owned()],
+                        };
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let at = plan
+        .steps
+        .iter()
+        .position(|s| s.kind == StepKind::SetPrimary)
+        .expect("a plan sets a primary")
+        + 1;
+    let mut resolution = plan.steps[at - 1].clone();
+    resolution.kind = StepKind::VerifyResolution;
+    resolution.primary = None;
+    resolution.verification = vec![VerificationCheck::ResolvesTo {
+        executable: fixture_executable(),
+        provider: plan.destination.clone(),
+        package: plan.destination_package.clone().unwrap_or_default(),
+    }];
+    plan.steps.insert(at, resolution);
+    for (i, step) in plan.steps.iter_mut().enumerate() {
+        step.index = u32::try_from(i).expect("small") + 1;
     }
     plan.elevated_steps.clear();
 }
@@ -635,6 +726,8 @@ fn run_sampling<M: MutationSite>(
         cleared,
         || Reads(Box::leak(Box::new(plan))),
         MutatingRun {
+            destination: &AllHold,
+            resolutions: &Resolves::of(cleared.run().plan()),
             locks,
             shown: shown(cleared),
             live: setup.live,
@@ -1058,6 +1151,8 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
         &cleared,
         || Absent,
         MutatingRun {
+            destination: &AllHold,
+            resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             shown: shown(&cleared),
             live: true,
@@ -1302,6 +1397,8 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             &direction.cleared(),
             || Reads(Box::leak(Box::new(plan.clone()))),
             MutatingRun {
+                destination: &AllHold,
+                resolutions: &Resolves::of(&plan),
                 locks: &LocksFree,
                 shown: shown(&direction.cleared()),
                 live: setup.live,
@@ -1955,6 +2052,8 @@ fn run_reading<'s, S: ReadSite + 's>(
         cleared,
         move || reads,
         MutatingRun {
+            destination: &AllHold,
+            resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             shown: shown(cleared),
             live: true,
@@ -2111,6 +2210,8 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
             &cleared,
             || &reads,
             MutatingRun {
+                destination: &AllHold,
+                resolutions: &Resolves::of(cleared.run().plan()),
                 locks: &LocksFree,
                 shown: shown(&cleared),
                 live: true,
@@ -2209,6 +2310,8 @@ fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_
         &cleared,
         || Reads(Box::leak(Box::new(plan))),
         MutatingRun {
+            destination: &AllHold,
+            resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             live: setup.live,
             state: &scratch.state,
@@ -2359,6 +2462,8 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
                 MutatingRun {
+                    destination: &AllHold,
+                    resolutions: &Resolves::of(cleared.run().plan()),
                     locks: &LocksFree,
                     live: setup.live,
                     state: &scratch.state,
@@ -2650,9 +2755,11 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 /// both are inside what is digested.
 // Moved by F-3: the plan gained its primary decision and lost the
 // `SET_PRIMARY` command (F.md Design §4). Moved by G-2: the policy version
-// went to `2026.10.18-2` with `provider-locks.toml` (G.md, As built).
+// went to `2026.10.18-2` with `provider-locks.toml` (G.md, As built). Moved by
+// H-1: `plan.v2` (schema version 2), and a `VERIFY_DESTINATION` that records a
+// liveness skip where it recorded a probe with a `flag`.
 const PINNED_DIGEST: &str =
-    "sha256:b36ebaf006090c7c886efa26e750dcf9ca1f0f5a9e0aba0c32a7965a2af88d8f";
+    "sha256:7ac66e7ea64402e6de8b0dfb606bcc2b7676804619e674acd2e97be71f6983ea";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {
@@ -2724,6 +2831,8 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
                 MutatingRun {
+                    destination: &AllHold,
+                    resolutions: &Resolves::of(cleared.run().plan()),
                     locks: &LocksFree,
                     live: setup.live,
                     state: &scratch.state,
