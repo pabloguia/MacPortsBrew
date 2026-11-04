@@ -25,8 +25,9 @@
 #     system PATH alone;
 #   - exit 0 again under a sandbox denying the network, every exec but the program
 #     itself, and every write outside scratch. So neither was needed, which is what
-#     the sandbox can show; it does not show a program never tries. Three rounds, not
-#     the design note's four: no `ro` round and no cold/warm split (R-28's last section);
+#     the sandbox can show; it does not show a program never tries;
+#   - exit 0 again, plain and under that sandbox, with the scratch `chmod 555`. Four
+#     rounds, with no cold/warm split (R-28's last section);
 #   - nothing written in scratch, no process left, no crash report, xcrun's cache
 #     unchanged, nothing new under ~/Library naming the program, a search by name
 #     and not exhaustive (R-28's last section says what it left out);

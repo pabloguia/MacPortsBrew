@@ -890,6 +890,34 @@ fn a_shebang_that_is_not_absolute_says_so() {
     assert_eq!(script(b"#!\n/bin/sh\n"), Shebang::Relative(Vec::new()));
 }
 
+/// The name ends and the line does not, so its words are not all here. The kernel
+/// refuses such a line with ENOEXEC; a line it accepts ends in a newline, and a CR is
+/// not an end (observed with `/bin/echo`, 2026-11-04).
+#[test]
+fn a_shebang_line_with_no_end_in_the_head_is_refused_though_its_name_ended() {
+    let mut file = b"#!/bin/sh -x ".to_vec();
+    file.resize(HEAD_BYTES + 100, b'a');
+    assert_eq!(
+        read_file(&file),
+        Err(MachoError::TooLarge(LimitKind::ShebangLine))
+    );
+    // The whole file: nothing is past it.
+    file.truncate(HEAD_BYTES);
+    assert!(matches!(script(&file), Shebang::Absolute(_)));
+    // A line end in the head, whatever follows it.
+    let mut file = b"#!/bin/sh -x\n".to_vec();
+    file.resize(HEAD_BYTES + 100, b'a');
+    assert!(matches!(script(&file), Shebang::Absolute(_)));
+    assert_eq!(
+        macportsbrew_adapters::macho::shebang_arguments(b"#!/bin/sh a\r/x b\nc"),
+        vec![&b"a\r/x"[..], b"b"]
+    );
+    assert_eq!(
+        macportsbrew_adapters::macho::shebang_arguments(b"#!/bin/sh a\0b c\n"),
+        vec![&b"a"[..]]
+    );
+}
+
 #[test]
 fn a_shebang_longer_than_the_head_is_refused_rather_than_cut() {
     let mut file = b"#!/".to_vec();

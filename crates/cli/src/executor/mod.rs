@@ -379,8 +379,8 @@ pub struct MachineDestinationSite<'a, 'c, 'r> {
 }
 
 impl<'a, 'c, 'r> MachineDestinationSite<'a, 'c, 'r> {
-    /// The site for `planned` over `reads`, which only a holder of the run's lock
-    /// can have.
+    /// The site for `planned` over `reads`. Building `reads` took the run's lock as
+    /// proof at that moment; nothing here holds it or knows it is still held.
     #[must_use]
     pub fn new(planned: &'a PlannedRun, reads: DestinationSites<'c, 'r>) -> Self {
         Self {

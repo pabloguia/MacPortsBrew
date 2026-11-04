@@ -18,7 +18,7 @@ use crate::macho::{self, Classified, ExaminedType, LoadKind, Shebang, SlicePlan,
 use crate::persistence::bounded_read::{open_flags, OpenPolicy};
 use crate::process::{Invocation, MAX_PATH_LEN};
 use macportsbrew_domain::{
-    normalise, DomainError, LinkageFacts, PrefixClass, PrefixTable, UncheckedCause,
+    normalise, DomainError, LinkageFacts, PrefixClass, PrefixTable, UncheckedCause, SYSTEM_PATH,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -48,10 +48,28 @@ const PATH_MAX: usize = 1024;
 #[cfg(not(target_os = "macos"))]
 const PATH_MAX: usize = 4096;
 
-/// Where the system's own libraries live: a load from here is not another
-/// package's, so nobody needs to examine it. Short, and naming no provider. Anything
-/// else real that lies in no known prefix might be one nobody detected.
-const SYSTEM_ROOTS: [&str; 2] = ["/usr/lib", "/System"];
+/// Where the system's own libraries live, on the sealed read-only system volume.
+/// `man dyld` (read 2026-11-04) writes dylibs by these full paths, keeps `/usr/lib` and
+/// `/System/Library/Frameworks` on its default fallback paths, and says an image may
+/// come from the shared cache, so a name here may have no file on disk. A load from here is not another
+/// package's, so nobody needs to examine it. Short, and naming no provider. **Never
+/// `/System`:** `/System/Volumes/Data` is the whole writable volume, `canonicalize`
+/// keeps that spelling, and dyld honours it.
+const SYSTEM_ROOTS: [&str; 2] = ["/usr/lib", "/System/Library"];
+
+/// Under `/System/Library` and not sealed: each firmlink `/usr/share/firmlinks` lists
+/// there is the Data volume, with world-writable directories in `AssetsV2` as found on
+/// 2026-11-04, and `Templates` holds a world-writable tree by its modes (R-27).
+const NOT_SYSTEM_ROOTS: [&str; 8] = [
+    "/System/Library/Caches",
+    "/System/Library/Assets",
+    "/System/Library/PreinstalledAssets",
+    "/System/Library/AssetsV2",
+    "/System/Library/PreinstalledAssetsV2",
+    "/System/Library/CoreServices/CoreTypes.bundle/Contents/Library",
+    "/System/Library/Speech",
+    "/System/Library/Templates",
+];
 
 const ENOENT: i32 = 2;
 const ENOTDIR: i32 = 20;
@@ -217,8 +235,9 @@ pub struct WalkWork {
 /// by where they finally lead, and a bounded walk of the destination's own files
 /// that its load commands reach (R-27 findings 7, 8, 14). `executable_dirs` says
 /// which entries are the package's executable list.
+#[must_use]
 pub fn examine(
-    list: &[PathBuf],
+    list: &CheckedList,
     executable_dirs: &[PathBuf],
     prefixes: &PrefixTable,
 ) -> LinkageFacts {
@@ -226,8 +245,9 @@ pub fn examine(
 }
 
 /// [`examine`], and what it cost.
+#[must_use]
 pub fn examine_counted(
-    list: &[PathBuf],
+    list: &CheckedList,
     executable_dirs: &[PathBuf],
     prefixes: &PrefixTable,
 ) -> (LinkageFacts, WalkWork) {
@@ -247,9 +267,16 @@ pub fn examine_counted(
             .iter()
             .filter_map(|dir| std::fs::canonicalize(dir).ok()),
     );
+    // By inode too: a case or Unicode fold spells these in text no comparison sees.
+    let not_system = NOT_SYSTEM_ROOTS
+        .iter()
+        .filter_map(|root| std::fs::metadata(root).ok())
+        .map(|metadata| (metadata.dev(), metadata.ino()))
+        .collect();
     let mut walk = Walk {
         prefixes,
         identities,
+        not_system,
         executable_dirs: on_list,
         parents: HashMap::new(),
         facts: LinkageFacts::default(),
@@ -261,7 +288,7 @@ pub fn examine_counted(
         queue: Vec::new(),
         queued: HashSet::new(),
     };
-    for path in list {
+    for path in list.paths() {
         if walk.facts.walk_over_bound {
             break;
         }
@@ -332,11 +359,22 @@ enum Reached {
     ByLoadCommand,
 }
 
+/// What a path in a shebang line is to the script.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Read {
+    /// What the script runs.
+    Interpreter,
+    /// Anything else a word names.
+    Word,
+}
+
 struct Walk<'a> {
     prefixes: &'a PrefixTable,
     /// Each prefix by `(dev, ino)`: a firmlink or a Unicode fold spells a prefix
     /// no string comparison sees, and the inode is the same.
     identities: HashMap<(u64, u64), PrefixClass>,
+    /// Each of [`NOT_SYSTEM_ROOTS`] that exists, by `(dev, ino)`.
+    not_system: HashSet<(u64, u64)>,
     /// The executable directories, as given and canonically.
     executable_dirs: HashSet<PathBuf>,
     /// Each parent directory asked about, and whether it is one of them.
@@ -465,7 +503,17 @@ impl Walk<'_> {
             })
     }
 
-    /// Counts one more operation, and says whether the bound still holds.
+    /// Whether `path` is the system's own, by its text and by no ancestor being one of
+    /// the unsealed directories under another spelling.
+    fn is_system(&self, path: &Path) -> bool {
+        is_under_system_root(path)
+            && !path.ancestors().any(|ancestor| {
+                std::fs::metadata(ancestor)
+                    .is_ok_and(|m| self.not_system.contains(&(m.dev(), m.ino())))
+            })
+    }
+
+    /// Counts these operations, and says whether the bound still holds.
     fn count(&mut self, operations: usize) -> bool {
         self.work.operations = self.work.operations.saturating_add(operations);
         if self.work.operations > MAX_WALK_REFERENCES {
@@ -540,6 +588,8 @@ impl Walk<'_> {
             Some(path) => path.clone(),
             None => self.through_existing_ancestor(normal),
         };
+        // Each ancestor is a `stat`: a deep tree must cost what it costs.
+        self.count(measured.ancestors().count());
         let by_text = self.prefixes.class_of(measured.as_os_str().as_bytes());
         let by_inode = self.class_by_identity(&measured);
         self.note(by_text);
@@ -658,48 +708,62 @@ impl Walk<'_> {
         }
     }
 
-    /// Answers whether what the script runs is found at run time. An absolute
-    /// interpreter counts as a load command does, and so does any `/...` inside a
-    /// word after it: `env /x/python3`, `-S/x`, `-P/x:/y`, `PATH=/x`. What a script's
-    /// body does is not read.
+    /// Answers whether what the script runs is found at run time. The interpreter,
+    /// and an absolute program `env` is told to run, count as a load command does
+    /// and are read. Any other `/...` inside a word (`-S/x`, `-P/x:/y`, `PATH=/x`) is
+    /// classified and never read: a directory on a search path is not a program. What
+    /// a script's body does is not read.
     fn shebang(&mut self, shebang: &Shebang, head: &[u8]) -> bool {
-        for word in macho::shebang_arguments(head) {
-            for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'')) {
+        for (index, word) in macho::shebang_arguments(head).into_iter().enumerate() {
+            if index == 0 && matches!(shebang, Shebang::Env(_)) && word.first() == Some(&b'/') {
+                self.lexical(word, Read::Interpreter);
+                continue;
+            }
+            for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'' | b'\r')) {
                 if let Some(at) = piece.iter().position(|b| *b == b'/') {
-                    self.lexical(&piece[at..]);
+                    self.lexical(&piece[at..], Read::Word);
                 }
             }
         }
         match shebang {
             Shebang::Absolute(path) => {
-                self.lexical(path);
+                self.lexical(path, Read::Interpreter);
                 false
             }
             // `env`'s own path is still an answer; what it finds is not.
             Shebang::Env(path) => {
-                self.lexical(path);
+                self.lexical(path, Read::Interpreter);
                 true
             }
             Shebang::Relative(_) => true,
         }
     }
 
-    /// A path a script names. What it names in the destination is read as a load
-    /// command's target would be: that file runs too. What it names anywhere else
-    /// counts by where it is, and is never read (`/bin/sh`).
-    fn lexical(&mut self, path: &[u8]) {
+    /// A path a script names. An interpreter in the destination is read as a load
+    /// command's target would be: that file runs too. Anywhere else it counts by where
+    /// it is and is never read, and a real file that nobody can place, outside the
+    /// system's own programs and libraries, was examined by nobody.
+    fn lexical(&mut self, path: &[u8], read: Read) {
         let Some(written) = spelled(None, path) else {
             self.facts.rpath_unresolved = true;
             return;
         };
-        if let Some(Seen {
-            canonical: Some(canonical),
-            class: Some(PrefixClass::Destination),
-        }) = self.resolve(&written)
-        {
-            if self.queued.insert(canonical.clone()) {
-                self.queue.push(canonical);
+        let Some(seen) = self.resolve(&written) else {
+            return;
+        };
+        match (seen.canonical, seen.class) {
+            (Some(canonical), Some(PrefixClass::Destination)) if read == Read::Interpreter => {
+                if self.queued.insert(canonical.clone()) {
+                    self.queue.push(canonical);
+                }
             }
+            (Some(canonical), None) => {
+                let system_program = SYSTEM_PATH.iter().any(|dir| canonical.starts_with(dir));
+                if !system_program && !self.is_system(&canonical) {
+                    self.facts.file_not_examined = true;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -772,7 +836,8 @@ impl Walk<'_> {
             let rest = without_leading_slashes(rest);
             // Zero candidates must not read as clean, and neither must candidates
             // none of which is there: the name loads from nothing this file says,
-            // whatever a candidate that is not there is spelled like.
+            // whatever a candidate that is not there is spelled like. The exception is
+            // the system's own: its dylibs live in the shared cache, with no file.
             let mut answered = false;
             for rpath in rpaths.iter().flatten() {
                 let Some(candidate) = spelled(Some(&rpath.raw), rest) else {
@@ -786,7 +851,7 @@ impl Walk<'_> {
                 let Some(seen) = self.reached(&candidate, true) else {
                     return;
                 };
-                answered |= seen.canonical.is_some();
+                answered |= seen.canonical.is_some() || self.is_system(path_of(&candidate));
             }
             self.facts.rpath_unresolved |= !answered;
             return;
@@ -815,7 +880,7 @@ impl Walk<'_> {
             (None, Some(PrefixClass::Destination)) => {
                 self.facts.walk_over_bound |= !optional;
             }
-            (Some(canonical), None) if !is_under_system_root(canonical) => {
+            (Some(canonical), None) if !self.is_system(canonical) => {
                 self.facts.file_not_examined = true;
             }
             _ => {}
@@ -854,6 +919,17 @@ fn without_leading_slashes(path: &[u8]) -> &[u8] {
     &path[from..]
 }
 
-fn is_under_system_root(path: &Path) -> bool {
+fn path_of(written: &Spelled) -> &Path {
+    Path::new(OsStr::from_bytes(&written.normal))
+}
+
+/// By text: under a root and under none of the exceptions, the exceptions in either
+/// case because the volume folds it. Nothing under `/System/Volumes` qualifies.
+#[must_use]
+pub fn is_under_system_root(path: &Path) -> bool {
+    let folded = path.as_os_str().to_ascii_lowercase();
     SYSTEM_ROOTS.iter().any(|root| path.starts_with(root))
+        && !NOT_SYSTEM_ROOTS
+            .iter()
+            .any(|root| Path::new(&folded).starts_with(root.to_ascii_lowercase()))
 }

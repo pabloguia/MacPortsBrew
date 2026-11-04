@@ -87,7 +87,7 @@ Restore has nothing to revert for the primary: this build sets none.
 | `schemaVersion` | integer | `4` |
 | `primaryAfter` | string | The provider observed to resolve the executables: the destination only after `RESOLVED`, or for `NO_EXECUTABLES` after its `SET_PRIMARY` was carried out |
 | `primaryExecutables` | array of string | Sorted, unique, each an executable name |
-| `checkBases` | array of string, optional | Work order 16 part H-2. What a destination check that held rests on, as `migrate.v2` defines the values, sorted, unique. Absent when nothing held. It may accompany a halted step, since a check that held before another failed still held. A record with it under another `schemaVersion`, out of order, or with no `VERIFY_DESTINATION` step that was reached is unusable |
+| `checkBases` | array of string, optional | Work order 16 part H-2. What a destination check that held rests on, as `migrate.v2` defines the values, sorted, unique. Absent when nothing held. It may accompany a halted step, since a check that held before another failed still held. A record with it under another `schemaVersion`, out of order, or with no `VERIFY_DESTINATION` step that is verified, verified with unchecked, or halted is unusable |
 
 ## `Step.result` (the values added to version 2's)
 

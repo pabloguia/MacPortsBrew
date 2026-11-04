@@ -158,7 +158,7 @@ check's output is the machine's whole inventory (`plan.v2.md`, obligation 3).
 `EXPECTATION` (`command`, `error`), `VERIFICATION_FAILED` (`command`, `cause`),
 `DESTINATION_CHECK_FAILED` (`check`, `executable` when it was about one, `cause`, one
 of `PATH_MISSING`, `PATH_DANGLING`, `DEPENDENCY_MISSING`, `NO_INSTALLATION_RECORD`,
-`NO_PLACED_ENTRY`, `ANOTHER_PACKAGES_ENTRY`, `ENTRY_OF_NO_PACKAGE` (a file placed under the name that the provider's own rule ties to no package), `MORE_THAN_ONE_VERSION`,
+`NO_PLACED_ENTRY`, `ANOTHER_PACKAGES_ENTRY`, `ENTRY_OF_NO_PACKAGE` (what is placed under the name belongs to no package this provider's rule can name: a stray file, or a link it does not cover, such as a cask's), `MORE_THAN_ONE_VERSION`,
 `ACTIVE_RECORD_DIFFERS`, `OWNER_VERSION_DIFFERS`, `LINKS_ANOTHER_PROVIDER`,
 `LINK_PRESENT_BEFORE_THE_RUN`, `PROBE_FAILED`),
 `ELEVATION_NOT_NONE` (`command`), `UNEVALUABLE` (`check`?, `why`),

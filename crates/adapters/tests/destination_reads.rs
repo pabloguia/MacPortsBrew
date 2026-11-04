@@ -6,8 +6,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use macportsbrew_adapters::destination_reads::{
-    checked_list, examine, examine_counted, placed_entry, stat_counts, CheckedList, Outside,
-    StatCounts, MAX_WALK_FILES, MAX_WALK_REFERENCES,
+    self, checked_list, is_under_system_root, placed_entry, stat_counts, CheckedList, Outside,
+    StatCounts, WalkWork, MAX_WALK_FILES, MAX_WALK_REFERENCES,
 };
 use macportsbrew_adapters::process::MAX_PATH_LEN;
 use macportsbrew_domain::{LinkageFacts, PrefixClass, PrefixTable, UncheckedCause};
@@ -87,6 +87,19 @@ fn put(path: &Path, bytes: &[u8]) -> PathBuf {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
     path.to_path_buf()
+}
+
+/// `examine` takes only a checked list, so these go through the one way to make one.
+fn examine(paths: &[PathBuf], dirs: &[PathBuf], table: &PrefixTable) -> LinkageFacts {
+    destination_reads::examine(&listed(Path::new("/"), paths), dirs, table)
+}
+
+fn examine_counted(
+    paths: &[PathBuf],
+    dirs: &[PathBuf],
+    table: &PrefixTable,
+) -> (LinkageFacts, WalkWork) {
+    destination_reads::examine_counted(&listed(Path::new("/"), paths), dirs, table)
 }
 
 const LOAD: u32 = 0xc;
@@ -658,7 +671,7 @@ fn a_quadratic_file_passes_the_reference_bound_and_says_so() {
     let (facts, work) = examine_counted(&[file], &[], &table);
     assert!(facts.walk_over_bound, "{facts:?}");
     // One candidate's ancestors can pass it by a little, and the next one stops.
-    assert!(work.operations <= MAX_WALK_REFERENCES + 16, "{work:?}");
+    assert!(work.operations <= MAX_WALK_REFERENCES + 64, "{work:?}");
 }
 
 /// A repeated candidate costs a count and no filesystem access; a mutant with no
@@ -701,7 +714,7 @@ fn overlapping_fat_slices_cost_one_read_of_the_range() {
     let (facts, work) = examine_counted(&[file], &[], &table);
     assert_eq!(facts.loadable_files, 1);
     // The listed file, and the one reference.
-    assert_eq!(work.operations, 2, "{work:?}");
+    assert_eq!(work.resolutions, 2, "{work:?}");
 }
 
 /// `..` after a directory link is another file than the collapsed text names.
@@ -817,6 +830,13 @@ fn a_shebang_interpreter_argument_is_a_reference() {
     assert!(examine(&[file], &[], &table).links_detected_provider);
 }
 
+/// A file of the system's sealed roots.
+#[cfg(target_os = "macos")]
+const SEALED: [&str; 2] = [
+    "/usr/lib/dyld",
+    "/System/Library/CoreServices/SystemVersion.plist",
+];
+
 /// The system's own roots are the one exception to "a real file nobody placed", and
 /// only they: nothing here is a provider's.
 #[cfg(target_os = "macos")]
@@ -824,26 +844,237 @@ fn a_shebang_interpreter_argument_is_a_reference() {
 fn a_real_file_under_a_system_root_is_not_flagged_and_one_beside_it_is() {
     let scratch = Scratch::new();
     let (own, _, table) = scratch.table();
-    for (name, reference, flagged) in [
-        ("a", "/usr/lib/dyld", false),
-        (
-            "b",
-            "/System/Library/CoreServices/SystemVersion.plist",
-            false,
-        ),
-        ("c", "/usr/bin/true", true),
-    ] {
+    let cases = SEALED
+        .map(|path| (path, false))
+        .into_iter()
+        .chain([("/usr/bin/true", true)]);
+    for (index, (reference, flagged)) in cases.enumerate() {
         assert!(Path::new(reference).exists(), "{reference}");
         let file = put(
-            &own.join("bin").join(name),
+            &own.join(format!("bin/{index}")),
             &thin(EXECUTE, &[(LOAD, reference.as_bytes())]),
         );
         let facts = examine(&[file], &[], &table);
         assert_eq!(facts.file_not_examined, flagged, "{reference}: {facts:?}");
     }
-    // A shebang names programs, not libraries: `/bin/sh` is never read and is fine.
-    let script = put(&own.join("share/s"), b"#!/bin/sh\n");
-    assert!(!examine(&[script], &[], &table).file_not_examined);
+}
+
+/// `/System` would have covered `/System/Volumes/Data`, the whole writable volume:
+/// `canonicalize` keeps that spelling, and dyld honours it.
+#[test]
+fn nothing_under_system_volumes_or_an_unsealed_directory_is_the_systems() {
+    for path in [
+        "/System/Volumes/Data/tmp/shim.dylib",
+        "/System/Volumes/Data/usr/lib/shim.dylib",
+        "/System/Volumes/Preboot/x",
+        "/System/x",
+        "/System/Library/Caches/x",
+        "/System/Library/caches/x",
+        "/System/Library/CACHES/x",
+        "/System/Library/Assets/x",
+        "/System/Library/AssetsV2/locks/x",
+        "/System/Library/assetsv2/locks/x",
+        "/System/Library/PreinstalledAssets/x",
+        "/System/Library/PreinstalledAssetsV2/x",
+        "/System/Library/Speech/x",
+        "/System/Library/Templates/Data/x",
+        "/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/x",
+        "/usr/libexec/x",
+        "/usr/local/lib/x",
+    ] {
+        assert!(!is_under_system_root(Path::new(path)), "{path}");
+    }
+    for path in [
+        "/usr/lib/libSystem.B.dylib",
+        "/usr/lib/swift/libswiftCore.dylib",
+        "/System/Library/Frameworks/Foo.framework/Foo",
+        "/System/Library/CoreServices/x",
+    ] {
+        assert!(is_under_system_root(Path::new(path)), "{path}");
+    }
+}
+
+/// Three ways to reach a real file through the firmlink spelling, none of them a
+/// provider's prefix by any measure.
+#[cfg(target_os = "macos")]
+#[test]
+fn invariant_07_the_firmlink_spelling_of_a_file_nobody_placed_is_not_the_systems() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    put(&scratch.0.join("nowhere/shim.dylib"), &thin(DYLIB, &[]));
+    let data = Path::new("/System/Volumes/Data").join(scratch.0.strip_prefix("/").unwrap());
+    assert!(data.exists(), "{}", data.display());
+    let dir = data.join("nowhere");
+    let shim = dir.join("shim.dylib");
+    let load = put(
+        &own.join("bin/load"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&shim))]),
+    );
+    assert!(examine(&[load], &[], &table).file_not_examined);
+    let rpath = put(
+        &own.join("bin/rpath"),
+        &thin(
+            EXECUTE,
+            &[(RPATH, bytes_of(&dir)), (LOAD, b"@rpath/shim.dylib")],
+        ),
+    );
+    assert!(examine(&[rpath], &[], &table).file_not_examined);
+    let link = own.join("share/link");
+    std::fs::create_dir_all(own.join("share")).unwrap();
+    symlink(&shim, &link).unwrap();
+    assert!(examine(&[link], &[], &table).file_not_examined);
+}
+
+/// A real file of an unsealed directory, by its plain name and folded out of any
+/// text comparison: only its inode says what it is.
+#[cfg(target_os = "macos")]
+#[test]
+fn invariant_07_an_unsealed_directory_is_not_the_systems_under_any_spelling() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let found = std::fs::read_dir("/System/Library/Caches")
+        .ok()
+        .and_then(|mut entries| {
+            entries.find_map(|entry| {
+                let path = entry.ok()?.path();
+                std::fs::metadata(&path).ok()?.is_file().then_some(path)
+            })
+        });
+    let Some(real) = found else {
+        eprintln!("skipped: no regular file directly under /System/Library/Caches");
+        return;
+    };
+    let name = real.file_name().unwrap().to_str().unwrap();
+    for (index, spelling) in [
+        format!("/System/Library/Caches/{name}"),
+        format!("/System/Library/CACHES/{name}"),
+        format!("/System/Library/Cache\u{17f}/{name}"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        if !Path::new(spelling).exists() {
+            eprintln!("skipped: {spelling} names nothing on this volume");
+            continue;
+        }
+        let file = put(
+            &own.join(format!("bin/{index}")),
+            &thin(EXECUTE, &[(LOAD, spelling.as_bytes())]),
+        );
+        assert!(
+            examine(&[file], &[], &table).file_not_examined,
+            "{spelling}"
+        );
+    }
+}
+
+/// `swiftformat`'s shape: its system libraries are in the shared cache, with no file.
+#[test]
+fn an_absent_rpath_candidate_under_a_system_root_answers_the_name_and_none_elsewhere_does() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let file = put(
+        &own.join("bin/a"),
+        &thin(
+            EXECUTE,
+            &[
+                (RPATH, b"/usr/lib/swift"),
+                (LOAD, b"@rpath/libnone-such.dylib"),
+            ],
+        ),
+    );
+    assert!(!examine(&[file], &[], &table).rpath_unresolved);
+    for rpath in [
+        &b"/System/Library/Caches"[..],
+        b"/System/Volumes/Data/usr/lib",
+        b"/usr/local/lib",
+    ] {
+        let file = put(
+            &own.join("bin/b"),
+            &thin(
+                EXECUTE,
+                &[(RPATH, rpath), (LOAD, b"@rpath/libnone-such.dylib")],
+            ),
+        );
+        let facts = examine(&[file], &[], &table);
+        assert!(
+            facts.rpath_unresolved,
+            "{}: {facts:?}",
+            String::from_utf8_lossy(rpath)
+        );
+    }
+}
+
+/// An interpreter nobody can place, read by nobody, was once a clean answer.
+#[test]
+fn a_real_interpreter_outside_every_prefix_is_not_examined() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let interp = put(&scratch.0.join("outside/interp"), b"x");
+    let at = interp.display();
+    for (name, line) in [
+        ("direct", format!("#!{at}\n")),
+        ("env", format!("#!/usr/bin/env {at}\n")),
+        ("word", format!("#!/bin/sh {at}\n")),
+        ("split", format!("#!/usr/bin/env -S{at}\n")),
+    ] {
+        let file = put(&own.join("share").join(name), line.as_bytes());
+        let facts = examine(&[file], &[], &table);
+        assert!(facts.file_not_examined, "{name}: {facts:?}");
+    }
+    #[cfg(target_os = "macos")]
+    for line in [
+        "#!/bin/sh\n",
+        "#!/usr/bin/env python3\n",
+        "#!/bin/sh /usr/lib/dyld\n",
+    ] {
+        let file = put(&own.join("share/fine"), line.as_bytes());
+        let facts = examine(&[file], &[], &table);
+        assert!(!facts.file_not_examined, "{line}: {facts:?}");
+    }
+}
+
+/// A search path in the destination is a word, not a program: only the interpreter
+/// is queued, and reading a directory would have said `FILE_NOT_EXAMINED`.
+#[test]
+fn a_shebang_word_is_classified_and_only_the_interpreter_is_read() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    std::fs::create_dir_all(own.join("bin")).unwrap();
+    let text = format!("#!/usr/bin/env -P{}/bin python3\n", own.display());
+    let file = put(&own.join("share/a"), text.as_bytes());
+    assert!(!examine(&[file], &[], &table).file_not_examined);
+    // A word naming a file of the destination does not read it.
+    let tainted = put(
+        &own.join("lib/tainted"),
+        &thin(DYLIB, &[(LOAD, bytes_of(&other.join("lib/x")))]),
+    );
+    let text = format!("#!/bin/sh {}\n", tainted.display());
+    let file = put(&own.join("share/b"), text.as_bytes());
+    let facts = examine(&[file], &[], &table);
+    assert!(!facts.links_detected_provider, "{facts:?}");
+    // `env` told to run one does.
+    let text = format!("#!/usr/bin/env {}\n", tainted.display());
+    let file = put(&own.join("share/c"), text.as_bytes());
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.links_detected_provider, "{facts:?}");
+}
+
+/// A tree deep enough costs a `stat` per level per reference: the bound has to see it.
+#[test]
+fn each_ancestor_of_a_resolved_path_is_charged_to_the_bound() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let deep = own.join("d/".repeat(400));
+    std::fs::create_dir_all(&deep).unwrap();
+    // `@rpath`, because a candidate need not exist: only the count can stop this.
+    let names = numbered("@rpath/n", 200);
+    let mut commands: Vec<(u32, &[u8])> = vec![(RPATH, bytes_of(&deep))];
+    commands.extend(names.iter().map(|n| (LOAD, n.as_slice())));
+    let file = put(&own.join("bin/a"), &thin(EXECUTE, &commands));
+    let (facts, work) = examine_counted(&[file], &[], &table);
+    assert!(work.resolutions < 203, "{work:?}");
+    assert!(facts.walk_over_bound, "{facts:?} {work:?}");
 }
 
 /// 256 KB of path names nothing the system could open, so it costs no `stat` per
@@ -1054,4 +1285,116 @@ fn passing_the_byte_bound_says_so() {
         })
         .collect();
     assert!(examine(&list, &[], &table).walk_over_bound);
+}
+
+// The second mutation proof (`b70f512`): each closes the survivor it names.
+
+/// A name of exactly `length` bytes under `prefix`.
+fn name_of_length(prefix: &Path, length: usize) -> Vec<u8> {
+    let mut name = prefix.as_os_str().as_bytes().to_vec();
+    name.push(b'/');
+    name.resize(length, b'a');
+    name
+}
+
+/// Closes `b03b` and `b03c`. A name of the limit less one is the longest the system
+/// opens, so what it names still counts; a name of the limit is unresolved, before
+/// any filesystem call, so no class of it is noted.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_path_limit_is_exact() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let longest = name_of_length(&other, 1023);
+    let file = put(&own.join("bin/a"), &thin(EXECUTE, &[(LOAD, &longest)]));
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.links_detected_provider, "{facts:?}");
+    assert!(!facts.rpath_unresolved, "{facts:?}");
+
+    let at_limit = name_of_length(&other, 1024);
+    let file = put(&own.join("bin/b"), &thin(EXECUTE, &[(LOAD, &at_limit)]));
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.rpath_unresolved, "{facts:?}");
+    assert!(!facts.links_detected_provider, "{facts:?}");
+}
+
+/// Closes `b10c`. The reference is spelled under the other provider's prefix and
+/// leads out of it by a link inside it: its canonical path and every inode above it
+/// say nothing, and the text it was written in is the only evidence.
+#[test]
+fn invariant_07_a_reference_spelled_under_a_prefix_counts_though_it_leads_out() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let elsewhere = scratch.0.join("elsewhere");
+    put(&elsewhere.join("libz.dylib"), b"x");
+    symlink(&elsewhere, other.join("out")).unwrap();
+    let target = other.join("out/libz.dylib");
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, target.as_os_str().as_bytes())]),
+    );
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.links_detected_provider, "{facts:?}");
+}
+
+/// Closes `b12c`. A listed entry's parent is a link to an executable directory, a
+/// name the directory's own canonical form does not contain.
+#[test]
+fn an_env_script_listed_through_a_link_to_an_executable_directory_is_on_the_list() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let bin = own.join("bin");
+    put(&bin.join("tool"), b"#!/usr/bin/env python3\n");
+    symlink(&bin, own.join("alias")).unwrap();
+    let facts = examine(
+        &[own.join("alias/tool")],
+        std::slice::from_ref(&bin),
+        &table,
+    );
+    assert!(facts.env_shebang_on_list, "{facts:?}");
+}
+
+/// A control for `b10b`: the canonical spelling of an existing file under a prefix is
+/// found with no help from the written text.
+#[test]
+fn a_link_outside_every_prefix_into_another_counts_by_where_it_leads() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&other.join("lib/libz.dylib"), b"x");
+    let elsewhere = scratch.0.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    symlink(other.join("lib"), elsewhere.join("in")).unwrap();
+    let target = elsewhere.join("in/libz.dylib");
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, target.as_os_str().as_bytes())]),
+    );
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.links_detected_provider, "{facts:?}");
+}
+
+/// Closes `b10b`, in the one shape that tells it apart: the destination's prefix is
+/// a link to the other's, so an inode answers for whichever was added first and only
+/// the canonical text says it is also the other's.
+#[test]
+fn a_prefix_that_is_a_link_to_another_still_counts_by_its_canonical_text() {
+    let scratch = Scratch::new();
+    let real = scratch.0.join("other");
+    let own = scratch.0.join("own");
+    std::fs::create_dir_all(&real).unwrap();
+    symlink(&real, &own).unwrap();
+    let mut table = PrefixTable::default();
+    table.add(own.as_os_str().as_bytes(), PrefixClass::Destination);
+    table.add(real.as_os_str().as_bytes(), PrefixClass::DetectedOther);
+    put(&real.join("lib/libz.dylib"), b"x");
+    let elsewhere = scratch.0.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    symlink(real.join("lib"), elsewhere.join("in")).unwrap();
+    let target = elsewhere.join("in/libz.dylib");
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, target.as_os_str().as_bytes())]),
+    );
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.links_detected_provider, "{facts:?}");
 }

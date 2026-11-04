@@ -247,7 +247,7 @@ impl HomebrewAdapter<'_> {
             }
         };
         let executables = [keg.join("bin"), keg.join("sbin")];
-        destination_reads::examine(list.paths(), &executables, prefixes)
+        destination_reads::examine(&list, &executables, prefixes)
     }
 }
 

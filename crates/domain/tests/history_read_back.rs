@@ -1390,36 +1390,53 @@ fn check_bases_round_trip_and_a_record_cannot_claim_them_out_of_shape() {
     assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
     claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
     assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
-    let unreached = record(
-        vec![step(
-            3,
-            StepKind::VerifyDestination,
-            StepResult::NotReached,
-            false,
-        )],
-        RunEnding::Completed,
-        None,
-    );
-    let mut claimed = stored_json(&unreached);
-    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
-    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
-    assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
-    // A check that held before another failed still held.
+    for result in [
+        StepResult::NotReached,
+        StepResult::NotPerformedInThisBuild,
+        StepResult::NotDispatchedMutating,
+    ] {
+        let unanswered = record(
+            vec![step(3, StepKind::VerifyDestination, result.clone(), false)],
+            RunEnding::Completed,
+            None,
+        );
+        let mut claimed = stored_json(&unanswered);
+        assert!(read_back(claimed.clone()).is_ok(), "{result:?}");
+        claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+        assert_eq!(
+            read_back(claimed),
+            Err(ErrorId::HistoryUnusable),
+            "{result:?}"
+        );
+    }
+    // A check that held before another failed still held, in the shape a run writes.
     let halted = record(
-        vec![step(
-            3,
-            StepKind::VerifyDestination,
-            StepResult::Halted {
-                error: ErrorId::SafetyBlocked,
-                evidence: Vec::new(),
-                ends: Vec::new(),
-            },
-            false,
-        )],
-        RunEnding::Completed,
+        vec![
+            step(
+                1,
+                StepKind::SnapshotBefore,
+                StepResult::SnapshotTaken,
+                false,
+            ),
+            step(
+                3,
+                StepKind::VerifyDestination,
+                StepResult::Halted {
+                    error: ErrorId::SafetyBlocked,
+                    evidence: Vec::new(),
+                    ends: Vec::new(),
+                },
+                false,
+            ),
+        ],
+        RunEnding::Halted {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
         None,
     );
     let mut claimed = stored_json(&halted);
+    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
     claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
     assert!(read_back(claimed).is_ok());
 }

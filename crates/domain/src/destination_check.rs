@@ -49,8 +49,9 @@ pub enum CheckFailure {
     NoPlacedEntry,
     /// What is placed under the executable's name is another package's.
     AnotherPackagesEntry,
-    /// What is placed under the executable's name belongs to no package the
-    /// provider's own rule can name: a file somebody put there.
+    /// What is placed under the executable's name belongs to no package this
+    /// provider's rule can name: a file somebody put there, or a link it does not
+    /// cover, such as one a cask placed.
     EntryOfNoPackage,
     /// More than one version is present after a fresh install.
     MoreThanOneVersion,

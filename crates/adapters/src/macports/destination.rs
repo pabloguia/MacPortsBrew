@@ -236,13 +236,13 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 // What lies outside was not tested, so it cannot be called clean.
                 list_unusable: Some(UncheckedCause::ListsOutsidePrefix),
                 ..destination_reads::examine(
-                    list.paths(),
+                    &list,
                     &[self.prefix.join("bin"), self.prefix.join("sbin")],
                     prefixes,
                 )
             },
             Ok(list) => destination_reads::examine(
-                list.paths(),
+                &list,
                 &[self.prefix.join("bin"), self.prefix.join("sbin")],
                 prefixes,
             ),

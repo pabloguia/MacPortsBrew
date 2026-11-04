@@ -549,25 +549,34 @@ The reader's first live run on 2026-11-04 (session scratch, read-only, no packag
 
 ## Accepted limits of the reader (2026-11-04, work order 16 H-2, review round 1)
 
-**A relocated cellar answers `UNCHECKED`, and that is accepted.** A listed or reached file whose canonical path is outside the destination and in no known prefix answers `FILE_NOT_EXAMINED`, never `NO_LOAD_COMMANDS`, since nothing was read. A Homebrew whose cellar lives elsewhere by a link therefore keeps its source. Round 2 widened this to any real file a load command names in no known prefix, outside `/usr/lib` and `/System`, which also covers another provider's relocated store. It costs a removal, not a claim.
+**A relocated cellar answers `UNCHECKED`, and that is accepted.** A listed or reached file whose canonical path is outside the destination and in no known prefix answers `FILE_NOT_EXAMINED`, never `NO_LOAD_COMMANDS`, since nothing was read. A Homebrew whose cellar lives elsewhere by a link therefore keeps its source. Round 2 widened this to any real file a load command names in no known prefix outside the system's own roots, which also covers another provider's relocated store, and round 3 to a real interpreter or path-shaped shebang word outside those roots and `SYSTEM_PATH`. It costs a removal, not a claim.
 
-**Finding 3, tightened twice.** Finding 3 asks whether any `@rpath` candidate lies under the other prefix, not which loads, and that stands. A name none of whose candidates exists was not answered by it, so it is `RPATH_UNRESOLVED`, even when a candidate is spelled in the destination (round 2).
+**The system's own roots (work order 16 H-2 round 3).** `/usr/lib` and `/System/Library`. **Never `/System`:** `/System/Volumes/Data` is the whole writable volume, `canonicalize` keeps that spelling, dyld honours it, and everything reports one `st_dev`, so no device check tells them apart. `man dyld` (read 2026-11-04) writes dylibs by these full paths, keeps `/usr/lib` and `/System/Library/Frameworks` on its default fallback paths, and says an image may come from the shared cache. Inside `/System/Library`, read-only on this machine (macOS 26.7.2) with `mount` reporting `/` as sealed and read-only:
 
-**What that cost, measured 2026-11-04.** Read-only, over this machine's installed packages through the product's own reads and judges, no package's program run (x86_64, macOS 26, one machine, a sample of what it holds). One row per first cause the judge names:
+- `/usr/share/firmlinks` lists seven there, each the Data volume: `Caches`, `Assets`, `PreinstalledAssets`, `AssetsV2`, `PreinstalledAssetsV2`, `Speech` and `CoreServices/CoreTypes.bundle/Contents/Library`. All are excluded.
+- Writable by a non-root user, by mode: `AssetsV2/locks` and `AssetsV2/downloadDir` are `drwxrwxrwx`, as are directories under `AssetsV2/locks`, and `Caches/MobileActivation/data_ark.plist` is `-rw-rw-rw-`. The others show no world-writable entry to depth 8, which does not make them sealed.
+- `Templates/Data` holds world-writable modes too (`Library/Caches`, among others), and `Templates/Data/Applications` is group-writable by `admin`. It is not a firmlink, and it is excluded on its modes without deciding whether the seal makes them moot.
+- `/usr/lib` shows no world-writable entry to depth 8.
+
+The exclusions are by text in either case, and by `(dev, ino)` of each ancestor for a Unicode fold no text comparison sees.
+
+**Finding 3, tightened and then corrected.** Finding 3 asks whether any `@rpath` candidate lies under the other prefix, not which loads, and that stands. A name none of whose candidates exists was not answered by it, so it is `RPATH_UNRESOLVED`, even when a candidate is spelled in the destination (round 2). The exception is a candidate under the roots above, which answers the name though absent, since a system library lives in the shared cache (round 3). That the library loads from the cache is inferred from the file being absent and the program being in use; it was not traced.
+
+**What that costs, measured 2026-11-04, after round 3.** Read-only, over this machine's installed packages through the product's own reads and judges, no package's program run (x86_64, macOS 26, one machine, a sample of what it holds). One row per first cause the judge names:
 
 | Linkage answer | Homebrew (194) | MacPorts (18) |
 |---|---|---|
-| `HOLDS` | 165 | 16 |
+| `HOLDS` | 166 | 16 |
 | `INTERPRETER_RESOLVED_AT_RUN_TIME` | 10 | 1 |
 | `WALK_OVER_BOUND` | 9 | 0 |
 | `FILE_LIST_NOT_KNOWN` | 4 | 0 |
-| `RPATH_UNRESOLVED` | 4 | 0 |
+| `RPATH_UNRESOLVED` | 3 | 0 |
 | `MALFORMED_FILE` | 2 | 1 |
 | `FILE_NOT_EXAMINED` | 0 | 0 |
 | `FAILS` | 0 | 0 |
 
-The real-file rule turned nothing unchecked here. The candidate rule accounts for one package at most: **`swiftformat`, the 8 names of E-4.** Its executable alone sets the flag: its candidates are `/usr/lib/swift`, `@loader_path` and an Xcode toolchain, and `libswiftCore.dylib` is in none of them on disk, so it answers `RPATH_UNRESOLVED` although dyld would load it from the shared cache. `imath`, `openexr` and `jpeg-xl` set the same flag by another rule, older than round 2: `libImath` and `openexr`'s libraries carry `@executable_path/../lib` in a dylib. `jpeg-xl`'s own files carry no such rpath in what was searched, and its executables set the flag only when walked, which is consistent with reaching those libraries and was not traced further. Integrity on the same packages: 190 and 18 hold, and 4 Homebrew `FILE_LIST_NOT_KNOWN`, the same four.
+Neither real-file rule, nor charging ancestors to the bound, turned anything unchecked here. **`swiftformat`, the 8 names of E-4,** holds again: round 2's candidate rule alone had made it `RPATH_UNRESOLVED`, since `/usr/lib/swift/libswiftCore.dylib` is not on disk. `imath`, `openexr` and `jpeg-xl` answer `RPATH_UNRESOLVED` by another rule, older than round 2: `libImath` and `openexr`'s libraries carry `@executable_path/../lib` in a dylib. `jpeg-xl`'s own files carry no such rpath in what was searched, and its executables set the flag only when walked, which is consistent with reaching those libraries and was not traced further. Integrity on the same packages: 190 and 18 hold, and 4 Homebrew `FILE_LIST_NOT_KNOWN`, the same four.
 
-**Script bodies are unread, and that is accepted scope.** A shebang's interpreter and each absolute argument on its line are classified (`#!/usr/bin/env /opt/homebrew/bin/python3`). What the script then runs, loads or names is not read: nothing short of running it would answer, and the claim is about references in load commands and shebangs, as the basis `REFERENCES_EXAMINED` says.
+**Script bodies are unread, and that is accepted scope.** A shebang's interpreter, and any `/...` inside a word on its line, are classified (`#!/usr/bin/env /opt/homebrew/bin/python3`). What the script then runs, loads or names is not read: nothing short of running it would answer, and the claim is about references in load commands and shebangs, as the basis `REFERENCES_EXAMINED` says.
 
 **The window between `canonicalize` and `open` is accepted.** The walk classifies by what resolved and then opens the name, so something swapped between the two is read under the first answer. Everything here runs under the run's lock, over a prefix only the owner's own account writes to, and the attacker who could race it could as easily have written the file. The reader does not pretend otherwise; a handle-only walk would not change what a later `exec` loads.

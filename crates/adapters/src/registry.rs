@@ -370,13 +370,39 @@ impl DestinationSites<'_, '_> {
     }
 
     /// What linkage is measured against, or `None` where nothing may be looked at:
-    /// building it `canonicalize`s every documented prefix on this disk.
+    /// building it `canonicalize`s every documented prefix on this disk, and this is
+    /// the only way to it, so no route skips the guard. The destination's prefix, each
+    /// other detected prefix, and then every documented candidate no provider was
+    /// detected at, the last only where nothing stronger claimed the path. Each as
+    /// written and canonically, so a canonical load target is measured against a
+    /// canonical prefix.
     #[must_use]
     pub fn linkage_prefixes(&self, destination: &ProviderId) -> Option<PrefixTable> {
         if !self.live {
             return None;
         }
-        Some(self.prefix_table(destination))
+        let mut table = PrefixTable::default();
+        let mut add = |path: &Path, class: PrefixClass| {
+            table.add(path.as_os_str().as_bytes(), class);
+            if let Ok(real) = std::fs::canonicalize(path) {
+                table.add(real.as_os_str().as_bytes(), class);
+            }
+        };
+        let ids = known_provider_ids();
+        if let Some(site) = detected_prefix(self.ctx, destination) {
+            add(site.prefix(), PrefixClass::Destination);
+        }
+        for id in ids.iter().filter(|id| *id != destination) {
+            if let Some(site) = detected_prefix(self.ctx, id) {
+                add(site.prefix(), PrefixClass::DetectedOther);
+            }
+        }
+        for id in &ids {
+            for candidate in candidate_prefixes(id) {
+                add(&candidate, PrefixClass::UndetectedCandidate);
+            }
+        }
+        Some(table)
     }
 
     /// What `provider` observes for `query` about `package`, on an adapter built
@@ -435,35 +461,6 @@ impl DestinationSites<'_, '_> {
                 prefixes: &prefixes,
             },
         )
-    }
-
-    /// The destination's prefix, each other detected prefix, and then every
-    /// documented candidate no provider was detected at, the last only where
-    /// nothing stronger claimed the path. Each as written and canonically, so a
-    /// canonical load target is measured against a canonical prefix.
-    fn prefix_table(&self, destination: &ProviderId) -> PrefixTable {
-        let mut table = PrefixTable::default();
-        let mut add = |path: &Path, class: PrefixClass| {
-            table.add(path.as_os_str().as_bytes(), class);
-            if let Ok(real) = std::fs::canonicalize(path) {
-                table.add(real.as_os_str().as_bytes(), class);
-            }
-        };
-        let ids = known_provider_ids();
-        if let Some(site) = detected_prefix(self.ctx, destination) {
-            add(site.prefix(), PrefixClass::Destination);
-        }
-        for id in ids.iter().filter(|id| *id != destination) {
-            if let Some(site) = detected_prefix(self.ctx, id) {
-                add(site.prefix(), PrefixClass::DetectedOther);
-            }
-        }
-        for id in &ids {
-            for candidate in candidate_prefixes(id) {
-                add(&candidate, PrefixClass::UndetectedCandidate);
-            }
-        }
-        table
     }
 }
 
@@ -982,7 +979,7 @@ mod tests {
             live: true,
             _state: &state,
         };
-        let table = sites.prefix_table(&one);
+        let table = sites.linkage_prefixes(&one).expect("live");
         assert_eq!(
             table.class_of(b"/mpb-test/one/x"),
             Some(PrefixClass::Destination)
@@ -991,7 +988,7 @@ mod tests {
             table.class_of(b"/mpb-test/two/x"),
             Some(PrefixClass::DetectedOther)
         );
-        let table = sites.prefix_table(&two);
+        let table = sites.linkage_prefixes(&two).expect("live");
         assert_eq!(
             table.class_of(b"/mpb-test/one/x"),
             Some(PrefixClass::DetectedOther)

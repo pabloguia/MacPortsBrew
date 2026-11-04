@@ -444,6 +444,14 @@ fn checked_range(
 
 fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
     let rest = head.get(SHEBANG.len()..).unwrap_or_default();
+    // No line end in what was read, with more of the file past it: its words are not
+    // all here. On Darwin a line with no newline in its first 512 bytes does not
+    // exec (ENOEXEC, observed with `/bin/echo`, 2026-11-04), so nothing true is lost.
+    if !rest.iter().any(|byte| matches!(byte, b'\n' | 0))
+        && u64::try_from(head.len()).ok() != Some(file_len)
+    {
+        return Err(MachoError::TooLarge(LimitKind::ShebangLine));
+    }
     let is_blank = |byte: &u8| matches!(byte, b' ' | b'\t');
     let is_end = |byte: &u8| matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0);
     let start = rest.iter().position(|byte| !is_blank(byte));
@@ -471,17 +479,17 @@ fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
 /// The words of a `#!` line after its interpreter, as bytes, from the first bytes
 /// of the file. `env` and the interpreter's own arguments are here, so a caller can
 /// test what they name (`#!/usr/bin/env /x/python3`). Empty for a file that is not
-/// a script. Only `head` is looked at, and a line with no end inside it reads as
-/// what is there: the caller reaches this only after [`classify`], which refuses such
-/// a line (`MalformedFile`) unless `head` is the whole file. CR and NUL end the line
-/// here, as they end the interpreter's name there.
+/// a script. Only `head` is looked at: the caller reaches this only after [`classify`],
+/// which refuses a line with no end in `head` unless `head` is the whole file. A
+/// newline or a NUL ends the line, as they do for the kernel (observed with
+/// `/bin/echo`, 2026-11-04). A CR does not, so it stays inside the word.
 #[must_use]
 pub fn shebang_arguments(head: &[u8]) -> Vec<&[u8]> {
     let Some(rest) = head.strip_prefix(SHEBANG) else {
         return Vec::new();
     };
     let line = rest
-        .split(|byte| matches!(byte, b'\n' | b'\r' | 0))
+        .split(|byte| matches!(byte, b'\n' | 0))
         .next()
         .unwrap_or_default();
     line.split(|byte| matches!(byte, b' ' | b'\t'))
