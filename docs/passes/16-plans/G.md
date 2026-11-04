@@ -278,6 +278,9 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 
 | `spec-guardian`, G-3 round 2 | `523b895`, 2026-11-04 | Approve with changes: tripwire bypasses left (`mod x;` hides the next item, `tests.rs`, aliases, `NotChecked` file-wide), SE-015 overstates it; nothing guards the `status`/`list` wiring; low: a doc comment, a thin INV-15 test, the halt's instant, an imprecise deviation, a comment overclaiming | All fixed; SE-015 now states the tripwire's limit |
 | `security-reviewer`, G-3 round 2 | `523b895`, 2026-11-04 | No product defect, every dispatch preceded by a clearing sample. S1 `code_of` cut the file first; S2 a sample's answer can be discarded on the consent path; S3 alias, turbofish, reassignment; S4 the halt's instant | S1, S3, S4 fixed. S2: text check that the answer is used; the behavioural test stays owed by part J. A token consumed by dispatch was considered and not built, since the behavioural tests already catch a discard there |
+| `spec-guardian`, G-3 round 3 | `c90ef7b`, 2026-11-04 | Approve with changes: four new refusals have no planted test (an unasserted replace of mine did not apply); the halt's sentences unasserted; an empty `if let Err` body passes; the `status`/`list` check only counted | All fixed; the deferred note names the two new joins |
+| `security-reviewer`, G-3 round 3 | `c90ef7b`, 2026-11-04 | No product defect. S2 not closed: an `if let Err` that stays, and another statement's `?`, both pass, proved by mutants. A char literal `'{'` still cut the file | The check now requires `?` on the call's own expression or a body that leaves; char literals are blanked; unbalanced braces panic instead of reaching the end of the file |
+| `docs-auditor`, G-3 | `c90ef7b`, 2026-11-04 | Clean; low: lock behaviour in the wiki carries no date | Dated to R-17 |
 
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 

@@ -546,14 +546,15 @@ change is made. Silent deviation remains the one unrecoverable error.
   nothing builds this type's `NotChecked` or asks a source with no sample; only the probe's module implements
   `ProviderLockProbe`, and nothing renames it; an unsampled `analyze(` is only a snapshot's; outside the shell `MutatingRun`
   is only ever built, with the registry's probe, and no probe is reassigned; the context samples once, counts broken
-  providers and carries it; and `[locks]` holds each sample's place and that its answer is used. "Only the owner
+  providers and carries it; and `[locks]` holds each sample's place and that its answer is acted on: `?` on the call, or an
+  `if let Err` whose body leaves. "Only the owner
   relaxes this" stays. Its rewrite is recorded here because it is a gate: it asks more than before. **Declared limit:**
   it reads source text, so it raises the cost of a mistake and does not prove the absence of a determined one: serde's
   `Deserialize` can construct the value, a macro or a `#[path]` outside `src/` is not read, and two reviews each found
   new ways past earlier versions. What stands behind it is the behaviour in `executor_wiring.rs`, except on the consent
   path, which no plan reaches in this build and part J owes a test.
-  **Deferred:** the `OBSERVED` and `NOT_DETERMINED` sentences still join provider ids with a hard-coded `.join(", ")` in
-  `crates/cli/src/app/human.rs`, the catalogue list form owed "with the detector"; both catalogues read correctly with it
+  **Deferred:** the `OBSERVED` and `NOT_DETERMINED` sentences, a halted run's two among them, still join provider ids with a
+  hard-coded `.join(", ")` in `crates/cli/src/app/human.rs`, the catalogue list form owed "with the detector"; both catalogues read correctly with it
   today, and `add-locale` is where it binds. **Declared:** any local account that can read a lock file can hold a `flock`
   on it and block every mutating run indefinitely; there is no override and no holder is named, because a holder cannot be
   told apart (04). **INV-17 review:** each provider has work no lock shows: a MacPorts `sync`, `selfupdate` or `clean`

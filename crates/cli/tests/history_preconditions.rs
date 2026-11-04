@@ -75,6 +75,20 @@ fn code_of(text: &str) -> String {
     without_test_modules(&stripped(text))
 }
 
+/// How long the character literal at the start of `chars` is, if one is there.
+/// `'a` with no closing quote is a lifetime.
+fn char_literal_at(chars: &[char]) -> Option<usize> {
+    if chars.first() != Some(&'\'') {
+        return None;
+    }
+    if chars.get(1) == Some(&'\\') {
+        // '\n', '\'', '\u{1F600}'.
+        let close = chars.iter().skip(3).take(10).position(|c| *c == '\'')?;
+        return Some(close + 4);
+    }
+    (chars.get(2) == Some(&'\'') && chars.get(1) != Some(&'\'')).then_some(3)
+}
+
 /// `text` without comments or string contents.
 fn stripped(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -95,10 +109,11 @@ fn stripped(text: &str) -> String {
                 i += 1;
             }
             i += 2;
-        } else if c == '\'' && chars.get(i + 1) == Some(&'"') && chars.get(i + 2) == Some(&'\'') {
-            // A character literal holding a quote must not open a string.
+        } else if let Some(len) = char_literal_at(&chars[i..]) {
+            // A character literal holds no code: a quote in one must not open a
+            // string, nor a brace in one count as a block.
             out.push_str("' '");
-            i += 3;
+            i += len;
         } else if c == 'r'
             && matches!(next, Some('"' | '#'))
             && !out.chars().next_back().is_some_and(is_ident)
@@ -431,9 +446,7 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
         // A sample whose answer is thrown away is no sample (G-3 review, S2): the
         // consent path has no behavioural test until part J makes it reachable.
         for at in &samples {
-            let statement = code[*at..].split(';').next().unwrap_or("");
-            let tested = code[..*at].trim_end().ends_with("if let Err(refusal) =");
-            if !tested && !statement.contains('?') {
+            if !sample_answer_is_used(code, *at) {
                 violations.push(format!("[locks] {name}: a sample's answer is discarded"));
             }
         }
@@ -588,6 +601,73 @@ const DOMAIN_TYPE: &str = "crates/domain/src/concurrency.rs";
 
 /// `code` without its `#[cfg(test)] mod` items, matched by brace. Only those:
 /// production code can follow a test module.
+/// Where the block `text` opens with ends, just past its closing brace.
+fn block_end(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether the sample called at `at` has its answer acted on: `?` on the call's
+/// own expression, or an `if let Err` whose body leaves.
+fn sample_answer_is_used(code: &str, at: usize) -> bool {
+    let call = &code[at..];
+    let Some(open) = call.find('(') else {
+        return false;
+    };
+    let mut depth = 0usize;
+    let mut after = None;
+    for (i, c) in call[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    after = Some(&call[open + i + 1..]);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(after) = after else {
+        return false;
+    };
+    let mut depth = 0usize;
+    for c in after.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' if depth == 0 => break,
+            ')' => depth -= 1,
+            '?' if depth == 0 => return true,
+            ';' | '{' if depth == 0 => break,
+            _ => {}
+        }
+    }
+    if !code[..at].trim_end().ends_with("if let Err(refusal) =") {
+        return false;
+    }
+    let Some(open) = after.find('{') else {
+        return false;
+    };
+    block_end(&after[open..]).is_some_and(|end| {
+        let body = &after[open..open + end];
+        body.split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|word| word == "break" || word == "return")
+    })
+}
+
 fn without_test_modules(code: &str) -> String {
     let mut out = String::new();
     let mut rest = code;
@@ -596,29 +676,16 @@ fn without_test_modules(code: &str) -> String {
         out.push_str(&rest[..at]);
         if let Some(body) = after.strip_prefix("mod ") {
             // `mod x;` is a declaration: it ends there, and what follows is kept.
-            let Some(open) = body.find(['{', ';']) else {
-                rest = "";
-                break;
-            };
+            let open = body
+                .find(['{', ';'])
+                .expect("a test module with no body or semicolon");
             if body[open..].starts_with(';') {
                 rest = &body[open + 1..];
                 continue;
             }
-            let mut depth = 0usize;
-            let mut end = body.len();
-            for (i, c) in body[open..].char_indices() {
-                match c {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = open + i + 1;
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            // Never to the end of the file on a miscount: that would hide
+            // whatever follows, which is how this scan fails silently.
+            let end = open + block_end(&body[open..]).expect("a test module's braces balance");
             rest = &body[end..];
         } else {
             rest = after;
@@ -865,10 +932,50 @@ fn the_probe_tripwire_names_each_way_it_is_broken() {
             "crates/cli/src/app/x.rs",
             "y(MutatingRun { locks: &Stub, }, z);",
         ),
+        (
+            "a renamed trait",
+            cli,
+            "use d::ProviderLockProbe as P; impl P for Stub {}",
+        ),
+        (
+            "a replaced probe",
+            "crates/cli/src/app/x.rs",
+            "run.locks = &stub;",
+        ),
+        (
+            "a turbofish",
+            "crates/cli/src/app/x.rs",
+            "MutatingRun::<M> { locks: &Stub };",
+        ),
+        (
+            "an alias of the run",
+            "crates/cli/src/app/x.rs",
+            "type R<'a> = MutatingRun<'a>;",
+        ),
+        (
+            "a source with no sample",
+            "crates/cli/src/app/x.rs",
+            "of(ctx.source.concurrent_provider_activity());",
+        ),
+        (
+            "not the marker's",
+            "crates/application/src/doctor.rs",
+            "enum RunFacts { NotChecked, } let s = A::NotChecked;",
+        ),
     ] {
         assert!(!planted(name, code).is_empty(), "{what} was not caught");
     }
     for (what, name, code) in [
+        (
+            "the marker's own",
+            "crates/cli/src/app/interrupted.rs",
+            "return RunFacts::NotChecked;",
+        ),
+        (
+            "the marker's type",
+            "crates/application/src/doctor.rs",
+            "enum RunFacts { NotChecked, }",
+        ),
         (
             "a pattern",
             "crates/cli/src/app/human.rs",
@@ -925,6 +1032,18 @@ fn a_test_module_is_removed_and_what_follows_it_is_kept() {
         ("declared", "#[cfg(test)]\nmod tests;\n"),
         ("declared on one line", "#[cfg(test)] mod tests;\n"),
         ("commented", "// #[cfg(test)]\n// mod real { }\n"),
+        (
+            "a brace in a character",
+            "#[cfg(test)]\nmod t { const C: char = '{'; fn t() {} }\n",
+        ),
+        (
+            "a quote in a character",
+            "#[cfg(test)]\nmod t { const C: char = '\"'; fn t() {} }\n",
+        ),
+        (
+            "an escaped quote",
+            "#[cfg(test)]\nmod t { const C: char = '\\''; fn t() {} }\n",
+        ),
     ] {
         let kept = code_of(&format!("fn a() {{}}\n{module}fn b() {{}}\n"));
         assert!(
@@ -933,6 +1052,8 @@ fn a_test_module_is_removed_and_what_follows_it_is_kept() {
         );
         assert!(!kept.contains("fn t()"), "{what}: {kept}");
     }
+    let lifetimes = code_of("#[cfg(test)]\nmod t { fn t<'a>(x: &'a u8) {} }\nfn b() {}\n");
+    assert!(lifetimes.contains("fn b()"), "{lifetimes}");
     let helper = code_of("#[cfg(test)]\nfn c() {}\nfn d() {}\n");
     assert!(
         helper.contains("fn c()") && helper.contains("fn d()"),
@@ -956,7 +1077,20 @@ fn status_and_list_each_ask_whether_an_overview_shows_the_answer() {
         .iter()
         .find(|(n, _)| n == "crates/cli/src/app/mod.rs")
         .expect("the commands");
-    assert_eq!(calls_of(code, "human::an_overview_shows(").len(), 2);
+    for (arm, next) in [
+        ("Command::Status =>", "Command::Analyze"),
+        ("Command::List", "Command::Explain"),
+    ] {
+        let from = code.find(arm).expect("the arm");
+        let to = from + code[from..].find(next).expect("the next arm");
+        let arm_code = &code[from..to];
+        assert_eq!(
+            calls_of(arm_code, "human::an_overview_shows(").len(),
+            1,
+            "{arm}"
+        );
+        assert_eq!(calls_of(arm_code, "human::concurrency(").len(), 1, "{arm}");
+    }
 }
 
 #[test]
@@ -1343,9 +1477,26 @@ fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
     assert!(!locks(&discarded).is_empty(), "an answer thrown away");
     let tested = GOOD.replace(
         "    provider_lock_sample(locks, &now)?;",
-        "    if let Err(refusal) = provider_lock_sample(locks, &now) { halt(refusal); }",
+        "    if let Err(refusal) = provider_lock_sample(locks, &now) { return halt(refusal); }",
     );
     assert_eq!(locks(&tested), Vec::<String>::new(), "an answer tested");
+    for (what, form) in [
+        (
+            "an empty body",
+            "    if let Err(refusal) = provider_lock_sample(locks, &now) {}",
+        ),
+        (
+            "a body that stays",
+            "    if let Err(refusal) = provider_lock_sample(locks, &now) { drop(refusal); }",
+        ),
+        (
+            "another statement's `?`",
+            "    if provider_lock_sample(locks, &now).is_err() {}\n    (io.recapture)()?;",
+        ),
+    ] {
+        let used_nowhere = GOOD.replace("    provider_lock_sample(locks, &now)?;", form);
+        assert!(!locks(&used_nowhere).is_empty(), "{what}");
+    }
     let sampled_snapshot = GOOD.replace(
         under,
         &format!("{under}    (io.recapture)();\n{under}    take_snapshot(state);\n"),

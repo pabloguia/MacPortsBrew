@@ -192,6 +192,9 @@ something like it, that is a bug worth reporting.
 
 ## A line about a package manager's locks
 
+What this section says about the locks themselves comes from research R-17, answered
+on 2026-10-05, and may have changed in a newer version of either package manager.
+
 A live command samples each detected provider's own locks once, right after it reads
 the machine. It takes nothing and creates nothing. `analyze`, `plan`, `migrate`,
 `explain`, `doctor` and `restore` always end with the answer; `status` and `list`

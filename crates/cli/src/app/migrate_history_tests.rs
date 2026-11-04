@@ -583,13 +583,8 @@ fn a_run_halted_by_a_provider_lock_names_the_provider_and_the_cause_and_no_path(
     let c = cli("htop", "macports", false);
     let ctx = live(&c);
     let plan = plan_of(&ctx, &request("htop", "macports"));
-    let run = RunReport {
-        provider_locks_at_halt: Some(A::NotDetermined {
-            undetermined: BTreeMap::from([(
-                ProviderId::new("someprovider"),
-                UndeterminedCause::Changed,
-            )]),
-        }),
+    let run_with = |answer: A| RunReport {
+        provider_locks_at_halt: Some(answer),
         outcome: RunOutcome::Halted {
             step: 2,
             reason: macportsbrew_application::HaltReason::UnexecutedMutation,
@@ -606,8 +601,35 @@ fn a_run_halted_by_a_provider_lock_names_the_provider_and_the_cause_and_no_path(
             record_read_back: None,
         },
     };
-    let text = human::run_report(&ctx, &plan, &run);
-    assert!(text.contains("someprovider"), "{text}");
+    let undetermined =
+        BTreeMap::from([(ProviderId::new("someprovider"), UndeterminedCause::Changed)]);
+    // The sentence names the instant: this sample stood immediately before a
+    // command, which is not what a read-only command's answer says.
+    let text = human::run_report(
+        &ctx,
+        &plan,
+        &run_with(A::NotDetermined {
+            undetermined: undetermined.clone(),
+        }),
+    );
+    assert!(
+        text.contains("Whether a lock of someprovider was held immediately before this command"),
+        "{text}"
+    );
+    let text = human::run_report(
+        &ctx,
+        &plan,
+        &run_with(A::Observed {
+            providers: [ProviderId::new("otherprovider")].into_iter().collect(),
+            undetermined: undetermined.clone(),
+        }),
+    );
+    assert!(
+        text.contains("A lock of otherprovider was held immediately before this command"),
+        "{text}"
+    );
+    assert!(text.contains("someprovider"), "the cause line too: {text}");
+    let run = run_with(A::NotDetermined { undetermined });
     let doc = serde_json::to_value(super::execution(&run)).expect("serialises");
     let answer = &doc["providerLocksAtHalt"];
     assert_eq!(answer["activity"], "NOT_DETERMINED", "{doc}");
