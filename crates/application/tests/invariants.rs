@@ -800,7 +800,7 @@ fn invariant_03_a_broken_provider_degrades_the_analysis_instead_of_failing_it() 
 fn the_analysis_carries_the_concurrency_flag_its_source_decides() {
     // The flag is the source's answer, never a constant: the same snapshot
     // analysed as a live capture and as a loaded file says two different
-    // things, and both say possibly inconsistent (SE-015).
+    // things. Given no sample, both say possibly inconsistent (SE-015).
     let snap = both_present();
     for source in [AnalysisSource::Live, AnalysisSource::Snapshot] {
         let analysis = analyze(&snap, &policy(), &options(), source);
@@ -2103,4 +2103,40 @@ fn a_plan_document_from_before_the_field_loads_with_no_entry() {
     value.as_object_mut().unwrap().remove("enteredBy");
     let loaded: MigrationPlan = serde_json::from_value(value).unwrap();
     assert_eq!(loaded.entered_by, None);
+}
+
+#[test]
+fn a_live_analysis_carries_its_sample_and_a_snapshot_never_does() {
+    // G item 5: the sample is an argument, and a snapshot forces `UNKNOWABLE`
+    // whatever is passed, so an analysis cannot report a look nobody took.
+    use macportsbrew_application::analyze_sampled;
+    use macportsbrew_domain::{ConcurrentProviderActivity as A, UndeterminedCause};
+    use std::collections::BTreeMap;
+    let snapshot = both_present();
+    let policy = policy();
+    let options = options();
+    let undetermined = A::NotDetermined {
+        undetermined: BTreeMap::from([(
+            macportsbrew_domain::ProviderId::new("a"),
+            UndeterminedCause::Changed,
+        )]),
+    };
+    for sample in [A::NoneObserved, undetermined] {
+        let live = analyze_sampled(
+            &snapshot,
+            &policy,
+            &options,
+            AnalysisSource::Live,
+            sample.clone(),
+        );
+        assert_eq!(live.concurrent_provider_activity.activity(), &sample);
+        let file = analyze_sampled(
+            &snapshot,
+            &policy,
+            &options,
+            AnalysisSource::Snapshot,
+            sample,
+        );
+        assert_eq!(file.concurrent_provider_activity.activity(), &A::Unknowable);
+    }
 }

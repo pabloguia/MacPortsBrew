@@ -330,6 +330,7 @@ fn execute_mutating(
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
             shown,
+            locks: &macportsbrew_adapters::registry::lock_probe(registry),
         },
         &ctx.redaction,
     )
@@ -487,9 +488,9 @@ fn migrate_with(
     history: &dyn Fn(&MigrationKey) -> Result<HistoryView, DomainError>,
 ) -> Result<i32, DomainError> {
     let mode = Mode::of(cli);
-    // Decided by where the input came from, never by looking: a live run did
-    // not check, and a recording or a snapshot file could not have (INV-15).
-    let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+    // A live run's sample, taken after its capture; a recording or a snapshot
+    // file could not have looked (INV-15).
+    let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
     let io = |e: std::io::Error| DomainError::new(ErrorId::Io, e.to_string());
     let start = migration_start(
         &ctx.snapshot,

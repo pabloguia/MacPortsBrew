@@ -40,16 +40,17 @@ use macportsbrew_application::{
     clear, confirm_shown, evaluable_in_this_build, plan_run, tie, AnalysisOptions,
     ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
     ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest,
-    PlannedRun, Precondition, RunOutcome, ShownPlan,
+    PlannedRun, Precondition, RunOutcome, ShownPlan, PARTIAL_SUCCESS_EXIT_CODE,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, CommandEnd, CommandLineTools, ConfigurationFile, ConfigurationScope,
-    DomainError, EnvironmentSnapshot, ErrorId, HomeRedaction, InstalledPackage, Machine,
-    MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata, PlanCommand,
-    Provenance, ProviderCapabilities, ProviderConfiguration, ProviderDetection, ProviderId,
-    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, RunStart, Snapshot,
-    StepKind, SuccessSemantic, Translation, Version, SNAPSHOT_SCHEMA_VERSION,
+    CapabilityState, CommandEnd, CommandLineTools, ConcurrentProviderActivity, ConfigurationFile,
+    ConfigurationScope, DomainError, EnvironmentSnapshot, ErrorId, HomeRedaction, InstalledPackage,
+    Machine, MacosVersion, MigrationPlan, PackageIdentity, PackageKind, PackageMetadata,
+    PlanCommand, Provenance, ProviderCapabilities, ProviderConfiguration, ProviderDetection,
+    ProviderId, ProviderInventory, ProviderLockProbe, ProviderPresence, ProviderSnapshot,
+    RequestedSet, RunStart, Snapshot, StepKind, SuccessSemantic, Translation, UndeterminedCause,
+    Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -547,6 +548,59 @@ fn never_asked(requests: &[ElevationRequest]) -> ConsentDecision {
     panic!("a cleared run asked for consent: {requests:?}")
 }
 
+/// A lock probe that answers each sample from `answers`, then as a quiet machine
+/// does, and counts what it was asked.
+#[derive(Default)]
+struct Scripted {
+    answers: RefCell<std::collections::VecDeque<ConcurrentProviderActivity>>,
+    asked: std::cell::Cell<usize>,
+}
+
+impl Scripted {
+    fn answering(answers: Vec<ConcurrentProviderActivity>) -> Self {
+        Self {
+            answers: RefCell::new(answers.into()),
+            asked: std::cell::Cell::new(0),
+        }
+    }
+}
+
+impl ProviderLockProbe for Scripted {
+    fn sample(&self) -> ConcurrentProviderActivity {
+        self.asked.set(self.asked.get() + 1);
+        self.answers
+            .borrow_mut()
+            .pop_front()
+            .unwrap_or(ConcurrentProviderActivity::NoneObserved)
+    }
+}
+
+fn held() -> ConcurrentProviderActivity {
+    ConcurrentProviderActivity::Observed {
+        providers: BTreeSet::from([ProviderId::new("homebrew")]),
+        undetermined: BTreeMap::new(),
+    }
+}
+
+fn not_determined() -> ConcurrentProviderActivity {
+    ConcurrentProviderActivity::NotDetermined {
+        undetermined: BTreeMap::from([(
+            ProviderId::new("macports"),
+            UndeterminedCause::UnexpectedShape,
+        )]),
+    }
+}
+
+/// A lock probe that answers as a quiet machine does, the seam a test reaches
+/// dispatch through (G item 13): a recording answers `Unknowable` and halts.
+struct LocksFree;
+
+impl ProviderLockProbe for LocksFree {
+    fn sample(&self) -> ConcurrentProviderActivity {
+        ConcurrentProviderActivity::NoneObserved
+    }
+}
+
 /// The witness that `cleared`'s plan was shown and confirmed, minted the only
 /// way there is: the exact phrase with its code.
 fn shown(cleared: &GateClear) -> ShownPlan {
@@ -565,11 +619,23 @@ fn run<M: MutationSite>(
     setup: &Setup<'_>,
     seen: &Seen,
 ) -> Result<RunReport, DomainError> {
+    run_sampling(cleared, scratch, site, setup, seen, &LocksFree)
+}
+
+fn run_sampling<M: MutationSite>(
+    cleared: &GateClear,
+    scratch: &Scratch,
+    site: &M,
+    setup: &Setup<'_>,
+    seen: &Seen,
+    locks: &dyn ProviderLockProbe,
+) -> Result<RunReport, DomainError> {
     let plan = cleared.run().plan().clone();
     run_with_mutations(
         cleared,
         || Reads(Box::leak(Box::new(plan))),
         MutatingRun {
+            locks,
             shown: shown(cleared),
             live: setup.live,
             state: &scratch.state,
@@ -591,6 +657,224 @@ fn directions() -> [(&'static str, Direction); 2] {
         ("toward Homebrew", Direction::toward_homebrew()),
         ("toward MacPorts", Direction::toward_macports()),
     ]
+}
+
+// --- the providers' own locks (DP-030 (b)) ---------------------------------------
+
+#[test]
+fn invariant_17_a_provider_lock_refuses_before_anything_is_written_in_both_directions() {
+    // Under the run lock, sampled before and after the capture: exit 7 for a lock
+    // seen held, 4 for anything else, and no marker, snapshot or command. Both
+    // directions, by the same code.
+    for (name, direction) in directions() {
+        for (what, answer, id) in [
+            ("held", held(), ErrorId::ProviderLockHeld),
+            (
+                "undetermined",
+                not_determined(),
+                ErrorId::ProviderLocksNotDetermined,
+            ),
+            (
+                "not checked",
+                ConcurrentProviderActivity::NotChecked,
+                ErrorId::ProviderLocksNotDetermined,
+            ),
+            (
+                "unknowable",
+                ConcurrentProviderActivity::Unknowable,
+                ErrorId::ProviderLocksNotDetermined,
+            ),
+        ] {
+            for sample in 0..2 {
+                let scratch = Scratch::new("provider-lock");
+                let site = Site::exits(&scratch, 0);
+                let seen = Seen::default();
+                let mut answers = vec![ConcurrentProviderActivity::NoneObserved; sample];
+                answers.push(answer.clone());
+                let error = run_sampling(
+                    &direction.cleared(),
+                    &scratch,
+                    &site,
+                    &unchanged(&direction, &scratch),
+                    &seen,
+                    &Scripted::answering(answers),
+                )
+                .expect_err("a refusal");
+                assert_eq!(error.id, id, "{name}, {what}, sample {sample}");
+                assert!(site.handed.borrow().is_empty(), "{name}, {what}");
+                let seen = seen.all();
+                assert!(!seen.contains(&Boundary::MarkerWritten), "{name}: {seen:?}");
+                assert!(
+                    !seen.contains(&Boundary::SnapshotWritten),
+                    "{name}: {seen:?}"
+                );
+                assert!(!seen.contains(&Boundary::RecordWritten), "{name}: {seen:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_refusal_names_providers_and_causes_and_no_path() {
+    let scratch = Scratch::new("provider-lock-detail");
+    let direction = Direction::toward_homebrew();
+    let site = Site::exits(&scratch, 0);
+    let error = run_sampling(
+        &direction.cleared(),
+        &scratch,
+        &site,
+        &unchanged(&direction, &scratch),
+        &Seen::default(),
+        &Scripted::answering(vec![not_determined()]),
+    )
+    .expect_err("a refusal");
+    assert!(
+        error.detail == "macports=UNEXPECTED_SHAPE",
+        "{}",
+        error.detail
+    );
+}
+
+/// How many samples a clean run of `direction` takes, and how many commands it
+/// hands over.
+fn clean_run_counts(direction: &Direction) -> (usize, usize) {
+    let scratch = Scratch::new("provider-lock-count");
+    let site = Site::exits(&scratch, 0);
+    let probe = Scripted::default();
+    run_sampling(
+        &direction.cleared(),
+        &scratch,
+        &site,
+        &unchanged(direction, &scratch),
+        &Seen::default(),
+        &probe,
+    )
+    .expect("a report");
+    let handed = site.handed.borrow().len();
+    (probe.asked.get(), handed)
+}
+
+#[test]
+fn every_mutating_command_gets_its_own_sample() {
+    for (name, direction) in directions() {
+        let (asked, handed) = clean_run_counts(&direction);
+        assert!(handed > 0, "{name}");
+        // Two under the lock, then one per command handed over.
+        assert_eq!(asked, 2 + handed, "{name}");
+    }
+}
+
+#[test]
+fn a_sample_failing_before_a_command_halts_that_command_and_says_why() {
+    for (name, direction) in directions() {
+        for (answer, why) in [
+            (held(), Precondition::ProviderLockHeld),
+            (not_determined(), Precondition::ProviderLocksNotDetermined),
+            (
+                ConcurrentProviderActivity::NotChecked,
+                Precondition::ProviderLocksNotDetermined,
+            ),
+        ] {
+            // The third sample is the one immediately before the first command.
+            let scratch = Scratch::new("provider-lock-first");
+            let site = Site::exits(&scratch, 0);
+            let mut answers = vec![ConcurrentProviderActivity::NoneObserved; 2];
+            answers.push(answer.clone());
+            let report = run_sampling(
+                &direction.cleared(),
+                &scratch,
+                &site,
+                &unchanged(&direction, &scratch),
+                &Seen::default(),
+                &Scripted::answering(answers),
+            )
+            .expect("a report");
+            assert!(site.handed.borrow().is_empty(), "{name}");
+            let halt = report.records.iter().find_map(|r| match &r.disposition {
+                Disposition::Halted { reason, .. } => Some(reason.clone()),
+                _ => None,
+            });
+            assert_eq!(
+                halt,
+                Some(HaltReason::PreconditionFailed { command: 0, why }),
+                "{name}"
+            );
+            // What it saw, and no marker stranded by a refusal.
+            assert_eq!(
+                report.provider_locks_at_halt,
+                Some(answer.clone()),
+                "{name}"
+            );
+            assert_eq!(report.marker_left, None, "{name}");
+            assert!(!report.record_written, "{name}: nothing went out to record");
+            // The snapshot step was carried out, so this is the outcome any halt
+            // at the first command gets; history records it as no change. Before
+            // the snapshot, the refusal is exit 7 or 4 (the test above).
+            assert_eq!(
+                report.outcome.exit_code(),
+                PARTIAL_SUCCESS_EXIT_CODE,
+                "{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it() {
+    // A clean run tells which sample stands immediately before the last command;
+    // that command is the removal. Held at that one sample: everything before it
+    // went out, the removal did not, and it ends a partial success, recorded and
+    // with the marker cleared (INV-03).
+    let mut removed_somewhere = false;
+    for (name, direction) in directions() {
+        let cleared = direction.cleared();
+        let removes = cleared
+            .run()
+            .plan()
+            .steps
+            .iter()
+            .any(|s| s.kind == StepKind::RemoveSource);
+        if !removes {
+            continue;
+        }
+        removed_somewhere = true;
+        let (asked, handed) = clean_run_counts(&direction);
+        let scratch = Scratch::new("provider-lock-removal");
+        let site = Site::exits(&scratch, 0);
+        let mut answers = vec![ConcurrentProviderActivity::NoneObserved; asked - 1];
+        answers.push(held());
+        let report = run_sampling(
+            &cleared,
+            &scratch,
+            &site,
+            &unchanged(&direction, &scratch),
+            &Seen::default(),
+            &Scripted::answering(answers),
+        )
+        .expect("a report");
+        assert_eq!(site.handed.borrow().len(), handed - 1, "{name}");
+        let halt = report.records.iter().find_map(|r| match &r.disposition {
+            Disposition::Halted { reason, .. } => Some((r.kind, reason.clone())),
+            _ => None,
+        });
+        assert_eq!(
+            halt,
+            Some((
+                StepKind::RemoveSource,
+                HaltReason::PreconditionFailed {
+                    command: 0,
+                    why: Precondition::ProviderLockHeld
+                }
+            )),
+            "{name}"
+        );
+        assert_eq!(
+            report.outcome.exit_code(),
+            PARTIAL_SUCCESS_EXIT_CODE,
+            "{name}"
+        );
+    }
+    assert!(removed_somewhere, "no direction removes anything");
 }
 
 // --- the order ------------------------------------------------------------------
@@ -621,7 +905,9 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
         let mut expected = vec![
             Probed,
             Locked,
+            ProviderLocksSampled,
             Replanned,
+            ProviderLocksSampled,
             MarkerRead,
             SnapshotWritten,
             MarkerWritten,
@@ -633,6 +919,7 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
         expected.extend([
             StillCurrent,
             ConfigurationRechecked,
+            ProviderLocksSampled,
             Dispatched,
             RecordWritten,
             RecordReadBack,
@@ -768,6 +1055,7 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
         &cleared,
         || Absent,
         MutatingRun {
+            locks: &LocksFree,
             shown: shown(&cleared),
             live: true,
             state: &scratch.state,
@@ -1011,6 +1299,7 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
             &direction.cleared(),
             || Reads(Box::leak(Box::new(plan.clone()))),
             MutatingRun {
+                locks: &LocksFree,
                 shown: shown(&direction.cleared()),
                 live: setup.live,
                 state: &scratch.state,
@@ -1205,6 +1494,7 @@ fn a_completed_run_whose_history_went_wrong_never_exits_zero() {
     // narrowed plan, so the mutation proof found the `(0, Some(_))` branch
     // untested; this builds the report by hand.
     let report = |history_error| RunReport {
+        provider_locks_at_halt: None,
         outcome: RunOutcome::Completed,
         records: Vec::new(),
         refusal: None,
@@ -1341,12 +1631,15 @@ fn a_forced_run_toward_homebrew_reaches_success_with_its_snapshot_written_and_na
         [
             Probed,
             Locked,
+            ProviderLocksSampled,
             Replanned,
+            ProviderLocksSampled,
             MarkerRead,
             SnapshotWritten,
             MarkerWritten,
             StillCurrent,
             ConfigurationRechecked,
+            ProviderLocksSampled,
             Dispatched,
             RecordWritten,
             RecordReadBack,
@@ -1659,6 +1952,7 @@ fn run_reading<'s, S: ReadSite + 's>(
         cleared,
         move || reads,
         MutatingRun {
+            locks: &LocksFree,
             shown: shown(cleared),
             live: true,
             state: &scratch.state,
@@ -1814,6 +2108,7 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
             &cleared,
             || &reads,
             MutatingRun {
+                locks: &LocksFree,
                 shown: shown(&cleared),
                 live: true,
                 state: &scratch.state,
@@ -1911,6 +2206,7 @@ fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_
         &cleared,
         || Reads(Box::leak(Box::new(plan))),
         MutatingRun {
+            locks: &LocksFree,
             live: setup.live,
             state: &scratch.state,
             euid: scratch.euid,
@@ -2060,6 +2356,7 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
                 MutatingRun {
+                    locks: &LocksFree,
                     live: setup.live,
                     state: &scratch.state,
                     euid: scratch.euid,
@@ -2424,6 +2721,7 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
                 MutatingRun {
+                    locks: &LocksFree,
                     live: setup.live,
                     state: &scratch.state,
                     euid: scratch.euid,

@@ -24,7 +24,8 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "activity", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConcurrentProviderActivity {
-    /// Nobody looked. What a live run of this build says.
+    /// Nobody looked. No command of this build says it; an analysis that was
+    /// given no sample does, and an older document can.
     NotChecked,
     /// Nothing could have looked: the input is a recording or a snapshot
     /// file, not this host's locks.
@@ -70,6 +71,24 @@ pub enum UndeterminedCause {
     Unreadable,
     /// The lock directory changed while it was being read.
     Changed,
+    /// The provider is installed and did not answer when asked, so its locks
+    /// say little about what it is doing.
+    ProviderBroken,
+}
+
+impl UndeterminedCause {
+    /// The token, as it is serialised.
+    #[must_use]
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Unresolved => "UNRESOLVED",
+            Self::UnexpectedShape => "UNEXPECTED_SHAPE",
+            Self::OverBound => "OVER_BOUND",
+            Self::Unreadable => "UNREADABLE",
+            Self::Changed => "CHANGED",
+            Self::ProviderBroken => "PROVIDER_BROKEN",
+        }
+    }
 }
 
 impl ConcurrentProviderActivity {
@@ -85,6 +104,48 @@ impl ConcurrentProviderActivity {
             | Self::Unknowable
             | Self::Observed { .. }
             | Self::NotDetermined { .. } => true,
+        }
+    }
+
+    /// This answer with `broken` providers counted as not determined: a
+    /// provider that does not answer when asked is not shown quiet by its locks
+    /// (G item 7). An answer that never looked stays what it is, and a provider
+    /// whose lock was held is not also reported undetermined.
+    #[must_use]
+    pub fn with_broken_providers(self, broken: impl IntoIterator<Item = ProviderId>) -> Self {
+        let broken = broken
+            .into_iter()
+            .map(|provider| (provider, UndeterminedCause::ProviderBroken));
+        match self {
+            Self::NotChecked | Self::Unknowable => self,
+            Self::NoneObserved => {
+                let undetermined: BTreeMap<_, _> = broken.collect();
+                if undetermined.is_empty() {
+                    Self::NoneObserved
+                } else {
+                    Self::NotDetermined { undetermined }
+                }
+            }
+            Self::NotDetermined { mut undetermined } => {
+                for (provider, cause) in broken {
+                    undetermined.entry(provider).or_insert(cause);
+                }
+                Self::NotDetermined { undetermined }
+            }
+            Self::Observed {
+                providers,
+                mut undetermined,
+            } => {
+                for (provider, cause) in broken {
+                    if !providers.contains(&provider) {
+                        undetermined.entry(provider).or_insert(cause);
+                    }
+                }
+                Self::Observed {
+                    providers,
+                    undetermined,
+                }
+            }
         }
     }
 
@@ -220,6 +281,69 @@ mod tests {
             serde_json::to_string(&ConcurrencyFlag::of(undetermined)).expect("serialises"),
             r#"{"activity":"NOT_DETERMINED","undetermined":{"a":"UNRESOLVED","b":"OVER_BOUND"},"possiblyInconsistent":true}"#
         );
+    }
+
+    #[test]
+    fn a_broken_provider_is_never_shown_quiet_by_its_locks() {
+        let broken = || [ProviderId::new("b")];
+        let unresolved = BTreeMap::from([(ProviderId::new("a"), UndeterminedCause::Unresolved)]);
+        let cause = UndeterminedCause::ProviderBroken;
+        assert_eq!(
+            ConcurrentProviderActivity::NoneObserved.with_broken_providers(broken()),
+            ConcurrentProviderActivity::NotDetermined {
+                undetermined: BTreeMap::from([(ProviderId::new("b"), cause)]),
+            }
+        );
+        assert_eq!(
+            ConcurrentProviderActivity::NoneObserved.with_broken_providers([]),
+            ConcurrentProviderActivity::NoneObserved
+        );
+        let ConcurrentProviderActivity::NotDetermined { undetermined } =
+            (ConcurrentProviderActivity::NotDetermined {
+                undetermined: unresolved,
+            })
+            .with_broken_providers(broken())
+        else {
+            panic!("still not determined");
+        };
+        assert_eq!(undetermined.len(), 2);
+        for looked_at_nothing in [
+            ConcurrentProviderActivity::NotChecked,
+            ConcurrentProviderActivity::Unknowable,
+        ] {
+            assert_eq!(
+                looked_at_nothing.clone().with_broken_providers(broken()),
+                looked_at_nothing
+            );
+        }
+        let held = |providers: &str| ConcurrentProviderActivity::Observed {
+            providers: BTreeSet::from([ProviderId::new(providers)]),
+            undetermined: BTreeMap::new(),
+        };
+        assert_eq!(held("b").with_broken_providers(broken()), held("b"));
+        let ConcurrentProviderActivity::Observed { undetermined, .. } =
+            held("a").with_broken_providers(broken())
+        else {
+            panic!("a held lock still decides");
+        };
+        assert_eq!(undetermined[&ProviderId::new("b")], cause);
+    }
+
+    #[test]
+    fn every_cause_token_is_how_it_serialises() {
+        for cause in [
+            UndeterminedCause::Unresolved,
+            UndeterminedCause::UnexpectedShape,
+            UndeterminedCause::OverBound,
+            UndeterminedCause::Unreadable,
+            UndeterminedCause::Changed,
+            UndeterminedCause::ProviderBroken,
+        ] {
+            assert_eq!(
+                serde_json::to_string(&cause).expect("serialises"),
+                format!("\"{}\"", cause.token())
+            );
+        }
     }
 
     #[test]

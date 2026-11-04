@@ -2723,3 +2723,82 @@ fn invariant_01_a_removal_waits_on_a_resolution_recorded_resolved() {
         );
     }
 }
+
+// --- the providers' own locks (DP-030 (b)) -----------------------------------
+
+/// A machine with both providers, one broken if asked.
+fn lock_snapshot(broken: bool) -> Snapshot {
+    let mut snap = snapshot(&[], &[]);
+    if broken {
+        let provider = snap.providers.values_mut().next().expect("a provider");
+        provider.detection.presence = ProviderPresence::Broken {
+            reason: "scratch".to_string(),
+        };
+    }
+    snap
+}
+
+#[test]
+fn only_none_observed_clears_a_run_and_each_refusal_says_what_it_is() {
+    use macportsbrew_domain::{ConcurrentProviderActivity as A, UndeterminedCause as C};
+    use std::collections::{BTreeMap, BTreeSet};
+    let snapshot = lock_snapshot(false);
+    assert_eq!(provider_locks_clear(A::NoneObserved, &snapshot), Ok(()));
+    let undetermined = BTreeMap::from([(ProviderId::new("a"), C::Changed)]);
+    let held = A::Observed {
+        providers: BTreeSet::from([ProviderId::new("b")]),
+        undetermined: undetermined.clone(),
+    };
+    let refusal = provider_locks_clear(held, &snapshot).expect_err("held");
+    assert_eq!(refusal.precondition(), Precondition::ProviderLockHeld);
+    let error = refusal.error();
+    assert_eq!(error.id, ErrorId::ProviderLockHeld);
+    assert!(
+        error.detail.contains('b') && error.detail.contains("a=CHANGED"),
+        "{}",
+        error.detail
+    );
+    for other in [
+        A::NotChecked,
+        A::Unknowable,
+        A::NotDetermined { undetermined },
+    ] {
+        let refusal = provider_locks_clear(other, &snapshot).expect_err("not a check");
+        assert_eq!(
+            refusal.precondition(),
+            Precondition::ProviderLocksNotDetermined
+        );
+        let error = refusal.error();
+        assert_eq!(error.id, ErrorId::ProviderLocksNotDetermined);
+        assert!(!error.detail.is_empty() && !error.detail.contains(' '));
+    }
+}
+
+#[test]
+fn a_broken_provider_does_not_clear_a_run_even_with_every_lock_free() {
+    use macportsbrew_domain::ConcurrentProviderActivity as A;
+    let refusal = provider_locks_clear(A::NoneObserved, &lock_snapshot(true))
+        .expect_err("a provider that did not answer");
+    assert_eq!(
+        refusal.precondition(),
+        Precondition::ProviderLocksNotDetermined
+    );
+    assert!(refusal.error().detail.contains("PROVIDER_BROKEN"));
+}
+
+#[test]
+fn a_precondition_about_a_providers_lock_keeps_its_own_exit_code() {
+    let reason = |why| HaltReason::PreconditionFailed { command: 0, why };
+    assert_eq!(
+        reason(Precondition::ProviderLockHeld).error_id(),
+        ErrorId::ProviderLockHeld
+    );
+    assert_eq!(
+        reason(Precondition::ProviderLocksNotDetermined).error_id(),
+        ErrorId::ProviderLocksNotDetermined
+    );
+    assert_eq!(
+        reason(Precondition::LockLost).error_id(),
+        ErrorId::SafetyBlocked
+    );
+}

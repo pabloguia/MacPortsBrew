@@ -257,7 +257,7 @@ to end.
   "policyStale": false,
   "today": "2026-09-04",
   "source": "LIVE",
-  "concurrentProviderActivity": { "activity": "NOT_CHECKED", "possiblyInconsistent": true },
+  "concurrentProviderActivity": { "activity": "NONE_OBSERVED", "possiblyInconsistent": false },
   "machine": {
     "architecture": "x86_64",
     "macos": { "major": 26, "minor": 6, "patch": 2 },
@@ -298,7 +298,6 @@ than trust the date indefinitely (INV-20).
 
 ## Not in this version
 
-- **A concurrency check** (`plan.v1.md`, obligation 5; SE-015). The flag is
-  here — `concurrentProviderActivity`, above — and it reports that no check was
-  made, never what one would have found: this build has no detection
-  mechanism, so it never writes `NONE_OBSERVED` or `OBSERVED`.
+- **A claim that a provider is idle** (`plan.v1.md`, obligation 5; SE-015). The flag
+  is here — `concurrentProviderActivity`, above — and it reports one sample of the
+  providers' own locks, which can miss a provider working without one (R-17).

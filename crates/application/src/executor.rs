@@ -73,11 +73,13 @@ use crate::provider_commands;
 use crate::verification_json::linked_report;
 use macportsbrew_domain::{
     evaluate_with, expectation_for, Capability, CapabilityState, CommandEnd, CommandTarget,
-    Elevation, ErrorId, ExecutableName, ExpectationError, FailureCause, MigrationPlan, PackageKind,
-    PlanCommand, PrimaryDecision, ProviderId, ProviderPresence, ReadEvidence, ReadOutput, Snapshot,
-    StepKind, Verdict, VerificationCheck,
+    ConcurrentProviderActivity, DomainError, Elevation, ErrorId, ExecutableName, ExpectationError,
+    FailureCause, MigrationPlan, PackageKind, PlanCommand, PrimaryDecision, ProviderId,
+    ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, UndeterminedCause, Verdict,
+    VerificationCheck,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 /// The exit code of a partial success (`06-cli-and-ux.md`; INV-03). No
 /// `ErrorId` carries it: a partial success is an outcome, not an error.
@@ -308,6 +310,113 @@ pub enum Precondition {
     /// handed over with: another step, program or argv (work order 16 part
     /// E-3, security review L1).
     WrongConsentToken,
+    /// A provider's own mutation lock was held at the sample taken immediately
+    /// before this command (DP-030 (b)). It may be a grandchild of this run's
+    /// own timed-out provider command, or an inherited descriptor (R-17 finding
+    /// 3), so it implies no outside cause.
+    ProviderLockHeld,
+    /// The sample taken immediately before this command could not answer for
+    /// a provider, or nothing looked: nothing was seen held, so it is not
+    /// reported as held, and an unknown is never a "no".
+    ProviderLocksNotDetermined,
+}
+
+/// Why a sample of the providers' own locks does not clear a run to go on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderLockRefusal(ConcurrentProviderActivity);
+
+impl ProviderLockRefusal {
+    /// The precondition a mutating command halts on.
+    #[must_use]
+    pub fn precondition(&self) -> Precondition {
+        if matches!(self.0, ConcurrentProviderActivity::Observed { .. }) {
+            Precondition::ProviderLockHeld
+        } else {
+            Precondition::ProviderLocksNotDetermined
+        }
+    }
+
+    /// What the sample said, for the run's report: provider ids and cause
+    /// tokens, never a path.
+    #[must_use]
+    pub fn activity(&self) -> &ConcurrentProviderActivity {
+        &self.0
+    }
+
+    /// The refusal before anything was changed: exit 7 for a lock seen held, 4
+    /// for anything else. The detail is tokens only, because it lands inside a
+    /// translated sentence.
+    #[must_use]
+    pub fn error(&self) -> DomainError {
+        let causes = |undetermined: &BTreeMap<ProviderId, UndeterminedCause>| {
+            undetermined
+                .iter()
+                .map(|(provider, cause)| format!("{provider}={}", cause.token()))
+                .collect::<Vec<_>>()
+        };
+        match &self.0 {
+            ConcurrentProviderActivity::Observed {
+                providers,
+                undetermined,
+            } => {
+                let mut detail: Vec<String> = providers.iter().map(ToString::to_string).collect();
+                detail.extend(causes(undetermined));
+                DomainError::new(ErrorId::ProviderLockHeld, detail.join(", "))
+            }
+            ConcurrentProviderActivity::NotDetermined { undetermined } => DomainError::new(
+                ErrorId::ProviderLocksNotDetermined,
+                causes(undetermined).join(", "),
+            ),
+            ConcurrentProviderActivity::NotChecked => {
+                DomainError::new(ErrorId::ProviderLocksNotDetermined, "NOT_CHECKED")
+            }
+            ConcurrentProviderActivity::Unknowable => {
+                DomainError::new(ErrorId::ProviderLocksNotDetermined, "UNKNOWABLE")
+            }
+            // `provider_locks_clear` never refuses this one, and a refusal has
+            // no other constructor.
+            ConcurrentProviderActivity::NoneObserved => {
+                DomainError::new(ErrorId::Internal, "a clear lock sample was refused")
+            }
+        }
+    }
+}
+
+/// The sample as it stands on `snapshot`'s machine: a provider that is
+/// installed and did not answer is not shown quiet by its locks (G item 7).
+/// Presence is as of that capture: a provider that broke after it is not seen,
+/// which 04 declares, and re-detecting before each command would spawn for it.
+#[must_use]
+pub fn provider_lock_activity(
+    sample: ConcurrentProviderActivity,
+    snapshot: &Snapshot,
+) -> ConcurrentProviderActivity {
+    sample.with_broken_providers(
+        snapshot
+            .providers
+            .iter()
+            .filter(|(_, provider)| {
+                matches!(provider.detection.presence, ProviderPresence::Broken { .. })
+            })
+            .map(|(id, _)| id.clone()),
+    )
+}
+
+/// Whether a sample clears a run to go on: only `NoneObserved` does, over every
+/// provider (DP-030 (b); G item 7). Everything else refuses, and an answer that
+/// never looked is not one that saw nothing.
+///
+/// # Errors
+/// The refusal, which says what to report before anything was changed and what
+/// to halt on after.
+pub fn provider_locks_clear(
+    sample: ConcurrentProviderActivity,
+    snapshot: &Snapshot,
+) -> Result<(), ProviderLockRefusal> {
+    match provider_lock_activity(sample, snapshot) {
+        ConcurrentProviderActivity::NoneObserved => Ok(()),
+        other => Err(ProviderLockRefusal(other)),
+    }
 }
 
 /// Which fact moved between the capture a plan was built from and the one
@@ -616,10 +725,21 @@ impl HaltReason {
             | Self::MutationFailed { .. }
             | Self::MutationRefused { .. }
             | Self::MutatingStepCarriesVerification
-            | Self::PreconditionFailed { .. }
             | Self::SnapshotNotTaken
             | Self::StateChanged { .. }
             | Self::ResolutionMismatch { .. } => ErrorId::SafetyBlocked,
+            Self::PreconditionFailed { why, .. } => match why {
+                Precondition::ProviderLockHeld => ErrorId::ProviderLockHeld,
+                Precondition::ProviderLocksNotDetermined => ErrorId::ProviderLocksNotDetermined,
+                Precondition::NoProvider
+                | Precondition::LockLost
+                | Precondition::ConfigurationUnreadable
+                | Precondition::ConfigurationDrift
+                | Precondition::WrongProviderToken
+                | Precondition::DestinationNotReverified
+                | Precondition::WrongProgramToken
+                | Precondition::WrongConsentToken => ErrorId::SafetyBlocked,
+            },
             Self::Expectation { .. } | Self::Unevaluable { .. } => ErrorId::SafetyUnverifiable,
             Self::TransportFailed { error, .. } => *error,
             Self::RecordsDoNotMatchPlan => ErrorId::Internal,

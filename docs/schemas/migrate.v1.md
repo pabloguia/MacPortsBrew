@@ -61,15 +61,23 @@ never as a check that saw nothing.
 | Field | Type | Notes |
 |---|---|---|
 | `activity` | string | The tag, below |
-| `providers` | array of string, only with `OBSERVED` | The providers seen running, sorted |
+| `providers` | array of string, only with `OBSERVED` | The providers whose lock was held, sorted |
+| `undetermined` | object, provider id to cause, with `NOT_DETERMINED` and on `OBSERVED` when not empty | Who could not be answered for, and why, sorted. Causes are a closed set: `UNRESOLVED`, `UNEXPECTED_SHAPE`, `OVER_BOUND`, `UNREADABLE`, `CHANGED`, `PROVIDER_BROKEN`. Never a path |
 | `possiblyInconsistent` | boolean | `false` only for `NONE_OBSERVED`; an unchecked answer is never a "no" |
 
 | `activity` | Meaning | Written by this build |
 |---|---|---|
-| `NOT_CHECKED` | Nobody looked | A live run: this build has no detection mechanism |
-| `UNKNOWABLE` | Nothing could have looked | `--replay` and `--from-snapshot`: a recording or a snapshot file carries no process table, and a replay must not read this host's (INV-15) |
-| `NONE_OBSERVED` | A check ran and saw no provider running | Never |
-| `OBSERVED` | A check ran and saw `providers` running | Never |
+| `NOT_CHECKED` | Nobody looked | Never by a command of this build; a consumer can meet it in an older document |
+| `UNKNOWABLE` | Nothing could have looked | `--replay` and `--from-snapshot`: a recording or a snapshot file carries no provider locks, and a replay must not sample this host's (INV-15) |
+| `NONE_OBSERVED` | A check ran and no held provider lock was observed at that instant. Never "idle" or "safe": a provider can work without one of these locks (R-17) | A live run |
+| `OBSERVED` | A check ran and a lock on `providers`' lock files was held at that instant | A live run |
+| `NOT_DETERMINED` | A check ran and could not answer for the providers in `undetermined` | A live run |
+
+A consumer treats an `activity` it does not recognise as possibly inconsistent.
+This added `NOT_DETERMINED` and narrowed two meanings without a version bump, which
+deviates from the [compatibility rule](README.md) on purpose: no earlier build wrote
+`NONE_OBSERVED` or `OBSERVED`, and `possiblyInconsistent` is carried beside the tag
+(SE-015).
 
 **What *nothing to move* establishes, and what it does not.** It is answered
 when the destination is the package's only holder in the input; every other
@@ -135,7 +143,7 @@ check's output is the machine's whole inventory (`plan.v1.md`, obligation 3).
 written durably and read back; nothing was changed), `MUTATION_FAILED` (`command`), `MUTATION_REFUSED` (`command`),
 `MUTATING_STEP_CARRIES_VERIFICATION`, `PRECONDITION_FAILED` (`command`, `why`:
 `NO_PROVIDER`, `LOCK_LOST`, `CONFIGURATION_UNREADABLE`, `CONFIGURATION_DRIFT`,
-`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED`, `WRONG_PROGRAM_TOKEN`, `WRONG_CONSENT_TOKEN` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
+`WRONG_PROVIDER_TOKEN`, `DESTINATION_NOT_REVERIFIED`, `WRONG_PROGRAM_TOKEN`, `WRONG_CONSENT_TOKEN`, `PROVIDER_LOCK_HELD`, `PROVIDER_LOCKS_NOT_DETERMINED` — an open set) and `STATE_CHANGED` (`fact`, on `HALTED` with step 0:
 `PROVIDER_STATE`, `PROVIDER_LOCATION`, `PROVIDER_CAPABILITY`, `SOURCE_PACKAGE`,
 `DESTINATION_PACKAGE`, `REVERSE_DEPENDENCY`, `CLASSIFICATION`, `PLAN_DIFFERS`).
 `command` counts from 0 within the step. A `check` here is the check's kind

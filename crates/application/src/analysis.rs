@@ -41,22 +41,26 @@ pub enum AnalysisSource {
 }
 
 impl AnalysisSource {
-    /// What this build can say about a provider running while the input was
-    /// read — and it never says more than it checked (`plan.v1.md`,
-    /// obligation 5; SE-015).
+    /// What can be said about a provider running while the input was read,
+    /// given what the lock probe sampled — and it never says more than was
+    /// checked (`plan.v1.md`, obligation 5; SE-015).
     ///
-    /// A live run says `NotChecked`: this build has no detection mechanism,
-    /// so nobody looked. A snapshot file or a replayed recording says
-    /// `Unknowable`: neither carries this host's processes, and a replay must
-    /// not consult them (INV-15), so no check *could* have answered. Neither
-    /// ever says `NoneObserved` or `Observed`; those belong to a check that
-    /// ran, which lands with the lock it serves.
+    /// A live run says what the sample says. A snapshot file or a replayed
+    /// recording says `Unknowable`, whatever is passed: neither carries this
+    /// host's locks, and a replay must not consult them (INV-15).
     #[must_use]
-    pub fn concurrent_provider_activity(self) -> ConcurrentProviderActivity {
+    pub fn activity_given(self, sample: ConcurrentProviderActivity) -> ConcurrentProviderActivity {
         match self {
-            Self::Live => ConcurrentProviderActivity::NotChecked,
+            Self::Live => sample,
             Self::Snapshot => ConcurrentProviderActivity::Unknowable,
         }
+    }
+
+    /// [`Self::activity_given`] with no sample: a live analysis nobody sampled
+    /// says `NotChecked`, never a check that was not made.
+    #[must_use]
+    pub fn concurrent_provider_activity(self) -> ConcurrentProviderActivity {
+        self.activity_given(ConcurrentProviderActivity::NotChecked)
     }
 }
 
@@ -83,8 +87,8 @@ pub struct Analysis {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_provenance: Option<macportsbrew_domain::Provenance>,
     /// Whether a provider may have been changing the machine while the input
-    /// was read, decided by [`AnalysisSource::concurrent_provider_activity`]
-    /// from `source` and never claiming a check that was not made. Written in
+    /// was read, decided by [`AnalysisSource::activity_given`] from `source`
+    /// and the sample, and never claiming a check that was not made. Written in
     /// the one shape `plan` and `migrate` also use (`analysis.v1.md`; SE-015).
     /// Required when deserialising: `Analysis` is not a reader of every v1
     /// document, and a consumer of an earlier build's document — which lacks
@@ -107,6 +111,25 @@ pub fn analyze(
     policy: &PolicyData,
     options: &AnalysisOptions,
     source: AnalysisSource,
+) -> Analysis {
+    analyze_sampled(
+        snapshot,
+        policy,
+        options,
+        source,
+        ConcurrentProviderActivity::NotChecked,
+    )
+}
+
+/// [`analyze`] with what the lock probe sampled, taken by the caller after the
+/// capture: analysis reads nothing itself (G item 5).
+#[must_use]
+pub fn analyze_sampled(
+    snapshot: &Snapshot,
+    policy: &PolicyData,
+    options: &AnalysisOptions,
+    source: AnalysisSource,
+    sample: ConcurrentProviderActivity,
 ) -> Analysis {
     let providers = provider_reports(snapshot, policy);
     let mut packages = Vec::new();
@@ -312,7 +335,7 @@ pub fn analyze(
         source,
         snapshot_provenance: (source == AnalysisSource::Snapshot)
             .then(|| snapshot.provenance.clone()),
-        concurrent_provider_activity: ConcurrencyFlag::of(source.concurrent_provider_activity()),
+        concurrent_provider_activity: ConcurrencyFlag::of(source.activity_given(sample)),
         machine: snapshot.machine.clone(),
         providers,
         packages,
@@ -808,6 +831,18 @@ mod tests {
         assert_eq!(
             AnalysisSource::Snapshot.concurrent_provider_activity(),
             ConcurrentProviderActivity::Unknowable
+        );
+        // A snapshot is unknowable whatever is passed (INV-15; G item 5), and a
+        // live run says exactly what was sampled. The full path is
+        // `a_live_analysis_carries_its_sample_and_a_snapshot_never_does`.
+        let sampled = ConcurrentProviderActivity::NoneObserved;
+        assert_eq!(
+            AnalysisSource::Snapshot.activity_given(sampled.clone()),
+            ConcurrentProviderActivity::Unknowable
+        );
+        assert_eq!(
+            AnalysisSource::Live.activity_given(sampled.clone()),
+            sampled
         );
     }
 }

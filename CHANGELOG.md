@@ -29,6 +29,15 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
+- **Read-only commands now check for a package manager at work** (DP-030 (b)).
+  `status`, `analyze`, `plan`, `migrate` and the others show whether a provider's own
+  lock was held when they read, in text and in `concurrentProviderActivity`, which
+  gains `NOT_DETERMINED` and `undetermined`. It is one look at one instant, never a
+  claim that a provider is idle, and it reads lock files without touching them. Live
+  runs no longer say `NOT_CHECKED`. A run that changes packages refuses on a held lock
+  (`PROVIDER_LOCK_HELD`, exit 7, also the exit of `RUN_LOCK_HELD`) or an undetermined
+  one, in a build that dispatches; this one does not. Policy version `2026.10.18-2`.
+
 - `migrate --json` now writes `planDigest`, and `migrate` (rendered) prints
   it after the plan: `sha256:` and 64 lowercase hexadecimal digits, taken over
   the plan itself with the build's version in the input. `migrate --yes

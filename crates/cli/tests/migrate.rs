@@ -489,7 +489,7 @@ fn assert_unknowable_in_words(text: &str, context: &str) {
 }
 
 #[test]
-fn invariant_15_a_replayed_run_cannot_observe_this_hosts_processes() {
+fn invariant_15_a_replayed_run_cannot_observe_this_hosts_locks() {
     // A recording carries no process table, and a replay must not consult
     // this host's (INV-15): every answer is `UNKNOWABLE`, never a check that
     // was not made, whatever this host's environment says.

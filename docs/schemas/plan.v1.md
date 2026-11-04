@@ -254,12 +254,13 @@ comments:
    half is met for `migrate`: every document carries
    `concurrentProviderActivity` (`migrate.v1.md`), the domain's
    `ConcurrentProviderActivity`, and its rule is that it never claims a check
-   that was not made. A live run says `NOT_CHECKED`, because nothing looks;
+   that was not made. A live run says what one sample of the providers' own locks
+   answered (`NONE_OBSERVED`, `OBSERVED`, `NOT_DETERMINED`);
    `--replay` and `--from-snapshot` say `UNKNOWABLE`, because a recording or a
-   snapshot file carries no process table and a replay must not read this
-   host's (INV-15). Both are possibly inconsistent, and the human output says
+   snapshot file carries no provider locks and a replay must not sample this
+   host's (INV-15), which is possibly inconsistent, and the human output says
    so in words (`the_concurrency_flag_never_claims_a_check_it_did_not_make`,
-   `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`).
+   `invariant_15_a_replayed_run_cannot_observe_this_hosts_locks`).
    `plan` and `analyze` carry the same flag from the same source: `plan --json`
    writes it at its root after the plan's own fields, `analysis.v1` carries it
    as a root field (so `status --json` and `list --json` do too), and the human
@@ -268,7 +269,7 @@ comments:
    domain's `ConcurrencyFlag`, writes it for every command, so the shape cannot
    drift between them
    (`every_command_that_carries_the_flag_shares_the_one_serialiser`,
-   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`,
+   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_locks`,
    `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather
    than interleaving* — the lock and the
@@ -278,11 +279,12 @@ comments:
    under it, reads the marker and writes it before the first mutating command.
    No shipped build takes the lock, because no shipped build has an allowance;
    the wiring's order is checked on every build, and its behaviour by
-   `crates/cli/tests/executor_wiring.rs` against fakes. **Detection before mutating is
-   unbuilt and inherited whole by the mutating pass**: no detection mechanism
-   exists, so nothing can answer `NONE_OBSERVED` or `OBSERVED`, and the run
-   loop's verification reads take no lock. Why each candidate mechanism was
-   deferred rather than chosen is SE-015 and DP-030.
+   `crates/cli/tests/executor_wiring.rs` against fakes. **Detection before mutating is built behind the same allowance** (work order 16
+   part G): the run refuses unless the probe answers `NONE_OBSERVED` under the lock,
+   and again before every mutating command
+   (`invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it`).
+   The run loop's verification reads take no lock, and the probe's limits are
+   04's (SE-015, DP-030).
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
    read while ignoring the rest. Three have an evaluation today —

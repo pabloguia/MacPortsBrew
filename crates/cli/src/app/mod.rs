@@ -393,6 +393,11 @@ fn run_inner(
                 writeln!(stdout, "{}", json(&analysis)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::status(&ctx, &analysis)).map_err(io)?;
+                // An overview stays quiet unless there is something to act on.
+                let activity = analysis.concurrent_provider_activity.activity();
+                if human::an_overview_shows(activity) {
+                    write!(stdout, "{}", human::concurrency(&ctx, activity)).map_err(io)?;
+                }
             }
             Ok(0)
         }
@@ -418,6 +423,11 @@ fn run_inner(
                 writeln!(stdout, "{}", json(&analysis)?).map_err(io)?;
             } else {
                 write!(stdout, "{}", human::analysis(&ctx, &analysis, false)).map_err(io)?;
+                // An overview stays quiet unless there is something to act on.
+                let activity = analysis.concurrent_provider_activity.activity();
+                if human::an_overview_shows(activity) {
+                    write!(stdout, "{}", human::concurrency(&ctx, activity)).map_err(io)?;
+                }
             }
             Ok(0)
         }
@@ -428,7 +438,7 @@ fn run_inner(
                 &options(BTreeSet::new()),
                 package,
             )?;
-            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+            let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
             if cli.json {
                 let document = Flagged {
                     body: &explanation,
@@ -465,7 +475,7 @@ fn run_inner(
                 // which ones a complete input must carry.
                 &macportsbrew_adapters::registry::known_provider_ids(),
             )?;
-            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+            let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
             named_entry_notice(&ctx, &plan, stderr);
             if cli.json {
                 let document = Flagged {
@@ -544,7 +554,7 @@ fn run_inner(
                     )
                 );
             }
-            let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+            let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
             if cli.json {
                 let document = Flagged {
                     body: &doc,

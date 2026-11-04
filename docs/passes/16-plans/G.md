@@ -526,3 +526,22 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   and reaching that needs a seam inside the listing. It is defence in depth, and a
   stale listing's open is still checked by each re-check after it. Each new test was
   re-run against its mutant by hand.
+
+## As built (G-3)
+
+- The sample is one field of the CLI's context, taken after the capture; analysis takes
+  it as an argument (`analyze_sampled`) and `Snapshot` forces `UNKNOWABLE` whatever is
+  passed. `AnalysisSource`'s shape is unchanged. `analyze` without a sample keeps
+  `NOT_CHECKED`, for tests and for `explain` and the planner, which analyse as a
+  snapshot.
+- `application::provider_locks_clear` decides, `provider_lock_activity` adds item 21's
+  `PROVIDER_BROKEN`; the shell's one call is `provider_lock_sample(`, and
+  `wiring_violations` holds its place under `[locks]`.
+- **Deviations, all in SE-015:** the order of the two checks before the sample, which
+  stays as built; a halt at the first command ends a partial success, since the snapshot
+  step was carried out; no third sample after the consent question, because the
+  per-command sample follows it anyway.
+- **Item 13:** the tripwire is held on every build, not only under the switch. It is
+  stricter than the plan's: the plan had it fail only if the flag were on.
+- **`concurrency.not_checked` stays in the catalogues:** `NotChecked` is still a value
+  and still rendered, though no command of this build produces it.

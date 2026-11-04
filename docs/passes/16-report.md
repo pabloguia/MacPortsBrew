@@ -69,3 +69,16 @@ killed by a named test, 2 argued equivalent).
   unvalidated, fixed later); the fix is staged as `F/07`/`F/08` for the owner.
 - Handed on: H (owner queries, per-executable liveness), I (the shim offer and
   the shim target rule of §3 item 10), L (the new tripwire rows).
+
+## G — the lock probe (DP-030 (b))
+
+Built: the provider lock probe with the workspace's one `unsafe` (ADR-0007), its data,
+its domain answers with a closed cause, and the refusal under the run lock and before
+every mutating command. **Reachable today:** read-only commands show the sample. **Not
+reachable:** the refusal, behind the switch, which stays off. Tripwires: the lock's
+place in the shell (`[locks]`), and `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked`,
+now a check on every build. Reviewed by `spec-guardian` and `security-reviewer` at each
+step; G-2's mutation proof left one accepted survivor (`G.md`). **Declared, not closed:**
+04's false negatives; Apple Silicon and a lock a real provider holds are unverified (R-17,
+owner items). The deviation from the schema compatibility rule, and from the plan's
+order, are in SE-015.

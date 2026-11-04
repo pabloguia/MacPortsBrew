@@ -584,6 +584,7 @@ fn every_run_that_handed_a_mutating_step_over_prints_the_command_to_plan_the_way
     let ctx = live(&c);
     let plan = plan_of(&ctx, &request("htop", "macports"));
     let report = |receipt: RunReceipt, outcome: RunOutcome| RunReport {
+        provider_locks_at_halt: None,
         outcome,
         records: Vec::new(),
         refusal: None,

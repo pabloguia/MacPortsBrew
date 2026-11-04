@@ -68,6 +68,8 @@ error.run_not_found = "There is no record of that run in this MacPortsBrew state
 error.history_unusable = "MacPortsBrew's own state could not be read, or holds something that cannot be trusted, so nothing was changed: {detail}. Look at what that names in MacPortsBrew's state directory: an entry this version did not write, a record or marker altered after it was written, a lock file that is not the one this version creates, or a directory open to other users."
 # Exit 7. The lock is held by a MacPortsBrew run, not by brew or port, and no
 # process is named because none is recorded.
+error.provider_lock_held = "A package manager's lock is held, so nothing was changed: {detail}. Wait for it to finish, then run this again. If nothing seems to be running, a leftover child process can keep a lock held."
+error.provider_locks_not_determined = "Whether a package manager's lock is held could not be determined, so nothing was changed: {detail}. `macportsbrew analyze` says what each of these means and what to do."
 error.run_lock_held = "Another MacPortsBrew run is changing packages on this machine, so nothing was changed: {detail}. Wait for it to finish and run the command again; analysis, plan and dry runs do not need the lock and still work."
 # Exit 4. The marker file and its directory are named separately on purpose: the
 # default directory contains a space, and a pasted command line would be wrong.
@@ -351,8 +353,14 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 # that was not made.
 "concurrency.not_checked" = "Possibly inconsistent: whether a package manager was changing this machine while it was read was not checked. This build has no such check, so if one was running, rerun this once it has finished."
 "concurrency.unknowable" = "Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read."
-"concurrency.none_observed" = "No package manager was seen changing this machine while it was read."
-"concurrency.observed" = "Possibly inconsistent: {count, plural, one {a package manager was} other {# package managers were}} running while this was read ({providers}), so what was read may have been changing. Rerun this once {count, plural, one {it has} other {they have}} finished."
+"concurrency.none_observed" = "No package manager's lock was seen held when this was read. That does not show none was working: a package manager can change things without holding one of these locks."
+"concurrency.observed" = "Possibly inconsistent: {count, plural, one {a package manager's lock was} other {# package managers' locks were}} held when this was read ({providers}), so what was read may have been changing. Rerun this once {count, plural, one {it is} other {they are}} released."
+"concurrency.cause.unresolved" = "{provider}: where it keeps its locks could not be worked out on this machine, for example because its database directory is not the default one."
+"concurrency.cause.unexpected_shape" = "{provider}: something that is not a plain file sits among its locks, or its lock directory is not a real directory. Look at what is there; a run that changes packages refuses until it is resolved."
+"concurrency.cause.over_bound" = "{provider}: its lock directory holds more entries than one check reads. Look at what is there; a run that changes packages refuses until it is resolved."
+"concurrency.cause.unreadable" = "{provider}: its locks could not be read."
+"concurrency.cause.changed" = "{provider}: its lock directory changed while it was being read. Run this again."
+"concurrency.cause.provider_broken" = "{provider}: it is installed and did not answer when asked, so its locks say little about what it is doing. Run doctor."
 "concurrency.not_determined" = "Possibly inconsistent: whether {count, plural, one {a package manager was} other {# package managers were}} holding a lock while this was read could not be determined ({providers}), so what was read may have been changing."
 
 # --- migrate ----------------------------------------------------------------
@@ -432,6 +440,8 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "consent.code_unavailable" = "A confirmation code could not be drawn, so nothing was asked and nothing further was changed."
 "migrate.precondition.no_provider" = "the step names no provider"
 "migrate.precondition.lock_lost" = "this run no longer holds its lock"
+"migrate.precondition.provider_lock_held" = "a package manager's lock was held immediately before this command"
+"migrate.precondition.provider_locks_not_determined" = "whether a package manager's lock was held immediately before this command could not be determined"
 "migrate.precondition.configuration_unreadable" = "the provider's configuration could not be read again, or the provider found now is not the one the plan was made for"
 "migrate.precondition.configuration_drift" = "the provider's configuration can change how it runs, or could not be shown not to"
 "migrate.precondition.wrong_provider_token" = "the configuration check was for another provider"

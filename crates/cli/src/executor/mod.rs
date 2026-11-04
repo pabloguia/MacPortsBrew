@@ -77,15 +77,17 @@ use macportsbrew_adapters::registry::{
 use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
     judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
-    outcome_of, plan_still_holds, read_back_matches, recheck_provider_configuration, refused,
-    run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt,
-    Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
-    RunOutcome, ShownPlan, StepRead, StepRecord,
+    outcome_of, plan_still_holds, provider_locks_clear, read_back_matches,
+    recheck_provider_configuration, refused, run_record, Action, ConfigurationRechecked,
+    ConsentDecision, ConsentGiven, ConsentHalt, Disposition, ElevationRequest, GateClear,
+    HaltReason, MutationResult, PlannedRun, Precondition, ProviderLockRefusal, RunOutcome,
+    ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
-    redact_home, CommandEnd, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
-    MachineRead, MigrationPlan, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
-    ResolutionState, RunStart, Snapshot, VerificationCheck,
+    redact_home, CommandEnd, ConcurrentProviderActivity, DomainError, ErrorId, ExecutableName,
+    HomeRedaction, InterruptedRun, MachineRead, MigrationPlan, PlanCommand, ProviderConfiguration,
+    ProviderId, ProviderLockProbe, ProviderRead, ResolutionState, RunStart, Snapshot,
+    VerificationCheck,
 };
 use serde::Serialize;
 
@@ -253,6 +255,10 @@ pub enum SiteRefusalKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunReport {
+    /// What the providers' own locks answered at the sample that halted this
+    /// run: provider ids and cause tokens, never a path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_locks_at_halt: Option<ConcurrentProviderActivity>,
     /// How the run ended.
     pub outcome: RunOutcome,
     /// One per plan step when the gate passed the plan; empty when it refused.
@@ -419,6 +425,7 @@ pub fn run_with_resolutions<S: ReadSite, R: ResolutionSite>(
         });
     }
     RunReport {
+        provider_locks_at_halt: None,
         outcome: outcome_of(plan, &records),
         records,
         refusal,
@@ -498,6 +505,8 @@ pub enum Boundary {
     Probed,
     /// The run lock was taken.
     Locked,
+    /// The providers' own locks were sampled and answered that none is held.
+    ProviderLocksSampled,
     /// The machine was captured again under the lock and re-planned, and the
     /// plan still holds.
     Replanned,
@@ -595,6 +604,18 @@ pub struct MutatingRun<'a, M: MutationSite> {
     /// (work order 16 part E, DP-049). The run refuses, before the history
     /// probe and the lock, a plan it does not cover.
     pub shown: ShownPlan,
+    /// Samples the providers' own locks (`registry::lock_probe` in the product;
+    /// DP-030 (b)).
+    pub locks: &'a dyn ProviderLockProbe,
+}
+
+/// One sample of the providers' own locks, judged by the application. The one
+/// way the shell asks.
+fn provider_lock_sample(
+    locks: &dyn ProviderLockProbe,
+    snapshot: &Snapshot,
+) -> Result<(), ProviderLockRefusal> {
+    provider_locks_clear(locks.sample(), snapshot)
 }
 
 /// [`run_with_mutations`] with the read sites `ctx` detects, built only after
@@ -619,8 +640,8 @@ pub fn run_mutating<M: MutationSite>(
 /// question was put, the machine captured and re-planned once more (E-3); the
 /// read steps; and, before the first mutating command,
 /// the marker written — then per mutating command the lock confirmed, the
-/// provider's configuration re-read and re-checked, and the command handed to
-/// the mutation site with the token; then the record written durably on every
+/// provider's configuration re-read and re-checked, the providers' own locks
+/// sampled, and the command handed to the mutation site with the token; then the record written durably on every
 /// ending and the marker cleared, or kept, by D8's rule.
 ///
 /// Every decision is the application's: `next_action_with` answers what to do
@@ -632,7 +653,9 @@ pub fn run_mutating<M: MutationSite>(
 /// a run that is not live, a plan the confirmation does not cover
 /// (`PLAN_NOT_SHOWN`), the probe, the lock, the recapture, an interrupted
 /// run's marker, a consent question refused or unseen (`USER_ABORTED`,
-/// `SAFETY_BLOCKED`), or a marker that could not be written. Nothing mutating
+/// `SAFETY_BLOCKED`), a provider's own lock held or not determined under the
+/// lock (`PROVIDER_LOCK_HELD`, `SAFETY_UNVERIFIABLE`), or a marker that could
+/// not be written. Nothing mutating
 /// ran, and on a consent refusal nothing was written.
 // `io` by value: the run spends the witness it carries, so one confirmation
 // cannot be handed to a second run.
@@ -672,11 +695,17 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     io.observer.at(Boundary::Probed, None);
     let lock = run_lock::acquire(state, euid)?;
     io.observer.at(Boundary::Locked, None);
+    // Before and after the capture under the lock: what it read must not have
+    // been a provider's work in progress (G item 6).
+    provider_lock_sample(io.locks, planned.before()).map_err(|refusal| refusal.error())?;
+    io.observer.at(Boundary::ProviderLocksSampled, None);
     let (mut now, fresh) = (io.recapture)()?;
     if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &now) {
         return Ok(state_changed(fact));
     }
     io.observer.at(Boundary::Replanned, None);
+    provider_lock_sample(io.locks, &now).map_err(|refusal| refusal.error())?;
+    io.observer.at(Boundary::ProviderLocksSampled, None);
     if let Some(earlier) = run_marker::read(&lock, state, euid)? {
         return Err(DomainError::new(
             ErrorId::RunInterrupted,
@@ -691,13 +720,19 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     if tokens.asked() {
         io.observer.at(Boundary::ConsentAsked, None);
         // An answer can take minutes, and the lock excludes another run, not
-        // the person in another terminal (INV-04): capture and re-plan again.
+        // the person in another terminal (INV-04): capture and re-plan again,
+        // and this capture is what the snapshot is written from, so it gets the
+        // same samples around it as the first (G item 6).
+        provider_lock_sample(io.locks, &now).map_err(|refusal| refusal.error())?;
+        io.observer.at(Boundary::ProviderLocksSampled, None);
         let (again, fresh) = (io.recapture)()?;
         if let Err(fact) = plan_still_holds(plan, &fresh, planned.before(), &again) {
             return Ok(state_changed(fact));
         }
         now = again;
         io.observer.at(Boundary::ReplannedAfterConsent, None);
+        provider_lock_sample(io.locks, &now).map_err(|refusal| refusal.error())?;
+        io.observer.at(Boundary::ProviderLocksSampled, None);
     }
     let marker = InterruptedRun::new(&io.start.id)
         .map_err(|why| DomainError::new(ErrorId::Internal, why))?;
@@ -706,6 +741,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     let mut snapshot_file: Option<String> = None;
     let mut records: Vec<StepRecord> = Vec::new();
     let mut refusal = None;
+    let mut provider_locks_at_halt = None;
     for (position, step) in plan.steps.iter().enumerate() {
         let disposition = match next_action_with(planned, position, &records, Some(allowance)) {
             Action::PassOver(disposition) => disposition,
@@ -855,6 +891,16 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                     };
                     io.observer
                         .at(Boundary::ConfigurationRechecked, Some(step.index));
+                    // The last thing before the command, so a removal dispatches
+                    // only when the probe answered immediately before it (G item
+                    // 6; 04).
+                    if let Err(refusal) = provider_lock_sample(io.locks, &now) {
+                        results.push(MutationResult::PreconditionFailed(refusal.precondition()));
+                        provider_locks_at_halt = Some(refusal.activity().clone());
+                        break;
+                    }
+                    io.observer
+                        .at(Boundary::ProviderLocksSampled, Some(step.index));
                     let result = mutation_dispatch(
                         io.site,
                         provider,
@@ -960,6 +1006,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         }
     }
     Ok(RunReport {
+        provider_locks_at_halt,
         outcome: outcome_of(plan, &records),
         records,
         refusal,
@@ -979,6 +1026,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
 /// lock: nothing was written.
 fn state_changed(fact: macportsbrew_application::StateFact) -> RunReport {
     RunReport {
+        provider_locks_at_halt: None,
         outcome: RunOutcome::Halted {
             step: 0,
             reason: HaltReason::StateChanged { fact },
@@ -1096,6 +1144,7 @@ pub fn refused_report(
     home: &HomeRedaction,
 ) -> RunReport {
     RunReport {
+        provider_locks_at_halt: None,
         outcome: refused(gate).unwrap_or(RunOutcome::Completed),
         records: Vec::new(),
         refusal: None,
@@ -1469,6 +1518,7 @@ mod tests {
     fn a_zero_never_hides_an_unwritten_record_or_a_marker_left_behind() {
         // D8: the outcome's code, unless it is 0 and the history went wrong.
         let report = |outcome, history_error| RunReport {
+            provider_locks_at_halt: None,
             outcome,
             records: Vec::new(),
             refusal: None,
