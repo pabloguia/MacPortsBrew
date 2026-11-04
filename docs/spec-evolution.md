@@ -1801,6 +1801,21 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: `migrate.v1` additive (an open set gains a value; `planDigest` at the root). A digest is
   valid only for builds with the same version string and plan serialisation; across versions it fails closed.
 
+## SE-113 — Work order 16 part H: a destination check answers holds, fails or unchecked
+- Status: experimental: specification and plan landed in H-0, not built. `docs/passes/16-plans/H.md` is the design and `docs/passes/16-liveness-design.md` the probe's. DP-051 (a) is the ruling; DP-056 and DP-057 hold what the owner may overrule.
+- Spec area: `docs/spec/04` Verification contract, Failure semantics; `plan.v1`, `migrate.v1`, `history.v3`.
+- Tier affected: 3 (MUST), none above.
+- Reasoning: research R-25 to R-28 changed four things the contract assumed, and each rewording is declared here rather than left to a diff.
+  - **Check 2, "where the provider offers one", read as a silent pass.** Neither provider offers a read-only integrity verb. The check is now ours and says what it claims. **Absence of a file from a Homebrew keg is not detected:** `brew list --formula` runs `find` at call time, so the list is the disk (R-25). Reporting Homebrew unchecked for ever would make MacPorts-to-Homebrew never remove, an INV-17 defect in effect; DP-057 asks the owner to confirm the basis.
+  - **Check 3, "asking the provider".** True of MacPorts only. No Homebrew read answers ownership at this HEAD (R-26), so the rule is Homebrew's own, as `VERIFY_RESOLUTION` already says, and the promise that part H would replace it with an owner query is withdrawn.
+  - **Check 4, "default `--version`".** Removed: `httpd --version` started a server and exited 0 (R-28). Rows are observed only and run at the observed version. "Only the exit status counts" is **tightened**: exit 0 with a pipe held is unchecked, since something outlived the probe. The timeout is unchecked rather than failed, because 30 s is a hypothesis. **"The resolved executable" reads as the canonical path run with `arg0` set to the placed leaf**, which closes a re-pointed link and keeps `argv[0]` dispatch.
+  - **Check 5, "no new linkage".** Not claimable, since the snapshot holds no baseline (R-27). It is "no reference present at verification", and a pre-existing one still stops the step, with its own cause.
+- DP-051's sentence "a check that cannot be evaluated" gets one declared reading: a package with no loadable file, and no `env` script on its executable list, holds the linkage check with its basis stated (14 packages here); one with an `env` script stays unchecked (34 here). DP-057.
+- **The linkage reader is hand-written, not `otool`.** Within the part's authority: no dependency, no `unsafe`, no spawn, no allowlist growth. `otool` raised a Command Line Tools install dialog from a cleared environment, which `xcode-select -p` did not predict (R-27). DP-056.
+- Compatibility: `plan.v2` (`flag` to `argv`, a skip shape), `migrate.v2` (a new outcome and disposition), `history.v4` (a new ending). No release has shipped these.
+- Rejected: an `otool` allowlist entry (R-27); `brew verify`, which fetches and needs the network (R-25); cited probe rows, because a citation shows none of what qualifies a row; a field on `Verified` for what was unchecked, because every `Verified { .. }` match would fail open and remove the source.
+- User impact: once built, nearly every default run exits 3 until the table grows, and removal happens only where all four hold. That follows from the ruling.
+
 ## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
 - Status: accepted for the decision rule, the plan shape, the gate, the executor's resolution and `history.v3`, as
   built in work order 16 part F-3 (`wo16/F-3-primary`; F-2a and F-2b merged) and reviewed in its fix round

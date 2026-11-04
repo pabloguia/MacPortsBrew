@@ -535,6 +535,13 @@ is recorded and not acted on without the owner.
   it is UNRESOLVED — there is no `wiki` permission scope.*
 - GitHub topic conventions. *Answered 2026-09-02 (R-10, final section): up to 20
   topics, lowercase letters, digits and hyphens only, 50 characters each.*
+### R-25 to R-28 · The four destination checks of work order 16 part H
+*Answered 2026-11-04, each partially, with its open states listed in the note:*
+[R-25](../research/R-25-provider-integrity-check.md) (`PROVIDER_INTEGRITY_CHECK`),
+[R-26](../research/R-26-executables-owned-by-destination.md) (`EXECUTABLES_OWNED_BY_DESTINATION`),
+[R-27](../research/R-27-no-cross-provider-linkage.md) (`NO_CROSS_PROVIDER_LINKAGE`),
+[R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
+
 - Reasonable minimum macOS for MacPorts itself, to bound the support matrix.
   *Answered 2026-09-02 (R-4): MacPorts 2.12.6 ships package installers down to
   macOS 10.12 Sierra, coinciding with this project's Intel floor.*

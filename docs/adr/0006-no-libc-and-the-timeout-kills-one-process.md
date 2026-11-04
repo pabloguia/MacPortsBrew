@@ -85,6 +85,16 @@ a comment.
 None. No dependency added, no deployment floor moved, no provider behaviour
 assumed.
 
+## Amendment, 2026-11-04 (work order 16 part H; not yet in force)
+
+"Nothing it spawns is expected to fork" stops being true when a liveness probe runs
+an installed program (`docs/passes/16-liveness-design.md`). The one-process kill stays,
+at a 30-second timeout. It leaves a wrapper's child running, which the curated table
+excludes when written. **A daemon is out of reach of any kill:** R-28 observed
+`httpd --version` exit 0 and leave a server in its own process group, so neither the
+timeout nor a group kill sees it, and `libc` would not change that. The controls are
+what may run, not how it is stopped.
+
 ## Revisit when
 
 The executor pass lands a mutating command path — that is the change of
