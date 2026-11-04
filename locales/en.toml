@@ -353,6 +353,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "concurrency.unknowable" = "Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read."
 "concurrency.none_observed" = "No package manager was seen changing this machine while it was read."
 "concurrency.observed" = "Possibly inconsistent: {count, plural, one {a package manager was} other {# package managers were}} running while this was read ({providers}), so what was read may have been changing. Rerun this once {count, plural, one {it has} other {they have}} finished."
+"concurrency.not_determined" = "Possibly inconsistent: whether {count, plural, one {a package manager was} other {# package managers were}} holding a lock while this was read could not be determined ({providers}), so what was read may have been changing."
 
 # --- migrate ----------------------------------------------------------------
 # Rendered after the plan. Every enumeration below is reached through an

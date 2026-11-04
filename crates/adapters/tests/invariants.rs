@@ -769,3 +769,175 @@ fn registry_agrees(plist: &Path) -> Option<String> {
             .to_string(),
     )
 }
+
+/// The lock locations `data/policy/provider-locks.toml` names, as
+/// `(provider, location, is it a directory)`, read from the file rather than
+/// written here.
+fn lock_locations() -> Vec<(String, String, bool)> {
+    let text = std::fs::read_to_string(workspace().join("data/policy/provider-locks.toml"))
+        .expect("the lock data is readable");
+    let doc: toml::Value = toml::from_str(&text).expect("the lock data parses");
+    let entries = doc["entry"].as_array().expect("entries");
+    assert!(!entries.is_empty(), "the lock data describes no provider");
+    entries
+        .iter()
+        .map(|e| {
+            let location = &e["location"];
+            let path = location
+                .get("dir")
+                .or_else(|| location.get("file"))
+                .and_then(toml::Value::as_str)
+                .expect("a directory or a file");
+            (
+                e["provider"].as_str().expect("a provider").to_string(),
+                path.to_string(),
+                location.get("dir").is_some(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn invariant_20_no_lock_location_is_written_into_source() {
+    // INV-20: where a provider holds its locks is dated data. No source file
+    // under any crate's `src/` spells a location the data names, nor the
+    // leaf of a named lock file; and every entry carries its provenance.
+    let text = std::fs::read_to_string(workspace().join("data/policy/provider-locks.toml"))
+        .expect("readable");
+    let doc: toml::Value = toml::from_str(&text).expect("parses");
+    for e in doc["entry"].as_array().expect("entries") {
+        let id = e["provider"].as_str().expect("a provider");
+        assert!(
+            e.get("source")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|s| !s.trim().is_empty()),
+            "{id}: no source"
+        );
+        assert!(
+            e.get("read_on")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|s| s.len() == 10),
+            "{id}: no read_on"
+        );
+    }
+    let mut needles = Vec::new();
+    for (_, location, _) in lock_locations() {
+        if let Some(leaf) = Path::new(&location).file_name().and_then(|l| l.to_str()) {
+            if leaf.starts_with('.') {
+                needles.push(leaf.to_string());
+            }
+        }
+        needles.push(location);
+    }
+    let mut hits = Vec::new();
+    for (path, text) in sources() {
+        for needle in &needles {
+            if text.contains(needle.as_str()) {
+                hits.push(format!("{}: {needle}", path.display()));
+            }
+        }
+    }
+    assert!(
+        hits.is_empty(),
+        "lock locations written into source: {hits:#?}"
+    );
+}
+
+#[test]
+fn invariant_17_the_lock_probe_names_no_provider() {
+    // INV-17: the probe branches on a location's shape (a directory of lock
+    // files, or one named file) and never on whose it is, so both directions
+    // of a migration are refused by the same code. Textual over the module:
+    // no provider id, no provider constant, no provider-specific base, and no
+    // provider id read as text.
+    let dir = workspace().join("crates/adapters/src/lock_probe");
+    let mut files = 0;
+    for entry in std::fs::read_dir(&dir).expect("the module exists") {
+        let path = entry.expect("an entry").path();
+        let text = std::fs::read_to_string(&path)
+            .expect("readable")
+            .to_lowercase()
+            // This project's own crate names are not provider names.
+            .replace("macportsbrew", "");
+        files += 1;
+        for name in [
+            "homebrew",
+            "macports",
+            "brew",
+            "portdbpath",
+            "provider_id",
+            "as_str(",
+        ] {
+            assert!(!text.contains(name), "{} names `{name}`", path.display());
+        }
+    }
+    assert!(files >= 2, "the module's files were read");
+}
+
+#[test]
+fn invariant_15_a_replayed_or_snapshotted_run_never_samples_provider_locks() {
+    // A replay pointed, through its prefix override, at a scratch prefix whose
+    // lock locations hold a lock the test itself holds and cannot be read: a
+    // probe that looked would answer `NOT_DETERMINED`. It answers
+    // `UNKNOWABLE` under either filesystem scope, without looking (INV-15).
+    // A snapshot run never builds the probe at all; that half is G-3's.
+    use macportsbrew_adapters::process::{Recording, RecordingProvenance};
+    use macportsbrew_adapters::registry::{self, RegistryContext};
+    use macportsbrew_domain::{ConcurrentProviderActivity, ProviderId, ProviderLockProbe};
+    use std::os::unix::fs::PermissionsExt;
+
+    let prefix = scratch("lock-replay");
+    let mut held = Vec::new();
+    for (_, location, is_directory) in lock_locations() {
+        let path = prefix.join(&location);
+        let (dir, lock) = if is_directory {
+            (path.clone(), path.join("held"))
+        } else {
+            (path.parent().expect("a parent").to_path_buf(), path)
+        };
+        std::fs::create_dir_all(&dir).expect("a lock directory");
+        let file = std::fs::File::create(lock).expect("a scratch lock file");
+        file.lock().expect("the test locks its own scratch file");
+        held.push((file, dir));
+    }
+    for (_, dir) in &held {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    }
+    let runner = ReplayRunner::new(Recording {
+        schema_version: 1,
+        provenance: RecordingProvenance {
+            macos: "26.7.1".into(),
+            architecture: "x86_64".into(),
+            provider_versions: vec![],
+            captured_at: "2026-11-03T00:00:00Z".into(),
+            captured_by: "crates/adapters/tests/invariants.rs".into(),
+            origin: "synthesised".into(),
+            note: Some("an empty replay for the lock probe; not a capture".into()),
+        },
+        invocations: vec![],
+    });
+    for filesystem in [FilesystemScope::Elsewhere, FilesystemScope::ThisMachine] {
+        let ctx = RegistryContext {
+            runner: &runner,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            filesystem,
+            prefix_override: Some(
+                registry::known_provider_ids()
+                    .into_iter()
+                    .map(|id: ProviderId| (id, prefix.clone()))
+                    .collect(),
+            ),
+        };
+        assert_eq!(
+            registry::lock_probe(&ctx).sample(),
+            ConcurrentProviderActivity::Unknowable,
+            "{filesystem:?}"
+        );
+    }
+    for (_, dir) in &held {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    drop(held);
+    std::fs::remove_dir_all(&prefix).expect("cleanup");
+}

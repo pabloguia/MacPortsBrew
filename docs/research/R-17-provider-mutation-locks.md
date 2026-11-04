@@ -37,6 +37,9 @@
 **About the identifier.** Filed as R-17 in `docs/spec/09-research-checklist.md`
 (between R-16 and R-18; R-18 was filed first).
 
+**Addendum, 2026-11-03 (work order 16 part G-2):** see "Addendum: the probe's own
+code" below. It adds observations from the built probe, and changes no finding.
+
 ## Question
 
 Where does each provider hold a lock while it mutates? Is it a held advisory
@@ -351,6 +354,35 @@ verified here**) is a design question for the adapter's dependency policy.
   (E1) without being traced individually.
 - **Whether Homebrew on Apple Silicon (`/opt/homebrew`) or a non-default
   `HOMEBREW_PREFIX`/`HOMEBREW_LOCKS` differs**: only the Intel layout was read.
+
+## Addendum: the probe's own code (observed 2026-11-03)
+
+Machine: macOS 26.7.2 (`sw_vers -productVersion`), x86_64, not elevated. Every
+observation is on a scratch file; no provider's lock file was opened. The query
+is `crates/adapters/src/lock_probe/getlk.rs`, compiled unchanged into a scratch
+crate and, afterwards, into `crates/adapters/tests/lock_probe_cross_process.rs`.
+
+- **Observation C holds for the built query, across processes.** With the holder
+  a separate `python3` process using `flock`: nothing held gives `NotHeld`;
+  `LOCK_EX` gives `Held`; `LOCK_SH` gives `Held`; after the holder exits,
+  `NotHeld`. The committed test repeats this with a Rust holder (`File::lock`,
+  `File::lock_shared`) in a re-executed test binary. Ruby's `File#flock` and
+  `flock(1)` holders stay as "Cannot determine" says: unobserved.
+- **A zero `l_type` is refused, as ADR-0007 asked to confirm:** `fcntl(F_GETLK)`
+  with `l_type = 0` returned -1 with `errno` 22 (`EINVAL`), whether or not the
+  file was locked. So a query with an uninitialised type fails rather than
+  answering; the template sets `F_WRLCK` explicitly, and any -1 is `Unknown`.
+- **A directory descriptor answers `F_UNLCK`**, not an error, so the query alone
+  cannot tell a directory from a free lock file. `fstat` on the handle must, and
+  does (`a_directory_descriptor_answers_not_held_which_is_why_the_shape_is_checked_first`).
+- **Still unverified, and declared:** the Apple Silicon layout
+  (`/opt/homebrew`; no arm64 machine here, an owner item) and whether
+  `HOMEBREW_LOCKS` can be overridden from the environment (G item 18). The
+  location comes from the detected prefix. A provider that keeps its locks
+  elsewhere is a false negative of the kind listed above, and the probe would
+  answer "none observed" for it, which G-3 treats as allowing a dispatch. So
+  until an arm64 machine confirms the layout, this is an open risk, not a safe
+  one, and the owner item stands.
 
 ## Impact on the specification
 

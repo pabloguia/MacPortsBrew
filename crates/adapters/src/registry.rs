@@ -138,11 +138,21 @@ impl std::fmt::Debug for DetectedPrefix {
 /// The prefix of `provider`, as this build detects it for `ctx` — or `None`
 /// when the provider is not one this build knows, or was not detected.
 pub fn detected_prefix(ctx: &RegistryContext<'_>, provider: &ProviderId) -> Option<DetectedPrefix> {
-    let derivation = derivation(provider)?;
     // Asked once: the scope, the override and the replay mark must all follow
     // from the same answer (a runner that answered differently on each call
     // could otherwise take a probed scope with an honoured override).
     let replay = ctx.runner.is_replay();
+    detected_prefix_as(ctx, provider, replay)
+}
+
+/// [`detected_prefix`] with the runner's replay answer already asked, so a
+/// caller detecting several providers asks it once for all of them.
+fn detected_prefix_as(
+    ctx: &RegistryContext<'_>,
+    provider: &ProviderId,
+    replay: bool,
+) -> Option<DetectedPrefix> {
+    let derivation = derivation(provider)?;
     let filesystem = effective_scope(replay, ctx.filesystem);
     let prefix = resolve_prefix(ctx, provider, filesystem, replay)?;
     Some(DetectedPrefix {
@@ -302,6 +312,283 @@ pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
             .iter()
             .filter_map(|id| detected_prefix(ctx, id))
             .collect(),
+    }
+}
+
+/// The lock probe over this machine's detected providers (DP-030 (b); R-17).
+///
+/// **The only constructor of a probe that looks at anything.** Each detected
+/// provider's lock location is read from `data/policy/provider-locks.toml`
+/// (INV-20) and resolved here, against the prefix detection found and, for a
+/// `portdbpath` base, against [`crate::configuration::macports_portdbpath`];
+/// the probe receives only the resolved shape and never learns which provider
+/// a location is for (INV-17). A provider that is not detected is neither
+/// probed nor reported. A detected provider with no entry, or whose base does
+/// not resolve on this machine, is sampled as "not determined".
+///
+/// `runner.is_replay()` is asked **once**. A replay, or a filesystem that is
+/// not the machine described, gets a probe that answers `Unknowable` and
+/// touches nothing: nothing in a recording or a snapshot says what this
+/// host's locks were when it was taken (INV-15). The scope is read as it was
+/// requested, not through [`effective_scope`]: that collapse stops an unprobed
+/// prefix being executed, and for a probe the contradiction of a live runner
+/// and `Elsewhere` resolves towards not looking.
+///
+/// A provider whose detection failed only because its executable could not be
+/// checked is not "not detected" ([`crate::lock_probe::absence_is_certain`]): it is sampled as
+/// "not determined", so an error is never left out of the answer.
+pub fn lock_probe(ctx: &RegistryContext<'_>) -> crate::lock_probe::SystemLockProbe {
+    use crate::lock_probe::{LockSite, SystemLockProbe};
+    let replay = ctx.runner.is_replay();
+    if replay || !ctx.filesystem.is_this_machine() {
+        return SystemLockProbe::unknowable();
+    }
+    let sites = known_provider_ids()
+        .into_iter()
+        .filter_map(|id| {
+            let Some(site) = detected_prefix_as(ctx, &id, replay) else {
+                let executable = derivation(&id)?.executable;
+                return (!crate::lock_probe::absence_is_certain(
+                    &candidate_prefixes(&id),
+                    executable,
+                ))
+                .then_some((id, LockSite::Unresolved));
+            };
+            Some((id, lock_site(&site)))
+        })
+        .collect();
+    SystemLockProbe::over(sites)
+}
+
+/// Where `site`'s provider holds its locks, on this machine.
+fn lock_site(site: &DetectedPrefix) -> crate::lock_probe::LockSite {
+    use crate::lock_probe::LockSite;
+    locks::entry(site.provider().as_str()).map_or(LockSite::Unresolved, |entry| {
+        let base = match entry.base {
+            locks::Base::Prefix => Some(site.prefix.clone()),
+            locks::Base::Portdbpath => crate::configuration::macports_portdbpath(
+                &site.prefix,
+                site.home.as_deref(),
+                FilesystemScope::ThisMachine,
+            ),
+        };
+        base.map_or(LockSite::Unresolved, |base| entry.site_under(&base))
+    })
+}
+
+/// `data/policy/provider-locks.toml`, read here and nowhere else (G item 18).
+///
+/// Embedded with `include_str!`, as [`crate::prefixes`] embeds its file. A
+/// malformed or invalid file is this repository's own mistake and fails at
+/// the first call, with the reason; there is no honest fallback, and a guessed
+/// lock location would be a guessed "nothing held".
+mod locks {
+    use crate::lock_probe::LockSite;
+    use serde::Deserialize;
+    use std::ffi::OsString;
+    use std::path::{Component, Path, PathBuf};
+
+    const SOURCE: &str = include_str!("../../../data/policy/provider-locks.toml");
+
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Document {
+        pub(super) entry: Vec<Entry>,
+    }
+
+    /// What a location is relative to: a closed set.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub(super) enum Base {
+        Prefix,
+        Portdbpath,
+    }
+
+    /// Where the lock files are under the base.
+    #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+    #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+    pub(super) enum Location {
+        /// Every entry of this directory is a lock file.
+        Directory { dir: PathBuf },
+        /// One lock file.
+        File { file: PathBuf },
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Entry {
+        pub(super) provider: String,
+        pub(super) base: Base,
+        pub(super) location: Location,
+        pub(super) source: String,
+        pub(super) read_on: String,
+        #[allow(dead_code, reason = "provenance is the point of the file; INV-20")]
+        pub(super) note: Option<String>,
+    }
+
+    impl Entry {
+        /// The probe's site for this entry under `base`.
+        pub(super) fn site_under(&self, base: &Path) -> LockSite {
+            match &self.location {
+                Location::Directory { dir } => LockSite::Directory(base.join(dir)),
+                Location::File { file } => {
+                    // Validated on load: at least one normal component, so it
+                    // has a file name, and its parent is relative.
+                    let (Some(name), Some(parent)) = (file.file_name(), file.parent()) else {
+                        return LockSite::Unresolved;
+                    };
+                    LockSite::File {
+                        dir: base.join(parent),
+                        name: OsString::from(name),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether `path` is relative and made only of normal components, read
+    /// from its text: `Path::components` drops an interior `.` and a
+    /// trailing `/`, which would let them through unseen.
+    fn is_plain_relative(path: &Path) -> bool {
+        let Some(text) = path.to_str() else {
+            return false;
+        };
+        !text.is_empty()
+            && text
+                .split('/')
+                .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+            && path.components().all(|c| matches!(c, Component::Normal(_)))
+    }
+
+    fn is_date(text: &str) -> bool {
+        let b = text.as_bytes();
+        b.len() == 10
+            && b.iter().enumerate().all(|(i, c)| {
+                if i == 4 || i == 7 {
+                    *c == b'-'
+                } else {
+                    c.is_ascii_digit()
+                }
+            })
+    }
+
+    /// Parses and validates `text` against the providers the registry knows.
+    pub(super) fn parse(text: &str, known: &[String]) -> Result<Document, String> {
+        let doc: Document = toml::from_str(text).map_err(|e| e.to_string())?;
+        let mut seen = std::collections::BTreeSet::new();
+        for e in &doc.entry {
+            if !known.contains(&e.provider) {
+                return Err(format!("{}: not a provider this build knows", e.provider));
+            }
+            if !seen.insert(e.provider.clone()) {
+                return Err(format!("{}: more than one entry", e.provider));
+            }
+            if e.source.trim().is_empty() {
+                return Err(format!("{}: no source", e.provider));
+            }
+            if !is_date(&e.read_on) {
+                return Err(format!("{}: read_on is not YYYY-MM-DD", e.provider));
+            }
+            let path = match &e.location {
+                Location::Directory { dir } => dir,
+                Location::File { file } => file,
+            };
+            if !is_plain_relative(path) {
+                return Err(format!(
+                    "{}: {} must be relative, without `.`, `..` or a leading `/`",
+                    e.provider,
+                    path.display()
+                ));
+            }
+        }
+        Ok(doc)
+    }
+
+    fn document() -> &'static Document {
+        use std::sync::OnceLock;
+        static PARSED: OnceLock<Document> = OnceLock::new();
+        PARSED.get_or_init(|| {
+            let known: Vec<String> = super::known_provider_ids()
+                .iter()
+                .map(|p| p.as_str().to_string())
+                .collect();
+            parse(SOURCE, &known)
+                .unwrap_or_else(|e| panic!("data/policy/provider-locks.toml is invalid: {e}"))
+        })
+    }
+
+    /// `provider`'s entry, if the data has one.
+    pub(super) fn entry(provider: &str) -> Option<&'static Entry> {
+        document().entry.iter().find(|e| e.provider == provider)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn known() -> Vec<String> {
+            vec!["a".into(), "b".into()]
+        }
+
+        #[test]
+        fn the_shipped_file_is_valid_and_describes_every_known_provider() {
+            let doc = document();
+            for id in super::super::known_provider_ids() {
+                assert!(
+                    doc.entry.iter().any(|e| e.provider == id.as_str()),
+                    "{id:?} has no lock entry"
+                );
+            }
+        }
+
+        #[test]
+        fn an_invalid_file_is_refused_with_its_reason() {
+            let row = |extra: &str| {
+                format!(
+                    "[[entry]]\nprovider = \"a\"\nbase = \"prefix\"\n{extra}\nsource = \"s\"\nread_on = \"2026-10-05\"\n"
+                )
+            };
+            let good = row("location = { kind = \"directory\", dir = \"var/x\" }");
+            assert!(
+                parse(&good, &known()).is_ok(),
+                "{:?}",
+                parse(&good, &known())
+            );
+            for bad in [
+                row("location = { kind = \"directory\", dir = \"/abs\" }"),
+                row("location = { kind = \"directory\", dir = \"../up\" }"),
+                row("location = { kind = \"file\", file = \"a/./b\" }"),
+                row("location = { kind = \"file\", file = \"\" }"),
+                row("location = { kind = \"directory\", dir = \"x/\" }"),
+                row("location = { kind = \"directory\", dir = \"x//y\" }"),
+                row("location = { kind = \"directory\", dir = \"x\", file = \"y\" }"),
+                row("location = { kind = \"glob\", dir = \"x\" }"),
+                row("location = { kind = \"directory\", dir = \"x\" }\nextra = 1"),
+                good.replace("\"prefix\"", "\"home\""),
+                good.replace("provider = \"a\"", "provider = \"z\""),
+                good.replace("2026-10-05", "Oct 5"),
+                good.replace("source = \"s\"", "source = \" \""),
+                format!("{good}{good}"),
+            ] {
+                assert!(parse(&bad, &known()).is_err(), "accepted:\n{bad}");
+            }
+        }
+
+        #[test]
+        fn a_file_location_splits_into_its_directory_and_one_leaf() {
+            let doc = parse(
+                "[[entry]]\nprovider = \"b\"\nbase = \"prefix\"\nlocation = { kind = \"file\", file = \"d/e/f.lock\" }\nsource = \"s\"\nread_on = \"2026-10-05\"\n",
+                &known(),
+            )
+            .expect("valid");
+            assert_eq!(
+                doc.entry[0].site_under(Path::new("/base")),
+                LockSite::File {
+                    dir: PathBuf::from("/base/d/e"),
+                    name: OsString::from("f.lock"),
+                }
+            );
+        }
     }
 }
 
@@ -715,5 +1002,59 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn a_replay_gets_a_lock_probe_that_never_looks_whichever_scope_it_names() {
+        let runner = replay();
+        for scope in [FilesystemScope::Elsewhere, FilesystemScope::ThisMachine] {
+            let mut ctx = context(&runner);
+            ctx.filesystem = scope;
+            assert!(lock_probe(&ctx).is_unknowable(), "{scope:?}");
+        }
+    }
+
+    #[test]
+    fn a_live_runner_beside_another_filesystem_gets_a_lock_probe_that_never_looks() {
+        // `effective_scope` would call this machine; the probe must not.
+        let runner = LiveRunner;
+        assert!(lock_probe(&context(&runner)).is_unknowable());
+    }
+
+    #[test]
+    fn the_lock_probe_asks_the_runner_whether_it_is_a_replay_exactly_once() {
+        let runner = Flipping(std::cell::Cell::new(0));
+        let probe = lock_probe(&context(&runner));
+        assert_eq!(runner.0.get(), 1);
+        assert!(probe.is_unknowable(), "the first answer, replay, decides");
+    }
+
+    #[test]
+    fn a_live_lock_probe_samples_only_detected_providers_under_their_documented_prefixes() {
+        // Stats this machine's filesystem through detection and reads its
+        // `macports.conf` if it has one, and spawns nothing; the override in
+        // the context is ignored against a live runner. Constructing the
+        // probe samples nothing. Says nothing where no provider is installed.
+        let runner = LiveRunner;
+        let mut ctx = context(&runner);
+        ctx.filesystem = FilesystemScope::ThisMachine;
+        let probe = lock_probe(&ctx);
+        assert!(!probe.is_unknowable());
+        for (provider, site) in probe.sites() {
+            // A provider left undetected by an error is sampled too, unresolved.
+            if *site == crate::lock_probe::LockSite::Unresolved {
+                continue;
+            }
+            let detected = detected_prefix(&ctx, provider).expect("a detected provider");
+            match site {
+                crate::lock_probe::LockSite::Directory(dir) => {
+                    assert!(dir.starts_with(detected.prefix()), "{dir:?}");
+                }
+                crate::lock_probe::LockSite::File { dir, .. } => {
+                    assert!(dir.starts_with(detected.prefix()), "{dir:?}");
+                }
+                crate::lock_probe::LockSite::Unresolved => {}
+            }
+        }
     }
 }

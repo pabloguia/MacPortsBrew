@@ -2349,9 +2349,10 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 /// 2026-11-01. A version bump or a policy-data change moves it, deliberately:
 /// both are inside what is digested.
 // Moved by F-3: the plan gained its primary decision and lost the
-// `SET_PRIMARY` command (F.md Design §4).
+// `SET_PRIMARY` command (F.md Design §4). Moved by G-2: the policy version
+// went to `2026.10.18-2` with `provider-locks.toml` (G.md, As built).
 const PINNED_DIGEST: &str =
-    "sha256:b235351bb2db863d058a58879ca1d66e993d05f26d78beb11afedba4ed712ca8";
+    "sha256:b36ebaf006090c7c886efa26e750dcf9ca1f0f5a9e0aba0c32a7965a2af88d8f";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {

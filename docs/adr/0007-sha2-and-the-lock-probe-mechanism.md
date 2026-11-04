@@ -10,7 +10,12 @@
   identifier `unsafe_code` … only in that module" is corrected: the lint name
   also appears as the roots' inner `forbid` and in `Cargo.toml`; under an
   `allow`, `expect` or `warn` it appears only in that module, at most once
-  (`docs/passes/16-plans/G.md` item 4).
+  (`docs/passes/16-plans/G.md` item 4). **Addendum, 2026-11-03, part G-2:** the
+  probe is built. `libc` is a direct dependency of `crates/adapters` alone, used
+  only under `src/lock_probe/`. The one `unsafe` block and its one
+  `#[allow(unsafe_code)]`, on `held`, are in `lock_probe/getlk.rs`, and the scan
+  now requires exactly one of each. The zero-`l_type` behaviour this ADR asked G
+  to confirm is confirmed (R-17, addendum). The refusal is G-3.
 - **Date:** 2026-10-30
 - **Pass:** 16-complete-mutating-product, part E
 - **Supersedes:** ADR-0006, **for the `sha2` dependency and the lock probe

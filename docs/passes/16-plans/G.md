@@ -270,6 +270,9 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 | `spec-guardian`, G-1 code | `wo16/G-1-lints`, uncommitted, 2026-11-03 | Approve with changes: 1 ADR-0004, ADR-0007 and SE-110 left false; 2 lint-lowering flags missed (`-W`, `--force-warn`, single-quoted TOML, other `*RUSTFLAGS`); 3 `include` under another name; 4 `#[path]` forms unread; 5 any `target` directory skipped; 6 roots by kind `lib`/`bin` only; 7 `build.rs` checked by target, "first inner attribute" stricter than item 4; 8 "exactly once" is G-2's | 1–7 fixed in G-1 (As built, G-1); 8 handed to G-2 |
 | `security-reviewer`, G-1 code | `wo16/G-1-lints`, uncommitted, 2026-11-03 | Bypasses, verified by compiling: B1 raw C strings, B2 long `\u{..}` char literals desync the lexer (also a fake root `forbid`); B3 `include` renamed; B4 `#[path]` forms; B5 nested `target`, non-`.rs` path targets; B6 a macro at the site multiplies it; B7 a dependency's macro expands `unsafe` even under `forbid`, and 8 proc-macro crates are in the graph; B8 flags and wrappers; B9 targets outside `crates/`, other crate kinds | All fixed in G-1 with a planted self-test each, except B7's residue: admitted dependencies' macros, pinned and declared as a limit in SE-110 |
 
+| `security-reviewer`, G-2 code | `wo16/G-2-probe`, uncommitted, 2026-11-03 | Approve with changes: the `unsafe` read line by line against libc 0.2.191 and the SDK, no defect. F1 a detection error left out, then `NoneObserved`; F2 live runner with `Elsewhere` looked; F3 undetermined lost under a held lock; F4 a held lock lost to a stray entry; F5 the holder test could lock any readable file; F6 `HOME` and `PORTSRC` false negatives; F7 mutants 17–19 and sockets; F8 declarations, `nlink`, R-17 wording | F1–F5, F7 fixed; F6 and F8 item 21. `nlink` not checked: a hard link can only cause a false `Held`, by someone who can already write there |
+| `spec-guardian`, G-2 code | `wo16/G-2-probe`, uncommitted, 2026-11-03 | Approve with changes: 1 a `Broken` provider sampled as healthy; 2, 3 `Observed` drops the undetermined and no cause is carried; 4 policy version; 5 records behind; 6 mutants 3, 3b, 17; 7 who may `#[path]` the site; 8 test accuracy; 9 notes | 1 handed to G-3, recorded in SE-110; 2–8 fixed; 9 item 21 |
+
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 
 1. **The lock directory is never followed (SR M1, SG R3).** Before listing,
@@ -443,6 +446,18 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
     keys. R-17's addendum records `HOMEBREW_LOCKS`' overridability as
     unverified.
 
+21. **Round G-2 (both reviewers), for G-3 to carry.** Item 7's cause and "not left
+    out" hold through `undetermined` and `absence_is_certain`; G-3 adds presence
+    (`Broken` is `NotDetermined`) at the application seam, with a named test, and
+    may need a cause token for it. 04 and SE-015 add to item 10's false negatives:
+    `PORTSRC`, and a different `HOME` (`sudo port`), each moving `portdbpath` where
+    the probe reads the default; a standing ancestor symlink is followed, as the
+    provider follows it; a dangling ancestor reads as missing. G-3 rewords
+    `concurrency.observed` as well as `none_observed` (both say more than R-17
+    allows) and renders `undetermined`. `configuration.rs:305` still holds
+    MacPorts' default database path in source (pre-existing, INV-20): a follow-up,
+    not G's.
+
 ## As built (G-1)
 
 - `Cargo.toml` `unsafe_code = "deny"`; `#![forbid(unsafe_code)]` as the first
@@ -478,3 +493,27 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   lands, the `allow` tied to `held`;
   `no_workspace_crate_depends_on_libc_directly` edited on purpose; the direct
   dependency pin gains `macportsbrew-adapters libc`.
+
+## As built (G-2)
+
+- **Item 20 N1, the first branch:** a child process holds the lock. It re-executes
+  the test binary, so no other program is spawned, and it refuses any path but its
+  own scratch file (`lock_probe_cross_process.rs`). The probe's sampling around the
+  query is tested with an in-process holder.
+- **Tests for links live in `crates/adapters/tests/lock_probe_shapes.rs`:** the stop
+  gate refuses the token in `src/`, tests included, as part D found. That file
+  compiles the module again to reach its crate-private seam. The scan pins it and
+  the cross-process file as the only two allowed to.
+- **Deviation from item 3:** `classify` is a separate safe function, so mutants 3 and
+  3b can be killed without a fake kernel.
+- **Item 7's shape:** `Observed { providers, undetermined }` and
+  `NotDetermined { undetermined }`, each provider with a closed cause token (SE-110).
+- **Inside one directory the same precedence holds:** held outranks undetermined, and
+  a changed directory outranks both.
+- **Flock and fork, found by the first run of the cross-process test:** a `drop` of a
+  `flock` holder does not release while another test's `fork` holds a copy until its
+  `exec`. Tests that assert release use `unlock`.
+- **Item 16:** bumped to `2026.10.18-2`, because the rule says any edit that does not
+  move a read date, and item 16's narrower reading was wrong (spec-guardian 4).
+- **Item 14:** `scripts/check-deployment-target.sh` re-run 2026-11-03 with `libc`
+  direct, before the review fixes, which add no dependency: 10.12 x86_64, 11.0 arm64.

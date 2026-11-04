@@ -232,6 +232,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "concurrency.unknowable" = "Possivelmente inconsistente: isto foi lido de uma gravação ou de um arquivo de snapshot, que não tem como mostrar se algum gerenciador de pacotes estava alterando a máquina de origem durante a leitura."
 "concurrency.none_observed" = "Nenhum gerenciador de pacotes foi visto alterando esta máquina durante a leitura."
 "concurrency.observed" = "Possivelmente inconsistente: {count, plural, one {um gerenciador de pacotes estava} other {# gerenciadores de pacotes estavam}} em execução durante a leitura ({providers}), então o que foi lido pode ter estado mudando. Rode isto de novo quando {count, plural, one {ele tiver} other {eles tiverem}} terminado."
+"concurrency.not_determined" = "Possivelmente inconsistente: não foi possível determinar se {count, plural, one {um gerenciador de pacotes estava} other {# gerenciadores de pacotes estavam}} segurando uma trava durante a leitura ({providers}), então o que foi lido pode ter estado mudando."
 
 # --- migrate ----------------------------------------------------------------
 "migrate.nothing_to_move" = "Nada a mover: {package} já está em {provider}. No que foi lido, nenhum outro gerenciador de pacotes o tem, nem tem nada que as equivalências dele indiquem como possivelmente o mesmo pacote. Nada foi alterado."
