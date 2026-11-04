@@ -378,6 +378,19 @@ pub struct MachineDestinationSite<'a, 'c, 'r> {
     bases: RefCell<BTreeSet<CheckBasis>>,
 }
 
+impl<'a, 'c, 'r> MachineDestinationSite<'a, 'c, 'r> {
+    /// The site for `planned` over `reads`, which only a holder of the run's lock
+    /// can have.
+    #[must_use]
+    pub fn new(planned: &'a PlannedRun, reads: DestinationSites<'c, 'r>) -> Self {
+        Self {
+            planned,
+            reads,
+            bases: RefCell::new(BTreeSet::new()),
+        }
+    }
+}
+
 impl DestinationSite for MachineDestinationSite<'_, '_, '_> {
     fn answer(&self, question: &Question) -> CheckAnswer {
         let plan = self.planned.plan();
@@ -777,11 +790,7 @@ pub fn run_mutating<M: MutationSite>(
     run_with_mutations(
         cleared,
         || plan_read_sites(ctx),
-        |lock: &RunLock| MachineDestinationSite {
-            planned,
-            reads: destination_sites(ctx, state, lock),
-            bases: RefCell::new(BTreeSet::new()),
-        },
+        |lock: &RunLock| MachineDestinationSite::new(planned, destination_sites(ctx, state, lock)),
         io,
         home,
     )

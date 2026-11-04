@@ -207,7 +207,7 @@ impl HomebrewAdapter<'_> {
         let Ok(analysis) = self.analysis() else {
             return unusable(UncheckedCause::ReadFailed);
         };
-        let counts = destination_reads::stat_counts(&list.paths);
+        let counts = destination_reads::stat_counts(&list);
         let dependencies =
             analysis
                 .kegs
@@ -230,8 +230,8 @@ impl HomebrewAdapter<'_> {
             missing: counts.missing,
             dangling: counts.dangling,
             stat_failed: counts.failed,
-            outside_prefix: list.outside,
-            record: installation_record(&list.paths, &keg),
+            outside_prefix: list.outside(),
+            record: installation_record(list.paths(), &keg),
             dependencies,
         }
     }
@@ -247,7 +247,7 @@ impl HomebrewAdapter<'_> {
             }
         };
         let executables = [keg.join("bin"), keg.join("sbin")];
-        destination_reads::examine(&list.paths, &executables, prefixes)
+        destination_reads::examine(list.paths(), &executables, prefixes)
     }
 }
 

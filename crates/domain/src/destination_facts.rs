@@ -183,8 +183,9 @@ pub struct LinkageFacts {
     pub links_detected_provider: bool,
     /// A reference lies under a candidate prefix no provider was detected at.
     pub under_undetected_prefix: bool,
-    /// An `@rpath` name with no candidate that exists or lies in the destination,
-    /// an `@executable_path` outside an executable, or a relative install name.
+    /// An `@rpath` name none of whose candidates exists, an `@executable_path`
+    /// outside an executable, a path over the system's limit, or a relative install
+    /// name.
     pub rpath_unresolved: bool,
     /// A file this reader cannot answer for.
     pub malformed_file: bool,
@@ -344,7 +345,7 @@ mod tests {
         let mut table = PrefixTable::default();
         table.add(b"/opt/local", PrefixClass::Destination);
         table.add(b"/usr/local", PrefixClass::DetectedOther);
-        table.add(b"/opt/homebrew", PrefixClass::UndetectedCandidate);
+        table.add(b"/opt/candidate", PrefixClass::UndetectedCandidate);
         table.add(b"/opt/local/nested", PrefixClass::UndetectedCandidate);
         table
     }

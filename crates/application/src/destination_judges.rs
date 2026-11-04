@@ -44,7 +44,7 @@ pub fn judge_ownership(expected: &OwnerExpectation<'_>, facts: &OwnershipFacts) 
     match facts {
         OwnershipFacts::CouldNotTell(cause) => CheckAnswer::Unchecked(*cause),
         OwnershipFacts::NoEntry => CheckAnswer::Fails(CheckFailure::NoPlacedEntry),
-        OwnershipFacts::NotOwned => CheckAnswer::Fails(CheckFailure::AnotherPackagesEntry),
+        OwnershipFacts::NotOwned => CheckAnswer::Fails(CheckFailure::EntryOfNoPackage),
         OwnershipFacts::OwnerLeavesItsDirectory { owner } => {
             if owner == expected.package {
                 CheckAnswer::Unchecked(UncheckedCause::EntryLeavesOwner)
@@ -298,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             judge_ownership(&FRESH, &OwnershipFacts::NotOwned),
-            Fails(CheckFailure::AnotherPackagesEntry)
+            Fails(CheckFailure::EntryOfNoPackage)
         );
         assert_eq!(
             judge_ownership(&FRESH, &owner("openssl@3", "3", Some("3"), 1)),
@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn invariant_08_each_unknown_of_linkage_is_unchecked_and_none_holds() {
+    fn each_unknown_of_linkage_is_unchecked_and_none_holds() {
         type Set = fn(&mut LinkageFacts);
         let cases: [(Set, UncheckedCause); 9] = [
             (

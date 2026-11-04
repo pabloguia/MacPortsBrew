@@ -64,8 +64,9 @@ pub struct SliceRange {
     pub size: u64,
 }
 
-/// A kind of file that carries no dynamic load commands to read, so the caller
-/// counts it rather than reporting it as passed (R-27 finding 7).
+/// A kind of file that carries no dynamic load commands to read (R-27 finding 7).
+/// The caller reads nothing more of it and states no count; a package holding only
+/// these has no load commands, which is what the basis says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkippedKind {
     /// An `ar` archive.
@@ -469,9 +470,11 @@ fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
 
 /// The words of a `#!` line after its interpreter, as bytes, from the first bytes
 /// of the file. `env` and the interpreter's own arguments are here, so a caller can
-/// test an absolute one (`#!/usr/bin/env /x/python3`). Empty for a file that is not a
-/// script. What is past [`HEAD_BYTES`] is not read: [`classify`] answers for a line
-/// that long.
+/// test what they name (`#!/usr/bin/env /x/python3`). Empty for a file that is not
+/// a script. Only `head` is looked at, and a line with no end inside it reads as
+/// what is there: the caller reaches this only after [`classify`], which refuses such
+/// a line (`MalformedFile`) unless `head` is the whole file. CR and NUL end the line
+/// here, as they end the interpreter's name there.
 #[must_use]
 pub fn shebang_arguments(head: &[u8]) -> Vec<&[u8]> {
     let Some(rest) = head.strip_prefix(SHEBANG) else {

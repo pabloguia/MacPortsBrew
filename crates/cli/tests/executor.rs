@@ -2002,3 +2002,77 @@ fn analysis_and_dry_run_never_reach_a_probe() {
     let mutating = &mutating[..mutating.find("\n}\n").unwrap()];
     assert!(mutating.contains("destination_sites(ctx"), "{mutating}");
 }
+
+/// The site under a replay, built as `run_mutating` builds it, asked every question:
+/// nothing observed, never a yes, and the probe says so itself. A plan with no
+/// destination package has nothing to ask about, and says the same. Here and not
+/// beside the site: the source scans refuse a provider's name, `map_plan` and a
+/// fourth use of the constructor in `crates/cli/src`.
+#[test]
+fn invariant_15_the_machine_site_under_a_replay_answers_every_question_not_observed() {
+    use macportsbrew::executor::MachineDestinationSite;
+    use macportsbrew_adapters::filesystem::FilesystemScope;
+    use macportsbrew_adapters::persistence::{run_lock, StateDir};
+    use macportsbrew_adapters::process::{Recording, RecordingProvenance, ReplayRunner};
+    use macportsbrew_adapters::registry::{destination_sites, RegistryContext};
+    use macportsbrew_domain::ExecutableName;
+    use std::os::unix::fs::MetadataExt;
+
+    let (snap, package, to) = install_needed(HB);
+    let run = planned(&snap, package, to, false);
+    assert!(run.plan().destination_package.is_some());
+    let no_package =
+        planned(&snap, package, to, false).map_plan(|plan| plan.destination_package = None);
+
+    let base = std::env::temp_dir().join(format!("mpb-site-{}", std::process::id()));
+    std::fs::remove_dir_all(&base).ok();
+    std::fs::create_dir_all(&base).unwrap();
+    let state = StateDir::resolve(None, Some(base.join("state").to_str().unwrap())).unwrap();
+    state.ensure().unwrap();
+    let lock = run_lock::acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
+    let runner = ReplayRunner::new(Recording {
+        schema_version: 1,
+        provenance: RecordingProvenance {
+            macos: "26.0.0".into(),
+            architecture: "x86_64".into(),
+            provider_versions: Vec::new(),
+            captured_at: "2026-11-04T00:00:00Z".into(),
+            captured_by: "executor.rs".into(),
+            origin: "synthesised".into(),
+            note: None,
+        },
+        invocations: Vec::new(),
+    });
+    let ctx = RegistryContext {
+        runner: &runner,
+        home: None,
+        platform_tags: Box::new(|_| Vec::new()),
+        filesystem: FilesystemScope::Elsewhere,
+        prefix_override: None,
+    };
+    let leaf = ExecutableName::parse("gsed").unwrap();
+    for run in [&run, &no_package] {
+        let site = MachineDestinationSite::new(run, destination_sites(&ctx, &state, &lock));
+        for question in [
+            Question::Owned {
+                executable: leaf.clone(),
+            },
+            Question::Integrity,
+            Question::Linkage,
+            Question::Probe {
+                leaf: leaf.clone(),
+                argv: vec!["--version".to_owned()],
+            },
+            Question::Done,
+        ] {
+            assert_eq!(
+                site.answer(&question),
+                CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+                "{question:?}"
+            );
+        }
+        assert!(site.bases().is_empty());
+    }
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
+}

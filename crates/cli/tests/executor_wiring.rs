@@ -1620,6 +1620,70 @@ fn stored(scratch: &Scratch) -> macportsbrew_domain::RunRecord {
         .expect("the record is there")
 }
 
+/// Holds up to linkage, which fails: integrity's basis is a true statement about a
+/// check that held.
+struct LinkageFails;
+
+impl DestinationSite for LinkageFails {
+    fn answer(&self, question: &Question) -> CheckAnswer {
+        if *question == Question::Linkage {
+            CheckAnswer::Fails(macportsbrew_domain::CheckFailure::LinksAnotherProvider)
+        } else {
+            CheckAnswer::Holds
+        }
+    }
+
+    fn bases(&self) -> Vec<macportsbrew_domain::CheckBasis> {
+        vec![macportsbrew_domain::CheckBasis::GeneratedFileList]
+    }
+}
+
+/// The first version refused its own record: a halted `VERIFY_DESTINATION` with a
+/// basis read back as unusable, the history error fired, and the marker stayed.
+#[test]
+fn a_run_halted_by_a_failed_check_writes_a_record_that_reads_back_with_its_bases() {
+    use macportsbrew_domain::{CheckBasis, RunStatus, StepResult};
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("halted-bases");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let setup = unchanged(&direction, &scratch);
+    let report = run_with_mutations(
+        &cleared,
+        || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| LinkageFails,
+        MutatingRun {
+            resolutions: &Resolves::of(cleared.run().plan()),
+            locks: &LocksFree,
+            shown: shown(&cleared),
+            live: setup.live,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
+            reread: setup.reread,
+            read_back: setup.read_back,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    assert_eq!(report.history_error, None, "{report:?}");
+    assert_eq!(report.marker_left, None);
+    assert!(!scratch.marker().exists(), "the marker is cleared");
+    let record = stored(&scratch);
+    assert_eq!(record.check_bases(), [CheckBasis::GeneratedFileList]);
+    assert_ne!(record.status(), RunStatus::Success);
+    assert!(record.steps().iter().any(|step| {
+        step.kind() == StepKind::VerifyDestination
+            && matches!(step.result(), StepResult::Halted { .. })
+    }));
+}
+
 #[test]
 fn each_re_check_is_made_for_the_program_it_is_spent_on() {
     // SR 9: the shell re-reads for the program of the command (or of the

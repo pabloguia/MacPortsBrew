@@ -41,6 +41,18 @@ pub const MAX_WALK_BYTES: u64 = 256 * 1024 * 1024;
 /// candidate is a filesystem walk of its ancestors.
 pub const MAX_WALK_REFERENCES: usize = 65_536;
 
+/// The longest path the system opens, its terminator included. A path this long
+/// names nothing, so it is unresolved before any filesystem call.
+#[cfg(target_os = "macos")]
+const PATH_MAX: usize = 1024;
+#[cfg(not(target_os = "macos"))]
+const PATH_MAX: usize = 4096;
+
+/// Where the system's own libraries live: a load from here is not another
+/// package's, so nobody needs to examine it. Short, and naming no provider. Anything
+/// else real that lies in no known prefix might be one nobody detected.
+const SYSTEM_ROOTS: [&str; 2] = ["/usr/lib", "/System"];
+
 const ENOENT: i32 = 2;
 const ENOTDIR: i32 = 20;
 #[cfg(target_os = "macos")]
@@ -70,13 +82,26 @@ pub enum Outside {
     IsNotTested,
 }
 
-/// A parsed, bounded file list: what may be `stat`ed.
+/// A parsed, bounded file list: what may be `stat`ed. Only [`checked_list`] builds
+/// one, and [`stat_counts`] takes nothing else, so the order is the compiler's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckedList {
+    paths: Vec<PathBuf>,
+    outside: usize,
+}
+
+impl CheckedList {
     /// Listed paths under the root.
-    pub paths: Vec<PathBuf>,
-    /// Listed paths outside it, not tested.
-    pub outside: usize,
+    #[must_use]
+    pub fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
+    /// How many listed paths were outside it, not tested.
+    #[must_use]
+    pub fn outside(&self) -> usize {
+        self.outside
+    }
 }
 
 /// The parser, the length bound and `is_under`, in that order, before anything
@@ -122,10 +147,11 @@ pub struct StatCounts {
     pub failed: usize,
 }
 
-/// `lstat`, then `stat`, of every path. Never opens one.
-pub fn stat_counts(paths: &[PathBuf]) -> StatCounts {
+/// `lstat`, then `stat`, of every path of a checked list. Never opens one.
+#[must_use]
+pub fn stat_counts(list: &CheckedList) -> StatCounts {
     let mut counts = StatCounts::default();
-    for path in paths {
+    for path in list.paths() {
         match std::fs::symlink_metadata(path) {
             Err(error) if errno_in(&error, &[ENOENT, ENOTDIR]) => counts.missing += 1,
             Err(_) => counts.failed += 1,
@@ -214,9 +240,18 @@ pub fn examine_counted(
                 .or_insert(class);
         }
     }
+    let mut on_list: HashSet<PathBuf> = executable_dirs.iter().cloned().collect();
+    // `bin -> libexec/bin`: what is listed may be under the directory's real name.
+    on_list.extend(
+        executable_dirs
+            .iter()
+            .filter_map(|dir| std::fs::canonicalize(dir).ok()),
+    );
     let mut walk = Walk {
         prefixes,
         identities,
+        executable_dirs: on_list,
+        parents: HashMap::new(),
         facts: LinkageFacts::default(),
         work: WalkWork::default(),
         seen: HashMap::new(),
@@ -230,7 +265,7 @@ pub fn examine_counted(
         if walk.facts.walk_over_bound {
             break;
         }
-        walk.own_entry(path, executable_dirs);
+        walk.own_entry(path);
     }
     while let Some(next) = walk.queue.pop() {
         if walk.facts.walk_over_bound {
@@ -249,7 +284,18 @@ struct Spelled {
     normal: Vec<u8>,
 }
 
+/// `None` for what the file alone cannot name, and for a joined path over
+/// [`PATH_MAX`], which names nothing: before any filesystem call, any `seen` entry,
+/// or the work of normalising it.
 fn spelled(base: Option<&[u8]>, path: &[u8]) -> Option<Spelled> {
+    let joined = if path.first() == Some(&b'/') {
+        path.len()
+    } else {
+        base.map_or(path.len(), |b| b.len() + 1 + path.len())
+    };
+    if joined >= PATH_MAX {
+        return None;
+    }
     let normal = normalise(base, path)?;
     let raw = if path.first() == Some(&b'/') {
         path.to_vec()
@@ -269,8 +315,6 @@ fn has_parent_component(path: &[u8]) -> bool {
 /// Where a reference leads, once every spelling of it has been measured.
 #[derive(Clone, Debug)]
 struct Seen {
-    /// By its spelling alone.
-    spelled_class: Option<PrefixClass>,
     /// By where it resolves: the canonical path, or by inode.
     class: Option<PrefixClass>,
     /// `None` for something that does not exist.
@@ -293,6 +337,10 @@ struct Walk<'a> {
     /// Each prefix by `(dev, ino)`: a firmlink or a Unicode fold spells a prefix
     /// no string comparison sees, and the inode is the same.
     identities: HashMap<(u64, u64), PrefixClass>,
+    /// The executable directories, as given and canonically.
+    executable_dirs: HashSet<PathBuf>,
+    /// Each parent directory asked about, and whether it is one of them.
+    parents: HashMap<PathBuf, bool>,
     facts: LinkageFacts,
     work: WalkWork,
     seen: HashMap<Vec<u8>, Seen>,
@@ -306,14 +354,29 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    fn own_entry(&mut self, path: &Path, executable_dirs: &[PathBuf]) {
+    /// Whether `path` sits in an executable directory, by either of its names.
+    fn is_on_list(&mut self, path: &Path) -> bool {
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        if self.executable_dirs.contains(parent) {
+            return true;
+        }
+        if let Some(known) = self.parents.get(parent) {
+            return *known;
+        }
+        let answer =
+            std::fs::canonicalize(parent).is_ok_and(|real| self.executable_dirs.contains(&real));
+        self.parents.insert(parent.to_path_buf(), answer);
+        answer
+    }
+
+    fn own_entry(&mut self, path: &Path) {
         let Ok(metadata) = std::fs::symlink_metadata(path) else {
             self.facts.unreadable_file = true;
             return;
         };
-        let on_list = path
-            .parent()
-            .is_some_and(|parent| executable_dirs.iter().any(|d| d == parent));
+        let on_list = self.is_on_list(path);
         if metadata.is_symlink() {
             self.own_link(path, on_list);
             return;
@@ -402,14 +465,40 @@ impl Walk<'_> {
             })
     }
 
+    /// Counts one more operation, and says whether the bound still holds.
+    fn count(&mut self, operations: usize) -> bool {
+        self.work.operations = self.work.operations.saturating_add(operations);
+        if self.work.operations > MAX_WALK_REFERENCES {
+            self.facts.walk_over_bound = true;
+            return false;
+        }
+        true
+    }
+
+    /// `path`, which does not exist, as its deepest existing ancestor really is:
+    /// an absent file through a link below a prefix is still under that prefix.
+    fn through_existing_ancestor(&mut self, path: &Path) -> PathBuf {
+        let mut failed = 0;
+        let found = path.ancestors().skip(1).find_map(|ancestor| {
+            let real = std::fs::canonicalize(ancestor).ok();
+            failed += usize::from(real.is_none());
+            real.map(|real| (real, ancestor))
+        });
+        self.count(failed);
+        match found {
+            Some((real, ancestor)) => path
+                .strip_prefix(ancestor)
+                .map_or_else(|_| path.to_path_buf(), |rest| real.join(rest)),
+            None => path.to_path_buf(),
+        }
+    }
+
     /// Canonicalises what exists, and measures the spelling, the canonical path
     /// and the inodes of its ancestors, noting every answer. A candidate seen
     /// before costs a count and no filesystem access. `None` once the bound is
     /// passed.
     fn resolve(&mut self, written: &Spelled) -> Option<Seen> {
-        self.work.operations += 1;
-        if self.work.operations > MAX_WALK_REFERENCES {
-            self.facts.walk_over_bound = true;
+        if !self.count(1) {
             return None;
         }
         let parent = has_parent_component(&written.raw);
@@ -422,8 +511,7 @@ impl Walk<'_> {
             return Some(seen.clone());
         }
         self.work.resolutions += 1;
-        let spelled_class = self.prefixes.class_of(&written.normal);
-        self.note(spelled_class);
+        self.note(self.prefixes.class_of(&written.normal));
         let normal = Path::new(OsStr::from_bytes(&written.normal));
         let real = std::fs::canonicalize(normal);
         if parent {
@@ -448,13 +536,15 @@ impl Walk<'_> {
                 None
             }
         };
-        let measured = canonical.as_deref().unwrap_or(normal);
+        let measured = match &canonical {
+            Some(path) => path.clone(),
+            None => self.through_existing_ancestor(normal),
+        };
         let by_text = self.prefixes.class_of(measured.as_os_str().as_bytes());
-        let by_inode = self.class_by_identity(measured);
+        let by_inode = self.class_by_identity(&measured);
         self.note(by_text);
         self.note(by_inode);
         let seen = Seen {
-            spelled_class,
             class: by_inode.or(by_text),
             canonical,
         };
@@ -569,12 +659,15 @@ impl Walk<'_> {
     }
 
     /// Answers whether what the script runs is found at run time. An absolute
-    /// interpreter counts as a load command does, and so does an absolute word
-    /// after it (`env /x/python3`); neither is ever read.
+    /// interpreter counts as a load command does, and so does any `/...` inside a
+    /// word after it: `env /x/python3`, `-S/x`, `-P/x:/y`, `PATH=/x`. What a script's
+    /// body does is not read.
     fn shebang(&mut self, shebang: &Shebang, head: &[u8]) -> bool {
         for word in macho::shebang_arguments(head) {
-            if word.first() == Some(&b'/') {
-                self.lexical(word);
+            for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'')) {
+                if let Some(at) = piece.iter().position(|b| *b == b'/') {
+                    self.lexical(&piece[at..]);
+                }
             }
         }
         match shebang {
@@ -591,12 +684,22 @@ impl Walk<'_> {
         }
     }
 
+    /// A path a script names. What it names in the destination is read as a load
+    /// command's target would be: that file runs too. What it names anywhere else
+    /// counts by where it is, and is never read (`/bin/sh`).
     fn lexical(&mut self, path: &[u8]) {
-        match spelled(None, path) {
-            Some(written) => {
-                self.resolve(&written);
+        let Some(written) = spelled(None, path) else {
+            self.facts.rpath_unresolved = true;
+            return;
+        };
+        if let Some(Seen {
+            canonical: Some(canonical),
+            class: Some(PrefixClass::Destination),
+        }) = self.resolve(&written)
+        {
+            if self.queued.insert(canonical.clone()) {
+                self.queue.push(canonical);
             }
-            None => self.facts.rpath_unresolved = true,
         }
     }
 
@@ -665,20 +768,25 @@ impl Walk<'_> {
         rpaths: &[Option<Spelled>],
     ) {
         if let Some(rest) = name.strip_prefix(b"@rpath/") {
+            // dyld joins it, however many slashes it starts with.
+            let rest = without_leading_slashes(rest);
             // Zero candidates must not read as clean, and neither must candidates
-            // none of which is there or could have been the destination's.
+            // none of which is there: the name loads from nothing this file says,
+            // whatever a candidate that is not there is spelled like.
             let mut answered = false;
             for rpath in rpaths.iter().flatten() {
                 let Some(candidate) = spelled(Some(&rpath.raw), rest) else {
                     self.facts.rpath_unresolved = true;
+                    if !self.count(1) {
+                        return;
+                    }
                     continue;
                 };
                 // One candidate among several need not exist.
                 let Some(seen) = self.reached(&candidate, true) else {
                     return;
                 };
-                answered |=
-                    seen.canonical.is_some() || seen.class == Some(PrefixClass::Destination);
+                answered |= seen.canonical.is_some();
             }
             self.facts.rpath_unresolved |= !answered;
             return;
@@ -694,7 +802,8 @@ impl Walk<'_> {
     /// A load command reaches `written`: what counts applies to every spelling of
     /// it, and a destination file joins the walk. A destination file that cannot be
     /// examined is not therefore fine, unless it is `optional`, and neither is a
-    /// name under the destination that leads outside every known prefix.
+    /// real file in no known prefix outside the system's own roots: it may be
+    /// another provider's, relocated, and nobody read it.
     fn reached(&mut self, written: &Spelled, optional: bool) -> Option<Seen> {
         let seen = self.resolve(written)?;
         match (&seen.canonical, seen.class) {
@@ -706,7 +815,7 @@ impl Walk<'_> {
             (None, Some(PrefixClass::Destination)) => {
                 self.facts.walk_over_bound |= !optional;
             }
-            (Some(_), None) if seen.spelled_class == Some(PrefixClass::Destination) => {
+            (Some(canonical), None) if !is_under_system_root(canonical) => {
                 self.facts.file_not_examined = true;
             }
             _ => {}
@@ -719,16 +828,32 @@ impl Walk<'_> {
 /// `@executable_path` outside an executable depends on who loads it, another token
 /// is not known, and a relative name is the loader's search.
 fn expand(name: &[u8], directory: &[u8], file_type: ExaminedType) -> Option<Spelled> {
-    if let Some(rest) = name.strip_prefix(b"@loader_path") {
-        return spelled(Some(directory), rest.strip_prefix(b"/").unwrap_or(rest));
+    if let Some(rest) = after_token(name, b"@loader_path") {
+        return spelled(Some(directory), rest);
     }
-    if let Some(rest) = name.strip_prefix(b"@executable_path") {
+    if let Some(rest) = after_token(name, b"@executable_path") {
         return (file_type == ExaminedType::Execute)
-            .then(|| spelled(Some(directory), rest.strip_prefix(b"/").unwrap_or(rest)))
+            .then(|| spelled(Some(directory), rest))
             .flatten();
     }
     if name.first() == Some(&b'/') {
         return spelled(None, name);
     }
     None
+}
+
+/// What follows `token` as a relative path. `@loader_path//x` is `<dir>/x` to dyld,
+/// never `/x`, so every leading slash goes. A longer word is another token.
+fn after_token<'n>(name: &'n [u8], token: &[u8]) -> Option<&'n [u8]> {
+    let rest = name.strip_prefix(token)?;
+    (rest.is_empty() || rest.first() == Some(&b'/')).then(|| without_leading_slashes(rest))
+}
+
+fn without_leading_slashes(path: &[u8]) -> &[u8] {
+    let from = path.iter().position(|b| *b != b'/').unwrap_or(path.len());
+    &path[from..]
+}
+
+fn is_under_system_root(path: &Path) -> bool {
+    SYSTEM_ROOTS.iter().any(|root| path.starts_with(root))
 }

@@ -309,6 +309,11 @@ fn check_liveness_probes(
         if !keys.insert((&row.provider, &row.package, &row.executable)) {
             return Err(invalid(row, "appears twice"));
         }
+        // Presence only: which providers exist is the registry's, and policy names
+        // none. An empty key would match nothing and read as a row.
+        if row.provider.is_empty() || row.package.is_empty() {
+            return Err(invalid(row, "names no provider or no package"));
+        }
         if ExecutableName::parse(&row.executable).is_err() {
             return Err(invalid(row, "names no executable"));
         }
@@ -1145,6 +1150,35 @@ pub fn shift_date(date: &str, days: i64) -> Option<String> {
 mod tests {
     use super::*;
     use macportsbrew_domain::{CommandLineTools, Translation};
+
+    /// A row with a field missing does not load, and neither does one with an empty
+    /// key: serde defaults would otherwise make it a row that matches nothing.
+    #[test]
+    fn a_probe_row_with_a_field_missing_or_empty_does_not_load() {
+        let whole = row("homebrew", "x", "x", "[\"-V\"]");
+        assert!(with_probes(&whole).is_ok());
+        for key in [
+            "provider",
+            "package",
+            "executable",
+            "argv",
+            "observed_version",
+            "source",
+            "read_on",
+        ] {
+            let without: Vec<&str> = whole.lines().filter(|l| !l.starts_with(key)).collect();
+            assert!(with_probes(&without.join("\n")).is_err(), "{key}");
+        }
+        for (key, value) in [
+            ("provider", "homebrew"),
+            ("package", "x"),
+            ("observed_version", "1"),
+        ] {
+            let empty = whole.replace(&format!("{key} = \"{value}\""), &format!("{key} = \"\""));
+            assert_ne!(empty, whole);
+            assert!(with_probes(&empty).is_err(), "{key}");
+        }
+    }
 
     fn with_probes(rows: &str) -> Result<PolicyData, DomainError> {
         PolicyData::load_from(PolicySources {

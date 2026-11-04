@@ -286,6 +286,13 @@ fn homebrew_a_link_leaving_its_keg_names_the_owner_of_its_first_hop() {
             owner: "node".to_owned()
         }
     );
+    // The owner is the hop's, not whichever package is being asked about.
+    assert_eq!(
+        owner_of(&adapter, &hb_id("other"), "npm"),
+        OwnershipFacts::OwnerLeavesItsDirectory {
+            owner: "node".to_owned()
+        }
+    );
 }
 
 #[test]
@@ -457,13 +464,22 @@ fn homebrew_a_missing_or_dangling_listed_path_is_counted_apart() {
     let mut list = linked_keg(&scratch, "xz", "5.8.3");
     list.push(scratch.0.join("Cellar/xz/5.8.3/share/gone"));
     list.push(scratch.link("Cellar/xz/5.8.3/share/link", &scratch.0.join("nowhere")));
+    list.push(
+        scratch
+            .0
+            .join("Cellar/xz/5.8.3/share")
+            .join("a".repeat(300)),
+    );
     let facts = homebrew_integrity(
         &scratch,
         "xz",
         &[formula("xz", "5.8.3", 0, Some(&[]))],
         list,
     );
-    assert_eq!((facts.missing, facts.dangling), (1, 1));
+    assert_eq!(
+        (facts.missing, facts.dangling, facts.stat_failed),
+        (1, 1, 1)
+    );
 }
 
 #[test]
@@ -732,10 +748,11 @@ fn macports_integrity_finds_what_its_record_lists_and_is_gone() {
     let gone = scratch.0.join("bin/lzcat");
     let dangling = scratch.link("bin/unxz", &scratch.0.join("nowhere"));
     let outside = PathBuf::from("/Applications/MacPorts/X.app/x");
+    let long = scratch.0.join("bin").join("a".repeat(300));
     let runner = port(
         &[
             installed("xz", "  xz @5.8.3_0 (active)\n"),
-            contents("xz", &[file, gone, dangling, outside]),
+            contents("xz", &[file, gone, dangling, outside, long]),
         ],
         false,
     );
@@ -743,7 +760,10 @@ fn macports_integrity_finds_what_its_record_lists_and_is_gone() {
     let facts = integrity_of(&adapter, &mp_id("xz"));
     assert_eq!(facts.basis, IntegrityBasis::RecordedFileList);
     assert_eq!(facts.list_unusable, None);
-    assert_eq!((facts.missing, facts.dangling), (1, 1));
+    assert_eq!(
+        (facts.missing, facts.dangling, facts.stat_failed),
+        (1, 1, 1)
+    );
     assert_eq!(facts.outside_prefix, 1);
     assert_eq!(facts.record, InstallationRecord::NotKept);
     assert_eq!(facts.dependencies, DependencyRecord::NotKept);

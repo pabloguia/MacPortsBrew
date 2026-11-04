@@ -389,7 +389,7 @@ Line numbers of `docs/spec/` below are at `9b8d68d`.
 
 ## Re-qualification of rows 1-13 (2026-11-04, work order 16 H-2)
 
-Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds, against the design note's "four" (the note's own list has these three; nothing was dropped to get there): the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
+Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds, against the sweep's and the design note's "four". **The `ro` round (scratch not writable) and the cold/warm split were dropped,** and rows 11-13, added after the sweep with "want the same four-round treatment", never had an `ro` round. The rounds: the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
 
 | Rows | Result |
 |---|---|

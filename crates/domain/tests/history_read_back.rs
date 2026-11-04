@@ -1383,10 +1383,43 @@ fn check_bases_round_trip_and_a_record_cannot_claim_them_out_of_shape() {
     let first = doubled["checkBases"][0].clone();
     doubled["checkBases"][1] = first;
     assert_eq!(read_back(doubled), Err(ErrorId::HistoryUnusable));
-    // With no verified destination step to have rested on.
+    // With no destination step reached to have rested on: none at all, and one
+    // that was never reached.
     let none = record(Vec::new(), RunEnding::Completed, None);
     let mut claimed = stored_json(&none);
     assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
     claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
     assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
+    let unreached = record(
+        vec![step(
+            3,
+            StepKind::VerifyDestination,
+            StepResult::NotReached,
+            false,
+        )],
+        RunEnding::Completed,
+        None,
+    );
+    let mut claimed = stored_json(&unreached);
+    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
+    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+    assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
+    // A check that held before another failed still held.
+    let halted = record(
+        vec![step(
+            3,
+            StepKind::VerifyDestination,
+            StepResult::Halted {
+                error: ErrorId::SafetyBlocked,
+                evidence: Vec::new(),
+                ends: Vec::new(),
+            },
+            false,
+        )],
+        RunEnding::Completed,
+        None,
+    );
+    let mut claimed = stored_json(&halted);
+    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+    assert!(read_back(claimed).is_ok());
 }

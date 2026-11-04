@@ -355,6 +355,30 @@ pub fn destination_sites<'c, 'r>(
 }
 
 impl DestinationSites<'_, '_> {
+    /// Whether this site may look at the disk at all (INV-15). False under a replay
+    /// and under a filesystem that is not this machine, each on its own.
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// Whether `provider` can answer here: live, and detected. False for a provider
+    /// no prefix was detected for, which `facts` answers `NOT_OBSERVED`.
+    #[must_use]
+    pub fn observes(&self, provider: &ProviderId) -> bool {
+        self.live && detected_prefix(self.ctx, provider).is_some()
+    }
+
+    /// What linkage is measured against, or `None` where nothing may be looked at:
+    /// building it `canonicalize`s every documented prefix on this disk.
+    #[must_use]
+    pub fn linkage_prefixes(&self, destination: &ProviderId) -> Option<PrefixTable> {
+        if !self.live {
+            return None;
+        }
+        Some(self.prefix_table(destination))
+    }
+
     /// What `provider` observes for `query` about `package`, on an adapter built
     /// for this question, so nothing read before a step's install can answer
     /// after it. A provider not detected observes nothing.
@@ -364,7 +388,7 @@ impl DestinationSites<'_, '_> {
         package: &str,
         query: &DestinationQuery<'_>,
     ) -> DestinationFacts {
-        if !self.live || detected_prefix(self.ctx, provider).is_none() {
+        if !self.observes(provider) {
             return DestinationFacts::NotObserved;
         }
         let identity = PackageIdentity::new(provider.clone(), package);
@@ -401,10 +425,9 @@ impl DestinationSites<'_, '_> {
     /// `NO_CROSS_PROVIDER_LINKAGE`, against where every provider is right now.
     #[must_use]
     pub fn linkage(&self, provider: &ProviderId, package: &str) -> DestinationFacts {
-        if !self.live {
+        let Some(prefixes) = self.linkage_prefixes(provider) else {
             return DestinationFacts::NotObserved;
-        }
-        let prefixes = self.prefix_table(provider);
+        };
         self.facts(
             provider,
             package,
@@ -933,6 +956,51 @@ mod tests {
     use super::effective_scope;
     use crate::filesystem::FilesystemScope;
     use crate::process::SystemRunner;
+
+    /// The destination is the destination and every other detected prefix is
+    /// another provider's, whichever way round the plan goes (INV-17).
+    #[test]
+    fn the_prefix_table_says_which_is_the_destination_and_which_is_the_other() {
+        use super::{DestinationSites, RegistryContext};
+        use macportsbrew_domain::{PrefixClass, ProviderId};
+        let runner = replay();
+        let (one, two) = (ProviderId::new("homebrew"), ProviderId::new("macports"));
+        let ctx = RegistryContext {
+            runner: &runner,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            filesystem: FilesystemScope::Elsewhere,
+            prefix_override: Some(vec![
+                (one.clone(), "/mpb-test/one".into()),
+                (two.clone(), "/mpb-test/two".into()),
+            ]),
+        };
+        let state = crate::persistence::StateDir::resolve(None, Some("/mpb-test/state")).unwrap();
+        // `live` is what a guard decides, and this is what lies behind it.
+        let sites = DestinationSites {
+            ctx: &ctx,
+            live: true,
+            _state: &state,
+        };
+        let table = sites.prefix_table(&one);
+        assert_eq!(
+            table.class_of(b"/mpb-test/one/x"),
+            Some(PrefixClass::Destination)
+        );
+        assert_eq!(
+            table.class_of(b"/mpb-test/two/x"),
+            Some(PrefixClass::DetectedOther)
+        );
+        let table = sites.prefix_table(&two);
+        assert_eq!(
+            table.class_of(b"/mpb-test/one/x"),
+            Some(PrefixClass::DetectedOther)
+        );
+        assert_eq!(
+            table.class_of(b"/mpb-test/two/x"),
+            Some(PrefixClass::Destination)
+        );
+    }
 
     #[test]
     fn a_live_runner_is_always_reading_this_machine() {

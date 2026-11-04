@@ -549,9 +549,24 @@ The reader's first live run on 2026-11-04 (session scratch, read-only, no packag
 
 ## Accepted limits of the reader (2026-11-04, work order 16 H-2, review round 1)
 
-**A relocated cellar answers `UNCHECKED`, and that is accepted.** A listed or reached file whose canonical path is outside the destination and in no known prefix now answers `FILE_NOT_EXAMINED`, never `NO_LOAD_COMMANDS`, since nothing was read. A Homebrew whose cellar lives elsewhere by a link therefore keeps its source. It costs a removal, not a claim.
+**A relocated cellar answers `UNCHECKED`, and that is accepted.** A listed or reached file whose canonical path is outside the destination and in no known prefix answers `FILE_NOT_EXAMINED`, never `NO_LOAD_COMMANDS`, since nothing was read. A Homebrew whose cellar lives elsewhere by a link therefore keeps its source. Round 2 widened this to any real file a load command names in no known prefix, outside `/usr/lib` and `/System`, which also covers another provider's relocated store. It costs a removal, not a claim.
 
-**Finding 3, tightened.** Finding 3 asks whether any `@rpath` candidate lies under the other prefix, not which loads, and that stands. A name with no candidate that exists, and none in the destination, was not answered by it, so it is now `RPATH_UNRESOLVED`. The prototype's 8 `swiftformat` names, whose candidates are `/usr/lib/swift` and an Xcode toolchain, were not checked against this after the change; such a file answers `UNCHECKED` unless a candidate exists.
+**Finding 3, tightened twice.** Finding 3 asks whether any `@rpath` candidate lies under the other prefix, not which loads, and that stands. A name none of whose candidates exists was not answered by it, so it is `RPATH_UNRESOLVED`, even when a candidate is spelled in the destination (round 2).
+
+**What that cost, measured 2026-11-04.** Read-only, over this machine's installed packages through the product's own reads and judges, no package's program run (x86_64, macOS 26, one machine, a sample of what it holds). One row per first cause the judge names:
+
+| Linkage answer | Homebrew (194) | MacPorts (18) |
+|---|---|---|
+| `HOLDS` | 165 | 16 |
+| `INTERPRETER_RESOLVED_AT_RUN_TIME` | 10 | 1 |
+| `WALK_OVER_BOUND` | 9 | 0 |
+| `FILE_LIST_NOT_KNOWN` | 4 | 0 |
+| `RPATH_UNRESOLVED` | 4 | 0 |
+| `MALFORMED_FILE` | 2 | 1 |
+| `FILE_NOT_EXAMINED` | 0 | 0 |
+| `FAILS` | 0 | 0 |
+
+The real-file rule turned nothing unchecked here. The candidate rule accounts for one package at most: **`swiftformat`, the 8 names of E-4.** Its executable alone sets the flag: its candidates are `/usr/lib/swift`, `@loader_path` and an Xcode toolchain, and `libswiftCore.dylib` is in none of them on disk, so it answers `RPATH_UNRESOLVED` although dyld would load it from the shared cache. `imath`, `openexr` and `jpeg-xl` set the same flag by another rule, older than round 2: `libImath` and `openexr`'s libraries carry `@executable_path/../lib` in a dylib. `jpeg-xl`'s own files carry no such rpath in what was searched, and its executables set the flag only when walked, which is consistent with reaching those libraries and was not traced further. Integrity on the same packages: 190 and 18 hold, and 4 Homebrew `FILE_LIST_NOT_KNOWN`, the same four.
 
 **Script bodies are unread, and that is accepted scope.** A shebang's interpreter and each absolute argument on its line are classified (`#!/usr/bin/env /opt/homebrew/bin/python3`). What the script then runs, loads or names is not read: nothing short of running it would answer, and the claim is about references in load commands and shebangs, as the basis `REFERENCES_EXAMINED` says.
 

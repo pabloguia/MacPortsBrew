@@ -49,6 +49,9 @@ pub enum CheckFailure {
     NoPlacedEntry,
     /// What is placed under the executable's name is another package's.
     AnotherPackagesEntry,
+    /// What is placed under the executable's name belongs to no package the
+    /// provider's own rule can name: a file somebody put there.
+    EntryOfNoPackage,
     /// More than one version is present after a fresh install.
     MoreThanOneVersion,
     /// The active record is not the version that owns the entry.
@@ -69,6 +72,10 @@ pub enum CheckFailure {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UncheckedCause {
+    /// The package is not at the version a probe's row was observed at, so the row
+    /// says nothing about it. **Nothing answers this yet:** H-3's probe will, and
+    /// it is here so that `migrate.v2` holds it before its first release.
+    ProbeVersionNotQualified,
     /// Nothing observed this: a replayed run, a run from a snapshot file, or a
     /// build with no observer for the check.
     NotObserved,

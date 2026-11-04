@@ -216,11 +216,11 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         match self.file_list(pkg) {
             Err(cause) => facts.list_unusable = Some(cause),
             Ok(list) => {
-                let counts = destination_reads::stat_counts(&list.paths);
+                let counts = destination_reads::stat_counts(&list);
                 facts.missing = counts.missing;
                 facts.dangling = counts.dangling;
                 facts.stat_failed = counts.failed;
-                facts.outside_prefix = list.outside;
+                facts.outside_prefix = list.outside();
             }
         }
         facts
@@ -232,17 +232,17 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
                 list_unusable: Some(cause),
                 ..LinkageFacts::default()
             },
-            Ok(list) if list.outside > 0 => LinkageFacts {
+            Ok(list) if list.outside() > 0 => LinkageFacts {
                 // What lies outside was not tested, so it cannot be called clean.
                 list_unusable: Some(UncheckedCause::ListsOutsidePrefix),
                 ..destination_reads::examine(
-                    &list.paths,
+                    list.paths(),
                     &[self.prefix.join("bin"), self.prefix.join("sbin")],
                     prefixes,
                 )
             },
             Ok(list) => destination_reads::examine(
-                &list.paths,
+                list.paths(),
                 &[self.prefix.join("bin"), self.prefix.join("sbin")],
                 prefixes,
             ),

@@ -990,7 +990,8 @@ impl RunRecord {
         }
 
         // Only this version states a basis, in the one order it is written in, and
-        // only of a destination check a step says was verified.
+        // only with a `VERIFY_DESTINATION` that was reached. A halted one counts: a
+        // check that held before another failed still held.
         let check_bases = stored.check_bases;
         if !check_bases.is_empty() && stored.schema_version != HISTORY_SCHEMA_VERSION {
             return Err(unusable("states a check's basis its version does not have"));
@@ -1000,14 +1001,10 @@ impl RunRecord {
         }
         if !check_bases.is_empty()
             && !steps.iter().any(|s| {
-                s.kind == StepKind::VerifyDestination
-                    && matches!(
-                        s.result,
-                        StepResult::Verified { .. } | StepResult::VerifiedWithUnchecked { .. }
-                    )
+                s.kind == StepKind::VerifyDestination && s.result != StepResult::NotReached
             })
         {
-            return Err(unusable("states a check's basis no step verified"));
+            return Err(unusable("states a check's basis no step reached"));
         }
         let record = RunRecord::new(
             RunStart {
