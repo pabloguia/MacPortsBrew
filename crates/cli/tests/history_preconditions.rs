@@ -599,8 +599,6 @@ fn mutations_cannot_dispatch_while_a_live_run_still_says_not_checked() {
 const LOCK_PROBE_DIR: &str = "crates/adapters/src/lock_probe/";
 const DOMAIN_TYPE: &str = "crates/domain/src/concurrency.rs";
 
-/// `code` without its `#[cfg(test)] mod` items, matched by brace. Only those:
-/// production code can follow a test module.
 /// Where the block `text` opens with ends, just past its closing brace.
 fn block_end(text: &str) -> Option<usize> {
     let mut depth = 0usize;
@@ -619,9 +617,19 @@ fn block_end(text: &str) -> Option<usize> {
     None
 }
 
-/// Whether the sample called at `at` has its answer acted on: `?` on the call's
-/// own expression, or an `if let Err` whose body leaves.
+/// Whether the sample called at `at` has its answer acted on. An allowlist of the
+/// exact forms, because any search for a `?` nearby can be satisfied by something
+/// that swallows the answer first (G-3 review): `?` straight after the call, or
+/// after the one `map_err` that keeps the refusal, as a statement of its own; or an
+/// `if let Err` whose body leaves. Neither inside a closure, whose `?` leaves only
+/// the closure.
 fn sample_answer_is_used(code: &str, at: usize) -> bool {
+    let before = code[..at].trim_end();
+    let tested = before.ends_with("if let Err(refusal) =");
+    let own_statement = before.is_empty() || before.ends_with([';', '{', '}']);
+    if !(tested || own_statement) || in_a_closure(before) {
+        return false;
+    }
     let call = &code[at..];
     let Some(open) = call.find('(') else {
         return false;
@@ -634,7 +642,7 @@ fn sample_answer_is_used(code: &str, at: usize) -> bool {
             ')' => {
                 depth -= 1;
                 if depth == 0 {
-                    after = Some(&call[open + i + 1..]);
+                    after = Some(call[open + i + 1..].trim_start());
                     break;
                 }
             }
@@ -644,30 +652,43 @@ fn sample_answer_is_used(code: &str, at: usize) -> bool {
     let Some(after) = after else {
         return false;
     };
+    if tested {
+        return after.starts_with('{')
+            && block_end(after).is_some_and(|end| {
+                after[..end]
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .any(|word| word == "break" || word == "return")
+            });
+    }
+    let flat: String = after.split_whitespace().collect();
+    flat.starts_with("?;") || flat.starts_with(".map_err(|refusal|refusal.error())?;")
+}
+
+/// Whether the block `before` ends inside was opened by a closure, at any depth.
+fn in_a_closure(before: &str) -> bool {
     let mut depth = 0usize;
-    for c in after.chars() {
+    for (i, c) in before.char_indices().rev() {
         match c {
-            '(' => depth += 1,
-            ')' if depth == 0 => break,
-            ')' => depth -= 1,
-            '?' if depth == 0 => return true,
-            ';' | '{' if depth == 0 => break,
+            '}' => depth += 1,
+            '{' if depth > 0 => depth -= 1,
+            '{' => {
+                let head = before[..i].rsplit([';', '{', '}']).next().unwrap_or("");
+                if head.contains('|') && !head.contains("||")
+                    || head.trim_start().starts_with("||")
+                    || head.contains("= ||")
+                    || head.contains("(||")
+                {
+                    return true;
+                }
+            }
             _ => {}
         }
     }
-    if !code[..at].trim_end().ends_with("if let Err(refusal) =") {
-        return false;
-    }
-    let Some(open) = after.find('{') else {
-        return false;
-    };
-    block_end(&after[open..]).is_some_and(|end| {
-        let body = &after[open..open + end];
-        body.split(|c: char| !c.is_alphanumeric() && c != '_')
-            .any(|word| word == "break" || word == "return")
-    })
+    false
 }
 
+/// `code` without its `#[cfg(test)] mod` items, matched by brace. Only those:
+/// production code can follow a test module.
 fn without_test_modules(code: &str) -> String {
     let mut out = String::new();
     let mut rest = code;
@@ -1480,6 +1501,11 @@ fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
         "    if let Err(refusal) = provider_lock_sample(locks, &now) { return halt(refusal); }",
     );
     assert_eq!(locks(&tested), Vec::<String>::new(), "an answer tested");
+    let mapped = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    provider_lock_sample(locks, &now).map_err(|refusal| refusal.error())?;",
+    );
+    assert_eq!(locks(&mapped), Vec::<String>::new(), "the refusal kept");
     for (what, form) in [
         (
             "an empty body",
@@ -1490,12 +1516,27 @@ fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
             "    if let Err(refusal) = provider_lock_sample(locks, &now) { drop(refusal); }",
         ),
         (
+            "swallowed first",
+            "    provider_lock_sample(locks, &now).map_err(|r| r.error()).or_else(|_| Ok::<(), E>(()))?;",
+        ),
+        (
+            "a closure's `?`",
+            "    let _ = (|| -> R { provider_lock_sample(locks, &now)?; Ok(()) })();",
+        ),
+        (
+            "a closure in a statement of its own",
+            "    let f = |x| { provider_lock_sample(locks, &now)?; Ok(()) };",
+        ),
+        (
             "another statement's `?`",
             "    if provider_lock_sample(locks, &now).is_err() {}\n    (io.recapture)()?;",
         ),
     ] {
         let used_nowhere = GOOD.replace("    provider_lock_sample(locks, &now)?;", form);
-        assert!(!locks(&used_nowhere).is_empty(), "{what}");
+        assert!(
+            locks(&used_nowhere).iter().any(|v| v.contains("answer is discarded")),
+            "{what}"
+        );
     }
     let sampled_snapshot = GOOD.replace(
         under,

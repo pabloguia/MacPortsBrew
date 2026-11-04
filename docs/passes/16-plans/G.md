@@ -281,6 +281,7 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 | `spec-guardian`, G-3 round 3 | `c90ef7b`, 2026-11-04 | Approve with changes: four new refusals have no planted test (an unasserted replace of mine did not apply); the halt's sentences unasserted; an empty `if let Err` body passes; the `status`/`list` check only counted | All fixed; the deferred note names the two new joins |
 | `security-reviewer`, G-3 round 3 | `c90ef7b`, 2026-11-04 | No product defect. S2 not closed: an `if let Err` that stays, and another statement's `?`, both pass, proved by mutants. A char literal `'{'` still cut the file | The check now requires `?` on the call's own expression or a body that leaves; char literals are blanked; unbalanced braces panic instead of reaching the end of the file |
 | `docs-auditor`, G-3 | `c90ef7b`, 2026-11-04 | Clean; low: lock behaviour in the wiki carries no date | Dated to R-17 |
+| `security-reviewer`, G-3 round 4 | `4440f22`, 2026-11-04 | S2's mutants refused, two new forms pass: an `or_else` swallowing the answer before `?`, and a closure's `?` | The check became an allowlist of exact forms, none in a closure, so a new spelling is refused rather than searched for |
 
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 
