@@ -287,4 +287,4 @@ One `CheckAnswer` model and one judge per check, in both directions. Declared as
 | `security-reviewer` | the same draft | Changes required, P1-P9, S1-S3: the same two fail-opens by another route; no-executable package vacuously passes; symlinks and the walk; the reader's specification; one disposition per step; the passed-over removal through the rest of the plan; H/01 incomplete and too early | All in this revision |
 | `spec-guardian`, round 2 | `11d8d50` | Approve with changes, 13: SE-113's format and counts; 05 and `plan.v1` still say what SE-113 retracts; unbuilt behaviour unmarked; `restore.v1` missed; the catalogue and wiki; passed-over steps unnamed | All in `H-0` |
 | `security-reviewer`, round 2 | `11d8d50` | Pass with changes, 1-8: the walk's false `Holds` through a directory link; the re-read cannot use the four-answer judge; the skip and `is_site_answered`; no token exists, so numbers are the bound | All in `H-0` |
-
+| `docs-auditor` | `f32b359` | 14 findings: the dialog overstated where the owner rules; `[]` read as a failure; a stale part F citation; spec 04 keeping a phrase R-25 rejects; undated claims | All in `e6a28ec` |
