@@ -13,7 +13,7 @@
 //! (`plan.v1.md`, obligation 5; SE-015), and a check that ran but could not
 //! answer for some provider says [`ConcurrentProviderActivity::NotDetermined`].
 //! The check is a [`ProviderLockProbe`]: a sample of the providers' own
-//! mutation locks at one instant (R-17), never a claim that a provider is idle.
+//! locks at one instant (R-17), never a claim that a provider is idle.
 //! [`ConcurrencyFlag`] is the one shape every `--json` document writes it in.
 
 use crate::provider::ProviderId;
@@ -159,7 +159,7 @@ impl ConcurrentProviderActivity {
     }
 }
 
-/// A sample of the providers' own mutation locks (R-17; DP-030 (b)).
+/// A sample of the providers' own locks (R-17; DP-030 (b)).
 ///
 /// One call is one instant: the answer says what was held then, and nothing
 /// about the instant after (R-17 rule 4). It names no provider and no path; an

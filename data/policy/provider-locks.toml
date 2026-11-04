@@ -6,10 +6,10 @@
 # this machine and hands it to the lock probe (crates/adapters/src/lock_probe/),
 # which never learns which provider a location belongs to (INV-17).
 #
-# A held lock here means "this provider was mutating at that instant", never
-# the converse: a provider can mutate without holding a lock this file names
-# (R-17, "False positives and false negatives"), and the probe never claims a
-# provider is idle.
+# A held lock here means some process held this lock at that instant, not that
+# this provider was mutating, and not the converse: a provider can mutate without
+# holding a lock this file names (R-17, "False positives and false negatives"),
+# and the probe never claims a provider is idle.
 #
 # Fields
 #   provider   provider id, lower case; must be one the registry knows

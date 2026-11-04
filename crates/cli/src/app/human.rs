@@ -1029,6 +1029,10 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "migrate.execution_heading"));
     let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
+    // Which provider and why, not only that a lock stopped the run.
+    if let Some(activity) = &report.provider_locks_at_halt {
+        out.push_str(&concurrency(ctx, activity));
+    }
     if matches!(report.outcome, RunOutcome::Refused { .. }) {
         for refusal in execution_refusals(plan).refusals() {
             let _ = writeln!(out, "    - {}", gate_refusal_line(ctx, refusal));

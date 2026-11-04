@@ -128,8 +128,8 @@ Read it the way you would read the other direction's: steps in order, each
 command with how to check it, the one step that needs administrator rights
 named, and nothing removed from MacPorts until step 3 has verified the Homebrew
 copy. Step 4 is not a command in this version; it tells you what to do by hand.
-The last line says the snapshot file cannot vouch for what was running beside
-it when it was captured; `--json` carries the same answer as
+Live, the last line says what one sample of the providers' own locks answered.
+Here it says a snapshot file cannot show that. `--json` carries the same answer as
 `concurrentProviderActivity`.
 
 The [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) page's example

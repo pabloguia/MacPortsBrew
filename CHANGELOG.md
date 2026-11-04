@@ -29,14 +29,19 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
-- **Read-only commands now check for a package manager at work** (DP-030 (b)).
-  `status`, `analyze`, `plan`, `migrate` and the others show whether a provider's own
-  lock was held when they read, in text and in `concurrentProviderActivity`, which
-  gains `NOT_DETERMINED` and `undetermined`. It is one look at one instant, never a
-  claim that a provider is idle, and it reads lock files without touching them. Live
-  runs no longer say `NOT_CHECKED`. A run that changes packages refuses on a held lock
-  (`PROVIDER_LOCK_HELD`, exit 7, also the exit of `RUN_LOCK_HELD`) or an undetermined
-  one, in a build that dispatches; this one does not. Policy version `2026.10.18-2`.
+- **Live commands now sample the package managers' own locks** (DP-030 (b)). `analyze`,
+  `plan`, `migrate`, `explain`, `doctor` and `restore` say in text whether a provider's
+  own lock was held right after they read; `status` and `list` say so only when a lock
+  was held or could not be determined; the `--json` of each carries it in
+  `concurrentProviderActivity`, which gains `NOT_DETERMINED` and `undetermined`;
+  `history` asks no provider. It is one look at one instant, never a claim that a
+  provider is mutating or idle, and it acquires nothing and creates nothing. Live runs
+  no longer say `NOT_CHECKED`, and a live `NONE_OBSERVED` writes
+  `possiblyInconsistent: false`, which means only that this one sample showed no held
+  lock; these meanings were narrowed without a version bump (SE-015). A run that changes
+  packages refuses on a held lock (`PROVIDER_LOCK_HELD`, exit 7, also the exit of
+  `RUN_LOCK_HELD`) or an undetermined one (`PROVIDER_LOCKS_NOT_DETERMINED`, exit 4), in
+  a build that dispatches; this one does not. Policy version `2026.10.18-2`.
 
 - `migrate --json` now writes `planDigest`, and `migrate` (rendered) prints
   it after the plan: `sha256:` and 64 lowercase hexadecimal digits, taken over
@@ -303,10 +308,15 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.18-1`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.10.18-2`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.
+
+**Package managers at work:** live commands sample each detected provider's own locks
+once, right after they read, and say what that one sample answered: `analyze`, `plan`,
+`migrate`, `explain`, `doctor` and `restore` always, `status` and `list` only when a
+lock was held or could not be determined. It never says a provider is idle.
 
 ### Development history (pre-release)
 

@@ -41,7 +41,7 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `planDigest` | string, optional | Present whenever `plan` is: `sha256:` and 64 lowercase hexadecimal digits, the digest `--yes --plan-digest` takes back to run exactly this plan. Taken over the same plan this document carries (home redaction happens at capture, not here), with a domain-separated prefix that carries the build's version: a digest is valid only for builds with the same version string and plan serialisation. **A fingerprint**: someone holding it can test a guess at the plan's content, so remove it before publishing a document, and remove it with any hand edit to `plan`; `doctor --report` never contains it. Additive (work order 16 part E-4) |
 | `warnings` | array, optional | As in [`plan.v1.md`](plan.v1.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`, at this document's root, derived and never stored on the plan. Since 2026-10-27, additive (DP-037) |
 | `execution` | `Execution`, optional | Present in `EXECUTE` mode when a plan was built |
-| `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider may have been changing the machine while the input was read. Always written by this build, in every shape above, *nothing to move* included. |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity` | Whether a provider's own lock was held right after the input was read. Always written by this build, in every shape above, *nothing to move* included. It describes the first capture only: the samples a mutating run takes later are not this field. |
 
 ## `ConcurrentProviderActivity`
 
@@ -63,7 +63,7 @@ never as a check that saw nothing.
 | `activity` | string | The tag, below |
 | `providers` | array of string, only with `OBSERVED` | The providers whose lock was held, sorted |
 | `undetermined` | object, provider id to cause, with `NOT_DETERMINED` and on `OBSERVED` when not empty | Who could not be answered for, and why, sorted. Causes are a closed set: `UNRESOLVED`, `UNEXPECTED_SHAPE`, `OVER_BOUND`, `UNREADABLE`, `CHANGED`, `PROVIDER_BROKEN`. Never a path |
-| `possiblyInconsistent` | boolean | `false` only for `NONE_OBSERVED`; an unchecked answer is never a "no" |
+| `possiblyInconsistent` | boolean | `false` only for `NONE_OBSERVED`; an unchecked answer is never a "no". `false` means this one sample gave no evidence of inconsistency, not that the read was consistent (false negatives: [`04-migration-and-safety.md`](../spec/04-migration-and-safety.md), "Concurrency and locking") |
 
 | `activity` | Meaning | Written by this build |
 |---|---|---|
@@ -73,11 +73,21 @@ never as a check that saw nothing.
 | `OBSERVED` | A check ran and a lock on `providers`' lock files was held at that instant | A live run |
 | `NOT_DETERMINED` | A check ran and could not answer for the providers in `undetermined` | A live run |
 
-A consumer treats an `activity` it does not recognise as possibly inconsistent.
-This added `NOT_DETERMINED` and narrowed two meanings without a version bump, which
-deviates from the [compatibility rule](README.md) on purpose: no earlier build wrote
-`NONE_OBSERVED` or `OBSERVED`, and `possiblyInconsistent` is carried beside the tag
-(SE-015).
+An external consumer treats an `activity` it does not recognise as possibly
+inconsistent; this project's own type has no catch-all, and nothing in this build
+reads the flag back.
+Part G added `NOT_DETERMINED`, narrowed two meanings, and changed what a live document
+says, all without a version bump, which deviates from the
+[compatibility rule](README.md) on purpose: `possiblyInconsistent` flips to `false`
+for a live `NONE_OBSERVED`, where earlier it was always `true`. No earlier build wrote
+`NONE_OBSERVED` or `OBSERVED`: before part G, `migrate.v1.md` and `analysis.v1.md`
+listed both as "Never", and `possiblyInconsistent` is carried beside the tag (SE-015).
+
+A mutating run samples again around each capture and before each command. Those
+answers are not in this flag. A sample that halts a command shows as the
+`PRECONDITION_FAILED` reason, `PROVIDER_LOCK_HELD` or
+`PROVIDER_LOCKS_NOT_DETERMINED`, and `execution.providerLocksAtHalt` says what it
+answered, in this same shape.
 
 **What *nothing to move* establishes, and what it does not.** It is answered
 when the destination is the package's only holder in the input; every other
@@ -109,6 +119,7 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 | `runId` | string, optional | Pass 08 slice 5 (additive). The run's identifier, present when it handed a mutating step over (and so has a record, or a marker standing for one). `macportsbrew history show <id>` is how to look at it |
 | `snapshotFile` | string, optional | The **file name** (never a path) of the snapshot the run took first, inside the state directory's `snapshots/`; present when one was taken |
 | `recordReadBack` | string, optional | `FAILED` or `DISAGREED`, present when the published record could not be read back or read back as something other than what was written. Beside `historyError: IO`; the marker stays and the exit is non-zero |
+| `providerLocksAtHalt` | `ConcurrentProviderActivity`, optional | What the providers' own locks answered at the sample that halted this run: provider ids and cause tokens, never a path |
 | `markerLeft` | string, optional | Beside `historyError`: the run id whose interrupted-run marker may still be in place — it was kept, or its clear could not be confirmed. The next command that changes packages refuses until it is dealt with ([`run-marker.v2.md`](run-marker.v2.md)) |
 
 ### `RunOutcome` (tag `outcome`)
@@ -290,12 +301,14 @@ provider's own configuration is unknown — are listed above.
 
 ## Not in this version
 
-- **A concurrency check, and the single-instance lock** (`plan.v1.md`,
-  obligation 5): `concurrentProviderActivity` reports that no check was made,
-  never what one would have found. Whether another MacPortsBrew instance is
-  running is not reported at all. The single-instance lock exists (`RUN_LOCK_HELD`,
-  exit 7; `docs/spec/04-migration-and-safety.md`, Concurrency and locking) and
-  nothing in this build takes it, because nothing dispatches a mutation.
+- **The single-instance lock, and the refusal on a provider's lock** (`plan.v1.md`,
+  obligation 5): whether another MacPortsBrew instance is running is not reported
+  at all. The single-instance lock exists (`RUN_LOCK_HELD`, exit 7;
+  `docs/spec/04-migration-and-safety.md`, Concurrency and locking) and nothing in
+  this build takes it, because nothing dispatches a mutation. The refusal on a
+  provider's own lock (`PROVIDER_LOCK_HELD`, exit 7; `PROVIDER_LOCKS_NOT_DETERMINED`,
+  exit 4) is behind the same switch; the sample that
+  `concurrentProviderActivity` reports is not.
 - **Writing history** (obligation 12): no run of this build is a mutating run,
   so no record is written. The store and its read-back exist
   ([`history.v3.md`](history.v3.md)); reading serves the recognition above.

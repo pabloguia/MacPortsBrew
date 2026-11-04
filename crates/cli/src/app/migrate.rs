@@ -416,6 +416,10 @@ pub(super) struct Execution<'a> {
     /// review, N10): the next run refuses until it is dealt with.
     #[serde(skip_serializing_if = "Option::is_none")]
     marker_left: Option<&'a str>,
+    /// What the providers' own locks answered at the sample that halted this
+    /// run: provider ids and cause tokens, never a path (G items 1, 20 N6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_locks_at_halt: Option<ConcurrencyFlag>,
     /// The run's id, the snapshot it took first and how its record's read-back
     /// went (pass 08 slice 5, D16): what a run that handed a mutating step over
     /// is found by afterwards. Each is left out when there is nothing to say.
@@ -444,6 +448,10 @@ pub(super) fn execution(report: &RunReport) -> Execution<'_> {
         }),
         history_error: report.history_error,
         marker_left: report.marker_left.as_deref(),
+        provider_locks_at_halt: report
+            .provider_locks_at_halt
+            .clone()
+            .map(ConcurrencyFlag::of),
         receipt: &report.receipt,
     }
 }

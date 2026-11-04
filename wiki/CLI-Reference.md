@@ -266,12 +266,15 @@ affects human presentation only.
 | 4 | blocked by a safety check |
 | 5 | provider unavailable or unhealthy |
 | 6 | user aborted |
-| 7 | lock held by another instance |
+| 7 | lock held by another instance or a provider |
 | 8 | stale or unusable input |
 
 Codes 3, 6 and 7 belong to execution and are not reachable in this build.
 `migrate --yes` exits 4 for every plan this build produces, because the
 execution gate refuses each one.
+
+A live command also says what one sample of the providers' own locks answered; see
+[A line about a package manager's locks](Troubleshooting.md#a-line-about-a-package-managers-locks).
 
 ## Not in this build
 

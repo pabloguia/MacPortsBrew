@@ -171,7 +171,7 @@ tells you the category:
 | 4 | blocked by a safety check |
 | 5 | provider unavailable or unhealthy |
 | 6 | user aborted |
-| 7 | lock held by another instance |
+| 7 | lock held by another instance or a provider |
 | 8 | stale or unusable input |
 
 **Exit 4 from `plan` is normal**, not a fault: it means the plan contains a step
@@ -189,6 +189,36 @@ the digest it prints now.
 
 `"error: exit status 1"` is never acceptable output from this tool. If you see
 something like it, that is a bug worth reporting.
+
+## A line about a package manager's locks
+
+A live command samples each detected provider's own locks once, right after it reads
+the machine. It takes nothing and creates nothing. `analyze`, `plan`, `migrate`,
+`explain`, `doctor` and `restore` always end with the answer; `status` and `list`
+show it only when there is something to act on. `--json` carries it as
+`concurrentProviderActivity`.
+
+| The line says | `activity` | What to do |
+|---|---|---|
+| No lock was seen held | `NONE_OBSERVED` | Nothing. This is one look at one instant, not proof that nothing was working |
+| A lock was held, possibly inconsistent | `OBSERVED` | Read the output again once the lock is released. Some process holds the lock, which need not be the package manager: any local process, or a leftover child process, can keep one held, and the holder cannot be named |
+| It could not be determined, possibly inconsistent | `NOT_DETERMINED` | Follow the `concurrency.cause.*` line printed under it, below |
+
+Each provider it could not answer for gets its own line:
+
+| The line says | What to do |
+|---|---|
+| Where it keeps its locks could not be worked out | Check whether its database directory is the default one. This build reads only the default |
+| Something that is not a plain file sits among its locks, or its lock directory is not a real directory | Look at what is there and move it away |
+| Its lock directory holds more entries than one check reads | Look at what is there and clear what does not belong |
+| Its locks could not be read | Check the permissions on its lock directory |
+| Its lock directory changed while it was being read | Run the command again |
+| It is installed and did not answer | Run `macportsbrew doctor` |
+
+In a build that changes packages, a held lock refuses the run (exit 7) and an
+undetermined one refuses it too (exit 4); this build dispatches nothing. What a
+sample cannot see is listed in
+[Concurrency and locking](../docs/spec/04-migration-and-safety.md#concurrency-and-locking).
 
 ## Something looks wrong in the numbers
 

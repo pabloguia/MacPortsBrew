@@ -577,6 +577,45 @@ fn invariant_16_a_record_the_marker_names_is_planned_again_from_the_command_line
 }
 
 #[test]
+fn a_run_halted_by_a_provider_lock_names_the_provider_and_the_cause_and_no_path() {
+    use macportsbrew_domain::{ConcurrentProviderActivity as A, ProviderId, UndeterminedCause};
+    use std::collections::BTreeMap;
+    let c = cli("htop", "macports", false);
+    let ctx = live(&c);
+    let plan = plan_of(&ctx, &request("htop", "macports"));
+    let run = RunReport {
+        provider_locks_at_halt: Some(A::NotDetermined {
+            undetermined: BTreeMap::from([(
+                ProviderId::new("someprovider"),
+                UndeterminedCause::Changed,
+            )]),
+        }),
+        outcome: RunOutcome::Halted {
+            step: 2,
+            reason: macportsbrew_application::HaltReason::UnexecutedMutation,
+        },
+        records: Vec::new(),
+        refusal: None,
+        gate_refusals: Vec::new(),
+        history_error: None,
+        marker_left: None,
+        record_written: false,
+        receipt: RunReceipt {
+            run_id: None,
+            snapshot_file: None,
+            record_read_back: None,
+        },
+    };
+    let text = human::run_report(&ctx, &plan, &run);
+    assert!(text.contains("someprovider"), "{text}");
+    let doc = serde_json::to_value(super::execution(&run)).expect("serialises");
+    let answer = &doc["providerLocksAtHalt"];
+    assert_eq!(answer["activity"], "NOT_DETERMINED", "{doc}");
+    assert_eq!(answer["undetermined"]["someprovider"], "CHANGED", "{doc}");
+    assert_eq!(answer["possiblyInconsistent"], true, "{doc}");
+}
+
+#[test]
 fn every_run_that_handed_a_mutating_step_over_prints_the_command_to_plan_the_way_back() {
     // 04, "Undoing a migration": the snapshot it took first and the exact
     // command for its own id, whatever the outcome.

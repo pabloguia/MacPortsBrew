@@ -433,6 +433,23 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
             }
         }
         let captures = calls_of(code, "(io.recapture)(");
+        // Before whatever a capture feeds next: the next capture, or the snapshot
+        // written from it. No later sample can stand in for that one.
+        let snapshots = calls_of(code, "take_snapshot(");
+        for capture in &captures {
+            let next = captures
+                .iter()
+                .chain(&snapshots)
+                .filter(|at| *at > capture)
+                .min();
+            if let Some(next) = next {
+                if !samples.iter().any(|s| s > capture && s < next) {
+                    violations.push(format!(
+                        "[locks] {name}: a capture is used before a sample follows it"
+                    ));
+                }
+            }
+        }
         for pair in captures.windows(2) {
             if samples
                 .iter()
@@ -719,6 +736,7 @@ fn production_lock_probe_violations(files: &[SourceFile]) -> Vec<String> {
         .find(|(n, _)| n == "crates/cli/src/app/context.rs");
     let carried = context.is_some_and(|(_, code)| {
         calls_of(code, "registry::lock_probe(").len() == 1
+            && code.contains("provider_lock_activity(")
             && code.contains("analyze_sampled(")
             && code.contains("self.provider_locks.clone()")
     });
@@ -737,7 +755,7 @@ fn a_good_product() -> Vec<SourceFile> {
         ),
         (
             "crates/cli/src/app/context.rs".to_string(),
-            "let s = registry::lock_probe(&c).sample(); analyze_sampled(a, self.provider_locks.clone());"
+            "let s = provider_lock_activity(registry::lock_probe(&c).sample(), n); analyze_sampled(a, self.provider_locks.clone());"
                 .to_string(),
         ),
     ]
@@ -847,6 +865,12 @@ fn the_probe_tripwire_names_each_way_it_is_broken() {
     assert!(
         !production_lock_probe_violations(&[]).is_empty(),
         "no product at all"
+    );
+    let mut uncounted = a_good_product();
+    uncounted[1].1 = uncounted[1].1.replace("provider_lock_activity(", "keep(");
+    assert!(
+        !production_lock_probe_violations(&uncounted).is_empty(),
+        "broken not counted"
     );
     let unsampled = vec![a_good_product().remove(0)];
     assert!(
@@ -1205,6 +1229,45 @@ fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
     assert!(
         !locks(&not_under_the_lock).is_empty(),
         "none under the lock"
+    );
+    let captured = GOOD.replace(under, &format!("{under}    (io.recapture)();\n{under}"));
+    assert_eq!(
+        locks(&captured),
+        Vec::<String>::new(),
+        "a sample on each side"
+    );
+    let no_sample_before = GOOD.replace(under, "    (io.recapture)();\n").replace(
+        "    let earlier =",
+        "    provider_lock_sample(locks, &snapshot)?;\n    let earlier =",
+    );
+    assert!(
+        !locks(&no_sample_before).is_empty(),
+        "none before the capture"
+    );
+    let twice = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n{under}    (io.recapture)();\n{under}"),
+    );
+    assert!(
+        !locks(&twice).is_empty(),
+        "the second capture needs its own sample first"
+    );
+    let unsampled_snapshot = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n    take_snapshot(state);\n{under}"),
+    );
+    assert!(
+        !locks(&unsampled_snapshot).is_empty(),
+        "a snapshot before its sample"
+    );
+    let sampled_snapshot = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n{under}    take_snapshot(state);\n"),
+    );
+    assert_eq!(
+        locks(&sampled_snapshot),
+        Vec::<String>::new(),
+        "the sample first"
     );
 }
 

@@ -19,7 +19,7 @@ it references. The compatibility rule is in [`README.md`](README.md).
 | `today` | string | `YYYY-MM-DD`. An input, never a clock read inside the analysis |
 | `source` | `AnalysisSource` | `LIVE` or `SNAPSHOT` |
 | `snapshotProvenance` | `Provenance`, optional | Present only when `source` is `SNAPSHOT` |
-| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider may have been changing the machine while the input was read (`04-migration-and-safety.md`, "Concurrency and locking"; `plan.v1.md`, obligation 5). Decided from `source`, never by looking: `LIVE` says `NOT_CHECKED`, `SNAPSHOT` (a snapshot file or a replayed recording) says `UNKNOWABLE`, and both are `possiblyInconsistent`. The same object reaches `status --json` and `list --json`, which render this payload; their human views do not repeat it, while `analyze`'s ends with it in words. Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, always written by this build; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity) |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider's own lock was held right after the input was read (`04-migration-and-safety.md`, "Concurrency and locking"; `plan.v1.md`, obligation 5). `LIVE` carries one sample of the providers' locks, taken after the capture; `SNAPSHOT` (a snapshot file or a replayed recording) says `UNKNOWABLE`. The same object reaches `status --json` and `list --json`, which render this payload; their human views show it only for `OBSERVED` or `NOT_DETERMINED`, while `analyze`'s always ends with it in words. Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, always written by this build; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity) |
 | `machine` | `Machine` | |
 | `providers` | map of provider id to `ProviderReport` | Ordered by provider id |
 | `packages` | array of `PackageReport` | Ordered by package name |
@@ -247,6 +247,9 @@ from a recording with a small enough inventory to print whole, or teaching the
 scan a key-structure-only comparison; until one of those happens this block is
 maintained by hand and may drift, which is exactly the condition F-27 was built
 to end.
+
+`possiblyInconsistent: false` in it means this one sample showed no held lock, not
+that the read was consistent ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)).
 
 ```json
 {

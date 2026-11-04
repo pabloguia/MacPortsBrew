@@ -808,7 +808,7 @@ fn a_sample_failing_before_a_command_halts_that_command_and_says_why() {
             assert_eq!(report.marker_left, None, "{name}");
             assert!(!report.record_written, "{name}: nothing went out to record");
             // The snapshot step was carried out, so this is the outcome any halt
-            // at the first command gets; history records it as no change. Before
+            // at the first command gets, with no record and no marker left. Before
             // the snapshot, the refusal is exit 7 or 4 (the test above).
             assert_eq!(
                 report.outcome.exit_code(),

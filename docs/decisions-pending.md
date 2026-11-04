@@ -215,7 +215,7 @@ blocks:** nothing. **Reversible default taken:** (a).
 
 ### DP-030 — How, if at all, MacPortsBrew detects a `brew` or `port` that is mutating — **RESOLVED 2026-10-27: (b), built before the flip proposal**
 
-**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b). A mutating release that cannot see a provider mutating at the
+**Ruling (2026-10-27, made by the session under the owner's delegation, SE-109; confirmed by the owner in chat the same day):** (b). Built 2026-11-03 (SE-015). A mutating release that cannot see a provider mutating at the
 same moment is not complete; "possibly inconsistent" on every run is not an
 answer a user can act on. Build the `F_GETLK` probe on each provider's locks
 as R-17 locates them (Homebrew: every file under `<prefix>/var/homebrew/locks/`,

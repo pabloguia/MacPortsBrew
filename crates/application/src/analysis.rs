@@ -814,9 +814,9 @@ mod tests {
 
     #[test]
     fn the_concurrency_flag_never_claims_a_check_it_did_not_make() {
-        // This build has no detection mechanism, so no source may answer as
-        // if one ran: never `NoneObserved`, never `Observed`, and always
-        // possibly inconsistent (`04-migration-and-safety.md`).
+        // Given no sample, no source may answer as if a check ran: never
+        // `NoneObserved`, never `Observed`, and always possibly inconsistent
+        // (`04-migration-and-safety.md`).
         for source in every_source() {
             let activity = source.concurrent_provider_activity();
             assert!(!activity.was_checked(), "{source:?}: {activity:?}");
