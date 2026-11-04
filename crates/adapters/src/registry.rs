@@ -335,10 +335,10 @@ pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
 /// and `Elsewhere` resolves towards not looking.
 ///
 /// A provider whose detection failed only because its executable could not be
-/// checked is not "not detected" ([`crate::lock_probe::absence_is_certain`]): it is sampled as
+/// checked is not "not detected" ([`crate::lock_probe::undetected_site`]): it is sampled as
 /// "not determined", so an error is never left out of the answer.
 pub fn lock_probe(ctx: &RegistryContext<'_>) -> crate::lock_probe::SystemLockProbe {
-    use crate::lock_probe::{LockSite, SystemLockProbe};
+    use crate::lock_probe::SystemLockProbe;
     let replay = ctx.runner.is_replay();
     if replay || !ctx.filesystem.is_this_machine() {
         return SystemLockProbe::unknowable();
@@ -348,11 +348,8 @@ pub fn lock_probe(ctx: &RegistryContext<'_>) -> crate::lock_probe::SystemLockPro
         .filter_map(|id| {
             let Some(site) = detected_prefix_as(ctx, &id, replay) else {
                 let executable = derivation(&id)?.executable;
-                return (!crate::lock_probe::absence_is_certain(
-                    &candidate_prefixes(&id),
-                    executable,
-                ))
-                .then_some((id, LockSite::Unresolved));
+                let site = crate::lock_probe::undetected_site(&candidate_prefixes(&id), executable);
+                return site.map(|site| (id, site));
             };
             Some((id, lock_site(&site)))
         })
@@ -1019,6 +1016,35 @@ mod tests {
         // `effective_scope` would call this machine; the probe must not.
         let runner = LiveRunner;
         assert!(lock_probe(&context(&runner)).is_unknowable());
+    }
+
+    #[test]
+    fn an_unresolvable_portdbpath_is_an_unresolved_lock_site() {
+        // Mutant 8: a configuration naming another database, or none readable,
+        // must not fall back to some place under the prefix.
+        use crate::lock_probe::LockSite;
+        let id = ProviderId::new(crate::macports::PROVIDER_ID);
+        let prefix = std::env::temp_dir().join(format!("mpb-portdb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&prefix);
+        let conf_dir = prefix.join("etc/macports");
+        std::fs::create_dir_all(&conf_dir).expect("a scratch prefix");
+        let site = DetectedPrefix {
+            provider: id.clone(),
+            prefix: prefix.clone(),
+            home: Some(prefix.clone()),
+            derivation: derivation(&id).expect("a known provider"),
+            replay: false,
+        };
+        assert_eq!(lock_site(&site), LockSite::Unresolved, "no configuration");
+        let conf = conf_dir.join("macports.conf");
+        std::fs::write(&conf, "portdbpath /elsewhere/db\n").expect("a scratch configuration");
+        assert_eq!(lock_site(&site), LockSite::Unresolved, "another database");
+        std::fs::write(&conf, "").expect("a scratch configuration");
+        let LockSite::File { dir, .. } = lock_site(&site) else {
+            panic!("the default database resolves to a named lock file");
+        };
+        assert!(dir.starts_with(prefix.join("var/macports")), "{dir:?}");
+        std::fs::remove_dir_all(&prefix).expect("cleanup");
     }
 
     #[test]

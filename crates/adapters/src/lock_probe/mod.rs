@@ -173,6 +173,13 @@ pub(crate) fn absence_is_certain(candidates: &[PathBuf], executable: &str) -> bo
     })
 }
 
+/// The site of a provider detection did not find: none if it is really absent,
+/// and `Unresolved` if it may only have failed to be checked, so that an error
+/// is sampled as "not determined" and never left out.
+pub(crate) fn undetected_site(candidates: &[PathBuf], executable: &str) -> Option<LockSite> {
+    (!absence_is_certain(candidates, executable)).then_some(LockSite::Unresolved)
+}
+
 /// One activity from the providers' answers: any held lock is `Observed` (it
 /// is what matters most, and it is a definite answer), still naming whoever
 /// was not determined; otherwise any provider not determined makes the whole
@@ -517,7 +524,7 @@ mod tests {
 
     #[test]
     fn a_directory_swapped_after_its_listing_is_not_determined() {
-        // Mutant 16: the identity re-check removed. The directory is replaced
+        // The identity re-check after an open. The directory is replaced
         // by another with the same entry, which the open would then follow.
         let root = scratch("identity-swap");
         let locks = root.join("locks");
@@ -546,7 +553,7 @@ mod tests {
 
     #[test]
     fn a_named_lock_files_missing_directory_is_not_determined() {
-        // G item 20 N2 and mutant 8: a working installation always has the
+        // G item 20 N2: a working installation always has the
         // directory, so its absence is not "nothing held".
         let root = scratch("named-missing-dir");
         let site = file_site(&root.join("absent"), "the.lock");
@@ -587,6 +594,54 @@ mod tests {
         assert!(absence_is_certain(&[root.join("missing")], "bin/tool"));
         assert!(!absence_is_certain(&[empty, closed.clone()], "bin/tool"));
         fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).expect("chmod");
+        cleanup(&root);
+    }
+
+    #[test]
+    fn an_undetected_provider_that_could_not_be_checked_is_sampled_unresolved() {
+        // Mutant 23: an error reaching here looking like absence.
+        let root = scratch("undetected");
+        let closed = root.join("closed");
+        fs::create_dir_all(closed.join("bin")).expect("a scratch prefix");
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).expect("chmod");
+        assert_eq!(
+            undetected_site(std::slice::from_ref(&closed), "bin/tool"),
+            Some(LockSite::Unresolved)
+        );
+        assert_eq!(undetected_site(&[root.join("missing")], "bin/tool"), None);
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).expect("chmod");
+        cleanup(&root);
+    }
+
+    #[test]
+    fn a_named_lock_files_directory_swapped_before_the_open_is_not_determined() {
+        // Mutant 16: for a named file this re-check is the only one after the
+        // open. Without it the emptied replacement would read as nothing held.
+        let root = scratch("named-swapped");
+        let locks = root.join("locks");
+        fs::create_dir(&locks).expect("a lock directory");
+        touch(&locks.join("x.lock"));
+        let moved = root.join("moved");
+        let answer = sample_site(&file_site(&locks, "x.lock"), &|_| {
+            fs::rename(&locks, &moved).expect("a swap");
+            fs::create_dir(&locks).expect("a replacement");
+        });
+        assert_eq!(answer, Answer::NotDetermined(UndeterminedCause::Changed));
+        cleanup(&root);
+    }
+
+    #[test]
+    fn an_empty_directory_swapped_after_its_listing_is_not_determined() {
+        // Mutant 16b: with nothing to open, the final re-check is the only one.
+        let root = scratch("empty-swapped");
+        let locks = root.join("locks");
+        fs::create_dir(&locks).expect("a lock directory");
+        let moved = root.join("moved");
+        let answer = sample_site(&LockSite::Directory(locks.clone()), &|_| {
+            fs::rename(&locks, &moved).expect("a swap");
+            fs::create_dir(&locks).expect("a replacement");
+        });
+        assert_eq!(answer, Answer::NotDetermined(UndeterminedCause::Changed));
         cleanup(&root);
     }
 
@@ -671,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_swapped_mid_sample_is_not_determined_even_with_a_lock_held() {
+    fn a_directory_swapped_while_a_lock_is_held_in_it_is_not_determined() {
         let root = scratch("held-swapped");
         let locks = root.join("locks");
         fs::create_dir(&locks).expect("a lock directory");

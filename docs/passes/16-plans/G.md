@@ -517,3 +517,12 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   move a read date, and item 16's narrower reading was wrong (spec-guardian 4).
 - **Item 14:** `scripts/check-deployment-target.sh` re-run 2026-11-03 with `libc`
   direct, before the review fixes, which add no dependency: 10.12 x86_64, 11.0 arm64.
+- **Mutation proof (isolated worktree, a subagent; removed afterwards), on `aa972c8`:**
+  30 mutants, 25 killed. Survivors 16 (the only re-check after a named file's open),
+  16b (an empty directory swapped) and 8 (an unresolvable `portdbpath`) got named
+  tests; 23 (a detection error left out) got `undetected_site` to make it testable
+  and a named test. **16c is accepted, not killed:** the re-check after the listing
+  differs from the final one only for a directory swapped and restored around it,
+  and reaching that needs a seam inside the listing. It is defence in depth, and a
+  stale listing's open is still checked by each re-check after it. Each new test was
+  re-run against its mutant by hand.
