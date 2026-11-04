@@ -246,7 +246,9 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::MutationNotVerifiedAfter { step }
         | ExecutionRefusal::PrimaryNeedsShim { step, .. }
         | ExecutionRefusal::PrimaryRefused { step, .. }
-        | ExecutionRefusal::ExecutableListsDisagree { step } => *step,
+        | ExecutionRefusal::ExecutableListsDisagree { step }
+        | ExecutionRefusal::DestinationContractIncomplete { step }
+        | ExecutionRefusal::ProbeIsNotTheTables { step } => *step,
         ExecutionRefusal::Placeholder { steps }
         | ExecutionRefusal::UnrecognisedCheck { steps }
         | ExecutionRefusal::UnknownSuccess { steps }
@@ -369,12 +371,24 @@ fn provider_reports_active_is_evaluable_on_verify_destination_only() {
 fn a_recognised_check_is_not_thereby_evaluable() {
     let liveness = VerificationCheck::LivenessProbe {
         executable: "gsed".into(),
-        flag: "--version".into(),
+        argv: vec!["--version".into()],
+    };
+    let skipped = VerificationCheck::LivenessProbeSkipped {
+        executable: Some("gsed".into()),
+        cause: macportsbrew_domain::ProbeSkipCause::NoCuratedProbe,
     };
     assert!(liveness.is_satisfiable(), "the domain recognises it");
+    // Work order 16 part H: DP-051's four checks and a recorded skip are
+    // evaluable on the destination's verify step because their answers are
+    // judged there. That is not the same as observed: nothing in this build
+    // observes any of the four.
     assert!(
-        !evaluable_in_this_build(StepKind::VerifyDestination, &liveness),
-        "this build cannot run it"
+        evaluable_in_this_build(StepKind::VerifyDestination, &liveness),
+        "its answer is judged on the destination's verify step"
+    );
+    assert!(
+        !macportsbrew_application::observed_by_this_build(&liveness),
+        "but nothing in this build runs it"
     );
     let dest = StepKind::VerifyDestination;
     let removal = StepKind::VerifyRemoval;
@@ -394,16 +408,22 @@ fn a_recognised_check_is_not_thereby_evaluable() {
             VerificationCheck::ProviderReportsActive,
             false,
         ),
-        (dest, VerificationCheck::ProviderIntegrityCheck, false),
+        (dest, VerificationCheck::ProviderIntegrityCheck, true),
         (
             dest,
             VerificationCheck::ExecutablesOwnedByDestination {
                 executables: vec!["gsed".into()],
             },
-            false,
+            true,
         ),
-        (dest, liveness.clone(), false),
-        (dest, VerificationCheck::NoCrossProviderLinkage, false),
+        (dest, liveness.clone(), true),
+        (dest, skipped.clone(), true),
+        (dest, VerificationCheck::NoCrossProviderLinkage, true),
+        // Each of the five answers on the destination's verify step only.
+        (removal, VerificationCheck::ProviderIntegrityCheck, false),
+        (removal, liveness.clone(), false),
+        (removal, skipped.clone(), false),
+        (removal, VerificationCheck::NoCrossProviderLinkage, false),
         (dest, VerificationCheck::Unknown, false),
     ] {
         assert_eq!(
@@ -416,25 +436,28 @@ fn a_recognised_check_is_not_thereby_evaluable() {
     let plan = full_plan();
     let step = index_of(&plan, StepKind::VerifyDestination);
     let report = execution_refusals(&plan);
-    // The probe names the source package's executable (F-3: 04 check 4 over
-    // the source's list), here `gnu-sed`.
-    let planned = VerificationCheck::LivenessProbe {
-        executable: "gnu-sed".into(),
-        flag: "--version".into(),
-    };
-    assert!(refused(&report, |r| matches!(
-        r,
-        ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, check }
-            if *s == step && *check == planned
-    )));
-    // The evaluable one on the same step is not refused.
+    // The planner's `VERIFY_DESTINATION` carries the whole contract, so none of
+    // the four is refused as "not evaluable": every planner plan is refused for
+    // execution by `MUTATION_NOT_IN_THIS_BUILD` instead (and the planner records
+    // a skip per executable here, since the table holds no row).
     assert!(!refused(&report, |r| matches!(
         r,
-        ExecutionRefusal::CheckNotEvaluableInThisBuild {
-            step: s,
-            check: VerificationCheck::PackageNewlyPresent,
-        } if *s == step
+        ExecutionRefusal::CheckNotEvaluableInThisBuild { step: s, .. } if *s == step
     )));
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::DestinationContractIncomplete { .. }
+    )));
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::MutationNotInThisBuild { .. }
+    )));
+    assert!(plan.steps[position(&plan, StepKind::VerifyDestination)]
+        .verification
+        .contains(&VerificationCheck::LivenessProbeSkipped {
+            executable: Some("gnu-sed".into()),
+            cause: macportsbrew_domain::ProbeSkipCause::NoCuratedProbe,
+        }));
 }
 
 #[test]
@@ -862,7 +885,8 @@ fn a_repeated_snapshot_or_history_record_is_refused() {
             StepKind::VerifyDestination | StepKind::RecordHistory
         )
     });
-    plan.steps[0].verification = vec![VerificationCheck::PackageNewlyPresent];
+    // The step keeps the planner's whole verification, DP-051's contract
+    // included: narrowing it away is refused (`DESTINATION_CONTRACT_INCOMPLETE`).
     let record = plan.steps[1].clone();
     plan.steps.push(record);
     renumber(&mut plan);
@@ -1099,6 +1123,12 @@ fn refusals_are_ordered_deterministically() {
     plan.steps[removal]
         .verification
         .push(VerificationCheck::Unknown);
+    // A removal check on the destination's verify step: recognised, and not
+    // evaluable there (the four of DP-051 are evaluable on it since part H).
+    let verify_at = position(&plan, StepKind::VerifyDestination);
+    plan.steps[verify_at]
+        .verification
+        .push(VerificationCheck::PackageAbsent);
     let add = position(&plan, StepKind::AddDestination);
     plan.steps[add].commands[0].elevation = Elevation::Unknown;
 
@@ -1300,9 +1330,9 @@ fn step_indices_that_are_not_one_to_n_in_order_are_refused() {
 
 /// The smallest plan this gate lets through, pinned so that any widening of
 /// what it accepts shows up in a diff: one `VERIFY_DESTINATION`, the
-/// planner's own two reads toward a detected destination, checked only by
-/// `PACKAGE_NEWLY_PRESENT` (`PROVIDER_REPORTS_ACTIVE` until pass 08 slice 4,
-/// D11), nothing mutating, nothing elevating. With no
+/// planner's own two reads toward a detected destination, carrying the planner's
+/// whole verification (presence, activation and DP-051's four checks with the
+/// recorded skip, work order 16 part H), nothing mutating, nothing elevating. With no
 /// mutating step it needs neither bracket of obligation 11, so it carries no
 /// `SNAPSHOT_BEFORE` and does not end with `RECORD_HISTORY`.
 #[test]
@@ -1310,7 +1340,6 @@ fn the_minimal_plan_the_gate_accepts() {
     let base = full_plan();
     let mut step = base.steps[position(&base, StepKind::VerifyDestination)].clone();
     step.index = 1;
-    step.verification = vec![VerificationCheck::PackageNewlyPresent];
     let plan = MigrationPlan {
         steps: vec![step],
         risks: Vec::new(),
@@ -1803,16 +1832,20 @@ fn the_gate_refuses_disagreeing_executable_lists() {
     }
     // A probe dropped (no recorded skip stands in for it).
     let mut probe = base.clone();
-    probe.steps[verify]
-        .verification
-        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    probe.steps[verify].verification.retain(|c| {
+        !matches!(
+            c,
+            VerificationCheck::LivenessProbe { .. }
+                | VerificationCheck::LivenessProbeSkipped { .. }
+        )
+    });
     // A probe added for a name outside the class.
     let mut bad_probe = base.clone();
     bad_probe.steps[verify]
         .verification
         .push(VerificationCheck::LivenessProbe {
             executable: "../x".into(),
-            flag: "--version".into(),
+            argv: vec!["--version".into()],
         });
     // A resolution check for another executable.
     let mut resolves = base.clone();
@@ -1832,9 +1865,13 @@ fn the_gate_refuses_disagreeing_executable_lists() {
             executables.clear();
         }
     }
-    extra.steps[verify]
-        .verification
-        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    extra.steps[verify].verification.retain(|c| {
+        !matches!(
+            c,
+            VerificationCheck::LivenessProbe { .. }
+                | VerificationCheck::LivenessProbeSkipped { .. }
+        )
+    });
     for (what, plan) in [
         ("decision", decision),
         ("ownership", owned),
@@ -1971,10 +2008,11 @@ fn check_has_no_answering_read_is_unchanged() {
 #[test]
 fn liveness_probes_plus_recorded_skips_equal_the_list() {
     // SG2-N3 (spec 04 check 4: a probe is "skippable with a recorded
-    // reason"). This build's plan shape records no skip, so the probe set
-    // alone must equal the list: one per executable, none for a name outside
-    // it. A plan that carries no ownership check at all agrees only when the
-    // list is empty (spec-guardian review of F-3, R-2).
+    // reason"). Probes and recorded skips together must equal the list: one
+    // per executable, none for a name outside it. In this build the planner
+    // writes a skip per executable (no curated row exists until H-2). A plan
+    // that carries no ownership check at all agrees only when the list is
+    // empty (spec-guardian review of F-3, R-2).
     let base = with_decision(nothing_to_change());
     let verify = position(&base, StepKind::VerifyDestination);
     let disagrees = |plan: &MigrationPlan| {
@@ -1987,33 +2025,45 @@ fn liveness_probes_plus_recorded_skips_equal_the_list() {
             .verification
             .iter()
             .filter_map(|c| match c {
-                VerificationCheck::LivenessProbe { executable, .. } => Some(executable.clone()),
+                VerificationCheck::LivenessProbe { executable, .. }
+                | VerificationCheck::LivenessProbeSkipped {
+                    executable: Some(executable),
+                    ..
+                } => Some(executable.clone()),
                 _ => None,
             })
             .collect()
     };
-    // The planner's own shape: one probe, for the one executable.
+    // The planner's own shape: one recorded skip, for the one executable.
     assert_eq!(probes(&base), ["gnu-sed"]);
     assert!(!disagrees(&base));
 
     // No probe and no recorded skip: the list is not covered.
     let mut none = base.clone();
-    none.steps[verify]
-        .verification
-        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    none.steps[verify].verification.retain(|c| {
+        !matches!(
+            c,
+            VerificationCheck::LivenessProbe { .. }
+                | VerificationCheck::LivenessProbeSkipped { .. }
+        )
+    });
     // A probe for a name the list does not hold, beside the right one.
     let mut extra = base.clone();
     extra.steps[verify]
         .verification
         .push(VerificationCheck::LivenessProbe {
             executable: "gsed".into(),
-            flag: "--version".into(),
+            argv: vec!["--version".into()],
         });
     // The probe swapped for one of another name: the count is right, the set
     // is not.
     let mut swapped = base.clone();
     for c in &mut swapped.steps[verify].verification {
-        if let VerificationCheck::LivenessProbe { executable, .. } = c {
+        if let VerificationCheck::LivenessProbeSkipped {
+            executable: Some(executable),
+            ..
+        } = c
+        {
             *executable = "gsed".into();
         }
     }
@@ -2045,8 +2095,155 @@ fn liveness_probes_plus_recorded_skips_equal_the_list() {
             executables.clear();
         }
     }
-    empty.steps[verify]
-        .verification
-        .retain(|c| !matches!(c, VerificationCheck::LivenessProbe { .. }));
+    empty.steps[verify].verification.retain(|c| {
+        !matches!(
+            c,
+            VerificationCheck::LivenessProbe { .. }
+                | VerificationCheck::LivenessProbeSkipped { .. }
+        )
+    });
     assert!(disagrees(&empty), "an empty NOTHING_TO_CHANGE");
+}
+
+/// Work order 16 part H: a `VERIFY_DESTINATION` missing any one of DP-051's
+/// checks, or carrying one twice, is refused by name, and the contract the
+/// planner writes is not.
+#[test]
+fn a_destination_step_missing_a_dp_051_check_is_refused_as_incomplete() {
+    let base = full_plan();
+    let verify = position(&base, StepKind::VerifyDestination);
+    let step = base.steps[verify].index;
+    let incomplete = |plan: &MigrationPlan| {
+        refused(&execution_refusals(plan), |r| {
+            matches!(
+                r,
+                ExecutionRefusal::DestinationContractIncomplete { step: s } if *s == step
+            )
+        })
+    };
+    assert!(!incomplete(&base), "the planner writes the whole contract");
+    for (what, keep) in [
+        (
+            "integrity",
+            (|c: &VerificationCheck| matches!(c, VerificationCheck::ProviderIntegrityCheck))
+                as fn(&VerificationCheck) -> bool,
+        ),
+        ("ownership", |c| {
+            matches!(c, VerificationCheck::ExecutablesOwnedByDestination { .. })
+        }),
+        ("linkage", |c| {
+            matches!(c, VerificationCheck::NoCrossProviderLinkage)
+        }),
+        ("the liveness skip", |c| {
+            matches!(c, VerificationCheck::LivenessProbeSkipped { .. })
+        }),
+    ] {
+        let mut dropped = base.clone();
+        dropped.steps[verify].verification.retain(|c| !keep(c));
+        assert!(incomplete(&dropped), "{what} dropped");
+        let mut twice = base.clone();
+        let copy = base.steps[verify]
+            .verification
+            .iter()
+            .find(|c| keep(c))
+            .expect("the planner writes it")
+            .clone();
+        twice.steps[verify].verification.push(copy);
+        assert!(incomplete(&twice), "{what} twice");
+    }
+}
+
+/// Work order 16 part H: no curated table exists in this build, so a plan cannot
+/// bring its own probe argv: any `LIVENESS_PROBE` is refused.
+#[test]
+fn a_liveness_probe_is_refused_until_the_curated_table_exists() {
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    let step = plan.steps[verify].index;
+    // The probe replaces the recorded skip for the same executable, so the
+    // contract stays complete and only the argv's provenance is in question.
+    for check in &mut plan.steps[verify].verification {
+        if let VerificationCheck::LivenessProbeSkipped {
+            executable: Some(executable),
+            ..
+        } = check
+        {
+            *check = VerificationCheck::LivenessProbe {
+                executable: executable.clone(),
+                argv: vec!["--version".into()],
+            };
+        }
+    }
+    let report = execution_refusals(&plan);
+    assert!(refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::ProbeIsNotTheTables { step: s } if *s == step
+    )));
+    assert!(!refused(&report, |r| matches!(
+        r,
+        ExecutionRefusal::DestinationContractIncomplete { .. }
+    )));
+}
+
+#[test]
+fn a_probe_for_any_other_executable_is_not_the_tables_whatever_its_argv() {
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    plan.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbe {
+            executable: "not-the-fixture-row".into(),
+            argv: vec!["--version".into()],
+        });
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::ProbeIsNotTheTables { .. }
+    )));
+}
+
+#[test]
+fn the_contract_refuses_what_a_read_must_answer_and_a_nameless_skip_beside_a_list() {
+    let base = full_plan();
+    let verify = position(&base, StepKind::VerifyDestination);
+    let complete = |plan: &MigrationPlan| {
+        macportsbrew_application::destination_contract_complete(plan, &plan.steps[verify])
+    };
+    assert!(complete(&base));
+    // No check a read answers.
+    let mut no_active = base.clone();
+    no_active.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::ProviderReportsActive));
+    assert!(!complete(&no_active));
+    // The plan adds the package, and nothing says this run installed it (F-06).
+    assert!(base
+        .steps
+        .iter()
+        .any(|s| s.kind == StepKind::AddDestination && !s.commands.is_empty()));
+    let mut no_newly = base.clone();
+    no_newly.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::PackageNewlyPresent));
+    assert!(!complete(&no_newly));
+    // A list, named probes for all of it, and a nameless skip as well.
+    let mut listed = base.clone();
+    for check in &mut listed.steps[verify].verification {
+        match check {
+            VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                *executables = vec!["tool".into()];
+            }
+            VerificationCheck::LivenessProbeSkipped { executable, .. } => {
+                *executable = Some("tool".into());
+            }
+            _ => {}
+        }
+    }
+    assert!(complete(&listed), "the shape the next one spoils");
+    listed.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbeSkipped {
+            executable: None,
+            cause: macportsbrew_domain::ProbeSkipCause::NoExecutableToProbe,
+        });
+    assert!(!complete(&listed));
 }

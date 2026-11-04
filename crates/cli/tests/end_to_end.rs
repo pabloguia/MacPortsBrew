@@ -534,7 +534,8 @@ fn invariant_19_a_stateful_package_stops_the_plan_at_manual_review() {
         "stateful package must stop the plan"
     );
     let plan: Value = serde_json::from_slice(&out.stdout).expect("plan JSON");
-    assert_eq!(plan["schemaVersion"], 1);
+    // `plan.v2` (work order 16 part H).
+    assert_eq!(plan["schemaVersion"], 2);
 }
 
 #[test]

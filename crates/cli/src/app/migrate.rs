@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! `migrate <package> --to <id> [--retain-source]`: the one caller of the run
-//! loop (SE-092), and the command whose `--json` is `docs/schemas/migrate.v1.md`.
+//! loop (SE-092), and the command whose `--json` is `docs/schemas/migrate.v2.md`.
 //!
 //! **Two modes.** It renders by default, as `--dry-run` asks and
 //! `06-cli-and-ux.md` requires of anything destructive until explicitly
@@ -42,7 +42,7 @@
 //!    planner's identifier and is told apart only by its message.
 //!
 //! **INV-02.** Under a mutation allowance, the plan executed is the plan a
-//! person was shown and confirmed (`plan.v1.md`, obligation 8): after the
+//! person was shown and confirmed (`plan.v2.md`, obligation 8): after the
 //! gate clears it, the plan is shown on standard error and `run plan <code>`
 //! is asked for; the run loop refuses a plan the confirmation does not cover.
 //! A script names the plan it was shown instead, with `--plan-digest`: the
@@ -77,8 +77,8 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io::Write;
 
-/// The version of `migrate.v1.md`.
-pub const MIGRATE_SCHEMA_VERSION: u32 = 1;
+/// The version of `migrate.v2.md`.
+pub const MIGRATE_SCHEMA_VERSION: u32 = 2;
 
 /// Whether `migrate` renders or executes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -133,7 +133,7 @@ pub fn check_plan_digest(cli: &Cli, text: &str) -> Result<PlanDigest, DomainErro
     })
 }
 
-/// `migrate.v1`'s document.
+/// `migrate.v2`'s document.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Document<'a> {
@@ -162,7 +162,7 @@ struct Document<'a> {
     execution: Option<Execution<'a>>,
     /// Always written: whether a provider may have been changing the machine
     /// while it was read, and never a check this build did not make
-    /// (`plan.v1.md`, obligation 5).
+    /// (`plan.v2.md`, obligation 5).
     concurrent_provider_activity: ConcurrencyFlag,
 }
 
@@ -327,6 +327,8 @@ fn execute_mutating(
             recapture: &recapture,
             consent: &consent,
             reread: &reread,
+            destination: &crate::executor::NothingObserved,
+            resolutions: &crate::executor::Unresolved,
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,
             shown,

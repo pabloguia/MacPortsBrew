@@ -490,7 +490,7 @@ fn documented_sample(document: &str) -> String {
 
 #[test]
 fn the_documented_sample_is_a_record_this_version_reads() {
-    let json = documented_sample("history.v3.md");
+    let json = documented_sample("history.v4.md");
     let stored: StoredRunRecord = serde_json::from_str(&json).expect("the sample parses");
     let back = RunRecord::from_stored(stored).expect("the sample is a usable record");
     // And it is exactly what this version writes for that record.

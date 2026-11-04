@@ -104,8 +104,8 @@ The first mutating release performs layer 1 as a run's outcome, and writes
 nothing outside the providers for it (DP-047 (b)). **Today** the planner decides
 the primary by the steps below and `SET_PRIMARY` carries that decision and no
 command; the execution gate still refuses every plan the planner builds before
-its first step, because `VERIFY_DESTINATION` carries four checks part H has not
-yet built (`CheckNotEvaluableInThisBuild`; SE-113), and this build dispatches no mutation.
+its first step (`MutationNotInThisBuild`: this build dispatches no mutation), and
+nothing observes the four checks of part H yet (SE-113).
 No real plan reaches `SET_PRIMARY` in a run.
 
 **MUST.** The executables a primary concerns are the source package's own,

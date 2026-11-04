@@ -176,13 +176,13 @@ fn detected_prefix_as(
 ///
 /// **`command.environment` and `command.elevation` are never read here.** The
 /// first is a display copy — redacted by capture, so its `HOME` is `~` on any
-/// live run — and the spawn site builds its own (`plan.v1.md`, obligation 10;
+/// live run — and the spawn site builds its own (`plan.v2.md`, obligation 10;
 /// INV-10). The second is what the user is shown, not what decides whether to
 /// ask (obligation 9); the refusal gate refuses anything but `NONE` in this
 /// build. `command.program` is read only to refuse a disagreement.
 ///
 /// **Safe only after the execution gate has passed the plan**
-/// (`execution_refusals`, `plan.v1.md` "What an executor inherits"). The read
+/// (`execution_refusals`, `plan.v2.md` "What an executor inherits"). The read
 /// allowlist checked here fixes the subcommand and the exact `--long` options
 /// that subcommand may take, and refuses separators, short options and path- or
 /// URL-shaped arguments — but it checks positional arguments for shape only:

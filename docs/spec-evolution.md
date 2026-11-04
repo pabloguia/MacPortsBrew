@@ -1820,6 +1820,8 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Architectural impact: A new `DestinationProbe` trait, apart from `ProviderRead`; one judge per check over facts; a new disposition; the first program this tool starts that no literal names, admitted by a curated table at the one spawn site, staged for the owner (`docs/passes/16-staged/H/`).
 - Compatibility impact: `plan.v2` (`flag` to `argv`, a skip shape), `migrate.v2` and `restore.v2` (a new outcome and disposition; `restore` embeds the plan), `history.v4` (a new ending). No release has shipped these.
 
+**As built, H-1 (2026-11-04).** The answer model, the dispositions, `COMPLETED_WITH_UNCHECKED`, the gate's `DESTINATION_CONTRACT_INCOMPLETE` and `PROBE_IS_NOT_THE_TABLES`, the removal rule, its own judge for the re-read, and the tripwire `the_switch_needs_the_destination_contract_observed`, over a site that observes nothing: past the gate, which this build does not reach, three answer `UNCHECKED` / `NOT_OBSERVED`, and the probe's skip its own cause. `CHECK_NOT_EVALUABLE_IN_THIS_BUILD` no longer names the four on `VERIFY_DESTINATION`; a plan with a mutating step is now refused by `MUTATION_NOT_IN_THIS_BUILD`, with `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` unweakened. `plan.v2`, `migrate.v2`, `restore.v2`, `history.v4`. `history-show.v1` keeps its version: the record it embeds carries its own. Deviations: `docs/passes/16-plans/H.md`, "As built (H-1)".
+
 ## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
 - Status: accepted for the decision rule, the plan shape, the gate, the executor's resolution and `history.v3`, as
   built in work order 16 part F-3 (`wo16/F-3-primary`; F-2a and F-2b merged) and reviewed in its fix round
@@ -8754,7 +8756,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - **Part D superseded by DP-048 (c) and work order 16 part K:** removal becomes opt-in rather than refused by release
     policy. `the_switch_needs_removal_opt_in` replaces part D's planned flip tripwire and K's tests replace its
     `invariant_01_*`. `the_switch_needs_the_window_before_removal_closed_or_accepted` became the positive structural
-    `the_destination_is_reread_before_removal`, and `the_switch_needs_the_destination_contract_evaluable` was widened
+    `the_destination_is_reread_before_removal`, and `the_switch_needs_the_destination_contract_observed` was widened
     to every check of the planner's `VERIFY_DESTINATION` in each direction (it moved to `crates/cli/tests/executor.rs`,
     beside the in-code snapshots it plans from: the recordings do not record MacPorts' service facts).
   - **The shell half runs one way until part K:** the shell's re-read tests reach a removal toward MacPorts only,
@@ -8769,7 +8771,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - S-2's second pull request (2026-10-30): `evaluable_in_this_build` answers `PROVIDER_REPORTS_ACTIVE` on
     `VERIFY_DESTINATION` only (`provider_reports_active_is_evaluable_on_verify_destination_only`), one arm shared with
     `PACKAGE_NEWLY_PRESENT`, so both directions gain it at once (INV-17). The widened tripwire
-    `the_switch_needs_the_destination_contract_evaluable` now names exactly DP-051's four checks (part H), and its
+    `the_switch_needs_the_destination_contract_observed` now names exactly DP-051's four checks (part H), and its
     held half pins both destination checks evaluable. Replay (INV-15):
     `crates/application/tests/replay_active.rs` judges each recording's own activation reads with the product's
     judge — every unlinked formula and every cask, a fixed stride of the linked ones (each judgement parses a

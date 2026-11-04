@@ -13,10 +13,10 @@ use macportsbrew_application::{
     Unevaluable,
 };
 use macportsbrew_domain::{
-    ArtifactAvailability, ConcurrentProviderActivity, ErrorId, ExpectationError, FailureCause,
-    MigrationPlan, Outcome, Ownership, PackageClass, ProviderId, ProviderPresence,
-    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, UndeterminedCause,
-    VerificationCheck,
+    ArtifactAvailability, CheckFailure, ConcurrentProviderActivity, DestinationCheck, ErrorId,
+    ExpectationError, FailureCause, MigrationPlan, Outcome, Ownership, PackageClass, ProviderId,
+    ProviderPresence, SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation,
+    UncheckedCause, UncheckedEntry, UndeterminedCause, VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -764,10 +764,21 @@ fn verification_line(ctx: &Context, value: &VerificationCheck) -> String {
             "verification.executables_owned_by_destination",
             &params(&[("executables", executables.join(", "))]),
         ),
-        VerificationCheck::LivenessProbe { executable, flag } => ctx.messages.render(
+        VerificationCheck::LivenessProbe { executable, argv } => ctx.messages.render(
             "verification.liveness_probe",
-            &params(&[("executable", executable.clone()), ("flag", flag.clone())]),
+            &params(&[("executable", executable.clone()), ("argv", argv.join(" "))]),
         ),
+        // Said at plan time: a removal passed over must not surprise anyone.
+        VerificationCheck::LivenessProbeSkipped {
+            executable: Some(executable),
+            ..
+        } => ctx.messages.render(
+            "verification.liveness_probe_skipped",
+            &params(&[("executable", executable.clone())]),
+        ),
+        VerificationCheck::LivenessProbeSkipped {
+            executable: None, ..
+        } => label(ctx, "verification.liveness_probe_skipped_none"),
         VerificationCheck::NoCrossProviderLinkage => {
             label(ctx, "verification.no_cross_provider_linkage")
         }
@@ -932,7 +943,7 @@ pub fn render_only(ctx: &Context) -> String {
 /// `migrate`, `plan` and `analyze`, last: whether a provider may have been
 /// changing the machine while it was read. Every answer this build gives says
 /// "possibly inconsistent" and says why, and none claims a check that was not
-/// made (`plan.v1.md`, obligation 5). The `match` is exhaustive, so a new
+/// made (`plan.v2.md`, obligation 5). The `match` is exhaustive, so a new
 /// answer is a compile error here rather than an identifier in front of a
 /// person. `status` and `list` do not end with it: their `--json` carries the
 /// flag, but their human views are an overview and an inventory, not an
@@ -1172,13 +1183,103 @@ fn outcome_line(ctx: &Context, outcome: &RunOutcome) -> String {
                 ("reason", halt_text(ctx, reason)),
             ]),
         ),
-        RunOutcome::PartialSuccess { step, reason } => ctx.messages.render(
-            "migrate.outcome.partial_success",
-            &params(&[
-                ("step", step.to_string()),
-                ("reason", halt_text(ctx, reason)),
-            ]),
-        ),
+        RunOutcome::PartialSuccess {
+            step,
+            reason,
+            unchecked,
+        } => {
+            let line = ctx.messages.render(
+                "migrate.outcome.partial_success",
+                &params(&[
+                    ("step", step.to_string()),
+                    ("reason", halt_text(ctx, reason)),
+                ]),
+            );
+            if unchecked.is_empty() {
+                line
+            } else {
+                format!("{line} {}", unchecked_list(ctx, unchecked))
+            }
+        }
+        RunOutcome::CompletedWithUnchecked {
+            unchecked,
+            source_kept,
+        } => {
+            let key = if *source_kept {
+                "migrate.outcome.completed_with_unchecked_source_kept"
+            } else {
+                "migrate.outcome.completed_with_unchecked"
+            };
+            format!("{} {}", label(ctx, key), unchecked_list(ctx, unchecked))
+        }
+    }
+}
+
+/// What could not be told, as a sentence. Never empty in a record that reaches
+/// here; identifiers and validated names only.
+fn unchecked_list(ctx: &Context, unchecked: &[UncheckedEntry]) -> String {
+    let lines: Vec<String> = unchecked
+        .iter()
+        .map(|entry| {
+            let check = label(ctx, destination_check_key(entry.check));
+            let cause = label(ctx, unchecked_key(entry.cause));
+            match &entry.executable {
+                Some(executable) => ctx.messages.render(
+                    "migrate.unchecked.about_executable",
+                    &params(&[
+                        ("check", check),
+                        ("executable", shown(executable.as_str())),
+                        ("cause", cause),
+                    ]),
+                ),
+                None => ctx.messages.render(
+                    "migrate.unchecked.about_package",
+                    &params(&[("check", check), ("cause", cause)]),
+                ),
+            }
+        })
+        .collect();
+    ctx.messages.render(
+        "migrate.unchecked.list",
+        &params(&[("list", lines.join("; "))]),
+    )
+}
+
+fn destination_check_key(value: DestinationCheck) -> &'static str {
+    check_key(match value {
+        DestinationCheck::ProviderIntegrityCheck => CheckKind::ProviderIntegrityCheck,
+        DestinationCheck::ExecutablesOwnedByDestination => CheckKind::ExecutablesOwnedByDestination,
+        DestinationCheck::NoCrossProviderLinkage => CheckKind::NoCrossProviderLinkage,
+        DestinationCheck::LivenessProbe => CheckKind::LivenessProbe,
+    })
+}
+
+fn unchecked_key(value: UncheckedCause) -> &'static str {
+    match value {
+        UncheckedCause::NotObserved => "migrate.unchecked.not_observed",
+        UncheckedCause::NoCuratedProbe => "migrate.unchecked.no_curated_probe",
+        UncheckedCause::NoExecutableToProbe => "migrate.unchecked.no_executable_to_probe",
+        UncheckedCause::OwnershipNotTold => "migrate.unchecked.ownership_not_told",
+        UncheckedCause::MalformedFile => "migrate.unchecked.malformed_file",
+    }
+}
+
+fn check_failure_key(value: CheckFailure) -> &'static str {
+    match value {
+        CheckFailure::PathMissing => "migrate.check_failure.path_missing",
+        CheckFailure::PathDangling => "migrate.check_failure.path_dangling",
+        CheckFailure::DependencyMissing => "migrate.check_failure.dependency_missing",
+        CheckFailure::NoInstallationRecord => "migrate.check_failure.no_installation_record",
+        CheckFailure::NoPlacedEntry => "migrate.check_failure.no_placed_entry",
+        CheckFailure::AnotherPackagesEntry => "migrate.check_failure.another_packages_entry",
+        CheckFailure::MoreThanOneVersion => "migrate.check_failure.more_than_one_version",
+        CheckFailure::ActiveRecordDiffers => "migrate.check_failure.active_record_differs",
+        CheckFailure::OwnerVersionDiffers => "migrate.check_failure.owner_version_differs",
+        CheckFailure::LinksAnotherProvider => "migrate.check_failure.links_another_provider",
+        CheckFailure::LinkPresentBeforeTheRun => {
+            "migrate.check_failure.link_present_before_the_run"
+        }
+        CheckFailure::ProbeFailed => "migrate.check_failure.probe_failed",
     }
 }
 
@@ -1188,6 +1289,17 @@ fn disposition_text(ctx: &Context, disposition: &Disposition) -> String {
             "migrate.disposition.verified",
             &params(&[("count", evidence.len().to_string())]),
         ),
+        Disposition::VerifiedWithUnchecked {
+            evidence,
+            unchecked,
+        } => ctx.messages.render(
+            "migrate.disposition.verified_with_unchecked",
+            &params(&[
+                ("count", evidence.len().to_string()),
+                ("unchecked", unchecked.len().to_string()),
+            ]),
+        ),
+        Disposition::SourceKeptUnchecked => label(ctx, "migrate.disposition.source_kept_unchecked"),
         Disposition::NotPerformedInThisBuild => {
             label(ctx, "migrate.disposition.not_performed_in_this_build")
         }
@@ -1248,6 +1360,28 @@ fn halt_text(ctx: &Context, reason: &HaltReason) -> String {
             &params(&[("step", step.to_string())]),
         ),
         HaltReason::UnexecutedMutation => label(ctx, "migrate.halt.unexecuted_mutation"),
+        HaltReason::DestinationCheckFailed {
+            check,
+            executable,
+            cause,
+        } => {
+            let check = label(ctx, destination_check_key(*check));
+            let cause = label(ctx, check_failure_key(*cause));
+            match executable {
+                Some(executable) => ctx.messages.render(
+                    "migrate.halt.destination_check_failed_executable",
+                    &params(&[
+                        ("check", check),
+                        ("executable", shown(executable.as_str())),
+                        ("cause", cause),
+                    ]),
+                ),
+                None => ctx.messages.render(
+                    "migrate.halt.destination_check_failed",
+                    &params(&[("check", check), ("cause", cause)]),
+                ),
+            }
+        }
         HaltReason::SnapshotNotTaken => label(ctx, "migrate.halt.snapshot_not_taken"),
         HaltReason::NotPerformedInThisBuild => {
             label(ctx, "migrate.halt.not_performed_in_this_build")
@@ -1424,6 +1558,10 @@ fn unevaluable_key(value: Unevaluable) -> &'static str {
         Unevaluable::NotCertifiedHere => "migrate.unevaluable.not_certified_here",
         Unevaluable::ResolutionNotObserved => "migrate.unevaluable.resolution_not_observed",
         Unevaluable::WinnerIndexUnknown => "migrate.unevaluable.winner_index_unknown",
+        Unevaluable::ContractIncomplete => "migrate.unevaluable.contract_incomplete",
+        Unevaluable::AnswersDoNotMatchQuestions => {
+            "migrate.unevaluable.answers_do_not_match_questions"
+        }
     }
 }
 
@@ -1435,6 +1573,7 @@ fn check_key(value: CheckKind) -> &'static str {
             "migrate.check.executables_owned_by_destination"
         }
         CheckKind::LivenessProbe => "migrate.check.liveness_probe",
+        CheckKind::LivenessProbeSkipped => "migrate.check.liveness_probe_skipped",
         CheckKind::NoCrossProviderLinkage => "migrate.check.no_cross_provider_linkage",
         CheckKind::PackageAbsent => "migrate.check.package_absent",
         CheckKind::PackageNewlyPresent => "migrate.check.package_newly_present",
@@ -1484,6 +1623,12 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
         }
         ExecutionRefusal::MoreThanOneRecordHistory { steps: s } => {
             steps("migrate.refusal.more_than_one_record_history", s)
+        }
+        ExecutionRefusal::DestinationContractIncomplete { step: s } => {
+            step("migrate.refusal.destination_contract_incomplete", *s)
+        }
+        ExecutionRefusal::ProbeIsNotTheTables { step: s } => {
+            step("migrate.refusal.probe_is_not_the_tables", *s)
         }
         ExecutionRefusal::ManualReview { step: s } => step("migrate.refusal.manual_review", *s),
         ExecutionRefusal::Placeholder { steps: s } => steps("migrate.refusal.placeholder", s),
@@ -1733,9 +1878,11 @@ mod tests {
                 ExecutionRefusal::PrimaryRefused { .. } => 27,
                 ExecutionRefusal::PrimaryDecisionMissing => 28,
                 ExecutionRefusal::ExecutableListsDisagree { .. } => 29,
+                ExecutionRefusal::DestinationContractIncomplete { .. } => 30,
+                ExecutionRefusal::ProbeIsNotTheTables { .. } => 31,
             }
         }
-        const VARIANTS: usize = 30;
+        const VARIANTS: usize = 32;
         let all = vec![
             ExecutionRefusal::SchemaVersionNotThisBuilds {
                 found: 2,
@@ -1794,6 +1941,8 @@ mod tests {
             },
             ExecutionRefusal::PrimaryDecisionMissing,
             ExecutionRefusal::ExecutableListsDisagree { step: 5 },
+            ExecutionRefusal::DestinationContractIncomplete { step: 3 },
+            ExecutionRefusal::ProbeIsNotTheTables { step: 3 },
         ];
         let mut filled = [false; VARIANTS];
         for refusal in &all {
@@ -1853,6 +2002,15 @@ mod tests {
         assert!(steps.contains('1') && steps.contains('4'), "{steps}");
         let provider = gate_refusal_line(&pt, &refusals[22]);
         assert!(provider.contains("macports"), "{provider}");
+    }
+
+    /// One thing a `VERIFY_DESTINATION` could not tell.
+    fn unchecked_entry() -> macportsbrew_domain::UncheckedEntry {
+        macportsbrew_domain::UncheckedEntry {
+            check: macportsbrew_domain::DestinationCheck::LivenessProbe,
+            executable: Some(macportsbrew_domain::ExecutableName::parse("htop").unwrap()),
+            cause: macportsbrew_domain::UncheckedCause::NoCuratedProbe,
+        }
     }
 
     /// Every halt reason the run loop can record.
@@ -1915,6 +2073,7 @@ mod tests {
             CheckKind::ProviderIntegrityCheck,
             CheckKind::ExecutablesOwnedByDestination,
             CheckKind::LivenessProbe,
+            CheckKind::LivenessProbeSkipped,
             CheckKind::NoCrossProviderLinkage,
             CheckKind::PackageAbsent,
             CheckKind::PackageNewlyPresent,
@@ -1928,6 +2087,37 @@ mod tests {
             out.push(HaltReason::Unevaluable {
                 check: None,
                 why: *why,
+            });
+        }
+        // Work order 16 part H: the destination's answers and what they halt.
+        for why in [
+            Unevaluable::ContractIncomplete,
+            Unevaluable::AnswersDoNotMatchQuestions,
+        ] {
+            out.push(HaltReason::Unevaluable { check: None, why });
+        }
+        for (check, cause) in [
+            (
+                macportsbrew_domain::DestinationCheck::ProviderIntegrityCheck,
+                macportsbrew_domain::CheckFailure::NoInstallationRecord,
+            ),
+            (
+                macportsbrew_domain::DestinationCheck::ExecutablesOwnedByDestination,
+                macportsbrew_domain::CheckFailure::AnotherPackagesEntry,
+            ),
+            (
+                macportsbrew_domain::DestinationCheck::NoCrossProviderLinkage,
+                macportsbrew_domain::CheckFailure::LinksAnotherProvider,
+            ),
+            (
+                macportsbrew_domain::DestinationCheck::LivenessProbe,
+                macportsbrew_domain::CheckFailure::ProbeFailed,
+            ),
+        ] {
+            out.push(HaltReason::DestinationCheckFailed {
+                check,
+                executable: None,
+                cause,
             });
         }
         out
@@ -1974,6 +2164,11 @@ mod tests {
             Disposition::NotPerformedInThisBuild,
             Disposition::NotDispatchedMutating,
             Disposition::NotReached,
+            Disposition::VerifiedWithUnchecked {
+                evidence: Vec::new(),
+                unchecked: vec![unchecked_entry()],
+            },
+            Disposition::SourceKeptUnchecked,
         ] {
             records.push(StepRecord {
                 index: 0,
@@ -1981,13 +2176,33 @@ mod tests {
                 disposition,
             });
         }
-        let mut outcomes = vec![RunOutcome::Completed, RunOutcome::Refused { refusals: 1 }];
+        let mut outcomes = vec![
+            RunOutcome::Completed,
+            RunOutcome::Refused { refusals: 1 },
+            RunOutcome::CompletedWithUnchecked {
+                unchecked: vec![unchecked_entry()],
+                source_kept: true,
+            },
+            RunOutcome::CompletedWithUnchecked {
+                unchecked: vec![unchecked_entry()],
+                source_kept: false,
+            },
+        ];
         for reason in every_halt() {
             outcomes.push(RunOutcome::Halted {
                 step: 3,
                 reason: reason.clone(),
             });
-            outcomes.push(RunOutcome::PartialSuccess { step: 3, reason });
+            outcomes.push(RunOutcome::PartialSuccess {
+                step: 3,
+                reason: reason.clone(),
+                unchecked: Vec::new(),
+            });
+            outcomes.push(RunOutcome::PartialSuccess {
+                step: 3,
+                reason,
+                unchecked: vec![unchecked_entry()],
+            });
         }
         let mut text = String::new();
         for (kind, values) in [

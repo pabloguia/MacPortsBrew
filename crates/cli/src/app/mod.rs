@@ -635,7 +635,7 @@ fn run_inner(
 
 /// What `plan`, `explain` and `doctor` write with `--json`: the payload
 /// exactly as its schema documents it, then the concurrency flag at the same
-/// root (`plan.v1.md`, obligation 5; SE-015).
+/// root (`plan.v2.md`, obligation 5; SE-015).
 ///
 /// The payload types are not given the field: `MigrationPlan` is the contract
 /// the planner, the execution gate and the run loop share, and `migrate`

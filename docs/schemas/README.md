@@ -8,15 +8,15 @@ a compatibility surface.**
 |---|---|---|
 | `macportsbrew analyze --json`, `status --json`, `list --json` | [`analysis.v1.md`](analysis.v1.md) | 1 |
 | `macportsbrew explain <pkg> --json` | [`explain.v1.md`](explain.v1.md) | 1 |
-| `macportsbrew plan <pkg> --to <provider> --json` | [`plan.v1.md`](plan.v1.md) | 1 |
-| `macportsbrew migrate <pkg> --to <provider> [--yes] [--dry-run] --json` | [`migrate.v1.md`](migrate.v1.md) | 1 |
+| `macportsbrew plan <pkg> --to <provider> --json` | [`plan.v2.md`](plan.v2.md) (version 1, [superseded](plan.v1.md)) | 2 |
+| `macportsbrew migrate <pkg> --to <provider> [--yes] [--dry-run] --json` | [`migrate.v2.md`](migrate.v2.md) (version 1, [superseded](migrate.v1.md)) | 2 |
 | `macportsbrew doctor --json` | [`doctor.v1.md`](doctor.v1.md) | 1 |
 | `macportsbrew history --json` | [`history-list.v1.md`](history-list.v1.md) | 1 |
 | `macportsbrew history show <id> --json` | [`history-show.v1.md`](history-show.v1.md) | 1 |
-| `macportsbrew restore --plan --run <id> --json` | [`restore.v1.md`](restore.v1.md) | 1 |
+| `macportsbrew restore --plan --run <id> --json` | [`restore.v2.md`](restore.v2.md) (version 1, [superseded](restore.v1.md)) | 2 |
 | `macportsbrew history acknowledge <id> [--yes] --json` | [`history-acknowledge.v1.md`](history-acknowledge.v1.md) | 1 |
 | `macportsbrew snapshot` (the file it writes) | [`snapshot.v1.md`](snapshot.v1.md) | 1 |
-| A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v3.md`](history.v3.md) (version 2, [still read](history.v2.md); version 1, [superseded](history.v1.md), was never written) | 3 |
+| A mutating run's record in the state directory, `history/run-<id>.json` | [`history.v4.md`](history.v4.md) (version 3, [still read](history.v3.md); version 2, [still read](history.v2.md); version 1, [superseded](history.v1.md), was never written) | 4 |
 | The interrupted-run marker in the state directory, `interrupted-run.json` | [`run-marker.v2.md`](run-marker.v2.md) (version 1, [superseded](run-marker.v1.md), was never written) | 2 |
 
 ## The compatibility rule

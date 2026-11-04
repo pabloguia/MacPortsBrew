@@ -251,6 +251,20 @@ written)` becomes that per-check statement, and the `read_only` helper (`crates/
 instead, so it does not silently widen. `a_check_with_no_observation_is_unchecked_never_holds` stands beside it. **With H/01 unapplied this keeps failing
 under the switch**, which is exactly what it is for.
 
+## As built (H-1)
+
+Deviations from the text above, each reviewed below:
+
+1. **The `read_only` helper does not narrow by observability.** The contract gate refuses a `VERIFY_DESTINATION` missing one of the four, so no narrowed plan could pass it. Tests keep the whole contract and supply a test site answering `Holds`; a run through the gate with `NothingObserved` ends `COMPLETED_WITH_UNCHECKED`. What "does not silently widen" asked for is carried by the tripwire and `a_check_with_no_observation_is_unchecked_never_holds`.
+2. **The argv comparison has no table yet.** `curated_probe_argv` answers `None` in a shipped build, so the gate refuses every `LIVENESS_PROBE` (`PROBE_IS_NOT_THE_TABLES`) and the planner writes only skips, until H-2 brings `liveness-probes.toml`. A test build, and only one (the `test-support` feature, which `build-release.sh` refuses), has one row, for the name `mpb-fixture-probe`, no package's: that is how `crates/cli/tests/executor_wiring.rs` reaches a removal through the gate.
+3. **`MutatingRun` gained `resolutions`**, `Unresolved` in the product. A plan reaching `VERIFIED` must have an executable list, whose decision needs a `VERIFY_RESOLUTION`, which the mutating loop could not answer. No behaviour of a shipped build moves.
+4. **The causes:** every `CheckFailure` the plan names exists now; `UncheckedCause` holds only what H-1 can produce. H-2 adds its own to `migrate.v2` and `history.v4` with no version bump, since nothing has been released under either; `migrate.v2` says so. After a release a new cause is a new version.
+5. **The tripwire was renamed** `the_switch_needs_the_destination_contract_observed`, and the contract also requires `PROVIDER_REPORTS_ACTIVE`, and `PACKAGE_NEWLY_PRESENT` when the plan adds the package (both reviews of H-1: otherwise H-1 opened a shape with no read-answered check).
+6. **Left for H-2, on purpose:** the note in `.claude/rules/executor.md` that the gate reads compiled data, since that data lands there; and `MutatingRun.destination` as a pre-built reference, which H-2 must make a closure called after the gate (executor rule 1) when a real site lands.
+7. **A real consolidation cannot reach `COMPLETED_WITH_UNCHECKED` yet:** its command-less `ADD_DESTINATION` is `NOT_DISPATCHED_MUTATING`, so the run ends `PARTIAL_SUCCESS` with the unchecked list. As before H-1, when it could not reach `COMPLETED` either. Part K's to settle.
+8. **`invariant_15_*` moves to H-2.** Under `--replay` a `VERIFY_DESTINATION` halts before any read (SE-107 C1), and `--yes` with `--from-snapshot` is a usage error, so no run in H-1 reaches the site. `a_check_with_no_observation_is_unchecked_never_holds` carries the substance, under its own name.
+9. **Left as it is:** `.claude/hooks/stop-gate.sh:129` and its generated copy still point at `plan.v1.md`, a guarded file, and the frozen `crates/adapters/src/process/mod.rs` does too. `plan.v1.md` still exists and holds the same obligations.
+
 ## Slices
 
 | Slice | Branch | What | Depends on |
@@ -288,3 +302,12 @@ One `CheckAnswer` model and one judge per check, in both directions. Declared as
 | `spec-guardian`, round 2 | `11d8d50` | Approve with changes, 13: SE-113's format and counts; 05 and `plan.v1` still say what SE-113 retracts; unbuilt behaviour unmarked; `restore.v1` missed; the catalogue and wiki; passed-over steps unnamed | All in `H-0` |
 | `security-reviewer`, round 2 | `11d8d50` | Pass with changes, 1-8: the walk's false `Holds` through a directory link; the re-read cannot use the four-answer judge; the skip and `is_site_answered`; no token exists, so numbers are the bound | All in `H-0` |
 | `docs-auditor` | `f32b359` | 14 findings: the dialog overstated where the owner rules; `[]` read as a failure; a stale part F citation; spec 04 keeping a phrase R-25 rejects; undated claims | All in `e6a28ec` |
+| `spec-guardian`, H-1 | `d5d5d62` | Changes required: a hand-edited `COMPLETED` over something unchecked read as `SUCCESS`; the site asked after a read that failed; the re-read vacuous on an empty list; named invariant tests missing; schema documents wrong; words still retracted; H-1 opened a shape with no read-answered check | All folded; deviation 5, 6 and 7 above |
+| `security-reviewer`, H-1 | `d5d5d62` | Changes required: the same `SUCCESS` proved by running it; a record stating a removal after something unchecked; the contract requiring no read-answered check; an unknown ownership worded as a negative (`OWNERSHIP_NOT_HELD`, now `OWNERSHIP_NOT_TOLD`) | All folded |
+| Mutation proof, H-1 | `d5d5d62` | 31 of 37 killed. Survivors M9, M23, M25, M29, M34, M36 | A test added for each; re-proved below |
+| `security-reviewer`, H-1 round 2 | `deb73d1` | Four low: a second removal, a handed-over removal with no end, a removal check with no removal behind it, the ending rule one way only; the comment overstating. No record this build's loop can write is wrongly refused | Folded; the comment now says the rule catches a contradiction and authenticates nothing |
+| Mutation proof, H-1 round 2 | `deb73d1` | 13 of 16 killed. M29 survived because an integration test's build has no row (`cfg(test)` is the unit test's); M34, N5; N1 near-equivalent | Each got a test: the row at unit level; a control for the empty list; a run with nothing kept; a count of site calls on the re-read |
+| `docs-auditor`, H-1 | `deb73d1` | 14: "all four answer `NOT_OBSERVED`" untrue of the probe and of any run; 04 contradicting itself on what is built; v4's stale origin; links to superseded documents; the wiki's miscount | Folded. Not done: a sample marker on the MacPorts page's transcript, whose input is not a fixture |
+| `spec-guardian`, H-1 round 2 | `deb73d1` | Small changes: a second `REMOVE_SOURCE`; the status guard and the re-read's guard untested; `invariant_15_*` naming a test that does not exercise it; leftovers | Folded; deviations 8 and 9. `crates/cli/tests/executor.rs:931` matching any ancestor named `src`, an older test, is left |
+| Mutation proof, H-1 round 3 | `0526230` | 5 of 9 killed. A, C, E and G survived: each hand-built case was refused by an earlier rule, and two wrote `unchecked` beside `result` rather than inside it, so `deny_unknown_fields` refused them | `each_rule_about_a_removal_answers_for_itself`, with a control; the field path corrected, and A, E and G re-run against the fix: killed |
+

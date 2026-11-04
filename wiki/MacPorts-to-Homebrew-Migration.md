@@ -95,14 +95,14 @@ Plan: move htop from macports to homebrew
 Steps, in order
   1. Take a snapshot - Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first.
   2. Add under the destination - htop is already installed under homebrew; nothing to add.
-  3. Verify the destination - Check that the destination reports it installed and active, that its own integrity check passes, that the expected executables belong to it, that each one starts, and that nothing links across the two package managers.
+  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists. What cannot be told is reported as unchecked, and the source is then kept.
        $ /usr/local/bin/brew list --versions htop
        $ /usr/local/bin/brew info --json=v2 --installed  [passes when this whole list marks exactly one installation of the package as the active one; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the provider reports it installed and active
-       ? the provider's own integrity check passes
-       ? the expected executables belong to the destination: htop
-       ? htop --version exits successfully
-       ? no new cross-provider linkage
+       ? what the package records of itself is present on disk; this is no proof of its content or that it runs
+       ? the expected executables belong to the destination when read: htop
+       ? htop has no curated probe, so it stays unchecked and the source will be kept
+       ? no file refers to another package manager's directory when read
   4. Set the primary - Make homebrew's copy the one that runs.
        Not a command in this version. To make the copy under homebrew the one that runs, put its bin directory ahead of the other package manager's on PATH, or call it by its full path.
        ? the provider reports it installed and active
@@ -171,7 +171,7 @@ that changes it is refused while it does. `macportsbrew doctor` lists the same
 files. The same holds in the other direction.
 
 Add `--json` for the machine-readable form — see
-[`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).
+[`../docs/schemas/plan.v2.md`](../docs/schemas/plan.v2.md).
 
 ## What a full migration plan will contain
 
@@ -179,8 +179,11 @@ Identical to the other direction, because it is the same planner:
 
 1. **Snapshot before.**
 2. **Add destination** — install under Homebrew.
-3. **Verify destination** — installed, active, executables owned by Homebrew,
-   a liveness probe with a safe flag.
+3. **Verify destination** — installed, active, what the package records of itself on disk,
+   executables belonging to it when read, no file referring to the other package
+   manager's directory, and a curated probe where one exists. What cannot be told is
+   reported as unchecked, the source is kept, and the run exits 3. This version
+   observes none of the last four yet.
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;

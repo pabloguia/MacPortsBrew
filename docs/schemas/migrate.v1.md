@@ -1,5 +1,7 @@
 # `migrate` schema, version 1
 
+**Superseded on 2026-11-04 by [`migrate.v2.md`](migrate.v2.md)** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
+
 Emitted by `macportsbrew migrate <package> --to <provider> [--retain-source]
 [--yes] [--dry-run] --json`. Built in `crates/cli/src/app/migrate.rs`; the run's
 types are in `crates/application/src/executor.rs` and
@@ -243,7 +245,6 @@ told apart by its message.
 
 Nothing to move, under `--yes`:
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate nginx --to macports --yes --today 2026-09-02 -->
 ```json
 {
   "schemaVersion": 1,
@@ -263,7 +264,6 @@ Nothing to move, under `--yes`:
 `--dry-run` wins over `--yes` (rendered from the committed live capture, the
 input a plan with commands comes from; see below):
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json migrate htop --to macports --yes --dry-run --today 2026-09-02 at=/mode -->
 ```json
 "RENDER"
 ```
@@ -279,7 +279,6 @@ refusals a plan with commands draws — `MUTATION_NOT_IN_THIS_BUILD`,
 `CHECK_NOT_EVALUABLE_IN_THIS_BUILD`, and `PROVIDER_CONFIGURATION` wherever a
 provider's own configuration is unknown — are listed above.
 
-<!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate jupyterlab --to macports --yes --today 2026-09-02 at=/execution exit=4 -->
 ```json
 {
   "outcome": {

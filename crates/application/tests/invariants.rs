@@ -501,7 +501,7 @@ fn invariant_01_a_verification_step_asserts_what_its_name_says() {
 
     // And a check an executor cannot perform is a check in name only, which is
     // what this step was until 2026-09-19: `PACKAGE_ABSENT` with no command at
-    // all, the last of `plan.v1.md`'s executor-debt items to have no data
+    // all, the last of `plan.v2.md`'s executor-debt items to have no data
     // behind it.
     let command = match removal.commands.as_slice() {
         [one] => one,
@@ -714,9 +714,11 @@ fn invariant_01_a_destination_already_holding_the_package_claims_no_proof_it_can
             VerificationCheck::ExecutablesOwnedByDestination {
                 executables: vec!["gnu-sed".into()],
             },
-            VerificationCheck::LivenessProbe {
-                executable: "gnu-sed".into(),
-                flag: "--version".into(),
+            // No curated probe exists in this build (H-2 brings the table), so
+            // the planner records a skip for the executable, not a probe.
+            VerificationCheck::LivenessProbeSkipped {
+                executable: Some("gnu-sed".into()),
+                cause: macportsbrew_domain::ProbeSkipCause::NoCuratedProbe,
             },
             VerificationCheck::NoCrossProviderLinkage,
         ]);
@@ -1290,7 +1292,7 @@ fn check_invocation_environment(plan: &MigrationPlan, snap: &Snapshot, expected_
                 }
                 CommandTarget::Tool => {
                     tools += 1;
-                    // Both halves of the contract `plan.v1.md` states, because
+                    // Both halves of the contract `plan.v2.md` states, because
                     // the type alone does not stop a provider command being
                     // given the other label: a `TOOL` command hangs off
                     // `SET_PRIMARY`, and it is not one of the programs this plan

@@ -6,7 +6,7 @@
 //! from a provider beyond [`ReadEvidence`]: a verification read is kept as its
 //! result, its line count and its truncation flag, never its output, so a
 //! record **cannot** carry the machine's inventory — there is no field a
-//! provider read can occupy (`plan.v1.md` obligation 3). The caller's own
+//! provider read can occupy (`plan.v2.md` obligation 3). The caller's own
 //! strings ([`RunStart`], the snapshot path) are the caller's responsibility.
 //!
 //! **No clock is read here.** The start time is a field the caller supplies
@@ -20,7 +20,7 @@
 //!    [`RunStatus::Success`] (INV-03).
 //! 2. A run that dispatched no mutating step is [`RunStatus::NoChange`],
 //!    whatever its ending, so it is never recorded as a migration left half
-//!    done (SE-092; `plan.v1.md` obligation 12) — and
+//!    done (SE-092; `plan.v2.md` obligation 12) — and
 //!    [`RunRecord::mutation_dispatched`] is the one fact a store keys a lock or
 //!    an interrupted-run marker on.
 //!
@@ -31,6 +31,7 @@
 //! nothing in this build dispatches a mutating step, so the shipped binary
 //! writes no record yet (pass 08, slice 1).
 
+use crate::destination_check::UncheckedEntry;
 use crate::text::is_control_class;
 use crate::{DomainError, ExecutableName, FailureCause};
 use crate::{ErrorId, Outcome, PackageIdentity, ProviderId, ReadEvidence, StepKind, Version};
@@ -155,6 +156,17 @@ pub enum StepResult {
         /// One per command, in order.
         evidence: Vec<ReadEvidence>,
     },
+    /// A `VERIFY_DESTINATION` whose reads passed, with no check failed and some
+    /// that could not be told (`history.v4`).
+    VerifiedWithUnchecked {
+        /// One per command, in order.
+        evidence: Vec<ReadEvidence>,
+        /// What could not be told. Never empty.
+        unchecked: Vec<UncheckedEntry>,
+    },
+    /// A removal, its verification or a review passed over because the
+    /// destination could not be fully told: the source was kept (`history.v4`).
+    SourceKeptUnchecked,
     /// `SNAPSHOT_BEFORE` or `RECORD_HISTORY` on a run that did not perform it:
     /// the read-only loop, or a bracket the run never reached. A record that
     /// dispatched a mutation never states this for `SNAPSHOT_BEFORE`
@@ -208,6 +220,7 @@ impl StepResult {
         matches!(
             self,
             Self::Verified { .. }
+                | Self::VerifiedWithUnchecked { .. }
                 | Self::Performed { .. }
                 | Self::SnapshotTaken
                 | Self::RecordPendingReadBack
@@ -244,12 +257,14 @@ impl RecordedStep {
         let dispatched = match &result {
             // A fresh resolution asks providers about the hit, so it reads.
             StepResult::Verified { .. }
+            | StepResult::VerifiedWithUnchecked { .. }
             | StepResult::Performed { .. }
             | StepResult::Resolved { .. } => true,
             StepResult::Halted { evidence, ends, .. } => {
                 halted_after_dispatch || !evidence.is_empty() || !ends.is_empty()
             }
-            StepResult::NotPerformedInThisBuild
+            StepResult::SourceKeptUnchecked
+            | StepResult::NotPerformedInThisBuild
             | StepResult::SnapshotTaken
             | StepResult::RecordPendingReadBack
             | StepResult::NotDispatchedMutating
@@ -288,10 +303,20 @@ impl RecordedStep {
 
 /// How the run loop said the run ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "kind")]
+#[serde(
+    rename_all = "SCREAMING_SNAKE_CASE",
+    tag = "kind",
+    rename_all_fields = "camelCase"
+)]
 pub enum RunEnding {
     /// Every step was carried out and every check passed.
     Completed,
+    /// No check failed and some could not be told, so no source was removed on
+    /// their word (`history.v4`). What could not be told is on the step.
+    CompletedWithUnchecked {
+        /// Whether a removal was passed over because of it.
+        source_kept: bool,
+    },
     /// Some steps were carried out and some were not.
     PartialSuccess {
         /// The step that stopped the run, or the first not carried out.
@@ -339,7 +364,10 @@ impl RunStatus {
         }
         match ending {
             RunEnding::Completed => Self::Success,
-            RunEnding::PartialSuccess { .. } => Self::Partial,
+            // Never success (04, "Partial success is its own exit code").
+            RunEnding::PartialSuccess { .. } | RunEnding::CompletedWithUnchecked { .. } => {
+                Self::Partial
+            }
             // A refused plan runs nothing, so a dispatched mutation beside a
             // refusal is records that contradict the ending: never success.
             RunEnding::Halted { .. } | RunEnding::Refused { .. } => Self::Failure,
@@ -472,7 +500,11 @@ impl RunRecord {
         // as partial — never success (INV-03).
         let status = match RunStatus::of(&ending, mutation_dispatched) {
             RunStatus::Success
-                if steps.is_empty() || !steps.iter().all(|s| s.result.carried_out()) =>
+                if steps.is_empty()
+                    || !steps.iter().all(|s| s.result.carried_out())
+                    || steps
+                        .iter()
+                        .any(|s| matches!(s.result, StepResult::VerifiedWithUnchecked { .. })) =>
             {
                 RunStatus::Partial
             }
@@ -543,10 +575,14 @@ impl RunRecord {
 
 // --- Read-back --------------------------------------------------------------
 
-/// The schema version a stored record carries (`docs/schemas/history.v3.md`).
-/// A `history.v2` record still reads ([`RunRecord::from_stored`]), with no
-/// `primaryExecutables`.
-pub const HISTORY_SCHEMA_VERSION: u32 = 3;
+/// The schema version a stored record carries (`docs/schemas/history.v4.md`).
+/// A `history.v3` record still reads ([`RunRecord::from_stored`]), and a
+/// `history.v2` one, with no `primaryExecutables`.
+pub const HISTORY_SCHEMA_VERSION: u32 = 4;
+
+/// An older version a record may still carry and be read: everything but what
+/// `history.v4` added.
+pub const HISTORY_V3: u32 = 3;
 
 /// The older version a record may still carry and be read.
 pub const HISTORY_V2: u32 = 2;
@@ -657,9 +693,9 @@ impl RunRecord {
         // that claims to is not one any build wrote. A v2 record cannot state
         // a v3-only step result either (checked with the steps below).
         let v2 = match stored.schema_version {
-            HISTORY_SCHEMA_VERSION if stored.primary_executables.is_some() => false,
+            HISTORY_SCHEMA_VERSION | HISTORY_V3 if stored.primary_executables.is_some() => false,
             HISTORY_V2 if stored.primary_executables.is_none() => true,
-            HISTORY_SCHEMA_VERSION | HISTORY_V2 => {
+            HISTORY_SCHEMA_VERSION | HISTORY_V3 | HISTORY_V2 => {
                 return Err(unusable(
                     "states its primary executables against its version",
                 ));
@@ -678,6 +714,19 @@ impl RunRecord {
                     StoredStepResult::NothingToChange {} | StoredStepResult::Resolved { .. }
                 )
             })
+        {
+            return Err(unusable("states a step result its version does not have"));
+        }
+        // What `history.v4` added, on a record that says it is older.
+        if stored.schema_version != HISTORY_SCHEMA_VERSION
+            && (matches!(stored.ending, StoredEnding::CompletedWithUnchecked { .. })
+                || stored.steps.iter().any(|s| {
+                    matches!(
+                        s.result,
+                        StoredStepResult::VerifiedWithUnchecked { .. }
+                            | StoredStepResult::SourceKeptUnchecked {}
+                    )
+                }))
         {
             return Err(unusable("states a step result its version does not have"));
         }
@@ -782,6 +831,25 @@ impl RunRecord {
                 StepResult::Verified { .. } if on_bracket(StepKind::RecordHistory) => {
                     return Err(unusable("states its own write verified"));
                 }
+                StepResult::VerifiedWithUnchecked { .. }
+                    if !on_bracket(StepKind::VerifyDestination) =>
+                {
+                    return Err(unusable(
+                        "states something unchecked on a step that is not VERIFY_DESTINATION",
+                    ));
+                }
+                StepResult::SourceKeptUnchecked
+                    if !matches!(
+                        step.kind,
+                        StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview
+                    ) || !steps.iter().any(|s: &RecordedStep| {
+                        matches!(s.result, StepResult::VerifiedWithUnchecked { .. })
+                    }) =>
+                {
+                    return Err(unusable(
+                        "states a kept source where nothing unchecked came before it",
+                    ));
+                }
                 _ => {}
             }
             // A verification is judged from reads, and a mutating step is never
@@ -795,6 +863,83 @@ impl RunRecord {
                 return Err(unusable("states a step's dispatch its result contradicts"));
             }
             steps.push(recorded);
+        }
+        // The ending and the steps say the same thing, both ways (INV-03): the
+        // ending exists exactly when a step left something unchecked and no
+        // step stopped the run or was left undone, and nothing unchecked ends
+        // any way that reads as success.
+        let unchecked = steps
+            .iter()
+            .any(|s| matches!(s.result, StepResult::VerifiedWithUnchecked { .. }));
+        let kept = |s: &RecordedStep| matches!(s.result, StepResult::SourceKeptUnchecked);
+        let whole = !steps.is_empty() && steps.iter().all(|s| s.result.carried_out() || kept(s));
+        if unchecked
+            && matches!(
+                stored.ending,
+                StoredEnding::Completed {}
+                    | StoredEnding::Halted { .. }
+                    | StoredEnding::Refused { .. }
+            )
+        {
+            return Err(unusable("states an ending its steps contradict"));
+        }
+        if unchecked
+            && whole
+            && !matches!(stored.ending, StoredEnding::CompletedWithUnchecked { .. })
+        {
+            return Err(unusable("states an ending its steps contradict"));
+        }
+        if let StoredEnding::CompletedWithUnchecked { source_kept } = &stored.ending {
+            if !unchecked || steps.iter().any(kept) != *source_kept || !whole {
+                return Err(unusable("states an ending its steps contradict"));
+            }
+        }
+        // A record with something unchecked that contradicts itself about a removal
+        // is refused (security review of H-1): no removal ran, and the steps after
+        // it say what became of it. This catches a contradiction only; nothing here
+        // authenticates a record, and an edit that rewrites the result itself
+        // passes. A halt counts as no removal only if nothing was handed over: a
+        // refusal or a transport failure on the first command leaves no end and may
+        // have run.
+        if unchecked {
+            let removals: Vec<&RecordedStep> = steps
+                .iter()
+                .filter(|s| s.kind == StepKind::RemoveSource)
+                .collect();
+            let removed = removals.len() > 1
+                || removals.iter().any(|s| {
+                    !matches!(
+                        &s.result,
+                        StepResult::SourceKeptUnchecked
+                            | StepResult::NotReached
+                            | StepResult::NotDispatchedMutating
+                    ) && (!matches!(&s.result, StepResult::Halted { ends, .. } if ends.is_empty())
+                        || s.dispatched)
+                });
+            let after_removal = |s: &&RecordedStep| {
+                matches!(s.kind, StepKind::VerifyRemoval | StepKind::CleanupReview)
+            };
+            // A command-less removal is passed over before the rule about what is
+            // unchecked is asked, so what follows it is judged as ever.
+            let removal = removals.first().copied();
+            let removal_kept = removal.is_some_and(kept);
+            let commandless =
+                removal.is_some_and(|s| matches!(s.result, StepResult::NotDispatchedMutating));
+            let contradicts = steps.iter().filter(after_removal).any(|s| {
+                if removal_kept {
+                    !kept(s) && s.result != StepResult::NotReached
+                } else if commandless {
+                    kept(s)
+                } else {
+                    !matches!(
+                        s.result,
+                        StepResult::NotReached | StepResult::NotDispatchedMutating
+                    )
+                }
+            });
+            if removed || contradicts {
+                return Err(unusable("states a removal after something unchecked"));
+            }
         }
         // `primaryAfter` is what was observed to resolve (`history.v3`): the
         // destination only after a `RESOLVED` step, or a carried-out
@@ -1014,6 +1159,11 @@ enum StoredStepResult {
     Verified {
         evidence: Vec<StoredEvidence>,
     },
+    VerifiedWithUnchecked {
+        evidence: Vec<StoredEvidence>,
+        unchecked: Vec<UncheckedEntry>,
+    },
+    SourceKeptUnchecked {},
     NotPerformedInThisBuild {},
     SnapshotTaken {},
     RecordPendingReadBack {},
@@ -1070,6 +1220,20 @@ impl StoredStepResult {
                 }
                 StepResult::Verified { evidence }
             }
+            Self::VerifiedWithUnchecked {
+                evidence: e,
+                unchecked,
+            } => {
+                let evidence = evidence(e)?;
+                if unchecked.is_empty() || !evidence.iter().all(ReadEvidence::passed) {
+                    return None;
+                }
+                StepResult::VerifiedWithUnchecked {
+                    evidence,
+                    unchecked,
+                }
+            }
+            Self::SourceKeptUnchecked {} => StepResult::SourceKeptUnchecked,
             Self::NotPerformedInThisBuild {} => StepResult::NotPerformedInThisBuild,
             Self::SnapshotTaken {} => StepResult::SnapshotTaken,
             Self::RecordPendingReadBack {} => StepResult::RecordPendingReadBack,
@@ -1124,15 +1288,30 @@ impl StoredEvidence {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "kind", deny_unknown_fields)]
 enum StoredEnding {
     Completed {},
-    PartialSuccess { step: u32, error: ErrorId },
-    Halted { step: u32, error: ErrorId },
-    Refused { refusals: usize },
+    #[serde(rename_all = "camelCase")]
+    CompletedWithUnchecked {
+        source_kept: bool,
+    },
+    PartialSuccess {
+        step: u32,
+        error: ErrorId,
+    },
+    Halted {
+        step: u32,
+        error: ErrorId,
+    },
+    Refused {
+        refusals: usize,
+    },
 }
 
 impl StoredEnding {
     fn into_ending(self) -> RunEnding {
         match self {
             Self::Completed {} => RunEnding::Completed,
+            Self::CompletedWithUnchecked { source_kept } => {
+                RunEnding::CompletedWithUnchecked { source_kept }
+            }
             Self::PartialSuccess { step, error } => RunEnding::PartialSuccess { step, error },
             Self::Halted { step, error } => RunEnding::Halted { step, error },
             Self::Refused { refusals } => RunEnding::Refused { refusals },

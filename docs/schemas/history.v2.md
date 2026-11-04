@@ -5,7 +5,7 @@ The file a mutating run leaves in the state directory, `history/run-<id>.json`
 `crates/domain/src/history.rs`; written and read by
 `crates/adapters/src/persistence/history_store.rs`. The compatibility rule is
 in [`README.md`](README.md). **Version 2 supersedes [version 1](history.v1.md),
-which no build ever wrote** (pass 08 slice 5; SE-092). **Superseded by [version 3](history.v3.md)** (work order 16 part F-3), which this build writes; a version 2 record still reads.
+which no build ever wrote** (pass 08 slice 5; SE-092). **Superseded by [version 3](history.v3.md)** (work order 16 part F-3) and then [version 4](history.v4.md), which this build writes; a version 2 record still reads.
 
 **This build writes none to a user's machine.** A record is written iff the run
 dispatched a mutating step (`mutationDispatched`), and the gate refuses every

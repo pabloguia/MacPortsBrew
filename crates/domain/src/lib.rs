@@ -16,6 +16,7 @@
 pub mod availability;
 pub mod class;
 pub mod concurrency;
+pub mod destination_check;
 pub mod error;
 pub mod executable;
 pub mod history;
@@ -43,6 +44,9 @@ pub use class::{ClassEvidence, ClassSet, PackageClass};
 pub use concurrency::{
     ConcurrencyFlag, ConcurrentProviderActivity, ProviderLockProbe, UndeterminedCause,
 };
+pub use destination_check::{
+    CheckAnswer, CheckFailure, DestinationCheck, ProbeSkipCause, UncheckedCause, UncheckedEntry,
+};
 pub use error::{DomainError, ErrorId};
 pub use executable::{
     command_v_checks, ExecutableList, ExecutableName, ListReason, NameRefusal, Placement,
@@ -52,7 +56,7 @@ pub use history::{
     is_run_id, CommandEnd, Direction, EnvironmentChange, HistoryView, MarkerState, MigrationKey,
     NotRestorable, RecordStanding, RecordedStep, RecordedVersions, Restorability, RunEnding,
     RunRecord, RunStart, RunStatus, RunSubject, StepResult, StoredEnvelope, StoredRunRecord,
-    HISTORY_SCHEMA_VERSION, HISTORY_V2,
+    HISTORY_SCHEMA_VERSION, HISTORY_V2, HISTORY_V3,
 };
 pub use interrupted_run::{InterruptedRun, StoredInterruptedRun, MARKER_SCHEMA_VERSION};
 pub use machine::{

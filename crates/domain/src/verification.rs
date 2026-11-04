@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! How a verification step's read is judged (`plan.v1.md`, "What an executor
+//! How a verification step's read is judged (`plan.v2.md`, "What an executor
 //! inherits", obligations 3 and 4). Pure: a plan, a step and a command go in,
 //! an [`Expectation`] comes out; an expectation and what the process produced
 //! go in, a [`Verdict`] comes out. Nothing here runs anything.

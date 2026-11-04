@@ -14,7 +14,10 @@
 //! own where it has one. Verbs are read from `provider-commands.toml` through
 //! `provider_commands::load`, never written here.
 
-use macportsbrew::executor::{run, run_with, ReadSite, RunReport, SiteRefusalKind};
+use macportsbrew::executor::{
+    run, run_with, run_with_sites, DestinationSite, ReadSite, RunReport, SiteRefusalKind,
+    Unresolved,
+};
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{
     ExitStatus, Invocation, PlanReadRefusal, RecordedInvocation, Recording, ReplayRunner,
@@ -22,16 +25,17 @@ use macportsbrew_adapters::process::{
 use macportsbrew_adapters::registry::{self, PlanReadError, RegistryContext};
 use macportsbrew_application::{
     evaluable_in_this_build, execution_refusals, plan_run, provider_commands, AnalysisOptions,
-    Disposition, HaltReason, PlanRequest, PlannedRun, RunOutcome,
+    Disposition, HaltReason, PlanRequest, PlannedRun, Question, RunOutcome,
 };
+use macportsbrew_domain::DestinationCheck;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
-    CapabilityState, CommandLineTools, DomainError, EnvironmentSnapshot, FailureCause,
+    CapabilityState, CheckAnswer, CommandLineTools, DomainError, EnvironmentSnapshot, FailureCause,
     HomeRedaction, InstalledPackage, Machine, MacosVersion, MigrationPlan, PackageIdentity,
     PackageKind, PackageMetadata, PlanCommand, Provenance, ProviderCapabilities,
     ProviderConfiguration, ProviderDetection, ProviderId, ProviderInventory, ProviderPresence,
-    ProviderSnapshot, RequestedSet, Snapshot, StepKind, SuccessSemantic, Translation, Version,
-    SNAPSHOT_SCHEMA_VERSION,
+    ProviderSnapshot, RequestedSet, Snapshot, StepKind, SuccessSemantic, Translation,
+    UncheckedCause, UncheckedEntry, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -403,12 +407,15 @@ fn planner_runs() -> Vec<PlannedRun> {
     runs
 }
 
-/// The verification part of a planner plan, renumbered: the shape the gate
-/// passes in this build. `VERIFY_DESTINATION` keeps only the checks this build
-/// evaluates, and is dropped when none is left (the gate would refuse it as
-/// asserting nothing); a consolidation's now keeps `PROVIDER_REPORTS_ACTIVE`,
-/// evaluable since work order 16 part S-2; with `brackets` the snapshot and
-/// history steps stay. The snapshot the plan was built from is kept with it.
+/// The verification part of a planner plan, renumbered (the two `evaluable` filters
+/// no longer narrow a `VERIFY_DESTINATION`: the gate requires its whole contract): the shape the gate
+/// passes in this build. It keeps every check this build evaluates, which since
+/// work order 16 part H is the whole of `VERIFY_DESTINATION`'s contract (the
+/// four of DP-051 and the recorded skip) and not a narrowed part of it: the gate
+/// refuses a destination step missing one of them. A step is dropped when none
+/// of its checks is evaluable (the gate would refuse it as asserting nothing);
+/// with `brackets` the snapshot and history steps stay. The snapshot the plan
+/// was built from is kept with it.
 fn read_only(run: PlannedRun, brackets: bool) -> PlannedRun {
     let run = run.map_plan(|out| {
         out.steps.retain(|s| match s.kind {
@@ -491,8 +498,51 @@ fn honest(
 
 /// Runs `planned` through `spy`, which is handed to the loop only after the
 /// gate passed the plan.
+///
+/// The destination site answers every question `Holds`, so what a run leaves
+/// unchecked is what the plan itself records and nothing else (work order 16
+/// part H): [`recorded_skip`].
 fn spied<S: ReadSite>(planned: &PlannedRun, spy: &S, home: &HomeRedaction) -> RunReport {
-    run_with(planned, || spy, &clean, home)
+    run_with_sites(planned, || spy, &clean, || Unresolved, || AllHold, home)
+}
+
+/// A destination site that answers every question `Holds`.
+struct AllHold;
+
+impl DestinationSite for AllHold {
+    fn answer(&self, _: &Question) -> CheckAnswer {
+        CheckAnswer::Holds
+    }
+}
+
+/// What the plans built from this file's snapshots leave unchecked even when
+/// every question holds: the snapshots record no executable list, so the planner
+/// writes one nameless skip, never a probe.
+fn recorded_skip() -> Vec<UncheckedEntry> {
+    vec![UncheckedEntry {
+        check: DestinationCheck::LivenessProbe,
+        executable: None,
+        cause: UncheckedCause::NoExecutableToProbe,
+    }]
+}
+
+/// What a run unchecks when nothing observes the destination (the product's
+/// default in this build): the two checks nobody observes, then the skip.
+fn nothing_observed() -> Vec<UncheckedEntry> {
+    let mut all = vec![
+        UncheckedEntry {
+            check: DestinationCheck::ProviderIntegrityCheck,
+            executable: None,
+            cause: UncheckedCause::NotObserved,
+        },
+        UncheckedEntry {
+            check: DestinationCheck::NoCrossProviderLinkage,
+            executable: None,
+            cause: UncheckedCause::NotObserved,
+        },
+    ];
+    all.extend(recorded_skip());
+    all
 }
 
 /// A provider configuration re-read that finds nothing that could outrank the
@@ -513,6 +563,16 @@ fn shape(report: &RunReport) -> Vec<(StepKind, String)> {
                 Disposition::Halted { reason, .. } => format!("HALTED {reason:?}"),
                 Disposition::Verified { evidence } => format!(
                     "VERIFIED {:?}",
+                    evidence
+                        .iter()
+                        .map(macportsbrew_domain::ReadEvidence::passed)
+                        .collect::<Vec<_>>()
+                ),
+                Disposition::VerifiedWithUnchecked {
+                    evidence,
+                    unchecked,
+                } => format!(
+                    "VERIFIED_WITH_UNCHECKED {:?} {unchecked:?}",
                     evidence
                         .iter()
                         .map(macportsbrew_domain::ReadEvidence::passed)
@@ -541,7 +601,15 @@ fn the_execution_gate_is_consulted_before_any_step() {
     let spy = Spy::new(honest(passed.plan()));
     let ran = spied(&passed, &spy, &HomeRedaction::Recorded);
     assert!(!spy.calls().is_empty(), "the gate passed, so reads ran");
-    assert_eq!(ran.outcome, RunOutcome::Completed);
+    // Every question held; what the plan itself records as skipped is all that
+    // is left unchecked, and no removal is passed over because of it.
+    assert_eq!(
+        ran.outcome,
+        RunOutcome::CompletedWithUnchecked {
+            unchecked: recorded_skip(),
+            source_kept: false,
+        }
+    );
 
     let refused = passed.clone().map_plan(|p| p.dry_run_only = false);
     let built = std::cell::Cell::new(false);
@@ -611,7 +679,7 @@ fn the_guard_holds_behind_the_real_read_site_too() {
 /// The product's read sites over `runner`, with a configuration re-read that
 /// finds nothing (`clean`). Not `run` itself: under a replay the product's
 /// re-read cannot know the configuration, so `run` halts every certifying read
-/// before it is made (SE-107 C1, `plan.v1.md` obligation 6) — pinned on its own
+/// before it is made (SE-107 C1, `plan.v2.md` obligation 6) — pinned on its own
 /// by `a_replayed_certifying_read_halts_before_it_is_made`.
 fn run_real(planned: &PlannedRun, runner: &ReplayRunner) -> RunReport {
     let ctx = context(runner);
@@ -721,7 +789,9 @@ fn invariant_17_the_loop_treats_both_directions_identically() {
         shapes[0].1,
         RunOutcome::PartialSuccess {
             step: 1,
-            reason: HaltReason::NotPerformedInThisBuild
+            reason: HaltReason::NotPerformedInThisBuild,
+            // `run_real` observes nothing (a replay), so nothing holds.
+            unchecked: nothing_observed(),
         }
     );
 
@@ -734,7 +804,13 @@ fn invariant_17_the_loop_treats_both_directions_identically() {
         dual.push((shape(&report), report.outcome.clone(), spy.calls().len()));
     }
     assert_eq!(dual[0], dual[1]);
-    assert_eq!(dual[0].1, RunOutcome::Completed);
+    assert_eq!(
+        dual[0].1,
+        RunOutcome::CompletedWithUnchecked {
+            unchecked: recorded_skip(),
+            source_kept: false,
+        }
+    );
 }
 
 /// Every word of every source file under `path`, lower-cased.
@@ -998,14 +1074,23 @@ fn a_run_that_skipped_its_snapshot_is_never_completed() {
         report.outcome,
         RunOutcome::PartialSuccess {
             step: 1,
-            reason: HaltReason::NotPerformedInThisBuild
+            reason: HaltReason::NotPerformedInThisBuild,
+            unchecked: recorded_skip(),
         }
     );
     assert_eq!(report.exit_code(), 3);
-    // The same reads with no bracket to skip complete.
+    // The same reads with no bracket to skip complete, but not in full: the
+    // plan's recorded skip is partial success too (work order 16 part H), so
+    // a run through this gate in this build never exits 0.
     let bare = install(HB, false);
     let spy = Spy::new(honest(bare.plan()));
-    assert_eq!(spied(&bare, &spy, &HomeRedaction::Recorded).exit_code(), 0);
+    let bare_report = spied(&bare, &spy, &HomeRedaction::Recorded);
+    assert_ne!(bare_report.outcome, RunOutcome::Completed);
+    assert!(matches!(
+        bare_report.outcome,
+        RunOutcome::CompletedWithUnchecked { .. }
+    ));
+    assert_eq!(bare_report.exit_code(), 3);
 }
 
 #[test]
@@ -1041,7 +1126,8 @@ fn invariant_03_partial_success_is_its_own_outcome_and_exit_code() {
             reason: HaltReason::VerificationFailed {
                 command: 0,
                 cause: FailureCause::NamePresent
-            }
+            },
+            unchecked: recorded_skip(),
         }
     );
     assert_eq!(report.exit_code(), 3);
@@ -1095,16 +1181,19 @@ fn a_gate_refusal_is_rendered_with_the_home_redacted() {
     // a control and a format character, carried into a refusal the gate
     // names (L1).
     let run = install(HB, false).map_plan(|p| {
+        // On the removal's check, where a liveness probe is not evaluable: since
+        // work order 16 part H it is evaluable (and its contract judged) on
+        // the destination's verify step.
         let verify = p
             .steps
             .iter()
-            .position(|s| s.kind == StepKind::VerifyDestination)
-            .expect("a destination check");
+            .position(|s| s.kind == StepKind::VerifyRemoval)
+            .expect("a removal check");
         p.steps[verify]
             .verification
             .push(macportsbrew_domain::VerificationCheck::LivenessProbe {
                 executable: "/Users/ada/bin/x\u{1b}[2J\u{202E}".into(),
-                flag: "--version".into(),
+                argv: vec!["--version".into()],
             });
     });
     let home = HomeRedaction::Known(PathBuf::from("/Users/ada"));
@@ -1697,17 +1786,27 @@ fn a_certifying_read_follows_a_configuration_recheck() {
     }
 }
 
-/// Detection, widened by work order 16 part S (§8): every check the planner
-/// writes on a `VERIFY_DESTINATION`, in each direction, must be evaluable in
-/// this build before the switch goes on — a removal is otherwise guarded by
-/// fewer checks than 04's contract (INV-01; slice 4 review, spec 2). The
-/// failure names the checks that are not. Held whatever the switch is: the
-/// two checks this build does evaluate there stay evaluable.
+/// Detection, widened by work order 16 part S (§8) and re-aimed by part H: the
+/// four checks of DP-051 (a) are *evaluable* on a `VERIFY_DESTINATION` since
+/// part H (their answers are judged there), which says nothing about whether
+/// anything *observes* them. A removal is otherwise guarded by fewer checks
+/// than 04's contract, so the switch stays off until every check the planner
+/// writes on a `VERIFY_DESTINATION`, in each direction, is observed by this
+/// build (INV-01; slice 4 review, spec 2). The failure names the checks that
+/// are not. Held whatever the switch is: exactly DP-051's four are not observed.
+///
+/// The planner's plan is over synthesised snapshots that record no executable
+/// list, so it writes a nameless recorded skip and no `LIVENESS_PROBE` or
+/// named skip; a probe is written here directly so all four are counted.
 #[test]
-fn the_switch_needs_the_destination_contract_evaluable() {
+fn the_switch_needs_the_destination_contract_observed() {
+    use macportsbrew_application::{is_site_answered, observed_by_this_build};
     use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
-    use macportsbrew_domain::VerificationCheck;
-    let mut not_evaluable = BTreeSet::new();
+    use macportsbrew_domain::{ProbeSkipCause, VerificationCheck};
+    let kind_of = |check: &VerificationCheck| {
+        format!("{:?}", macportsbrew_application::CheckKind::from(check))
+    };
+    let mut not_observed = BTreeSet::new();
     let mut directions = BTreeSet::new();
     for source in [HB, MP] {
         // The planner's own plan, not narrowed to what this build evaluates.
@@ -1724,20 +1823,32 @@ fn the_switch_needs_the_destination_contract_evaluable() {
         for step in steps {
             assert!(!step.verification.is_empty(), "{source}");
             for check in &step.verification {
-                if !evaluable_in_this_build(step.kind, check) {
-                    not_evaluable.insert(format!(
-                        "{:?}",
-                        macportsbrew_application::CheckKind::from(check)
-                    ));
+                assert!(
+                    evaluable_in_this_build(step.kind, check),
+                    "{source}: {check:?} is judged on a VERIFY_DESTINATION"
+                );
+                if !observed_by_this_build(check) {
+                    not_observed.insert(kind_of(check));
                 }
             }
         }
     }
     assert_eq!(directions.len(), 2, "a plan each way");
+    // The check no fixture here writes: a probe for a listed executable.
+    let probe = VerificationCheck::LivenessProbe {
+        executable: "gnu-sed".into(),
+        argv: vec!["--version".into()],
+    };
+    not_observed.extend(
+        [&probe]
+            .into_iter()
+            .filter(|c| !observed_by_this_build(c))
+            .map(kind_of),
+    );
     assert!(
-        !THIS_BUILD_DISPATCHES_MUTATIONS || not_evaluable.is_empty(),
-        "mutations dispatch and a VERIFY_DESTINATION guarding a removal cannot evaluate the \
-         destination contract (04, Verification contract; SE-094): {not_evaluable:?}"
+        !THIS_BUILD_DISPATCHES_MUTATIONS || not_observed.is_empty(),
+        "mutations dispatch and a VERIFY_DESTINATION guarding a removal carries checks nothing in \
+         this build observes (04, Verification contract; SE-094): {not_observed:?}"
     );
     for held in [
         VerificationCheck::PackageNewlyPresent,
@@ -1747,9 +1858,17 @@ fn the_switch_needs_the_destination_contract_evaluable() {
             evaluable_in_this_build(StepKind::VerifyDestination, &held),
             "{held:?} is evaluated on a VERIFY_DESTINATION"
         );
+        assert!(observed_by_this_build(&held), "{held:?} is read");
     }
-    // What the failure names after S-2: exactly DP-051's four checks of 04's
-    // contract, which part H makes evaluable.
+    // A recorded skip observes nothing and needs no observer.
+    let skip = VerificationCheck::LivenessProbeSkipped {
+        executable: None,
+        cause: ProbeSkipCause::NoExecutableToProbe,
+    };
+    assert!(evaluable_in_this_build(StepKind::VerifyDestination, &skip));
+    assert!(observed_by_this_build(&skip));
+    // Exactly DP-051's four checks of 04's contract are not observed, and each
+    // is answered through the destination site.
     let dp_051: BTreeSet<String> = [
         "ProviderIntegrityCheck",
         "ExecutablesOwnedByDestination",
@@ -1759,13 +1878,24 @@ fn the_switch_needs_the_destination_contract_evaluable() {
     .into_iter()
     .map(String::from)
     .collect();
-    // Since F-3 the probes are one per executable of the source's list, and
-    // this fixture records none, so no `LIVENESS_PROBE` is written here; the
-    // other three always are.
-    let mut written = dp_051.clone();
-    written.remove("LivenessProbe");
-    assert_eq!(not_evaluable, written);
-    assert!(not_evaluable.is_subset(&dp_051));
+    let four = [
+        VerificationCheck::ProviderIntegrityCheck,
+        VerificationCheck::ExecutablesOwnedByDestination {
+            executables: vec!["gnu-sed".into()],
+        },
+        VerificationCheck::NoCrossProviderLinkage,
+        probe,
+    ];
+    for check in &four {
+        assert!(!observed_by_this_build(check), "{check:?}");
+        assert!(is_site_answered(StepKind::VerifyDestination, check));
+        assert!(evaluable_in_this_build(StepKind::VerifyDestination, check));
+    }
+    assert_eq!(four.iter().map(kind_of).collect::<BTreeSet<_>>(), dp_051);
+    // What the planner's plan lacks an observer for is DP-051's, and only it:
+    // three of the four here (this fixture records no executable list).
+    assert!(not_observed.is_subset(&dp_051));
+    assert_eq!(not_observed, dp_051);
 }
 
 #[test]

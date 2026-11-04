@@ -10,7 +10,7 @@
 //! a replayed recording or a snapshot file, which carry nothing about this
 //! host's processes (INV-15) — says [`ConcurrentProviderActivity::Unknowable`].
 //! Only a check that ran may answer `NoneObserved` or `Observed`
-//! (`plan.v1.md`, obligation 5; SE-015), and a check that ran but could not
+//! (`plan.v2.md`, obligation 5; SE-015), and a check that ran but could not
 //! answer for some provider says [`ConcurrentProviderActivity::NotDetermined`].
 //! The check is a [`ProviderLockProbe`]: a sample of the providers' own
 //! locks at one instant (R-17), never a claim that a provider is idle.

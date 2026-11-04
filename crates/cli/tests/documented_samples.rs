@@ -27,7 +27,7 @@
 //!
 //! F-50: the scan reached `README.md` and `wiki/*.md` and never `docs/schemas/`,
 //! which is the directory the executor pass is told to build against. Two of
-//! `plan.v1.md`'s samples were wrong when that was found — one carrying an
+//! `plan.v2.md`'s samples were wrong when that was found — one carrying an
 //! elevation F-24's observation had changed a fortnight earlier, and neither
 //! carrying `placeholder`, which the row above them calls always present. Both
 //! were fields an executor must read *before* running anything.
@@ -45,7 +45,7 @@
 //!   get subtly wrong.
 //! - `exit=<n>` — the invocation must exit exactly `n`. The default is `0`,
 //!   which is stricter than the `status.success()` this used to assert, and it
-//!   is what lets a document show a refusal honestly: `plan.v1.md`'s whole-plan
+//!   is what lets a document show a refusal honestly: `plan.v2.md`'s whole-plan
 //!   sample exits 4 because every step is `MANUAL_REVIEW`, and under the old
 //!   assertion it could not have been checked at all.
 //!
@@ -61,7 +61,7 @@
 //! roster of fourteen. No marker form makes an abridged block byte-equal to an
 //! output. Closing them means either regenerating them at full fidelity from a
 //! small recording or adding a key-structure-only comparison, and that is its
-//! own change. What is covered is every block in `plan.v1.md` and
+//! own change. What is covered is every block in `plan.v2.md` and
 //! `doctor.v1.md` — the executor's document, which is where F-50's defects were.
 
 use std::path::{Path, PathBuf};
@@ -161,7 +161,7 @@ fn check_argv(args: &[String], path: &Path, line: usize) {
 /// Eleven today: two prose `status` blocks (`README.md`,
 /// `wiki/Getting-Started.md`), one prose `plan` block
 /// (`wiki/Homebrew-to-MacPorts-Migration.md`) and eight JSON blocks under
-/// `docs/schemas/` (three of them `migrate.v1.md`'s). The number is the current count
+/// `docs/schemas/` (three of them `migrate.v2.md`'s). The number is the current count
 /// and is meant to be raised when a sample is added — left at 2 while four new
 /// ones existed, a whole directory could drop out of scope silently, which is
 /// the failure this constant exists for and not a different one.

@@ -49,16 +49,21 @@ pub use doctor::{
     doctor, interrupted_run_finding, DoctorFinding, DoctorReport, RunFacts, Severity,
     StrandedRecord,
 };
+#[cfg(any(test, feature = "test-support"))]
+pub use execution_gate::TEST_PROBE_EXECUTABLE;
 pub use execution_gate::{
-    clear, evaluable_in_this_build, execution_refusals, execution_refusals_for, mutation_allowance,
+    clear, destination_contract_complete, evaluable_in_this_build, execution_refusals,
+    execution_refusals_for, is_site_answered, mutation_allowance, observed_by_this_build,
     ExecutionRefusal, GateClear, GateReport, MutationAllowance,
 };
 pub use executor::{
     certify_destination, destination_still_verified, judge_mutation, judge_resolution, judge_step,
-    next_action, next_action_with, outcome_of, plan_still_holds, provider_lock_activity,
-    provider_locks_clear, refused, reverify_for, Action, CheckKind, Disposition, HaltReason,
-    MutationResult, ObservedWinner, PlannedRun, Precondition, ProviderLockRefusal, Reverify,
-    RunOutcome, StateFact, StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+    next_action, next_action_with, next_destination_question, outcome_of, plan_still_holds,
+    provider_lock_activity, provider_locks_clear, reads_let_the_site_be_asked, refused,
+    reverify_for, reverify_questions, Action, CheckKind, DestinationAnswer, Disposition,
+    HaltReason, MutationResult, ObservedWinner, PlannedRun, Precondition, ProviderLockRefusal,
+    Question, Reverify, RunOutcome, StateFact, StepRead, StepRecord, Unevaluable,
+    PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{

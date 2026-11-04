@@ -196,7 +196,7 @@ fn the_stored_record_carries_its_schema_version_first() {
     let json =
         serde_json::to_string(&record(completed_steps(), RunEnding::Completed, None).stored())
             .unwrap();
-    assert!(json.starts_with(r#"{"schemaVersion":3,"id":""#), "{json}");
+    assert!(json.starts_with(r#"{"schemaVersion":4,"id":""#), "{json}");
 }
 
 #[test]
@@ -285,10 +285,10 @@ fn a_record_of_another_schema_version_or_with_unknown_fields_is_unusable() {
     };
     for (what, outcome) in [
         ("schema 1", tamper(&|v| v["schemaVersion"] = 1.into())),
-        ("schema 4", tamper(&|v| v["schemaVersion"] = 4.into())),
-        // `history.v3` (F-3): the list is required in 3 and absent in 2.
+        ("schema 5", tamper(&|v| v["schemaVersion"] = 5.into())),
+        // `history.v3` (F-3): the list is required in 3 and 4, and absent in 2.
         (
-            "schema 3 without its primary executables",
+            "schema 4 without its primary executables",
             tamper(&|v| {
                 v.as_object_mut().unwrap().remove("primaryExecutables");
             }),
@@ -1008,4 +1008,344 @@ fn a_primary_after_naming_the_destination_without_a_resolution_is_unusable() {
     // ...but not with a list it never resolved.
     none["primaryExecutables"] = serde_json::json!(["a"]);
     assert_eq!(read_back(none).map(|_| ()), Err(ErrorId::HistoryUnusable));
+}
+
+// --- `history.v4` (work order 16 part H-1) ------------------------------------
+
+fn unchecked_entry() -> macportsbrew_domain::UncheckedEntry {
+    macportsbrew_domain::UncheckedEntry {
+        check: macportsbrew_domain::DestinationCheck::ProviderIntegrityCheck,
+        executable: None,
+        cause: macportsbrew_domain::UncheckedCause::NotObserved,
+    }
+}
+
+fn unchecked_steps() -> Vec<RecordedStep> {
+    vec![
+        step(
+            1,
+            StepKind::SnapshotBefore,
+            StepResult::SnapshotTaken,
+            false,
+        ),
+        step(
+            2,
+            StepKind::VerifyDestination,
+            StepResult::VerifiedWithUnchecked {
+                evidence: Vec::new(),
+                unchecked: vec![unchecked_entry()],
+            },
+            false,
+        ),
+        step(
+            3,
+            StepKind::RemoveSource,
+            StepResult::SourceKeptUnchecked,
+            false,
+        ),
+        step(
+            4,
+            StepKind::VerifyRemoval,
+            StepResult::SourceKeptUnchecked,
+            false,
+        ),
+        step(
+            5,
+            StepKind::RecordHistory,
+            StepResult::RecordPendingReadBack,
+            false,
+        ),
+    ]
+}
+
+fn unchecked_record() -> RunRecord {
+    record(
+        unchecked_steps(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        Some("snapshot-1.json"),
+    )
+}
+
+/// The steps with an install before the verification: a mutation was dispatched,
+/// so the status says something.
+fn unchecked_steps_after_an_install() -> Vec<RecordedStep> {
+    let mut steps = unchecked_steps();
+    steps.insert(
+        1,
+        step(
+            2,
+            StepKind::AddDestination,
+            StepResult::Performed {
+                ends: vec![CommandEnd::Exited { code: 0 }],
+            },
+            true,
+        ),
+    );
+    steps
+}
+
+#[test]
+fn invariant_03_a_run_with_something_unchecked_is_partial_or_no_change_never_success() {
+    let written = unchecked_record();
+    assert_eq!(written.status(), macportsbrew_domain::RunStatus::NoChange);
+    assert_eq!(read_back(stored_json(&written)).expect("reads"), written);
+    let installed = record(
+        unchecked_steps_after_an_install(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        None,
+    );
+    assert_eq!(installed.status(), macportsbrew_domain::RunStatus::Partial);
+    assert_eq!(
+        read_back(stored_json(&installed)).expect("reads"),
+        installed
+    );
+    // A writer bug: the ending says completed. Never success.
+    let claimed = record(
+        unchecked_steps_after_an_install(),
+        RunEnding::Completed,
+        None,
+    );
+    assert_eq!(claimed.status(), macportsbrew_domain::RunStatus::Partial);
+    // The same with nothing kept, so only the unchecked step can say so.
+    let mut retained = unchecked_steps_after_an_install();
+    retained.retain(|s| !matches!(s.result(), StepResult::SourceKeptUnchecked));
+    let claimed = record(retained, RunEnding::Completed, None);
+    assert_eq!(claimed.status(), macportsbrew_domain::RunStatus::Partial);
+}
+
+#[test]
+fn invariant_01_a_record_cannot_state_a_removal_after_something_unchecked() {
+    let removal_done = StepResult::Performed {
+        ends: vec![CommandEnd::Exited { code: 0 }],
+    };
+    let cases = [
+        // A hand-edited completion over something unchecked.
+        (unchecked_steps_after_an_install(), RunEnding::Completed),
+        // A removal performed, ending either way.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(3, StepKind::RemoveSource, removal_done.clone(), true);
+                steps.remove(3);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: false },
+        ),
+        // Removed and kept at once.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(3, StepKind::RemoveSource, removal_done, true);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+        // Kept, and a second removal ran.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps.insert(
+                    3,
+                    step(
+                        4,
+                        StepKind::RemoveSource,
+                        StepResult::Performed {
+                            ends: vec![CommandEnd::Exited { code: 0 }],
+                        },
+                        true,
+                    ),
+                );
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+        // Handed over, and no end: a refusal or a transport failure may have run.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(
+                    3,
+                    StepKind::RemoveSource,
+                    StepResult::Halted {
+                        error: ErrorId::SafetyBlocked,
+                        evidence: Vec::new(),
+                        ends: Vec::new(),
+                    },
+                    true,
+                );
+                steps.truncate(3);
+                steps
+            },
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        // A removal check that ran with no removal behind it.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(4, StepKind::VerifyRemoval, verified(), false);
+                steps.remove(3);
+                steps
+            },
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        // Whole steps, and an ending that does not say so.
+        (
+            unchecked_steps(),
+            RunEnding::PartialSuccess {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        (
+            unchecked_steps(),
+            RunEnding::Halted {
+                step: 3,
+                error: ErrorId::SafetyBlocked,
+            },
+        ),
+        // Kept, and its check says it was verified as gone.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[3] = step(4, StepKind::VerifyRemoval, verified(), false);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+    ];
+    for (i, (steps, ending)) in cases.into_iter().enumerate() {
+        let value = stored_json(&record(steps, ending, None));
+        assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable), "case {i}");
+    }
+    // The control: untampered, it reads, so the refusals above are about the edit.
+    assert!(read_back(stored_json(&unchecked_record())).is_ok());
+}
+
+#[test]
+fn a_v3_record_stating_what_v4_added_is_refused() {
+    let mut value = stored_json(&unchecked_record());
+    value["schemaVersion"] = serde_json::json!(3);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn an_ending_its_steps_contradict_is_refused() {
+    // `sourceKept` against the steps.
+    let mut value = stored_json(&unchecked_record());
+    value["ending"]["sourceKept"] = serde_json::json!(false);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    // Nothing unchecked on any step.
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1]["result"] = serde_json::json!({ "result": "VERIFIED", "evidence": [] });
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn something_unchecked_on_another_step_or_an_empty_list_is_refused() {
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1]["kind"] = serde_json::json!("VERIFY_REMOVAL");
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][1]["result"]["unchecked"] = serde_json::json!([]);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    // A kept source with nothing unchecked before it.
+    let mut value = stored_json(&unchecked_record());
+    value["steps"][2]["kind"] = serde_json::json!("SNAPSHOT_BEFORE");
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn a_stored_empty_unchecked_list_is_refused_whatever_the_ending() {
+    // A partial run: something unchecked, then a step not reached, so that the
+    // list is the one thing wrong.
+    let mut steps = unchecked_steps();
+    steps.truncate(2);
+    steps.push(step(
+        3,
+        StepKind::RemoveSource,
+        StepResult::NotReached,
+        false,
+    ));
+    let good = record(
+        steps,
+        RunEnding::PartialSuccess {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
+    );
+    assert!(read_back(stored_json(&good)).is_ok(), "the control");
+    let mut value = stored_json(&good);
+    value["steps"][1]["result"]["unchecked"] = serde_json::json!([]);
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+/// Something unchecked, then a `tail` of steps, and a last step not reached, so
+/// the run is not whole and a rule about whole runs is not what answers.
+fn not_whole(tail: Vec<RecordedStep>, ending: RunEnding) -> Value {
+    let mut steps = unchecked_steps();
+    steps.truncate(2);
+    steps.extend(tail);
+    steps.push(step(
+        9,
+        StepKind::RecordHistory,
+        StepResult::NotReached,
+        false,
+    ));
+    stored_json(&record(steps, ending, None))
+}
+
+fn partial() -> RunEnding {
+    RunEnding::PartialSuccess {
+        step: 3,
+        error: ErrorId::SafetyBlocked,
+    }
+}
+
+#[test]
+fn each_rule_about_a_removal_answers_for_itself() {
+    assert!(
+        read_back(not_whole(Vec::new(), partial())).is_ok(),
+        "the control"
+    );
+    // Two removals, neither of which ran.
+    let two_kept = not_whole(
+        vec![
+            step(
+                3,
+                StepKind::RemoveSource,
+                StepResult::SourceKeptUnchecked,
+                false,
+            ),
+            step(
+                4,
+                StepKind::RemoveSource,
+                StepResult::SourceKeptUnchecked,
+                false,
+            ),
+        ],
+        partial(),
+    );
+    assert_eq!(read_back(two_kept), Err(ErrorId::HistoryUnusable));
+    // A removal check that ran, with no removal behind it.
+    let no_removal = not_whole(
+        vec![step(3, StepKind::VerifyRemoval, verified(), false)],
+        partial(),
+    );
+    assert_eq!(read_back(no_removal), Err(ErrorId::HistoryUnusable));
+    // A halted ending, which the loop never writes beside something carried out.
+    let halted = not_whole(
+        Vec::new(),
+        RunEnding::Halted {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
+    );
+    assert_eq!(read_back(halted), Err(ErrorId::HistoryUnusable));
 }

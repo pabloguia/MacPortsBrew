@@ -22,7 +22,7 @@ recommendation about any package; that is the policy engine's job, and it is in
 | `machine` | `Machine` | **`--report` only.** As in `snapshot.v1.md` |
 | `pathEntries` | integer | **`--report` only.** How many `PATH` entries were seen. The entries themselves are not emitted; only findings quote one, redacted |
 | `providers` | object | **`--report` only.** Keyed by provider id: `presence`, `version`, `prefix`, `packages` |
-| `concurrentProviderActivity` | object | Always written by `doctor --json`, last (not in the `--report` file): whether a provider's own lock was held right after the input was read, never a check this build did not make — the one shape every document writes it in ([`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity)). Added 2026-10-03; additive, so no version bump (SE-015) |
+| `concurrentProviderActivity` | object | Always written by `doctor --json`, last (not in the `--report` file): whether a provider's own lock was held right after the input was read, never a check this build did not make — the one shape every document writes it in ([`migrate.v2.md`](migrate.v2.md#concurrentprovideractivity)). Added 2026-10-03; additive, so no version bump (SE-015) |
 
 ## `DoctorFinding`
 

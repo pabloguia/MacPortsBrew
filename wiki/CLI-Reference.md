@@ -104,7 +104,7 @@ the other provider was not detected, it says so in the same answer: a provider
 installed somewhere detection does not look would read the same, so the answer
 is as far as detection can see, and `--json` lists the provider in
 `notDetected`. The `--json` contract is
-[`../docs/schemas/migrate.v1.md`](../docs/schemas/migrate.v1.md).
+[`../docs/schemas/migrate.v2.md`](../docs/schemas/migrate.v2.md).
 
 ### `macportsbrew doctor`
 
@@ -197,7 +197,7 @@ executed in this build.
   stops at manual review exits 4, as `plan` does.
 - Refused under `--from-snapshot` and a replay, and when run as root.
 
-`--json`: [`restore.v1.md`](../docs/schemas/restore.v1.md).
+`--json`: [`restore.v2.md`](../docs/schemas/restore.v2.md).
 
 ### `macportsbrew snapshot`
 

@@ -1,5 +1,7 @@
 # `plan` schema, version 1
 
+**Superseded on 2026-11-04 by [`plan.v2.md`](plan.v2.md)** (work order 16 part H-1). Kept as written for a document an earlier development build printed; no build writes this version any more, and nothing was released under it.
+
 Emitted by `macportsbrew plan <package> --to <provider> --json`. Derived from
 `MigrationPlan` in `crates/domain/src/plan.rs`. The compatibility rule is in
 [`README.md`](README.md).
@@ -560,7 +562,6 @@ internally tagged union, so the tag repeats the field name. Taken from
 longer plan it: since work order 16 part D a replayed source row that declares no
 service answers the service question `UNKNOWN` and is refused, DP-032):
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/2/commands/0 -->
 ```json
 {
   "target": {
@@ -595,12 +596,10 @@ capture records no executable list for `htop`, so the decision refuses the
 package as a whole (`EXECUTABLES_UNKNOWN`) and the plan carries no
 `VERIFY_RESOLUTION`. The two checked fields:
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/decision -->
 ```json
 "REFUSED"
 ```
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/3/primary/package -->
 ```json
 "EXECUTABLES_UNKNOWN"
 ```
@@ -622,7 +621,6 @@ check it satisfies are only meaningful together — this is what an executor
 inherits from item 3 above. Note `argv` carries **no package name**: the
 `htop` this plan removes appears nowhere in it.
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/5 -->
 ```json
 {
   "index": 6,
@@ -859,7 +857,6 @@ capture describes: no port reaches a strong enough mapping, and other formulae
 depend on `curl`. Every step is `MANUAL_REVIEW`, so the plan is entirely
 non-mutating and the command exits 4:
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan curl --to macports exit=4 -->
 ```json
 {
   "schemaVersion": 1,

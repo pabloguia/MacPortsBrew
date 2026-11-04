@@ -43,7 +43,7 @@ pub enum AnalysisSource {
 impl AnalysisSource {
     /// What can be said about a provider running while the input was read,
     /// given what the lock probe sampled — and it never says more than was
-    /// checked (`plan.v1.md`, obligation 5; SE-015).
+    /// checked (`plan.v2.md`, obligation 5; SE-015).
     ///
     /// A live run says what the sample says. A snapshot file or a replayed
     /// recording says `Unknowable`, whatever is passed: neither carries this
