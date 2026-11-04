@@ -49,15 +49,37 @@ The original brief said "verify" without defining it. It is defined here.
 **MUST.** Destination verification succeeds only when all of these hold:
 
 1. The destination provider reports the package as installed and active.
-2. The provider reports the package's own integrity check as passing, where the
-   provider offers one.
-3. The expected executables exist at paths *owned by the destination provider's
-   prefix*, confirmed by asking the provider which package owns the file — not
-   by string-matching the path.
-4. A liveness probe runs each primary executable with a safe, non-mutating flag
-   (default `--version`; overridable per package in curated data; skippable with
-   a recorded reason for packages with no such flag) and it exits successfully.
-5. No new cross-provider linkage was introduced (see contamination check below).
+2. This tool's check of the provider's records against the disk, as defined per provider below: not a verdict by the provider and not content integrity (neither provider offers a read-only verb for one; R-25, read 2026-11-04). See "What check 2 may claim".
+3. The expected executables exist at paths *owned by the destination provider*,
+   by the provider's own rule for the placed entry `<prefix>/{bin,sbin}/<leaf>`,
+   not by string-matching the path: MacPorts' `port -q provides`, and for Homebrew
+   the rule Homebrew itself applies, since no Homebrew read answers which formula owns a path (R-26, 2026-11-04, Homebrew `874c46a`). The file it finally resolves to must be the same package's; a link whose real path leaves the keg (`npm`, `npx`, 2 of 1091) is `UNCHECKED`, an accepted cost.
+4. A liveness probe exits successfully for each primary executable, run only from
+   a curated row of a dated data file (`data/policy/liveness-probes.toml`, landing in
+   part H-2), at the version that row
+   observed. There is no default flag: `httpd --version` starts a server and exits 0 (Apache 2.4.68; R-28, 2026-11-04). An executable with no row is a recorded skip, which is `UNCHECKED`,
+   never a pass.
+5. No reference to another provider's prefix is present at verification, in the
+   package's own files or the destination files they load (see contamination check
+   below). "New" is not claimed: the snapshot holds no baseline (R-27).
+
+**MUST** (DP-051, work order 16 part H; design, not built: SE-113). **Each of checks
+2 to 5 answers `HOLDS`, `FAILS` or `UNCHECKED`.** "Could not tell" is `UNCHECKED`, and
+is never either of the others. `FAILS` stops the step, and the source is kept. An
+`UNCHECKED` does not stop it: it is reported per check and per executable, **the source
+is never removed**, and the run ends `COMPLETED_WITH_UNCHECKED`, never `COMPLETED`.
+Removal requires all four to answer `HOLDS`.
+
+**What check 2 may claim** (R-25; not built: SE-113). MacPorts: every file its registry records for the
+active image exists, and every recorded symlink resolves. Homebrew: the keg has a receipt and more than its metadata, every symlink in it resolves, and its recorded runtime dependencies are installed. **Absence of a file from a Homebrew
+keg is not detected**, because `brew list --formula` lists the keg at call time (Homebrew `874c46a`, read 2026-11-04); DP-057
+asks the owner to confirm this basis. Neither claim is content integrity, provenance,
+or that the package runs.
+
+**What check 4 does not prove** (R-28; not built: SE-113). It proves that this file, in this environment,
+with this flag, loaded and exited 0 once. Not that the program does its job, is the
+expected version, works under the user's configuration, or had no side effect: **a
+passing probe does not exclude a started server.**
 
 **What check 1 reads, per provider** (work order 16 part S; SE-107; R-20). The
 provider's own record of activation, from a read of its **whole** inventory that
@@ -82,7 +104,7 @@ activation read alone, in both directions (S-2;
 `provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
 recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
-Checks 2 to 5 are DP-051's and stay unevaluable until work order 16 part H.
+Checks 2 to 5 are DP-051's and stay unevaluable until work order 16 part H builds them.
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **Check 3's "expected
 executables" are the source package's executable list** — the executables the
@@ -106,8 +128,8 @@ is owned by the destination provider's destination package, and the owner
 answer is authoritative.** "Authoritative" is the provider's registry answer for
 MacPorts (`port -q provides`), and for Homebrew the rule Homebrew itself applies
 — the path's real location inside a keg of its Cellar — because no Homebrew read
-answers which formula owns a path (R-21, 2026-10-28, E-14); replacing that rule
-with an owner query is part H's. It is evaluated by the executor from a
+answers which formula owns a path (R-21, 2026-10-28, E-14; R-26, 2026-11-04, read
+it again and found none, so that rule stands). It is evaluated by the executor from a
 resolution of the name and the owning provider's answer — no new program and no
 new spawn site — and is unevaluable, never a pass, under `--replay` or
 `--from-snapshot` (INV-15). A removal is never ordered before it, and is
@@ -294,11 +316,13 @@ restored from a guess.
 |---|---|
 | Destination install fails | Source untouched. Report and stop. |
 | Destination verification fails | Source untouched. Report which check failed. |
+| A destination check could not be evaluated (not built: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
 | Activation fails | Restore previous resolution where safe. Source untouched. |
 | Source removal fails after a good destination | Destination usable. Report **partial success**. Leave recovery instructions. |
 | Cleanup fails | Never affects migration status. Report separately. |
 
 **MUST.** Partial success is its own exit code and its own history status.
+Not built: SE-113. `COMPLETED_WITH_UNCHECKED` is a kind of partial success: exit code 3, and in history `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, never `SUCCESS` (SE-113).
 
 ## Cleanup
 

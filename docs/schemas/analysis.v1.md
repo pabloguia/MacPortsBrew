@@ -179,7 +179,7 @@ requires. Every member is reported, not only the dominant one.
 | `path` | string, optional | What `PATH` resolves to |
 | `canonicalPath` | string, optional | After following symlinks |
 | `owner` | tagged union, tag `owner` | `SYSTEM`, `PROVIDER` (with the provider id and optionally the package), `MACPORTSBREW_SHIM`, `EXTERNAL`, `UNKNOWN` |
-| `authoritative` | boolean | False when ownership came from prefix matching rather than from asking the provider. Users relocate prefixes, so the fallback is marked as one |
+| `authoritative` | boolean | False when ownership came from prefix matching rather than from the provider's answer or, for Homebrew, the path's real location inside its Cellar or Caskroom, read after following the link. This is not yet Homebrew's `Keg.for` rule: part H's owner rule is not built (SE-113). Users relocate prefixes, so the fallback is marked as one |
 
 ### `PackageMapping`
 

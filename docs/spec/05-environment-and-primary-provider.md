@@ -22,7 +22,9 @@ the commands whose resolution would change, and a stronger confirmation.
 `SYSTEM` · `HOMEBREW` · `MACPORTS` · `MACPORTSBREW_SHIM` · `EXTERNAL` · `UNKNOWN`
 
 **MUST.** Determine ownership by asking the provider which package owns the
-resolved path, following symlinks first. Path prefix matching is a fallback
+resolved path, following symlinks first. No Homebrew read answers this, so for Homebrew
+the rule is the one Homebrew itself applies: the real location inside a keg of its
+Cellar (R-21; R-26, 2026-11-04; SE-113). Path prefix matching is a fallback
 heuristic and must be marked as such — users relocate prefixes.
 
 **MUST.** Never shadow a macOS system tool without saying so explicitly and
@@ -103,7 +105,7 @@ nothing outside the providers for it (DP-047 (b)). **Today** the planner decides
 the primary by the steps below and `SET_PRIMARY` carries that decision and no
 command; the execution gate still refuses every plan the planner builds before
 its first step, because `VERIFY_DESTINATION` carries four checks part H has not
-built (`CheckNotEvaluableInThisBuild`), and this build dispatches no mutation.
+yet built (`CheckNotEvaluableInThisBuild`; SE-113), and this build dispatches no mutation.
 No real plan reaches `SET_PRIMARY` in a run.
 
 **MUST.** The executables a primary concerns are the source package's own,

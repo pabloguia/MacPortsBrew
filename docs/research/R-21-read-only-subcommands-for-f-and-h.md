@@ -7,6 +7,8 @@
 
 Numbered R-21: R-19 and R-20 exist, and `docs/passes/08-slice-6-plan.md` line 27 names R-21 as the next free identifier.
 
+**Corrected by later notes (2026-11-04):** finding 9 by R-25 (Homebrew's list is generated at read time, so it is no record); finding 11 by R-26; finding 14 and the `otool` row by R-27.
+
 ## Question
 
 For **both** providers (INV-17), what is the minimal set of exact argument

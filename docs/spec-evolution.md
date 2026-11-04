@@ -1801,6 +1801,25 @@ change is made. Silent deviation remains the one unrecoverable error.
 - Compatibility impact: `migrate.v1` additive (an open set gains a value; `planDigest` at the root). A digest is
   valid only for builds with the same version string and plan serialisation; across versions it fails closed.
 
+## SE-113 — Work order 16 part H: a destination check answers holds, fails or unchecked
+- Status: experimental: specification and plan landed in H-0, not built. `docs/passes/16-plans/H.md` is the design and `docs/passes/16-liveness-design.md` the probe's. DP-051 (a) is the ruling; DP-056 and DP-057 hold what the owner may overrule.
+- Date / Pass: 2026-11-04, work order 16 part H-0.
+- Original assumption: Spec 04's contract: a provider offers an integrity check; asking the provider confirms ownership; `--version` is a safe default probe; "new" cross-provider linkage can be told apart. A check passes or halts.
+- Change:
+  - **Three answers.** Checks 2 to 5 answer `HOLDS`, `FAILS` or `UNCHECKED`. Removal needs all four to hold, and a run with any unchecked ends `COMPLETED_WITH_UNCHECKED`.
+  - **Check 2, "where the provider offers one", read as a silent pass.** The check is now ours and says what it claims. **Absence of a file from a Homebrew keg is not detected.**
+  - **Check 3 and 05's MUST, "asking the provider".** True of MacPorts only. The rule is Homebrew's own, as `VERIFY_RESOLUTION` already says, and the promise that part H would replace it with an owner query is withdrawn.
+  - **Check 4, "default `--version`".** Removed. Rows are observed only and run at the observed version. "Only the exit status counts" is **tightened**: exit 0 with a pipe held is unchecked. The timeout is unchecked rather than failed. **"The resolved executable" reads as the canonical path run with `arg0` set to the placed leaf.**
+  - **Check 5, "no new linkage".** It is "no reference present at verification", and a pre-existing one still stops the step, with its own cause.
+  - **DP-051's "a check that cannot be evaluated" gets one declared reading:** a package with no loadable file, and no `env` script on its executable list, holds the linkage check with its basis stated; one with an `env` script stays unchecked. R-27 counts 14 packages with no Mach-O and up to 34 with `env` files; the populations can overlap. DP-057.
+  - **The linkage reader is hand-written, not `otool`.** DP-056.
+  - **Rejected:** an `otool` allowlist entry; `brew verify`, which fetches and needs the network; cited probe rows, because a citation shows none of what qualifies a row; a field on `Verified` for what was unchecked, because every `Verified { .. }` match would fail open and remove the source.
+- Rationale: Each original assumption was checked and failed. Holding Homebrew's check unchecked for ever would make MacPorts-to-Homebrew never remove, an INV-17 defect in effect, so it passes on a stated weaker basis. The hand-written reader is within the part's authority (no dependency, no `unsafe`, no spawn, no allowlist growth), and `otool` exits 0 on a non-object file and shows one slice with `-L`; in one test with a deliberately bogus `SDKROOT` (attributed by timing and stderr, not proof, and not reachable under the sanitised environment unless `extra` carries it), an install dialog and a spawned `sh` and `xcodebuild`, with `xcode-select -p` succeeding.
+- Evidence: `docs/research/R-25-provider-integrity-check.md`, `R-26-executables-owned-by-destination.md`, `R-27-no-cross-provider-linkage.md`, `R-28-liveness-probes.md`, all read 2026-11-04; `httpd --version` started a server and exited 0 (R-28, E-4).
+- User impact: Once built, nearly every default run exits 3 until the table grows, and removal happens only where all four hold. That follows from the ruling.
+- Architectural impact: A new `DestinationProbe` trait, apart from `ProviderRead`; one judge per check over facts; a new disposition; the first program this tool starts that no literal names, admitted by a curated table at the one spawn site, staged for the owner (`docs/passes/16-staged/H/`).
+- Compatibility impact: `plan.v2` (`flag` to `argv`, a skip shape), `migrate.v2` and `restore.v2` (a new outcome and disposition; `restore` embeds the plan), `history.v4` (a new ending). No release has shipped these.
+
 ## SE-112 — Pass 08 slice 8: the first release performs layer 1 in the run, and the executable list comes from provider metadata
 - Status: accepted for the decision rule, the plan shape, the gate, the executor's resolution and `history.v3`, as
   built in work order 16 part F-3 (`wo16/F-3-primary`; F-2a and F-2b merged) and reviewed in its fix round

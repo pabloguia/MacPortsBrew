@@ -523,6 +523,13 @@ is recorded and not acted on without the owner.
 
 ---
 
+### R-25 to R-28 · The four destination checks of work order 16 part H
+*Answered 2026-11-04, each partially, with its open states listed in the note:*
+[R-25](../research/R-25-provider-integrity-check.md) (`PROVIDER_INTEGRITY_CHECK`),
+[R-26](../research/R-26-executables-owned-by-destination.md) (`EXECUTABLES_OWNED_BY_DESTINATION`),
+[R-27](../research/R-27-no-cross-provider-linkage.md) (`NO_CROSS_PROVIDER_LINKAGE`),
+[R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
+
 ## Non-blocking research
 
 - Homebrew and MacPorts release cadence and how often their output formats change.
